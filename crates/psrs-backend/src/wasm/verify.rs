@@ -1,4 +1,4 @@
-use super::{Body, Module, Op};
+use super::{Body, ExportKind, Module, Op};
 use crate::BackendError;
 use psrs_span::TextRange;
 use wasm_encoder::Instruction;
@@ -6,12 +6,27 @@ use wasm_encoder::Instruction;
 /// Checks the structural invariants of the thin Wasm IR before encoding.
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
-    let function_count = module.functions.len() as u32;
-    for export in &module.exports {
-        if export.function >= function_count {
+    let function_count = (module.imports.len()
+        + module.functions.len()
+        + module.runtime_functions.len()
+        + usize::from(module.entry.is_some())) as u32;
+    for import in &module.imports {
+        if import.type_index as usize >= module.types.len() {
             errors.push(wasm_error(
                 module.span,
-                "Wasm export references an unknown function index",
+                "Wasm import type index is out of range",
+            ));
+        }
+    }
+    for export in &module.exports {
+        let in_range = match export.kind {
+            ExportKind::Function => export.index < function_count,
+            ExportKind::Memory => (export.index as usize) < module.memories.len(),
+        };
+        if !in_range {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm export references an unknown index",
             ));
         }
     }
@@ -30,6 +45,31 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             function.span,
             &mut errors,
         );
+    }
+    for function in &module.runtime_functions {
+        if function.type_index as usize >= module.types.len() {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm runtime function type index is out of range",
+            ));
+        }
+        let local_count = (function.parameters.len() + function.locals.len()) as u32;
+        verify_body(
+            &function.body,
+            local_count,
+            function_count,
+            module.span,
+            &mut errors,
+        );
+    }
+    if let Some(entry) = &module.entry {
+        if entry.type_index as usize >= module.types.len() {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm entry type index is out of range",
+            ));
+        }
+        verify_body(&entry.body, 0, function_count, module.span, &mut errors);
     }
     if errors.is_empty() {
         Ok(())

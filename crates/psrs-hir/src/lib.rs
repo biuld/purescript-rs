@@ -44,11 +44,40 @@ impl Intrinsic {
     }
 }
 
+/// A value provided by the compiler runtime ABI rather than by the source
+/// program. Unlike an [`Intrinsic`], a runtime function is effectful and is
+/// implemented by the backend over a host interface such as WASI. The
+/// PureScript-facing libraries (`WASI.Console`) are expected to wrap these
+/// entries; the bootstrap exposes them directly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum RuntimeFunction {
+    /// Writes a `String` to standard output.
+    ConsoleLog,
+}
+
+impl RuntimeFunction {
+    /// Runtime symbol indices start above the intrinsic range so the two never
+    /// collide inside the reserved intrinsic module.
+    const SYMBOL_BASE: u32 = 1 << 16;
+
+    pub const fn symbol(self) -> SymbolId {
+        SymbolId::new(ModuleId::INTRINSICS, Self::SYMBOL_BASE + self as u32)
+    }
+}
+
+/// The kind of a known external value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExternalKind {
+    Intrinsic(Intrinsic),
+    Runtime(RuntimeFunction),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalSymbol {
     pub symbol: SymbolId,
     pub name: String,
-    pub intrinsic: Intrinsic,
+    pub kind: ExternalKind,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

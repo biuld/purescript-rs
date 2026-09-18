@@ -1,4 +1,6 @@
-use psrs_hir::{self as hir, Intrinsic, LocalBinder, LocalId, SymbolId};
+use psrs_hir::{
+    self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, RuntimeFunction, SymbolId,
+};
 use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};
 use std::collections::HashMap;
@@ -121,6 +123,8 @@ enum InferType {
     Variable(u32),
     I32,
     Boolean,
+    String,
+    Unit,
     Function(Box<InferType>, Box<InferType>),
 }
 
@@ -160,6 +164,7 @@ enum InferredExprKind {
     Global(SymbolId),
     Integer(i32),
     Boolean(bool),
+    String(String),
     Application(Box<InferredExpr>, Box<InferredExpr>),
     Lambda {
         binder: InferredBinder,
@@ -178,7 +183,7 @@ enum InferredExprKind {
 
 struct Checker {
     globals: HashMap<SymbolId, InferType>,
-    external_intrinsics: HashMap<SymbolId, Intrinsic>,
+    external_kinds: HashMap<SymbolId, ExternalKind>,
     locals: HashMap<LocalId, InferType>,
     substitutions: HashMap<u32, InferType>,
     next_variable: u32,
@@ -208,7 +213,7 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         InferType::Function(parameter, result) => {
             occurs(variable, parameter) || occurs(variable, result)
         }
-        InferType::I32 | InferType::Boolean => false,
+        InferType::I32 | InferType::Boolean | InferType::String | InferType::Unit => false,
     }
 }
 
@@ -218,6 +223,8 @@ impl std::fmt::Display for InferType {
             Self::Variable(variable) => write!(f, "_T{variable}"),
             Self::I32 => f.write_str("Int"),
             Self::Boolean => f.write_str("Boolean"),
+            Self::String => f.write_str("String"),
+            Self::Unit => f.write_str("Unit"),
             Self::Function(parameter, result) => write!(f, "({parameter} -> {result})"),
         }
     }

@@ -8,6 +8,8 @@ pub struct TypeId(pub u32);
 pub enum Type {
     I32,
     Boolean,
+    String,
+    Unit,
     Function { parameter: TypeId, result: TypeId },
 }
 
@@ -59,6 +61,7 @@ pub enum ExprKind {
     Global(SymbolId),
     Integer(i32),
     Boolean(bool),
+    String(String),
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -110,7 +113,11 @@ impl Module {
 fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyError>) {
     verify_type_id(expression.ty, type_count, expression.span, errors);
     match &expression.kind {
-        ExprKind::Local(_) | ExprKind::Global(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) => {}
+        ExprKind::Local(_)
+        | ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_) => {}
         ExprKind::Application(function, argument) => {
             verify_expr(function, type_count, errors);
             verify_expr(argument, type_count, errors);

@@ -1,7 +1,7 @@
 use crate::{
     Binder, Binding, Declaration, Expr, ExprKind, LowerError, Module, Primitive, Type, TypeId,
 };
-use psrs_hir::{Intrinsic, SymbolId};
+use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
@@ -15,10 +15,10 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
             })
             .collect());
     }
-    let intrinsics = module
+    let externals = module
         .externals
         .iter()
-        .map(|external| (external.symbol, external.intrinsic))
+        .map(|external| (external.symbol, external.kind))
         .collect::<HashMap<_, _>>();
     let lowered = Module {
         id: module.id,
@@ -30,6 +30,8 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
             .map(|ty| match ty {
                 psrs_thir::Type::I32 => Type::I32,
                 psrs_thir::Type::Boolean => Type::Boolean,
+                psrs_thir::Type::String => Type::String,
+                psrs_thir::Type::Unit => Type::Unit,
                 psrs_thir::Type::Function { parameter, result } => Type::Function {
                     parameter: TypeId(parameter.0),
                     result: TypeId(result.0),
@@ -44,7 +46,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
                 name: declaration.name,
                 name_span: declaration.name_span,
                 ty: TypeId(declaration.ty.0),
-                value: lower_expr(declaration.value, &intrinsics),
+                value: lower_expr(declaration.value, &externals),
                 span: declaration.span,
             })
             .collect(),
@@ -59,7 +61,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
     Ok(lowered)
 }
 
-fn lower_expr(expression: TypedExpr, intrinsics: &HashMap<SymbolId, Intrinsic>) -> Expr {
+fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>) -> Expr {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     let kind = match expression.kind {
@@ -67,15 +69,16 @@ fn lower_expr(expression: TypedExpr, intrinsics: &HashMap<SymbolId, Intrinsic>) 
         TypedExprKind::Global(id) => ExprKind::Global(id),
         TypedExprKind::Integer(value) => ExprKind::Integer(value),
         TypedExprKind::Boolean(value) => ExprKind::Boolean(value),
+        TypedExprKind::String(value) => ExprKind::String(value),
         TypedExprKind::Application(function, argument) => {
-            let function = lower_expr(*function, intrinsics);
-            let argument = lower_expr(*argument, intrinsics);
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), intrinsics)
+            let function = lower_expr(*function, externals);
+            let argument = lower_expr(*argument, externals);
+            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
-                && let Some(op) = intrinsics
-                    .get(&symbol)
-                    .copied()
-                    .and_then(Primitive::from_intrinsic)
+                && let Some(op) = externals.get(&symbol).copied().and_then(|kind| match kind {
+                    ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
+                    ExternalKind::Runtime(_) => None,
+                })
             {
                 return Expr {
                     kind: ExprKind::Primitive {
@@ -96,7 +99,7 @@ fn lower_expr(expression: TypedExpr, intrinsics: &HashMap<SymbolId, Intrinsic>) 
                 ty: TypeId(binder.ty.0),
                 span: binder.span,
             },
-            body: Box::new(lower_expr(*body, intrinsics)),
+            body: Box::new(lower_expr(*body, externals)),
         },
         TypedExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
@@ -108,20 +111,20 @@ fn lower_expr(expression: TypedExpr, intrinsics: &HashMap<SymbolId, Intrinsic>) 
                         ty: TypeId(binding.binder.ty.0),
                         span: binding.binder.span,
                     },
-                    value: lower_expr(binding.value, intrinsics),
+                    value: lower_expr(binding.value, externals),
                     span: binding.span,
                 })
                 .collect(),
-            body: Box::new(lower_expr(*body, intrinsics)),
+            body: Box::new(lower_expr(*body, externals)),
         },
         TypedExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition, intrinsics)),
-            then_branch: Box::new(lower_expr(*then_branch, intrinsics)),
-            else_branch: Box::new(lower_expr(*else_branch, intrinsics)),
+            condition: Box::new(lower_expr(*condition, externals)),
+            then_branch: Box::new(lower_expr(*then_branch, externals)),
+            else_branch: Box::new(lower_expr(*else_branch, externals)),
         },
     };
     Expr { kind, ty, span }
@@ -130,7 +133,7 @@ fn lower_expr(expression: TypedExpr, intrinsics: &HashMap<SymbolId, Intrinsic>) 
 fn flatten_intrinsic(
     function: &Expr,
     final_argument: Expr,
-    intrinsics: &HashMap<SymbolId, Intrinsic>,
+    externals: &HashMap<SymbolId, ExternalKind>,
 ) -> Option<(SymbolId, Vec<Expr>)> {
     let mut arguments = vec![final_argument];
     let mut head = function;
@@ -141,7 +144,9 @@ fn flatten_intrinsic(
     let ExprKind::Global(symbol) = head.kind else {
         return None;
     };
-    intrinsics.get(&symbol)?;
+    if !matches!(externals.get(&symbol), Some(ExternalKind::Intrinsic(_))) {
+        return None;
+    }
     arguments.reverse();
     Some((symbol, arguments))
 }
@@ -149,6 +154,7 @@ fn flatten_intrinsic(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use psrs_hir::Intrinsic;
 
     #[test]
     fn primitive_mapping_is_limited_to_integer_operations() {

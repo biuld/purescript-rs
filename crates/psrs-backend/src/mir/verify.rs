@@ -1,7 +1,7 @@
 use super::{Function, Instruction, Module, Terminator, ValueId, ValueType};
 use crate::BackendError;
 use psrs_core::Primitive;
-use psrs_hir::SymbolId;
+use psrs_hir::{ExternalKind, RuntimeFunction, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -12,7 +12,7 @@ struct Signature {
 }
 
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
-    let signatures = module
+    let mut signatures = module
         .functions
         .iter()
         .map(|function| {
@@ -30,6 +30,17 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             )
         })
         .collect::<HashMap<_, _>>();
+    for external in &module.externals {
+        if let ExternalKind::Runtime(RuntimeFunction::ConsoleLog) = external.kind {
+            signatures.insert(
+                external.symbol,
+                Some(Signature {
+                    parameters: vec![ValueType::I32],
+                    result: ValueType::I32,
+                }),
+            );
+        }
+    }
     for function in &module.functions {
         verify_function(function, &signatures)?;
     }
@@ -86,6 +97,9 @@ fn verify_function(
                 Instruction::Constant {
                     destination, span, ..
                 }
+                | Instruction::StringConstant {
+                    destination, span, ..
+                }
                 | Instruction::Copy {
                     destination, span, ..
                 }
@@ -104,6 +118,7 @@ fn verify_function(
             }
             match instruction {
                 Instruction::Constant { .. } => {}
+                Instruction::StringConstant { .. } => {}
                 Instruction::Copy { value, span, .. } => {
                     require_value(&definitions, *value, *span)?;
                 }

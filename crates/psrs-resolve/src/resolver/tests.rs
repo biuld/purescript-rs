@@ -90,7 +90,7 @@ fn resolves_bootstrap_integer_operator_to_intrinsic_id() {
     )]);
 
     let resolved =
-        resolve_module_with_externals(module, ModuleId(0), &bootstrap_intrinsics()).unwrap();
+        resolve_module_with_externals(module, ModuleId(0), &bootstrap_externals()).unwrap();
     assert!(matches!(
         resolved.declarations[0].value.kind,
         ExprKind::Operator { operator, .. } if operator == Intrinsic::I32Add.symbol()

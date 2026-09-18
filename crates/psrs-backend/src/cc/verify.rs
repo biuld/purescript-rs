@@ -5,7 +5,7 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
-    let signatures = module
+    let mut signatures = module
         .functions
         .iter()
         .map(|function| {
@@ -18,6 +18,11 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             )
         })
         .collect::<HashMap<_, _>>();
+    for external in &module.externals {
+        if let Some(signature) = super::runtime_signature(external.kind) {
+            signatures.insert(external.symbol, signature);
+        }
+    }
     for function in &module.functions {
         verify_function(function, &signatures)?;
     }
@@ -65,6 +70,7 @@ fn verify_assignments(
         let mut uses = Vec::new();
         match &assignment.kind {
             AssignmentKind::Constant(_) => {}
+            AssignmentKind::StringConstant(_) => {}
             AssignmentKind::Copy(value) => uses.push(*value),
             AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
             AssignmentKind::DirectCall {

@@ -1,7 +1,7 @@
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
-    self as hir, Declaration, Expr, ExprKind, ExternalSymbol, Intrinsic, LocalBinder, LocalBinding,
-    LocalId, ModuleId, SymbolId,
+    self as hir, Declaration, Expr, ExprKind, ExternalKind, ExternalSymbol, Intrinsic, LocalBinder,
+    LocalBinding, LocalId, ModuleId, RuntimeFunction, SymbolId,
 };
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -296,8 +296,9 @@ fn symbol_index(index: usize) -> u32 {
     u32::try_from(index).expect("a source module cannot contain more declarations than its range")
 }
 
-pub fn bootstrap_intrinsics() -> Vec<ExternalSymbol> {
-    [
+/// The compiler-known externals available to every bootstrap module.
+pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
+    let intrinsics = [
         ("true", Intrinsic::BoolTrue),
         ("false", Intrinsic::BoolFalse),
         ("+", Intrinsic::I32Add),
@@ -316,9 +317,16 @@ pub fn bootstrap_intrinsics() -> Vec<ExternalSymbol> {
     .map(|(name, intrinsic)| ExternalSymbol {
         symbol: intrinsic.symbol(),
         name: name.into(),
-        intrinsic,
-    })
-    .collect()
+        kind: ExternalKind::Intrinsic(intrinsic),
+    });
+    let runtime = [("log", RuntimeFunction::ConsoleLog)]
+        .into_iter()
+        .map(|(name, function)| ExternalSymbol {
+            symbol: function.symbol(),
+            name: name.into(),
+            kind: ExternalKind::Runtime(function),
+        });
+    intrinsics.chain(runtime).collect()
 }
 
 #[cfg(test)]

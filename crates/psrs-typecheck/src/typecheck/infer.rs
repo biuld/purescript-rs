@@ -3,10 +3,10 @@ impl Checker {
     pub(super) fn new(module: &hir::Module) -> Self {
         let mut checker = Self {
             globals: HashMap::new(),
-            external_intrinsics: module
+            external_kinds: module
                 .externals
                 .iter()
-                .map(|external| (external.symbol, external.intrinsic))
+                .map(|external| (external.symbol, external.kind))
                 .collect(),
             locals: HashMap::new(),
             substitutions: HashMap::new(),
@@ -38,17 +38,20 @@ impl Checker {
                 if let Some(ty) = self.globals.get(symbol) {
                     (InferredExprKind::Global(*symbol), ty.clone())
                 } else {
-                    match self.external_intrinsics.get(symbol) {
-                        Some(Intrinsic::BoolTrue) => {
+                    match self.external_kinds.get(symbol) {
+                        Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => {
                             (InferredExprKind::Boolean(true), InferType::Boolean)
                         }
-                        Some(Intrinsic::BoolFalse) => {
+                        Some(ExternalKind::Intrinsic(Intrinsic::BoolFalse)) => {
                             (InferredExprKind::Boolean(false), InferType::Boolean)
                         }
-                        Some(intrinsic) => (
+                        Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
                             intrinsic_type(*intrinsic)?,
                         ),
+                        Some(ExternalKind::Runtime(function)) => {
+                            (InferredExprKind::Global(*symbol), runtime_type(*function)?)
+                        }
                         None => {
                             self.errors.push(TypeCheckError::new(
                                 TypeCheckErrorKind::InvalidHir,
@@ -71,11 +74,14 @@ impl Checker {
                     return None;
                 }
             },
-            hir::ExprKind::String(_) | hir::ExprKind::Char(_) => {
+            hir::ExprKind::String(value) => {
+                (InferredExprKind::String(value.clone()), InferType::String)
+            }
+            hir::ExprKind::Char(_) => {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedExpression,
                     span,
-                    "the first typed slice supports only Int and Boolean literals",
+                    "character literals are not supported yet",
                 ));
                 return None;
             }
@@ -215,7 +221,10 @@ impl Checker {
                     self.substitutions.insert(variable, ty);
                 }
             }
-            (InferType::I32, InferType::I32) | (InferType::Boolean, InferType::Boolean) => {}
+            (InferType::I32, InferType::I32)
+            | (InferType::Boolean, InferType::Boolean)
+            | (InferType::String, InferType::String)
+            | (InferType::Unit, InferType::Unit) => {}
             (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
                 self.unify(*a1, *a2, span);
                 self.unify(*r1, *r2, span);
@@ -252,6 +261,8 @@ impl Checker {
         match self.resolve_type(ty.clone()) {
             InferType::I32 => Some(interner.intern(Type::I32)),
             InferType::Boolean => Some(interner.intern(Type::Boolean)),
+            InferType::String => Some(interner.intern(Type::String)),
+            InferType::Unit => Some(interner.intern(Type::Unit)),
             InferType::Function(parameter, result) => {
                 let parameter = self.finalize_type(&parameter, span, interner);
                 let result = self.finalize_type(&result, span, interner);
@@ -282,6 +293,7 @@ impl Checker {
             InferredExprKind::Global(id) => thir::ExprKind::Global(id),
             InferredExprKind::Integer(value) => thir::ExprKind::Integer(value),
             InferredExprKind::Boolean(value) => thir::ExprKind::Boolean(value),
+            InferredExprKind::String(value) => thir::ExprKind::String(value),
             InferredExprKind::Application(function, argument) => {
                 let function = self.finalize_expr(*function, interner);
                 let argument = self.finalize_expr(*argument, interner);
@@ -372,4 +384,13 @@ fn intrinsic_type(intrinsic: Intrinsic) -> Option<InferType> {
             Box::new(result),
         )),
     ))
+}
+
+fn runtime_type(function: RuntimeFunction) -> Option<InferType> {
+    match function {
+        RuntimeFunction::ConsoleLog => Some(InferType::Function(
+            Box::new(InferType::String),
+            Box::new(InferType::Unit),
+        )),
+    }
 }

@@ -82,7 +82,7 @@ fn lower_source_to_core(
     let cst = psrs_syntax::parse_module(&layout_tokens)
         .map_err(|error| vec![diagnostic("P1 parse", error.span, error.message)])?;
     let ast = psrs_ast::lower_module(cst);
-    let intrinsics = psrs_resolve::bootstrap_intrinsics();
+    let intrinsics = psrs_resolve::bootstrap_externals();
     let hir = psrs_resolve::resolve_module_with_externals(ast, psrs_hir::ModuleId(0), &intrinsics)
         .map_err(|errors| {
             errors
@@ -168,6 +168,75 @@ mod tests {
             );
         }
         assert!(compilation.dumps.get("wasm").is_none());
+    }
+
+    #[test]
+    fn emits_a_wasi_command_entry() {
+        let source = "module Main where\nmain = 7\n";
+        let artifact = compile_source("Main.purs", source).unwrap();
+        assert!(
+            artifact
+                .wat
+                .contains("(import \"wasi_snapshot_preview1\" \"proc_exit\"")
+        );
+        assert!(artifact.wat.contains("(export \"_start\""));
+        assert!(artifact.wat.contains("(export \"memory\""));
+    }
+
+    #[test]
+    fn lowers_string_log_to_a_wasi_import() {
+        let source = "module Main where\nmain = log \"hello world\"\n";
+        let artifact = compile_source("Main.purs", source).unwrap();
+        assert!(
+            artifact
+                .wat
+                .contains("(import \"wasi_snapshot_preview1\" \"fd_write\"")
+        );
+        assert!(artifact.wat.contains("hello world"));
+        assert!(artifact.wat.contains("(data"));
+    }
+
+    #[test]
+    fn runs_main_as_a_wasi_command_when_wasmtime_is_available() {
+        let Some(output) = run_with_wasmtime("module Main where\nmain = 42\n") else {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        };
+        assert_eq!(output.status.code(), Some(42));
+    }
+
+    #[test]
+    fn prints_hello_world_when_wasmtime_is_available() {
+        let Some(output) = run_with_wasmtime("module Main where\nmain = log \"hello world\"\n")
+        else {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        };
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(output.stdout, b"hello world\n");
+    }
+
+    fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
+        if std::process::Command::new("wasmtime")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return None;
+        }
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let artifact = compile_source("Main.purs", source).unwrap();
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
+        std::fs::write(&path, &artifact.wasm).unwrap();
+        let output = std::process::Command::new("wasmtime")
+            .arg("run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+        Some(output)
     }
 
     #[test]

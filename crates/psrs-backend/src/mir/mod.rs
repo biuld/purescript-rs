@@ -1,7 +1,7 @@
 use crate::BackendError;
 use crate::cc::{self, AssignmentKind, ValueDecl, ValueId, ValueType};
 use psrs_core::Primitive;
-use psrs_hir::SymbolId;
+use psrs_hir::{ExternalSymbol, SymbolId};
 use psrs_span::TextRange;
 
 mod verify;
@@ -13,6 +13,7 @@ pub struct BlockId(pub u32);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
+    pub externals: Vec<ExternalSymbol>,
     pub functions: Vec<Function>,
     pub span: TextRange,
 }
@@ -43,6 +44,11 @@ pub enum Instruction {
     Constant {
         destination: ValueId,
         value: i32,
+        span: TextRange,
+    },
+    StringConstant {
+        destination: ValueId,
+        bytes: String,
         span: TextRange,
     },
     Copy {
@@ -92,6 +98,7 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
     }
     let mir = Module {
         name: module.name,
+        externals: module.externals,
         functions,
         span: module.span,
     };
@@ -150,6 +157,15 @@ impl FunctionLowerer {
                     Instruction::Constant {
                         destination: assignment.destination,
                         value: *value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::StringConstant(bytes) => self.append_instruction(
+                    current,
+                    Instruction::StringConstant {
+                        destination: assignment.destination,
+                        bytes: bytes.clone(),
                         span: assignment.span,
                     },
                     assignment.span,

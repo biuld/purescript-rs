@@ -133,7 +133,7 @@ fn run() -> Result<(), String> {
                     return Err(String::new());
                 }
             };
-            let intrinsics = psrs_resolve::bootstrap_intrinsics();
+            let intrinsics = psrs_resolve::bootstrap_externals();
             match psrs_resolve::resolve_module_with_externals(
                 psrs_ast::lower_module(module),
                 psrs_hir::ModuleId(0),

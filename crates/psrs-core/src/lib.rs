@@ -11,6 +11,8 @@ pub struct TypeId(pub u32);
 pub enum Type {
     I32,
     Boolean,
+    String,
+    Unit,
     Function { parameter: TypeId, result: TypeId },
 }
 
@@ -96,6 +98,7 @@ pub enum ExprKind {
     Global(SymbolId),
     Integer(i32),
     Boolean(bool),
+    String(String),
     Primitive {
         op: Primitive,
         left: Box<Expr>,
@@ -181,7 +184,11 @@ fn verify_expr(
             span: expression.span,
             message: "global reference is not declared",
         }),
-        ExprKind::Local(_) | ExprKind::Global(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) => {}
+        ExprKind::Local(_)
+        | ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_) => {}
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             verify_expr(left, module, globals, locals, errors);
             verify_expr(right, module, globals, locals, errors);

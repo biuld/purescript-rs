@@ -69,12 +69,14 @@ module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
   -> scalar MIR / CFG -> structured Wasm -> .wasm and WAT
 ```
 
-The supported program shape includes top-level direct functions, `Int` and
-`Boolean`, integer arithmetic and comparisons, local scalar `let` bindings,
-and value-producing `if`. Top-level lambdas become direct parameters. Nested or
-capturing lambdas, function values, higher-order calls, imports, and aggregate
-values are rejected with source diagnostics. Type inference is monomorphic;
-generalization and type classes remain future work.
+The supported program shape includes top-level direct functions, `Int`,
+`Boolean`, `String`, and `Unit`, integer arithmetic and comparisons, string
+literals, local scalar `let` bindings, and value-producing `if`. Top-level
+lambdas become direct parameters. The `log` runtime function writes a `String`
+to standard output and returns `Unit`. Nested or capturing lambdas, function
+values, higher-order calls, source imports, and aggregate values are rejected
+with source diagnostics. Type inference is monomorphic; generalization and
+type classes remain future work.
 
 The backend is grouped into one bootstrap crate, while CC IR, MIR, and the
 structured Wasm encoding remain separate Rust types with their own invariants.
@@ -88,18 +90,27 @@ validated binary.
 
 The CLI commands are `psrs build <file.purs> [-o output.wasm]` and
 `psrs wat <file.purs> [-o output.wat]`. The generated core Wasm module exports
-a zero-argument `Int` function as `main`. It is not yet a standalone WASI
-command or a Component Model artifact: imports, runtime services, WASI
-adapters, component linking, and a start function have not been implemented.
-`psrs dump <core|cc|mir> <file.purs>` prints any intermediate IR for
-debugging.
+a zero-argument `Int` function as `main`, exports `_start`, and imports
+`wasi_snapshot_preview1.proc_exit`. `_start` calls `main` and passes its result
+to `proc_exit`, so a compatible WASI runtime such as `wasmtime run` uses the
+return value as the process exit code. The module also declares and exports a
+linear memory because the WASI preview 1 adapter requires one.
+
+String literals are placed in active data segments; a `String` value is the
+address of a length-prefixed UTF-8 buffer. Programs that call `log` also import
+`wasi_snapshot_preview1.fd_write` and use a synthesized `ps_rt_log` runtime
+function that writes the buffer and a trailing newline to standard output.
+See `examples/hello.purs`. It is not yet a Component Model artifact, and
+file/environment/argument services and a richer runtime ABI have not been
+implemented. `psrs dump <core|cc|mir> <file.purs>` prints any intermediate IR
+for debugging.
 
 ## Type-system sequence
 
 Build the fully typed THIR before Typed Core lowering. Grow type support in
 stages:
 
-1. Monomorphic integer, boolean, and function types.
+1. Monomorphic integer, boolean, string, unit, and function types.
 2. Hindley–Milner inference, unification, occurs check, generalization, and
    instantiation.
 3. Algebraic data types and constructor applications.
@@ -118,7 +129,9 @@ allocator for heap objects. Establish a small ABI before adding services:
 
 - `Int` uses signed 32-bit values; `Number` uses 64-bit floating point.
 - `Boolean` uses an integer zero/one representation and `Char` a Unicode scalar.
-- Strings use pointer and length in linear memory for the initial profile.
+- `String` values are linear-memory pointers to a length-prefixed UTF-8 buffer;
+  literals live in data segments. A heap string type replaces this later.
+- `Unit` has no payload and uses the integer zero.
 - Algebraic data values carry a constructor tag and payload.
 - Closures pair a table entry with an environment reference.
 - Records use a compile-time shape and a runtime layout selected during MIR
@@ -137,6 +150,11 @@ adapter maps that ABI to WASI interfaces. Keep the three layers separate:
 ```text
 PureScript WASI library -> compiler runtime ABI -> WASI host interface
 ```
+
+The bootstrap exposes the runtime ABI directly: the `log` value maps to
+`ps_rt_log`, which the backend implements with `wasi_snapshot_preview1.fd_write`.
+Once modules and foreign declarations exist, `WASI.Console.log` is expected to
+wrap this entry so the frontend no longer needs a source-visible runtime name.
 
 Initial library capabilities grow as testable modules for console, arguments,
 environment, files, clock, and randomness. Networking and HTTP are later
@@ -167,7 +185,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M2 | Partial: same-module value resolution and stable IDs; module graph is pending |
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
-| M5 | Implemented direct-style integer Wasm through MIR/CFG, binary validation, and WAT output |
+| M5 | Implemented direct-style integer Wasm through MIR/CFG, a `_start`/`proc_exit` WASI command entry, binary validation, and WAT output |
 | M6 | Algebraic data types and pattern matching |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |

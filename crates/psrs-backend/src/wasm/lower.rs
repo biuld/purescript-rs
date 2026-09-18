@@ -1,19 +1,29 @@
-use super::{Body, Export, FuncType, Function, Module, Op};
+use super::{
+    Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
+    RuntimeFunction,
+};
 use crate::BackendError;
 use crate::cc::{ValueId, ValueType};
 use crate::mir::{
     self, BlockId, Function as MirFunction, Instruction as MirInstruction, Terminator,
 };
 use psrs_core::Primitive;
-use psrs_hir::SymbolId;
+use psrs_hir::{ExternalKind, RuntimeFunction as HirRuntimeFunction, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::{Instruction, MemArg, ValType};
+
+/// Runtime scratch layout: a single-entry iovec at `0`, the bytes-written cell
+/// at `8`, and the newline byte appended by `log` at `12`. String data is
+/// placed after this region.
+const NWRITTEN_ADDR: u32 = 8;
+const NEWLINE_ADDR: u32 = 12;
+const SCRATCH_END: u32 = 16;
 
 /// Structures MIR control flow and builds the thin Wasm IR.
 pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     mir::verify_module(module)?;
-    let Some(main_index) = module.functions.iter().position(|function| {
+    let Some(main_position) = module.functions.iter().position(|function| {
         function.name == "main"
             && function.parameters.is_empty()
             && function.result_type == ValueType::I32
@@ -24,13 +34,80 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         ));
     };
 
-    let function_indices = module
+    let (string_offsets, mut data) = collect_strings(module);
+    let log_symbol = console_log_symbol(module);
+    let log_used = log_symbol.is_some_and(|symbol| {
+        module
+            .functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| {
+                matches!(instruction, MirInstruction::Call { function, .. } if *function == symbol)
+            })
+    });
+    if log_used {
+        data.push(DataSegment {
+            offset: NEWLINE_ADDR,
+            bytes: vec![b'\n'],
+        });
+    }
+
+    let (mut types, function_types) = collect_function_types(module)?;
+
+    // Import 0: exit with a status code, used by the synthesized entry.
+    let proc_exit_type = types.len() as u32;
+    types.push(FuncType {
+        parameters: vec![ValType::I32],
+        results: Vec::new(),
+    });
+    let mut imports = vec![Import {
+        module: "wasi_snapshot_preview1".into(),
+        name: "proc_exit".into(),
+        type_index: proc_exit_type,
+    }];
+
+    let mut fd_write_index = None;
+    let mut log_type = None;
+    if log_used {
+        let fd_write_type = types.len() as u32;
+        types.push(FuncType {
+            parameters: vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+            results: vec![ValType::I32],
+        });
+        fd_write_index = Some(imports.len() as u32);
+        imports.push(Import {
+            module: "wasi_snapshot_preview1".into(),
+            name: "fd_write".into(),
+            type_index: fd_write_type,
+        });
+
+        let console_log_type = types.len() as u32;
+        types.push(FuncType {
+            parameters: vec![ValType::I32],
+            results: vec![ValType::I32],
+        });
+        log_type = Some(console_log_type);
+    }
+
+    let import_count = imports.len() as u32;
+    let runtime_count = u32::from(log_used);
+
+    let entry_type = types.len() as u32;
+    types.push(FuncType {
+        parameters: Vec::new(),
+        results: Vec::new(),
+    });
+
+    let mut function_indices = module
         .functions
         .iter()
         .enumerate()
-        .map(|(index, function)| (function.symbol, index as u32))
+        .map(|(index, function)| (function.symbol, import_count + index as u32))
         .collect::<HashMap<_, _>>();
-    let (types, function_types) = collect_function_types(module)?;
+    if let Some(index) = log_used.then_some(import_count + module.functions.len() as u32) {
+        function_indices.insert(log_symbol.expect("log is an external symbol"), index);
+    }
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
@@ -38,17 +115,59 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
             source,
             function_types[index],
             &function_indices,
+            &string_offsets,
         )?);
+    }
+
+    let main_index = import_count + main_position as u32;
+    let entry_index = import_count + module.functions.len() as u32 + runtime_count;
+
+    let mut runtime_functions = Vec::new();
+    if let (Some(type_index), Some(fd_write)) = (log_type, fd_write_index) {
+        runtime_functions.push(RuntimeFunction {
+            name: "ps_rt_log".into(),
+            type_index,
+            parameters: vec![ValType::I32],
+            locals: Vec::new(),
+            body: log_body(fd_write),
+        });
     }
 
     let wasm = Module {
         name: module.name.clone(),
+        imports,
         types,
         functions,
-        exports: vec![Export {
-            name: "main".into(),
-            function: main_index as u32,
+        runtime_functions,
+        memories: vec![Memory {
+            minimum: 1,
+            maximum: None,
         }],
+        data,
+        exports: vec![
+            Export {
+                name: "main".into(),
+                kind: ExportKind::Function,
+                index: main_index,
+            },
+            Export {
+                name: "_start".into(),
+                kind: ExportKind::Function,
+                index: entry_index,
+            },
+            Export {
+                name: "memory".into(),
+                kind: ExportKind::Memory,
+                index: 0,
+            },
+        ],
+        entry: Some(Entry {
+            type_index: entry_type,
+            body: vec![
+                Op::Leaf(Instruction::Call(main_index)),
+                Op::Leaf(Instruction::Call(0)),
+            ],
+        }),
         span: module.span,
     };
     super::verify::verify_module(&wasm)?;
@@ -97,6 +216,7 @@ fn lower_function(
     source: &MirFunction,
     type_index: u32,
     function_indices: &HashMap<SymbolId, u32>,
+    string_offsets: &HashMap<String, u32>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -123,6 +243,7 @@ fn lower_function(
             .collect(),
         locals,
         function_indices,
+        string_offsets,
     };
     let mut body = Body::new();
     structurer.emit_region(source.entry, None, &mut HashSet::new(), &mut body)?;
@@ -147,6 +268,7 @@ struct Structurer<'a> {
     blocks: HashMap<BlockId, &'a mir::BasicBlock>,
     locals: HashMap<ValueId, u32>,
     function_indices: &'a HashMap<SymbolId, u32>,
+    string_offsets: &'a HashMap<String, u32>,
 }
 
 impl Structurer<'_> {
@@ -302,6 +424,22 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                MirInstruction::StringConstant {
+                    destination,
+                    bytes,
+                    span,
+                } => {
+                    let offset =
+                        self.string_offsets.get(bytes).copied().ok_or_else(|| {
+                            wasm_error(*span, "string constant has no data segment")
+                        })?;
+                    body.push(Op::Leaf(Instruction::I32Const(offset as i32)));
+                    body.push(Op::Leaf(Instruction::LocalSet(local(
+                        &self.locals,
+                        *destination,
+                        *span,
+                    )?)));
+                }
                 MirInstruction::Copy {
                     destination,
                     value,
@@ -389,6 +527,90 @@ fn primitive(op: Primitive) -> Instruction<'static> {
         Primitive::GtS => Instruction::I32GtS,
         Primitive::GeS => Instruction::I32GeS,
     }
+}
+
+fn console_log_symbol(module: &mir::Module) -> Option<SymbolId> {
+    module.externals.iter().find_map(|external| {
+        (external.kind == ExternalKind::Runtime(HirRuntimeFunction::ConsoleLog))
+            .then_some(external.symbol)
+    })
+}
+
+fn collect_strings(module: &mir::Module) -> (HashMap<String, u32>, Vec<DataSegment>) {
+    let mut offsets = HashMap::new();
+    let mut data = Vec::new();
+    let mut next = SCRATCH_END;
+    for function in &module.functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                if let MirInstruction::StringConstant { bytes, .. } = instruction
+                    && !offsets.contains_key(bytes)
+                {
+                    let offset = next.next_multiple_of(4);
+                    offsets.insert(bytes.clone(), offset);
+                    let mut segment = (bytes.len() as u32).to_le_bytes().to_vec();
+                    segment.extend_from_slice(bytes.as_bytes());
+                    data.push(DataSegment {
+                        offset,
+                        bytes: segment,
+                    });
+                    next = offset + 4 + bytes.len() as u32;
+                }
+            }
+        }
+    }
+    (offsets, data)
+}
+
+/// Writes the string pointer's bytes followed by a newline, then returns unit
+/// (zero). The runtime ABI tracks PureScript's `console.log`, which terminates
+/// each write with a newline. Each `fd_write` uses a single iovec because a
+/// host is allowed to complete only a partial write of a multi-entry vector.
+fn log_body(fd_write_index: u32) -> Body {
+    let mem = MemArg {
+        offset: 0,
+        align: 2,
+        memory_index: 0,
+    };
+    let write = |body: &mut Body, cursor: Vec<Op>| {
+        body.extend(cursor);
+        body.push(Op::Leaf(Instruction::I32Const(1)));
+        body.push(Op::Leaf(Instruction::I32Const(0)));
+        body.push(Op::Leaf(Instruction::I32Const(1)));
+        body.push(Op::Leaf(Instruction::I32Const(NWRITTEN_ADDR as i32)));
+        body.push(Op::Leaf(Instruction::Call(fd_write_index)));
+        body.push(Op::Leaf(Instruction::Drop));
+    };
+    let mut body = Body::new();
+    // iovec = { buffer: pointer + 4, length: *pointer }
+    write(
+        &mut body,
+        vec![
+            Op::Leaf(Instruction::I32Const(0)),
+            Op::Leaf(Instruction::LocalGet(0)),
+            Op::Leaf(Instruction::I32Const(4)),
+            Op::Leaf(Instruction::I32Add),
+            Op::Leaf(Instruction::I32Store(mem)),
+            Op::Leaf(Instruction::I32Const(4)),
+            Op::Leaf(Instruction::LocalGet(0)),
+            Op::Leaf(Instruction::I32Load(mem)),
+            Op::Leaf(Instruction::I32Store(mem)),
+        ],
+    );
+    // iovec = { buffer: newline, length: 1 }
+    write(
+        &mut body,
+        vec![
+            Op::Leaf(Instruction::I32Const(0)),
+            Op::Leaf(Instruction::I32Const(NEWLINE_ADDR as i32)),
+            Op::Leaf(Instruction::I32Store(mem)),
+            Op::Leaf(Instruction::I32Const(4)),
+            Op::Leaf(Instruction::I32Const(1)),
+            Op::Leaf(Instruction::I32Store(mem)),
+        ],
+    );
+    body.push(Op::Leaf(Instruction::I32Const(0)));
+    body
 }
 
 fn local_indices(function: &MirFunction) -> Result<HashMap<ValueId, u32>, Vec<BackendError>> {

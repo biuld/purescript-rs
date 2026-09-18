@@ -163,7 +163,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
 | `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
-| `psrs-backend` | Direct-call CC/ANF, CFG MIR, structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
+| `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, runtime ABI (`_start`, `ps_rt_log`), structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
 | `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
 | `psrs-cli` | Source inspection, Wasm build, WAT output, and diagnostic rendering | `psrs-driver` plus frontend inspection crates |
 
@@ -212,22 +212,27 @@ duplicate or unknown value names and verifies its HIR output. Module imports,
 exports, cross-module resolution, type namespaces, and class members are not
 implemented yet.
 
-The type checker supports monomorphic `Int`, `Boolean`, and function types
-with unification and an occurs check. It rejects unconstrained types and
-unsupported expressions; Hindley–Milner generalization, type classes, and
-algebraic data types are not implemented. P4 currently lowers resolved
+The type checker supports monomorphic `Int`, `Boolean`, `String`, `Unit`, and
+function types with unification and an occurs check. It rejects unconstrained
+types and unsupported expressions; Hindley–Milner generalization, type classes,
+and algebraic data types are not implemented. P4 currently lowers resolved
 operators to applications. P6 turns saturated integer intrinsics into Core
-primitive operations. P7 Core optimization has no implementation yet.
+primitive operations and keeps runtime functions, such as `log`, as direct
+calls. P7 Core optimization has no implementation yet.
 
 P8 flattens top-level lambdas and emits ANF assignments and direct calls.
 Captured closures, nested function values, and higher-order calls produce
-diagnostics. P9 creates scalar MIR values and basic blocks; P10 structures the
-generated `if` diamonds into the thin Wasm encoding, whose leaf opcodes are
-`wasm_encoder::Instruction` values. P11 uses `wasm-encoder` to emit the binary,
-`wasmparser` to validate it, and `wasmprinter` to print
-WAT from the encoded binary. The current artifact exports a zero-argument `Int` function
-named `main`; it does not yet
-include a WASI command adapter, runtime, or component linker.
+diagnostics. String literals become string constants. P9 creates scalar MIR
+values, string constants, and basic blocks; P10 structures the generated `if`
+diamonds into the thin Wasm encoding, whose leaf opcodes are
+`wasm_encoder::Instruction` values. It assigns string data segments, structures
+the WASI command entry, and synthesizes the `ps_rt_log` runtime function over
+`wasi_snapshot_preview1.fd_write`. P11 uses `wasm-encoder` to emit the binary,
+`wasmparser` to validate it, and `wasmprinter` to print WAT from the encoded
+binary. The current artifact is a WASI command: it exports a zero-argument
+`Int` function named `main`, exports `_start`, and imports
+`wasi_snapshot_preview1.proc_exit`, using `main`'s result as the exit code. It
+does not yet include a Component Model adapter or a richer runtime ABI.
 
 `psrs build <file.purs> [-o output.wasm]` writes the validated core module.
 `psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a file. The

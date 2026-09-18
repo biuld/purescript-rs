@@ -8,8 +8,12 @@ replacement for the official PureScript compiler.
 ## Current status
 
 The compiler now builds a small, single-module PureScript subset through the
-backend IRs and emits validated core Wasm plus WAT. Try the inspection and build
-commands with the included examples:
+backend IRs and emits a validated core Wasm module plus WAT. The artifact is a
+WASI command: it exports `_start`, imports
+`wasi_snapshot_preview1.proc_exit`, and uses `main`'s result as the exit code.
+Programs can also print with `log` (a `String -> Unit` runtime function backed
+by `wasi_snapshot_preview1.fd_write`). Try the inspection and build commands
+with the included examples:
 
 ```sh
 cargo run -- lex examples/basic.purs
@@ -20,18 +24,23 @@ cargo run -- hir examples/resolved.purs
 cargo run -- build examples/basic.purs -o /tmp/basic.wasm
 cargo run -- wat examples/basic.purs -o /tmp/basic.wat
 cargo run -- dump mir examples/basic.purs
+wasmtime run /tmp/basic.wasm; echo $?   # prints 42 for examples/basic.purs
+
+cargo run -- build examples/hello.purs -o /tmp/hello.wasm
+wasmtime run /tmp/hello.wasm            # prints "hello world"
 ```
 
 The parser handles a module with simple value declarations, names,
 integer/string/character literals, application, infix operators, lambdas,
 `if`, and `let`. `parse` displays the concrete syntax tree; `ast` displays the
 normalized AST; `hir` displays resolved local and same-module value names.
-The first executable slice supports monomorphic `Int`, `Boolean`, direct
-top-level calls, integer operators, scalar `let`, and value-producing `if`.
-`build` writes a validated core Wasm module exporting zero-argument `main`;
-`wat` renders the corresponding text form. General PureScript compatibility,
-polymorphic inference, imports, closures, aggregate values, and the WASI
-runtime/component layer are not implemented yet.
+The first executable slice supports monomorphic `Int`, `Boolean`, `String`,
+`Unit`, direct top-level calls, integer operators, string literals and `log`,
+scalar `let`, and value-producing `if`. `build` writes a validated core Wasm
+WASI command exporting zero-argument `main` and `_start`; `wat` renders the
+corresponding text form. General PureScript compatibility, polymorphic
+inference, source imports, closures, aggregate values, and the Component Model
+layer are not implemented yet.
 
 ## Workspace
 

@@ -2,7 +2,7 @@ use super::*;
 use psrs_hir::{
     Declaration as HirDeclaration, Expr as HirExpr, ExprKind as HirExprKind, ModuleId, SymbolId,
 };
-use psrs_resolve::bootstrap_intrinsics;
+use psrs_resolve::bootstrap_externals;
 
 fn expr(kind: HirExprKind, start: u32, end: u32) -> HirExpr {
     HirExpr {
@@ -26,7 +26,7 @@ fn module(declarations: Vec<HirDeclaration>, with_intrinsics: bool) -> hir::Modu
         id: ModuleId(0),
         name: "Main".into(),
         externals: if with_intrinsics {
-            bootstrap_intrinsics()
+            bootstrap_externals()
         } else {
             Vec::new()
         },

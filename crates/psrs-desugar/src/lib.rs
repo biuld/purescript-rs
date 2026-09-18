@@ -75,7 +75,7 @@ fn desugar_expr(expression: Expr) -> Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use psrs_hir::{Declaration, Intrinsic, ModuleId, SymbolId};
+    use psrs_hir::{Declaration, ExternalKind, Intrinsic, ModuleId, SymbolId};
     use psrs_span::TextRange;
 
     #[test]
@@ -88,7 +88,7 @@ mod tests {
             externals: vec![hir::ExternalSymbol {
                 symbol: operator_id,
                 name: "+".into(),
-                intrinsic: Intrinsic::I32Add,
+                kind: ExternalKind::Intrinsic(Intrinsic::I32Add),
             }],
             declarations: vec![Declaration {
                 symbol: SymbolId::new(module_id, 0),

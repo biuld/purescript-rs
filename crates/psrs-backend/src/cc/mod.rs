@@ -1,6 +1,6 @@
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Primitive, Type};
-use psrs_hir::{LocalId, SymbolId};
+use psrs_hir::{ExternalKind, ExternalSymbol, LocalId, RuntimeFunction, SymbolId};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
@@ -24,6 +24,7 @@ pub struct ValueDecl {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
+    pub externals: Vec<ExternalSymbol>,
     pub functions: Vec<Function>,
     pub span: TextRange,
 }
@@ -50,6 +51,7 @@ pub struct Assignment {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssignmentKind {
     Constant(i32),
+    StringConstant(String),
     Copy(ValueId),
     Primitive {
         op: Primitive,
@@ -70,9 +72,19 @@ pub enum AssignmentKind {
 }
 
 #[derive(Clone, Copy)]
-struct Signature {
+pub(super) struct Signature {
     arity: usize,
     result: ValueType,
+}
+
+pub(super) fn runtime_signature(kind: ExternalKind) -> Option<Signature> {
+    match kind {
+        ExternalKind::Runtime(RuntimeFunction::ConsoleLog) => Some(Signature {
+            arity: 1,
+            result: ValueType::I32,
+        }),
+        ExternalKind::Intrinsic(_) => None,
+    }
 }
 
 pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
@@ -93,12 +105,18 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             },
         );
     }
+    for external in &module.externals {
+        if let Some(signature) = runtime_signature(external.kind) {
+            signatures.insert(external.symbol, signature);
+        }
+    }
     let mut functions = Vec::with_capacity(module.declarations.len());
     for declaration in &module.declarations {
         functions.push(lower_function(declaration, &module, &signatures)?);
     }
     let cc = Module {
         name: module.name,
+        externals: module.externals,
         functions,
         span: module.span,
     };
@@ -133,7 +151,7 @@ fn declaration_shape(
         value = body;
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32) => Ok((arity, ValueType::I32)),
+        Some(Type::I32 | Type::String | Type::Unit) => Ok((arity, ValueType::I32)),
         Some(Type::Boolean) => Ok((arity, ValueType::Boolean)),
         Some(Type::Function { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -267,6 +285,15 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            ExprKind::String(text) => {
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::StringConstant(text.clone()),
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
             ExprKind::Primitive { op, left, right } => {
                 let left = self.lower_value(left, assignments)?;
                 let right = self.lower_value(right, assignments)?;
@@ -388,7 +415,7 @@ fn scalar_type(
     span: TextRange,
 ) -> Result<ValueType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
-        Some(Type::I32) => Ok(ValueType::I32),
+        Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
         Some(Type::Boolean) => Ok(ValueType::Boolean),
         Some(Type::Function { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",

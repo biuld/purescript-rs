@@ -16,11 +16,34 @@ pub struct FuncType {
     pub results: Vec<ValType>,
 }
 
-/// An exported function.
+/// A function imported from the host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Import {
+    pub module: String,
+    pub name: String,
+    pub type_index: u32,
+}
+
+/// A linear memory in the module skeleton.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Memory {
+    pub minimum: u64,
+    pub maximum: Option<u64>,
+}
+
+/// The kind of an export in the module skeleton.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportKind {
+    Function,
+    Memory,
+}
+
+/// An exported item.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Export {
     pub name: String,
-    pub function: u32,
+    pub kind: ExportKind,
+    pub index: u32,
 }
 
 /// A structured function body.
@@ -57,13 +80,43 @@ pub struct Function {
     pub span: TextRange,
 }
 
+/// A runtime helper synthesized by the backend and implemented over host
+/// imports (for example WASI). These are not source functions.
+#[derive(Clone, Debug)]
+pub struct RuntimeFunction {
+    pub name: String,
+    pub type_index: u32,
+    pub parameters: Vec<ValType>,
+    pub locals: Vec<ValType>,
+    pub body: Body,
+}
+
+/// An initialized data segment in linear memory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataSegment {
+    pub offset: u32,
+    pub bytes: Vec<u8>,
+}
+
+/// The synthesized command entry that calls `main` and exits.
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub type_index: u32,
+    pub body: Body,
+}
+
 /// A thin, structured WebAssembly module: the target skeleton plus function
 /// bodies whose leaf opcodes come from `wasm_encoder`.
 #[derive(Clone, Debug)]
 pub struct Module {
     pub name: String,
+    pub imports: Vec<Import>,
     pub types: Vec<FuncType>,
     pub functions: Vec<Function>,
+    pub runtime_functions: Vec<RuntimeFunction>,
+    pub memories: Vec<Memory>,
+    pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,
+    pub entry: Option<Entry>,
     pub span: TextRange,
 }
