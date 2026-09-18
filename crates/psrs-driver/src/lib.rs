@@ -171,6 +171,20 @@ mod tests {
     }
 
     #[test]
+    fn structures_wasm_ir_with_an_explicit_if_region() {
+        let source = "module Main where\nmain = if true then 9 else 2\n";
+        let core = lower_source_to_core("Main.purs", source).unwrap();
+        let stages = psrs_backend::compile_with_stages(core).unwrap();
+        assert!(
+            stages.wasm.functions.iter().any(|function| function
+                .body
+                .iter()
+                .any(|op| matches!(op, psrs_backend::wasm::Op::If { .. }))),
+            "expected a structured if region in the Wasm IR"
+        );
+    }
+
+    #[test]
     fn reports_type_errors_with_source_ranges() {
         let source = "module Main where\nmain = if 1 then 2 else 3\n";
         let errors = compile_source("Main.purs", source).unwrap_err();

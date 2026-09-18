@@ -9,7 +9,8 @@ Define the compiler pass order, representation boundaries, and invariants from
 source text through typed functional Core. The architecture has twelve major
 passes and six long-lived IR families. A pass may preserve its input
 representation; a new representation is introduced only when its invariants
-change. Wasm is a target encoding emitted from MIR, not an IR family.
+change. Wasm is a target encoding emitted from MIR through a thin structured
+form; it is not one of the long-lived IR families.
 
 ## Pipeline
 
@@ -24,8 +25,8 @@ P6  THIR -> Typed Core
 P7  Typed Core -> Typed Core
 P8  Typed Core -> CC IR
 P9  CC IR -> MIR / CFG
-P10 MIR -> Wasm binary
-P11 Wasm binary -> .wasm / WASI artifact
+P10 MIR -> structured Wasm encoding
+P11 structured Wasm encoding -> .wasm / WASI artifact
 ```
 
 | Pass | Name | Responsibility |
@@ -40,15 +41,17 @@ P11 Wasm binary -> .wasm / WASI artifact
 | P7 | Core Simplify and Specialize | Optimize while preserving Typed Core. |
 | P8 | ANF and Closure Conversion | Make evaluation order explicit and captures and calls explicit. |
 | P9 | Representation Lowering | Choose runtime layouts and lower to a control-flow graph. |
-| P10 | MIR Optimization and Wasm Structuring | Optimize CFG, construct target control flow, and encode the Wasm binary. |
+| P10 | MIR Optimization and Wasm Structuring | Optimize CFG and structure MIR control flow into the thin Wasm encoding. |
 | P11 | Validate and Link | Validate the encoded module, print WAT, and connect its runtime/WASI interface. |
 
 `TokenStream` is a parser input, not a persistent IR family. ANF is the first
 form within CC IR, not a separately maintained family. CC IR and MIR are
 distinct representations with distinct contracts, grouped as one backend IR
 family. Runtime representation belongs to MIR; it is not a separate IR. MIR is
-the lowest long-lived IR and lowers directly to an emitted Wasm binary, so Wasm
-is not a separate IR family.
+the lowest long-lived IR. P10 structures its control flow into a thin Wasm
+encoding: a module skeleton plus structured control-flow regions whose leaf
+opcodes are delegated to the Wasm encoder. That form is produced and consumed
+within the backend and is not a long-lived IR family.
 
 ## The six IR families
 
@@ -64,6 +67,12 @@ is not a separate IR family.
 These are long-lived architecture families, not a rule to create one crate per
 row. A lowering pass may use temporary builders or analyses without making
 them public IRs.
+
+The structured Wasm encoding used between P10 and P11 is a target form rather
+than a seventh family. It models the module skeleton and structured control
+flow; leaf opcodes are delegated to `wasm_encoder::Instruction` instead of
+being re-declared, so it grows with language features rather than with the Wasm
+instruction set.
 
 Each mature IR will expose a verifier for its invariants. The pass driver will
 run the output verifier after transformations in debug and test builds. Keep
@@ -130,8 +139,8 @@ values, instructions, and explicit terminators. It has no nested expression
 trees, source patterns, or implicit closures. Representation lowering fixes
 primitive and aggregate layouts, closure ABI, and call conventions before
 Wasm structuring. MIR is the lowest long-lived IR: the Wasm target structures
-its control flow and encodes it to a binary without introducing another IR
-family.
+its control flow into the thin structured Wasm encoding and then emits a
+binary, without introducing another IR family.
 
 ## Source information
 
@@ -154,18 +163,19 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
 | `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
-| `psrs-backend` | Direct-call CC/ANF, CFG MIR, Wasm binary encoding, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
+| `psrs-backend` | Direct-call CC/ANF, CFG MIR, structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
 | `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
 | `psrs-cli` | Source inspection, Wasm build, WAT output, and diagnostic rendering | `psrs-driver` plus frontend inspection crates |
 
 This workspace uses more crates than the compact bootstrap sketch in the
 design notes because CST, AST, HIR, THIR, and Core already have real types and
 APIs. The backend keeps CC IR and MIR as separate verified modules in one
-`psrs-backend` crate. CC IR and MIR are the backend IR family; the Wasm encoder,
-validator, and WAT printer are the Wasm target within that crate. MIR lowers
-directly to the emitted Wasm binary, so there is no separate Wasm IR. Split
-those modules into crates only when they need independent ownership or
-consumers. Do not create empty placeholder crates. Keep dependency edges
+`psrs-backend` crate, plus a thin structured Wasm encoding that P10 produces
+and P11 emits. CC IR and MIR are the backend IR family; the Wasm encoder,
+validator, and WAT printer are the Wasm target within that crate. Leaf Wasm
+opcodes are delegated to `wasm_encoder::Instruction`, so the Wasm encoding does
+not mirror the Wasm instruction set. Split those modules into crates only when
+they need independent ownership or consumers. Do not create empty placeholder crates. Keep dependency edges
 acyclic and directed toward lower-level representations and source utilities;
 the driver is the orchestration layer above the pass crates.
 
@@ -181,7 +191,7 @@ The current implementation has an end-to-end, direct-style slice through P11:
 ```text
 SourceFile -> TokenStream -> CST -> AST -> Resolved HIR
   -> desugared HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
-  -> MIR / CFG -> Wasm binary -> validated .wasm and WAT
+  -> MIR / CFG -> structured Wasm -> validated .wasm and WAT
 ```
 
 The parser supports module headers, simple value declarations, names,
@@ -212,8 +222,9 @@ primitive operations. P7 Core optimization has no implementation yet.
 P8 flattens top-level lambdas and emits ANF assignments and direct calls.
 Captured closures, nested function values, and higher-order calls produce
 diagnostics. P9 creates scalar MIR values and basic blocks; P10 structures the
-generated `if` diamonds and uses `wasm-encoder` to emit a core Wasm module.
-P11 uses `wasmparser` to validate the encoded module and `wasmprinter` to print
+generated `if` diamonds into the thin Wasm encoding, whose leaf opcodes are
+`wasm_encoder::Instruction` values. P11 uses `wasm-encoder` to emit the binary,
+`wasmparser` to validate it, and `wasmprinter` to print
 WAT from the encoded binary. The current artifact exports a zero-argument `Int` function
 named `main`; it does not yet
 include a WASI command adapter, runtime, or component linker.

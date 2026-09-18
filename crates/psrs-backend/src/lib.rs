@@ -1,6 +1,6 @@
 pub mod cc;
 pub mod mir;
-mod wasm;
+pub mod wasm;
 
 use psrs_span::TextRange;
 
@@ -31,17 +31,19 @@ pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>>
     Ok(compile_with_stages(module)?.artifact)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Stages {
     pub cc: cc::Module,
     pub mir: mir::Module,
+    pub wasm: wasm::Module,
     pub artifact: Artifact,
 }
 
 pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<BackendError>> {
     let cc = cc::lower_module(module)?;
     let mir = mir::lower_module(cc.clone())?;
-    let binary = wasm::lower_module(&mir)?;
+    let wasm = wasm::lower_module(&mir)?;
+    let binary = wasm::encode_module(&wasm)?;
     wasmparser::Validator::new()
         .validate_all(&binary)
         .map_err(|error| {
@@ -61,6 +63,7 @@ pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<Back
     Ok(Stages {
         cc,
         mir,
+        wasm,
         artifact: Artifact {
             wasm: binary,
             wat: text,

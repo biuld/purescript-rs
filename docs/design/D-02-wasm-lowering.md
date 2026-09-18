@@ -25,8 +25,8 @@ P6  THIR -> Typed Core
 P7  Typed Core -> optimized Typed Core
 P8  Typed Core -> ANF / CC IR
 P9  CC IR -> MIR / CFG
-P10 MIR -> Wasm binary
-P11 Wasm binary -> Wasm/WASI artifact
+P10 MIR -> structured Wasm encoding
+P11 structured Wasm encoding -> Wasm/WASI artifact
 ```
 
 | Stage | Required invariant |
@@ -34,12 +34,14 @@ P11 Wasm binary -> Wasm/WASI artifact
 | Typed Core | Types and semantic IDs remain explicit; source sugar and source patterns are lowered. |
 | CC IR | Evaluation order, closure captures, and direct versus indirect calls are explicit. |
 | MIR | Control flow is a graph of basic blocks; values and terminators are explicit; runtime layouts and calling conventions are fixed. |
+| Structured Wasm encoding | The module skeleton is explicit and control flow is structured; leaf opcodes are `wasm_encoder::Instruction` values, not a re-declared instruction set. |
 | Artifact | The encoded module validates, uses the selected target layout, and declares the WASI interfaces it uses. |
 
 CC IR and MIR are separate representations in one backend IR family. ANF is a
 form within CC IR, not an additional long-lived IR. MIR is the lowest
-long-lived IR and owns runtime layout decisions; it lowers directly to the
-emitted Wasm binary. Wasm is a target encoding, not a separate IR family.
+long-lived IR and owns runtime layout decisions; it lowers into a thin
+structured Wasm encoding that P11 emits. Wasm is a target encoding, not a
+separate IR family, and the encoding does not mirror the Wasm instruction set.
 
 No backend stage may infer semantic identity from source text. Source and
 typed-source stages may not depend on memory offsets, Wasm indices, or target
@@ -64,7 +66,7 @@ The bootstrap compiler now lowers this source subset through every IR family:
 
 ```text
 module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
-  -> scalar MIR / CFG -> Wasm binary -> .wasm and WAT
+  -> scalar MIR / CFG -> structured Wasm -> .wasm and WAT
 ```
 
 The supported program shape includes top-level direct functions, `Int` and
@@ -74,13 +76,15 @@ capturing lambdas, function values, higher-order calls, imports, and aggregate
 values are rejected with source diagnostics. Type inference is monomorphic;
 generalization and type classes remain future work.
 
-The backend is grouped into one bootstrap crate, while CC IR and MIR remain
-separate Rust types with their own invariants. MIR records basic blocks,
-instructions, branch targets, merge blocks, and block parameters, and is the
-lowest IR. The Wasm structurer handles the reducible diamonds emitted for
-expression-level `if` and reuses the MIR control flow directly.
-`wasm-encoder` emits the binary and `wasmparser` validates it before the
-compiler reports success. `wasmprinter` prints WAT from the validated binary.
+The backend is grouped into one bootstrap crate, while CC IR, MIR, and the
+structured Wasm encoding remain separate Rust types with their own invariants.
+MIR records basic blocks, instructions, branch targets, merge blocks, and block
+parameters, and is the lowest long-lived IR. The Wasm structurer turns the
+reducible diamonds emitted for expression-level `if` into structured `if`
+regions; leaf opcodes reuse `wasm_encoder::Instruction` instead of a duplicate
+opcode enum. `wasm-encoder` emits the binary and `wasmparser` validates it
+before the compiler reports success. `wasmprinter` prints WAT from the
+validated binary.
 
 The CLI commands are `psrs build <file.purs> [-o output.wasm]` and
 `psrs wat <file.purs> [-o output.wat]`. The generated core Wasm module exports

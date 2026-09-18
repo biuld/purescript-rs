@@ -46,8 +46,9 @@ runtime/component layer are not implemented yet.
   inference.
 - `psrs-desugar` lowers resolved operator syntax while preserving HIR.
 - `psrs-core` owns Typed Core and its HIR lowering pass.
-- `psrs-backend` owns direct-call CC IR, MIR/CFG, Wasm binary
-  encoding, validation, and WAT printing from the encoded module.
+- `psrs-backend` owns direct-call CC IR, MIR/CFG, the structured Wasm
+  encoding, binary emission, validation, and WAT printing from the encoded
+  module.
 - `psrs-driver` wires the compiler passes together.
 - `psrs-cli` provides source inspection, `build`, and `wat` commands.
 

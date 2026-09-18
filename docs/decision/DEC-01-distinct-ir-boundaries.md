@@ -29,8 +29,8 @@ representation lowering each establish their own invariants. Passes such as
 Core optimization preserve their IR instead of inventing a new representation.
 TokenStream is parser input rather than an IR family. CC IR and MIR remain
 distinct representation types while belonging to one backend family. MIR is
-the lowest IR and lowers directly to an emitted Wasm binary; Wasm is a target
-encoding, not an IR family.
+the lowest IR and is lowered into a thin structured Wasm encoding before
+binary emission; Wasm is a target encoding, not an IR family.
 
 ## Consequences
 
