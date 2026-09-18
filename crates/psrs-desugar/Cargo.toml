@@ -1,0 +1,11 @@
+[package]
+name = "psrs-desugar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-hir.workspace = true
+
+[dev-dependencies]
+psrs-span.workspace = true

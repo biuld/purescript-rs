@@ -1,0 +1,16 @@
+[package]
+name = "psrs-driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-ast.workspace = true
+psrs-backend.workspace = true
+psrs-core.workspace = true
+psrs-desugar.workspace = true
+psrs-hir.workspace = true
+psrs-resolve.workspace = true
+psrs-span.workspace = true
+psrs-syntax.workspace = true
+psrs-typecheck.workspace = true

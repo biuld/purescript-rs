@@ -1,0 +1,238 @@
+# D-01 — Frontend and IR Boundaries
+
+**Implements:** [F-01 — Inspect PureScript Source](../feature/F-01-source-inspection.md)  
+**Status:** In progress
+
+## Purpose
+
+Define the compiler pass order, representation boundaries, and invariants from
+source text through typed functional Core. The architecture has twelve major
+passes and six long-lived IR families. A pass may preserve its input
+representation; a new representation is introduced only when its invariants
+change. Wasm is a target encoding emitted from MIR, not an IR family.
+
+## Pipeline
+
+```text
+P0  Source -> TokenStream
+P1  TokenStream -> CST
+P2  CST -> AST
+P3  AST -> Resolved HIR
+P4  Resolved HIR -> Resolved HIR
+P5  Resolved HIR -> THIR
+P6  THIR -> Typed Core
+P7  Typed Core -> Typed Core
+P8  Typed Core -> CC IR
+P9  CC IR -> MIR / CFG
+P10 MIR -> Wasm binary
+P11 Wasm binary -> .wasm / WASI artifact
+```
+
+| Pass | Name | Responsibility |
+| --- | --- | --- |
+| P0 | Lex and Layout | Recognize raw tokens and insert logical layout markers. |
+| P1 | Parse | Build source-oriented syntax and report parse errors. |
+| P2 | Surface Lowering | Normalize parser-only distinctions into AST. |
+| P3 | Resolve | Resolve modules, imports, values, types, and constructors to stable IDs. |
+| P4 | Frontend Desugaring | Normalize operators, sections, do/ado, equations, and guards while preserving HIR. |
+| P5 | Kind, Type, and Class Elaboration | Check kinds and types, resolve constraints, and attach explicit evidence. |
+| P6 | Core Lowering | Remove source constructs and lower patterns and type-class dictionaries. |
+| P7 | Core Simplify and Specialize | Optimize while preserving Typed Core. |
+| P8 | ANF and Closure Conversion | Make evaluation order explicit and captures and calls explicit. |
+| P9 | Representation Lowering | Choose runtime layouts and lower to a control-flow graph. |
+| P10 | MIR Optimization and Wasm Structuring | Optimize CFG, construct target control flow, and encode the Wasm binary. |
+| P11 | Validate and Link | Validate the encoded module, print WAT, and connect its runtime/WASI interface. |
+
+`TokenStream` is a parser input, not a persistent IR family. ANF is the first
+form within CC IR, not a separately maintained family. CC IR and MIR are
+distinct representations with distinct contracts, grouped as one backend IR
+family. Runtime representation belongs to MIR; it is not a separate IR. MIR is
+the lowest long-lived IR and lowers directly to an emitted Wasm binary, so Wasm
+is not a separate IR family.
+
+## The six IR families
+
+| Family | Main representation | Entry invariant |
+| --- | --- | --- |
+| CST | Concrete syntax tree | Parsed syntax and relevant token ranges remain available; no semantic resolution. |
+| AST | Abstract syntax tree | Parser-only syntax is normalized; names remain unresolved and source-spanned. |
+| HIR | Resolved HIR | References identify declarations and locals by stable IDs. |
+| THIR | Typed high-level IR | Expressions and binders have types; overloads and constraints have explicit evidence. |
+| Typed Core | Typed functional Core | A small expression language remains; source sugar and pattern syntax are gone. |
+| CC IR / MIR | Closure-converted IR and CFG | Captures and calls are explicit; MIR has no nested expressions, fixes runtime representation, and is the lowest IR that feeds Wasm emission. |
+
+These are long-lived architecture families, not a rule to create one crate per
+row. A lowering pass may use temporary builders or analyses without making
+them public IRs.
+
+Each mature IR will expose a verifier for its invariants. The pass driver will
+run the output verifier after transformations in debug and test builds. Keep
+analyses such as free variables, liveness, and dominators in side data keyed by
+stable IDs rather than turning them into optional fields on syntax nodes.
+
+## Representation contracts
+
+### CST
+
+CST is source-oriented. It retains the concrete forms recognized by the
+current grammar, source spans for names and binders, and spans for punctuation
+and keywords that are part of those forms. Parentheses and syntax constructs
+such as operator expressions remain explicit. Layout markers may have empty
+spans because they are virtual. The original source remains the authority for
+trivia and exact spelling.
+
+CST must not contain resolved IDs, inferred types, type-class evidence, or
+backend layout. The parser performs no name resolution or type checking.
+
+### AST
+
+AST is a separate representation with its own node types. It retains source
+spans and unresolved names, while dropping syntax-only detail. Current surface
+lowering removes parentheses and turns grouped function parameters into
+nested, single-binder lambdas. It does not resolve names or desugar operators.
+
+AST must not contain symbol IDs, checked types, dictionary evidence, or runtime
+layout. It is not an alias for CST and is not already HIR.
+
+### Resolved HIR
+
+Resolution replaces textual identity with stable IDs such as `ModuleId`,
+`SymbolId`, `ConstructorId`, and `LocalId`. It resolves module dependencies,
+imports, exports, and both value and type namespaces. Unresolved references do
+not cross this boundary. Source spans remain available for diagnostics.
+
+### THIR
+
+THIR is the fully typed, still high-level representation. Every expression and
+binder has a type reference. Names are resolved, and overloaded operations
+and type-class constraints have explicit evidence. Patterns and source-level
+constructs may remain here. THIR has no runtime offsets, Wasm indices, or
+calling-convention fields.
+
+### Typed Core
+
+Typed Core is the compiler's small functional language and the preferred
+backend interchange boundary. It retains types, stable global and local IDs,
+constructors, applications, lambdas, bindings, cases, records, and primitive
+operations as required by the supported language. Type-class constraints
+become explicit dictionary parameters and values. Do/ado notation, operator
+syntax, source guards, source pattern syntax, and declaration syntax have been
+lowered away. Core optimization transforms Typed Core into Typed Core.
+
+### CC IR and MIR
+
+CC IR starts with ANF, where non-trivial computations are named and evaluation
+order is explicit. Closure conversion removes lambdas and records each
+function's captures. Direct calls and closure calls are distinct.
+
+MIR is a separate, low-level representation: typed basic blocks, virtual
+values, instructions, and explicit terminators. It has no nested expression
+trees, source patterns, or implicit closures. Representation lowering fixes
+primitive and aggregate layouts, closure ABI, and call conventions before
+Wasm structuring. MIR is the lowest long-lived IR: the Wasm target structures
+its control flow and encodes it to a binary without introducing another IR
+family.
+
+## Source information
+
+Keep a source range on CST, AST, HIR, and THIR nodes. Core keeps a source-info
+reference where it helps diagnostics and debugging. MIR and the Wasm encoder
+preserve locations on important operations such as calls, branches, allocation, and
+traps; they do not need to copy a full source span to every low-level value.
+
+## Current crate ownership
+
+| Crate | Owns | Runtime dependencies |
+| --- | --- | --- |
+| `psrs-span` | Source text, byte ranges, line/column mapping | Standard library |
+| `psrs-cst` | Concrete syntax nodes and token spans | `psrs-span` |
+| `psrs-syntax` | Lexer, layout processor, parser, parse diagnostics | `psrs-cst`, `psrs-span` |
+| `psrs-ast` | AST nodes and CST-to-AST lowering | `psrs-cst`, `psrs-span` |
+| `psrs-hir` | Resolved HIR nodes and IDs | `psrs-span` |
+| `psrs-resolve` | Local and same-module value resolution | `psrs-ast`, `psrs-hir`, `psrs-span` |
+| `psrs-desugar` | HIR-preserving operator lowering | `psrs-hir` |
+| `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |
+| `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
+| `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
+| `psrs-backend` | Direct-call CC/ANF, CFG MIR, Wasm binary encoding, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
+| `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
+| `psrs-cli` | Source inspection, Wasm build, WAT output, and diagnostic rendering | `psrs-driver` plus frontend inspection crates |
+
+This workspace uses more crates than the compact bootstrap sketch in the
+design notes because CST, AST, HIR, THIR, and Core already have real types and
+APIs. The backend keeps CC IR and MIR as separate verified modules in one
+`psrs-backend` crate. CC IR and MIR are the backend IR family; the Wasm encoder,
+validator, and WAT printer are the Wasm target within that crate. MIR lowers
+directly to the emitted Wasm binary, so there is no separate Wasm IR. Split
+those modules into crates only when they need independent ownership or
+consumers. Do not create empty placeholder crates. Keep dependency edges
+acyclic and directed toward lower-level representations and source utilities;
+the driver is the orchestration layer above the pass crates.
+
+Use arena-backed IDs for semantic graphs and representations that need stable
+identity, side tables, or use-def analysis. The current recursive CST and AST
+subset may use owned child nodes while the grammar is small; do not carry that
+tree shape into HIR, THIR, Core, or MIR by default.
+
+## Implemented compiler slice
+
+The current implementation has an end-to-end, direct-style slice through P11:
+
+```text
+SourceFile -> TokenStream -> CST -> AST -> Resolved HIR
+  -> desugared HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
+  -> MIR / CFG -> Wasm binary -> validated .wasm and WAT
+```
+
+The parser supports module headers, simple value declarations, names,
+integer/string/character literals, application, infix operators, lambdas,
+conditionals, and local `let` declarations. `psrs parse` prints CST and
+`psrs ast` prints normalized AST. Both trees are intentionally smaller than
+the eventual PureScript grammar. Unsupported syntax is not silently resolved
+or assigned types.
+
+`psrs hir` prints the supported resolved representation and supplies a small
+bootstrap intrinsic table for booleans and integer operators. This table is
+not a replacement for module imports or general operator resolution.
+
+The caller supplies the module ID; the resolver assigns deterministic
+declaration and local IDs. It resolves forward references, lambda locals, and
+mutually recursive local `let` bindings within one parsed module. It rejects
+duplicate or unknown value names and verifies its HIR output. Module imports,
+exports, cross-module resolution, type namespaces, and class members are not
+implemented yet.
+
+The type checker supports monomorphic `Int`, `Boolean`, and function types
+with unification and an occurs check. It rejects unconstrained types and
+unsupported expressions; Hindley–Milner generalization, type classes, and
+algebraic data types are not implemented. P4 currently lowers resolved
+operators to applications. P6 turns saturated integer intrinsics into Core
+primitive operations. P7 Core optimization has no implementation yet.
+
+P8 flattens top-level lambdas and emits ANF assignments and direct calls.
+Captured closures, nested function values, and higher-order calls produce
+diagnostics. P9 creates scalar MIR values and basic blocks; P10 structures the
+generated `if` diamonds and uses `wasm-encoder` to emit a core Wasm module.
+P11 uses `wasmparser` to validate the encoded module and `wasmprinter` to print
+WAT from the encoded binary. The current artifact exports a zero-argument `Int` function
+named `main`; it does not yet
+include a WASI command adapter, runtime, or component linker.
+
+`psrs build <file.purs> [-o output.wasm]` writes the validated core module.
+`psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a file. The
+driver reports pass diagnostics with source ranges. `psrs dump
+<core|cc|mir> <file.purs>` prints a readable debug dump for one
+intermediate representation.
+
+## Frontend development sequence
+
+1. Preserve source ranges and physical newlines through lexing and layout.
+2. Grow the CST grammar while retaining binder and concrete token spans.
+3. Keep each CST-to-AST conversion explicit and test its normalization.
+4. Add module loading, imports, exports, and type namespaces to resolution.
+5. Add type generalization and explicit evidence before widening THIR.
+6. Add Core optimization passes.
+7. Add closure conversion, aggregate representation, and a WASI runtime ABI.
+
+The architecture may combine work inside an early bootstrap milestone, but
+each stable representation boundary remains a distinct input/output type.

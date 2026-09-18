@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "crates/psrs-span",
+    "crates/psrs-cst",
+    "crates/psrs-ast",
+    "crates/psrs-hir",
+    "crates/psrs-resolve",
+    "crates/psrs-thir",
+    "crates/psrs-typecheck",
+    "crates/psrs-desugar",
+    "crates/psrs-core",
+    "crates/psrs-backend",
+    "crates/psrs-driver",
+    "crates/psrs-syntax",
+    "crates/psrs-cli",
+]
+default-members = ["crates/psrs-cli"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+psrs-span = { path = "crates/psrs-span" }
+psrs-cst = { path = "crates/psrs-cst" }
+psrs-ast = { path = "crates/psrs-ast" }
+psrs-hir = { path = "crates/psrs-hir" }
+psrs-resolve = { path = "crates/psrs-resolve" }
+psrs-thir = { path = "crates/psrs-thir" }
+psrs-typecheck = { path = "crates/psrs-typecheck" }
+psrs-desugar = { path = "crates/psrs-desugar" }
+psrs-core = { path = "crates/psrs-core" }
+psrs-backend = { path = "crates/psrs-backend" }
+psrs-driver = { path = "crates/psrs-driver" }
+psrs-syntax = { path = "crates/psrs-syntax" }
+wasm-encoder = "=0.245.1"
+wasmparser = "=0.245.1"
+wasmprinter = "=0.245.1"

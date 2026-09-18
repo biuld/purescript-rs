@@ -1,0 +1,9 @@
+[package]
+name = "psrs-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-cst.workspace = true
+psrs-span.workspace = true

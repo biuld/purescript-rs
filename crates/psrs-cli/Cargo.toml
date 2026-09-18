@@ -1,0 +1,17 @@
+[package]
+name = "psrs-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "psrs"
+path = "src/main.rs"
+
+[dependencies]
+psrs-ast.workspace = true
+psrs-driver.workspace = true
+psrs-hir.workspace = true
+psrs-resolve.workspace = true
+psrs-span.workspace = true
+psrs-syntax.workspace = true

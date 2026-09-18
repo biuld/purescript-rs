@@ -1,0 +1,13 @@
+[package]
+name = "psrs-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-core.workspace = true
+psrs-hir.workspace = true
+psrs-span.workspace = true
+wasm-encoder.workspace = true
+wasmparser.workspace = true
+wasmprinter.workspace = true

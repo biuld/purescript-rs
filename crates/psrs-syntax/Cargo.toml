@@ -1,0 +1,10 @@
+[package]
+name = "psrs-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chumsky = "0.9.3"
+psrs-cst.workspace = true
+psrs-span.workspace = true

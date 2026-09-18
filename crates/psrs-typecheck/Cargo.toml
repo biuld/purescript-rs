@@ -1,0 +1,14 @@
+[package]
+name = "psrs-typecheck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-hir.workspace = true
+psrs-span.workspace = true
+psrs-thir.workspace = true
+
+[dev-dependencies]
+psrs-desugar.workspace = true
+psrs-resolve.workspace = true
