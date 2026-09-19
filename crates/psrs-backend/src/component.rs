@@ -24,6 +24,25 @@ pub(crate) const WASI_DEPS: &[(&str, &str)] = &[
 /// The application world: a WASI command that only exports `wasi:cli/run`.
 const APP_WIT: &str = include_str!("../wit/psrs-app.wit");
 
+/// Interfaces that the current component world imports and the backend can
+/// lower through its canonical ABI adapter. Keep this list next to the world
+/// declaration so ABI discovery and component encoding share one contract.
+pub(crate) const COMPONENT_INTERFACES: &[&str] = &[
+    "wasi:cli/stdout@0.2.12",
+    "wasi:cli/stderr@0.2.12",
+    "wasi:io/streams@0.2.12",
+    // `io/streams` pulls these support interfaces into the resolved world.
+    "wasi:io/error@0.2.12",
+    "wasi:io/poll@0.2.12",
+    "wasi:cli/exit@0.2.12",
+    "wasi:clocks/monotonic-clock@0.2.12",
+    "wasi:random/random@0.2.12",
+];
+
+pub(crate) fn component_interface_supported(module: &str) -> bool {
+    COMPONENT_INTERFACES.contains(&module)
+}
+
 /// Pushes the vendored WASI WIT into `resolve` in dependency order.
 pub(crate) fn load_vendored_wasi(resolve: &mut Resolve) -> Result<(), String> {
     for (path, contents) in WASI_DEPS {
@@ -72,6 +91,7 @@ mod tests {
     use psrs_hir::{ModuleId, SymbolId};
     use psrs_span::TextRange;
     use wasm_encoder::{Instruction, ValType};
+    use wit_parser::{WorldItem, WorldKey};
 
     fn core_module_exporting_run() -> Vec<u8> {
         let span = TextRange::new(0, 1);
@@ -119,6 +139,29 @@ mod tests {
             text.contains("(component") && text.contains("wasi:cli/run@0.2.12"),
             "the component should export the WASI run interface: {text}"
         );
+    }
+
+    #[test]
+    fn component_world_matches_the_capability_profile() {
+        let (resolve, world) = command_world().expect("WASI and application WIT should load");
+        let mut actual = resolve.worlds[world]
+            .imports
+            .values()
+            .filter_map(|item| match item {
+                WorldItem::Interface { id, .. } => resolve.id_of(*id),
+                WorldItem::Function(_) | WorldItem::Type { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let mut expected = COMPONENT_INTERFACES.to_vec();
+        actual.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(actual, expected);
+        for key in resolve.worlds[world].imports.keys() {
+            assert!(
+                matches!(key, WorldKey::Interface(_)),
+                "the command world should import only named interfaces"
+            );
+        }
     }
 
     #[test]

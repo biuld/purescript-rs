@@ -188,7 +188,7 @@ impl WasiRegistry {
         };
         let unsupported =
             unsupported_shape(&self.resolve, wit_function, &result_kind).or_else(|| {
-                (!component_interface_supported(&module)).then(|| {
+                (!crate::component::component_interface_supported(&module)).then(|| {
                 format!(
                     "WASI interface `{module}` is not in the current component capability profile"
                 )
@@ -362,18 +362,6 @@ fn unsupported_shape(
         );
     }
     None
-}
-
-fn component_interface_supported(module: &str) -> bool {
-    matches!(
-        module,
-        "wasi:cli/stdout@0.2.12"
-            | "wasi:cli/stderr@0.2.12"
-            | "wasi:io/streams@0.2.12"
-            | "wasi:cli/exit@0.2.12"
-            | "wasi:clocks/monotonic-clock@0.2.12"
-            | "wasi:random/random@0.2.12"
-    )
 }
 
 fn list_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {

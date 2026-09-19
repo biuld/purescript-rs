@@ -185,6 +185,10 @@ pub enum PatternKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
+    /// The source module that owns the declaration being verified. Linked Core
+    /// keeps declaration symbols stable, so diagnostics can be mapped back to
+    /// the original program input instead of defaulting to source zero.
+    pub module: ModuleId,
     pub span: TextRange,
     pub message: &'static str,
 }
@@ -217,14 +221,28 @@ impl Module {
         for ty in &self.types {
             if let Type::Function { parameter, result } | Type::Application(parameter, result) = ty
             {
-                verify_type(*parameter, self, self.span, &mut errors);
-                verify_type(*result, self, self.span, &mut errors);
+                verify_type(*parameter, self, self.id, self.span, &mut errors);
+                verify_type(*result, self, self.id, self.span, &mut errors);
             }
         }
         for declaration in &self.declarations {
-            verify_type(declaration.ty, self, declaration.name_span, &mut errors);
+            let owner = declaration.symbol.module;
+            verify_type(
+                declaration.ty,
+                self,
+                owner,
+                declaration.name_span,
+                &mut errors,
+            );
             let mut locals = HashSet::new();
-            verify_expr(&declaration.value, self, &globals, &mut locals, &mut errors);
+            verify_expr(
+                &declaration.value,
+                self,
+                owner,
+                &globals,
+                &mut locals,
+                &mut errors,
+            );
         }
         if errors.is_empty() {
             Ok(())
@@ -234,9 +252,16 @@ impl Module {
     }
 }
 
-fn verify_type(id: TypeId, module: &Module, span: TextRange, errors: &mut Vec<VerifyError>) {
+fn verify_type(
+    id: TypeId,
+    module: &Module,
+    owner: ModuleId,
+    span: TextRange,
+    errors: &mut Vec<VerifyError>,
+) {
     if id.0 as usize >= module.types.len() {
         errors.push(VerifyError {
+            module: owner,
             span,
             message: "type reference is outside the Core type table",
         });
@@ -246,17 +271,20 @@ fn verify_type(id: TypeId, module: &Module, span: TextRange, errors: &mut Vec<Ve
 fn verify_expr(
     expression: &Expr,
     module: &Module,
+    owner: ModuleId,
     globals: &HashSet<SymbolId>,
     locals: &mut HashSet<LocalId>,
     errors: &mut Vec<VerifyError>,
 ) {
-    verify_type(expression.ty, module, expression.span, errors);
+    verify_type(expression.ty, module, owner, expression.span, errors);
     match &expression.kind {
         ExprKind::Local(id) if !locals.contains(id) => errors.push(VerifyError {
+            module: owner,
             span: expression.span,
             message: "local reference is not in scope",
         }),
         ExprKind::Global(id) if !globals.contains(id) => errors.push(VerifyError {
+            module: owner,
             span: expression.span,
             message: "global reference is not declared",
         }),
@@ -272,30 +300,37 @@ fn verify_expr(
                 .any(|constructor| constructor.symbol == *symbol) =>
         {
             errors.push(VerifyError {
+                module: owner,
                 span: expression.span,
                 message: "constructor reference is not declared",
             });
         }
         ExprKind::Constructor(_) => {}
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
-            verify_expr(left, module, globals, locals, errors);
-            verify_expr(right, module, globals, locals, errors);
+            verify_expr(left, module, owner, globals, locals, errors);
+            verify_expr(right, module, owner, globals, locals, errors);
         }
         ExprKind::Lambda { binder, body } => {
-            verify_type(binder.ty, module, binder.span, errors);
+            verify_type(binder.ty, module, owner, binder.span, errors);
             locals.insert(binder.id);
-            verify_expr(body, module, globals, locals, errors);
+            verify_expr(body, module, owner, globals, locals, errors);
             locals.remove(&binder.id);
         }
         ExprKind::Let { bindings, body } => {
             for binding in bindings {
-                verify_type(binding.binder.ty, module, binding.binder.span, errors);
+                verify_type(
+                    binding.binder.ty,
+                    module,
+                    owner,
+                    binding.binder.span,
+                    errors,
+                );
                 locals.insert(binding.binder.id);
             }
             for binding in bindings {
-                verify_expr(&binding.value, module, globals, locals, errors);
+                verify_expr(&binding.value, module, owner, globals, locals, errors);
             }
-            verify_expr(body, module, globals, locals, errors);
+            verify_expr(body, module, owner, globals, locals, errors);
             for binding in bindings {
                 locals.remove(&binding.binder.id);
             }
@@ -305,18 +340,18 @@ fn verify_expr(
             then_branch,
             else_branch,
         } => {
-            verify_expr(condition, module, globals, locals, errors);
-            verify_expr(then_branch, module, globals, locals, errors);
-            verify_expr(else_branch, module, globals, locals, errors);
+            verify_expr(condition, module, owner, globals, locals, errors);
+            verify_expr(then_branch, module, owner, globals, locals, errors);
+            verify_expr(else_branch, module, owner, globals, locals, errors);
         }
         ExprKind::Case {
             scrutinee,
             branches,
         } => {
-            verify_expr(scrutinee, module, globals, locals, errors);
+            verify_expr(scrutinee, module, owner, globals, locals, errors);
             for branch in branches {
-                verify_pattern(&branch.pattern, module, locals, errors);
-                verify_expr(&branch.value, module, globals, locals, errors);
+                verify_pattern(&branch.pattern, module, owner, locals, errors);
+                verify_expr(&branch.value, module, owner, globals, locals, errors);
                 remove_pattern_locals(&branch.pattern, locals);
             }
         }
@@ -326,6 +361,7 @@ fn verify_expr(
 fn verify_pattern(
     pattern: &Pattern,
     module: &Module,
+    owner: ModuleId,
     locals: &mut HashSet<LocalId>,
     errors: &mut Vec<VerifyError>,
 ) {
@@ -341,6 +377,7 @@ fn verify_pattern(
                 .any(|constructor| constructor.symbol == *symbol)
             {
                 errors.push(VerifyError {
+                    module: owner,
                     span: pattern.span,
                     message: "pattern constructor is not declared",
                 });
@@ -388,5 +425,35 @@ mod tests {
             module.verify().unwrap_err()[0].message,
             "type reference is outside the Core type table"
         );
+    }
+
+    #[test]
+    fn verifier_attributes_declaration_errors_to_their_source_module() {
+        let owner = ModuleId(7);
+        let module = Module {
+            id: ModuleId(0),
+            name: "Linked".into(),
+            externals: Vec::new(),
+            types: vec![Type::I32],
+            constructors: Vec::new(),
+            declarations: vec![Declaration {
+                symbol: SymbolId::new(owner, 0),
+                name: "broken".into(),
+                name_span: TextRange::new(0, 6),
+                quantified: Vec::new(),
+                ty: TypeId(0),
+                value: Expr {
+                    kind: ExprKind::Global(SymbolId::new(owner, 99)),
+                    ty: TypeId(0),
+                    span: TextRange::new(9, 15),
+                },
+                span: TextRange::new(0, 15),
+            }],
+            entry: None,
+            span: TextRange::new(0, 15),
+        };
+        let error = module.verify().unwrap_err().remove(0);
+        assert_eq!(error.module, owner);
+        assert_eq!(error.message, "global reference is not declared");
     }
 }

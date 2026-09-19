@@ -55,7 +55,7 @@ pub(crate) fn lower_program_to_core(
         return Err(errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: 0,
+                source: error.module.0 as usize,
                 diagnostic: diagnostic("P7 Core verification", error.span, error.message),
             })
             .collect());
