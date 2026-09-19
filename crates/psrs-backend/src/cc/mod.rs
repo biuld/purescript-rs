@@ -13,11 +13,7 @@ use layout::{Signature, declaration_shape, enum_type_ids, runtime_signature, sca
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ValueType {
-    I32,
-    Boolean,
-}
+pub use crate::types::ValueType;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValueDecl {

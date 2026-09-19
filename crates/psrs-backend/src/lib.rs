@@ -1,5 +1,6 @@
 pub mod cc;
 pub mod mir;
+pub mod types;
 pub mod wasm;
 
 use psrs_span::TextRange;

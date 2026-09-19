@@ -43,7 +43,7 @@ P11 structured Wasm encoding -> Wasm/WASI artifact
 | --- | --- |
 | Typed Core | Types and semantic IDs remain explicit; source sugar and source patterns are lowered. |
 | CC IR | Evaluation order, closure captures, and direct versus indirect calls are explicit. |
-| MIR | Control flow is a graph of basic blocks; values and terminators are explicit; runtime layouts and calling conventions are fixed. |
+| MIR | Control flow is a graph of basic blocks; values and terminators are explicit; runtime layouts and calling conventions are fixed; its value and type model is the WebAssembly 3.0 type system ([D-06](D-06-low-level-ir-and-wasm-types.md)). |
 | Structured Wasm encoding | The module skeleton is explicit and control flow is structured; leaf opcodes are `wasm_encoder::Instruction` values, not a re-declared instruction set. |
 | Artifact | The encoded module validates, uses the selected target layout, and declares the WASI interfaces it uses. |
 

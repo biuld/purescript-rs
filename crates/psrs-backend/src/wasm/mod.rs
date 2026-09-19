@@ -2,9 +2,13 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
 
+mod convert;
 mod encode;
 mod lower;
 mod verify;
+
+#[cfg(test)]
+mod tests;
 
 pub use encode::encode_module;
 pub use lower::lower_module;
@@ -107,11 +111,16 @@ pub struct Entry {
 
 /// A thin, structured WebAssembly module: the target skeleton plus function
 /// bodies whose leaf opcodes come from `wasm_encoder`.
+///
+/// Function types occupy the start of the type index space; `type_defs`
+/// (defined GC types) follow at `types.len()`, so a reference to defined type
+/// `i` is type index `types.len() + i`.
 #[derive(Clone, Debug)]
 pub struct Module {
     pub name: String,
     pub imports: Vec<Import>,
     pub types: Vec<FuncType>,
+    pub type_defs: Vec<crate::types::RecGroup>,
     pub functions: Vec<Function>,
     pub runtime_functions: Vec<RuntimeFunction>,
     pub memories: Vec<Memory>,
@@ -119,4 +128,11 @@ pub struct Module {
     pub exports: Vec<Export>,
     pub entry: Option<Entry>,
     pub span: TextRange,
+}
+
+impl Module {
+    /// The type index at which the first defined type begins.
+    pub fn type_defs_base(&self) -> u32 {
+        self.types.len() as u32
+    }
 }

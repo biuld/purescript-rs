@@ -140,7 +140,10 @@ trees, source patterns, or implicit closures. Representation lowering fixes
 primitive and aggregate layouts, closure ABI, and call conventions before
 Wasm structuring. MIR is the lowest long-lived IR: the Wasm target structures
 its control flow into the thin structured Wasm encoding and then emits a
-binary, without introducing another IR family.
+binary, without introducing another IR family. Below Typed Core, the
+representations are language-agnostic and are defined in terms of the
+WebAssembly value and type system in
+[D-06](D-06-low-level-ir-and-wasm-types.md).
 
 ## Source information
 

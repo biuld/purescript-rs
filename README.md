@@ -112,7 +112,10 @@ and [F-02](docs/feature/F-02-portable-programs.md). Their implementations are
 specified in [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
 [D-02](docs/design/D-02-wasm-lowering.md), with the WebAssembly and WASI target
 features fixed in
-[D-05](docs/design/D-05-backend-capability.md). The type system is specified in
+[D-05](docs/design/D-05-backend-capability.md) and the language-agnostic
+low-level IR defined in
+[D-06](docs/design/D-06-low-level-ir-and-wasm-types.md). The type system is
+specified in
 [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md); the corresponding decisions are
 [DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md),

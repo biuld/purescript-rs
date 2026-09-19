@@ -1,3 +1,4 @@
+use super::convert::val_type;
 use super::{
     Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
     RuntimeFunction,
@@ -137,6 +138,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         name: module.name.clone(),
         imports,
         types,
+        type_defs: Vec::new(),
         functions,
         runtime_functions,
         memories: vec![Memory {
@@ -640,12 +642,6 @@ fn local(
         .get(&value)
         .copied()
         .ok_or_else(|| wasm_error(span, "MIR value has no Wasm local index"))
-}
-
-fn val_type(ty: ValueType) -> ValType {
-    match ty {
-        ValueType::I32 | ValueType::Boolean => ValType::I32,
-    }
 }
 
 fn value_type(function: &MirFunction, value: ValueId) -> Option<ValueType> {
