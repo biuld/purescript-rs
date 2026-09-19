@@ -232,8 +232,8 @@ parameters lower to a temporary parameter plus `case`. The constructor table
 flows through THIR and Core. The first runtime slice lowers the nullary
 constructors of a non-parameterized data type to immediate integer tags and
 `case` over it to tag comparisons, so enum-style programs compile to Wasm and
-run under WASI. Nested constructor patterns in single-constructor aggregate
-fields now destructure through the corresponding GC objects. A valid
+run under WASI. Nested constructor patterns in aggregate fields now test the
+nested constructor before destructuring the corresponding GC object. A valid
 single-field `newtype` is now erased in CC: construction
 and matching pass through the field value, with no GC allocation. A first
 concrete parameterized ADT slice also uses the selected erased representation:

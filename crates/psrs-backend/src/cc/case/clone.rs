@@ -1,0 +1,223 @@
+use super::super::{Assignment, AssignmentKind, ValueId};
+use super::FunctionLowerer;
+use std::collections::HashMap;
+
+pub(super) trait AssignmentCloning {
+    fn clone_assignments(
+        &mut self,
+        assignments: &[Assignment],
+        result: ValueId,
+    ) -> (Vec<Assignment>, ValueId);
+}
+
+impl AssignmentCloning for FunctionLowerer<'_> {
+    fn clone_assignments(
+        &mut self,
+        assignments: &[Assignment],
+        result: ValueId,
+    ) -> (Vec<Assignment>, ValueId) {
+        let mut mapping = HashMap::new();
+        let cloned = self.clone_list(assignments, &mut mapping);
+        (cloned, remap(result, &mapping))
+    }
+}
+
+impl FunctionLowerer<'_> {
+    fn clone_list(
+        &mut self,
+        assignments: &[Assignment],
+        mapping: &mut HashMap<ValueId, ValueId>,
+    ) -> Vec<Assignment> {
+        assignments
+            .iter()
+            .map(|assignment| {
+                let preserves_value = matches!(assignment.kind, AssignmentKind::ArraySet { .. });
+                let destination = if preserves_value {
+                    remap(assignment.destination, mapping)
+                } else {
+                    let ty = self
+                        .values
+                        .iter()
+                        .find(|value| value.id == assignment.destination)
+                        .map(|value| value.ty)
+                        .expect("CC assignment destination has a value type");
+                    let destination = self.fresh(ty);
+                    mapping.insert(assignment.destination, destination);
+                    destination
+                };
+                Assignment {
+                    destination,
+                    kind: self.clone_kind(&assignment.kind, mapping),
+                    span: assignment.span,
+                }
+            })
+            .collect()
+    }
+
+    fn clone_kind(
+        &mut self,
+        kind: &AssignmentKind,
+        mapping: &mut HashMap<ValueId, ValueId>,
+    ) -> AssignmentKind {
+        match kind {
+            AssignmentKind::Constant(value) => AssignmentKind::Constant(*value),
+            AssignmentKind::StringConstant(value) => AssignmentKind::StringConstant(value.clone()),
+            AssignmentKind::Primitive { op, left, right } => AssignmentKind::Primitive {
+                op: *op,
+                left: remap(*left, mapping),
+                right: remap(*right, mapping),
+            },
+            AssignmentKind::DirectCall {
+                function,
+                arguments,
+            } => AssignmentKind::DirectCall {
+                function: *function,
+                arguments: arguments
+                    .iter()
+                    .map(|value| remap(*value, mapping))
+                    .collect(),
+            },
+            AssignmentKind::FunctionRef {
+                function,
+                type_index,
+                closure_type,
+                capture_array_type,
+                captures,
+            } => AssignmentKind::FunctionRef {
+                function: *function,
+                type_index: *type_index,
+                closure_type: *closure_type,
+                capture_array_type: *capture_array_type,
+                captures: captures
+                    .iter()
+                    .map(|value| remap(*value, mapping))
+                    .collect(),
+            },
+            AssignmentKind::IndirectCall {
+                function,
+                type_index,
+                closure_type,
+                capture_array_type,
+                arguments,
+            } => AssignmentKind::IndirectCall {
+                function: remap(*function, mapping),
+                type_index: *type_index,
+                closure_type: *closure_type,
+                capture_array_type: *capture_array_type,
+                arguments: arguments
+                    .iter()
+                    .map(|value| remap(*value, mapping))
+                    .collect(),
+            },
+            AssignmentKind::ClosureGetCapture {
+                closure,
+                closure_type,
+                capture_array_type,
+                index,
+            } => AssignmentKind::ClosureGetCapture {
+                closure: remap(*closure, mapping),
+                closure_type: *closure_type,
+                capture_array_type: *capture_array_type,
+                index: *index,
+            },
+            AssignmentKind::RefTest {
+                destination,
+                value,
+                reference,
+            } => AssignmentKind::RefTest {
+                destination: remap(*destination, mapping),
+                value: remap(*value, mapping),
+                reference: *reference,
+            },
+            AssignmentKind::RefCast {
+                destination,
+                value,
+                reference,
+            } => AssignmentKind::RefCast {
+                destination: remap(*destination, mapping),
+                value: remap(*value, mapping),
+                reference: *reference,
+            },
+            AssignmentKind::StructNew {
+                destination,
+                type_index,
+                arguments,
+            } => AssignmentKind::StructNew {
+                destination: remap(*destination, mapping),
+                type_index: *type_index,
+                arguments: arguments
+                    .iter()
+                    .map(|value| remap(*value, mapping))
+                    .collect(),
+            },
+            AssignmentKind::StructGet {
+                destination,
+                type_index,
+                field,
+                value,
+            } => AssignmentKind::StructGet {
+                destination: remap(*destination, mapping),
+                type_index: *type_index,
+                field: *field,
+                value: remap(*value, mapping),
+            },
+            AssignmentKind::ArrayNew {
+                destination,
+                type_index,
+                elements,
+            } => AssignmentKind::ArrayNew {
+                destination: remap(*destination, mapping),
+                type_index: *type_index,
+                elements: elements
+                    .iter()
+                    .map(|value| remap(*value, mapping))
+                    .collect(),
+            },
+            AssignmentKind::ArrayLen { destination, value } => AssignmentKind::ArrayLen {
+                destination: remap(*destination, mapping),
+                value: remap(*value, mapping),
+            },
+            AssignmentKind::ArrayGet {
+                destination,
+                type_index,
+                value,
+                index,
+            } => AssignmentKind::ArrayGet {
+                destination: remap(*destination, mapping),
+                type_index: *type_index,
+                value: remap(*value, mapping),
+                index: remap(*index, mapping),
+            },
+            AssignmentKind::ArraySet {
+                destination,
+                type_index,
+                value,
+                index,
+                new_value,
+            } => AssignmentKind::ArraySet {
+                destination: remap(*destination, mapping),
+                type_index: *type_index,
+                value: remap(*value, mapping),
+                index: remap(*index, mapping),
+                new_value: remap(*new_value, mapping),
+            },
+            AssignmentKind::If {
+                condition,
+                then_assignments,
+                then_value,
+                else_assignments,
+                else_value,
+            } => AssignmentKind::If {
+                condition: remap(*condition, mapping),
+                then_assignments: self.clone_list(then_assignments, mapping),
+                then_value: remap(*then_value, mapping),
+                else_assignments: self.clone_list(else_assignments, mapping),
+                else_value: remap(*else_value, mapping),
+            },
+        }
+    }
+}
+
+fn remap(value: ValueId, mapping: &HashMap<ValueId, ValueId>) -> ValueId {
+    mapping.get(&value).copied().unwrap_or(value)
+}

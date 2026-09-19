@@ -122,6 +122,42 @@ main = unwrap (Outer (Inner 42))
 }
 
 #[test]
+fn selects_between_nested_constructor_patterns() {
+    let source = "\
+module Main where
+data Inner = Left Int | Right Int
+data Outer = Outer Inner
+unwrap value = case value of
+  Outer (Left number) -> number
+  Outer (Right number) -> number + 1
+main = unwrap (Outer (Right 41))
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn selects_the_first_nested_constructor_pattern() {
+    let source = "\
+module Main where
+data Inner = Left Int | Right Int
+data Outer = Outer Inner
+unwrap value = case value of
+  Outer (Left number) -> number
+  Outer (Right number) -> number + 1
+main = unwrap (Outer (Left 41))
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(41));
+}
+
+#[test]
 fn erases_a_newtype_constructor_and_pattern_at_runtime() {
     let source = "\
 module Main where

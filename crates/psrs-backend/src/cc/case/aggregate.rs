@@ -2,11 +2,19 @@ use super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
 use super::super::lower::FunctionLowerer;
 use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
 use super::case_error;
+use super::clone::AssignmentCloning;
 use crate::BackendError;
 use crate::types::{HeapType, RefType};
-use psrs_core::{CaseBranch, PatternKind};
+use psrs_core::{CaseBranch, PatternKind, Primitive};
 use psrs_span::TextRange;
 use std::collections::HashSet;
+
+struct PatternState<'a> {
+    check_nested: bool,
+    conditions: &'a mut Vec<ValueId>,
+    bound: &'a mut Vec<psrs_hir::LocalId>,
+    assignments: &'a mut Vec<Assignment>,
+}
 
 impl FunctionLowerer<'_> {
     pub(super) fn lower_aggregate_case(
@@ -58,10 +66,11 @@ impl FunctionLowerer<'_> {
                 .pop()
                 .expect("a fully covered aggregate case has a constructor branch");
             let mut fallback_assignments = Vec::new();
-            let value = self.lower_constructor_branch(
+            let (value, _) = self.lower_constructor_branch(
                 branch,
                 scrutinee,
                 type_index,
+                false,
                 &mut fallback_assignments,
             )?;
             (fallback_assignments, value)
@@ -105,8 +114,58 @@ impl FunctionLowerer<'_> {
             span,
         }];
         let mut then_assignments = Vec::new();
-        let then_value =
-            self.lower_constructor_branch(branch, scrutinee, *type_index, &mut then_assignments)?;
+        let (then_value, conditions) = self.lower_constructor_branch(
+            branch,
+            scrutinee,
+            *type_index,
+            true,
+            &mut then_assignments,
+        )?;
+        let then_value = if conditions.is_empty() {
+            then_value
+        } else {
+            let positions = conditions
+                .iter()
+                .map(|condition| {
+                    then_assignments
+                        .iter()
+                        .position(|assignment| assignment.destination == *condition)
+                        .expect("nested case condition has an assignment")
+                })
+                .collect::<Vec<_>>();
+            let mut nested_assignment = None;
+            let mut nested_value = then_value;
+            for (index, condition) in conditions.iter().enumerate().rev() {
+                let start = positions[index] + 1;
+                let end = positions
+                    .get(index + 1)
+                    .map_or(then_assignments.len(), |position| position + 1);
+                let mut nested_then_assignments = then_assignments[start..end].to_vec();
+                if let Some(assignment) = nested_assignment.take() {
+                    nested_then_assignments.push(assignment);
+                }
+                let (nested_else_assignments, nested_else_value) =
+                    self.clone_assignments(&else_assignments, else_value);
+                let destination = self.fresh(result_type);
+                nested_assignment = Some(Assignment {
+                    destination,
+                    kind: AssignmentKind::If {
+                        condition: *condition,
+                        then_assignments: nested_then_assignments,
+                        then_value: nested_value,
+                        else_assignments: nested_else_assignments,
+                        else_value: nested_else_value,
+                    },
+                    span,
+                });
+                nested_value = destination;
+            }
+            let first_condition = positions[0] + 1;
+            let mut prefix = then_assignments[..first_condition].to_vec();
+            prefix.push(nested_assignment.expect("nested case has a conditional assignment"));
+            then_assignments = prefix;
+            nested_value
+        };
         let destination = self.fresh(result_type);
         prefix.push(Assignment {
             destination,
@@ -127,10 +186,13 @@ impl FunctionLowerer<'_> {
         branch: &CaseBranch,
         scrutinee: ValueId,
         type_index: u32,
+        check_nested: bool,
         assignments: &mut Vec<Assignment>,
-    ) -> Result<ValueId, Vec<BackendError>> {
+    ) -> Result<(ValueId, Vec<ValueId>), Vec<BackendError>> {
         let PatternKind::Constructor { arguments, .. } = &branch.pattern.kind else {
-            return self.lower_branch(branch, scrutinee, assignments);
+            return self
+                .lower_branch(branch, scrutinee, assignments)
+                .map(|value| (value, Vec::new()));
         };
         let cast = self.fresh(crate::types::ValueType::Ref(RefType {
             nullable: false,
@@ -167,6 +229,7 @@ impl FunctionLowerer<'_> {
             ));
         }
         let mut bound = Vec::new();
+        let mut conditions = Vec::new();
         for (field, pattern) in arguments.iter().enumerate() {
             if matches!(pattern.kind, PatternKind::Wildcard) {
                 continue;
@@ -211,19 +274,19 @@ impl FunctionLowerer<'_> {
                 });
                 value
             };
-            self.lower_pattern(
-                pattern,
-                value,
-                constructor.field_types[field],
-                &mut bound,
+            let mut state = PatternState {
+                check_nested,
+                conditions: &mut conditions,
+                bound: &mut bound,
                 assignments,
-            )?;
+            };
+            self.lower_pattern(pattern, value, constructor.field_types[field], &mut state)?;
         }
         let value = self.lower_value(&branch.value, assignments);
         for id in bound {
             self.locals.remove(&id);
         }
-        value
+        value.map(|value| (value, conditions))
     }
 
     fn lower_pattern(
@@ -231,14 +294,13 @@ impl FunctionLowerer<'_> {
         pattern: &psrs_core::Pattern,
         value: ValueId,
         source_type: psrs_core::TypeId,
-        bound: &mut Vec<psrs_hir::LocalId>,
-        assignments: &mut Vec<Assignment>,
+        state: &mut PatternState<'_>,
     ) -> Result<(), Vec<BackendError>> {
         match &pattern.kind {
             PatternKind::Wildcard => Ok(()),
             PatternKind::Var { id, .. } => {
                 self.locals.insert(*id, value);
-                bound.push(*id);
+                state.bound.push(*id);
                 Ok(())
             }
             PatternKind::Constructor { symbol, arguments } => {
@@ -271,12 +333,7 @@ impl FunctionLowerer<'_> {
                         "nested field type has no constructor table",
                     ));
                 };
-                if constructors.len() != 1 {
-                    return Err(case_error(
-                        pattern.span,
-                        "nested constructor patterns require a single-constructor field type",
-                    ));
-                }
+                let single_constructor = constructors.len() == 1;
                 if arguments.len() != constructor.field_count {
                     return Err(case_error(
                         pattern.span,
@@ -296,15 +353,34 @@ impl FunctionLowerer<'_> {
                             "nested newtype constructor has no pattern",
                         ));
                     };
-                    return self.lower_pattern(
-                        field_pattern,
-                        value,
-                        field_type,
-                        bound,
-                        assignments,
-                    );
+                    return self.lower_pattern(field_pattern, value, field_type, state);
                 }
                 if !self.aggregate_types.contains(&type_id) {
+                    if !single_constructor && state.check_nested {
+                        let Some(tag) = self.constructor_tags.get(symbol).copied() else {
+                            return Err(case_error(
+                                pattern.span,
+                                "nested enum constructor has no tag",
+                            ));
+                        };
+                        let expected = self.fresh(ValueType::I32);
+                        state.assignments.push(Assignment {
+                            destination: expected,
+                            kind: AssignmentKind::Constant(tag as i32),
+                            span: pattern.span,
+                        });
+                        let condition = self.fresh(ValueType::Boolean);
+                        state.assignments.push(Assignment {
+                            destination: condition,
+                            kind: AssignmentKind::Primitive {
+                                op: Primitive::Eq,
+                                left: value,
+                                right: expected,
+                            },
+                            span: pattern.span,
+                        });
+                        state.conditions.push(condition);
+                    }
                     return Ok(());
                 }
                 let Some(type_index) = self.constructor_types.get(symbol).copied() else {
@@ -313,11 +389,27 @@ impl FunctionLowerer<'_> {
                         "nested constructor has no GC layout",
                     ));
                 };
+                if !single_constructor && state.check_nested {
+                    let condition = self.fresh(ValueType::Boolean);
+                    state.assignments.push(Assignment {
+                        destination: condition,
+                        kind: AssignmentKind::RefTest {
+                            destination: condition,
+                            value,
+                            reference: RefType {
+                                nullable: false,
+                                heap: HeapType::Index(type_index),
+                            },
+                        },
+                        span: pattern.span,
+                    });
+                    state.conditions.push(condition);
+                }
                 let cast = self.fresh(ValueType::Ref(RefType {
                     nullable: false,
                     heap: HeapType::Index(type_index),
                 }));
-                assignments.push(Assignment {
+                state.assignments.push(Assignment {
                     destination: cast,
                     kind: AssignmentKind::RefCast {
                         destination: cast,
@@ -351,7 +443,7 @@ impl FunctionLowerer<'_> {
                         self.function_types,
                     )?;
                     let child_value = self.fresh(child_type);
-                    assignments.push(Assignment {
+                    state.assignments.push(Assignment {
                         destination: child_value,
                         kind: AssignmentKind::StructGet {
                             destination: child_value,
@@ -361,13 +453,7 @@ impl FunctionLowerer<'_> {
                         },
                         span: child.span,
                     });
-                    self.lower_pattern(
-                        child,
-                        child_value,
-                        constructor.field_types[field],
-                        bound,
-                        assignments,
-                    )?;
+                    self.lower_pattern(child, child_value, constructor.field_types[field], state)?;
                 }
                 Ok(())
             }

@@ -8,6 +8,7 @@ use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod aggregate;
+mod clone;
 mod erased;
 
 impl FunctionLowerer<'_> {
