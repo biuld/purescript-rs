@@ -244,6 +244,7 @@ dependencies = [
  "psrs-resolve",
  "psrs-span",
  "psrs-syntax",
+ "psrs-thir",
  "psrs-typecheck",
 ]
 

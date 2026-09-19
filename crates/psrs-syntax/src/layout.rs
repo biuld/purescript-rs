@@ -62,7 +62,13 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 blocks.pop();
                 result.push(virtual_token(LayoutTokenKind::LayoutEnd, token.span.start));
             }
-            if blocks.last().is_some_and(|block| indent == block.indent) {
+            // A line that starts with an operator continues the previous
+            // expression instead of starting a new layout item.
+            let continues_expression = matches!(
+                token.kind,
+                RawTokenKind::Operator(_) | RawTokenKind::Backtick
+            );
+            if !continues_expression && blocks.last().is_some_and(|block| indent == block.indent) {
                 result.push(virtual_token(LayoutTokenKind::LayoutSep, token.span.start));
             }
         }
@@ -71,11 +77,17 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
         if let Some(kind) = pending.take()
             && !matches!(token.kind, RawTokenKind::LBrace)
         {
-            result.push(virtual_token(
-                LayoutTokenKind::LayoutStart,
-                token.span.start,
-            ));
-            blocks.push(Block { indent, kind });
+            let enclosing = blocks
+                .last()
+                .map(|block| block.indent as isize)
+                .unwrap_or(-1);
+            if indent as isize > enclosing {
+                result.push(virtual_token(
+                    LayoutTokenKind::LayoutStart,
+                    token.span.start,
+                ));
+                blocks.push(Block { indent, kind });
+            }
         }
 
         result.push(raw(token));

@@ -1,4 +1,4 @@
-use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId};
+use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -6,11 +6,17 @@ pub struct TypeId(pub u32);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
+    /// A generalized type variable. See [`Declaration::quantified`] and
+    /// [`Binding::quantified`] for the variables bound at each site.
+    Variable(TypeVariableId),
     I32,
     Boolean,
     String,
     Unit,
-    Function { parameter: TypeId, result: TypeId },
+    Function {
+        parameter: TypeId,
+        result: TypeId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +34,7 @@ pub struct Declaration {
     pub symbol: SymbolId,
     pub name: String,
     pub name_span: TextRange,
+    pub quantified: Vec<TypeVariableId>,
     pub ty: TypeId,
     pub value: Expr,
     pub span: TextRange,
@@ -44,6 +51,7 @@ pub struct Binder {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {
     pub binder: Binder,
+    pub quantified: Vec<TypeVariableId>,
     pub value: Expr,
     pub span: TextRange,
 }
@@ -169,6 +177,7 @@ mod tests {
                 symbol: SymbolId::new(ModuleId(0), 0),
                 name: "main".into(),
                 name_span: TextRange::new(0, 4),
+                quantified: Vec::new(),
                 ty: TypeId(2),
                 value: Expr {
                     kind: ExprKind::Integer(1),

@@ -128,6 +128,13 @@ fn declaration_shape(
     declaration: &psrs_core::Declaration,
     module: &CoreModule,
 ) -> Result<(usize, ValueType), Vec<BackendError>> {
+    if !declaration.quantified.is_empty() {
+        return Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.name_span,
+            "polymorphic declarations are not supported by the first backend slice",
+        )]);
+    }
     let mut ty = declaration.ty;
     let mut arity = 0;
     let mut value = &declaration.value;
@@ -153,6 +160,11 @@ fn declaration_shape(
     match module.types.get(ty.0 as usize) {
         Some(Type::I32 | Type::String | Type::Unit) => Ok((arity, ValueType::I32)),
         Some(Type::Boolean) => Ok((arity, ValueType::Boolean)),
+        Some(Type::Variable(_)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.name_span,
+            "polymorphic declarations are not supported by the first backend slice",
+        )]),
         Some(Type::Function { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -417,6 +429,11 @@ fn scalar_type(
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
         Some(Type::Boolean) => Ok(ValueType::Boolean),
+        Some(Type::Variable(_)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "polymorphic values are not supported by the first backend slice",
+        )]),
         Some(Type::Function { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,

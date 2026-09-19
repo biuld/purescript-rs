@@ -1,7 +1,8 @@
 use super::*;
+
 impl Checker {
     pub(super) fn new(module: &hir::Module) -> Self {
-        let mut checker = Self {
+        Self {
             globals: HashMap::new(),
             external_kinds: module
                 .externals
@@ -10,21 +11,23 @@ impl Checker {
                 .collect(),
             locals: HashMap::new(),
             substitutions: HashMap::new(),
+            levels: HashMap::new(),
+            generic_variables: HashSet::new(),
+            rigid: HashSet::new(),
             next_variable: 0,
+            level: 1,
             errors: Vec::new(),
-        };
-        for declaration in &module.declarations {
-            let variable = checker.fresh();
-            checker.globals.insert(declaration.symbol, variable);
         }
-        checker
     }
 
     pub(super) fn infer_expr(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
         let span = expression.span;
         let (kind, ty) = match &expression.kind {
-            hir::ExprKind::Local(id) => match self.locals.get(id) {
-                Some(ty) => (InferredExprKind::Local(*id), ty.clone()),
+            hir::ExprKind::Local(id) => match self.locals.get(id).cloned() {
+                Some(scheme) => {
+                    let ty = self.instantiate(&scheme);
+                    (InferredExprKind::Local(*id), ty)
+                }
                 None => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::InvalidHir,
@@ -35,8 +38,9 @@ impl Checker {
                 }
             },
             hir::ExprKind::Global(symbol) => {
-                if let Some(ty) = self.globals.get(symbol) {
-                    (InferredExprKind::Global(*symbol), ty.clone())
+                if let Some(scheme) = self.globals.get(symbol).cloned() {
+                    let ty = self.instantiate(&scheme);
+                    (InferredExprKind::Global(*symbol), ty)
                 } else {
                     match self.external_kinds.get(symbol) {
                         Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => {
@@ -114,7 +118,8 @@ impl Checker {
             }
             hir::ExprKind::Lambda { binder, body } => {
                 let binder_ty = self.fresh();
-                self.locals.insert(binder.id, binder_ty.clone());
+                self.locals
+                    .insert(binder.id, Scheme::monomorphic(binder_ty.clone()));
                 let body = self.infer_expr(body);
                 self.locals.remove(&binder.id);
                 let body = body?;
@@ -124,7 +129,7 @@ impl Checker {
                     InferredExprKind::Lambda {
                         binder: InferredBinder {
                             binder: binder.clone(),
-                            ty: binder_ty,
+                            scheme: Scheme::monomorphic(binder_ty),
                         },
                         body: Box::new(body),
                     },
@@ -132,19 +137,22 @@ impl Checker {
                 )
             }
             hir::ExprKind::Let { bindings, body } => {
+                let outer_level = self.level;
+                self.level += 1;
                 let mut binders = Vec::with_capacity(bindings.len());
                 for binding in bindings {
                     let ty = self.fresh();
-                    self.locals.insert(binding.binder.id, ty.clone());
+                    self.locals
+                        .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
                     binders.push(InferredBinder {
                         binder: binding.binder.clone(),
-                        ty,
+                        scheme: Scheme::monomorphic(ty),
                     });
                 }
                 let mut inferred_bindings = Vec::with_capacity(bindings.len());
                 for (binding, binder) in bindings.iter().zip(binders) {
                     if let Some(value) = self.infer_expr(&binding.value) {
-                        self.unify(binder.ty.clone(), value.ty.clone(), binding.span);
+                        self.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
                         inferred_bindings.push(InferredBinding {
                             binder,
                             value,
@@ -152,6 +160,14 @@ impl Checker {
                         });
                     }
                 }
+                // Generalize the recursive group before the body, which is where
+                // uses of the bindings are instantiated.
+                for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
+                    let scheme = self.generalize(&inferred.binder.scheme.ty, outer_level);
+                    inferred.binder.scheme = scheme.clone();
+                    self.locals.insert(binding.binder.id, scheme);
+                }
+                self.level = outer_level;
                 let body = self.infer_expr(body);
                 for binding in bindings {
                     self.locals.remove(&binding.binder.id);
@@ -197,168 +213,6 @@ impl Checker {
             }
         };
         Some(InferredExpr { kind, ty, span })
-    }
-
-    fn fresh(&mut self) -> InferType {
-        let variable = InferType::Variable(self.next_variable);
-        self.next_variable += 1;
-        variable
-    }
-
-    pub(super) fn unify(&mut self, left: InferType, right: InferType, span: TextRange) {
-        let left = self.resolve_type(left);
-        let right = self.resolve_type(right);
-        match (left, right) {
-            (InferType::Variable(a), InferType::Variable(b)) if a == b => {}
-            (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
-                if occurs(variable, &ty) {
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::OccursCheck,
-                        span,
-                        format!("infinite type: _T{variable} occurs in {ty}"),
-                    ));
-                } else {
-                    self.substitutions.insert(variable, ty);
-                }
-            }
-            (InferType::I32, InferType::I32)
-            | (InferType::Boolean, InferType::Boolean)
-            | (InferType::String, InferType::String)
-            | (InferType::Unit, InferType::Unit) => {}
-            (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
-                self.unify(*a1, *a2, span);
-                self.unify(*r1, *r2, span);
-            }
-            (expected, actual) => self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::TypeMismatch,
-                span,
-                format!("type mismatch: expected {expected}, found {actual}"),
-            )),
-        }
-    }
-
-    fn resolve_type(&self, ty: InferType) -> InferType {
-        match ty {
-            InferType::Variable(variable) => self
-                .substitutions
-                .get(&variable)
-                .map(|ty| self.resolve_type(ty.clone()))
-                .unwrap_or(InferType::Variable(variable)),
-            InferType::Function(parameter, result) => InferType::Function(
-                Box::new(self.resolve_type(*parameter)),
-                Box::new(self.resolve_type(*result)),
-            ),
-            primitive => primitive,
-        }
-    }
-
-    pub(super) fn finalize_type(
-        &mut self,
-        ty: &InferType,
-        span: TextRange,
-        interner: &mut TypeInterner,
-    ) -> Option<TypeId> {
-        match self.resolve_type(ty.clone()) {
-            InferType::I32 => Some(interner.intern(Type::I32)),
-            InferType::Boolean => Some(interner.intern(Type::Boolean)),
-            InferType::String => Some(interner.intern(Type::String)),
-            InferType::Unit => Some(interner.intern(Type::Unit)),
-            InferType::Function(parameter, result) => {
-                let parameter = self.finalize_type(&parameter, span, interner);
-                let result = self.finalize_type(&result, span, interner);
-                Some(interner.intern(Type::Function {
-                    parameter: parameter?,
-                    result: result?,
-                }))
-            }
-            InferType::Variable(variable) => {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnconstrainedType,
-                    span,
-                    format!("cannot infer a monomorphic type for _T{variable}"),
-                ));
-                None
-            }
-        }
-    }
-
-    pub(super) fn finalize_expr(
-        &mut self,
-        expression: InferredExpr,
-        interner: &mut TypeInterner,
-    ) -> Option<thir::Expr> {
-        let ty = self.finalize_type(&expression.ty, expression.span, interner);
-        let kind = match expression.kind {
-            InferredExprKind::Local(id) => thir::ExprKind::Local(id),
-            InferredExprKind::Global(id) => thir::ExprKind::Global(id),
-            InferredExprKind::Integer(value) => thir::ExprKind::Integer(value),
-            InferredExprKind::Boolean(value) => thir::ExprKind::Boolean(value),
-            InferredExprKind::String(value) => thir::ExprKind::String(value),
-            InferredExprKind::Application(function, argument) => {
-                let function = self.finalize_expr(*function, interner);
-                let argument = self.finalize_expr(*argument, interner);
-                thir::ExprKind::Application(Box::new(function?), Box::new(argument?))
-            }
-            InferredExprKind::Lambda { binder, body } => {
-                let binder_ty = self.finalize_type(&binder.ty, binder.binder.span, interner);
-                let body = self.finalize_expr(*body, interner);
-                thir::ExprKind::Lambda {
-                    binder: thir::Binder {
-                        id: binder.binder.id,
-                        name: binder.binder.name,
-                        ty: binder_ty?,
-                        span: binder.binder.span,
-                    },
-                    body: Box::new(body?),
-                }
-            }
-            InferredExprKind::Let { bindings, body } => {
-                let bindings = bindings
-                    .into_iter()
-                    .filter_map(|binding| {
-                        let binder_ty = self.finalize_type(
-                            &binding.binder.ty,
-                            binding.binder.binder.span,
-                            interner,
-                        );
-                        let value = self.finalize_expr(binding.value, interner);
-                        Some(thir::Binding {
-                            binder: thir::Binder {
-                                id: binding.binder.binder.id,
-                                name: binding.binder.binder.name,
-                                ty: binder_ty?,
-                                span: binding.binder.binder.span,
-                            },
-                            value: value?,
-                            span: binding.span,
-                        })
-                    })
-                    .collect();
-                thir::ExprKind::Let {
-                    bindings,
-                    body: Box::new(self.finalize_expr(*body, interner)?),
-                }
-            }
-            InferredExprKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let condition = self.finalize_expr(*condition, interner);
-                let then_branch = self.finalize_expr(*then_branch, interner);
-                let else_branch = self.finalize_expr(*else_branch, interner);
-                thir::ExprKind::If {
-                    condition: Box::new(condition?),
-                    then_branch: Box::new(then_branch?),
-                    else_branch: Box::new(else_branch?),
-                }
-            }
-        };
-        Some(thir::Expr {
-            kind,
-            ty: ty?,
-            span: expression.span,
-        })
     }
 }
 

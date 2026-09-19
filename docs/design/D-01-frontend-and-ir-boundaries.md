@@ -213,9 +213,15 @@ exports, cross-module resolution, type namespaces, and class members are not
 implemented yet.
 
 The type checker supports monomorphic `Int`, `Boolean`, `String`, `Unit`, and
-function types with unification and an occurs check. It rejects unconstrained
-types and unsupported expressions; Hindley–Milner generalization, type classes,
-and algebraic data types are not implemented. P4 currently lowers resolved
+function types with unification and an occurs check, plus rank-1 polymorphism:
+it generalizes local `let` groups and top-level strongly connected components
+and instantiates schemes at use sites. THIR and Typed Core types carry generic
+variables and quantified declaration and `let` bindings. Declarations may carry
+a `name :: Type` signature, resolved in HIR to built-in type constructors and
+type variables, then checked against the inferred type with rigid variables.
+The backend rejects polymorphic declarations until type erasure and dictionary
+passing exist. Type classes, higher-kinded types, and algebraic data types are
+not implemented. P4 currently lowers resolved
 operators to applications. P6 turns saturated integer intrinsics into Core
 primitive operations and keeps runtime functions, such as `log`, as direct
 calls. P7 Core optimization has no implementation yet.

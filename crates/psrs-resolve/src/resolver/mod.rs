@@ -1,7 +1,8 @@
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
-    self as hir, Declaration, Expr, ExprKind, ExternalKind, ExternalSymbol, Intrinsic, LocalBinder,
-    LocalBinding, LocalId, ModuleId, RuntimeFunction, SymbolId,
+    self as hir, BuiltinType, Declaration, Expr, ExprKind, ExternalKind, ExternalSymbol, Intrinsic,
+    LocalBinder, LocalBinding, LocalId, ModuleId, RuntimeFunction, SymbolId, Type as HirType,
+    TypeKind as HirTypeKind,
 };
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ pub enum ResolveErrorKind {
     DuplicateLocalBinding,
     DuplicateExternal,
     UnknownName,
+    UnknownTypeName,
     InvalidHir,
 }
 
@@ -35,6 +37,7 @@ impl ResolveError {
                 format!("duplicate external symbol `{name}`")
             }
             ResolveErrorKind::UnknownName => format!("unknown name `{name}`"),
+            ResolveErrorKind::UnknownTypeName => format!("unknown type name `{name}`"),
             ResolveErrorKind::InvalidHir => format!("invalid resolved HIR: {name}"),
         };
         Self {
@@ -117,11 +120,16 @@ pub fn resolve_module_with_externals(
         .enumerate()
         .filter_map(|(index, declaration)| {
             let value = resolver.resolve_expr(declaration.value)?;
+            let signature = match declaration.annotation {
+                Some(annotation) => Some(resolver.resolve_type(annotation)?),
+                None => None,
+            };
             Some(Declaration {
                 symbol: SymbolId::new(module_id, symbol_index(index)),
                 name: declaration.name.text,
                 name_span: declaration.name.span,
                 value,
+                signature,
                 span: declaration.span,
             })
         })
@@ -235,6 +243,34 @@ impl Resolver {
             }
         };
         Some(Expr { kind, span })
+    }
+
+    fn resolve_type(&mut self, expression: ast::Type) -> Option<HirType> {
+        let span = expression.span;
+        let kind = match expression.kind {
+            ast::TypeKind::Name(name) => match name.text.as_str() {
+                "Int" => HirTypeKind::Constructor(BuiltinType::Int),
+                "Boolean" => HirTypeKind::Constructor(BuiltinType::Boolean),
+                "String" => HirTypeKind::Constructor(BuiltinType::String),
+                "Unit" => HirTypeKind::Constructor(BuiltinType::Unit),
+                _ if name
+                    .text
+                    .chars()
+                    .next()
+                    .is_some_and(|first| first.is_uppercase()) =>
+                {
+                    self.report(ResolveErrorKind::UnknownTypeName, name.text, name.span);
+                    return None;
+                }
+                _ => HirTypeKind::Variable(name.text),
+            },
+            ast::TypeKind::Function { parameter, result } => HirTypeKind::Function {
+                parameter: Box::new(self.resolve_type(*parameter)?),
+                result: Box::new(self.resolve_type(*result)?),
+            },
+            ast::TypeKind::Forall { body, .. } => self.resolve_type(*body)?.kind,
+        };
+        Some(HirType { kind, span })
     }
 
     fn resolve_let(

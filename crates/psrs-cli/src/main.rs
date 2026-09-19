@@ -47,13 +47,24 @@ fn run() -> Result<(), String> {
     }
     if !matches!(
         command.as_str(),
-        "lex" | "layout" | "parse" | "ast" | "hir" | "build" | "wat"
+        "lex" | "layout" | "parse" | "ast" | "hir" | "check" | "build" | "wat"
     ) {
         return Err(usage());
     }
 
     let text = fs::read_to_string(&path).map_err(|error| format!("{path}: {error}"))?;
     let source = SourceFile::new(path.as_str(), text.as_str());
+    if command == "check" {
+        return match psrs_driver::check_source(&path, &text) {
+            Ok(()) => Ok(()),
+            Err(errors) => {
+                for error in errors {
+                    print_diagnostic(&source, error.span, error.stage, &error.message);
+                }
+                Err(String::new())
+            }
+        };
+    }
     if compile_command {
         let artifact = match psrs_driver::compile_source(&path, &text) {
             Ok(artifact) => artifact,
@@ -116,10 +127,19 @@ fn run() -> Result<(), String> {
         }
         "ast" => {
             let tokens = add_layout(&source, &tokens);
-            match parse_module(&tokens) {
-                Ok(module) => println!("{:#?}", psrs_ast::lower_module(module)),
+            let module = match parse_module(&tokens) {
+                Ok(module) => module,
                 Err(error) => {
                     print_diagnostic(&source, error.span, "parse error", &error.message);
+                    return Err(String::new());
+                }
+            };
+            match psrs_ast::lower_module(module) {
+                Ok(module) => println!("{module:#?}"),
+                Err(errors) => {
+                    for error in errors {
+                        print_diagnostic(&source, error.span, "surface lowering", error.message);
+                    }
                     return Err(String::new());
                 }
             }
@@ -133,9 +153,18 @@ fn run() -> Result<(), String> {
                     return Err(String::new());
                 }
             };
+            let ast = match psrs_ast::lower_module(module) {
+                Ok(ast) => ast,
+                Err(errors) => {
+                    for error in errors {
+                        print_diagnostic(&source, error.span, "surface lowering", error.message);
+                    }
+                    return Err(String::new());
+                }
+            };
             let intrinsics = psrs_resolve::bootstrap_externals();
             match psrs_resolve::resolve_module_with_externals(
-                psrs_ast::lower_module(module),
+                ast,
                 psrs_hir::ModuleId(0),
                 &intrinsics,
             ) {
@@ -154,7 +183,7 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir> <file.purs>\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
 }
 
 fn dump_ir(stage: &str, path: &str) -> Result<(), String> {

@@ -37,6 +37,11 @@ pub enum RawTokenKind {
     Class,
     Instance,
     Derive,
+    Foreign,
+    Infix,
+    Infixl,
+    Infixr,
+    Role,
     Let,
     In,
     If,
@@ -48,6 +53,8 @@ pub enum RawTokenKind {
     Ado,
     Forall,
 
+    Hole(String),
+
     LParen,
     RParen,
     LBrace,
@@ -56,13 +63,16 @@ pub enum RawTokenKind {
     RBracket,
     Comma,
     Dot,
+    DotDot,
     Colon,
     DoubleColon,
     Equals,
+    FatArrow,
     Arrow,
     LeftArrow,
     Pipe,
     Backslash,
+    Backtick,
     Newline,
     Eof,
 }
@@ -87,6 +97,12 @@ impl RawTokenKind {
             Self::Class => "Class",
             Self::Instance => "Instance",
             Self::Derive => "Derive",
+            Self::Foreign => "Foreign",
+            Self::Infix => "Infix",
+            Self::Infixl => "Infixl",
+            Self::Infixr => "Infixr",
+            Self::Role => "Role",
+            Self::Hole(_) => "Hole",
             Self::Let => "Let",
             Self::In => "In",
             Self::If => "If",
@@ -105,13 +121,16 @@ impl RawTokenKind {
             Self::RBracket => "RBracket",
             Self::Comma => "Comma",
             Self::Dot => "Dot",
+            Self::DotDot => "DotDot",
             Self::Colon => "Colon",
             Self::DoubleColon => "DoubleColon",
             Self::Equals => "Equals",
+            Self::FatArrow => "FatArrow",
             Self::Arrow => "Arrow",
             Self::LeftArrow => "LeftArrow",
             Self::Pipe => "Pipe",
             Self::Backslash => "Backslash",
+            Self::Backtick => "Backtick",
             Self::Newline => "Newline",
             Self::Eof => "Eof",
         }
@@ -122,7 +141,8 @@ impl RawTokenKind {
             Self::LowerIdent(text)
             | Self::UpperIdent(text)
             | Self::Integer(text)
-            | Self::Operator(text) => Some(text),
+            | Self::Operator(text)
+            | Self::Hole(text) => Some(text),
             _ => None,
         }
     }
@@ -147,6 +167,11 @@ fn keyword(text: String) -> RawTokenKind {
         "class" => RawTokenKind::Class,
         "instance" => RawTokenKind::Instance,
         "derive" => RawTokenKind::Derive,
+        "foreign" => RawTokenKind::Foreign,
+        "infix" => RawTokenKind::Infix,
+        "infixl" => RawTokenKind::Infixl,
+        "infixr" => RawTokenKind::Infixr,
+        "role" => RawTokenKind::Role,
         "let" => RawTokenKind::Let,
         "in" => RawTokenKind::In,
         "if" => RawTokenKind::If,
@@ -165,21 +190,53 @@ fn keyword(text: String) -> RawTokenKind {
 fn classify_operator(text: String) -> RawTokenKind {
     match text.as_str() {
         "=" => RawTokenKind::Equals,
-        "::" => RawTokenKind::DoubleColon,
-        "->" => RawTokenKind::Arrow,
-        "<-" => RawTokenKind::LeftArrow,
+        "::" | "∷" => RawTokenKind::DoubleColon,
+        "=>" | "⇒" => RawTokenKind::FatArrow,
+        "->" | "→" => RawTokenKind::Arrow,
+        "<-" | "←" => RawTokenKind::LeftArrow,
         "|" => RawTokenKind::Pipe,
         "." => RawTokenKind::Dot,
+        ".." => RawTokenKind::DotDot,
         ":" => RawTokenKind::Colon,
+        "∀" => RawTokenKind::Forall,
         _ => RawTokenKind::Operator(text),
     }
 }
 
+fn is_operator_char(character: char) -> bool {
+    "!#$%&*+./<=>?@\\^|-~:∷∀→←⇒".contains(character)
+}
+
+fn is_identifier_start(character: char) -> bool {
+    character.is_ascii_alphabetic() || character == '_'
+}
+
+fn is_identifier_char(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_' || character == '\''
+}
+
 fn lexer() -> impl Parser<char, Vec<RawToken>, Error = Simple<char>> {
-    let identifier = filter(|c: &char| c.is_ascii_alphabetic() || *c == '_')
-        .then(filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '\'').repeated())
+    let identifier = filter(|c: &char| is_identifier_start(*c))
+        .then(filter(|c: &char| is_identifier_char(*c)).repeated())
         .map(|(first, rest)| std::iter::once(first).chain(rest).collect::<String>())
         .map(keyword);
+
+    let hole = just('?')
+        .ignore_then(
+            filter(|c: &char| is_identifier_char(*c))
+                .repeated()
+                .at_least(1),
+        )
+        .collect::<String>()
+        .map(RawTokenKind::Hole);
+
+    let symbol = choice((
+        just('∷').to(RawTokenKind::DoubleColon),
+        just('⇒').to(RawTokenKind::FatArrow),
+        just('→').to(RawTokenKind::Arrow),
+        just('←').to(RawTokenKind::LeftArrow),
+        just('∀').to(RawTokenKind::Forall),
+    ));
 
     let escape = just('\\').ignore_then(choice((
         just('n').to('\n'),
@@ -205,7 +262,7 @@ fn lexer() -> impl Parser<char, Vec<RawToken>, Error = Simple<char>> {
         .then_ignore(just('\''))
         .map(RawTokenKind::Char);
 
-    let operator = filter(|c: &char| "!#$%&*+./<=>?@\\^|-~:".contains(*c))
+    let operator = filter(|c: &char| is_operator_char(*c))
         .repeated()
         .at_least(1)
         .collect::<String>()
@@ -214,8 +271,10 @@ fn lexer() -> impl Parser<char, Vec<RawToken>, Error = Simple<char>> {
     let token = choice((
         text::int(10).map(RawTokenKind::Integer),
         identifier,
+        hole,
         string,
         character,
+        just('`').to(RawTokenKind::Backtick),
         just('(').to(RawTokenKind::LParen),
         just(')').to(RawTokenKind::RParen),
         just('{').to(RawTokenKind::LBrace),
@@ -224,6 +283,7 @@ fn lexer() -> impl Parser<char, Vec<RawToken>, Error = Simple<char>> {
         just(']').to(RawTokenKind::RBracket),
         just(',').to(RawTokenKind::Comma),
         just('\\').to(RawTokenKind::Backslash),
+        symbol,
         operator,
     ));
 

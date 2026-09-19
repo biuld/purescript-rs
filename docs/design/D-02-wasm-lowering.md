@@ -75,8 +75,13 @@ literals, local scalar `let` bindings, and value-producing `if`. Top-level
 lambdas become direct parameters. The `log` runtime function writes a `String`
 to standard output and returns `Unit`. Nested or capturing lambdas, function
 values, higher-order calls, source imports, and aggregate values are rejected
-with source diagnostics. Type inference is monomorphic; generalization and
-type classes remain future work.
+with source diagnostics. Type inference supports rank-1 polymorphism: it
+generalizes local `let` groups and top-level strongly connected components and
+instantiates schemes at use sites. Declarations may carry a `name :: Type`
+signature with function arrows and `forall`; the checker elaborates it with
+rigid variables and checks the body against it. Because the backend does not
+yet erase types or pass dictionaries, it rejects declarations whose checked
+type is polymorphic. Type classes remain future work.
 
 The backend is grouped into one bootstrap crate, while CC IR, MIR, and the
 structured Wasm encoding remain separate Rust types with their own invariants.

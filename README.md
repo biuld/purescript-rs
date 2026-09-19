@@ -21,6 +21,7 @@ cargo run -- layout examples/basic.purs
 cargo run -- parse examples/basic.purs
 cargo run -- ast examples/basic.purs
 cargo run -- hir examples/resolved.purs
+cargo run -- check examples/basic.purs
 cargo run -- build examples/basic.purs -o /tmp/basic.wasm
 cargo run -- wat examples/basic.purs -o /tmp/basic.wat
 cargo run -- dump mir examples/basic.purs
@@ -30,17 +31,22 @@ cargo run -- build examples/hello.purs -o /tmp/hello.wasm
 wasmtime run /tmp/hello.wasm            # prints "hello world"
 ```
 
-The parser handles a module with simple value declarations, names,
+The parser handles a module with simple value declarations, `name :: Type`
+signatures (function arrows, `forall`, and parentheses), names,
 integer/string/character literals, application, infix operators, lambdas,
 `if`, and `let`. `parse` displays the concrete syntax tree; `ast` displays the
 normalized AST; `hir` displays resolved local and same-module value names.
 The first executable slice supports monomorphic `Int`, `Boolean`, `String`,
 `Unit`, direct top-level calls, integer operators, string literals and `log`,
-scalar `let`, and value-producing `if`. `build` writes a validated core Wasm
-WASI command exporting zero-argument `main` and `_start`; `wat` renders the
-corresponding text form. General PureScript compatibility, polymorphic
-inference, source imports, closures, aggregate values, and the Component Model
-layer are not implemented yet.
+scalar `let`, and value-producing `if`. Type inference adds rank-1
+polymorphism: local `let` groups and top-level strongly connected components are
+generalized and schemes are instantiated at use sites. The backend rejects
+polymorphic declarations until type erasure and dictionary passing exist;
+`identity` therefore reports a backend diagnostic. `build` writes a validated
+core Wasm WASI command exporting zero-argument `main` and `_start`; `wat`
+renders the corresponding text form. General PureScript compatibility, type
+classes, higher-kinded types, source imports, closures, aggregate values, and
+the Component Model layer are not implemented yet.
 
 ## Workspace
 
@@ -51,8 +57,8 @@ layer are not implemented yet.
 - `psrs-hir` owns resolved HIR nodes and stable declaration/local IDs.
 - `psrs-resolve` resolves locals and same-module value names into HIR.
 - `psrs-syntax` implements lexing, layout insertion, and parsing.
-- `psrs-thir` and `psrs-typecheck` own typed expressions and monomorphic type
-  inference.
+- `psrs-thir` and `psrs-typecheck` own typed expressions and rank-1
+  polymorphic type inference.
 - `psrs-desugar` lowers resolved operator syntax while preserving HIR.
 - `psrs-core` owns Typed Core and its HIR lowering pass.
 - `psrs-backend` owns direct-call CC IR, MIR/CFG, the structured Wasm
@@ -78,7 +84,11 @@ and [D-02](docs/design/D-02-wasm-lowering.md).
 The main user-facing goals are described by [F-01](docs/feature/F-01-source-inspection.md)
 and [F-02](docs/feature/F-02-portable-programs.md). Their implementations are
 specified in [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
-[D-02](docs/design/D-02-wasm-lowering.md).
+[D-02](docs/design/D-02-wasm-lowering.md). The type system is specified in
+[D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
+[D-04](docs/design/D-04-suite-roadmap.md); the corresponding decisions are
+[DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md) and
+[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md).
 
 ## Development checks
 
@@ -86,4 +96,12 @@ specified in [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
 cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The optional upstream differential test checks the front end against the
+official `purs` compiler on a small manifest of cases. It skips when `purs` or
+a PureScript checkout is unavailable:
+
+```sh
+PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
 ```

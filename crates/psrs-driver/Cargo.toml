@@ -13,4 +13,5 @@ psrs-hir.workspace = true
 psrs-resolve.workspace = true
 psrs-span.workspace = true
 psrs-syntax.workspace = true
+psrs-thir.workspace = true
 psrs-typecheck.workspace = true

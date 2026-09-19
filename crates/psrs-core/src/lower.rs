@@ -28,6 +28,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
             .types
             .into_iter()
             .map(|ty| match ty {
+                psrs_thir::Type::Variable(variable) => Type::Variable(variable),
                 psrs_thir::Type::I32 => Type::I32,
                 psrs_thir::Type::Boolean => Type::Boolean,
                 psrs_thir::Type::String => Type::String,
@@ -45,6 +46,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
                 symbol: declaration.symbol,
                 name: declaration.name,
                 name_span: declaration.name_span,
+                quantified: declaration.quantified,
                 ty: TypeId(declaration.ty.0),
                 value: lower_expr(declaration.value, &externals),
                 span: declaration.span,
@@ -111,6 +113,7 @@ fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>
                         ty: TypeId(binding.binder.ty.0),
                         span: binding.binder.span,
                     },
+                    quantified: binding.quantified,
                     value: lower_expr(binding.value, externals),
                     span: binding.span,
                 })

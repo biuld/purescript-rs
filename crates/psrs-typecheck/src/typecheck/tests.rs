@@ -1,6 +1,7 @@
 use super::*;
 use psrs_hir::{
     Declaration as HirDeclaration, Expr as HirExpr, ExprKind as HirExprKind, ModuleId, SymbolId,
+    Type as HirType, TypeKind as HirTypeKind,
 };
 use psrs_resolve::bootstrap_externals;
 
@@ -18,6 +19,26 @@ fn declaration(symbol: u32, name: &str, start: u32, value: HirExpr) -> HirDeclar
         name_span: TextRange::new(start, start + name.len() as u32),
         span: TextRange::new(start, value.span.end),
         value,
+        signature: None,
+    }
+}
+
+fn declaration_with_signature(
+    symbol: u32,
+    name: &str,
+    start: u32,
+    signature: HirType,
+    value: HirExpr,
+) -> HirDeclaration {
+    let mut declaration = declaration(symbol, name, start, value);
+    declaration.signature = Some(signature);
+    declaration
+}
+
+fn type_variable(name: &str, start: u32) -> HirType {
+    HirType {
+        kind: HirTypeKind::Variable(name.into()),
+        span: TextRange::new(start, start + name.len() as u32),
     }
 }
 
@@ -140,34 +161,159 @@ fn rejects_a_non_boolean_if_condition() {
 }
 
 #[test]
-fn rejects_unconstrained_and_infinite_types() {
-    let unconstrained = module(
-        vec![declaration(
-            0,
-            "identity",
-            19,
-            expr(
-                HirExprKind::Lambda {
-                    binder: LocalBinder {
-                        id: LocalId(0),
-                        name: "value".into(),
-                        span: TextRange::new(28, 33),
-                    },
-                    body: Box::new(local(0, 36)),
+fn generalizes_top_level_functions() {
+    let identity = declaration(
+        0,
+        "identity",
+        19,
+        expr(
+            HirExprKind::Lambda {
+                binder: LocalBinder {
+                    id: LocalId(0),
+                    name: "value".into(),
+                    span: TextRange::new(28, 33),
                 },
-                27,
-                36,
-            ),
-        )],
-        false,
+                body: Box::new(local(0, 36)),
+            },
+            27,
+            37,
+        ),
     );
-    let errors = typecheck_module(unconstrained).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.kind == TypeCheckErrorKind::UnconstrainedType)
-    );
+    let resolved = module(vec![identity], false);
 
+    let resolved = psrs_desugar::desugar_module(resolved).unwrap();
+    let typed = typecheck_module(resolved).unwrap();
+    assert_eq!(typed.declarations[0].quantified.len(), 1);
+    assert_eq!(
+        typed.types[typed.declarations[0].ty.0 as usize],
+        Type::Function {
+            parameter: TypeId(0),
+            result: TypeId(0),
+        }
+    );
+    assert!(matches!(typed.types[0], Type::Variable(_)));
+    typed.verify().unwrap();
+}
+
+#[test]
+fn checks_a_declared_polymorphic_signature() {
+    let signature = HirType {
+        kind: HirTypeKind::Variable("a".into()),
+        span: TextRange::new(20, 21),
+    };
+    let identity = declaration_with_signature(
+        0,
+        "identity",
+        19,
+        HirType {
+            kind: HirTypeKind::Function {
+                parameter: Box::new(signature.clone()),
+                result: Box::new(signature),
+            },
+            span: TextRange::new(20, 26),
+        },
+        expr(
+            HirExprKind::Lambda {
+                binder: LocalBinder {
+                    id: LocalId(0),
+                    name: "x".into(),
+                    span: TextRange::new(40, 41),
+                },
+                body: Box::new(local(0, 44)),
+            },
+            39,
+            45,
+        ),
+    );
+    let resolved = module(vec![identity], false);
+
+    let resolved = psrs_desugar::desugar_module(resolved).unwrap();
+    let typed = typecheck_module(resolved).unwrap();
+    assert_eq!(typed.declarations[0].quantified.len(), 1);
+    assert!(typed.types.iter().any(|ty| matches!(ty, Type::Variable(_))));
+    typed.verify().unwrap();
+}
+
+#[test]
+fn rejects_a_body_that_does_not_match_its_signature() {
+    let signature = type_variable("a", 20);
+    let declaration = declaration_with_signature(
+        0,
+        "bad",
+        19,
+        HirType {
+            kind: HirTypeKind::Function {
+                parameter: Box::new(signature.clone()),
+                result: Box::new(signature),
+            },
+            span: TextRange::new(20, 26),
+        },
+        expr(
+            HirExprKind::Lambda {
+                binder: LocalBinder {
+                    id: LocalId(0),
+                    name: "x".into(),
+                    span: TextRange::new(40, 41),
+                },
+                body: Box::new(integer("1", 44)),
+            },
+            39,
+            45,
+        ),
+    );
+    let resolved = module(vec![declaration], false);
+
+    let errors = typecheck_module(resolved).unwrap_err();
+    let mismatch = errors
+        .iter()
+        .find(|error| error.kind == TypeCheckErrorKind::TypeMismatch)
+        .expect("expected a type mismatch");
+    assert!(mismatch.message().contains("signature mismatch"));
+}
+
+#[test]
+fn generalizes_let_bound_functions() {
+    let let_expression = expr(
+        HirExprKind::Let {
+            bindings: vec![hir::LocalBinding {
+                binder: LocalBinder {
+                    id: LocalId(0),
+                    name: "id".into(),
+                    span: TextRange::new(30, 32),
+                },
+                value: expr(
+                    HirExprKind::Lambda {
+                        binder: LocalBinder {
+                            id: LocalId(1),
+                            name: "x".into(),
+                            span: TextRange::new(34, 35),
+                        },
+                        body: Box::new(local(1, 38)),
+                    },
+                    33,
+                    39,
+                ),
+                span: TextRange::new(26, 39),
+            }],
+            body: Box::new(expr(
+                HirExprKind::Application(Box::new(local(0, 44)), Box::new(local(0, 46))),
+                44,
+                47,
+            )),
+        },
+        26,
+        47,
+    );
+    let resolved = module(vec![declaration(0, "main", 19, let_expression)], false);
+
+    let resolved = psrs_desugar::desugar_module(resolved).unwrap();
+    let typed = typecheck_module(resolved).unwrap();
+    assert_eq!(typed.declarations[0].quantified.len(), 1);
+    typed.verify().unwrap();
+}
+
+#[test]
+fn rejects_infinite_types() {
     let self_application = module(
         vec![declaration(
             0,

@@ -66,10 +66,10 @@ pub fn compile_source_with_dumps(
     })
 }
 
-fn lower_source_to_core(
+fn check_source_to_thir(
     source_name: &str,
     source_text: &str,
-) -> Result<psrs_core::Module, Vec<Diagnostic>> {
+) -> Result<psrs_thir::Module, Vec<Diagnostic>> {
     let source = SourceFile::new(source_name, source_text);
     let (tokens, lex_errors) = psrs_syntax::lex(source.text());
     if !lex_errors.is_empty() {
@@ -81,7 +81,12 @@ fn lower_source_to_core(
     let layout_tokens = psrs_syntax::add_layout(&source, &tokens);
     let cst = psrs_syntax::parse_module(&layout_tokens)
         .map_err(|error| vec![diagnostic("P1 parse", error.span, error.message)])?;
-    let ast = psrs_ast::lower_module(cst);
+    let ast = psrs_ast::lower_module(cst).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| diagnostic("P2 surface lowering", error.span, error.message))
+            .collect::<Vec<_>>()
+    })?;
     let intrinsics = psrs_resolve::bootstrap_externals();
     let hir = psrs_resolve::resolve_module_with_externals(ast, psrs_hir::ModuleId(0), &intrinsics)
         .map_err(|errors| {
@@ -102,6 +107,37 @@ fn lower_source_to_core(
             .map(|error| diagnostic("P5 typecheck", error.span, error.message()))
             .collect::<Vec<_>>()
     })?;
+    Ok(thir)
+}
+
+/// Runs the source stages P0 through P5 and reports diagnostics without
+/// lowering to Core or the backend. Useful for checking source acceptance.
+pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
+    check_source_to_thir(source_name, source_text).map(|_| ())
+}
+
+/// Runs lexing, layout, and parsing only (P0–P2). Reports diagnostics and
+/// never reaches name resolution, type checking, or the backend.
+pub fn parse_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
+    let source = SourceFile::new(source_name, source_text);
+    let (tokens, lex_errors) = psrs_syntax::lex(source.text());
+    if !lex_errors.is_empty() {
+        return Err(lex_errors
+            .into_iter()
+            .map(|error| diagnostic("P0 lex", error.span, error.message))
+            .collect());
+    }
+    let layout_tokens = psrs_syntax::add_layout(&source, &tokens);
+    psrs_syntax::parse_module(&layout_tokens)
+        .map_err(|error| vec![diagnostic("P1 parse", error.span, error.message)])?;
+    Ok(())
+}
+
+fn lower_source_to_core(
+    source_name: &str,
+    source_text: &str,
+) -> Result<psrs_core::Module, Vec<Diagnostic>> {
+    let thir = check_source_to_thir(source_name, source_text)?;
     let core = psrs_core::lower_module(thir).map_err(|errors| {
         errors
             .into_iter()

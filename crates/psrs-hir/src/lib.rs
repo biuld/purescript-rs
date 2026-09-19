@@ -83,6 +83,38 @@ pub struct ExternalSymbol {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LocalId(pub u32);
 
+/// Identifies a generalized type variable. IDs are unique across a module so a
+/// flat type table can keep them distinct without per-scheme scoping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeVariableId(pub u32);
+
+/// A resolved type signature. Type names have been resolved to built-in
+/// constructors or type variables; the source span is retained for diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Type {
+    pub kind: TypeKind,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypeKind {
+    Variable(String),
+    Constructor(BuiltinType),
+    Function {
+        parameter: Box<Type>,
+        result: Box<Type>,
+    },
+}
+
+/// A built-in type constructor known to the compiler.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BuiltinType {
+    Int,
+    Boolean,
+    String,
+    Unit,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub id: ModuleId,
@@ -98,6 +130,7 @@ pub struct Declaration {
     pub name: String,
     pub name_span: TextRange,
     pub value: Expr,
+    pub signature: Option<Type>,
     pub span: TextRange,
 }
 
@@ -339,6 +372,7 @@ mod tests {
                     kind: ExprKind::Local(LocalId(9)),
                     span: TextRange::new(7, 8),
                 },
+                signature: None,
                 span: TextRange::new(0, 8),
             }],
             span: TextRange::new(0, 8),

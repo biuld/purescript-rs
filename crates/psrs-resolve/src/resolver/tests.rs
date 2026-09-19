@@ -1,5 +1,8 @@
 use super::*;
-use psrs_ast::{Binder, Declaration as AstDeclaration, ExprKind as AstExprKind, Name};
+use psrs_ast::{
+    Binder, Declaration as AstDeclaration, ExprKind as AstExprKind, Name, Type as AstType,
+    TypeKind as AstTypeKind,
+};
 
 fn name(text: &str, start: u32) -> Name {
     Name {
@@ -20,6 +23,14 @@ fn declaration(name_text: &str, start: u32, value: ast::Expr) -> AstDeclaration 
         name: name(name_text, start),
         span: TextRange::new(start, value.span.end),
         value,
+        annotation: None,
+    }
+}
+
+fn type_name(text: &str, start: u32) -> AstType {
+    AstType {
+        kind: AstTypeKind::Name(name(text, start)),
+        span: TextRange::new(start, start + text.len() as u32),
     }
 }
 
@@ -256,4 +267,55 @@ fn rejects_duplicate_bindings_in_one_let_group() {
         error.kind == ResolveErrorKind::DuplicateLocalBinding
             && error.span == TextRange::new(40, 45)
     }));
+}
+
+#[test]
+fn resolves_declaration_signature_to_hir_type() {
+    let annotation = AstType {
+        kind: AstTypeKind::Function {
+            parameter: Box::new(type_name("Int", 27)),
+            result: Box::new(type_name("Boolean", 32)),
+        },
+        span: TextRange::new(27, 39),
+    };
+    let mut declaration = declaration(
+        "main",
+        19,
+        expression(AstExprKind::Integer("1".into()), 43, 44),
+    );
+    declaration.annotation = Some(annotation);
+
+    let resolved = resolve_module(module(vec![declaration]), ModuleId(0)).unwrap();
+    assert_eq!(
+        resolved.declarations[0].signature,
+        Some(HirType {
+            kind: HirTypeKind::Function {
+                parameter: Box::new(HirType {
+                    kind: HirTypeKind::Constructor(BuiltinType::Int),
+                    span: TextRange::new(27, 30),
+                }),
+                result: Box::new(HirType {
+                    kind: HirTypeKind::Constructor(BuiltinType::Boolean),
+                    span: TextRange::new(32, 39),
+                }),
+            },
+            span: TextRange::new(27, 39),
+        })
+    );
+}
+
+#[test]
+fn reports_unknown_uppercase_type_names_with_the_name_span() {
+    let mut declaration = declaration(
+        "main",
+        19,
+        expression(AstExprKind::Integer("1".into()), 34, 35),
+    );
+    declaration.annotation = Some(type_name("Maybe", 27));
+
+    let errors = resolve_module(module(vec![declaration]), ModuleId(0)).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, ResolveErrorKind::UnknownTypeName);
+    assert_eq!(errors[0].span, TextRange::new(27, 32));
+    assert_eq!(errors[0].message(), "unknown type name `Maybe`");
 }

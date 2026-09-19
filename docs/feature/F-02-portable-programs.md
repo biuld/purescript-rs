@@ -24,6 +24,14 @@ supported compatibility targets. Programs that use unsupported syntax,
 types, or platform services receive source-oriented diagnostics rather than a
 malformed artifact.
 
+Compatibility is measured against the official PureScript test suite, layer by
+layer, as decided in [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md):
+layout, parse, name resolution, kinds, types, classes, then runtime. Coverage
+is per-file agreement with the official compiler on accept/reject and
+diagnostic code, and the suite defines the minimum target rather than a
+separate feature list. Suite files that require JavaScript or Node.js FFI are
+excluded from the target and count as neither coverage nor gaps.
+
 The current compiler can build a restricted, single-module program to a
 validated core Wasm module and print its WAT form:
 
@@ -52,8 +60,9 @@ services.
 
 ## Initial scope
 
-- Language and platform support grows in documented increments rather than
-  promising compatibility with every existing PureScript program.
+- Language and platform support grows in documented increments, with the
+  official test suite as the compatibility baseline rather than promising
+  compatibility with every existing PureScript program at once.
 - Standard platform services are provided through PureScript-facing WASI
   libraries and a stable runtime interface.
 - Optimizations preserve observable program behavior.

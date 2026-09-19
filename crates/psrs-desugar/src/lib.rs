@@ -109,6 +109,7 @@ mod tests {
                     },
                     span: TextRange::new(10, 15),
                 },
+                signature: None,
                 span: TextRange::new(0, 15),
             }],
             span: TextRange::new(0, 15),

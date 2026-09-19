@@ -65,3 +65,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 The workspace default member is the CLI so `cargo run -- ...` works from the
 repository root. Always use `cargo test --workspace` to include library tests.
+
+An optional differential test compares the front end with the official `purs`
+compiler. It skips when `purs` or a checkout is unavailable, so it never blocks
+`cargo test --workspace`. Run it explicitly with `PURESCRIPT_REPO`:
+
+```sh
+PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
+```

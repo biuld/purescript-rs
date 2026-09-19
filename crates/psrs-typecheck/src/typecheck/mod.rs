@@ -1,9 +1,10 @@
 use psrs_hir::{
     self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, RuntimeFunction, SymbolId,
+    TypeVariableId,
 };
 use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TypeCheckErrorKind {
@@ -53,38 +54,85 @@ pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeChe
     }
 
     let mut checker = Checker::new(&module);
-    let declarations = module
-        .declarations
-        .iter()
-        .filter_map(|declaration| {
-            let value = checker.infer_expr(&declaration.value)?;
-            let ty = checker.globals[&declaration.symbol].clone();
-            checker.unify(ty.clone(), value.ty.clone(), declaration.span);
-            Some(InferredDeclaration {
+    let components = order::declaration_order(&module);
+    let mut inferred = (0..module.declarations.len())
+        .map(|_| None)
+        .collect::<Vec<Option<InferredDeclaration>>>();
+
+    for component in &components {
+        for &index in component {
+            let declaration = &module.declarations[index];
+            let ty = match &declaration.signature {
+                Some(signature) => checker.elaborate_signature(signature),
+                None => checker.fresh(),
+            };
+            checker
+                .globals
+                .insert(declaration.symbol, Scheme::monomorphic(ty));
+        }
+        for &index in component {
+            let declaration = &module.declarations[index];
+            let Some(value) = checker.infer_expr(&declaration.value) else {
+                continue;
+            };
+            let scheme = checker.globals[&declaration.symbol].clone();
+            let span = declaration
+                .signature
+                .as_ref()
+                .map_or(declaration.name_span, |signature| signature.span);
+            checker.unify(scheme.ty.clone(), value.ty.clone(), span);
+            inferred[index] = Some(InferredDeclaration {
                 symbol: declaration.symbol,
                 name: declaration.name.clone(),
                 name_span: declaration.name_span,
-                ty,
+                scheme,
                 value,
                 span: declaration.span,
-            })
-        })
-        .collect::<Vec<_>>();
+            });
+        }
+        // Generalize after the component is inferred so later components
+        // instantiate polymorphic definitions.
+        for &index in component {
+            let Some(monomorphic) = inferred[index].as_ref().map(|d| d.scheme.ty.clone()) else {
+                continue;
+            };
+            let scheme = checker.generalize(&monomorphic, TOP_LEVEL);
+            if let Some(declaration) = inferred[index].as_mut() {
+                declaration.scheme = scheme.clone();
+                checker.globals.insert(declaration.symbol, scheme);
+            }
+        }
+    }
 
     if !checker.errors.is_empty() {
         return Err(checker.errors);
     }
+    let inferred = inferred.into_iter().flatten().collect::<Vec<_>>();
 
     let mut types = TypeInterner::default();
-    let declarations = declarations
+    let generics = checker.generic_variables.clone();
+    let declarations = inferred
         .into_iter()
         .filter_map(|declaration| {
-            let ty = checker.finalize_type(&declaration.ty, declaration.name_span, &mut types)?;
-            let value = checker.finalize_expr(declaration.value, &mut types)?;
+            let quantified = declaration
+                .scheme
+                .variables
+                .iter()
+                .copied()
+                .map(TypeVariableId)
+                .collect();
+            let ty = checker.finalize_type(
+                &declaration.scheme.ty,
+                declaration.name_span,
+                &mut types,
+                &generics,
+            )?;
+            let value = checker.finalize_expr(declaration.value, &mut types, &generics)?;
             Some(thir::Declaration {
                 symbol: declaration.symbol,
                 name: declaration.name,
                 name_span: declaration.name_span,
+                quantified,
                 ty,
                 value,
                 span: declaration.span,
@@ -118,6 +166,10 @@ pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeChe
     }
 }
 
+/// The level of the empty top-level environment. All declaration variables are
+/// created at a higher level, so top-level generalization quantifies them.
+const TOP_LEVEL: u32 = 0;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InferType {
     Variable(u32),
@@ -128,12 +180,28 @@ enum InferType {
     Function(Box<InferType>, Box<InferType>),
 }
 
+/// A type with a set of universally quantified variables.
+#[derive(Clone, Debug)]
+struct Scheme {
+    variables: Vec<u32>,
+    ty: InferType,
+}
+
+impl Scheme {
+    fn monomorphic(ty: InferType) -> Self {
+        Self {
+            variables: Vec::new(),
+            ty,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct InferredDeclaration {
     symbol: SymbolId,
     name: String,
     name_span: TextRange,
-    ty: InferType,
+    scheme: Scheme,
     value: InferredExpr,
     span: TextRange,
 }
@@ -141,7 +209,7 @@ struct InferredDeclaration {
 #[derive(Clone, Debug)]
 struct InferredBinder {
     binder: LocalBinder,
-    ty: InferType,
+    scheme: Scheme,
 }
 
 #[derive(Clone, Debug)]
@@ -182,13 +250,18 @@ enum InferredExprKind {
 }
 
 struct Checker {
-    globals: HashMap<SymbolId, InferType>,
+    globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
-    locals: HashMap<LocalId, InferType>,
+    locals: HashMap<LocalId, Scheme>,
     substitutions: HashMap<u32, InferType>,
+    levels: HashMap<u32, u32>,
+    generic_variables: HashSet<u32>,
+    rigid: HashSet<u32>,
     next_variable: u32,
+    level: u32,
     errors: Vec<TypeCheckError>,
 }
+
 #[derive(Default)]
 struct TypeInterner {
     values: Vec<Type>,
@@ -233,4 +306,8 @@ impl std::fmt::Display for InferType {
 #[cfg(test)]
 mod tests;
 
+mod finalize;
 mod infer;
+mod order;
+mod signature;
+mod unify;
