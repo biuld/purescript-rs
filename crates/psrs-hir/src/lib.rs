@@ -4,6 +4,7 @@ use verify::verify_expr;
 
 mod expr;
 mod module;
+mod runtime;
 mod ty;
 mod types;
 
@@ -11,6 +12,7 @@ pub use expr::{
     CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
+pub use runtime::{HostFunction, host_function, host_function_by_symbol, host_functions};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{ClassMember, Constructor, TypeDeclaration, TypeDeclarationKind};
 pub use verify::VerifyError;
@@ -72,33 +74,14 @@ impl Intrinsic {
     }
 }
 
-/// A value provided by the compiler runtime ABI rather than by the source
-/// program. Unlike an [`Intrinsic`], a runtime function is effectful and is
-/// implemented by the backend over a host interface such as WASI. The
-/// PureScript-facing libraries (`WASI.Console`) are expected to wrap these
-/// entries; the bootstrap exposes them directly.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u32)]
-pub enum RuntimeFunction {
-    /// Writes a `String` to standard output.
-    ConsoleLog,
-}
-
-impl RuntimeFunction {
-    /// Runtime symbol indices start above the intrinsic range so the two never
-    /// collide inside the reserved intrinsic module.
-    const SYMBOL_BASE: u32 = 1 << 16;
-
-    pub const fn symbol(self) -> SymbolId {
-        SymbolId::new(ModuleId::INTRINSICS, Self::SYMBOL_BASE + self as u32)
-    }
-}
-
 /// The kind of a known external value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalKind {
+    /// A compiler primitive with a fixed lowering.
     Intrinsic(Intrinsic),
-    Runtime(RuntimeFunction),
+    /// A host function declared by the runtime ABI registry. Its type and
+    /// lowering are data, not an enum variant; see [`runtime`].
+    Host,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

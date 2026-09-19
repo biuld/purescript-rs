@@ -5,7 +5,7 @@ use crate::{
     cc::{self, AssignmentKind},
 };
 use psrs_core::Primitive;
-use psrs_hir::{ExternalSymbol, RuntimeFunction, SymbolId};
+use psrs_hir::{ExternalSymbol, SymbolId};
 use psrs_span::TextRange;
 
 mod instruction;
@@ -348,7 +348,7 @@ impl FunctionLowerer<'_> {
                     function,
                     arguments,
                 } => {
-                    if *function == RuntimeFunction::ConsoleLog.symbol() {
+                    if is_print(function) {
                         let argument = arguments.first().copied().ok_or_else(|| {
                             vec![BackendError::new(
                                 "P9 MIR lowering",
@@ -486,4 +486,9 @@ impl FunctionLowerer<'_> {
                 )]
             })
     }
+}
+
+/// Whether the callee is the standard library's `print` host function.
+fn is_print(symbol: &SymbolId) -> bool {
+    psrs_hir::host_function("log").is_some_and(|function| function.symbol == *symbol)
 }

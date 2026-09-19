@@ -127,7 +127,8 @@ impl Checker {
                     let ty = self.instantiate(&scheme);
                     (InferredExprKind::Global(*symbol), ty)
                 } else {
-                    match self.external_kinds.get(symbol) {
+                    let external = self.external_kinds.get(symbol).copied();
+                    match external {
                         Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => {
                             (InferredExprKind::Boolean(true), InferType::Boolean)
                         }
@@ -136,10 +137,19 @@ impl Checker {
                         }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
-                            intrinsic_type(*intrinsic)?,
+                            intrinsic_type(intrinsic)?,
                         ),
-                        Some(ExternalKind::Runtime(function)) => {
-                            (InferredExprKind::Global(*symbol), runtime_type(*function)?)
+                        Some(ExternalKind::Host) => {
+                            let Some(function) = hir::host_function_by_symbol(*symbol) else {
+                                self.errors.push(TypeCheckError::new(
+                                    TypeCheckErrorKind::InvalidHir,
+                                    span,
+                                    "host function is not in the runtime ABI registry",
+                                ));
+                                return None;
+                            };
+                            let ty = self.elaborate_signature(&function.ty);
+                            (InferredExprKind::Global(*symbol), ty)
                         }
                         None => {
                             self.errors.push(TypeCheckError::new(
@@ -446,13 +456,4 @@ fn intrinsic_type(intrinsic: Intrinsic) -> Option<InferType> {
             Box::new(result),
         )),
     ))
-}
-
-fn runtime_type(function: RuntimeFunction) -> Option<InferType> {
-    match function {
-        RuntimeFunction::ConsoleLog => Some(InferType::Function(
-            Box::new(InferType::String),
-            Box::new(InferType::Unit),
-        )),
-    }
 }

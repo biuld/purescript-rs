@@ -66,7 +66,6 @@ fn encodes_and_runs_a_gc_struct() {
             ],
             span: span(),
         }],
-        runtime_functions: Vec::new(),
         memories: Vec::new(),
         data: Vec::new(),
         exports: vec![Export {
@@ -121,7 +120,6 @@ fn defined_types_precede_function_types() {
             composite: CompositeType::Struct(Vec::new()),
         }])],
         functions: Vec::new(),
-        runtime_functions: Vec::new(),
         memories: Vec::new(),
         data: Vec::new(),
         exports: Vec::new(),

@@ -1,7 +1,7 @@
 use super::ValueType;
 use crate::BackendError;
 use psrs_core::{ExprKind, Module as CoreModule, Type, TypeConstructor};
-use psrs_hir::{ExternalKind, RuntimeFunction, TypeId as HirTypeId};
+use psrs_hir::{ExternalKind, ExternalSymbol, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -11,12 +11,19 @@ pub(super) struct Signature {
     pub(super) result: ValueType,
 }
 
-pub(super) fn runtime_signature(kind: ExternalKind) -> Option<Signature> {
-    match kind {
-        ExternalKind::Runtime(RuntimeFunction::ConsoleLog) => Some(Signature {
-            arity: 1,
-            result: ValueType::I32,
-        }),
+pub(super) fn runtime_signature(external: &ExternalSymbol) -> Option<Signature> {
+    match external.kind {
+        ExternalKind::Host => {
+            let function = psrs_hir::host_function_by_symbol(external.symbol)?;
+            Some(Signature {
+                arity: function.arity() as usize,
+                result: if function.returns_boolean() {
+                    ValueType::Boolean
+                } else {
+                    ValueType::I32
+                },
+            })
+        }
         ExternalKind::Intrinsic(_) => None,
     }
 }

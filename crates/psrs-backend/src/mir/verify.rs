@@ -2,7 +2,7 @@ use super::{Function, Instruction, Module, Terminator, ValueId, ValueType};
 use crate::BackendError;
 use crate::types::{CompositeType, HeapType, StorageType};
 use psrs_core::Primitive;
-use psrs_hir::{ExternalKind, RuntimeFunction, SymbolId};
+use psrs_hir::{ExternalKind, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -34,12 +34,18 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         })
         .collect::<HashMap<_, _>>();
     for external in &module.externals {
-        if let ExternalKind::Runtime(RuntimeFunction::ConsoleLog) = external.kind {
+        if let ExternalKind::Host = external.kind
+            && let Some(function) = psrs_hir::host_function_by_symbol(external.symbol)
+        {
             signatures.insert(
                 external.symbol,
                 Some(Signature {
-                    parameters: vec![ValueType::I32],
-                    result: Some(ValueType::I32),
+                    parameters: vec![ValueType::I32; function.arity() as usize],
+                    result: Some(if function.returns_boolean() {
+                        ValueType::Boolean
+                    } else {
+                        ValueType::I32
+                    }),
                 }),
             );
         }

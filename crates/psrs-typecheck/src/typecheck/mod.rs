@@ -1,6 +1,5 @@
 use psrs_hir::{
-    self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, RuntimeFunction, SymbolId,
-    TypeVariableId,
+    self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, SymbolId, TypeVariableId,
 };
 use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};

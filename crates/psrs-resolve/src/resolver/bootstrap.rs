@@ -1,4 +1,4 @@
-use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic, RuntimeFunction};
+use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic, host_functions};
 
 /// The compiler-known externals available to every bootstrap module.
 pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
@@ -23,12 +23,10 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         name: name.into(),
         kind: ExternalKind::Intrinsic(intrinsic),
     });
-    let runtime = [("log", RuntimeFunction::ConsoleLog)]
-        .into_iter()
-        .map(|(name, function)| ExternalSymbol {
-            symbol: function.symbol(),
-            name: name.into(),
-            kind: ExternalKind::Runtime(function),
-        });
-    intrinsics.chain(runtime).collect()
+    let host = host_functions().into_iter().map(|function| ExternalSymbol {
+        symbol: function.symbol,
+        name: function.name.into(),
+        kind: ExternalKind::Host,
+    });
+    intrinsics.chain(host).collect()
 }

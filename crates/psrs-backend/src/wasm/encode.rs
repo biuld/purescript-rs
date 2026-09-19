@@ -40,9 +40,6 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         for function in &module.functions {
             functions.function(function.type_index);
         }
-        for function in &module.runtime_functions {
-            functions.function(function.type_index);
-        }
         if let Some(entry) = &module.entry {
             functions.function(entry.type_index);
         }
@@ -84,13 +81,6 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             encoded.instruction(&Instruction::End);
             code.function(&encoded);
         }
-        for function in &module.runtime_functions {
-            let mut encoded =
-                EncoderFunction::new_with_locals_types(function.locals.iter().copied());
-            emit_body(&function.body, &mut encoded);
-            encoded.instruction(&Instruction::End);
-            code.function(&encoded);
-        }
         if let Some(entry) = &module.entry {
             let mut encoded = EncoderFunction::new_with_locals_types(std::iter::empty::<ValType>());
             emit_body(&entry.body, &mut encoded);
@@ -116,7 +106,7 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
 }
 
 fn has_defined_functions(module: &Module) -> bool {
-    !module.functions.is_empty() || !module.runtime_functions.is_empty() || module.entry.is_some()
+    !module.functions.is_empty() || module.entry.is_some()
 }
 
 fn emit_body(body: &Body, function: &mut EncoderFunction) {

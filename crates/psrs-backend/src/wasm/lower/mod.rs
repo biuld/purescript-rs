@@ -139,7 +139,6 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         types,
         type_defs: module.types.clone(),
         functions,
-        runtime_functions: Vec::new(),
         memories: vec![Memory {
             minimum: 1,
             maximum: None,

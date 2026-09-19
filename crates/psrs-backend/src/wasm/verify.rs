@@ -8,7 +8,6 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     let function_count = (module.imports.len()
         + module.functions.len()
-        + module.runtime_functions.len()
         + usize::from(module.entry.is_some())) as u32;
     for import in &module.imports {
         if !valid_function_type(module, import.type_index) {
@@ -43,22 +42,6 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             function.span,
-            &mut errors,
-        );
-    }
-    for function in &module.runtime_functions {
-        if !valid_function_type(module, function.type_index) {
-            errors.push(wasm_error(
-                module.span,
-                "Wasm runtime function type index is out of range",
-            ));
-        }
-        let local_count = (function.parameters.len() + function.locals.len()) as u32;
-        verify_body(
-            &function.body,
-            local_count,
-            function_count,
-            module.span,
             &mut errors,
         );
     }

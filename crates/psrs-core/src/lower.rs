@@ -120,7 +120,7 @@ fn lower_expr(
                 && args.len() == 2
                 && let Some(op) = externals.get(&symbol).copied().and_then(|kind| match kind {
                     ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
-                    ExternalKind::Runtime(_) => None,
+                    ExternalKind::Host => None,
                 })
             {
                 return Ok(Expr {

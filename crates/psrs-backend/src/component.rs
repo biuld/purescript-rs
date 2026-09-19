@@ -92,7 +92,6 @@ mod tests {
                 body: vec![Op::Leaf(Instruction::I32Const(0))],
                 span,
             }],
-            runtime_functions: Vec::new(),
             memories: Vec::new(),
             data: Vec::new(),
             exports: vec![Export {
@@ -197,7 +196,6 @@ mod tests {
                 ],
                 span,
             }],
-            runtime_functions: Vec::new(),
             memories: vec![Memory {
                 minimum: 1,
                 maximum: None,

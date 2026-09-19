@@ -84,17 +84,6 @@ pub struct Function {
     pub span: TextRange,
 }
 
-/// A runtime helper synthesized by the backend and implemented over host
-/// imports (for example WASI). These are not source functions.
-#[derive(Clone, Debug)]
-pub struct RuntimeFunction {
-    pub name: String,
-    pub type_index: u32,
-    pub parameters: Vec<ValType>,
-    pub locals: Vec<ValType>,
-    pub body: Body,
-}
-
 /// An initialized data segment in linear memory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataSegment {
@@ -122,7 +111,6 @@ pub struct Module {
     pub types: Vec<FuncType>,
     pub type_defs: Vec<crate::types::RecGroup>,
     pub functions: Vec<Function>,
-    pub runtime_functions: Vec<RuntimeFunction>,
     pub memories: Vec<Memory>,
     pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,

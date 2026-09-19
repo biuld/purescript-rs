@@ -91,7 +91,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         );
     }
     for external in &module.externals {
-        if let Some(signature) = runtime_signature(external.kind) {
+        if let Some(signature) = runtime_signature(external) {
             signatures.insert(external.symbol, signature);
         }
     }

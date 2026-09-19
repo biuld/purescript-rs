@@ -19,7 +19,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         })
         .collect::<HashMap<_, _>>();
     for external in &module.externals {
-        if let Some(signature) = super::runtime_signature(external.kind) {
+        if let Some(signature) = super::runtime_signature(external) {
             signatures.insert(external.symbol, signature);
         }
     }
