@@ -92,9 +92,13 @@ constructors into runtime layouts, class constraints, or rank-N types.
 Phase 3 has started on the type side. Data and newtype constructors are
 registered as polymorphic values whose types are their field types followed by
 the declared result type, so `Nothing :: Maybe Int` and `Just 1 :: Maybe Int`
-type-check and a wrong constructor argument is rejected. Pattern matching,
-constructor lowering to Core, and runtime layouts are not implemented, so the
-backend still rejects aggregate types.
+type-check and a wrong constructor argument is rejected. A single-scrutinee
+`case` expression type-checks constructor, variable, and wildcard patterns,
+including nested constructor arguments, and unifies every branch result with
+the scrutinee type. Guards, multiple scrutinees, and literal, record, array,
+and tuple patterns are not lowered; constructor lowering to Core, pattern
+coverage, and runtime layouts are not implemented, so the backend still rejects
+aggregate types.
 
 ## Roadmap overview
 

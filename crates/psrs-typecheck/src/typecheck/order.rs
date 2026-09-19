@@ -62,6 +62,15 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             collect_globals(then_branch, out);
             collect_globals(else_branch, out);
         }
+        hir::ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_globals(scrutinee, out);
+            for branch in branches {
+                collect_globals(&branch.value, out);
+            }
+        }
     }
 }
 

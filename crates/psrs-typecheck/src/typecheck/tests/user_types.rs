@@ -429,3 +429,5 @@ fn rejects_a_constructor_argument_of_the_wrong_type() {
         "{errors:?}"
     );
 }
+
+mod patterns;

@@ -20,45 +20,47 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         .iter()
         .map(|external| (external.symbol, external.kind))
         .collect::<HashMap<_, _>>();
+    let types = module
+        .types
+        .into_iter()
+        .map(|ty| match ty {
+            psrs_thir::Type::Variable(variable) => Type::Variable(variable),
+            psrs_thir::Type::I32 => Type::I32,
+            psrs_thir::Type::Boolean => Type::Boolean,
+            psrs_thir::Type::String => Type::String,
+            psrs_thir::Type::Unit => Type::Unit,
+            psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
+                psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
+                psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
+            }),
+            psrs_thir::Type::Application(function, argument) => {
+                Type::Application(TypeId(function.0), TypeId(argument.0))
+            }
+            psrs_thir::Type::Function { parameter, result } => Type::Function {
+                parameter: TypeId(parameter.0),
+                result: TypeId(result.0),
+            },
+        })
+        .collect();
+    let mut declarations = Vec::with_capacity(module.declarations.len());
+    for declaration in module.declarations {
+        let value = lower_expr(declaration.value, &externals).map_err(|error| vec![error])?;
+        declarations.push(Declaration {
+            symbol: declaration.symbol,
+            name: declaration.name,
+            name_span: declaration.name_span,
+            quantified: declaration.quantified,
+            ty: TypeId(declaration.ty.0),
+            value,
+            span: declaration.span,
+        });
+    }
     let lowered = Module {
         id: module.id,
         name: module.name,
         externals: module.externals,
-        types: module
-            .types
-            .into_iter()
-            .map(|ty| match ty {
-                psrs_thir::Type::Variable(variable) => Type::Variable(variable),
-                psrs_thir::Type::I32 => Type::I32,
-                psrs_thir::Type::Boolean => Type::Boolean,
-                psrs_thir::Type::String => Type::String,
-                psrs_thir::Type::Unit => Type::Unit,
-                psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
-                    psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
-                    psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
-                }),
-                psrs_thir::Type::Application(function, argument) => {
-                    Type::Application(TypeId(function.0), TypeId(argument.0))
-                }
-                psrs_thir::Type::Function { parameter, result } => Type::Function {
-                    parameter: TypeId(parameter.0),
-                    result: TypeId(result.0),
-                },
-            })
-            .collect(),
-        declarations: module
-            .declarations
-            .into_iter()
-            .map(|declaration| Declaration {
-                symbol: declaration.symbol,
-                name: declaration.name,
-                name_span: declaration.name_span,
-                quantified: declaration.quantified,
-                ty: TypeId(declaration.ty.0),
-                value: lower_expr(declaration.value, &externals),
-                span: declaration.span,
-            })
-            .collect(),
+        types,
+        declarations,
         span: module.span,
     };
     if lowered.verify().is_err() {
@@ -70,7 +72,10 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
     Ok(lowered)
 }
 
-fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>) -> Expr {
+fn lower_expr(
+    expression: TypedExpr,
+    externals: &HashMap<SymbolId, ExternalKind>,
+) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     let kind = match expression.kind {
@@ -80,8 +85,8 @@ fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>
         TypedExprKind::Boolean(value) => ExprKind::Boolean(value),
         TypedExprKind::String(value) => ExprKind::String(value),
         TypedExprKind::Application(function, argument) => {
-            let function = lower_expr(*function, externals);
-            let argument = lower_expr(*argument, externals);
+            let function = lower_expr(*function, externals)?;
+            let argument = lower_expr(*argument, externals)?;
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
                 && let Some(op) = externals.get(&symbol).copied().and_then(|kind| match kind {
@@ -89,7 +94,7 @@ fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>
                     ExternalKind::Runtime(_) => None,
                 })
             {
-                return Expr {
+                return Ok(Expr {
                     kind: ExprKind::Primitive {
                         op,
                         left: Box::new(args[0].clone()),
@@ -97,7 +102,7 @@ fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>
                     },
                     ty,
                     span,
-                };
+                });
             }
             ExprKind::Application(Box::new(function), Box::new(argument))
         }
@@ -108,36 +113,44 @@ fn lower_expr(expression: TypedExpr, externals: &HashMap<SymbolId, ExternalKind>
                 ty: TypeId(binder.ty.0),
                 span: binder.span,
             },
-            body: Box::new(lower_expr(*body, externals)),
+            body: Box::new(lower_expr(*body, externals)?),
         },
         TypedExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
                 .into_iter()
-                .map(|binding| Binding {
-                    binder: Binder {
-                        id: binding.binder.id,
-                        name: binding.binder.name,
-                        ty: TypeId(binding.binder.ty.0),
-                        span: binding.binder.span,
-                    },
-                    quantified: binding.quantified,
-                    value: lower_expr(binding.value, externals),
-                    span: binding.span,
+                .map(|binding| {
+                    Ok(Binding {
+                        binder: Binder {
+                            id: binding.binder.id,
+                            name: binding.binder.name,
+                            ty: TypeId(binding.binder.ty.0),
+                            span: binding.binder.span,
+                        },
+                        quantified: binding.quantified,
+                        value: lower_expr(binding.value, externals)?,
+                        span: binding.span,
+                    })
                 })
-                .collect(),
-            body: Box::new(lower_expr(*body, externals)),
+                .collect::<Result<Vec<_>, LowerError>>()?,
+            body: Box::new(lower_expr(*body, externals)?),
         },
         TypedExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition, externals)),
-            then_branch: Box::new(lower_expr(*then_branch, externals)),
-            else_branch: Box::new(lower_expr(*else_branch, externals)),
+            condition: Box::new(lower_expr(*condition, externals)?),
+            then_branch: Box::new(lower_expr(*then_branch, externals)?),
+            else_branch: Box::new(lower_expr(*else_branch, externals)?),
         },
+        TypedExprKind::Case { .. } => {
+            return Err(LowerError {
+                span,
+                message: "case expressions are not supported by Core lowering yet",
+            });
+        }
     };
-    Expr { kind, ty, span }
+    Ok(Expr { kind, ty, span })
 }
 
 fn flatten_intrinsic(

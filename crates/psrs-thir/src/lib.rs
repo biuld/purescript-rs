@@ -95,6 +95,36 @@ pub enum ExprKind {
         then_branch: Box<Expr>,
         else_branch: Box<Expr>,
     },
+    Case {
+        scrutinee: Box<Expr>,
+        branches: Vec<CaseBranch>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaseBranch {
+    pub pattern: Pattern,
+    pub value: Expr,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatternKind {
+    Wildcard,
+    Var {
+        id: LocalId,
+        ty: TypeId,
+    },
+    Constructor {
+        symbol: SymbolId,
+        arguments: Vec<Pattern>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,6 +193,28 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
             verify_expr(condition, type_count, errors);
             verify_expr(then_branch, type_count, errors);
             verify_expr(else_branch, type_count, errors);
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            verify_expr(scrutinee, type_count, errors);
+            for branch in branches {
+                verify_pattern(&branch.pattern, type_count, errors);
+                verify_expr(&branch.value, type_count, errors);
+            }
+        }
+    }
+}
+
+fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyError>) {
+    match &pattern.kind {
+        PatternKind::Wildcard => {}
+        PatternKind::Var { ty, .. } => verify_type_id(*ty, type_count, pattern.span, errors),
+        PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                verify_pattern(argument, type_count, errors);
+            }
         }
     }
 }

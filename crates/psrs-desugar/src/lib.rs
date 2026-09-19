@@ -67,6 +67,20 @@ fn desugar_expr(expression: Expr) -> Expr {
             then_branch: Box::new(desugar_expr(*then_branch)),
             else_branch: Box::new(desugar_expr(*else_branch)),
         },
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => ExprKind::Case {
+            scrutinee: Box::new(desugar_expr(*scrutinee)),
+            branches: branches
+                .into_iter()
+                .map(|branch| hir::CaseBranch {
+                    pattern: branch.pattern,
+                    value: desugar_expr(branch.value),
+                    span: branch.span,
+                })
+                .collect(),
+        },
         leaf => leaf,
     };
     Expr { kind, span }

@@ -1,14 +1,17 @@
-use psrs_cst::{self as cst, ExprKind as CstExprKind, TypeExprKind as CstTypeExprKind};
+use psrs_cst::{self as cst, ExprKind as CstExprKind};
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod export;
+mod expr;
 mod import;
 mod ty;
 mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
+pub use expr::{Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind};
 pub use import::{Import, ImportList, ImportRef};
+pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
     ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, NewtypeDeclaration,
@@ -29,53 +32,6 @@ pub struct Module {
 pub struct Name {
     pub text: String,
     pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Binder {
-    pub name: String,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Declaration {
-    pub name: Name,
-    pub value: Expr,
-    pub span: TextRange,
-    pub annotation: Option<Type>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Expr {
-    pub kind: ExprKind,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ExprKind {
-    Name(Name),
-    Integer(String),
-    String(String),
-    Char(char),
-    Application(Box<Expr>, Box<Expr>),
-    Operator {
-        operator: Name,
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
-    Lambda {
-        binder: Binder,
-        body: Box<Expr>,
-    },
-    Let {
-        declarations: Vec<Declaration>,
-        body: Box<Expr>,
-    },
-    If {
-        condition: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Box<Expr>,
-    },
 }
 
 /// A construct that parsed but has no AST lowering yet, or a name-level error
@@ -274,110 +230,6 @@ fn lower_pattern_lambda(pattern: cst::Pattern, body: Expr) -> Result<Expr, Lower
     }
 }
 
-pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
-    let span = expression.span;
-    let kind = match expression.kind {
-        CstTypeExprKind::Application(function, arguments) => {
-            let mut lowered = lower_type(*function)?;
-            for argument in arguments {
-                let argument = lower_type(argument)?;
-                lowered = Type {
-                    kind: TypeKind::Application(Box::new(lowered), Box::new(argument)),
-                    span,
-                };
-            }
-            return Ok(lowered);
-        }
-        CstTypeExprKind::Name(name) => TypeKind::Name(lower_name(name)),
-        CstTypeExprKind::Function { left, right, .. } => TypeKind::Function {
-            parameter: Box::new(lower_type(*left)?),
-            result: Box::new(lower_type(*right)?),
-        },
-        CstTypeExprKind::Forall {
-            variables, body, ..
-        } => TypeKind::Forall {
-            variables: variables
-                .into_iter()
-                .map(lower_type_parameter)
-                .collect::<Result<_, _>>()?,
-            body: Box::new(lower_type(*body)?),
-        },
-        CstTypeExprKind::Constrained {
-            constraint, body, ..
-        } => TypeKind::Constrained {
-            constraint: Box::new(lower_type(*constraint)?),
-            body: Box::new(lower_type(*body)?),
-        },
-        CstTypeExprKind::Row { fields, tail, .. } => TypeKind::Row {
-            fields: fields
-                .into_iter()
-                .map(lower_type_field)
-                .collect::<Result<_, _>>()?,
-            tail: tail
-                .map(|tail| lower_type(*tail))
-                .transpose()?
-                .map(Box::new),
-        },
-        CstTypeExprKind::Record { fields, tail, .. } => TypeKind::Record {
-            fields: fields
-                .into_iter()
-                .map(lower_type_field)
-                .collect::<Result<_, _>>()?,
-            tail: tail
-                .map(|tail| lower_type(*tail))
-                .transpose()?
-                .map(Box::new),
-        },
-        CstTypeExprKind::Integer(value) => TypeKind::Integer(value),
-        CstTypeExprKind::String(value) => TypeKind::String(value),
-        CstTypeExprKind::Parens { expression, .. } => {
-            let mut expression = lower_type(*expression)?;
-            expression.span = span;
-            return Ok(expression);
-        }
-        CstTypeExprKind::KindAnnotation { expression, .. } => {
-            let mut expression = lower_type(*expression)?;
-            expression.span = span;
-            return Ok(expression);
-        }
-        CstTypeExprKind::Operator {
-            operator,
-            left,
-            right,
-        } if operator.text == "~>" => TypeKind::Function {
-            parameter: Box::new(lower_type(*left)?),
-            result: Box::new(lower_type(*right)?),
-        },
-        CstTypeExprKind::Wildcard(_)
-        | CstTypeExprKind::Hole(_)
-        | CstTypeExprKind::Operator { .. }
-        | CstTypeExprKind::PrefixOperator { .. }
-        | CstTypeExprKind::Tuple { .. } => {
-            return Err(LowerError::new(
-                span,
-                "this type syntax is not supported yet",
-            ));
-        }
-    };
-    Ok(Type { kind, span })
-}
-
-fn lower_type_parameter(parameter: cst::TypeVarBinder) -> Result<TypeParameter, LowerError> {
-    Ok(TypeParameter {
-        name: lower_name(parameter.name),
-        kind: parameter.kind.map(lower_type).transpose()?,
-        span: parameter.span,
-    })
-}
-
-fn lower_type_field(field: cst::TypeField) -> Result<TypeField, LowerError> {
-    Ok(TypeField {
-        label: lower_name(field.label),
-        ty: lower_type(field.type_expr)?,
-        span: field.span,
-    })
-}
-
 fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
     let span = expression.span;
     let kind = match expression.kind {
@@ -432,6 +284,54 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             then_branch: Box::new(lower_expr(*then_branch)?),
             else_branch: Box::new(lower_expr(*else_branch)?),
         },
+        CstExprKind::Case {
+            scrutinees,
+            alternatives,
+            ..
+        } => {
+            if scrutinees.len() != 1 {
+                return Err(LowerError::new(
+                    span,
+                    "case with multiple scrutinees is not supported yet",
+                ));
+            }
+            let scrutinee = Box::new(lower_expr(scrutinees.into_iter().next().unwrap())?);
+            let mut branches = Vec::with_capacity(alternatives.len());
+            for alternative in alternatives {
+                if alternative.patterns.len() != 1 {
+                    return Err(LowerError::new(
+                        alternative.span,
+                        "case alternatives with multiple patterns are not supported yet",
+                    ));
+                }
+                let cst::CaseRhs::Plain {
+                    value, where_block, ..
+                } = alternative.rhs
+                else {
+                    return Err(LowerError::new(
+                        alternative.span,
+                        "guarded case alternatives are not supported yet",
+                    ));
+                };
+                if let Some(block) = where_block {
+                    return Err(LowerError::new(
+                        block.span,
+                        "where blocks are not supported yet",
+                    ));
+                }
+                let pattern = lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
+                let value = lower_expr(value)?;
+                branches.push(CaseBranch {
+                    pattern,
+                    value,
+                    span: alternative.span,
+                });
+            }
+            ExprKind::Case {
+                scrutinee,
+                branches,
+            }
+        }
         CstExprKind::Parens { expression, .. } => {
             let mut expression = lower_expr(*expression)?;
             expression.span = span;
@@ -444,7 +344,6 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         | CstExprKind::RecordUpdate { .. }
         | CstExprKind::FieldAccess { .. }
         | CstExprKind::Negate { .. }
-        | CstExprKind::Case { .. }
         | CstExprKind::Do { .. }
         | CstExprKind::Tuple { .. }
         | CstExprKind::Typed { .. }
@@ -456,6 +355,37 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         }
     };
     Ok(Expr { kind, span })
+}
+
+/// Lowers a pattern in a `case` alternative or binder position.
+pub(crate) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError> {
+    let span = pattern.span;
+    let kind = match pattern.kind {
+        cst::PatternKind::Wildcard(_) => PatternKind::Wildcard,
+        cst::PatternKind::Var(name) => PatternKind::Var(Binder {
+            name: name.text,
+            span: name.span,
+        }),
+        cst::PatternKind::Constructor { name, arguments } => PatternKind::Constructor {
+            name: lower_name(name),
+            arguments: arguments
+                .into_iter()
+                .map(lower_pattern)
+                .collect::<Result<_, _>>()?,
+        },
+        cst::PatternKind::Parens { pattern, .. } => {
+            let mut lowered = lower_pattern(*pattern)?;
+            lowered.span = span;
+            return Ok(lowered);
+        }
+        _ => {
+            return Err(LowerError::new(
+                span,
+                "this pattern syntax is not supported yet",
+            ));
+        }
+    };
+    Ok(Pattern { kind, span })
 }
 
 fn lower_lambda(binder: Binder, body: Expr) -> Expr {

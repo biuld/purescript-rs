@@ -1,13 +1,19 @@
 use psrs_span::TextRange;
 use std::collections::HashSet;
+use verify::verify_expr;
 
+mod expr;
 mod module;
 mod ty;
 mod types;
 
+pub use expr::{
+    CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
+};
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{ClassMember, Constructor, TypeDeclaration, TypeDeclarationKind};
+pub use verify::VerifyError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleId(pub u32);
@@ -120,71 +126,6 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     pub types: Vec<TypeDeclaration>,
     pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Declaration {
-    pub symbol: SymbolId,
-    pub name: String,
-    pub name_span: TextRange,
-    pub value: Expr,
-    pub signature: Option<Type>,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LocalBinder {
-    pub id: LocalId,
-    pub name: String,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LocalBinding {
-    pub binder: LocalBinder,
-    pub value: Expr,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Expr {
-    pub kind: ExprKind,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ExprKind {
-    Local(LocalId),
-    Global(SymbolId),
-    Integer(String),
-    String(String),
-    Char(char),
-    Application(Box<Expr>, Box<Expr>),
-    Operator {
-        operator: SymbolId,
-        operator_span: TextRange,
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
-    Lambda {
-        binder: LocalBinder,
-        body: Box<Expr>,
-    },
-    Let {
-        bindings: Vec<LocalBinding>,
-        body: Box<Expr>,
-    },
-    If {
-        condition: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Box<Expr>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VerifyError {
-    pub span: TextRange,
-    pub message: &'static str,
 }
 
 impl Module {
@@ -352,110 +293,6 @@ impl Module {
     }
 }
 
-fn verify_expr(
-    expression: &Expr,
-    globals: &HashSet<SymbolId>,
-    visible_locals: &mut HashSet<LocalId>,
-    declared_locals: &mut HashSet<LocalId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    match &expression.kind {
-        ExprKind::Local(id) if !visible_locals.contains(id) => errors.push(VerifyError {
-            span: expression.span,
-            message: "local reference is not in scope",
-        }),
-        ExprKind::Global(id) if !globals.contains(id) => errors.push(VerifyError {
-            span: expression.span,
-            message: "global reference does not name a module declaration",
-        }),
-        ExprKind::Local(_)
-        | ExprKind::Global(_)
-        | ExprKind::Integer(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
-        ExprKind::Application(function, argument) => {
-            verify_expr(function, globals, visible_locals, declared_locals, errors);
-            verify_expr(argument, globals, visible_locals, declared_locals, errors);
-        }
-        ExprKind::Operator {
-            operator,
-            left,
-            right,
-            ..
-        } => {
-            if !globals.contains(operator) {
-                errors.push(VerifyError {
-                    span: expression.span,
-                    message: "operator symbol is not declared in the module or intrinsic set",
-                });
-            }
-            verify_expr(left, globals, visible_locals, declared_locals, errors);
-            verify_expr(right, globals, visible_locals, declared_locals, errors);
-        }
-        ExprKind::Lambda { binder, body } => {
-            if !declared_locals.insert(binder.id) {
-                errors.push(VerifyError {
-                    span: binder.span,
-                    message: "duplicate local ID",
-                });
-            }
-            let inserted = visible_locals.insert(binder.id);
-            verify_expr(body, globals, visible_locals, declared_locals, errors);
-            if inserted {
-                visible_locals.remove(&binder.id);
-            }
-        }
-        ExprKind::Let { bindings, body } => {
-            let mut inserted = Vec::new();
-            for binding in bindings {
-                if !declared_locals.insert(binding.binder.id) {
-                    errors.push(VerifyError {
-                        span: binding.binder.span,
-                        message: "duplicate local ID",
-                    });
-                }
-                if visible_locals.insert(binding.binder.id) {
-                    inserted.push(binding.binder.id);
-                }
-            }
-            for binding in bindings {
-                verify_expr(
-                    &binding.value,
-                    globals,
-                    visible_locals,
-                    declared_locals,
-                    errors,
-                );
-            }
-            verify_expr(body, globals, visible_locals, declared_locals, errors);
-            for id in inserted {
-                visible_locals.remove(&id);
-            }
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            verify_expr(condition, globals, visible_locals, declared_locals, errors);
-            verify_expr(
-                then_branch,
-                globals,
-                visible_locals,
-                declared_locals,
-                errors,
-            );
-            verify_expr(
-                else_branch,
-                globals,
-                visible_locals,
-                declared_locals,
-                errors,
-            );
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,3 +326,5 @@ mod tests {
         assert_eq!(errors[0].message, "local reference is not in scope");
     }
 }
+
+mod verify;

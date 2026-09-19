@@ -84,11 +84,59 @@ impl Checker {
                     else_branch: Box::new(else_branch?),
                 }
             }
+            InferredExprKind::Case {
+                scrutinee,
+                branches,
+            } => {
+                let scrutinee = self.finalize_expr(*scrutinee, interner, generics)?;
+                let branches = branches
+                    .into_iter()
+                    .map(|branch| {
+                        let pattern = self.finalize_pattern(branch.pattern, interner, generics)?;
+                        let value = self.finalize_expr(branch.value, interner, generics)?;
+                        Some(thir::CaseBranch {
+                            pattern,
+                            value,
+                            span: branch.span,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                thir::ExprKind::Case {
+                    scrutinee: Box::new(scrutinee),
+                    branches,
+                }
+            }
         };
         Some(thir::Expr {
             kind,
             ty: ty?,
             span: expression.span,
+        })
+    }
+
+    fn finalize_pattern(
+        &mut self,
+        pattern: InferredPattern,
+        interner: &mut TypeInterner,
+        generics: &HashSet<u32>,
+    ) -> Option<thir::Pattern> {
+        let kind = match pattern.kind {
+            InferredPatternKind::Wildcard => thir::PatternKind::Wildcard,
+            InferredPatternKind::Var { binder, ty } => {
+                let ty = self.finalize_type(&ty, binder.span, interner, generics)?;
+                thir::PatternKind::Var { id: binder.id, ty }
+            }
+            InferredPatternKind::Constructor { symbol, arguments } => {
+                let arguments = arguments
+                    .into_iter()
+                    .map(|argument| self.finalize_pattern(argument, interner, generics))
+                    .collect::<Option<Vec<_>>>()?;
+                thir::PatternKind::Constructor { symbol, arguments }
+            }
+        };
+        Some(thir::Pattern {
+            kind,
+            span: pattern.span,
         })
     }
 }

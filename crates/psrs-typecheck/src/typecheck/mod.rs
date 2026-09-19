@@ -259,6 +259,36 @@ enum InferredExprKind {
         then_branch: Box<InferredExpr>,
         else_branch: Box<InferredExpr>,
     },
+    Case {
+        scrutinee: Box<InferredExpr>,
+        branches: Vec<InferredCaseBranch>,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct InferredCaseBranch {
+    pattern: InferredPattern,
+    value: InferredExpr,
+    span: TextRange,
+}
+
+#[derive(Clone, Debug)]
+struct InferredPattern {
+    kind: InferredPatternKind,
+    span: TextRange,
+}
+
+#[derive(Clone, Debug)]
+enum InferredPatternKind {
+    Wildcard,
+    Var {
+        binder: LocalBinder,
+        ty: InferType,
+    },
+    Constructor {
+        symbol: SymbolId,
+        arguments: Vec<InferredPattern>,
+    },
 }
 
 /// A resolved type synonym, expanded during signature elaboration.
@@ -273,6 +303,7 @@ struct Synonym {
 #[derive(Clone, Debug)]
 struct ConstructorInfo {
     symbol: SymbolId,
+    name: String,
     type_id: hir::TypeId,
     parameters: Vec<String>,
     fields: Vec<hir::Type>,
@@ -284,7 +315,7 @@ struct Checker {
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
     synonyms: HashMap<hir::TypeId, Synonym>,
-    constructors: Vec<ConstructorInfo>,
+    constructor_info: HashMap<SymbolId, ConstructorInfo>,
     expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,
     levels: HashMap<u32, u32>,

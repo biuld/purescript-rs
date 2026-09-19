@@ -173,8 +173,59 @@ impl Resolver {
                     else_branch: Box::new(else_branch?),
                 }
             }
+            AstExprKind::Case {
+                scrutinee,
+                branches,
+            } => {
+                let scrutinee = self.resolve_expr(*scrutinee)?;
+                let mut lowered = Vec::with_capacity(branches.len());
+                for branch in branches {
+                    let mut scope = HashMap::new();
+                    let pattern = self.resolve_pattern(branch.pattern, &mut scope)?;
+                    self.scopes.push(scope);
+                    let value = self.resolve_expr(branch.value);
+                    self.scopes.pop();
+                    lowered.push(hir::CaseBranch {
+                        pattern,
+                        value: value?,
+                        span: branch.span,
+                    });
+                }
+                ExprKind::Case {
+                    scrutinee: Box::new(scrutinee),
+                    branches: lowered,
+                }
+            }
         };
         Some(Expr { kind, span })
+    }
+
+    fn resolve_pattern(
+        &mut self,
+        pattern: ast::Pattern,
+        scope: &mut HashMap<String, LocalBinder>,
+    ) -> Option<hir::Pattern> {
+        let span = pattern.span;
+        let kind = match pattern.kind {
+            ast::PatternKind::Wildcard => hir::PatternKind::Wildcard,
+            ast::PatternKind::Var(binder) => {
+                let binder = self.new_local(binder.name, binder.span);
+                scope.insert(binder.name.clone(), binder.clone());
+                hir::PatternKind::Var(binder)
+            }
+            ast::PatternKind::Constructor { name, arguments } => {
+                let symbol = self.lookup_global(&name.text, name.span)?;
+                hir::PatternKind::Constructor {
+                    symbol,
+                    name_span: name.span,
+                    arguments: arguments
+                        .into_iter()
+                        .map(|argument| self.resolve_pattern(argument, scope))
+                        .collect::<Option<Vec<_>>>()?,
+                }
+            }
+        };
+        Some(hir::Pattern { kind, span })
     }
 
     fn resolve_let(
