@@ -276,9 +276,9 @@ component, `wasmparser` to validate it, and `wasmprinter` to print WAT from the
 encoded component. The artifact is a WASI 0.2 component that exports
 `wasi:cli/run@0.2.12` and imports only the WASI interfaces the program uses.
 
-`psrs build <file.purs> [-o output.wasm]` writes the validated WASI 0.2
-component. `psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a
-file. The
+`psrs build <file.purs>... [-o output.wasm]` writes the validated WASI 0.2
+component, linking all listed modules with the embedded `Prelude`. `psrs wat
+<file.purs>... [-o output.wat]` prints WAT or writes it to a file. The
 driver reports pass diagnostics with source ranges. `psrs dump
 <core|cc|mir> <file.purs>` prints a readable debug dump for one
 intermediate representation.

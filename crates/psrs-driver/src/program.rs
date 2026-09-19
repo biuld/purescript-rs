@@ -1,6 +1,7 @@
 //! Multi-module program pipelines: resolution, dependency-ordered type
 //! checking against imported signatures, Core lowering, and linking.
 
+use super::prelude;
 use super::{Artifact, ProgramDiagnostic, coded_diagnostic, diagnostic, lower_source_to_ast};
 use std::collections::HashMap;
 
@@ -23,6 +24,26 @@ pub fn compile_program_sources(
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
+    })
+}
+
+/// Compiles user sources together with the embedded `Prelude` module. The
+/// returned diagnostic source indices refer to `sources`, not the hidden
+/// prelude entry, so callers can render errors against the files they passed.
+pub fn compile_program_sources_with_prelude(
+    sources: &[(&str, &str)],
+) -> Result<Artifact, Vec<ProgramDiagnostic>> {
+    let mut all_sources = Vec::with_capacity(sources.len() + 1);
+    all_sources.push((prelude::NAME, prelude::SOURCE));
+    all_sources.extend_from_slice(sources);
+    compile_program_sources(&all_sources).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|mut error| {
+                error.source = error.source.saturating_sub(1);
+                error
+            })
+            .collect()
     })
 }
 

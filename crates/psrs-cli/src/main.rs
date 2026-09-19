@@ -45,23 +45,18 @@ fn run() -> Result<(), String> {
         }
         return dump_ir(&stage, &path);
     }
+    if matches!(command.as_str(), "build" | "wat") {
+        return compile_program(&command, args.collect());
+    }
     let Some(path) = args.next() else {
         return Err(usage());
-    };
-    let output_path = match args.next() {
-        Some(flag) if flag == "-o" => Some(args.next().ok_or_else(usage)?),
-        positional => positional,
     };
     if args.next().is_some() {
         return Err(usage());
     }
-    let compile_command = matches!(command.as_str(), "build" | "wat");
-    if output_path.is_some() && !compile_command {
-        return Err(usage());
-    }
     if !matches!(
         command.as_str(),
-        "lex" | "layout" | "parse" | "ast" | "hir" | "check" | "build" | "wat"
+        "lex" | "layout" | "parse" | "ast" | "hir" | "check"
     ) {
         return Err(usage());
     }
@@ -78,34 +73,6 @@ fn run() -> Result<(), String> {
                 Err(String::new())
             }
         };
-    }
-    if compile_command {
-        let artifact = match psrs_driver::compile_source(&path, &text) {
-            Ok(artifact) => artifact,
-            Err(errors) => {
-                for error in errors {
-                    print_diagnostic(&source, error.span, error.stage, &error.message);
-                }
-                return Err(String::new());
-            }
-        };
-        if command == "wat" {
-            if let Some(output) = output_path {
-                fs::write(&output, artifact.wat).map_err(|error| format!("{output}: {error}"))?;
-            } else {
-                print!("{}", artifact.wat);
-            }
-        } else {
-            let output = output_path.unwrap_or_else(|| {
-                std::path::Path::new(&path)
-                    .with_extension("wasm")
-                    .to_string_lossy()
-                    .into_owned()
-            });
-            fs::write(&output, artifact.wasm).map_err(|error| format!("{output}: {error}"))?;
-            println!("wrote {output}");
-        }
-        return Ok(());
     }
     let (tokens, errors) = lex(source.text());
     if !errors.is_empty() {
@@ -196,8 +163,86 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
+    let mut paths = Vec::new();
+    let mut output_path = None;
+    let mut index = 0;
+    while index < raw_args.len() {
+        match raw_args[index].as_str() {
+            "-o" => {
+                if output_path.is_some() {
+                    return Err(usage());
+                }
+                let Some(output) = raw_args.get(index + 1) else {
+                    return Err(usage());
+                };
+                output_path = Some(output.clone());
+                index += 2;
+            }
+            path if path.starts_with('-') => return Err(usage()),
+            path => {
+                paths.push(path.to_owned());
+                index += 1;
+            }
+        }
+    }
+    if paths.is_empty() {
+        return Err(usage());
+    }
+
+    let mut sources = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        sources.push((path.clone(), text));
+    }
+    let inputs = sources
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect::<Vec<_>>();
+    let artifact = match psrs_driver::compile_program_sources_with_prelude(&inputs) {
+        Ok(artifact) => artifact,
+        Err(errors) => {
+            for error in errors {
+                let Some((path, text)) = sources.get(error.source) else {
+                    eprintln!(
+                        "source #{}: {}: {}",
+                        error.source, error.diagnostic.stage, error.diagnostic.message
+                    );
+                    continue;
+                };
+                let source = SourceFile::new(path.as_str(), text.as_str());
+                print_coded_diagnostic(
+                    &source,
+                    error.diagnostic.span,
+                    error.diagnostic.stage,
+                    error.diagnostic.code,
+                    &error.diagnostic.message,
+                );
+            }
+            return Err(String::new());
+        }
+    };
+    if command == "wat" {
+        if let Some(output) = output_path {
+            fs::write(&output, artifact.wat).map_err(|error| format!("{output}: {error}"))?;
+        } else {
+            print!("{}", artifact.wat);
+        }
+    } else {
+        let output = output_path.unwrap_or_else(|| {
+            std::path::Path::new(&paths[0])
+                .with_extension("wasm")
+                .to_string_lossy()
+                .into_owned()
+        });
+        fs::write(&output, artifact.wasm).map_err(|error| format!("{output}: {error}"))?;
+        println!("wrote {output}");
+    }
+    Ok(())
+}
+
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs>... [-o output.wasm]\n       psrs wat <file.purs>... [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
 }
 
 fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {

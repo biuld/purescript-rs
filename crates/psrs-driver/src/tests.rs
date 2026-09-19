@@ -76,6 +76,17 @@ fn compiles_a_value_imported_from_another_module() {
 }
 
 #[test]
+fn compiles_multiple_user_sources_with_the_embedded_prelude() {
+    let helper = ("Helper.purs", "module Helper where\nanswer = 40\n");
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper\nimport Prelude\nmain = log \"linked\"\n",
+    );
+    let artifact = compile_program_sources_with_prelude(&[helper, main]).unwrap();
+    assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
+}
+
+#[test]
 fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
     let a = ("A.purs", "module A where\nmain = 1\n");
     let b = ("B.purs", "module B where\nmain = 2\n");

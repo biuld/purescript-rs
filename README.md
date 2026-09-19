@@ -59,9 +59,10 @@ polymorphic values, so constructor applications type-check, and single-scrutinee
 A first runtime slice lowers a non-parameterized data type's nullary
 constructors to integer tags and `case` over it to tag comparisons, so
 enum-style programs run under WASI. Type-class constraints, constructors with
-fields, heap layouts, and rows are not implemented yet. `build` writes a
-validated WASI 0.2 Component Model artifact exporting `wasi:cli/run@0.2.12`;
-`wat` renders the corresponding text form. General PureScript compatibility,
+fields, heap layouts, and rows are not implemented yet. `build <file.purs>...`
+writes a validated WASI 0.2 Component Model artifact exporting
+`wasi:cli/run@0.2.12` and links all listed modules with the embedded `Prelude`;
+`wat <file.purs>...` renders the corresponding text form. General PureScript compatibility,
 type classes, closures, and aggregate values with fields are not implemented
 yet. Cross-module compilation is supported for the direct-call subset.
 

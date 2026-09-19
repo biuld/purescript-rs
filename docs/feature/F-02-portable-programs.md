@@ -13,7 +13,7 @@ compatible portable environment.
 The intended workflow is:
 
 ```sh
-psrs build src/Main.purs -o main.wasm
+psrs build src/Helper.purs src/Main.purs -o main.wasm
 <compatible WASI runtime> main.wasm
 ```
 
@@ -46,8 +46,8 @@ The current compiler can build a restricted program, including linked source
 modules, to a validated WASI component and print its WAT form:
 
 ```sh
-psrs build src/Main.purs -o main.wasm
-psrs wat src/Main.purs -o main.wat
+psrs build src/Helper.purs src/Main.purs -o main.wasm
+psrs wat src/Helper.purs src/Main.purs -o main.wat
 ```
 
 The initial slice supports direct top-level functions, integer and boolean

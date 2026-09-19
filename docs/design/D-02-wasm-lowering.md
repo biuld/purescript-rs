@@ -106,9 +106,10 @@ regions; leaf opcodes reuse `wasm_encoder::Instruction` instead of a duplicate
 opcode enum. `wasm-encoder` emits the core module, `wit-component` lifts it
 into a component, `wasmparser` validates it, and `wasmprinter` prints WAT.
 
-The CLI commands are `psrs build <file.purs> [-o output.wasm]` and
-`psrs wat <file.purs> [-o output.wat]`. The artifact is a WASI 0.2 component
-that exports `wasi:cli/run@0.2.12`. The core module exports the canonical
+The CLI commands are `psrs build <file.purs>... [-o output.wasm]` and
+`psrs wat <file.purs>... [-o output.wat]`. Multiple source files are resolved,
+type checked, and linked together with the embedded `Prelude`. The artifact is
+a WASI 0.2 component that exports `wasi:cli/run@0.2.12`. The core module exports the canonical
 `wasi:cli/run@0.2.12#run` entry, which calls `main` and passes its result to
 `wasi:cli/exit.exit-with-code`, so a compatible runtime such as `wasmtime run`
 uses the value as the process exit code. The module exports its linear memory

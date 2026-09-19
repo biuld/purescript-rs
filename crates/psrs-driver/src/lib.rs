@@ -5,7 +5,7 @@ mod program;
 
 pub use program::{
     check_program, check_program_kinds_lenient, check_program_lenient, compile_program_sources,
-    resolve_program_sources, typecheck_program_sources,
+    compile_program_sources_with_prelude, resolve_program_sources, typecheck_program_sources,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
