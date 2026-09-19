@@ -102,6 +102,12 @@ pub enum AssignmentKind {
         destination: ValueId,
         value: ValueId,
     },
+    ArrayGet {
+        destination: ValueId,
+        type_index: u32,
+        value: ValueId,
+        index: ValueId,
+    },
     If {
         condition: ValueId,
         then_assignments: Vec<Assignment>,

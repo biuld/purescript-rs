@@ -183,6 +183,29 @@ impl FunctionLowerer<'_> {
             ExprKind::Array { elements } => {
                 self.lower_array(expression, elements, ty, assignments)
             }
+            ExprKind::ArrayIndex { array, index } => {
+                let Some(type_index) = self.array_types.get(&array.ty).copied() else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "array expression has no concrete GC array layout",
+                    )]);
+                };
+                let array = self.lower_value(array, assignments)?;
+                let index = self.lower_value(index, assignments)?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::ArrayGet {
+                        destination,
+                        type_index,
+                        value: array,
+                        index,
+                    },
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
             ExprKind::ArrayLength(value) => {
                 let value = self.lower_value(value, assignments)?;
                 let destination = self.fresh(ty);
