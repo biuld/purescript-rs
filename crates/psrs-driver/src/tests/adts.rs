@@ -105,6 +105,47 @@ main = unwrap (Outer (Inner 42))
 }
 
 #[test]
+fn erases_a_newtype_constructor_and_pattern_at_runtime() {
+    let source = "\
+module Main where
+newtype Age = Age Int
+unAge (Age number) = number
+main = unAge (Age 42)
+";
+    let stages =
+        psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", source).unwrap())
+            .unwrap();
+    assert!(
+        stages.cc.types.is_empty(),
+        "newtypes must not allocate GC types"
+    );
+    assert!(
+        !stages.artifact.wat.contains("struct.new"),
+        "newtype construction should pass through its field"
+    );
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_constructor_pattern_in_a_function_argument() {
+    let source = "\
+module Main where
+data Pair = Pair Int Int
+sum (Pair left right) = left + right
+main = sum (Pair 20 22)
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn reports_parameterized_types_as_a_limitation() {
     let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: Maybe Int -> Maybe Int\nf x = x\n";
     let errors = compile_source("Main.purs", source).unwrap_err();

@@ -245,34 +245,73 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
 fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
     let mut seen = HashSet::new();
     for parameter in parameters {
-        if let cst::PatternKind::Var(name) = &parameter.kind
-            && !seen.insert(name.text.as_str())
-        {
-            return Some(LowerError::coded(
-                parameter.span,
-                "OverlappingArgNames",
-                "two arguments share the same name",
-            ));
+        if let Some(error) = check_pattern_names(parameter, &mut seen) {
+            return Some(error);
         }
     }
     None
 }
 
+fn check_pattern_names(pattern: &cst::Pattern, seen: &mut HashSet<String>) -> Option<LowerError> {
+    match &pattern.kind {
+        cst::PatternKind::Var(name) => {
+            if !seen.insert(name.text.clone()) {
+                return Some(LowerError::coded(
+                    pattern.span,
+                    "OverlappingArgNames",
+                    "two arguments share the same name",
+                ));
+            }
+        }
+        cst::PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                if let Some(error) = check_pattern_names(argument, seen) {
+                    return Some(error);
+                }
+            }
+        }
+        cst::PatternKind::Parens { pattern, .. } => {
+            return check_pattern_names(pattern, seen);
+        }
+        _ => {}
+    }
+    None
+}
+
 fn lower_pattern_lambda(pattern: cst::Pattern, body: Expr) -> Result<Expr, LowerError> {
-    match pattern.kind {
-        cst::PatternKind::Var(name) => Ok(lower_lambda(
+    if let cst::PatternKind::Var(name) = &pattern.kind {
+        return Ok(lower_lambda(
             Binder {
-                name: name.text,
+                name: name.text.clone(),
                 span: name.span,
             },
             body,
-        )),
-        cst::PatternKind::Parens { pattern, .. } => lower_pattern_lambda(*pattern, body),
-        _ => Err(LowerError::new(
-            pattern.span,
-            "only variable binders are supported yet",
-        )),
+        ));
     }
+
+    let span = pattern.span;
+    let name = format!("__psrs_pattern_{}", span.start);
+    let binder = Binder {
+        name: name.clone(),
+        span,
+    };
+    let scrutinee = Expr {
+        kind: ExprKind::Name(Name { text: name, span }),
+        span,
+    };
+    let pattern = lower_pattern(pattern)?;
+    let case = Expr {
+        kind: ExprKind::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![CaseBranch {
+                pattern,
+                value: body.clone(),
+                span: TextRange::new(span.start, body.span.end),
+            }],
+        },
+        span: TextRange::new(span.start, body.span.end),
+    };
+    Ok(lower_lambda(binder, case))
 }
 
 fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {

@@ -3,7 +3,7 @@ use crate::BackendError;
 use crate::types::{
     CompositeType, DefinedType, FieldType, HeapType, RecGroup, RefType, StorageType,
 };
-use psrs_core::{ExprKind, Module as CoreModule, Type, TypeConstructor};
+use psrs_core::{ExprKind, Module as CoreModule, Type, TypeConstructor, TypeId};
 use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -48,7 +48,10 @@ fn declared_signature(signature: &psrs_hir::Type) -> Option<(usize, ValueType)> 
 
 /// The set of user types whose constructors are all nullary, which the first
 /// runtime slice can represent as immediate integer tags.
-pub(super) fn enum_type_ids(module: &CoreModule) -> HashSet<HirTypeId> {
+pub(super) fn enum_type_ids(
+    module: &CoreModule,
+    newtype_ids: &HashSet<HirTypeId>,
+) -> HashSet<HirTypeId> {
     let mut all_nullary: HashMap<HirTypeId, bool> = HashMap::new();
     for constructor in &module.constructors {
         let entry = all_nullary.entry(constructor.type_id).or_insert(true);
@@ -58,38 +61,68 @@ pub(super) fn enum_type_ids(module: &CoreModule) -> HashSet<HirTypeId> {
     }
     all_nullary
         .into_iter()
-        .filter(|(_, nullary)| *nullary)
+        .filter(|(id, nullary)| *nullary && !newtype_ids.contains(id))
         .map(|(id, _)| id)
         .collect()
 }
 
 /// User types with at least one field are represented by immutable GC structs.
-pub(super) fn aggregate_type_ids(module: &CoreModule) -> HashSet<HirTypeId> {
+pub(super) fn aggregate_type_ids(
+    module: &CoreModule,
+    newtype_ids: &HashSet<HirTypeId>,
+) -> HashSet<HirTypeId> {
     module
         .constructors
         .iter()
         .filter(|constructor| {
-            constructor.field_count != 0
+            !newtype_ids.contains(&constructor.type_id)
+                && constructor.field_count != 0
                 && constructor
                     .field_types
                     .iter()
-                    .all(|field| layoutable_field_type(module, *field))
+                    .all(|field| layoutable_field_type(module, *field, newtype_ids))
         })
         .map(|constructor| constructor.type_id)
         .collect()
 }
 
-fn layoutable_field_type(module: &CoreModule, id: psrs_core::TypeId) -> bool {
-    matches!(
-        module.types.get(id.0 as usize),
-        Some(
-            Type::I32
-                | Type::Boolean
-                | Type::String
-                | Type::Unit
-                | Type::Constructor(TypeConstructor::User(_))
-        )
-    )
+fn layoutable_field_type(
+    module: &CoreModule,
+    id: TypeId,
+    newtype_ids: &HashSet<HirTypeId>,
+) -> bool {
+    let mut visiting = HashSet::new();
+    layoutable_field_type_inner(module, id, newtype_ids, &mut visiting)
+}
+
+fn layoutable_field_type_inner(
+    module: &CoreModule,
+    id: TypeId,
+    newtype_ids: &HashSet<HirTypeId>,
+    visiting: &mut HashSet<HirTypeId>,
+) -> bool {
+    match module.types.get(id.0 as usize) {
+        Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => true,
+        Some(Type::Constructor(TypeConstructor::User(type_id)))
+            if newtype_ids.contains(type_id) =>
+        {
+            let Some(inner) = newtype_field_type(module, *type_id) else {
+                return false;
+            };
+            if !visiting.insert(*type_id) {
+                return false;
+            }
+            let result = layoutable_field_type_inner(module, inner, newtype_ids, visiting);
+            visiting.remove(type_id);
+            result
+        }
+        Some(Type::Constructor(TypeConstructor::User(_))) => true,
+        Some(Type::Variable(_))
+        | Some(Type::Constructor(TypeConstructor::Array))
+        | Some(Type::Application(_, _))
+        | Some(Type::Function { .. })
+        | None => false,
+    }
 }
 
 /// Builds one concrete struct type per constructor. Field zero stores the
@@ -99,6 +132,7 @@ fn layoutable_field_type(module: &CoreModule, id: psrs_core::TypeId) -> bool {
 pub(super) fn type_layout(
     module: &CoreModule,
     aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
 ) -> Result<TypeLayout, Vec<BackendError>> {
     let mut definitions = Vec::new();
     let mut constructor_types = HashMap::new();
@@ -119,7 +153,7 @@ pub(super) fn type_layout(
         }];
         for field in &constructor.field_types {
             fields.push(FieldType {
-                storage: storage_type(module, *field, aggregate_types, module.span)?,
+                storage: storage_type(module, *field, aggregate_types, newtype_ids, module.span)?,
                 mutable: false,
             });
         }
@@ -151,10 +185,19 @@ fn storage_type(
     module: &CoreModule,
     id: psrs_core::TypeId,
     aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
     span: TextRange,
 ) -> Result<StorageType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => Ok(StorageType::I32),
+        Some(Type::Constructor(TypeConstructor::User(type_id)))
+            if newtype_ids.contains(type_id) =>
+        {
+            let Some(inner) = newtype_field_type(module, *type_id) else {
+                return Err(layout_error(span, "newtype must have exactly one field"));
+            };
+            storage_type(module, inner, aggregate_types, newtype_ids, span)
+        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if aggregate_types.contains(type_id) =>
         {
@@ -176,10 +219,29 @@ fn storage_type(
     }
 }
 
+fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Option<TypeId> {
+    let constructors = module
+        .constructors
+        .iter()
+        .filter(|constructor| constructor.type_id == type_id);
+    let mut constructors = constructors;
+    let constructor = constructors.next()?;
+    if constructors.next().is_some() || constructor.field_count != 1 {
+        return None;
+    }
+    constructor.field_types.first().copied()
+}
+
+fn layout_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
+    vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
 pub(super) fn declaration_shape(
     declaration: &psrs_core::Declaration,
     module: &CoreModule,
     enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
 ) -> Result<(usize, ValueType), Vec<BackendError>> {
     if !declaration.quantified.is_empty() {
         return Err(vec![BackendError::new(
@@ -226,10 +288,23 @@ pub(super) fn declaration_shape(
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok((arity, ValueType::I32))
         }
-        Some(Type::Constructor(TypeConstructor::User(id)))
-            if aggregate_type_ids(module).contains(id) =>
-        {
+        Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok((arity, aggregate_value_type()))
+        }
+        Some(Type::Constructor(TypeConstructor::User(type_id)))
+            if newtype_ids.contains(type_id) =>
+        {
+            Ok((
+                arity,
+                scalar_type(
+                    module,
+                    ty,
+                    declaration.span,
+                    enum_types,
+                    aggregate_types,
+                    newtype_ids,
+                )?,
+            ))
         }
         Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -249,6 +324,8 @@ pub(super) fn scalar_type(
     id: psrs_core::TypeId,
     span: TextRange,
     enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
 ) -> Result<ValueType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
@@ -266,10 +343,23 @@ pub(super) fn scalar_type(
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok(ValueType::I32)
         }
-        Some(Type::Constructor(TypeConstructor::User(id)))
-            if aggregate_type_ids(module).contains(id) =>
-        {
+        Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok(aggregate_value_type())
+        }
+        Some(Type::Constructor(TypeConstructor::User(type_id)))
+            if newtype_ids.contains(type_id) =>
+        {
+            let Some(inner) = newtype_field_type(module, *type_id) else {
+                return Err(layout_error(span, "newtype must have exactly one field"));
+            };
+            scalar_type(
+                module,
+                inner,
+                span,
+                enum_types,
+                aggregate_types,
+                newtype_ids,
+            )
         }
         Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
             "P8 closure conversion",

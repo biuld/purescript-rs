@@ -25,6 +25,9 @@ impl FunctionLowerer<'_> {
         else {
             return Err(case_error(span, "case scrutinee is not a data type"));
         };
+        if self.newtype_ids.contains(type_id) {
+            return self.lower_newtype_case(*type_id, scrutinee, branches, span, assignments);
+        }
         if self.aggregate_types.contains(type_id) {
             return self.lower_aggregate_case(
                 *type_id,
@@ -95,6 +98,80 @@ impl FunctionLowerer<'_> {
         )?;
         assignments.extend(built);
         Ok(value)
+    }
+
+    fn lower_newtype_case(
+        &mut self,
+        type_id: psrs_hir::TypeId,
+        scrutinee: ValueId,
+        branches: &[CaseBranch],
+        span: TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(constructor) = self
+            .module
+            .constructors
+            .iter()
+            .find(|constructor| constructor.type_id == type_id)
+        else {
+            return Err(case_error(span, "newtype has no constructor"));
+        };
+        let Some(branch) = branches.first() else {
+            return Err(case_error(
+                span,
+                "non-exhaustive case requires a wildcard alternative",
+            ));
+        };
+        match &branch.pattern.kind {
+            PatternKind::Wildcard | PatternKind::Var(_) => {
+                self.lower_branch(branch, scrutinee, assignments)
+            }
+            PatternKind::Constructor { symbol, arguments } => {
+                if *symbol != constructor.symbol {
+                    return Err(case_error(
+                        branch.pattern.span,
+                        "case pattern constructor does not belong to the newtype",
+                    ));
+                }
+                if arguments.len() != 1 {
+                    return Err(case_error(
+                        branch.pattern.span,
+                        "newtype pattern must have exactly one field",
+                    ));
+                }
+                self.lower_newtype_branch(branch, scrutinee, &arguments[0], assignments)
+            }
+        }
+    }
+
+    fn lower_newtype_branch(
+        &mut self,
+        branch: &CaseBranch,
+        scrutinee: ValueId,
+        field_pattern: &psrs_core::Pattern,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        if !matches!(
+            &field_pattern.kind,
+            PatternKind::Wildcard | PatternKind::Var(_)
+        ) {
+            return Err(case_error(
+                field_pattern.span,
+                "nested newtype field patterns are not supported yet",
+            ));
+        }
+        let bound = if let PatternKind::Var(id) = &field_pattern.kind {
+            let id = *id;
+            self.locals.insert(id, scrutinee);
+            Some(id)
+        } else {
+            None
+        };
+        let value = self.lower_value(&branch.value, assignments);
+        if let Some(id) = bound {
+            self.locals.remove(&id);
+        }
+        value
     }
 
     fn lower_aggregate_case(
@@ -263,6 +340,8 @@ impl FunctionLowerer<'_> {
                         constructor.field_types[field],
                         pattern.span,
                         self.enum_types,
+                        self.aggregate_types,
+                        self.newtype_ids,
                     )?;
                     let value = self.fresh(field_type);
                     assignments.push(Assignment {

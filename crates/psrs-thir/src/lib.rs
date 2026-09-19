@@ -50,6 +50,10 @@ pub struct Module {
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
     pub types: Vec<Type>,
+    /// Nominal types whose single constructor is erased at runtime. The type
+    /// checker keeps these types distinct; later lowering uses this metadata
+    /// to pass their field value through without allocating a wrapper.
+    pub newtype_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     pub span: TextRange,
@@ -254,6 +258,7 @@ mod tests {
             name: "Main".into(),
             externals: Vec::new(),
             types: vec![Type::I32],
+            newtype_ids: Vec::new(),
             constructors: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(ModuleId(0), 0),

@@ -19,6 +19,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         .first()
         .map_or_else(|| TextRange::new(0, 0), |module| module.span);
     let mut types = Vec::new();
+    let mut newtype_ids = Vec::new();
     let mut constructors = Vec::new();
     let mut declarations = Vec::new();
     let mut externals = Vec::new();
@@ -28,6 +29,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         for ty in &module.types {
             types.push(shift_type(ty, offset));
         }
+        newtype_ids.extend(module.newtype_ids);
         constructors.extend(module.constructors.into_iter().map(|constructor| {
             ConstructorInfo {
                 field_types: constructor
@@ -55,6 +57,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         name,
         externals,
         types,
+        newtype_ids,
         constructors,
         declarations,
         // Chosen by the caller once the program entry is known.

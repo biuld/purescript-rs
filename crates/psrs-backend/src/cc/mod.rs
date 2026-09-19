@@ -112,9 +112,10 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             module.entry.map(|entry| entry.module),
         ));
     }
-    let enum_types = enum_type_ids(&module);
-    let aggregate_types = aggregate_type_ids(&module);
-    let layout = type_layout(&module, &aggregate_types)?;
+    let newtype_ids = module.newtype_ids.iter().copied().collect();
+    let enum_types = enum_type_ids(&module, &newtype_ids);
+    let aggregate_types = aggregate_type_ids(&module, &newtype_ids);
+    let layout = type_layout(&module, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
     for constructor in &module.constructors {
@@ -126,13 +127,19 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     }
     let mut signatures = HashMap::new();
     for declaration in &module.declarations {
-        let (arity, result_ty) =
-            declaration_shape(declaration, &module, &enum_types).map_err(|errors| {
-                errors
-                    .into_iter()
-                    .map(|error| error.with_module(declaration.symbol.module))
-                    .collect::<Vec<_>>()
-            })?;
+        let (arity, result_ty) = declaration_shape(
+            declaration,
+            &module,
+            &enum_types,
+            &aggregate_types,
+            &newtype_ids,
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(declaration.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
         signatures.insert(
             declaration.symbol,
             Signature {
@@ -168,6 +175,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         signatures: &signatures,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
+        newtype_ids: &newtype_ids,
         constructor_tags: &constructor_tags,
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,

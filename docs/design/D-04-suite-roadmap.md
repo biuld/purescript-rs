@@ -227,14 +227,18 @@ cross-module kind environments.
 **Progress (implemented slice):** `data` and `newtype` constructors are
 registered as polymorphic values and type-check, including application of
 constructors with fields. A single-scrutinee `case` with constructor, variable,
-and wildcard patterns type-checks, and the constructor table flows through THIR
-and Core. The first runtime slice lowers the nullary constructors of a
-non-parameterized data type to immediate integer tags and `case` over it to tag
-comparisons, so enum-style programs compile to Wasm and run under WASI.
-Parameterized types, `newtype` erasure, records, rows, and richer heap or
-tagged aggregate layouts are still open, and the backend reports them as named
-limitations. Supported non-parameterized fields use Wasm GC
-objects under the runtime baseline fixed by
+and wildcard patterns type-checks, and constructor patterns in function
+parameters lower to a temporary parameter plus `case`. The constructor table
+flows through THIR and Core. The first runtime slice lowers the nullary
+constructors of a non-parameterized data type to immediate integer tags and
+`case` over it to tag comparisons, so enum-style programs compile to Wasm and
+run under WASI. A valid single-field `newtype` is now erased in CC: construction
+and matching pass through the field value, with no GC allocation. Parameterized
+types, records, rows, and richer heap or tagged aggregate layouts are still
+open, and the backend reports them as named limitations. The parameterized ADT
+representation is fixed by
+[DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
+Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by
 [DEC-05](../decision/DEC-05-wasmtime-feature-set.md).
 
 ### M7 — Runtime and standard library

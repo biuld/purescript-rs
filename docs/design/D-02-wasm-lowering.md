@@ -89,9 +89,14 @@ patterns use `ref.test`, `ref.cast`, and `struct.get`. Top-level lambdas become
 direct parameters. The `log` runtime function writes a `String` to standard
 output and returns `Unit`. Nested or capturing lambdas, function values,
 higher-order calls, parameterized aggregates, records, and arrays are rejected
-with source diagnostics. Compatible source WIT imports are lowered through the
-generic canonical-ABI adapter; mismatched source signatures, non-byte lists,
-and unsupported aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
+with source diagnostics. Newtypes are erased to their single field, and
+constructor patterns in function parameters are lowered to an explicit
+temporary parameter plus `case`. Parameterized ADTs still wait for the erased
+runtime representation selected by
+[DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
+Compatible source WIT imports are lowered through the generic canonical-ABI
+adapter; mismatched source signatures, non-byte lists, and unsupported
+aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
 generalizes local `let` groups and top-level strongly connected components and
 instantiates schemes at use sites. Declarations may carry a `name :: Type`
 signature with function arrows and `forall`; the checker elaborates it with
@@ -163,6 +168,12 @@ Establish a small ABI before adding services:
   per constructor under an abstract supertype, with each field a reference or a
   scalar. Constructor application allocates with `struct.new`, and pattern
   matching uses `br_on_cast`/`ref.test`.
+- A valid single-field `newtype` is represented by its field. Its constructor
+  and pattern are semantic Core operations but do not allocate a GC wrapper.
+- Parameterized ADTs use the runtime-erasure policy in
+  [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md):
+  parameter-dependent fields use boxed erased references, while independent
+  fields may remain unboxed after layout verification.
 - Closures are GC `struct` values holding a `funcref` and their captures, called
   with `call_ref`.
 - Records use a GC `struct` with a compile-time field shape, and arrays use a GC
@@ -223,7 +234,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
-| M6 | Partial: nullary data types and non-parameterized field constructors lower and run through Wasm GC; parameterized aggregates, records, and arrays pending |
+| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, and constructor argument patterns lower and run through Wasm GC; parameterized aggregates, records, and arrays pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |
 | M10 | WASI runtime and PureScript-facing base libraries |

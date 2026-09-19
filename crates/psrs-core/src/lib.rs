@@ -52,6 +52,9 @@ pub struct Module {
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
     pub types: Vec<Type>,
+    /// Nominal newtypes that are represented by their single field below Core.
+    /// This is representation metadata, not a change to the source type.
+    pub newtype_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     /// The declaration used as the program entry point, if one was selected.
@@ -434,6 +437,7 @@ mod tests {
             name: "Main".into(),
             externals: Vec::new(),
             types: vec![Type::I32],
+            newtype_ids: Vec::new(),
             constructors: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(ModuleId(0), 0),
@@ -465,6 +469,7 @@ mod tests {
             name: "Linked".into(),
             externals: Vec::new(),
             types: vec![Type::I32],
+            newtype_ids: Vec::new(),
             constructors: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(owner, 0),

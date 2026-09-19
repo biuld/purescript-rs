@@ -10,6 +10,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
+    pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -28,6 +29,7 @@ pub(super) fn lower_function(
         module,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
+        newtype_ids: context.newtype_ids,
         constructor_tags: context.constructor_tags,
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
@@ -35,7 +37,14 @@ pub(super) fn lower_function(
     let mut value = &declaration.value;
     let mut parameters = Vec::new();
     while let ExprKind::Lambda { binder, body } = &value.kind {
-        let ty = scalar_type(module, binder.ty, binder.span, context.enum_types)?;
+        let ty = scalar_type(
+            module,
+            binder.ty,
+            binder.span,
+            context.enum_types,
+            context.aggregate_types,
+            context.newtype_ids,
+        )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
         parameters.push(id);
@@ -43,7 +52,14 @@ pub(super) fn lower_function(
     }
     let mut assignments = Vec::new();
     let result = state.lower_value(value, &mut assignments)?;
-    let result_type = scalar_type(module, value.ty, value.span, context.enum_types)?;
+    let result_type = scalar_type(
+        module,
+        value.ty,
+        value.span,
+        context.enum_types,
+        context.aggregate_types,
+        context.newtype_ids,
+    )?;
     let function = Function {
         symbol: declaration.symbol,
         name: declaration.name.clone(),
@@ -66,6 +82,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) module: &'a CoreModule,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
+    pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -84,7 +101,14 @@ impl FunctionLowerer<'_> {
         expression: &Expr,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let ty = scalar_type(self.module, expression.ty, expression.span, self.enum_types)?;
+        let ty = scalar_type(
+            self.module,
+            expression.ty,
+            expression.span,
+            self.enum_types,
+            self.aggregate_types,
+            self.newtype_ids,
+        )?;
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
                 vec![BackendError::new(
@@ -163,6 +187,16 @@ impl FunctionLowerer<'_> {
                         expression.span,
                         "constructor application is not saturated",
                     )]);
+                }
+                if self.newtype_ids.contains(&constructor.type_id) {
+                    if constructor.field_count != 1 {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "newtype constructor must have exactly one field",
+                        )]);
+                    }
+                    return self.lower_value(&arguments[0], assignments);
                 }
                 let tag = self.constructor_tags.get(symbol).copied().ok_or_else(|| {
                     vec![BackendError::new(

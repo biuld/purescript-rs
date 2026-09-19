@@ -158,6 +158,12 @@ pub fn typecheck_module_with_imports(
         .values()
         .cloned()
         .collect::<Vec<_>>();
+    let newtype_ids = module
+        .types
+        .iter()
+        .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Newtype)
+        .map(|declaration| declaration.id)
+        .collect();
     let mut constructors = Vec::with_capacity(constructor_infos.len());
     for info in constructor_infos {
         let mut variables = HashMap::new();
@@ -193,6 +199,7 @@ pub fn typecheck_module_with_imports(
         name: module.name,
         externals: module.externals,
         types: types.values,
+        newtype_ids,
         constructors,
         declarations,
         span: module.span,
