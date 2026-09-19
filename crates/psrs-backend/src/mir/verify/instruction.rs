@@ -1,0 +1,446 @@
+//! Instruction and terminator type checks for MIR verification.
+
+use super::Signature;
+use super::util::{
+    check_heap, composite_at, is_ref, is_ref_opt, mir_error, require_value, storage_value_type,
+    value_type,
+};
+use crate::BackendError;
+use crate::mir::{Function, Instruction, ValueId, ValueType};
+use crate::types::{CompositeType, DefinedType, HeapType, RefType};
+use psrs_core::Primitive;
+use psrs_hir::SymbolId;
+use std::collections::HashMap;
+
+pub(super) fn verify_instruction(
+    function: &Function,
+    instruction: &Instruction,
+    definitions: &HashMap<ValueId, ValueType>,
+    signatures: &HashMap<SymbolId, Option<Signature>>,
+    defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    match instruction {
+        Instruction::Constant { .. } => {}
+        Instruction::StringConstant { .. } => {}
+        Instruction::Primitive {
+            destination,
+            op,
+            left,
+            right,
+            span,
+        } => {
+            let left_ty = require_value(definitions, *left, *span)?;
+            let right_ty = require_value(definitions, *right, *span)?;
+            let result_ty = value_type(function, *destination)
+                .ok_or_else(|| mir_error(*span, "missing MIR result type"))?;
+            let expected_result = match op {
+                Primitive::Eq
+                | Primitive::Ne
+                | Primitive::LtS
+                | Primitive::LeS
+                | Primitive::GtS
+                | Primitive::GeS => ValueType::Boolean,
+                _ => ValueType::I32,
+            };
+            if left_ty != ValueType::I32
+                || right_ty != ValueType::I32
+                || result_ty != expected_result
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR primitive operand or result type is invalid",
+                ));
+            }
+        }
+        Instruction::Call {
+            destination,
+            function: callee,
+            arguments,
+            span,
+        } => {
+            let Some(Some(signature)) = signatures.get(callee) else {
+                return Err(mir_error(*span, "MIR call target has no valid signature"));
+            };
+            if arguments.len() != signature.parameters.len() {
+                return Err(mir_error(
+                    *span,
+                    "MIR call has the wrong number of arguments",
+                ));
+            }
+            for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                if require_value(definitions, *argument, *span)? != *expected {
+                    return Err(mir_error(*span, "MIR call argument has the wrong type"));
+                }
+            }
+            let Some(expected) = signature.result else {
+                return Err(mir_error(
+                    *span,
+                    "MIR call to a void import has a destination",
+                ));
+            };
+            if value_type(function, *destination) != Some(expected) {
+                return Err(mir_error(*span, "MIR call result has the wrong type"));
+            }
+        }
+        Instruction::CallVoid {
+            function: callee,
+            arguments,
+            span,
+        } => {
+            let Some(Some(signature)) = signatures.get(callee) else {
+                return Err(mir_error(*span, "MIR call target has no valid signature"));
+            };
+            if signature.result.is_some() {
+                return Err(mir_error(
+                    *span,
+                    "MIR void call targets a function that returns a value",
+                ));
+            }
+            if arguments.len() != signature.parameters.len() {
+                return Err(mir_error(
+                    *span,
+                    "MIR call has the wrong number of arguments",
+                ));
+            }
+            for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                if require_value(definitions, *argument, *span)? != *expected {
+                    return Err(mir_error(*span, "MIR call argument has the wrong type"));
+                }
+            }
+        }
+        Instruction::RefNull {
+            destination,
+            heap,
+            span,
+        } => {
+            check_heap(*heap, defined, *span)?;
+            if !is_ref_opt(value_type(function, *destination)) {
+                return Err(mir_error(*span, "MIR ref.null result must be a reference"));
+            }
+        }
+        Instruction::RefIsNull {
+            destination,
+            value,
+            span,
+        } => {
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR ref.is_null operand must be a reference",
+                ));
+            }
+            if value_type(function, *destination) != Some(ValueType::Boolean) {
+                return Err(mir_error(*span, "MIR ref.is_null result must be Boolean"));
+            }
+        }
+        Instruction::RefTest {
+            destination,
+            value,
+            reference,
+            span,
+        } => {
+            check_heap(reference.heap, defined, *span)?;
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(*span, "MIR ref.test operand must be a reference"));
+            }
+            if value_type(function, *destination) != Some(ValueType::Boolean) {
+                return Err(mir_error(*span, "MIR ref.test result must be Boolean"));
+            }
+        }
+        Instruction::RefCast {
+            destination,
+            value,
+            reference,
+            span,
+        } => {
+            check_heap(reference.heap, defined, *span)?;
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(*span, "MIR ref.cast operand must be a reference"));
+            }
+            if value_type(function, *destination) != Some(ValueType::Ref(*reference)) {
+                return Err(mir_error(
+                    *span,
+                    "MIR ref.cast result must match the cast reference type",
+                ));
+            }
+        }
+        Instruction::I31New {
+            destination,
+            value,
+            span,
+        } => {
+            if require_value(definitions, *value, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR i31.new operand must be i32"));
+            }
+            if !matches!(
+                value_type(function, *destination),
+                Some(ValueType::Ref(RefType {
+                    heap: HeapType::I31,
+                    ..
+                }))
+            ) {
+                return Err(mir_error(
+                    *span,
+                    "MIR i31.new result must be an i31 reference",
+                ));
+            }
+        }
+        Instruction::I31GetS {
+            destination,
+            value,
+            span,
+        } => {
+            if !matches!(
+                require_value(definitions, *value, *span)?,
+                ValueType::Ref(RefType {
+                    heap: HeapType::I31,
+                    ..
+                })
+            ) {
+                return Err(mir_error(
+                    *span,
+                    "MIR i31.get_s operand must be an i31 reference",
+                ));
+            }
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(*span, "MIR i31.get_s result must be i32"));
+            }
+        }
+        Instruction::StructNew {
+            destination,
+            type_index,
+            arguments,
+            span,
+        } => {
+            let Some(CompositeType::Struct(fields)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR struct.new type is not a struct"));
+            };
+            if fields.len() != arguments.len() {
+                return Err(mir_error(
+                    *span,
+                    "MIR struct.new argument count differs from the struct fields",
+                ));
+            }
+            for (argument, field) in arguments.iter().zip(fields) {
+                let expected = storage_value_type(&field.storage).ok_or_else(|| {
+                    mir_error(*span, "MIR struct field storage is not representable")
+                })?;
+                if require_value(definitions, *argument, *span)? != expected {
+                    return Err(mir_error(
+                        *span,
+                        "MIR struct.new argument has the wrong type",
+                    ));
+                }
+            }
+            if !is_ref_opt(value_type(function, *destination)) {
+                return Err(mir_error(
+                    *span,
+                    "MIR struct.new result must be a reference",
+                ));
+            }
+        }
+        Instruction::StructGet {
+            destination,
+            type_index,
+            field,
+            value,
+            span,
+        } => {
+            let Some(CompositeType::Struct(fields)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR struct.get type is not a struct"));
+            };
+            let Some(field) = fields.get(*field as usize) else {
+                return Err(mir_error(*span, "MIR struct.get field is out of range"));
+            };
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR struct.get operand must be a reference",
+                ));
+            }
+            let expected = storage_value_type(&field.storage)
+                .ok_or_else(|| mir_error(*span, "MIR struct field storage is not representable"))?;
+            if value_type(function, *destination) != Some(expected) {
+                return Err(mir_error(*span, "MIR struct.get result has the wrong type"));
+            }
+        }
+        Instruction::StructSet {
+            type_index,
+            field,
+            value,
+            new_value,
+            span,
+        } => {
+            let Some(CompositeType::Struct(fields)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR struct.set type is not a struct"));
+            };
+            let Some(field) = fields.get(*field as usize) else {
+                return Err(mir_error(*span, "MIR struct.set field is out of range"));
+            };
+            if !field.mutable {
+                return Err(mir_error(
+                    *span,
+                    "MIR struct.set targets an immutable field",
+                ));
+            }
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR struct.set operand must be a reference",
+                ));
+            }
+            let expected = storage_value_type(&field.storage)
+                .ok_or_else(|| mir_error(*span, "MIR struct field storage is not representable"))?;
+            if require_value(definitions, *new_value, *span)? != expected {
+                return Err(mir_error(*span, "MIR struct.set value has the wrong type"));
+            }
+        }
+        Instruction::ArrayNew {
+            destination,
+            type_index,
+            elements,
+            span,
+        } => {
+            let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR array.new type is not an array"));
+            };
+            let expected = storage_value_type(&element.storage).ok_or_else(|| {
+                mir_error(*span, "MIR array element storage is not representable")
+            })?;
+            for element in elements {
+                if require_value(definitions, *element, *span)? != expected {
+                    return Err(mir_error(*span, "MIR array.new element has the wrong type"));
+                }
+            }
+            if !is_ref_opt(value_type(function, *destination)) {
+                return Err(mir_error(*span, "MIR array.new result must be a reference"));
+            }
+        }
+        Instruction::ArrayGet {
+            destination,
+            type_index,
+            value,
+            index,
+            span,
+        } => {
+            let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR array.get type is not an array"));
+            };
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR array.get operand must be a reference",
+                ));
+            }
+            if require_value(definitions, *index, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR array.get index must be i32"));
+            }
+            let expected = storage_value_type(&element.storage).ok_or_else(|| {
+                mir_error(*span, "MIR array element storage is not representable")
+            })?;
+            if value_type(function, *destination) != Some(expected) {
+                return Err(mir_error(*span, "MIR array.get result has the wrong type"));
+            }
+        }
+        Instruction::ArraySet {
+            type_index,
+            value,
+            index,
+            new_value,
+            span,
+        } => {
+            let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+                return Err(mir_error(*span, "MIR array.set type is not an array"));
+            };
+            if !element.mutable {
+                return Err(mir_error(*span, "MIR array.set targets an immutable array"));
+            }
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR array.set operand must be a reference",
+                ));
+            }
+            if require_value(definitions, *index, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR array.set index must be i32"));
+            }
+            let expected = storage_value_type(&element.storage).ok_or_else(|| {
+                mir_error(*span, "MIR array element storage is not representable")
+            })?;
+            if require_value(definitions, *new_value, *span)? != expected {
+                return Err(mir_error(*span, "MIR array.set value has the wrong type"));
+            }
+        }
+        Instruction::ArrayLen {
+            destination,
+            value,
+            span,
+        } => {
+            if !is_ref(require_value(definitions, *value, *span)?) {
+                return Err(mir_error(
+                    *span,
+                    "MIR array.len operand must be a reference",
+                ));
+            }
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(*span, "MIR array.len result must be i32"));
+            }
+        }
+        Instruction::Load {
+            destination,
+            address,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *address, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR load address must be i32"));
+            }
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(*span, "MIR load result must be i32"));
+            }
+        }
+        Instruction::Store {
+            address,
+            value,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *address, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR store address must be i32"));
+            }
+            if require_value(definitions, *value, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR store value must be i32"));
+            }
+        }
+        Instruction::WrapI64 {
+            destination,
+            value,
+            span,
+        } => {
+            if require_value(definitions, *value, *span)? != ValueType::I64
+                || value_type(function, *destination) != Some(ValueType::I32)
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR i32.wrap_i64 operand or result type is invalid",
+                ));
+            }
+        }
+        Instruction::WidenI64 {
+            destination,
+            value,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *value, *span)? != ValueType::I32
+                || value_type(function, *destination) != Some(ValueType::I64)
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR i64.extend_i32 operand or result type is invalid",
+                ));
+            }
+        }
+    }
+    Ok(())
+}

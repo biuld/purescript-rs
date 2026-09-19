@@ -17,27 +17,36 @@ mod structure;
 use runtime::collect_strings;
 use structure::Structurer;
 
-/// String data is placed after this scratch region, which holds the return
-/// pointer for WASI calls and their results.
-pub(super) const SCRATCH_END: u32 = 16;
-
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
 /// names each MIR import; MIR itself carries only canonical signatures.
 pub fn lower_module(
     module: &mir::Module,
-    wasi: &abi::WasiRegistry,
+    wasi: &mut abi::WasiRegistry,
 ) -> Result<Module, Vec<BackendError>> {
     mir::verify_module(module)?;
-    let Some(main_position) = module.functions.iter().position(|function| {
-        function.name == "main"
-            && function.parameters.is_empty()
-            && function.result_type == ValueType::I32
-    }) else {
+    let Some(entry_symbol) = module.entry else {
         return Err(wasm_error(
             module.span,
-            "the component artifact requires a zero-argument Int `main` declaration",
+            "no program entry point was selected for the component artifact",
         ));
     };
+    let Some(main_position) = module
+        .functions
+        .iter()
+        .position(|function| function.symbol == entry_symbol)
+    else {
+        return Err(wasm_error(
+            module.span,
+            "the program entry declaration is not a lowered function",
+        ));
+    };
+    let entry_function = &module.functions[main_position];
+    if !entry_function.parameters.is_empty() || entry_function.result_type != ValueType::I32 {
+        return Err(wasm_error(
+            entry_function.span,
+            "the component artifact requires a zero-argument Int entry declaration",
+        ));
+    }
 
     let (string_offsets, mut data, data_end) = collect_strings(module);
     let needs_realloc = module
@@ -75,15 +84,10 @@ pub fn lower_module(
             type_index,
         });
     }
-    // The synthesized `run` entry exits with `main`'s code through WASI.
-    let mut registry = abi::WasiRegistry::load().map_err(|message| {
-        vec![BackendError::new(
-            "P10 Wasm structuring",
-            module.span,
-            message,
-        )]
-    })?;
-    let exit = registry
+    // The synthesized `run` entry exits with `main`'s code through WASI. The
+    // registry is the one P9 built; interning `exit` here does not add an import
+    // unless a lowered call references it.
+    let exit = wasi
         .import(names::EXIT, names::EXIT_WITH_CODE)
         .map_err(|message| {
             vec![BackendError::new(
@@ -123,12 +127,19 @@ pub fn lower_module(
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
-        functions.push(lower_function(
+        let lowered = lower_function(
             source,
             defined + function_types[index],
             &function_indices,
             &string_offsets,
-        )?);
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(source.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
+        functions.push(lowered);
     }
 
     let main_index = import_count + main_position as u32;

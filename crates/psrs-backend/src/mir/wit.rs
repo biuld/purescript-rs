@@ -43,14 +43,14 @@ pub(super) fn lower(
     for (argument, kind) in arguments.iter().zip(&import.param_kinds) {
         match kind {
             abi::WasiParamKind::Scalar | abi::WasiParamKind::Handle => flat.push(*argument),
-            abi::WasiParamKind::Scalar64 => {
+            abi::WasiParamKind::Scalar64 { signed } => {
                 let wide = lowerer.fresh(ValueType::I64);
                 lowerer.append_instruction(
                     current,
                     Instruction::WidenI64 {
                         destination: wide,
                         value: *argument,
-                        signed: false,
+                        signed: *signed,
                         span,
                     },
                     span,
@@ -200,7 +200,7 @@ pub(super) fn lower(
                 )]);
             }
         },
-        abi::WasiResultKind::None | abi::WasiResultKind::Discarded => {
+        abi::WasiResultKind::None | abi::WasiResultKind::Result => {
             lowerer.append_instruction(
                 current,
                 Instruction::CallVoid {
@@ -219,6 +219,13 @@ pub(super) fn lower(
                 },
                 span,
             )?;
+        }
+        abi::WasiResultKind::Discarded => {
+            return Err(vec![BackendError::new(
+                "P9 MIR lowering",
+                span,
+                "aggregate WIT results must be rejected before MIR lowering",
+            )]);
         }
     }
     Ok(())

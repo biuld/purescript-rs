@@ -1,4 +1,4 @@
-use super::{Assignment, AssignmentKind, Function, Module, Signature, ValueId};
+use super::{Assignment, AssignmentKind, Function, Module, Signature, ValueId, cc_signature};
 use crate::BackendError;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -19,12 +19,17 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         })
         .collect::<HashMap<_, _>>();
     for external in &module.externals {
-        if let Some(signature) = super::runtime_signature(external) {
+        if let Some(signature) = external.signature.as_ref().and_then(cc_signature) {
             signatures.insert(external.symbol, signature);
         }
     }
     for function in &module.functions {
-        verify_function(function, &signatures)?;
+        verify_function(function, &signatures).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(function.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
     }
     Ok(())
 }
@@ -71,7 +76,6 @@ fn verify_assignments(
         match &assignment.kind {
             AssignmentKind::Constant(_) => {}
             AssignmentKind::StringConstant(_) => {}
-            AssignmentKind::Copy(value) => uses.push(*value),
             AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
             AssignmentKind::DirectCall {
                 function,

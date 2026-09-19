@@ -45,6 +45,8 @@ pub fn link(modules: Vec<Module>) -> Module {
         types,
         constructors,
         declarations,
+        // Chosen by the caller once the program entry is known.
+        entry: None,
         span,
     }
 }

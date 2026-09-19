@@ -1,10 +1,10 @@
-use super::{local, wasm_error};
+use super::{local, value_type, wasm_error};
 use crate::BackendError;
 use crate::mir::{
     self, BlockId, Function as MirFunction, Instruction as MirInstruction, Terminator,
 };
 use crate::types::ValueId;
-use crate::wasm::convert::heap_type;
+use crate::wasm::convert::{heap_type, val_type};
 use crate::wasm::{Body, Op};
 use ops::{memory, primitive, ref_cast, ref_test};
 
@@ -12,7 +12,7 @@ mod ops;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::Instruction;
 
 pub(super) struct Structurer<'a> {
     pub(super) function: &'a MirFunction,
@@ -102,6 +102,20 @@ impl Structurer<'_> {
                     merge_block,
                     span,
                 } => {
+                    let merge = self
+                        .blocks
+                        .get(merge_block)
+                        .ok_or_else(|| wasm_error(*span, "MIR merge block is missing"))?;
+                    if merge.parameters.len() != 1 {
+                        return Err(wasm_error(
+                            *span,
+                            "MIR branch merge must have one result value",
+                        ));
+                    }
+                    let merge_value = merge.parameters[0];
+                    let merge_type = value_type(self.function, merge_value).ok_or_else(|| {
+                        wasm_error(*span, "MIR merge parameter has no value type")
+                    })?;
                     body.push(Op::Leaf(Instruction::LocalGet(local(
                         &self.locals,
                         *condition,
@@ -132,22 +146,12 @@ impl Structurer<'_> {
                     body.push(Op::If {
                         then_body,
                         else_body,
-                        result: Some(ValType::I32),
+                        result: Some(val_type(merge_type)),
                         span: *span,
                     });
-                    let merge = self
-                        .blocks
-                        .get(merge_block)
-                        .ok_or_else(|| wasm_error(*span, "MIR merge block is missing"))?;
-                    if merge.parameters.len() != 1 {
-                        return Err(wasm_error(
-                            *span,
-                            "MIR branch merge must have one result value",
-                        ));
-                    }
                     body.push(Op::Leaf(Instruction::LocalSet(local(
                         &self.locals,
-                        merge.parameters[0],
+                        merge_value,
                         *span,
                     )?)));
                     current = *merge_block;
@@ -185,22 +189,6 @@ impl Structurer<'_> {
                             wasm_error(*span, "string constant has no data segment")
                         })?;
                     body.push(Op::Leaf(Instruction::I32Const(offset as i32)));
-                    body.push(Op::Leaf(Instruction::LocalSet(local(
-                        &self.locals,
-                        *destination,
-                        *span,
-                    )?)));
-                }
-                MirInstruction::Copy {
-                    destination,
-                    value,
-                    span,
-                } => {
-                    body.push(Op::Leaf(Instruction::LocalGet(local(
-                        &self.locals,
-                        *value,
-                        *span,
-                    )?)));
                     body.push(Op::Leaf(Instruction::LocalSet(local(
                         &self.locals,
                         *destination,

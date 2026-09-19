@@ -96,15 +96,6 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
-                AssignmentKind::Copy(value) => self.append_instruction(
-                    current,
-                    Instruction::Copy {
-                        destination: assignment.destination,
-                        value: *value,
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
                 AssignmentKind::Primitive { op, left, right } => self.append_instruction(
                     current,
                     Instruction::Primitive {

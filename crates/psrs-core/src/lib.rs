@@ -53,6 +53,10 @@ pub struct Module {
     pub types: Vec<Type>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
+    /// The declaration used as the program entry point, if one was selected.
+    /// The backend lowers this symbol rather than inferring identity from a
+    /// source name. See `docs/design/D-02-wasm-lowering.md`.
+    pub entry: Option<SymbolId>,
     pub span: TextRange,
 }
 
@@ -377,6 +381,7 @@ mod tests {
                 },
                 span: TextRange::new(0, 8),
             }],
+            entry: None,
             span: TextRange::new(0, 8),
         };
         assert_eq!(

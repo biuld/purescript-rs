@@ -21,7 +21,7 @@ fn registry() -> crate::abi::WasiRegistry {
 fn defined_types_flow_into_the_wasm_type_section() {
     let mir = Module {
         name: "MirTypes".into(),
-        externals: Vec::new(),
+        entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![DefinedType {
             final_type: true,
             supertype: None,
@@ -60,11 +60,11 @@ fn defined_types_flow_into_the_wasm_type_section() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir, &registry()).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &mut registry()).expect("lowering to Wasm");
     assert_eq!(wasm.defined_type_count(), 1);
     assert_eq!(wasm.functions[0].type_index, 1);
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
-    wasmparser::Validator::new()
+    crate::validator()
         .validate_all(&binary)
         .expect("the encoded module should validate");
 }
@@ -93,7 +93,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
     });
     let mir = Module {
         name: "MirGc".into(),
-        externals: Vec::new(),
+        entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![struct_type])],
         imports: Vec::new(),
         functions: vec![Function {
@@ -181,9 +181,9 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir, &registry()).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &mut registry()).expect("lowering to Wasm");
     let core = crate::wasm::encode_module(&wasm).expect("encoding");
-    wasmparser::Validator::new()
+    crate::validator()
         .validate_all(&core)
         .expect("the encoded module should validate");
 
@@ -220,7 +220,7 @@ fn lowers_an_imported_call() {
     let callee = import.symbol;
     let mir = Module {
         name: "MirImport".into(),
-        externals: Vec::new(),
+        entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
         imports: vec![Import {
             symbol: callee,
@@ -257,7 +257,7 @@ fn lowers_an_imported_call() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir, &registry).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &mut registry).expect("lowering to Wasm");
     let imported = wasm
         .imports
         .iter()
@@ -265,7 +265,128 @@ fn lowers_an_imported_call() {
         .expect("the WASI import should be declared");
     assert_eq!(imported.module, "wasi:cli/stdout@0.2.12");
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
-    wasmparser::Validator::new()
+    crate::validator()
         .validate_all(&binary)
         .expect("the encoded module should validate");
+}
+
+/// The Wasm lowering selects the entry from the explicit symbol, not from a
+/// declaration's source name.
+#[test]
+fn wasm_lowering_requires_an_explicit_entry_symbol() {
+    let mir = Module {
+        name: "NoEntry".into(),
+        entry: None,
+        types: Vec::new(),
+        imports: Vec::new(),
+        functions: vec![Function {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![ValueDecl {
+                id: ValueId(0),
+                ty: ValueType::I32,
+            }],
+            entry: BlockId(0),
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: vec![Instruction::Constant {
+                    destination: ValueId(0),
+                    value: 1,
+                    span: span(),
+                }],
+                terminator: Some(Terminator::Return {
+                    value: ValueId(0),
+                    span: span(),
+                }),
+            }],
+            result: ValueId(0),
+            result_type: ValueType::I32,
+            span: span(),
+        }],
+        span: span(),
+    };
+
+    let errors = crate::wasm::lower_module(&mir, &mut registry()).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("no program entry point")),
+        "{errors:?}"
+    );
+}
+
+/// The MIR verifier checks struct field types, not just the type index range.
+#[test]
+fn rejects_a_struct_new_with_a_mistyped_field() {
+    let mir = Module {
+        name: "BadStruct".into(),
+        entry: None,
+        types: vec![RecGroup(vec![DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Struct(vec![FieldType {
+                storage: StorageType::I64,
+                mutable: false,
+            }]),
+        }])],
+        imports: Vec::new(),
+        functions: vec![Function {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![
+                ValueDecl {
+                    id: ValueId(0),
+                    ty: ValueType::I64,
+                },
+                ValueDecl {
+                    id: ValueId(1),
+                    ty: ValueType::I32,
+                },
+                ValueDecl {
+                    id: ValueId(2),
+                    ty: ValueType::Ref(RefType {
+                        nullable: false,
+                        heap: HeapType::Index(0),
+                    }),
+                },
+            ],
+            entry: BlockId(0),
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: vec![
+                    Instruction::Constant {
+                        destination: ValueId(1),
+                        value: 1,
+                        span: span(),
+                    },
+                    Instruction::StructNew {
+                        destination: ValueId(2),
+                        type_index: 0,
+                        arguments: vec![ValueId(1)],
+                        span: span(),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: ValueId(0),
+                    span: span(),
+                }),
+            }],
+            result: ValueId(0),
+            result_type: ValueType::I64,
+            span: span(),
+        }],
+        span: span(),
+    };
+
+    let errors = crate::mir::verify_module(&mir).unwrap_err();
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("struct.new argument has the wrong type")),
+        "{errors:?}"
+    );
 }

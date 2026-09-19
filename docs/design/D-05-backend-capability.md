@@ -82,8 +82,9 @@ byte-oriented WASI boundary.
 - **Current artifact:** a WASI 0.2 component that exports `wasi:cli/run@0.2.12`
   and imports only the WASI interfaces the program uses (console via
   `wasi:cli/stdout` and `wasi:cli/stderr`, the monotonic clock via
-  `wasi:clocks/monotonic-clock`, and `wasi:cli/exit`). The core module is lifted
-  into the component with `wit-component` and runs under `wasmtime`.
+  `wasi:clocks/monotonic-clock`, random bytes via `wasi:random/random`, and
+  `wasi:cli/exit`). The core module is lifted into the component with
+  `wit-component` and runs under `wasmtime`.
 - **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry.
   WASI is the runtime ABI ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)):
   the PureScript-facing standard library is built on WASI interfaces, and the
@@ -93,11 +94,11 @@ byte-oriented WASI boundary.
 
 ## Verification
 
-- The validator is configured for the same feature set the baseline enables.
-  `wasmparser`'s default feature set currently matches `wasmtime` 48's default
-  set, including GC, so a GC artifact validates without custom feature
-  configuration; if the defaults diverge, the compiler must set the features
-  explicitly.
+- The validator starts from `wasmparser`'s default feature set, which currently
+  matches `wasmtime` 48's default set, and then pins the features this profile
+  requires (including GC, function references, and the component model) on and
+  the opt-in preview proposals it excludes off. A change in library defaults
+  therefore cannot silently disable a feature the backend depends on.
 - Execution tests run under the pinned `wasmtime`, and the artifact may require
   the features in this profile to load.
 - New capabilities are adopted by adding a row to the profile and an execution

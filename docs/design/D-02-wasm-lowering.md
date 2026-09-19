@@ -86,8 +86,10 @@ whose constructors are all nullary lowers to immediate integer tags and `case`
 over it to tag comparisons, so enum-style programs run under WASI. Top-level
 lambdas become direct parameters. The `log` runtime function writes a `String`
 to standard output and returns `Unit`. Nested or capturing lambdas, function
-values, higher-order calls, source imports, and aggregate values with fields are
-rejected with source diagnostics. Type inference supports rank-1 polymorphism: it
+values, higher-order calls, and aggregate values with fields are rejected with
+source diagnostics. Compatible source WIT imports are lowered through the
+generic canonical-ABI adapter; mismatched source signatures, non-byte lists,
+and unsupported aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
 generalizes local `let` groups and top-level strongly connected components and
 instantiates schemes at use sites. Declarations may carry a `name :: Type`
 signature with function arrows and `forall`; the checker elaborates it with
@@ -117,8 +119,9 @@ address of a length-prefixed UTF-8 buffer. A program that calls `log` imports
 `wasi:cli/stdout` and `wasi:io/streams`; the standard-library lowering reads the
 buffer's length and calls `blocking-write-and-flush` with the bytes and then a
 newline. The component imports only the WASI interfaces the program uses. See
-`examples/hello.purs`. File, environment, argument, clock, and random services
-are not implemented yet. `psrs dump <core|cc|mir> <file.purs>` prints any
+`examples/hello.purs`. File, environment, and argument services are not
+implemented yet; monotonic clock and random bytes are implemented. `psrs dump
+<core|cc|mir> <file.purs>` prints any
 intermediate IR for debugging.
 
 ## Type-system sequence
@@ -216,7 +219,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M2 | Partial: stable IDs, a module graph, imports/exports, and value resolution across modules; type and constructor namespaces pending |
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
-| M5 | Implemented direct-style integer Wasm through MIR/CFG, a `_start`/`proc_exit` WASI command entry, binary validation, and WAT output |
+| M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
 | M6 | Partial: nullary data types lower to integer tags and run; fields, tagged layouts, and GC-backed aggregates pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |

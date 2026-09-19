@@ -1,4 +1,4 @@
-use super::SCRATCH_END;
+use crate::abi::SCRATCH_END;
 use crate::mir::Instruction as MirInstruction;
 use crate::wasm::DataSegment;
 use std::collections::HashMap;

@@ -24,8 +24,8 @@ Existing Node.js APIs and JavaScript FFI modules are not supported compatibility
 targets. Programs that use unsupported syntax, types, or platform services
 receive source-oriented diagnostics rather than a malformed artifact.
 
-Until a component artifact exists, the compiler emits an interim core module
-that uses the legacy WASI Preview 1 imports for console and exit only.
+The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
+Preview 1 module ABI is not part of the supported output contract.
 
 The executable baseline is a documented, pinned WebAssembly runtime
 (`wasmtime`). An artifact may require the WebAssembly features that baseline
@@ -42,8 +42,8 @@ diagnostic code, and the suite defines the minimum target rather than a
 separate feature list. Suite files that require JavaScript or Node.js FFI are
 excluded from the target and count as neither coverage nor gaps.
 
-The current compiler can build a restricted, single-module program to a
-validated core Wasm module and print its WAT form:
+The current compiler can build a restricted program, including linked source
+modules, to a validated WASI component and print its WAT form:
 
 ```sh
 psrs build src/Main.purs -o main.wasm
@@ -51,10 +51,11 @@ psrs wat src/Main.purs -o main.wat
 ```
 
 The initial slice supports direct top-level functions, integer and boolean
-values, integer arithmetic and comparisons, scalar `let`, and `if`. The module
-exports a zero-argument integer `main` function. It is not yet a standalone
-WASI command or a WASI Component Model artifact, and it cannot yet call WASI
-services.
+values, integer arithmetic and comparisons, scalar `let`, `if`, nullary enum
+tags, and the implemented WASI console, clock, and random capabilities. The
+selected entry must be a zero-argument integer `main` function. Aggregate
+values with fields, closures, higher-order calls, and unsupported WIT shapes
+receive source-oriented diagnostics.
 
 ## Acceptance criteria
 

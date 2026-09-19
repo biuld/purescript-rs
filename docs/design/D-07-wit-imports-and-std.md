@@ -43,9 +43,10 @@ mapping** rather than a per-function recipe:
 
 - Each declared argument is classified against the WIT-level parameter it
   matches. A scalar parameter and a resource handle each flatten to one `i32`;
-  a 64-bit scalar is widened with `i64.extend_i32_u`; a `String` argument (a
-  `list<u8>`) flattens to the data pointer and length of its length-prefixed
-  buffer.
+  a 64-bit scalar is widened from `Int` with the extension its WIT signedness
+  requires (`i64.extend_i32_s` for `s64`, `i64.extend_i32_u` for `u64`); a
+  `String` argument (a `list<u8>`) flattens to the data pointer and length of
+  its length-prefixed buffer.
 - If the canonical import takes a return pointer, the backend passes a scratch
   address as the last argument.
 - The canonical result is mapped to the declared result: `i32` as-is, `i64`
@@ -63,9 +64,9 @@ is prefixed with its length and the allocated pointer is returned after that
 prefix, so a returned `(pointer, length)` is exactly a length-prefixed string
 value: the lowering computes `pointer - 4`.
 
-A returned list whose element type is not a byte is not modeled yet; such
-imports (for example `get-arguments`, which returns `list<string>`) additionally
-need aggregate values in the backend.
+A returned list whose element type is not a byte is rejected with a source
+diagnostic; such imports (for example `get-arguments`, which returns
+`list<string>`) require aggregate values before they can be enabled.
 
 ### The standard library
 
@@ -91,7 +92,9 @@ program does not reach from `main` are pruned, so a program that does not use
 
 ## Consequences
 
-- Adding a WIT import is a `foreign import` declaration, not backend code.
+- Adding a compatible WIT import is a `foreign import` declaration, not a
+  per-function backend recipe. The compiler rejects source signatures that do
+  not match the canonical WIT shape.
 - The compiler still owns the string representation (length-prefixed buffer in
   linear memory); a library sees strings, and the generic lowering adapts them.
 - Modules are linked at the Core level: type IDs are renumbered into one table

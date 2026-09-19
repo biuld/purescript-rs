@@ -4,7 +4,7 @@
 //! `docs/decision/DEC-06-runtime-interface-via-wit.md`.
 
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId};
+use psrs_hir::{BuiltinType, ModuleId, SymbolId, Type as HirType, TypeKind as HirTypeKind};
 use std::collections::HashMap;
 use wit_parser::abi::{AbiVariant, WasmType};
 use wit_parser::{Resolve, Type as WitType, TypeDefKind};
@@ -16,6 +16,14 @@ pub const RUN_CORE_EXPORT: &str = "wasi:cli/run@0.2.12#run";
 /// Scratch linear-memory address passed as the return pointer to WASI calls
 /// whose result does not fit in a single canonical result.
 pub const PRINT_SCRATCH: i32 = 0;
+
+/// The size of the reserved scratch region at the start of linear memory. It
+/// must hold the return pointer area of every canonical ABI call the backend
+/// emits. String data begins after it, so data segments never overwrite it.
+pub const SCRATCH_SIZE: u32 = 16;
+
+/// The first linear-memory offset after the scratch region.
+pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.
@@ -37,8 +45,9 @@ pub mod names {
 pub enum WasiParamKind {
     /// A scalar flattened to one canonical `i32` parameter.
     Scalar,
-    /// A 64-bit scalar (`u64`/`s64`) flattened to one canonical `i64`.
-    Scalar64,
+    /// A 64-bit scalar flattened to one canonical `i64`. `signed` selects
+    /// sign- or zero-extension when an `Int` argument is widened to it.
+    Scalar64 { signed: bool },
     /// A resource handle flattened to one canonical `i32` handle.
     Handle,
     /// A string or list flattened to a `(pointer, length)` pair.
@@ -57,8 +66,31 @@ pub enum WasiResultKind {
     /// `(pointer, length)` pair.
     List,
     /// A result returned indirectly but not modeled (for example a `result` or
-    /// a record); the lowering discards it.
+    /// a record); the lowering rejects it. A WIT `result` with a source `Unit`
+    /// declaration is represented separately because write-like operations
+    /// intentionally discard their error value.
+    Result,
+    /// A record, tuple, or other aggregate result that cannot be discarded by
+    /// the current source-level ABI.
     Discarded,
+}
+
+/// The small source-level type vocabulary understood by the current WIT ABI
+/// adapter. It is produced while crossing the Core boundary so CC/MIR do not
+/// retain HIR type nodes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceType {
+    Int,
+    Boolean,
+    String,
+    Unit,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceSignature {
+    pub parameters: Vec<SourceType>,
+    pub result: SourceType,
+    pub span: psrs_span::TextRange,
 }
 
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
@@ -77,6 +109,11 @@ pub struct WasiImport {
     pub param_kinds: Vec<WasiParamKind>,
     pub result: Option<ValueType>,
     pub result_kind: WasiResultKind,
+    /// A diagnostic explaining why this import is outside the currently
+    /// supported canonical-ABI subset, if any. Keeping this on the resolved
+    /// descriptor lets MIR reject it before emitting a semantically lossy
+    /// call.
+    pub unsupported: Option<String>,
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
     pub retptr: bool,
@@ -149,6 +186,14 @@ impl WasiRegistry {
             None => WasiResultKind::None,
             Some(ty) => result_kind(&self.resolve, ty),
         };
+        let unsupported =
+            unsupported_shape(&self.resolve, wit_function, &result_kind).or_else(|| {
+                (!component_interface_supported(&module)).then(|| {
+                format!(
+                    "WASI interface `{module}` is not in the current component capability profile"
+                )
+            })
+            });
         let parameters = signature
             .params
             .iter()
@@ -176,6 +221,7 @@ impl WasiRegistry {
             param_kinds,
             result,
             result_kind,
+            unsupported,
             retptr: signature.retptr,
         });
         self.keys.insert(key, self.imports.len() - 1);
@@ -202,6 +248,157 @@ impl WasiRegistry {
             .iter()
             .any(|import| import.symbol == symbol && import.result_kind == WasiResultKind::List)
     }
+
+    /// Checks that a source-declared foreign import has a type that can be
+    /// represented by the canonical ABI adapter. This is deliberately done
+    /// before CC/MIR lowering: matching only arity would let an `Int` be used
+    /// for a resource or a non-byte list be treated as a `String`.
+    pub fn validate_signature(
+        &self,
+        import: &WasiImport,
+        signature: &SourceSignature,
+    ) -> Result<(), String> {
+        if signature.parameters.len() != import.param_kinds.len() {
+            return Err(format!(
+                "WIT import `{}` expects {} source arguments, but its declaration has {}",
+                import.name,
+                import.param_kinds.len(),
+                signature.parameters.len()
+            ));
+        }
+        for (parameter, kind) in signature.parameters.iter().zip(&import.param_kinds) {
+            let valid = match kind {
+                WasiParamKind::Scalar => {
+                    matches!(parameter, SourceType::Int | SourceType::Boolean)
+                }
+                WasiParamKind::Scalar64 { .. } | WasiParamKind::Handle => {
+                    matches!(parameter, SourceType::Int)
+                }
+                WasiParamKind::List => matches!(parameter, SourceType::String),
+            };
+            if !valid {
+                return Err(format!(
+                    "WIT import `{}` has a source parameter with an incompatible type",
+                    import.name
+                ));
+            }
+        }
+        let valid_result = match import.result_kind {
+            WasiResultKind::None => matches!(signature.result, SourceType::Unit),
+            WasiResultKind::Scalar => match import.result {
+                Some(ValueType::I64) => {
+                    matches!(signature.result, SourceType::Int)
+                }
+                Some(ValueType::I32) => {
+                    matches!(signature.result, SourceType::Int)
+                }
+                _ => false,
+            },
+            WasiResultKind::List => matches!(signature.result, SourceType::String),
+            WasiResultKind::Result => matches!(signature.result, SourceType::Unit),
+            WasiResultKind::Discarded => false,
+        };
+        if !valid_result {
+            return Err(format!(
+                "WIT import `{}` has a source result type incompatible with its canonical result",
+                import.name
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Converts a resolved HIR foreign-import type into the source-level subset
+/// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
+/// declarations remain `None` and are rejected by the ABI validation pass.
+pub(crate) fn source_signature(signature: &HirType) -> Option<SourceSignature> {
+    let mut parameters = Vec::new();
+    let mut result = signature;
+    while let HirTypeKind::Function {
+        parameter,
+        result: next,
+    } = &result.kind
+    {
+        parameters.push(source_type(parameter)?);
+        result = next.as_ref();
+    }
+    Some(SourceSignature {
+        parameters,
+        result: source_type(result)?,
+        span: signature.span,
+    })
+}
+
+fn source_type(ty: &HirType) -> Option<SourceType> {
+    match ty.kind {
+        HirTypeKind::Constructor(BuiltinType::Int) => Some(SourceType::Int),
+        HirTypeKind::Constructor(BuiltinType::Boolean) => Some(SourceType::Boolean),
+        HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
+        HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
+        _ => None,
+    }
+}
+
+fn unsupported_shape(
+    resolve: &Resolve,
+    function: &wit_parser::Function,
+    result_kind: &WasiResultKind,
+) -> Option<String> {
+    if function.params.iter().any(|parameter| {
+        matches!(param_kind(resolve, &parameter.ty), WasiParamKind::List)
+            && !list_is_bytes(resolve, &parameter.ty)
+    }) {
+        return Some("non-byte WIT lists are not supported by the String ABI".into());
+    }
+    if matches!(result_kind, WasiResultKind::List)
+        && let Some(result) = &function.result
+        && !list_is_bytes(resolve, result)
+    {
+        return Some("non-byte WIT list results are not supported by the String ABI".into());
+    }
+    if matches!(result_kind, WasiResultKind::Discarded) {
+        return Some(
+            "record, tuple, result, and other aggregate WIT results are not supported".into(),
+        );
+    }
+    None
+}
+
+fn component_interface_supported(module: &str) -> bool {
+    matches!(
+        module,
+        "wasi:cli/stdout@0.2.12"
+            | "wasi:cli/stderr@0.2.12"
+            | "wasi:io/streams@0.2.12"
+            | "wasi:cli/exit@0.2.12"
+            | "wasi:clocks/monotonic-clock@0.2.12"
+            | "wasi:random/random@0.2.12"
+    )
+}
+
+fn list_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
+    match ty {
+        WitType::String | WitType::U8 => true,
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::List(inner) | TypeDefKind::FixedLengthList(inner, ..) => {
+                list_element_is_bytes(resolve, inner)
+            }
+            TypeDefKind::Type(inner) => list_is_bytes(resolve, inner),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn list_element_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
+    match ty {
+        WitType::U8 => true,
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::Type(inner) => list_element_is_bytes(resolve, inner),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Classifies a WIT-level parameter so the lowering knows how many canonical
@@ -209,7 +406,8 @@ impl WasiRegistry {
 fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
     match ty {
         WitType::String => WasiParamKind::List,
-        WitType::U64 | WitType::S64 => WasiParamKind::Scalar64,
+        WitType::U64 => WasiParamKind::Scalar64 { signed: false },
+        WitType::S64 => WasiParamKind::Scalar64 { signed: true },
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
             TypeDefKind::Handle(_) => WasiParamKind::Handle,
@@ -228,6 +426,7 @@ fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
             TypeDefKind::Handle(_) => WasiResultKind::Scalar,
+            TypeDefKind::Result(_) => WasiResultKind::Result,
             TypeDefKind::Enum(_) | TypeDefKind::Flags(_) => WasiResultKind::Scalar,
             TypeDefKind::Type(inner) => result_kind(resolve, inner),
             _ => WasiResultKind::Discarded,
@@ -268,6 +467,7 @@ mod tests {
             write.param_kinds,
             vec![WasiParamKind::Handle, WasiParamKind::List]
         );
+        assert_eq!(write.result_kind, WasiResultKind::Result);
         assert!(write.retptr);
 
         let exit = registry
@@ -282,5 +482,17 @@ mod tests {
             .import(names::STDOUT, names::GET_STDOUT)
             .expect("get-stdout should resolve again");
         assert_eq!(stdout.symbol, stdout_again.symbol);
+    }
+
+    #[test]
+    fn classifies_a_64_bit_parameter_by_its_wit_signedness() {
+        let mut registry = WasiRegistry::load().expect("WASI WIT should load");
+        let random = registry
+            .import("wasi:random/random", "get-random-bytes")
+            .expect("get-random-bytes should resolve");
+        assert_eq!(
+            random.param_kinds,
+            vec![WasiParamKind::Scalar64 { signed: false }]
+        );
     }
 }

@@ -76,6 +76,36 @@ fn compiles_a_value_imported_from_another_module() {
 }
 
 #[test]
+fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
+    let a = ("A.purs", "module A where\nmain = 1\n");
+    let b = ("B.purs", "module B where\nmain = 2\n");
+    let errors = compile_program_sources(&[a, b]).unwrap_err();
+    assert_eq!(errors.len(), 2);
+    assert!(errors.iter().all(|error| {
+        error.diagnostic.stage == "P7 entry selection"
+            && error
+                .diagnostic
+                .message
+                .contains("multiple `main` declarations")
+    }));
+}
+
+#[test]
+fn attributes_backend_errors_to_their_declaring_module() {
+    let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 1\n");
+    let b = ("B.purs", "module B where\nmain x = x\n");
+    let errors = compile_program_sources(&[a, b]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.source == 1
+            && error.diagnostic.stage == "P8 closure conversion"
+            && error
+                .diagnostic
+                .message
+                .contains("polymorphic declarations")
+    }));
+}
+
+#[test]
 fn runs_a_linked_program_when_wasmtime_is_available() {
     let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
     let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
@@ -180,6 +210,42 @@ fn lowers_a_list_returning_import_with_an_allocator() {
     assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
     assert!(artifact.wat.contains("cabi_realloc"));
     assert!(artifact.wat.contains("i64.extend_i32_u"));
+}
+
+#[test]
+fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/environment#get-arguments\" args :: String\n\
+        main = 0\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.stage == "P9 MIR lowering" && error.message.contains("non-byte WIT list results")
+    }));
+}
+
+#[test]
+fn rejects_a_wit_import_when_the_declared_source_type_does_not_match() {
+    let source = "module Main where\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: String -> String\n\
+        main = 0\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.stage == "P9 MIR lowering" && error.message.contains("incompatible type")
+    }));
+}
+
+#[test]
+fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
+    let source = "module Main where\n\
+        foreign import \"wasi:random/insecure#get-insecure-random-u64\" random :: Int\n\
+        main = 0\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.stage == "P9 MIR lowering"
+            && error
+                .message
+                .contains("not in the current component capability profile")
+    }));
 }
 
 #[test]

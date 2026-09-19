@@ -233,7 +233,7 @@ type IDs and exported constructors, explicit import and export lists validate
 them, export lists report the transitive requirements that `purs` enforces, and
 `module X` re-exports resolve through the import's alias. An import with an
 `as` alias is qualified-only, matching PureScript. A resolved multi-module
-program is not yet linked into the backend (which still compiles one module).
+program is linked at Core before entering the backend.
 
 The type checker supports monomorphic `Int`, `Boolean`, `String`, `Unit`, and
 function types with unification and an occurs check, plus rank-1 polymorphism:
@@ -276,8 +276,9 @@ component, `wasmparser` to validate it, and `wasmprinter` to print WAT from the
 encoded component. The artifact is a WASI 0.2 component that exports
 `wasi:cli/run@0.2.12` and imports only the WASI interfaces the program uses.
 
-`psrs build <file.purs> [-o output.wasm]` writes the validated core module.
-`psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a file. The
+`psrs build <file.purs> [-o output.wasm]` writes the validated WASI 0.2
+component. `psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a
+file. The
 driver reports pass diagnostics with source ranges. `psrs dump
 <core|cc|mir> <file.purs>` prints a readable debug dump for one
 intermediate representation.

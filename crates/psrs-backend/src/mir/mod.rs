@@ -1,7 +1,7 @@
 use crate::abi::WasiRegistry;
 use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
-use crate::{BackendError, cc};
-use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId};
+use crate::{BackendError, annotate_errors, cc};
+use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -24,7 +24,6 @@ pub struct BlockId(pub u32);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
-    pub externals: Vec<ExternalSymbol>,
     /// Defined GC types owned by MIR. The Wasm encoding emits them after the
     /// function types at a fixed base; see `docs/design/D-06`.
     pub types: Vec<RecGroup>,
@@ -32,6 +31,8 @@ pub struct Module {
     /// from the WIT runtime ABI; see `docs/decision/DEC-06`.
     pub imports: Vec<Import>,
     pub functions: Vec<Function>,
+    /// The program entry declaration, if selected by the driver.
+    pub entry: Option<SymbolId>,
     pub span: TextRange,
 }
 
@@ -90,25 +91,64 @@ pub enum Terminator {
 /// resolved its WIT imports. The registry is returned so the Wasm stage can name
 /// each import; the MIR module itself stores no WIT or component detail.
 pub fn lower_module(module: cc::Module) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
-    let mut wasi = WasiRegistry::load()
-        .map_err(|message| vec![BackendError::new("P9 MIR lowering", module.span, message)])?;
+    let mut wasi = WasiRegistry::load().map_err(|message| {
+        annotate_errors(
+            vec![BackendError::new("P9 MIR lowering", module.span, message)],
+            module.entry.map(|entry| entry.module),
+        )
+    })?;
     // Resolve every source-declared WIT import to its canonical ABI descriptor.
     let mut wit_imports = HashMap::new();
     for external in &module.externals {
-        if let ExternalKind::Wit {
-            interface,
-            function,
-        } = &external.kind
-        {
-            let import = wasi.import(interface, function).map_err(|message| {
-                vec![BackendError::new("P9 MIR lowering", module.span, message)]
-            })?;
-            wit_imports.insert(external.symbol, import);
+        let interface = &external.interface;
+        let function = &external.function;
+        let import = wasi.import(interface, function).map_err(|message| {
+            vec![
+                BackendError::new("P9 MIR lowering", module.span, message)
+                    .with_module(external.symbol.module),
+            ]
+        })?;
+        if let Some(reason) = &import.unsupported {
+            return Err(vec![
+                BackendError::new(
+                    "P9 MIR lowering",
+                    external
+                        .signature
+                        .as_ref()
+                        .map_or(module.span, |signature| signature.span),
+                    format!("WIT import `{interface}#{function}` is unsupported: {reason}"),
+                )
+                .with_module(external.symbol.module),
+            ]);
         }
+        let Some(signature) = external.signature.as_ref() else {
+            return Err(vec![
+                BackendError::new(
+                    "P9 MIR lowering",
+                    module.span,
+                    format!("WIT import `{interface}#{function}` has no source signature"),
+                )
+                .with_module(external.symbol.module),
+            ]);
+        };
+        wasi.validate_signature(&import, signature)
+            .map_err(|message| {
+                vec![
+                    BackendError::new("P9 MIR lowering", signature.span, message)
+                        .with_module(external.symbol.module),
+                ]
+            })?;
+        wit_imports.insert(external.symbol, import);
     }
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
-        functions.push(lower_function(function, &wit_imports)?);
+        let lowered = lower_function(function, &wit_imports).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(function.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
+        functions.push(lowered);
     }
     // Keep only the imports a lowered call actually references, so a resolved but
     // unused external does not add a Wasm import.
@@ -125,10 +165,10 @@ pub fn lower_module(module: cc::Module) -> Result<(Module, WasiRegistry), Vec<Ba
         .collect();
     let mir = Module {
         name: module.name,
-        externals: module.externals,
         types: Vec::new(),
         imports,
         functions,
+        entry: module.entry,
         span: module.span,
     };
     verify_module(&mir)?;

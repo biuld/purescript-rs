@@ -15,11 +15,6 @@ pub enum Instruction {
         bytes: String,
         span: TextRange,
     },
-    Copy {
-        destination: ValueId,
-        value: ValueId,
-        span: TextRange,
-    },
     Primitive {
         destination: ValueId,
         op: Primitive,
@@ -152,7 +147,6 @@ impl Instruction {
         match self {
             Self::Constant { destination, .. }
             | Self::StringConstant { destination, .. }
-            | Self::Copy { destination, .. }
             | Self::Primitive { destination, .. }
             | Self::Call { destination, .. }
             | Self::RefNull { destination, .. }
@@ -180,7 +174,6 @@ impl Instruction {
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
             Self::Constant { .. } | Self::StringConstant { .. } => Vec::new(),
-            Self::Copy { value, .. } => vec![*value],
             Self::Primitive { left, right, .. } => vec![*left, *right],
             Self::Call { arguments, .. } => arguments.clone(),
             Self::CallVoid { arguments, .. } => arguments.clone(),
@@ -217,7 +210,6 @@ impl Instruction {
         match self {
             Self::Constant { span, .. }
             | Self::StringConstant { span, .. }
-            | Self::Copy { span, .. }
             | Self::Primitive { span, .. }
             | Self::Call { span, .. }
             | Self::CallVoid { span, .. }

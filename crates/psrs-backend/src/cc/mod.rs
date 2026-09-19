@@ -1,6 +1,7 @@
-use crate::BackendError;
+use crate::abi::{self, SourceSignature, SourceType};
+use crate::{BackendError, annotate_errors};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Primitive};
-use psrs_hir::{ExternalSymbol, LocalId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{ExternalKind, LocalId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -15,9 +16,22 @@ pub use crate::types::{ValueDecl, ValueId, ValueType};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
-    pub externals: Vec<ExternalSymbol>,
+    pub externals: Vec<External>,
     pub functions: Vec<Function>,
+    /// The program entry declaration, if selected by the driver. A stable symbol
+    /// rather than a source name, per `docs/design/D-02-wasm-lowering.md`.
+    pub entry: Option<SymbolId>,
     pub span: TextRange,
+}
+
+/// A source WIT binding after its HIR type has been reduced to the ABI
+/// vocabulary. MIR resolves the binding and stores only canonical imports.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct External {
+    pub symbol: SymbolId,
+    pub interface: String,
+    pub function: String,
+    pub signature: Option<SourceSignature>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +57,6 @@ pub struct Assignment {
 pub enum AssignmentKind {
     Constant(i32),
     StringConstant(String),
-    Copy(ValueId),
     Primitive {
         op: Primitive,
         left: ValueId,
@@ -64,10 +77,13 @@ pub enum AssignmentKind {
 
 pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     if let Err(errors) = module.verify() {
-        return Err(errors
-            .into_iter()
-            .map(|error| BackendError::new("P8 Core verification", error.span, error.message))
-            .collect());
+        return Err(annotate_errors(
+            errors
+                .into_iter()
+                .map(|error| BackendError::new("P8 Core verification", error.span, error.message))
+                .collect(),
+            module.entry.map(|entry| entry.module),
+        ));
     }
     let enum_types = enum_type_ids(&module);
     let mut constructor_tags = HashMap::new();
@@ -81,7 +97,13 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     }
     let mut signatures = HashMap::new();
     for declaration in &module.declarations {
-        let (arity, result_ty) = declaration_shape(declaration, &module, &enum_types)?;
+        let (arity, result_ty) =
+            declaration_shape(declaration, &module, &enum_types).map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|error| error.with_module(declaration.symbol.module))
+                    .collect::<Vec<_>>()
+            })?;
         signatures.insert(
             declaration.symbol,
             Signature {
@@ -90,30 +112,68 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             },
         );
     }
+    let mut externals = Vec::new();
     for external in &module.externals {
-        if let Some(signature) = runtime_signature(external) {
+        if let ExternalKind::Wit {
+            interface,
+            function,
+        } = &external.kind
+        {
+            let source_signature = external.signature.as_ref().and_then(abi::source_signature);
+            if let Some(signature) = source_signature.as_ref().and_then(cc_signature) {
+                signatures.insert(external.symbol, signature);
+            }
+            externals.push(External {
+                symbol: external.symbol,
+                interface: interface.clone(),
+                function: function.clone(),
+                signature: source_signature,
+            });
+        } else if let Some(signature) = runtime_signature(external) {
             signatures.insert(external.symbol, signature);
         }
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
     for declaration in &module.declarations {
-        functions.push(lower_function(
+        let lowered = lower_function(
             declaration,
             &module,
             &signatures,
             &enum_types,
             &constructor_tags,
             &constructors_by_type,
-        )?);
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(declaration.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
+        functions.push(lowered);
     }
     let cc = Module {
         name: module.name,
-        externals: module.externals,
+        externals,
         functions,
+        entry: module.entry,
         span: module.span,
     };
     verify::verify_module(&cc)?;
     Ok(cc)
+}
+
+fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
+    Some(Signature {
+        arity: signature.parameters.len(),
+        result: scalar_source_type(signature.result)?,
+    })
+}
+
+fn scalar_source_type(ty: SourceType) -> Option<ValueType> {
+    Some(match ty {
+        SourceType::Int | SourceType::String | SourceType::Unit => ValueType::I32,
+        SourceType::Boolean => ValueType::Boolean,
+    })
 }
 
 fn lower_function(

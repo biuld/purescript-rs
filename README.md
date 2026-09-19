@@ -7,9 +7,9 @@ replacement for the official PureScript compiler.
 
 ## Current status
 
-The compiler now builds a small, single-module PureScript subset through the
-backend IRs and emits a validated WASI 0.2 **Component Model** artifact plus
-WAT. The component exports `wasi:cli/run@0.2.12`; `main`'s result becomes the
+The compiler now builds a small PureScript subset, including linked source
+modules, through the backend IRs and emits a validated WASI 0.2 **Component
+Model** artifact plus WAT. The component exports `wasi:cli/run@0.2.12`; `main`'s result becomes the
 process exit code through `wasi:cli/exit`, and `log`/`error` write through
 `wasi:cli/stdout`/`wasi:cli/stderr` while `now` reads the monotonic clock. Try
 the inspection and build commands with the included examples:
@@ -59,11 +59,11 @@ polymorphic values, so constructor applications type-check, and single-scrutinee
 A first runtime slice lowers a non-parameterized data type's nullary
 constructors to integer tags and `case` over it to tag comparisons, so
 enum-style programs run under WASI. Type-class constraints, constructors with
-fields, heap layouts, and rows are not implemented yet. `build` writes
-a validated core Wasm WASI command exporting zero-argument `main` and `_start`;
+fields, heap layouts, and rows are not implemented yet. `build` writes a
+validated WASI 0.2 Component Model artifact exporting `wasi:cli/run@0.2.12`;
 `wat` renders the corresponding text form. General PureScript compatibility,
-type classes, pattern matching, cross-module compilation to Wasm, closures,
-aggregate values, and the Component Model layer are not implemented yet.
+type classes, closures, and aggregate values with fields are not implemented
+yet. Cross-module compilation is supported for the direct-call subset.
 
 ## Workspace
 
@@ -88,8 +88,9 @@ aggregate values, and the Component Model layer are not implemented yet.
 - `psrs-cli` provides source inspection, `build`, and `wat` commands.
 
 The compiler architecture defines twelve major passes across six long-lived
-IR families. The first Wasm slice is implemented; the WASI runtime and
-Component Model linker remain future work. The executable baseline is a pinned
+IR families. The first Wasm slice is implemented, including WASI and Component
+Model componentization; broader language coverage remains future work. The
+executable baseline is a pinned
 `wasmtime` release and may use the standardized WebAssembly 3.0 features
 (garbage collection, function references, tail calls, and exception handling)
 as well as preview proposals, per

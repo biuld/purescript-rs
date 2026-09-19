@@ -15,7 +15,7 @@ pub fn compile_program_sources(
         errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: 0,
+                source: error.module.map_or(0, |module| module.0 as usize),
                 diagnostic: diagnostic(error.pass, error.span, error.message),
             })
             .collect::<Vec<_>>()
@@ -30,6 +30,7 @@ pub(crate) fn lower_program_to_core(
     sources: &[(&str, &str)],
 ) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
     let typed = typecheck_program_sources(sources)?;
+    let entry = select_entry(&typed)?;
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
         match psrs_core::lower_module_unverified(module) {
@@ -46,13 +47,9 @@ pub(crate) fn lower_program_to_core(
         }
     }
     let mut linked = psrs_core::link(modules);
-    if let Some(main) = linked
-        .declarations
-        .iter()
-        .find(|declaration| declaration.name == "main")
-        .map(|declaration| declaration.symbol)
-    {
-        psrs_core::prune_unreachable(&mut linked, main);
+    if let Some(entry) = entry {
+        linked.entry = Some(entry);
+        psrs_core::prune_unreachable(&mut linked, entry);
     }
     if let Err(errors) = linked.verify() {
         return Err(errors
@@ -64,6 +61,68 @@ pub(crate) fn lower_program_to_core(
             .collect());
     }
     Ok(linked)
+}
+
+/// Selects one deterministic program entry before linking. A command program
+/// uses `Main.main` when that module is present; otherwise a source list with a
+/// single `main` declaration is accepted. Ambiguous entries are frontend-facing
+/// diagnostics instead of being resolved by input order; a missing entry is
+/// left for the backend to diagnose after Core lowering so earlier backend
+/// limitation diagnostics remain useful.
+fn select_entry(
+    modules: &[psrs_thir::Module],
+) -> Result<Option<psrs_hir::SymbolId>, Vec<ProgramDiagnostic>> {
+    let candidates = modules
+        .iter()
+        .enumerate()
+        .flat_map(|(source, module)| {
+            module
+                .declarations
+                .iter()
+                .filter(|declaration| declaration.name == "main")
+                .map(move |declaration| (source, module, declaration))
+        })
+        .collect::<Vec<_>>();
+    let main_module = candidates
+        .iter()
+        .filter(|(_, module, _)| module.name == "Main")
+        .collect::<Vec<_>>();
+    let selected = if main_module.len() == 1 {
+        Some(main_module[0].2.symbol)
+    } else if main_module.len() > 1 {
+        return Err(main_module
+            .into_iter()
+            .map(|(source, _, declaration)| ProgramDiagnostic {
+                source: *source,
+                diagnostic: diagnostic(
+                    "P7 entry selection",
+                    declaration.name_span,
+                    "multiple `main` declarations exist in modules named `Main`",
+                ),
+            })
+            .collect());
+    } else if candidates.len() == 1 {
+        Some(candidates[0].2.symbol)
+    } else {
+        None
+    };
+    if let Some(symbol) = selected {
+        return Ok(Some(symbol));
+    }
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    Err(candidates
+        .into_iter()
+        .map(|(source, _, declaration)| ProgramDiagnostic {
+            source,
+            diagnostic: diagnostic(
+                "P7 entry selection",
+                declaration.name_span,
+                "program has multiple `main` declarations; define one `main` in `Main`",
+            ),
+        })
+        .collect())
 }
 
 /// Resolves a program from a list of `(source_name, source_text)` pairs. Module

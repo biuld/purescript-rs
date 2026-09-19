@@ -80,7 +80,7 @@ fn encodes_and_runs_a_gc_struct() {
 
     super::verify::verify_module(&module).unwrap();
     let binary = super::encode_module(&module).unwrap();
-    wasmparser::Validator::new()
+    crate::validator()
         .validate_all(&binary)
         .expect("the encoded GC module should validate");
 

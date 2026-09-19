@@ -111,7 +111,7 @@ mod tests {
         let (resolve, world) = command_world().expect("WASI and application WIT should load");
         let core = core_module_exporting_run();
         let component = componentize(&core, &resolve, world).expect("componentizing");
-        wasmparser::Validator::new()
+        crate::validator()
             .validate_all(&component)
             .expect("the component should validate");
         let text = wasmprinter::print_bytes(&component).expect("printing the component");
@@ -237,7 +237,7 @@ mod tests {
         let (resolve, world) = command_world().expect("WASI and application WIT should load");
         let core = core_module_printing();
         let component = componentize(&core, &resolve, world).expect("componentizing");
-        wasmparser::Validator::new()
+        crate::validator()
             .validate_all(&component)
             .expect("the component should validate");
         let path = std::env::temp_dir().join(format!("psrs-print-{}.wasm", std::process::id()));
