@@ -12,13 +12,13 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
 
     if !module.types.is_empty() || !module.type_defs.is_empty() {
         let mut types = TypeSection::new();
+        for group in &module.type_defs {
+            types.ty().rec(group.0.iter().map(super::convert::sub_type));
+        }
         for ty in &module.types {
             types
                 .ty()
                 .function(ty.parameters.iter().copied(), ty.results.iter().copied());
-        }
-        for group in &module.type_defs {
-            types.ty().rec(group.0.iter().map(super::convert::sub_type));
         }
         encoder.section(&types);
     }

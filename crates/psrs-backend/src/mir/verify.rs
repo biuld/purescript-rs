@@ -1,5 +1,6 @@
 use super::{Function, Instruction, Module, Terminator, ValueId, ValueType};
 use crate::BackendError;
+use crate::types::{CompositeType, HeapType, StorageType};
 use psrs_core::Primitive;
 use psrs_hir::{ExternalKind, RuntimeFunction, SymbolId};
 use psrs_span::TextRange;
@@ -12,6 +13,8 @@ struct Signature {
 }
 
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
+    let mut errors = Vec::new();
+    verify_defined_types(module, &mut errors);
     let mut signatures = module
         .functions
         .iter()
@@ -41,10 +44,80 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             );
         }
     }
+    let defined_types = defined_type_count(module);
     for function in &module.functions {
+        for value in &function.values {
+            verify_value_type(&value.ty, defined_types, module.span, &mut errors);
+        }
         verify_function(function, &signatures)?;
     }
     Ok(())
+}
+
+fn defined_type_count(module: &Module) -> u32 {
+    module.types.iter().map(|group| group.0.len() as u32).sum()
+}
+
+fn verify_defined_types(module: &Module, errors: &mut Vec<BackendError>) {
+    let count = defined_type_count(module);
+    for group in &module.types {
+        for def in &group.0 {
+            if let Some(supertype) = def.supertype
+                && supertype >= count
+            {
+                errors.extend(mir_error(
+                    module.span,
+                    "MIR defined type supertype is out of range",
+                ));
+            }
+            match &def.composite {
+                CompositeType::Func {
+                    parameters,
+                    results,
+                } => {
+                    for ty in parameters.iter().chain(results) {
+                        verify_value_type(ty, count, module.span, errors);
+                    }
+                }
+                CompositeType::Struct(fields) => {
+                    for field in fields {
+                        verify_storage_type(field.storage, count, module.span, errors);
+                    }
+                }
+                CompositeType::Array(field) => {
+                    verify_storage_type(field.storage, count, module.span, errors);
+                }
+            }
+        }
+    }
+}
+
+fn verify_value_type(ty: &ValueType, count: u32, span: TextRange, errors: &mut Vec<BackendError>) {
+    if let ValueType::Ref(reference) = ty {
+        verify_heap(reference.heap, count, span, errors);
+    }
+}
+
+fn verify_storage_type(
+    storage: StorageType,
+    count: u32,
+    span: TextRange,
+    errors: &mut Vec<BackendError>,
+) {
+    if let StorageType::Ref(reference) = storage {
+        verify_heap(reference.heap, count, span, errors);
+    }
+}
+
+fn verify_heap(heap: HeapType, count: u32, span: TextRange, errors: &mut Vec<BackendError>) {
+    if let HeapType::Index(index) = heap
+        && index >= count
+    {
+        errors.extend(mir_error(
+            span,
+            "MIR defined type reference is out of range",
+        ));
+    }
 }
 
 fn verify_function(

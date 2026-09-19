@@ -44,10 +44,12 @@ source-language type system:
 
 MIR owns the defined-type table; the thin Wasm encoding emits it. The type
 index space is the single Wasm type index space shared with function types. The
-lowering keeps function types first and places defined types after them at a
-fixed base, so a defined-type reference maps to `base + mir_index`. This rule
-keeps type indices stable for instructions such as `struct.new` and is recorded
-here because both MIR and the Wasm encoding depend on it.
+lowering emits defined types first and function types after them, so a defined
+type keeps its MIR index and a function type index is `defined_count + index`.
+Defined types must come first because a function signature may reference a
+defined type. This rule keeps type indices stable for instructions such as
+`struct.new` and is recorded here because both MIR and the Wasm encoding depend
+on it.
 
 ## Instructions
 
@@ -109,8 +111,9 @@ and OCaml's Wasm backend.
 ## Implementation phases
 
 1. Add the target value/type model and let the thin Wasm encoding declare and
-   emit defined (GC) types.
-2. Give MIR its own value/type model and defined-type table, with verification.
+   emit defined (GC) types. *(implemented)*
+2. Give MIR its own value/type model and defined-type table, with verification
+   and lowering into the Wasm type section. *(implemented)*
 3. Add MIR reference and GC instructions with lowering and verification.
 4. Lower data types, records, and closures into the model in P9.
 5. Generalize structured control flow beyond `if` diamonds.

@@ -44,22 +44,22 @@ fn encodes_and_runs_a_gc_struct() {
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "sum".into(),
-            type_index: 0,
+            type_index: 1,
             parameters: Vec::new(),
-            locals: vec![struct_ref(1)],
+            locals: vec![struct_ref(0)],
             body: vec![
                 Op::Leaf(Instruction::I32Const(3)),
                 Op::Leaf(Instruction::I32Const(4)),
-                Op::Leaf(Instruction::StructNew(1)),
+                Op::Leaf(Instruction::StructNew(0)),
                 Op::Leaf(Instruction::LocalSet(0)),
                 Op::Leaf(Instruction::LocalGet(0)),
                 Op::Leaf(Instruction::StructGet {
-                    struct_type_index: 1,
+                    struct_type_index: 0,
                     field_index: 0,
                 }),
                 Op::Leaf(Instruction::LocalGet(0)),
                 Op::Leaf(Instruction::StructGet {
-                    struct_type_index: 1,
+                    struct_type_index: 0,
                     field_index: 1,
                 }),
                 Op::Leaf(Instruction::I32Add),
@@ -107,7 +107,7 @@ fn encodes_and_runs_a_gc_struct() {
 }
 
 #[test]
-fn defined_type_base_follows_function_types() {
+fn defined_types_precede_function_types() {
     let module = Module {
         name: "Empty".into(),
         imports: Vec::new(),
@@ -115,7 +115,11 @@ fn defined_type_base_follows_function_types() {
             parameters: Vec::new(),
             results: Vec::new(),
         }],
-        type_defs: vec![RecGroup(Vec::new())],
+        type_defs: vec![RecGroup(vec![DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Struct(Vec::new()),
+        }])],
         functions: Vec::new(),
         runtime_functions: Vec::new(),
         memories: Vec::new(),
@@ -124,5 +128,5 @@ fn defined_type_base_follows_function_types() {
         entry: None,
         span: span(),
     };
-    assert_eq!(module.type_defs_base(), 1);
+    assert_eq!(module.defined_type_count(), 1);
 }

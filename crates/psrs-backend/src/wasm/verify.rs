@@ -11,7 +11,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         + module.runtime_functions.len()
         + usize::from(module.entry.is_some())) as u32;
     for import in &module.imports {
-        if import.type_index as usize >= module.types.len() {
+        if !valid_function_type(module, import.type_index) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm import type index is out of range",
@@ -31,7 +31,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         }
     }
     for function in &module.functions {
-        if function.type_index as usize >= module.types.len() {
+        if !valid_function_type(module, function.type_index) {
             errors.push(wasm_error(
                 function.span,
                 "Wasm function type index is out of range",
@@ -47,7 +47,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         );
     }
     for function in &module.runtime_functions {
-        if function.type_index as usize >= module.types.len() {
+        if !valid_function_type(module, function.type_index) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm runtime function type index is out of range",
@@ -63,7 +63,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         );
     }
     if let Some(entry) = &module.entry {
-        if entry.type_index as usize >= module.types.len() {
+        if !valid_function_type(module, entry.type_index) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm entry type index is out of range",
@@ -122,6 +122,11 @@ fn verify_instruction(
         }
         _ => {}
     }
+}
+
+fn valid_function_type(module: &Module, index: u32) -> bool {
+    let defined = module.defined_type_count();
+    index >= defined && index < defined + module.types.len() as u32
 }
 
 fn wasm_error(span: TextRange, message: &'static str) -> BackendError {

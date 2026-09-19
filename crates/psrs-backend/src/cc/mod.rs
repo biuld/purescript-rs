@@ -10,16 +10,7 @@ mod verify;
 
 use layout::{Signature, declaration_shape, enum_type_ids, runtime_signature, scalar_type};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ValueId(pub u32);
-
-pub use crate::types::ValueType;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ValueDecl {
-    pub id: ValueId,
-    pub ty: ValueType,
-}
+pub use crate::types::{ValueDecl, ValueId, ValueType};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {

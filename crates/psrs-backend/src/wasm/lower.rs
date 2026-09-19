@@ -4,10 +4,10 @@ use super::{
     RuntimeFunction,
 };
 use crate::BackendError;
-use crate::cc::{ValueId, ValueType};
 use crate::mir::{
     self, BlockId, Function as MirFunction, Instruction as MirInstruction, Terminator,
 };
+use crate::types::{ValueId, ValueType};
 use psrs_core::Primitive;
 use psrs_hir::{ExternalKind, RuntimeFunction as HirRuntimeFunction, SymbolId};
 use psrs_span::TextRange;
@@ -55,9 +55,14 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     }
 
     let (mut types, function_types) = collect_function_types(module)?;
+    let defined = module
+        .types
+        .iter()
+        .map(|group| group.0.len() as u32)
+        .sum::<u32>();
 
     // Import 0: exit with a status code, used by the synthesized entry.
-    let proc_exit_type = types.len() as u32;
+    let proc_exit_type = defined + types.len() as u32;
     types.push(FuncType {
         parameters: vec![ValType::I32],
         results: Vec::new(),
@@ -71,7 +76,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     let mut fd_write_index = None;
     let mut log_type = None;
     if log_used {
-        let fd_write_type = types.len() as u32;
+        let fd_write_type = defined + types.len() as u32;
         types.push(FuncType {
             parameters: vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
             results: vec![ValType::I32],
@@ -83,7 +88,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
             type_index: fd_write_type,
         });
 
-        let console_log_type = types.len() as u32;
+        let console_log_type = defined + types.len() as u32;
         types.push(FuncType {
             parameters: vec![ValType::I32],
             results: vec![ValType::I32],
@@ -94,7 +99,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     let import_count = imports.len() as u32;
     let runtime_count = u32::from(log_used);
 
-    let entry_type = types.len() as u32;
+    let entry_type = defined + types.len() as u32;
     types.push(FuncType {
         parameters: Vec::new(),
         results: Vec::new(),
@@ -114,7 +119,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     for (index, source) in module.functions.iter().enumerate() {
         functions.push(lower_function(
             source,
-            function_types[index],
+            defined + function_types[index],
             &function_indices,
             &string_offsets,
         )?);
@@ -138,7 +143,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         name: module.name.clone(),
         imports,
         types,
-        type_defs: Vec::new(),
+        type_defs: module.types.clone(),
         functions,
         runtime_functions,
         memories: vec![Memory {

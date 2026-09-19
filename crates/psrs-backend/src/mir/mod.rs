@@ -1,11 +1,15 @@
 use crate::BackendError;
-use crate::cc::{self, AssignmentKind, ValueDecl, ValueId, ValueType};
+use crate::cc::{self, AssignmentKind};
+use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
 use psrs_core::Primitive;
 use psrs_hir::{ExternalSymbol, SymbolId};
 use psrs_span::TextRange;
 
 mod verify;
 pub use verify::verify_module;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
@@ -14,6 +18,9 @@ pub struct BlockId(pub u32);
 pub struct Module {
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
+    /// Defined GC types owned by MIR. The Wasm encoding emits them after the
+    /// function types at a fixed base; see `docs/design/D-06`.
+    pub types: Vec<RecGroup>,
     pub functions: Vec<Function>,
     pub span: TextRange,
 }
@@ -99,6 +106,7 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
     let mir = Module {
         name: module.name,
         externals: module.externals,
+        types: Vec::new(),
         functions,
         span: module.span,
     };

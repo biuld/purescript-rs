@@ -77,3 +77,15 @@ pub struct DefinedType {
 /// other; the group flattens into consecutive entries of the type index space.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecGroup(pub Vec<DefinedType>);
+
+/// A virtual value in a low-level IR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ValueId(pub u32);
+
+/// A typed virtual value declaration. Shared by CC IR and MIR so the value
+/// model is language-agnostic and owned below Typed Core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValueDecl {
+    pub id: ValueId,
+    pub ty: ValueType,
+}
