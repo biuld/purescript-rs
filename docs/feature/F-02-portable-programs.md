@@ -54,7 +54,8 @@ The initial slice supports direct top-level functions, integer and boolean
 values, integer arithmetic and comparisons, scalar `let`, `if`, nullary enum
 tags, non-parameterized data constructors with scalar or nested aggregate
 fields, single-field `newtype` values, constructor patterns in `case` and
-function parameters, a restricted parameterized ADT slice with erased scalar
+function parameters, including nested patterns for single-constructor fields,
+a restricted parameterized ADT slice with erased scalar
 fields, concrete scalar array literals and indexing, closed concrete records
 and field reads, function values including scalar-capturing closures,
 higher-order calls, and the

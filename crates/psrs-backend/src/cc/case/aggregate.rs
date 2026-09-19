@@ -1,4 +1,4 @@
-use super::super::layout::{depends_on_type_variable, scalar_type};
+use super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
 use super::super::lower::FunctionLowerer;
 use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
 use super::case_error;
@@ -168,59 +168,209 @@ impl FunctionLowerer<'_> {
         }
         let mut bound = Vec::new();
         for (field, pattern) in arguments.iter().enumerate() {
-            match &pattern.kind {
-                PatternKind::Var { id, ty } => {
-                    let value =
-                        if depends_on_type_variable(self.module, constructor.field_types[field]) {
-                            self.lower_erased_field(
-                                *ty,
-                                cast,
-                                type_index,
-                                field as u32 + 1,
-                                pattern.span,
-                                assignments,
-                            )?
-                        } else {
-                            let field_type = scalar_type(
-                                self.module,
-                                constructor.field_types[field],
-                                pattern.span,
-                                self.enum_types,
-                                self.aggregate_types,
-                                self.newtype_ids,
-                                self.array_types,
-                                self.record_types,
-                                self.function_types,
-                            )?;
-                            let value = self.fresh(field_type);
-                            assignments.push(Assignment {
-                                destination: value,
-                                kind: AssignmentKind::StructGet {
-                                    destination: value,
-                                    type_index,
-                                    field: field as u32 + 1,
-                                    value: cast,
-                                },
-                                span: pattern.span,
-                            });
-                            value
-                        };
-                    self.locals.insert(*id, value);
-                    bound.push(*id);
-                }
-                PatternKind::Wildcard => {}
-                PatternKind::Constructor { .. } => {
+            if matches!(pattern.kind, PatternKind::Wildcard) {
+                continue;
+            }
+            let value = if depends_on_type_variable(self.module, constructor.field_types[field]) {
+                let PatternKind::Var { ty, .. } = &pattern.kind else {
                     return Err(case_error(
                         pattern.span,
-                        "nested field constructor patterns are not supported yet",
+                        "nested patterns on erased constructor fields are not supported",
                     ));
-                }
-            }
+                };
+                self.lower_erased_field(
+                    *ty,
+                    cast,
+                    type_index,
+                    field as u32 + 1,
+                    pattern.span,
+                    assignments,
+                )?
+            } else {
+                let field_type = scalar_type(
+                    self.module,
+                    constructor.field_types[field],
+                    pattern.span,
+                    self.enum_types,
+                    self.aggregate_types,
+                    self.newtype_ids,
+                    self.array_types,
+                    self.record_types,
+                    self.function_types,
+                )?;
+                let value = self.fresh(field_type);
+                assignments.push(Assignment {
+                    destination: value,
+                    kind: AssignmentKind::StructGet {
+                        destination: value,
+                        type_index,
+                        field: field as u32 + 1,
+                        value: cast,
+                    },
+                    span: pattern.span,
+                });
+                value
+            };
+            self.lower_pattern(
+                pattern,
+                value,
+                constructor.field_types[field],
+                &mut bound,
+                assignments,
+            )?;
         }
         let value = self.lower_value(&branch.value, assignments);
         for id in bound {
             self.locals.remove(&id);
         }
         value
+    }
+
+    fn lower_pattern(
+        &mut self,
+        pattern: &psrs_core::Pattern,
+        value: ValueId,
+        source_type: psrs_core::TypeId,
+        bound: &mut Vec<psrs_hir::LocalId>,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<(), Vec<BackendError>> {
+        match &pattern.kind {
+            PatternKind::Wildcard => Ok(()),
+            PatternKind::Var { id, .. } => {
+                self.locals.insert(*id, value);
+                bound.push(*id);
+                Ok(())
+            }
+            PatternKind::Constructor { symbol, arguments } => {
+                let Some(type_id) = user_type_id(self.module, source_type) else {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor pattern has no data type",
+                    ));
+                };
+                let Some(constructor) = self
+                    .module
+                    .constructors
+                    .iter()
+                    .find(|constructor| constructor.symbol == *symbol)
+                else {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor pattern is not declared",
+                    ));
+                };
+                if constructor.type_id != type_id {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor pattern does not match its field type",
+                    ));
+                }
+                let Some(constructors) = self.constructors_by_type.get(&type_id) else {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested field type has no constructor table",
+                    ));
+                };
+                if constructors.len() != 1 {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor patterns require a single-constructor field type",
+                    ));
+                }
+                if arguments.len() != constructor.field_count {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor pattern has the wrong field count",
+                    ));
+                }
+                if self.newtype_ids.contains(&type_id) {
+                    let Some(field_type) = constructor.field_types.first().copied() else {
+                        return Err(case_error(
+                            pattern.span,
+                            "nested newtype constructor has no field",
+                        ));
+                    };
+                    let Some(field_pattern) = arguments.first() else {
+                        return Err(case_error(
+                            pattern.span,
+                            "nested newtype constructor has no pattern",
+                        ));
+                    };
+                    return self.lower_pattern(
+                        field_pattern,
+                        value,
+                        field_type,
+                        bound,
+                        assignments,
+                    );
+                }
+                if !self.aggregate_types.contains(&type_id) {
+                    return Ok(());
+                }
+                let Some(type_index) = self.constructor_types.get(symbol).copied() else {
+                    return Err(case_error(
+                        pattern.span,
+                        "nested constructor has no GC layout",
+                    ));
+                };
+                let cast = self.fresh(ValueType::Ref(RefType {
+                    nullable: false,
+                    heap: HeapType::Index(type_index),
+                }));
+                assignments.push(Assignment {
+                    destination: cast,
+                    kind: AssignmentKind::RefCast {
+                        destination: cast,
+                        value,
+                        reference: RefType {
+                            nullable: false,
+                            heap: HeapType::Index(type_index),
+                        },
+                    },
+                    span: pattern.span,
+                });
+                for (field, child) in arguments.iter().enumerate() {
+                    if matches!(child.kind, PatternKind::Wildcard) {
+                        continue;
+                    }
+                    if depends_on_type_variable(self.module, constructor.field_types[field]) {
+                        return Err(case_error(
+                            child.span,
+                            "nested patterns on erased constructor fields are not supported",
+                        ));
+                    }
+                    let child_type = scalar_type(
+                        self.module,
+                        constructor.field_types[field],
+                        child.span,
+                        self.enum_types,
+                        self.aggregate_types,
+                        self.newtype_ids,
+                        self.array_types,
+                        self.record_types,
+                        self.function_types,
+                    )?;
+                    let child_value = self.fresh(child_type);
+                    assignments.push(Assignment {
+                        destination: child_value,
+                        kind: AssignmentKind::StructGet {
+                            destination: child_value,
+                            type_index,
+                            field: field as u32 + 1,
+                            value: cast,
+                        },
+                        span: child.span,
+                    });
+                    self.lower_pattern(
+                        child,
+                        child_value,
+                        constructor.field_types[field],
+                        bound,
+                        assignments,
+                    )?;
+                }
+                Ok(())
+            }
+        }
     }
 }

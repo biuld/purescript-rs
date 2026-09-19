@@ -105,6 +105,23 @@ main = unwrap (Outer (Inner 42))
 }
 
 #[test]
+fn runs_a_nested_constructor_pattern_in_a_gc_field() {
+    let source = "\
+module Main where
+data Inner = Inner Int
+data Outer = Outer Inner
+unwrap value = case value of
+  Outer (Inner number) -> number
+main = unwrap (Outer (Inner 42))
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn erases_a_newtype_constructor_and_pattern_at_runtime() {
     let source = "\
 module Main where

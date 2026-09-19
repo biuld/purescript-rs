@@ -88,7 +88,8 @@ value-producing `if`. A data type
 whose constructors are all nullary lowers to immediate integer tags and `case`
 over it to tag comparisons. A non-parameterized data type with fields lowers to
 one Wasm GC struct per constructor; construction uses `struct.new`, and field
-patterns use `ref.test`, `ref.cast`, and `struct.get`. Top-level lambdas become
+patterns use `ref.test`, `ref.cast`, and `struct.get`; nested constructor
+patterns are supported for single-constructor aggregate fields. Top-level lambdas become
 direct parameters. The `log` runtime function writes a `String` to standard
 output and returns `Unit`. Record updates and open rows are rejected with
 source diagnostics. Closed concrete record literals lower to Wasm GC
