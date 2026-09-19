@@ -41,3 +41,22 @@ fn reports_a_type_synonym_mismatch_after_expansion() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn typechecks_constructor_application() {
+    let source =
+        "module Main where\ndata Maybe a = Nothing | Just a\nvalue :: Maybe Int\nvalue = Just 1\n";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn rejects_a_constructor_argument_type_mismatch() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nvalue :: Maybe Int\nvalue = Just \"no\"\n";
+    let errors = check_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected Int, found String")),
+        "{errors:?}"
+    );
+}

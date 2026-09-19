@@ -54,11 +54,12 @@ reports the official `KindsDoNotUnify`, `PartiallyAppliedSynonym`,
 `CycleInTypeSynonym`, `CycleInKindDeclaration`, `UndefinedTypeVariable`, and
 `InfiniteKind` codes. Inference now carries type constructors and type-level
 application, and expands type synonyms, so signatures over `Array`, user types,
-and synonyms elaborate and unify; type-class constraints and rows are not
-implemented yet. `build` writes a validated core Wasm WASI command exporting
-zero-argument `main` and `_start`;
+and synonyms elaborate and unify. Data and newtype constructors are typed as
+polymorphic values, so constructor applications type-check; type-class
+constraints, pattern matching, and rows are not implemented yet. `build` writes
+a validated core Wasm WASI command exporting zero-argument `main` and `_start`;
 `wat` renders the corresponding text form. General PureScript compatibility,
-type classes, algebraic data types, cross-module compilation to Wasm, closures,
+type classes, pattern matching, cross-module compilation to Wasm, closures,
 aggregate values, and the Component Model layer are not implemented yet.
 
 ## Workspace

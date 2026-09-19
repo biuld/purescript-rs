@@ -11,7 +11,7 @@ impl Checker {
         self.elaborate_type(ty, &mut variables)
     }
 
-    fn elaborate_type(
+    pub(super) fn elaborate_type(
         &mut self,
         ty: &hir::Type,
         variables: &mut HashMap<String, InferType>,

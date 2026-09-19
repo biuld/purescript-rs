@@ -311,3 +311,121 @@ fn rejects_a_partially_applied_synonym() {
         "{errors:?}"
     );
 }
+
+fn data_declaration(
+    id: u32,
+    name: &str,
+    parameters: &[&str],
+    constructors: Vec<(u32, &str, Vec<HirType>)>,
+) -> psrs_hir::TypeDeclaration {
+    psrs_hir::TypeDeclaration {
+        id: psrs_hir::TypeId::new(ModuleId(0), id),
+        name: name.into(),
+        name_span: TextRange::new(0, 1),
+        kind: psrs_hir::TypeDeclarationKind::Data,
+        parameters: parameters
+            .iter()
+            .map(|parameter| psrs_hir::TypeParameter {
+                name: (*parameter).into(),
+                name_span: TextRange::new(0, 1),
+                kind: None,
+            })
+            .collect(),
+        constructors: constructors
+            .into_iter()
+            .map(|(symbol, name, fields)| psrs_hir::Constructor {
+                symbol: SymbolId::new(ModuleId(0), symbol),
+                name: name.into(),
+                name_span: TextRange::new(0, 1),
+                fields,
+                span: TextRange::new(0, 1),
+            })
+            .collect(),
+        members: Vec::new(),
+        body: None,
+        superclasses: Vec::new(),
+        declared_kind: None,
+        span: TextRange::new(0, 1),
+    }
+}
+
+fn maybe_declaration() -> psrs_hir::TypeDeclaration {
+    data_declaration(
+        0,
+        "Maybe",
+        &["a"],
+        vec![
+            (1, "Nothing", Vec::new()),
+            (2, "Just", vec![variable("a", 0)]),
+        ],
+    )
+}
+
+#[test]
+fn types_nullary_and_applied_constructors() {
+    let maybe_int = applied(
+        named(0, 20),
+        builtin(psrs_hir::BuiltinType::Int, 26),
+        20,
+        30,
+    );
+    let value = declaration_with_signature(
+        0,
+        "value",
+        19,
+        maybe_int.clone(),
+        expr(HirExprKind::Global(SymbolId::new(ModuleId(0), 1)), 32, 39),
+    );
+    let just = expr(HirExprKind::Global(SymbolId::new(ModuleId(0), 2)), 40, 44);
+    let other = declaration_with_signature(
+        3,
+        "other",
+        45,
+        maybe_int,
+        expr(
+            HirExprKind::Application(Box::new(just), Box::new(integer("1", 46))),
+            40,
+            48,
+        ),
+    );
+    let mut resolved = module(vec![value, other], false);
+    resolved.types = vec![maybe_declaration()];
+
+    let typed = typecheck_module(resolved).unwrap();
+    typed.verify().unwrap();
+}
+
+#[test]
+fn rejects_a_constructor_argument_of_the_wrong_type() {
+    let maybe_int = applied(
+        named(0, 20),
+        builtin(psrs_hir::BuiltinType::Int, 26),
+        20,
+        30,
+    );
+    let just = expr(HirExprKind::Global(SymbolId::new(ModuleId(0), 2)), 40, 44);
+    let other = declaration_with_signature(
+        0,
+        "other",
+        45,
+        maybe_int,
+        expr(
+            HirExprKind::Application(
+                Box::new(just),
+                Box::new(expr(HirExprKind::String("no".into()), 45, 49)),
+            ),
+            40,
+            50,
+        ),
+    );
+    let mut resolved = module(vec![other], false);
+    resolved.types = vec![maybe_declaration()];
+
+    let errors = typecheck_module(resolved).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.kind == TypeCheckErrorKind::TypeMismatch),
+        "{errors:?}"
+    );
+}

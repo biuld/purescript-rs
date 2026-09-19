@@ -2,7 +2,7 @@ use super::*;
 
 impl Checker {
     pub(super) fn new(module: &hir::Module) -> Self {
-        Self {
+        let mut checker = Self {
             globals: HashMap::new(),
             external_kinds: module
                 .externals
@@ -34,6 +34,27 @@ impl Checker {
                     ))
                 })
                 .collect(),
+            constructors: module
+                .types
+                .iter()
+                .flat_map(|declaration| {
+                    let parameters = declaration
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.name.clone())
+                        .collect::<Vec<_>>();
+                    declaration
+                        .constructors
+                        .iter()
+                        .map(|constructor| ConstructorInfo {
+                            symbol: constructor.symbol,
+                            type_id: declaration.id,
+                            parameters: parameters.clone(),
+                            fields: constructor.fields.clone(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
             expanding: HashSet::new(),
             substitutions: HashMap::new(),
             levels: HashMap::new(),
@@ -42,6 +63,37 @@ impl Checker {
             next_variable: 0,
             level: 1,
             errors: Vec::new(),
+        };
+        checker.register_constructors();
+        checker
+    }
+
+    /// Registers each data and newtype constructor as a polymorphic value whose
+    /// type is its fields followed by the declared result type.
+    fn register_constructors(&mut self) {
+        let constructors = std::mem::take(&mut self.constructors);
+        for constructor in constructors {
+            let mut variables = HashMap::new();
+            let mut arguments = Vec::new();
+            for parameter in &constructor.parameters {
+                let variable = self.fresh();
+                if let InferType::Variable(id) = variable {
+                    self.rigid.insert(id);
+                }
+                variables.insert(parameter.clone(), variable.clone());
+                arguments.push(variable);
+            }
+            let mut result = InferType::Constructor(TypeConstructor::User(constructor.type_id));
+            for argument in arguments {
+                result = InferType::Application(Box::new(result), Box::new(argument));
+            }
+            let mut ty = result;
+            for field in constructor.fields.iter().rev() {
+                let field = self.elaborate_type(field, &mut variables);
+                ty = InferType::Function(Box::new(field), Box::new(ty));
+            }
+            let scheme = self.generalize(&ty, TOP_LEVEL);
+            self.globals.insert(constructor.symbol, scheme);
         }
     }
 

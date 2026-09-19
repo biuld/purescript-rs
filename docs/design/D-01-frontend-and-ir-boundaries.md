@@ -242,10 +242,13 @@ type variables, then checked against the inferred type with rigid variables.
 A `psrs-kind` pass (P5) infers and unifies kinds over resolved declarations and
 reports the official kind codes. `InferType`, THIR, and Core now carry type
 constructors and type-level application, so signatures over `Array` and user
-types elaborate and unify; type-class constraints and rows are not implemented
-yet. The backend rejects polymorphic declarations until type erasure and
-dictionary passing exist, and rejects aggregate and user-defined types with a
-named limitation. Type classes and algebraic data types are not implemented. P4
+types elaborate and unify, and type synonyms are expanded. Data and newtype
+constructors are registered as polymorphic values, so constructor applications
+type-check; pattern matching and constructor lowering are not implemented.
+Type-class constraints and rows are not implemented yet. The backend rejects
+polymorphic declarations until type erasure and dictionary passing exist, and
+rejects aggregate and user-defined types with a named limitation. Type classes
+and pattern matching are not implemented. P4
 currently lowers resolved operators to applications. P6 turns saturated integer
 intrinsics into Core primitive operations and keeps runtime functions, such as
 `log`, as direct calls. P7 Core optimization has no implementation yet.

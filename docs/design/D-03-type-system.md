@@ -87,8 +87,14 @@ now elaborates and checks. The backend rejects aggregate and user-defined types
 with a named limitation rather than lowering them.
 
 The rest of 2.6 and later are not implemented: no saturation of built-in
-constructors into runtime layouts, algebraic data types, class constraints, or
-rank-N types.
+constructors into runtime layouts, class constraints, or rank-N types.
+
+Phase 3 has started on the type side. Data and newtype constructors are
+registered as polymorphic values whose types are their field types followed by
+the declared result type, so `Nothing :: Maybe Int` and `Just 1 :: Maybe Int`
+type-check and a wrong constructor argument is rejected. Pattern matching,
+constructor lowering to Core, and runtime layouts are not implemented, so the
+backend still rejects aggregate types.
 
 ## Roadmap overview
 

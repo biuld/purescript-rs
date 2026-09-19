@@ -268,12 +268,23 @@ struct Synonym {
     body: hir::Type,
 }
 
+/// A data or newtype constructor registered as a value, with its declared
+/// result type and field types.
+#[derive(Clone, Debug)]
+struct ConstructorInfo {
+    symbol: SymbolId,
+    type_id: hir::TypeId,
+    parameters: Vec<String>,
+    fields: Vec<hir::Type>,
+}
+
 struct Checker {
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
     synonyms: HashMap<hir::TypeId, Synonym>,
+    constructors: Vec<ConstructorInfo>,
     expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,
     levels: HashMap<u32, u32>,
