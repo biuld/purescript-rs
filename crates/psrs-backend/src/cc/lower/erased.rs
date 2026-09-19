@@ -1,8 +1,301 @@
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
-use super::FunctionLowerer;
+use super::super::layout::function_signature;
+use super::super::{Assignment, AssignmentKind, Function, ValueId, ValueType};
+use super::call::is_erased_value_type;
+use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
+use crate::types::{HeapType, RefType};
+use psrs_core::{Type, TypeId};
+use psrs_hir::SymbolId;
 
 impl FunctionLowerer<'_> {
+    pub(super) fn adapt_erased_function_value(
+        &mut self,
+        value: ValueId,
+        source_type: TypeId,
+        target_type: TypeId,
+        span: psrs_span::TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let source_signature = function_signature(
+            self.module,
+            source_type,
+            self.enum_types,
+            self.aggregate_types,
+            self.newtype_ids,
+            self.array_types,
+            self.record_types,
+            self.function_types,
+        )?;
+        let target_signature = function_signature(
+            self.module,
+            target_type,
+            self.enum_types,
+            self.aggregate_types,
+            self.newtype_ids,
+            self.array_types,
+            self.record_types,
+            self.function_types,
+        )?;
+        let source_parameters = function_parameter_types(self.module, source_type);
+        let target_parameters = function_parameter_types(self.module, target_type);
+        if source_signature.parameters.len() != target_signature.parameters.len()
+            || source_parameters.len() != target_parameters.len()
+        {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "generic function adapter has incompatible arity",
+            )]);
+        }
+        let (Some(closure_type), Some(capture_array_type)) =
+            (self.closure_type, self.capture_array_type)
+        else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "generic function adapter has no closure layout",
+            )]);
+        };
+        let Some(&source_type_index) = self.function_types.get(&source_type) else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "concrete function adapter has no source function type",
+            )]);
+        };
+        let Some(&target_type_index) = self.function_types.get(&target_type) else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "erased function adapter has no target function type",
+            )]);
+        };
+
+        let mut adapter = self.child_lowerer();
+        let adapter_closure = adapter.fresh(closure_value_type());
+        let mut adapter_parameters = vec![adapter_closure];
+        let mut adapter_arguments = Vec::with_capacity(target_parameters.len());
+        for target_parameter in &target_signature.parameters {
+            let parameter = adapter.fresh(*target_parameter);
+            adapter_parameters.push(parameter);
+            adapter_arguments.push(parameter);
+        }
+        let mut adapter_assignments = Vec::new();
+        let captured_function = adapter.fresh(erased_reference_type());
+        adapter_assignments.push(Assignment {
+            destination: captured_function,
+            kind: AssignmentKind::ClosureGetCapture {
+                closure: adapter_closure,
+                closure_type,
+                capture_array_type,
+                boxed_f64_type: self.boxed_f64_type,
+                index: 0,
+            },
+            span,
+        });
+        let concrete_function = adapter.fresh(closure_value_type());
+        adapter_assignments.push(Assignment {
+            destination: concrete_function,
+            kind: AssignmentKind::RefCast {
+                destination: concrete_function,
+                value: captured_function,
+                reference: RefType {
+                    nullable: false,
+                    heap: HeapType::Struct,
+                },
+            },
+            span,
+        });
+        let mut concrete_arguments = Vec::with_capacity(adapter_arguments.len());
+        for (index, argument) in adapter_arguments.into_iter().enumerate() {
+            let source_parameter = source_signature.parameters[index];
+            let target_parameter = target_signature.parameters[index];
+            let argument = if is_erased_value_type(source_parameter)
+                && !is_erased_value_type(target_parameter)
+            {
+                adapter.box_erased_value(argument, span, &mut adapter_assignments)?
+            } else if !is_erased_value_type(source_parameter)
+                && is_erased_value_type(target_parameter)
+            {
+                adapter.unbox_erased_value(
+                    argument,
+                    source_parameter,
+                    span,
+                    &mut adapter_assignments,
+                )?
+            } else {
+                argument
+            };
+            concrete_arguments.push(argument);
+        }
+        let concrete_result = adapter.fresh(source_signature.result);
+        adapter_assignments.push(Assignment {
+            destination: concrete_result,
+            kind: AssignmentKind::IndirectCall {
+                function: concrete_function,
+                type_index: source_type_index,
+                closure_type,
+                capture_array_type,
+                arguments: concrete_arguments,
+            },
+            span,
+        });
+        let result = if is_erased_value_type(source_signature.result)
+            && !is_erased_value_type(target_signature.result)
+        {
+            adapter.unbox_erased_value(
+                concrete_result,
+                target_signature.result,
+                span,
+                &mut adapter_assignments,
+            )?
+        } else if !is_erased_value_type(source_signature.result)
+            && is_erased_value_type(target_signature.result)
+        {
+            adapter.box_erased_value(concrete_result, span, &mut adapter_assignments)?
+        } else {
+            concrete_result
+        };
+        let symbol = SymbolId::new(
+            self.module.id,
+            u32::MAX - 0x2000_0000 - span.start - self.generated.len() as u32,
+        );
+        let adapter_function = Function {
+            symbol,
+            name: format!("erased_adapter_{}", span.start),
+            parameters: adapter_parameters,
+            values: adapter.values,
+            assignments: adapter_assignments,
+            result,
+            result_type: target_signature.result,
+            span,
+        };
+        super::super::verify::verify_function(&adapter_function, self.signatures)?;
+        self.generated.extend(adapter.generated);
+        self.generated.push(adapter_function);
+        let result = self.fresh(closure_value_type());
+        assignments.push(Assignment {
+            destination: result,
+            kind: AssignmentKind::FunctionRef {
+                function: symbol,
+                type_index: target_type_index,
+                closure_type,
+                capture_array_type,
+                boxed_f64_type: self.boxed_f64_type,
+                captures: vec![value],
+            },
+            span,
+        });
+        Ok(result)
+    }
+
+    pub(super) fn unbox_erased_value(
+        &mut self,
+        value: ValueId,
+        expected: ValueType,
+        span: psrs_span::TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        match expected {
+            ValueType::Ref(crate::types::RefType {
+                nullable: false,
+                heap: crate::types::HeapType::Eq,
+            }) => Ok(value),
+            ValueType::I32 | ValueType::Boolean => {
+                let Some(boxed_type) = self.boxed_i32_type else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        span,
+                        "polymorphic result has no i32 erased value box layout",
+                    )]);
+                };
+                let concrete_box = self.fresh(ValueType::Ref(crate::types::RefType {
+                    nullable: false,
+                    heap: crate::types::HeapType::Index(boxed_type),
+                }));
+                assignments.push(Assignment {
+                    destination: concrete_box,
+                    kind: AssignmentKind::RefCast {
+                        destination: concrete_box,
+                        value,
+                        reference: crate::types::RefType {
+                            nullable: false,
+                            heap: crate::types::HeapType::Index(boxed_type),
+                        },
+                    },
+                    span,
+                });
+                let result = self.fresh(expected);
+                assignments.push(Assignment {
+                    destination: result,
+                    kind: AssignmentKind::StructGet {
+                        destination: result,
+                        type_index: boxed_type,
+                        field: 0,
+                        value: concrete_box,
+                    },
+                    span,
+                });
+                Ok(result)
+            }
+            ValueType::F64 => {
+                let Some(boxed_type) = self.boxed_f64_type else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        span,
+                        "polymorphic result has no f64 erased value box layout",
+                    )]);
+                };
+                let concrete_box = self.fresh(ValueType::Ref(crate::types::RefType {
+                    nullable: false,
+                    heap: crate::types::HeapType::Index(boxed_type),
+                }));
+                assignments.push(Assignment {
+                    destination: concrete_box,
+                    kind: AssignmentKind::RefCast {
+                        destination: concrete_box,
+                        value,
+                        reference: crate::types::RefType {
+                            nullable: false,
+                            heap: crate::types::HeapType::Index(boxed_type),
+                        },
+                    },
+                    span,
+                });
+                let result = self.fresh(ValueType::F64);
+                assignments.push(Assignment {
+                    destination: result,
+                    kind: AssignmentKind::StructGet {
+                        destination: result,
+                        type_index: boxed_type,
+                        field: 0,
+                        value: concrete_box,
+                    },
+                    span,
+                });
+                Ok(result)
+            }
+            ValueType::Ref(reference) => {
+                let result = self.fresh(ValueType::Ref(reference));
+                assignments.push(Assignment {
+                    destination: result,
+                    kind: AssignmentKind::RefCast {
+                        destination: result,
+                        value,
+                        reference,
+                    },
+                    span,
+                });
+                Ok(result)
+            }
+            _ => Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "polymorphic result cannot be unboxed to this runtime type yet",
+            )]),
+        }
+    }
+
     pub(super) fn box_erased_value(
         &mut self,
         value: ValueId,
@@ -131,4 +424,27 @@ impl FunctionLowerer<'_> {
         }
         Ok(erased)
     }
+}
+
+fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> Vec<TypeId> {
+    let mut parameters = Vec::new();
+    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
+        parameters.push(*parameter);
+        type_id = *result;
+    }
+    parameters
+}
+
+fn erased_reference_type() -> ValueType {
+    ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Eq,
+    })
+}
+
+fn closure_value_type() -> ValueType {
+    ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Struct,
+    })
 }

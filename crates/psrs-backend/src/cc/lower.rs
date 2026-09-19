@@ -1,4 +1,4 @@
-use super::layout::{Signature, depends_on_type_variable, function_signature, scalar_type};
+use super::layout::{Signature, depends_on_type_variable, scalar_type};
 use super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueType};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
@@ -11,7 +11,7 @@ mod erased;
 mod global;
 mod lambda;
 mod record;
-use call::{CallShape, collect_application};
+use call::ApplicationLowering;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 
@@ -59,6 +59,7 @@ pub(super) fn lower_function(
         capture_array_type: context.capture_array_type,
         closure_type: context.closure_type,
         function_wrappers: context.function_wrappers,
+        erased_function_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
@@ -129,6 +130,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) capture_array_type: Option<u32>,
     pub(super) closure_type: Option<u32>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
+    pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }
 
@@ -358,82 +360,7 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            ExprKind::Application(_, _) => {
-                let (head, arguments) = collect_application(expression);
-                if let ExprKind::Global(function) = head.kind {
-                    let signature = self.signatures.get(&function).ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            head.span,
-                            "call target is not a local top-level function",
-                        )]
-                    })?;
-                    self.check_call_shape(signature, arguments.len(), ty, expression.span)?;
-                    let values = arguments
-                        .into_iter()
-                        .map(|argument| self.lower_value(argument, assignments))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::DirectCall {
-                            function,
-                            arguments: values,
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                } else {
-                    let signature = function_signature(
-                        self.module,
-                        head.ty,
-                        self.enum_types,
-                        self.aggregate_types,
-                        self.newtype_ids,
-                        self.array_types,
-                        self.record_types,
-                        self.function_types,
-                    )?;
-                    self.check_call_shape(&signature, arguments.len(), ty, expression.span)?;
-                    let function = self.lower_value(head, assignments)?;
-                    let values = arguments
-                        .into_iter()
-                        .map(|argument| self.lower_value(argument, assignments))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let Some(type_index) = self.function_types.get(&head.ty).copied() else {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "higher-order call has no runtime function type",
-                        )]);
-                    };
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::IndirectCall {
-                            function,
-                            type_index,
-                            closure_type: self.closure_type.ok_or_else(|| {
-                                vec![BackendError::new(
-                                    "P8 closure conversion",
-                                    expression.span,
-                                    "higher-order call has no closure layout",
-                                )]
-                            })?,
-                            capture_array_type: self.capture_array_type.ok_or_else(|| {
-                                vec![BackendError::new(
-                                    "P8 closure conversion",
-                                    expression.span,
-                                    "higher-order call has no capture array layout",
-                                )]
-                            })?,
-                            arguments: values,
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                }
-            }
+            ExprKind::Application(_, _) => self.lower_application(expression, ty, assignments),
             ExprKind::Let { bindings, body } => {
                 for binding in bindings {
                     let value = self.lower_value(&binding.value, assignments)?;

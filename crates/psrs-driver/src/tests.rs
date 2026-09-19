@@ -135,16 +135,19 @@ fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
 
 #[test]
 fn attributes_backend_errors_to_their_declaring_module() {
-    let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 1\n");
-    let b = ("B.purs", "module B where\nmain x = x\n");
+    let a = (
+        "A.purs",
+        "module A where\nidentity :: forall a. a -> a\nidentity value = value\nmain = identity (\\value -> value) 42\n",
+    );
+    let b = ("B.purs", "module B where\nanswer = 0\n");
     let errors = compile_program_sources(&[a, b]).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.source == 1
+        error.source == 0
             && error.diagnostic.stage == "P8 closure conversion"
             && error
                 .diagnostic
                 .message
-                .contains("polymorphic declarations")
+                .contains("call expects 1 arguments but received 2")
     }));
 }
 

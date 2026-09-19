@@ -62,8 +62,9 @@ field reads, record updates, and closed concrete record patterns with variable,
 wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented WASI console, clock, and random capabilities. The selected entry
-must be a zero-argument integer `main` function. Fully polymorphic
-fully polymorphic declarations, open rows, and unsupported WIT shapes receive source-oriented
+must be a zero-argument integer `main` function. Rank-1 generic direct calls
+and the supported higher-order generic adapters are lowered; generic
+aggregates, open rows, and unsupported WIT shapes receive source-oriented
 diagnostics.
 
 ## Acceptance criteria

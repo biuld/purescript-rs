@@ -110,8 +110,10 @@ representation selected by
 concrete instantiations may use the first erased layout slice, which boxes
 parameter-dependent scalar fields as `eqref`, and concrete instance types are
 retained on patterns so nested constructor matches can recover those fields;
-fully polymorphic declarations and unsupported instantiations remain
-diagnostics. Function values lower to GC
+direct rank-1 generic scalar/ADT calls and higher-order function adapters use
+the generic Wasm representation defined by
+[D-08](D-08-generic-wasm-representation.md). Unsupported generic aggregates,
+partial applications, and type-class evidence remain diagnostics. Function values lower to GC
 structs containing a code reference and an immutable `eqref` capture array;
 closure calls extract the typed code reference and lower to `call_ref`. Scalar
 captures are boxed as `i31` values, while reference captures retain their GC
@@ -257,7 +259,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
-| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, constructor argument patterns, a first erased concrete parameterized-ADT slice, concrete scalar array literals plus length, indexing, and updates, and closed concrete record literals, field reads, and updates lower and run through Wasm GC; fully polymorphic ADTs and open rows remain pending |
+| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, constructor argument patterns, an erased parameterized-ADT slice, direct generic calls and higher-order adapters, concrete scalar array literals plus length, indexing, and updates, and closed concrete record literals, field reads, and updates lower and run through Wasm GC; generic records, generic arrays, and open rows remain pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |
 | M10 | WASI runtime and PureScript-facing base libraries |

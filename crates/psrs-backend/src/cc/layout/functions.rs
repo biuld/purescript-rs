@@ -33,41 +33,50 @@ pub(super) fn append_function_types(
         });
     }
     let function_type_base = definitions.len() as u32;
-    let function_types = module
+    let function_ids = module
         .types
         .iter()
         .enumerate()
         .filter_map(|(index, ty)| {
-            matches!(ty, Type::Function { .. }).then_some((
-                TypeId(index as u32),
-                function_type_base + function_types_count_before(module, index),
-            ))
+            matches!(ty, Type::Function { .. }).then_some(TypeId(index as u32))
         })
+        .collect::<Vec<_>>();
+    let provisional_function_types = function_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (*id, function_type_base + index as u32))
         .collect::<HashMap<_, _>>();
-    for (index, ty) in module.types.iter().enumerate() {
-        if !matches!(ty, Type::Function { .. }) {
-            continue;
-        }
+    let mut function_types = HashMap::new();
+    let mut definitions_by_signature = HashMap::new();
+    for id in function_ids {
         let signature = function_signature(
             module,
-            TypeId(index as u32),
+            id,
             enum_types,
             aggregate_types,
             newtype_ids,
             array_types,
             record_types,
-            &function_types,
+            &provisional_function_types,
         )?;
-        definitions.push(DefinedType {
-            final_type: true,
-            supertype: None,
-            composite: CompositeType::Func {
-                parameters: std::iter::once(closure_value_type())
-                    .chain(signature.parameters)
-                    .collect(),
-                results: vec![signature.result],
-            },
-        });
+        let type_index = if let Some(type_index) = definitions_by_signature.get(&signature) {
+            *type_index
+        } else {
+            let type_index = definitions.len() as u32;
+            definitions.push(DefinedType {
+                final_type: true,
+                supertype: None,
+                composite: CompositeType::Func {
+                    parameters: std::iter::once(closure_value_type())
+                        .chain(signature.parameters.clone())
+                        .collect(),
+                    results: vec![signature.result],
+                },
+            });
+            definitions_by_signature.insert(signature, type_index);
+            type_index
+        };
+        function_types.insert(id, type_index);
     }
     let capture_array_type = definitions.len() as u32;
     definitions.push(DefinedType {
@@ -155,13 +164,6 @@ pub(crate) fn function_signature(
         )?);
         id = *result;
     }
-}
-
-fn function_types_count_before(module: &CoreModule, index: usize) -> u32 {
-    module.types[..index]
-        .iter()
-        .filter(|ty| matches!(ty, Type::Function { .. }))
-        .count() as u32
 }
 
 fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {

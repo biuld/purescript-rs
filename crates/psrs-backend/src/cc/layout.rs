@@ -160,10 +160,14 @@ pub(super) fn type_layout(
     let mut definitions = Vec::new();
     let mut constructor_types = HashMap::new();
     let boxed_i32_type = if module
-        .constructors
+        .types
         .iter()
-        .flat_map(|constructor| &constructor.field_types)
-        .any(|field| depends_on_type_variable(module, *field))
+        .any(|ty| matches!(ty, Type::Variable(_)))
+        || module
+            .constructors
+            .iter()
+            .flat_map(|constructor| &constructor.field_types)
+            .any(|field| depends_on_type_variable(module, *field))
     {
         let type_index = definitions.len() as u32;
         definitions.push(DefinedType {

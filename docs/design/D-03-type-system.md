@@ -64,9 +64,11 @@ declared signature with rigid variables and unifies it with the inferred type,
 so recursive uses see the declared type and a body that is too specific is
 rejected with a source-spanned mismatch.
 
-The backend does not yet erase types or pass dictionaries, so it rejects
-declarations whose checked type contains quantified variables, with a
-source-spanned diagnostic.
+The backend now has an initial representation for rank-1 generic values:
+direct scalar/ADT calls use erased boxes and concrete function values crossing
+generic higher-order boundaries use explicit adapters. The full policy is in
+[D-08](D-08-generic-wasm-representation.md). Type classes, generic records and
+arrays, and full official runtime coverage remain open.
 
 Phase 2 has started. A dedicated `psrs-kind` pass consumes resolved HIR and
 infers and checks kinds for `data`, `newtype`, `type`, and `class`
@@ -458,11 +460,12 @@ appear in THIR or lower representations.
 
 ### Backend interaction
 
-The backend learns nothing about inference. Until it implements type erasure and
-dictionary passing, it rejects declarations whose checked type contains
-quantified variables or unsupported constructors, with a source-oriented
-diagnostic. Rejecting there is a bootstrap limitation and must not leak into the
-type checker's rules.
+The backend learns nothing about inference. It uses the generic Wasm
+representation defined by [D-08](D-08-generic-wasm-representation.md) for the
+initial rank-1 direct-call and higher-order adapter slice, and rejects remaining
+generic aggregates, partial applications, type-class evidence, or unsupported
+constructors with source-oriented diagnostics. Rejecting there is a bootstrap
+limitation and must not leak into the type checker's rules.
 
 ## Invariants
 

@@ -186,7 +186,7 @@ also runs against the vendored corpus without `purs`.
 **Measured baseline (annotations oracle):** M3 failing agreement is 27/48.
 Per code: `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2,
 `CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
-`PartiallyAppliedSynonym` 8/12, `KindsDoNotUnify` 10/24. The remaining cases
+`PartiallyAppliedSynonym` 8/12, `KindsDoNotUnify` 9/24. The remaining cases
 need features outside the kind core: instances and `derive`, `foreign import
 data`, rows in kinds, polymorphic expression annotations, and shared
 cross-module kind environments.
@@ -248,9 +248,9 @@ concrete record literals, field reads, updates, and record patterns lower to
 Wasm GC structs.
 Nested constructor and record field patterns use conditional matching. These
 patterns are currently limited to concrete record types with no open row tail.
-Fully polymorphic
-declarations, open rows, and richer heap or tagged aggregate layouts are still
-open, and
+Generic direct calls and erased higher-order adapters now work for the tested
+scalar and parameterized-value cases. Generic records and arrays, open rows,
+and richer heap or tagged aggregate layouts are still open, and
 the backend reports them as named limitations. The parameterized ADT representation is
 fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).

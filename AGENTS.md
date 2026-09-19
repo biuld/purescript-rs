@@ -53,6 +53,12 @@ feature and design documents under `docs/`.
 See `docs/design/D-01-frontend-and-ir-boundaries.md` and
 `docs/design/D-02-wasm-lowering.md` before changing these boundaries.
 
+## Reference Implementations
+
+When semantics or runtime representation are unclear, consult the official
+PureScript implementation at `/Users/biu/Projects/purescript` and the relevant
+WebAssembly specifications; adapt the result to this repository's Wasm target.
+
 ## Validation
 
 Run formatting and the full workspace test suite for Rust changes:

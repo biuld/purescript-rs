@@ -13,15 +13,9 @@ fn typechecks_user_type_constructors_in_signatures() {
 }
 
 #[test]
-fn reports_polymorphic_user_type_declarations_as_a_backend_limitation() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: forall a. Maybe a -> Maybe a\nf x = x\nmain = f (Just 0)\n";
-    let errors = compile_source("Main.purs", source).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("polymorphic declarations")),
-        "{errors:?}"
-    );
+fn compiles_a_polymorphic_user_type_declaration() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: forall a. Maybe a -> Maybe a\nf x = x\nunwrap :: Maybe Int -> Int\nunwrap value = case value of\n  Just number -> number\n  _ -> 0\nmain = unwrap (f (Just 42))\n";
+    assert!(compile_source("Main.purs", source).is_ok());
 }
 
 #[test]

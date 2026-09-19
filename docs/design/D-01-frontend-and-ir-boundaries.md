@@ -255,8 +255,10 @@ lowers `case` over such a type to tag comparisons, so enum-style programs run
 under WASI. Constructors with fields, parameterized types, heap allocation, and
 tagged aggregate layouts are not implemented and are reported as named
 limitations. Type-class constraints and rows are not implemented yet. The
-backend also rejects polymorphic declarations until type erasure and dictionary
-passing exist. Type classes and pattern exhaustiveness are not implemented. P4
+backend uses the initial erased representation in
+[D-08](D-08-generic-wasm-representation.md) for supported rank-1 generic calls
+and rejects remaining generic aggregates, partial applications, and dictionary
+passing. Type classes and pattern exhaustiveness are not implemented. P4
 currently lowers resolved operators to applications. P6 turns saturated integer
 intrinsics into Core primitive operations and keeps runtime functions, such as
 `log`, as direct calls. P7 Core optimization has no implementation yet.

@@ -75,10 +75,11 @@ See [D-03](../design/D-03-type-system.md) for the staged type-system plan.
   compiler does not invent a competing effect system.
 - A large type-system program precedes any algebraic-effect library: rank-1
   polymorphism, kinds, ADTs, classes, and rows.
-- Until the backend gains type erasure and dictionary passing, it rejects
-  programs whose checked types it cannot lower, with source-oriented
-  diagnostics. Rejecting at the backend is a bootstrap limitation, not a
-  type-system rule.
+- The backend uses the initial erased representation in
+  [D-08](../design/D-08-generic-wasm-representation.md) for supported rank-1
+  generic calls and rejects programs whose remaining generic or dictionary
+  representation it cannot lower, with source-oriented diagnostics. Rejecting
+  at the backend is a bootstrap limitation, not a type-system rule.
 - Host services become registry entries and library declarations rather than
   compiler-name special cases; the Wasm emitter consumes the registry only.
 - Trade-offs: algebraic effects arrive later than a native shortcut would

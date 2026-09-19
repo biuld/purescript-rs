@@ -1,5 +1,7 @@
+use super::super::layout::scalar_type;
 use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
 use super::FunctionLowerer;
+use super::call::is_generic_function_type;
 use crate::BackendError;
 use psrs_core::{Expr, Type};
 use psrs_hir::SymbolId;
@@ -32,7 +34,19 @@ impl GlobalLowering for FunctionLowerer<'_> {
             self.module.types.get(expression.ty.0 as usize),
             Some(Type::Function { .. })
         ) {
-            let Some(type_index) = self.function_types.get(&expression.ty).copied() else {
+            let Some(source_type) = self
+                .module
+                .declarations
+                .iter()
+                .find(|declaration| declaration.symbol == function)
+                .map(|declaration| declaration.ty)
+            else {
+                return Err(global_error(
+                    expression,
+                    "global function has no source declaration type",
+                ));
+            };
+            let Some(type_index) = self.function_types.get(&source_type).copied() else {
                 return Err(global_error(
                     expression,
                     "function value has no runtime function type",
@@ -58,7 +72,18 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "function value has no closure layout",
                 ));
             };
-            let destination = self.fresh(result_type);
+            let source_value_type = scalar_type(
+                self.module,
+                source_type,
+                expression.span,
+                self.enum_types,
+                self.aggregate_types,
+                self.newtype_ids,
+                self.array_types,
+                self.record_types,
+                self.function_types,
+            )?;
+            let destination = self.fresh(source_value_type);
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::FunctionRef {
@@ -71,7 +96,25 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            Ok(destination)
+            if source_type == expression.ty {
+                if is_generic_function_type(self.module, expression.ty) {
+                    self.erased_function_types
+                        .insert(destination, expression.ty);
+                }
+                Ok(destination)
+            } else {
+                let adapted = self.adapt_erased_function_value(
+                    destination,
+                    source_type,
+                    expression.ty,
+                    expression.span,
+                    assignments,
+                )?;
+                if is_generic_function_type(self.module, expression.ty) {
+                    self.erased_function_types.insert(adapted, expression.ty);
+                }
+                Ok(adapted)
+            }
         } else {
             if !signature.parameters.is_empty() {
                 return Err(global_error(

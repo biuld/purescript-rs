@@ -156,6 +156,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             capture_array_type: self.capture_array_type,
             closure_type: self.closure_type,
             function_wrappers: self.function_wrappers,
+            erased_function_types: HashMap::new(),
             generated: Vec::new(),
         }
     }

@@ -289,13 +289,11 @@ main = fromJust (Just Nothing)
 }
 
 #[test]
-fn reports_uninstantiated_parameterized_declarations_as_a_limitation() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nid :: forall a. Maybe a -> Maybe a\nid x = x\nmain = id (Just 0)\n";
-    let errors = compile_source("Main.purs", source).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("polymorphic declarations")),
-        "{errors:?}"
-    );
+fn runs_a_polymorphic_parameterized_declaration() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nid :: forall a. Maybe a -> Maybe a\nid x = x\nfromJust :: Maybe Int -> Int\nfromJust value = case value of\n  Just number -> number\n  _ -> 0\nmain = fromJust (id (Just 42))\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
 }

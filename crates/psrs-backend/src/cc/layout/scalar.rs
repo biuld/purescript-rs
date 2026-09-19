@@ -13,13 +13,6 @@ pub(crate) fn declaration_shape(
     record_types: &HashMap<TypeId, u32>,
     function_types: &HashMap<TypeId, u32>,
 ) -> Result<FunctionSignature, Vec<BackendError>> {
-    if !declaration.quantified.is_empty() {
-        return Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.name_span,
-            "polymorphic declarations are not supported by the first backend slice",
-        )]);
-    }
     let mut ty = declaration.ty;
     let mut parameters = Vec::new();
     let mut value = &declaration.value;
@@ -36,16 +29,6 @@ pub(crate) fn declaration_shape(
                 "P8 closure conversion",
                 binder.span,
                 "lambda binder type differs from the function parameter type",
-            )]);
-        }
-        if matches!(
-            module.types.get(binder.ty.0 as usize),
-            Some(Type::Variable(_))
-        ) {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                declaration.name_span,
-                "polymorphic declarations are not supported by the first backend slice",
             )]);
         }
         ty = *result;
@@ -75,11 +58,13 @@ pub(crate) fn declaration_shape(
             parameters,
             result: ValueType::Boolean,
         }),
-        Some(Type::Variable(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.name_span,
-            "polymorphic declarations are not supported by the first backend slice",
-        )]),
+        Some(Type::Variable(_)) => Ok(FunctionSignature {
+            parameters,
+            result: ValueType::Ref(RefType {
+                nullable: false,
+                heap: HeapType::Eq,
+            }),
+        }),
         Some(Type::Function { .. }) => Ok(FunctionSignature {
             parameters,
             result: scalar_type(
@@ -197,11 +182,10 @@ pub(crate) fn scalar_type(
         Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(ValueType::I32),
         Some(Type::F64) => Ok(ValueType::F64),
         Some(Type::Boolean) => Ok(ValueType::Boolean),
-        Some(Type::Variable(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "polymorphic values are not supported by the first backend slice",
-        )]),
+        Some(Type::Variable(_)) => Ok(ValueType::Ref(RefType {
+            nullable: false,
+            heap: HeapType::Eq,
+        })),
         Some(Type::Function { .. }) => {
             if !function_types.contains_key(&id) {
                 return Err(layout_error(span, "function type has no runtime layout"));
