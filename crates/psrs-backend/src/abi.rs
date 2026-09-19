@@ -185,6 +185,23 @@ impl WasiRegistry {
     pub fn imports(&self) -> &[WasiImport] {
         &self.imports
     }
+
+    /// The core import module and field for an interned import symbol. This is
+    /// the only place the WIT interface and function names are resolved.
+    pub fn symbol_name(&self, symbol: SymbolId) -> Option<(&str, &str)> {
+        self.imports
+            .iter()
+            .find(|import| import.symbol == symbol)
+            .map(|import| (import.module.as_str(), import.name.as_str()))
+    }
+
+    /// Whether an interned import returns a `list`/`string`, which needs the
+    /// module to export `cabi_realloc`.
+    pub fn has_list_result(&self, symbol: SymbolId) -> bool {
+        self.imports
+            .iter()
+            .any(|import| import.symbol == symbol && import.result_kind == WasiResultKind::List)
+    }
 }
 
 /// Classifies a WIT-level parameter so the lowering knows how many canonical

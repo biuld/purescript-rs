@@ -21,8 +21,12 @@ use structure::Structurer;
 /// pointer for WASI calls and their results.
 pub(super) const SCRATCH_END: u32 = 16;
 
-/// Structures MIR control flow and builds the thin Wasm IR.
-pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
+/// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
+/// names each MIR import; MIR itself carries only canonical signatures.
+pub fn lower_module(
+    module: &mir::Module,
+    wasi: &abi::WasiRegistry,
+) -> Result<Module, Vec<BackendError>> {
     mir::verify_module(module)?;
     let Some(main_position) = module.functions.iter().position(|function| {
         function.name == "main"
@@ -36,7 +40,10 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     };
 
     let (string_offsets, mut data, data_end) = collect_strings(module);
-    let needs_realloc = module.imports.iter().any(|import| import.list_result);
+    let needs_realloc = module
+        .imports
+        .iter()
+        .any(|import| wasi.has_list_result(import.symbol));
 
     let (mut types, function_types) = collect_function_types(module)?;
     let defined = module
@@ -58,10 +65,13 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
                 .map(|ty| vec![val_type(ty)])
                 .unwrap_or_default(),
         });
+        let (module_name, field) = wasi.symbol_name(import.symbol).ok_or_else(|| {
+            wasm_error(module.span, "a MIR import symbol has no ABI registry entry")
+        })?;
         import_indices.insert(import.symbol, imports.len() as u32);
         imports.push(Import {
-            module: import.module.clone(),
-            name: import.name.clone(),
+            module: module_name.to_string(),
+            name: field.to_string(),
             type_index,
         });
     }

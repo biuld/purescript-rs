@@ -1,18 +1,17 @@
+use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
-use crate::abi::{self, WasiRegistry};
+use crate::abi::WasiImport;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
 use crate::types::{ValueDecl, ValueId, ValueType};
-use psrs_core::Primitive;
-use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId};
+use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
 pub(super) fn lower_function(
     source: &cc::Function,
-    wasi: &mut WasiRegistry,
-    externals: &[ExternalSymbol],
+    wit_imports: &HashMap<SymbolId, WasiImport>,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
@@ -30,17 +29,7 @@ pub(super) fn lower_function(
             .map(|value| value.id.0)
             .max()
             .map_or(0, |max| max + 1),
-        wasi,
-        wit_bindings: externals
-            .iter()
-            .filter_map(|external| match &external.kind {
-                ExternalKind::Wit {
-                    interface,
-                    function,
-                } => Some((external.symbol, (interface.clone(), function.clone()))),
-                ExternalKind::Intrinsic(_) => None,
-            })
-            .collect(),
+        wit_imports,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -64,236 +53,22 @@ pub(super) fn lower_function(
     })
 }
 
-struct FunctionLowerer<'a> {
+pub(super) struct FunctionLowerer<'a> {
     next_block: u32,
     blocks: Vec<BasicBlock>,
     values: Vec<ValueDecl>,
     next_value: u32,
-    wasi: &'a mut WasiRegistry,
-    /// `(interface, function)` WIT bindings for source-declared externals.
-    wit_bindings: HashMap<SymbolId, (String, String)>,
+    /// Canonical ABI descriptors for the module's source-declared WIT imports,
+    /// keyed by the external symbol a call targets.
+    wit_imports: &'a HashMap<SymbolId, WasiImport>,
 }
 
 impl FunctionLowerer<'_> {
-    fn fresh(&mut self, ty: ValueType) -> ValueId {
+    pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;
         self.values.push(ValueDecl { id, ty });
         id
-    }
-
-    /// Lowers a call to a WIT import generically from the declared arguments and
-    /// the import's canonical signature. Declared scalars and resource handles
-    /// map to one canonical parameter; a `String` argument maps to the
-    /// `(pointer, length)` of its length-prefixed buffer. A return pointer is
-    /// passed when the canonical result does not fit in one value.
-    fn lower_wit(
-        &mut self,
-        interface: &str,
-        function: &str,
-        destination: ValueId,
-        arguments: &[ValueId],
-        span: TextRange,
-        current: BlockId,
-    ) -> Result<(), Vec<BackendError>> {
-        let import = self
-            .wasi
-            .import(interface, function)
-            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
-        if import.param_kinds.len() != arguments.len() {
-            return Err(vec![BackendError::new(
-                "P9 MIR lowering",
-                span,
-                format!(
-                    "`{interface}#{function}` takes {} arguments, but {} were provided",
-                    import.param_kinds.len(),
-                    arguments.len()
-                ),
-            )]);
-        }
-        let mut flat = Vec::new();
-        for (argument, kind) in arguments.iter().zip(&import.param_kinds) {
-            match kind {
-                abi::WasiParamKind::Scalar | abi::WasiParamKind::Handle => flat.push(*argument),
-                abi::WasiParamKind::Scalar64 => {
-                    let wide = self.fresh(ValueType::I64);
-                    self.append_instruction(
-                        current,
-                        Instruction::WidenI64 {
-                            destination: wide,
-                            value: *argument,
-                            signed: false,
-                            span,
-                        },
-                        span,
-                    )?;
-                    flat.push(wide);
-                }
-                abi::WasiParamKind::List => {
-                    let length = self.fresh(ValueType::I32);
-                    self.append_instruction(
-                        current,
-                        Instruction::Load {
-                            destination: length,
-                            address: *argument,
-                            offset: 0,
-                            span,
-                        },
-                        span,
-                    )?;
-                    let four = self.fresh(ValueType::I32);
-                    self.append_instruction(
-                        current,
-                        Instruction::Constant {
-                            destination: four,
-                            value: 4,
-                            span,
-                        },
-                        span,
-                    )?;
-                    let bytes = self.fresh(ValueType::I32);
-                    self.append_instruction(
-                        current,
-                        Instruction::Primitive {
-                            destination: bytes,
-                            op: Primitive::Add,
-                            left: *argument,
-                            right: four,
-                            span,
-                        },
-                        span,
-                    )?;
-                    flat.push(bytes);
-                    flat.push(length);
-                }
-            }
-        }
-        let mut retptr = None;
-        if import.retptr {
-            let scratch = self.fresh(ValueType::I32);
-            self.append_instruction(
-                current,
-                Instruction::Constant {
-                    destination: scratch,
-                    value: abi::PRINT_SCRATCH,
-                    span,
-                },
-                span,
-            )?;
-            flat.push(scratch);
-            retptr = Some(scratch);
-        }
-        match import.result_kind {
-            // A returned list or string is written through the return pointer as
-            // `(pointer, length)`. `cabi_realloc` prefixes the buffer with its
-            // length, so the string value is the pointer minus that prefix.
-            abi::WasiResultKind::List => {
-                let address = retptr.expect("a list result takes a return pointer");
-                self.append_instruction(
-                    current,
-                    Instruction::CallVoid {
-                        function: import.symbol,
-                        arguments: flat,
-                        span,
-                    },
-                    span,
-                )?;
-                let pointer = self.fresh(ValueType::I32);
-                self.append_instruction(
-                    current,
-                    Instruction::Load {
-                        destination: pointer,
-                        address,
-                        offset: 0,
-                        span,
-                    },
-                    span,
-                )?;
-                let four = self.fresh(ValueType::I32);
-                self.append_instruction(
-                    current,
-                    Instruction::Constant {
-                        destination: four,
-                        value: 4,
-                        span,
-                    },
-                    span,
-                )?;
-                self.append_instruction(
-                    current,
-                    Instruction::Primitive {
-                        destination,
-                        op: Primitive::Sub,
-                        left: pointer,
-                        right: four,
-                        span,
-                    },
-                    span,
-                )?;
-            }
-            abi::WasiResultKind::Scalar => match import.result {
-                Some(ValueType::I64) => {
-                    let value = self.fresh(ValueType::I64);
-                    self.append_instruction(
-                        current,
-                        Instruction::Call {
-                            destination: value,
-                            function: import.symbol,
-                            arguments: flat,
-                            span,
-                        },
-                        span,
-                    )?;
-                    self.append_instruction(
-                        current,
-                        Instruction::WrapI64 {
-                            destination,
-                            value,
-                            span,
-                        },
-                        span,
-                    )?;
-                }
-                Some(ValueType::I32) => self.append_instruction(
-                    current,
-                    Instruction::Call {
-                        destination,
-                        function: import.symbol,
-                        arguments: flat,
-                        span,
-                    },
-                    span,
-                )?,
-                _ => {
-                    return Err(vec![BackendError::new(
-                        "P9 MIR lowering",
-                        span,
-                        "this WIT import's scalar result type is not supported yet",
-                    )]);
-                }
-            },
-            abi::WasiResultKind::None | abi::WasiResultKind::Discarded => {
-                self.append_instruction(
-                    current,
-                    Instruction::CallVoid {
-                        function: import.symbol,
-                        arguments: flat,
-                        span,
-                    },
-                    span,
-                )?;
-                self.append_instruction(
-                    current,
-                    Instruction::Constant {
-                        destination,
-                        value: 0,
-                        span,
-                    },
-                    span,
-                )?;
-            }
-        }
-        Ok(())
     }
 
     fn lower_assignments(
@@ -345,12 +120,10 @@ impl FunctionLowerer<'_> {
                     function,
                     arguments,
                 } => {
-                    if let Some((interface, wit_function)) =
-                        self.wit_bindings.get(function).cloned()
-                    {
-                        self.lower_wit(
-                            &interface,
-                            &wit_function,
+                    if let Some(import) = self.wit_imports.get(function).cloned() {
+                        wit::lower(
+                            self,
+                            &import,
                             assignment.destination,
                             arguments,
                             assignment.span,
@@ -429,7 +202,7 @@ impl FunctionLowerer<'_> {
         id
     }
 
-    fn append_instruction(
+    pub(super) fn append_instruction(
         &mut self,
         block: BlockId,
         instruction: Instruction,

@@ -11,6 +11,10 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
+fn registry() -> crate::abi::WasiRegistry {
+    crate::abi::WasiRegistry::load().expect("the vendored WASI WIT should load")
+}
+
 /// MIR owns a defined-type table; the Wasm lowering must carry it into the
 /// encoded type section ahead of the function types.
 #[test]
@@ -56,7 +60,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &registry()).expect("lowering to Wasm");
     assert_eq!(wasm.defined_type_count(), 1);
     assert_eq!(wasm.functions[0].type_index, 1);
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
@@ -177,7 +181,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &registry()).expect("lowering to Wasm");
     let core = crate::wasm::encode_module(&wasm).expect("encoding");
     wasmparser::Validator::new()
         .validate_all(&core)
@@ -204,89 +208,43 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
     assert_eq!(output.status.code(), Some(7), "wasmtime output: {output:?}");
 }
 
-/// A MIR module that calls a declared import through the canonical ABI: read a
-/// string's length from its length-prefixed buffer, pass the data pointer and
-/// length, and make a void call. WASI import names come from `crate::abi`.
+/// A MIR module that calls a declared import: the Wasm lowering names the
+/// import from the ABI registry and the module validates. Canonical argument
+/// adaptation is covered through the driver's `log` test.
 #[test]
 fn lowers_an_imported_call() {
-    let callee = SymbolId::new(ModuleId(0), 100);
+    let mut registry = registry();
+    let import = registry
+        .import(crate::abi::names::STDOUT, crate::abi::names::GET_STDOUT)
+        .expect("get-stdout should resolve");
+    let callee = import.symbol;
     let mir = Module {
         name: "MirImport".into(),
         externals: Vec::new(),
         types: Vec::new(),
         imports: vec![Import {
             symbol: callee,
-            module: "wasi:io/streams@0.2.12".into(),
-            name: "[method]output-stream.blocking-write-and-flush".into(),
-            parameters: vec![ValueType::I32, ValueType::I32],
-            result: None,
-            list_result: false,
+            parameters: import.parameters.clone(),
+            result: import.result,
         }],
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
-            values: vec![
-                ValueDecl {
-                    id: ValueId(0),
-                    ty: ValueType::I32,
-                },
-                ValueDecl {
-                    id: ValueId(1),
-                    ty: ValueType::I32,
-                },
-                ValueDecl {
-                    id: ValueId(2),
-                    ty: ValueType::I32,
-                },
-                ValueDecl {
-                    id: ValueId(3),
-                    ty: ValueType::I32,
-                },
-                ValueDecl {
-                    id: ValueId(4),
-                    ty: ValueType::I32,
-                },
-            ],
+            values: vec![ValueDecl {
+                id: ValueId(0),
+                ty: ValueType::I32,
+            }],
             entry: BlockId(0),
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 parameters: Vec::new(),
-                instructions: vec![
-                    Instruction::StringConstant {
-                        destination: ValueId(1),
-                        bytes: "hi".into(),
-                        span: span(),
-                    },
-                    Instruction::Constant {
-                        destination: ValueId(4),
-                        value: 4,
-                        span: span(),
-                    },
-                    Instruction::Load {
-                        destination: ValueId(2),
-                        address: ValueId(1),
-                        offset: 0,
-                        span: span(),
-                    },
-                    Instruction::Primitive {
-                        destination: ValueId(3),
-                        op: Primitive::Add,
-                        left: ValueId(1),
-                        right: ValueId(4),
-                        span: span(),
-                    },
-                    Instruction::CallVoid {
-                        function: callee,
-                        arguments: vec![ValueId(3), ValueId(2)],
-                        span: span(),
-                    },
-                    Instruction::Constant {
-                        destination: ValueId(0),
-                        value: 0,
-                        span: span(),
-                    },
-                ],
+                instructions: vec![Instruction::Call {
+                    destination: ValueId(0),
+                    function: callee,
+                    arguments: Vec::new(),
+                    span: span(),
+                }],
                 terminator: Some(Terminator::Return {
                     value: ValueId(0),
                     span: span(),
@@ -299,13 +257,13 @@ fn lowers_an_imported_call() {
         span: span(),
     };
 
-    let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
+    let wasm = crate::wasm::lower_module(&mir, &registry).expect("lowering to Wasm");
     let imported = wasm
         .imports
         .iter()
-        .find(|import| import.name == "[method]output-stream.blocking-write-and-flush")
+        .find(|import| import.name == "get-stdout")
         .expect("the WASI import should be declared");
-    assert_eq!(imported.module, "wasi:io/streams@0.2.12");
+    assert_eq!(imported.module, "wasi:cli/stdout@0.2.12");
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
     wasmparser::Validator::new()
         .validate_all(&binary)

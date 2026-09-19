@@ -38,12 +38,6 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         if !import_symbols.insert(import.symbol) {
             errors.extend(mir_error(module.span, "MIR import symbols are duplicated"));
         }
-        if import.module.is_empty() || import.name.is_empty() {
-            errors.extend(mir_error(
-                module.span,
-                "MIR import has an empty module or field name",
-            ));
-        }
         signatures.insert(
             import.symbol,
             Some(Signature {

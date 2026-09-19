@@ -1,12 +1,14 @@
 use crate::abi::WasiRegistry;
 use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
 use crate::{BackendError, cc};
-use psrs_hir::{ExternalSymbol, SymbolId};
+use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId};
 use psrs_span::TextRange;
+use std::collections::{HashMap, HashSet};
 
 mod instruction;
 mod lower;
 mod verify;
+mod wit;
 
 use lower::lower_function;
 
@@ -36,14 +38,11 @@ pub struct Module {
 /// A runtime ABI import, lowered to its canonical ABI signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Import {
+    /// The canonical ABI symbol the call references. The interface, function,
+    /// and return-pointer details live in the ABI registry, not here.
     pub symbol: SymbolId,
-    pub module: String,
-    pub name: String,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
-    /// Whether the import returns a `list`/`string` indirectly, so the module
-    /// needs an allocator (`cabi_realloc`) for the host to write it.
-    pub list_result: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,23 +86,41 @@ pub enum Terminator {
     },
 }
 
-pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
+/// Lowers a CC module to MIR, returning the module and the ABI registry that
+/// resolved its WIT imports. The registry is returned so the Wasm stage can name
+/// each import; the MIR module itself stores no WIT or component detail.
+pub fn lower_module(module: cc::Module) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
     let mut wasi = WasiRegistry::load()
         .map_err(|message| vec![BackendError::new("P9 MIR lowering", module.span, message)])?;
+    // Resolve every source-declared WIT import to its canonical ABI descriptor.
+    let mut wit_imports = HashMap::new();
+    for external in &module.externals {
+        if let ExternalKind::Wit {
+            interface,
+            function,
+        } = &external.kind
+        {
+            let import = wasi.import(interface, function).map_err(|message| {
+                vec![BackendError::new("P9 MIR lowering", module.span, message)]
+            })?;
+            wit_imports.insert(external.symbol, import);
+        }
+    }
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
-        functions.push(lower_function(function, &mut wasi, &module.externals)?);
+        functions.push(lower_function(function, &wit_imports)?);
     }
+    // Keep only the imports a lowered call actually references, so a resolved but
+    // unused external does not add a Wasm import.
+    let used = referenced_imports(&functions);
     let imports = wasi
         .imports()
         .iter()
+        .filter(|import| used.contains(&import.symbol))
         .map(|import| Import {
             symbol: import.symbol,
-            module: import.module.clone(),
-            name: import.name.clone(),
             parameters: import.parameters.clone(),
             result: import.result,
-            list_result: import.result_kind == crate::abi::WasiResultKind::List,
         })
         .collect();
     let mir = Module {
@@ -115,5 +132,23 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
         span: module.span,
     };
     verify_module(&mir)?;
-    Ok(mir)
+    Ok((mir, wasi))
+}
+
+/// The import symbols referenced by any call in the module.
+fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
+    let mut used = HashSet::new();
+    for function in functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                match instruction {
+                    Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
+                        used.insert(*function);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    used
 }

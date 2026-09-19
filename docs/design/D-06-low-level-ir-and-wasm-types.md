@@ -84,11 +84,17 @@ does not define its own host ABI
 ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)). MIR declares WASI
 imports in an import table with their canonical ABI signature (derived from the
 vendored WASI WIT) and calls them like any other function, including a void
-call for imports with no result. Adapting a value to the canonical ABI (for
-example a string to a `(ptr, len)` pair) is emitted as ordinary MIR
-instructions using the declared linear-memory load/store. The PureScript-facing
-standard library (`print`/`error`, `now`, program exit, and later files/random)
-is built on these WASI imports.
+call for imports with no result.
+
+MIR keeps only that canonical signature. A WIT import is referenced by its ABI
+symbol; the interface and function names, the return-pointer convention, and
+`cabi_realloc` live in the ABI layer (`psrs-backend::abi`), which names each
+import when the Wasm encoding is emitted. Adapting a value to the canonical ABI
+(for example a string to a `(ptr, len)` pair, or narrowing a 64-bit result) is
+emitted as ordinary MIR instructions by a dedicated adaptation module, not by
+the generic MIR lowering, so no component-model detail enters the IR. The
+PureScript-facing standard library (`print`/`error`, `now`, program exit, and
+later files/random) is built on these WASI imports.
 
 ## Layout ownership
 
