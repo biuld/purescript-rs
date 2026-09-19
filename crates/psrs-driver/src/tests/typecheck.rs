@@ -19,7 +19,7 @@ fn reports_user_types_as_a_backend_limitation() {
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("aggregate or user-defined types")),
+            .any(|error| error.message.contains("aggregate or parameterized types")),
         "{errors:?}"
     );
 }
@@ -94,7 +94,7 @@ g m = case m of
 }
 
 #[test]
-fn reports_case_as_a_core_limitation() {
+fn reports_field_constructor_patterns_as_a_limitation() {
     let source = "\
 module Main where
 data Maybe a = Nothing | Just a
@@ -105,9 +105,9 @@ f m = case m of
 ";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("case expressions are not supported")),
+        errors.iter().any(|error| error
+            .message
+            .contains("constructor patterns with fields are not supported")),
         "{errors:?}"
     );
 }

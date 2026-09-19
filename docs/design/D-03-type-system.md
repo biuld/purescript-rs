@@ -95,10 +95,17 @@ the declared result type, so `Nothing :: Maybe Int` and `Just 1 :: Maybe Int`
 type-check and a wrong constructor argument is rejected. A single-scrutinee
 `case` expression type-checks constructor, variable, and wildcard patterns,
 including nested constructor arguments, and unifies every branch result with
-the scrutinee type. Guards, multiple scrutinees, and literal, record, array,
-and tuple patterns are not lowered; constructor lowering to Core, pattern
-coverage, and runtime layouts are not implemented, so the backend still rejects
-aggregate types.
+the scrutinee type.
+
+A first runtime slice (steps 3.4 and 3.5) lowers the constructors of a
+non-parameterized data type to immediate integer tags, threads the constructor
+table through THIR and Core, and lowers a `case` over such a type to tag
+comparisons, so an enum-style program compiles to Wasm and runs under WASI.
+Constructors with fields, parameterized types, heap allocation, and tagged
+aggregate layouts are not implemented; the backend reports them as named
+limitations. Guards, multiple scrutinees, and literal, record, array, and tuple
+patterns are not lowered, and pattern exhaustiveness is not yet diagnosed
+before the backend.
 
 ## Roadmap overview
 

@@ -33,12 +33,22 @@ pub enum Type {
     },
 }
 
+/// A data constructor known to the module, mirrored from THIR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstructorInfo {
+    pub symbol: SymbolId,
+    pub type_id: HirTypeId,
+    pub tag: u32,
+    pub field_count: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
     pub types: Vec<Type>,
+    pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     pub span: TextRange,
 }
@@ -115,6 +125,8 @@ impl Primitive {
 pub enum ExprKind {
     Local(LocalId),
     Global(SymbolId),
+    /// A nullary data constructor value; its tag identifies it at runtime.
+    Constructor(SymbolId),
     Integer(i32),
     Boolean(bool),
     String(String),
@@ -137,6 +149,31 @@ pub enum ExprKind {
         then_branch: Box<Expr>,
         else_branch: Box<Expr>,
     },
+    Case {
+        scrutinee: Box<Expr>,
+        branches: Vec<CaseBranch>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CaseBranch {
+    pub pattern: Pattern,
+    pub value: Expr,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatternKind {
+    Wildcard,
+    Var(LocalId),
+    /// A nullary constructor pattern, tagged by its value symbol.
+    Constructor(SymbolId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,6 +252,18 @@ fn verify_expr(
         | ExprKind::Integer(_)
         | ExprKind::Boolean(_)
         | ExprKind::String(_) => {}
+        ExprKind::Constructor(symbol)
+            if !module
+                .constructors
+                .iter()
+                .any(|constructor| constructor.symbol == *symbol) =>
+        {
+            errors.push(VerifyError {
+                span: expression.span,
+                message: "constructor reference is not declared",
+            });
+        }
+        ExprKind::Constructor(_) => {}
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             verify_expr(left, module, globals, locals, errors);
             verify_expr(right, module, globals, locals, errors);
@@ -247,6 +296,49 @@ fn verify_expr(
             verify_expr(then_branch, module, globals, locals, errors);
             verify_expr(else_branch, module, globals, locals, errors);
         }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            verify_expr(scrutinee, module, globals, locals, errors);
+            for branch in branches {
+                verify_pattern(&branch.pattern, module, locals, errors);
+                verify_expr(&branch.value, module, globals, locals, errors);
+                remove_pattern_locals(&branch.pattern, locals);
+            }
+        }
+    }
+}
+
+fn verify_pattern(
+    pattern: &Pattern,
+    module: &Module,
+    locals: &mut HashSet<LocalId>,
+    errors: &mut Vec<VerifyError>,
+) {
+    match &pattern.kind {
+        PatternKind::Wildcard => {}
+        PatternKind::Var(id) => {
+            locals.insert(*id);
+        }
+        PatternKind::Constructor(symbol) => {
+            if !module
+                .constructors
+                .iter()
+                .any(|constructor| constructor.symbol == *symbol)
+            {
+                errors.push(VerifyError {
+                    span: pattern.span,
+                    message: "pattern constructor is not declared",
+                });
+            }
+        }
+    }
+}
+
+fn remove_pattern_locals(pattern: &Pattern, locals: &mut HashSet<LocalId>) {
+    if let PatternKind::Var(id) = &pattern.kind {
+        locals.remove(id);
     }
 }
 
@@ -262,6 +354,7 @@ mod tests {
             name: "Main".into(),
             externals: Vec::new(),
             types: vec![Type::I32],
+            constructors: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(ModuleId(0), 0),
                 name: "main".into(),

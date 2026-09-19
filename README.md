@@ -57,8 +57,10 @@ application, and expands type synonyms, so signatures over `Array`, user types,
 and synonyms elaborate and unify. Data and newtype constructors are typed as
 polymorphic values, so constructor applications type-check, and single-scrutinee
 `case` expressions with constructor, variable, and wildcard patterns type-check.
-Type-class constraints, pattern lowering to Core, runtime layouts, and rows are
-not implemented yet. `build` writes
+A first runtime slice lowers a non-parameterized data type's nullary
+constructors to integer tags and `case` over it to tag comparisons, so
+enum-style programs run under WASI. Type-class constraints, constructors with
+fields, heap layouts, and rows are not implemented yet. `build` writes
 a validated core Wasm WASI command exporting zero-argument `main` and `_start`;
 `wat` renders the corresponding text form. General PureScript compatibility,
 type classes, pattern matching, cross-module compilation to Wasm, closures,

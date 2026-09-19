@@ -1,10 +1,14 @@
 use crate::BackendError;
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Primitive, Type};
-use psrs_hir::{ExternalKind, ExternalSymbol, LocalId, RuntimeFunction, SymbolId};
+use psrs_core::{Expr, ExprKind, Module as CoreModule, Primitive};
+use psrs_hir::{ExternalSymbol, LocalId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+mod case;
+mod layout;
 mod verify;
+
+use layout::{Signature, declaration_shape, enum_type_ids, runtime_signature, scalar_type};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ValueId(pub u32);
@@ -71,22 +75,6 @@ pub enum AssignmentKind {
     },
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct Signature {
-    arity: usize,
-    result: ValueType,
-}
-
-pub(super) fn runtime_signature(kind: ExternalKind) -> Option<Signature> {
-    match kind {
-        ExternalKind::Runtime(RuntimeFunction::ConsoleLog) => Some(Signature {
-            arity: 1,
-            result: ValueType::I32,
-        }),
-        ExternalKind::Intrinsic(_) => None,
-    }
-}
-
 pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -94,9 +82,19 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             .map(|error| BackendError::new("P8 Core verification", error.span, error.message))
             .collect());
     }
+    let enum_types = enum_type_ids(&module);
+    let mut constructor_tags = HashMap::new();
+    let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
+    for constructor in &module.constructors {
+        constructor_tags.insert(constructor.symbol, constructor.tag);
+        constructors_by_type
+            .entry(constructor.type_id)
+            .or_default()
+            .push((constructor.symbol, constructor.tag));
+    }
     let mut signatures = HashMap::new();
     for declaration in &module.declarations {
-        let (arity, result_ty) = declaration_shape(declaration, &module)?;
+        let (arity, result_ty) = declaration_shape(declaration, &module, &enum_types)?;
         signatures.insert(
             declaration.symbol,
             Signature {
@@ -112,7 +110,14 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
     for declaration in &module.declarations {
-        functions.push(lower_function(declaration, &module, &signatures)?);
+        functions.push(lower_function(
+            declaration,
+            &module,
+            &signatures,
+            &enum_types,
+            &constructor_tags,
+            &constructors_by_type,
+        )?);
     }
     let cc = Module {
         name: module.name,
@@ -124,69 +129,13 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     Ok(cc)
 }
 
-fn declaration_shape(
-    declaration: &psrs_core::Declaration,
-    module: &CoreModule,
-) -> Result<(usize, ValueType), Vec<BackendError>> {
-    if !declaration.quantified.is_empty() {
-        return Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.name_span,
-            "polymorphic declarations are not supported by the first backend slice",
-        )]);
-    }
-    let mut ty = declaration.ty;
-    let mut arity = 0;
-    let mut value = &declaration.value;
-    while let ExprKind::Lambda { binder, body } = &value.kind {
-        let Some(Type::Function { parameter, result }) = module.types.get(ty.0 as usize) else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                binder.span,
-                "lambda binder does not have a function type",
-            )]);
-        };
-        if *parameter != binder.ty {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                binder.span,
-                "lambda binder type differs from the function parameter type",
-            )]);
-        }
-        ty = *result;
-        arity += 1;
-        value = body;
-    }
-    match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::String | Type::Unit) => Ok((arity, ValueType::I32)),
-        Some(Type::Boolean) => Ok((arity, ValueType::Boolean)),
-        Some(Type::Variable(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.name_span,
-            "polymorphic declarations are not supported by the first backend slice",
-        )]),
-        Some(Type::Function { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "the first backend slice cannot return a function value",
-        )]),
-        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "the first backend slice cannot represent aggregate or user-defined types",
-        )]),
-        None => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "declaration type is outside the Core type table",
-        )]),
-    }
-}
-
 fn lower_function(
     declaration: &psrs_core::Declaration,
     module: &CoreModule,
     signatures: &HashMap<SymbolId, Signature>,
+    enum_types: &HashSet<HirTypeId>,
+    constructor_tags: &HashMap<SymbolId, u32>,
+    constructors_by_type: &HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
 ) -> Result<Function, Vec<BackendError>> {
     let mut state = FunctionLowerer {
         next_value: 0,
@@ -194,11 +143,14 @@ fn lower_function(
         locals: HashMap::new(),
         signatures,
         module,
+        enum_types,
+        constructor_tags,
+        constructors_by_type,
     };
     let mut value = &declaration.value;
     let mut parameters = Vec::new();
     while let ExprKind::Lambda { binder, body } = &value.kind {
-        let ty = scalar_type(module, binder.ty, binder.span)?;
+        let ty = scalar_type(module, binder.ty, binder.span, enum_types)?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
         parameters.push(id);
@@ -206,7 +158,7 @@ fn lower_function(
     }
     let mut assignments = Vec::new();
     let result = state.lower_value(value, &mut assignments)?;
-    let result_type = scalar_type(module, value.ty, value.span)?;
+    let result_type = scalar_type(module, value.ty, value.span, enum_types)?;
     let function = Function {
         symbol: declaration.symbol,
         name: declaration.name.clone(),
@@ -227,6 +179,9 @@ struct FunctionLowerer<'a> {
     locals: HashMap<LocalId, ValueId>,
     signatures: &'a HashMap<SymbolId, Signature>,
     module: &'a CoreModule,
+    enum_types: &'a HashSet<HirTypeId>,
+    constructor_tags: &'a HashMap<SymbolId, u32>,
+    constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
 }
 
 impl FunctionLowerer<'_> {
@@ -242,7 +197,7 @@ impl FunctionLowerer<'_> {
         expression: &Expr,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let ty = scalar_type(self.module, expression.ty, expression.span)?;
+        let ty = scalar_type(self.module, expression.ty, expression.span, self.enum_types)?;
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
                 vec![BackendError::new(
@@ -298,6 +253,22 @@ impl FunctionLowerer<'_> {
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::Constant(i32::from(*value)),
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
+            ExprKind::Constructor(symbol) => {
+                let tag = self.constructor_tags.get(symbol).copied().ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "constructor value has no known tag",
+                    )]
+                })?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::Constant(tag as i32),
                     span: expression.span,
                 });
                 Ok(destination)
@@ -406,6 +377,21 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            ExprKind::Case {
+                scrutinee,
+                branches,
+            } => {
+                let scrutinee_type = scrutinee.ty;
+                let scrutinee = self.lower_value(scrutinee, assignments)?;
+                self.lower_case(
+                    scrutinee_type,
+                    scrutinee,
+                    branches,
+                    ty,
+                    expression.span,
+                    assignments,
+                )
+            }
             ExprKind::Lambda { .. } => Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
@@ -424,35 +410,4 @@ fn collect_application(expression: &Expr) -> (&Expr, Vec<&Expr>) {
     }
     arguments.reverse();
     (head, arguments)
-}
-
-fn scalar_type(
-    module: &CoreModule,
-    id: psrs_core::TypeId,
-    span: TextRange,
-) -> Result<ValueType, Vec<BackendError>> {
-    match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
-        Some(Type::Boolean) => Ok(ValueType::Boolean),
-        Some(Type::Variable(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "polymorphic values are not supported by the first backend slice",
-        )]),
-        Some(Type::Function { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "function values are supported only as top-level direct-call targets",
-        )]),
-        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "aggregate and user-defined types are not supported by the first backend slice",
-        )]),
-        None => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "expression type is outside the Core type table",
-        )]),
-    }
 }

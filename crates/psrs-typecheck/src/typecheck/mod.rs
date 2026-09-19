@@ -144,11 +144,23 @@ pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeChe
         return Err(checker.errors);
     }
 
+    let constructors = checker
+        .constructor_info
+        .values()
+        .map(|info| thir::ConstructorInfo {
+            symbol: info.symbol,
+            type_id: info.type_id,
+            tag: info.tag,
+            field_count: info.fields.len(),
+        })
+        .collect::<Vec<_>>();
+
     let typed = thir::Module {
         id: module.id,
         name: module.name,
         externals: module.externals,
         types: types.values,
+        constructors,
         declarations,
         span: module.span,
     };
@@ -305,6 +317,7 @@ struct ConstructorInfo {
     symbol: SymbolId,
     name: String,
     type_id: hir::TypeId,
+    tag: u32,
     parameters: Vec<String>,
     fields: Vec<hir::Type>,
 }

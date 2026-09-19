@@ -46,13 +46,15 @@ impl Checker {
                     declaration
                         .constructors
                         .iter()
-                        .map(|constructor| {
+                        .enumerate()
+                        .map(|(tag, constructor)| {
                             (
                                 constructor.symbol,
                                 ConstructorInfo {
                                     symbol: constructor.symbol,
                                     name: constructor.name.clone(),
                                     type_id: declaration.id,
+                                    tag: tag as u32,
                                     parameters: parameters.clone(),
                                     fields: constructor.fields.clone(),
                                 },

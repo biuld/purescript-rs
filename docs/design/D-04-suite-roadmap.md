@@ -224,6 +224,17 @@ cross-module kind environments.
   `optimize` counterparts later match.
 - **Prerequisite:** M1; supports M4, M5, and M7.
 
+**Progress (implemented slice):** `data` and `newtype` constructors are
+registered as polymorphic values and type-check, including application of
+constructors with fields. A single-scrutinee `case` with constructor, variable,
+and wildcard patterns type-checks, and the constructor table flows through THIR
+and Core. The first runtime slice lowers the nullary constructors of a
+non-parameterized data type to immediate integer tags and `case` over it to tag
+comparisons, so enum-style programs compile to Wasm and run under WASI.
+Constructors with fields, parameterized types, `newtype` erasure, records,
+rows, and heap or tagged aggregate layouts are still open, and the backend
+reports them as named limitations.
+
 ### M7 — Runtime and standard library
 
 - **Suite:** `tests/purs/passing`, 414 files after excluding 26 FFI tests; these

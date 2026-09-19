@@ -20,6 +20,11 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         .iter()
         .map(|external| (external.symbol, external.kind))
         .collect::<HashMap<_, _>>();
+    let constructors = module
+        .constructors
+        .iter()
+        .map(|constructor| (constructor.symbol, *constructor))
+        .collect::<HashMap<_, _>>();
     let types = module
         .types
         .into_iter()
@@ -44,7 +49,8 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         .collect();
     let mut declarations = Vec::with_capacity(module.declarations.len());
     for declaration in module.declarations {
-        let value = lower_expr(declaration.value, &externals).map_err(|error| vec![error])?;
+        let value = lower_expr(declaration.value, &externals, &constructors)
+            .map_err(|error| vec![error])?;
         declarations.push(Declaration {
             symbol: declaration.symbol,
             name: declaration.name,
@@ -60,6 +66,16 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         name: module.name,
         externals: module.externals,
         types,
+        constructors: module
+            .constructors
+            .iter()
+            .map(|constructor| crate::ConstructorInfo {
+                symbol: constructor.symbol,
+                type_id: constructor.type_id,
+                tag: constructor.tag,
+                field_count: constructor.field_count,
+            })
+            .collect(),
         declarations,
         span: module.span,
     };
@@ -75,18 +91,31 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
 fn lower_expr(
     expression: TypedExpr,
     externals: &HashMap<SymbolId, ExternalKind>,
+    constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
 ) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     let kind = match expression.kind {
         TypedExprKind::Local(id) => ExprKind::Local(id),
-        TypedExprKind::Global(id) => ExprKind::Global(id),
+        TypedExprKind::Global(id) => {
+            if let Some(constructor) = constructors.get(&id) {
+                if constructor.field_count != 0 {
+                    return Err(LowerError {
+                        span,
+                        message: "constructors with fields are not supported by the first backend slice",
+                    });
+                }
+                ExprKind::Constructor(id)
+            } else {
+                ExprKind::Global(id)
+            }
+        }
         TypedExprKind::Integer(value) => ExprKind::Integer(value),
         TypedExprKind::Boolean(value) => ExprKind::Boolean(value),
         TypedExprKind::String(value) => ExprKind::String(value),
         TypedExprKind::Application(function, argument) => {
-            let function = lower_expr(*function, externals)?;
-            let argument = lower_expr(*argument, externals)?;
+            let function = lower_expr(*function, externals, constructors)?;
+            let argument = lower_expr(*argument, externals, constructors)?;
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
                 && let Some(op) = externals.get(&symbol).copied().and_then(|kind| match kind {
@@ -113,7 +142,7 @@ fn lower_expr(
                 ty: TypeId(binder.ty.0),
                 span: binder.span,
             },
-            body: Box::new(lower_expr(*body, externals)?),
+            body: Box::new(lower_expr(*body, externals, constructors)?),
         },
         TypedExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
@@ -127,30 +156,58 @@ fn lower_expr(
                             span: binding.binder.span,
                         },
                         quantified: binding.quantified,
-                        value: lower_expr(binding.value, externals)?,
+                        value: lower_expr(binding.value, externals, constructors)?,
                         span: binding.span,
                     })
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,
-            body: Box::new(lower_expr(*body, externals)?),
+            body: Box::new(lower_expr(*body, externals, constructors)?),
         },
         TypedExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition, externals)?),
-            then_branch: Box::new(lower_expr(*then_branch, externals)?),
-            else_branch: Box::new(lower_expr(*else_branch, externals)?),
+            condition: Box::new(lower_expr(*condition, externals, constructors)?),
+            then_branch: Box::new(lower_expr(*then_branch, externals, constructors)?),
+            else_branch: Box::new(lower_expr(*else_branch, externals, constructors)?),
         },
-        TypedExprKind::Case { .. } => {
-            return Err(LowerError {
-                span,
-                message: "case expressions are not supported by Core lowering yet",
-            });
-        }
+        TypedExprKind::Case {
+            scrutinee,
+            branches,
+        } => ExprKind::Case {
+            scrutinee: Box::new(lower_expr(*scrutinee, externals, constructors)?),
+            branches: branches
+                .into_iter()
+                .map(|branch| {
+                    Ok(crate::CaseBranch {
+                        pattern: lower_pattern(branch.pattern)?,
+                        value: lower_expr(branch.value, externals, constructors)?,
+                        span: branch.span,
+                    })
+                })
+                .collect::<Result<Vec<_>, LowerError>>()?,
+        },
     };
     Ok(Expr { kind, ty, span })
+}
+
+fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerError> {
+    let span = pattern.span;
+    let kind = match pattern.kind {
+        psrs_thir::PatternKind::Wildcard => crate::PatternKind::Wildcard,
+        psrs_thir::PatternKind::Var { id, .. } => crate::PatternKind::Var(id),
+        psrs_thir::PatternKind::Constructor { symbol, arguments } => {
+            if !arguments.is_empty() {
+                return Err(LowerError {
+                    span,
+                    message: "constructor patterns with fields are not supported by the first backend slice",
+                });
+            }
+            crate::PatternKind::Constructor(symbol)
+        }
+    };
+    Ok(crate::Pattern { kind, span })
 }
 
 fn flatten_intrinsic(

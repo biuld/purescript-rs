@@ -30,12 +30,23 @@ pub enum Type {
     },
 }
 
+/// A data constructor known to the module. `tag` is its zero-based position in
+/// the declaration; `field_count` is the number of fields it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConstructorInfo {
+    pub symbol: SymbolId,
+    pub type_id: HirTypeId,
+    pub tag: u32,
+    pub field_count: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
     pub types: Vec<Type>,
+    pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     pub span: TextRange,
 }
@@ -239,6 +250,7 @@ mod tests {
             name: "Main".into(),
             externals: Vec::new(),
             types: vec![Type::I32],
+            constructors: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(ModuleId(0), 0),
                 name: "main".into(),
