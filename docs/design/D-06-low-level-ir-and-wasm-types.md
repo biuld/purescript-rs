@@ -115,6 +115,11 @@ and OCaml's Wasm backend.
 2. Give MIR its own value/type model and defined-type table, with verification
    and lowering into the Wasm type section. *(implemented)*
 3. Add MIR reference and GC instructions with lowering and verification.
+   *(implemented for `ref.null`, `ref.is_null`, `ref.test`, `ref.cast`,
+   `i31.new`/`i31.get`, `struct.new`/`get`/`set`, and `array.new`/`get`/`set`/
+   `len`; `ref.func` and `call_ref` need declarative element segments, and
+   `br_on_cast` needs general structured control, so those follow with
+   closures and the structurer work.)*
 4. Lower data types, records, and closures into the model in P9.
 5. Generalize structured control flow beyond `if` diamonds.
 

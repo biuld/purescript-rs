@@ -3,10 +3,12 @@ use crate::BackendError;
 use crate::mir::{
     self, BlockId, Function as MirFunction, Instruction as MirInstruction, Terminator,
 };
-use crate::types::ValueId;
+use crate::types::{RefType, ValueId};
+use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
 use psrs_core::Primitive;
 use psrs_hir::SymbolId;
+use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::{Instruction, ValType};
 
@@ -254,9 +256,196 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                MirInstruction::RefNull {
+                    destination,
+                    heap,
+                    span,
+                } => {
+                    body.push(Op::Leaf(Instruction::RefNull(heap_type(*heap))));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::RefIsNull {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::RefIsNull));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::RefTest {
+                    destination,
+                    value,
+                    reference,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(ref_test(*reference)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::RefCast {
+                    destination,
+                    value,
+                    reference,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(ref_cast(*reference)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::I31New {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::RefI31));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::I31GetS {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I31GetS));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::StructNew {
+                    destination,
+                    type_index,
+                    arguments,
+                    span,
+                } => {
+                    for argument in arguments {
+                        self.load(body, *argument, *span)?;
+                    }
+                    body.push(Op::Leaf(Instruction::StructNew(*type_index)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::StructGet {
+                    destination,
+                    type_index,
+                    field,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::StructGet {
+                        struct_type_index: *type_index,
+                        field_index: *field,
+                    }));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::StructSet {
+                    type_index,
+                    field,
+                    value,
+                    new_value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    self.load(body, *new_value, *span)?;
+                    body.push(Op::Leaf(Instruction::StructSet {
+                        struct_type_index: *type_index,
+                        field_index: *field,
+                    }));
+                }
+                MirInstruction::ArrayNew {
+                    destination,
+                    type_index,
+                    elements,
+                    span,
+                } => {
+                    for element in elements {
+                        self.load(body, *element, *span)?;
+                    }
+                    body.push(Op::Leaf(Instruction::ArrayNewFixed {
+                        array_type_index: *type_index,
+                        array_size: elements.len() as u32,
+                    }));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::ArrayGet {
+                    destination,
+                    type_index,
+                    value,
+                    index,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    self.load(body, *index, *span)?;
+                    body.push(Op::Leaf(Instruction::ArrayGet(*type_index)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::ArraySet {
+                    type_index,
+                    value,
+                    index,
+                    new_value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    self.load(body, *index, *span)?;
+                    self.load(body, *new_value, *span)?;
+                    body.push(Op::Leaf(Instruction::ArraySet(*type_index)));
+                }
+                MirInstruction::ArrayLen {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::ArrayLen));
+                    self.store(body, *destination, *span)?;
+                }
             }
         }
         Ok(())
+    }
+
+    fn load(
+        &self,
+        body: &mut Body,
+        value: ValueId,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        body.push(Op::Leaf(Instruction::LocalGet(local(
+            &self.locals,
+            value,
+            span,
+        )?)));
+        Ok(())
+    }
+
+    fn store(
+        &self,
+        body: &mut Body,
+        destination: ValueId,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        body.push(Op::Leaf(Instruction::LocalSet(local(
+            &self.locals,
+            destination,
+            span,
+        )?)));
+        Ok(())
+    }
+}
+
+fn ref_test(reference: RefType) -> Instruction<'static> {
+    if reference.nullable {
+        Instruction::RefTestNullable(heap_type(reference.heap))
+    } else {
+        Instruction::RefTestNonNull(heap_type(reference.heap))
+    }
+}
+
+fn ref_cast(reference: RefType) -> Instruction<'static> {
+    if reference.nullable {
+        Instruction::RefCastNullable(heap_type(reference.heap))
+    } else {
+        Instruction::RefCastNonNull(heap_type(reference.heap))
     }
 }
 

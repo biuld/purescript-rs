@@ -49,7 +49,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         for value in &function.values {
             verify_value_type(&value.ty, defined_types, module.span, &mut errors);
         }
-        verify_function(function, &signatures)?;
+        verify_function(function, &signatures, defined_types)?;
     }
     Ok(())
 }
@@ -123,6 +123,7 @@ fn verify_heap(heap: HeapType, count: u32, span: TextRange, errors: &mut Vec<Bac
 fn verify_function(
     function: &Function,
     signatures: &HashMap<SymbolId, Option<Signature>>,
+    defined_types: u32,
 ) -> Result<(), Vec<BackendError>> {
     let blocks = function
         .blocks
@@ -166,35 +167,22 @@ fn verify_function(
     }
     for block in &function.blocks {
         for instruction in &block.instructions {
-            let (destination, span) = match instruction {
-                Instruction::Constant {
-                    destination, span, ..
-                }
-                | Instruction::StringConstant {
-                    destination, span, ..
-                }
-                | Instruction::Copy {
-                    destination, span, ..
-                }
-                | Instruction::Primitive {
-                    destination, span, ..
-                }
-                | Instruction::Call {
-                    destination, span, ..
-                } => (*destination, *span),
-            };
-            if !definitions.contains_key(&destination) {
+            let span = instruction.span();
+            if let Some(destination) = instruction.destination()
+                && !definitions.contains_key(&destination)
+            {
                 return Err(mir_error(
                     span,
                     "MIR instruction destination has no value type",
                 ));
             }
+            for operand in instruction.operands() {
+                require_value(&definitions, operand, span)?;
+            }
             match instruction {
                 Instruction::Constant { .. } => {}
                 Instruction::StringConstant { .. } => {}
-                Instruction::Copy { value, span, .. } => {
-                    require_value(&definitions, *value, *span)?;
-                }
+                Instruction::Copy { .. } => {}
                 Instruction::Primitive {
                     destination,
                     op,
@@ -249,6 +237,43 @@ fn verify_function(
                         return Err(mir_error(*span, "MIR call result has the wrong type"));
                     }
                 }
+                Instruction::RefNull { heap, span, .. } => {
+                    check_heap(*heap, defined_types, *span)?;
+                }
+                Instruction::RefTest {
+                    reference, span, ..
+                }
+                | Instruction::RefCast {
+                    reference, span, ..
+                } => {
+                    check_heap(reference.heap, defined_types, *span)?;
+                }
+                Instruction::StructNew {
+                    type_index, span, ..
+                }
+                | Instruction::StructGet {
+                    type_index, span, ..
+                }
+                | Instruction::StructSet {
+                    type_index, span, ..
+                }
+                | Instruction::ArrayNew {
+                    type_index, span, ..
+                }
+                | Instruction::ArrayGet {
+                    type_index, span, ..
+                }
+                | Instruction::ArraySet {
+                    type_index, span, ..
+                } => {
+                    if *type_index >= defined_types {
+                        return Err(mir_error(*span, "MIR type index is out of range"));
+                    }
+                }
+                Instruction::RefIsNull { .. }
+                | Instruction::I31New { .. }
+                | Instruction::I31GetS { .. }
+                | Instruction::ArrayLen { .. } => {}
             }
         }
         let terminator = block.terminator.as_ref().expect("checked above");
@@ -325,6 +350,18 @@ fn require_value(
         .get(&value)
         .copied()
         .ok_or_else(|| mir_error(span, "MIR instruction uses an unknown value"))
+}
+
+fn check_heap(heap: HeapType, count: u32, span: TextRange) -> Result<(), Vec<BackendError>> {
+    if let HeapType::Index(index) = heap
+        && index >= count
+    {
+        return Err(mir_error(
+            span,
+            "MIR defined type reference is out of range",
+        ));
+    }
+    Ok(())
 }
 
 fn mir_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
