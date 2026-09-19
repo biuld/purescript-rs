@@ -6,20 +6,40 @@
 use wit_component::{ComponentEncoder, StringEncoding, embed_component_metadata};
 use wit_parser::{Resolve, WorldId};
 
-/// The minimal application world used before the WASI command world is linked.
+/// Vendored WASI 0.2.12 WIT, matching the `wasi:cli/run@0.2.12` export that the
+/// pinned `wasmtime` baseline expects. Pushed into the `Resolve` in dependency
+/// order before the application world.
+const WASI_DEPS: &[(&str, &str)] = &[
+    ("wasi/io.wit", include_str!("../wit/deps/io.wit")),
+    ("wasi/clocks.wit", include_str!("../wit/deps/clocks.wit")),
+    ("wasi/random.wit", include_str!("../wit/deps/random.wit")),
+    (
+        "wasi/filesystem.wit",
+        include_str!("../wit/deps/filesystem.wit"),
+    ),
+    ("wasi/sockets.wit", include_str!("../wit/deps/sockets.wit")),
+    ("wasi/cli.wit", include_str!("../wit/deps/cli.wit")),
+];
+
+/// The application world: a WASI command that only exports `wasi:cli/run`.
 const APP_WIT: &str = include_str!("../wit/psrs-app.wit");
 
-/// Parses the `psrs:app` world and returns its resolved world ID.
-pub fn app_world() -> Result<(Resolve, WorldId), String> {
+/// Resolves the `psrs:app` command world against the vendored WASI WIT.
+pub fn command_world() -> Result<(Resolve, WorldId), String> {
     let mut resolve = Resolve::default();
+    for (path, contents) in WASI_DEPS {
+        resolve
+            .push_str(path, contents)
+            .map_err(|error| format!("invalid vendored WIT `{path}`: {error}"))?;
+    }
     let package = resolve
         .push_str("psrs-app.wit", APP_WIT)
         .map_err(|error| format!("invalid application WIT: {error}"))?;
     let world = resolve.packages[package]
         .worlds
-        .get("app")
+        .get("command")
         .copied()
-        .ok_or_else(|| "application WIT is missing the `app` world".to_string())?;
+        .ok_or_else(|| "application WIT is missing the `command` world".to_string())?;
     Ok((resolve, world))
 }
 
@@ -34,7 +54,7 @@ pub fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Ve
         .map_err(|error| format!("failed to read the core module: {error}"))?
         .validate(true)
         .encode()
-        .map_err(|error| format!("failed to encode the component: {error}"))
+        .map_err(|error| format!("failed to encode the component: {error:#}"))
 }
 
 #[cfg(test)]
@@ -44,6 +64,11 @@ mod tests {
     use psrs_hir::{ModuleId, SymbolId};
     use psrs_span::TextRange;
     use wasm_encoder::{Instruction, ValType};
+
+    /// The core name `wit-component` expects for an exported interface function
+    /// under the legacy mangling it uses for a decoded world:
+    /// `{interface-id}#{func}`.
+    const RUN_CORE_NAME: &str = "wasi:cli/run@0.2.12#run";
 
     fn core_module_exporting_run() -> Vec<u8> {
         let span = TextRange::new(0, 1);
@@ -57,7 +82,7 @@ mod tests {
             type_defs: Vec::new(),
             functions: vec![Function {
                 symbol: SymbolId::new(ModuleId(0), 0),
-                name: "run".into(),
+                name: RUN_CORE_NAME.into(),
                 type_index: 0,
                 parameters: Vec::new(),
                 locals: Vec::new(),
@@ -68,7 +93,7 @@ mod tests {
             memories: Vec::new(),
             data: Vec::new(),
             exports: vec![Export {
-                name: "run".into(),
+                name: RUN_CORE_NAME.into(),
                 kind: ExportKind::Function,
                 index: 0,
             }],
@@ -79,8 +104,8 @@ mod tests {
     }
 
     #[test]
-    fn componentizes_a_core_module_for_the_application_world() {
-        let (resolve, world) = app_world().expect("application WIT should load");
+    fn componentizes_a_command_exporting_run() {
+        let (resolve, world) = command_world().expect("WASI and application WIT should load");
         let core = core_module_exporting_run();
         let component = componentize(&core, &resolve, world).expect("componentizing");
         wasmparser::Validator::new()
@@ -88,8 +113,35 @@ mod tests {
             .expect("the component should validate");
         let text = wasmprinter::print_bytes(&component).expect("printing the component");
         assert!(
-            text.contains("(component") && text.contains("\"run\""),
-            "the component should export `run`: {text}"
+            text.contains("(component") && text.contains("wasi:cli/run@0.2.12"),
+            "the component should export the WASI run interface: {text}"
+        );
+    }
+
+    #[test]
+    fn runs_the_command_when_wasmtime_is_available() {
+        if std::process::Command::new("wasmtime")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        }
+        let (resolve, world) = command_world().expect("WASI and application WIT should load");
+        let core = core_module_exporting_run();
+        let component = componentize(&core, &resolve, world).expect("componentizing");
+        let path = std::env::temp_dir().join(format!("psrs-command-{}.wasm", std::process::id()));
+        std::fs::write(&path, &component).unwrap();
+        let output = std::process::Command::new("wasmtime")
+            .arg("run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            output.status.success(),
+            "wasmtime failed to run the component: {output:?}"
         );
     }
 }

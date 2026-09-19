@@ -132,12 +132,13 @@ and OCaml's Wasm backend.
 The runtime ABI is a separate track: MIR has an import table, void calls, and
 linear-memory load/store, and the runtime ABI is parsed from WIT into canonical
 import signatures ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)).
-Componentization uses `wit-component`: a core module is annotated with world
-metadata and lifted into a component, implemented for a minimal `psrs:app`
-world. A runnable artifact requires the `wasi:cli/command` world—`wasmtime`
-looks for the `wasi:cli/run@0.2.12` export—so the next step is to vendor the
-WASI 0.2.12 WIT, define the command world, implement the canonical ABI export
-for `run`, and link an adapter for the runtime ABI.
+Componentization uses `wit-component`: the compiler vendors WASI 0.2.12 WIT,
+resolves a `command` world that exports `wasi:cli/run@0.2.12`, annotates a core
+module with world metadata, and lifts it into a component. A core module
+exporting the canonical `run` under the legacy core name
+`wasi:cli/run@0.2.12#run` componentizes and runs under `wasmtime`. What remains
+is the runtime adapter that maps `psrs:runtime` onto WASI (for `log`), the
+`main`/exit-code mapping, and switching `build` to emit components by default.
 
 ## Open items
 
