@@ -1,4 +1,7 @@
 use psrs_span::{SourceFile, TextRange};
+use std::collections::HashSet;
+
+mod prelude;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -81,7 +84,8 @@ fn check_source_to_thir(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_thir::Module, Vec<Diagnostic>> {
-    let ast = lower_source_to_ast(source_name, source_text)?;
+    let mut ast = lower_source_to_ast(source_name, source_text)?;
+    merge_prelude(&mut ast)?;
     let intrinsics = psrs_resolve::bootstrap_externals();
     let hir = psrs_resolve::resolve_module_with_externals(ast, psrs_hir::ModuleId(0), &intrinsics)
         .map_err(|errors| {
@@ -159,6 +163,94 @@ fn lower_source_to_ast(
             })
             .collect::<Vec<_>>()
     })
+}
+
+/// Parses the embedded standard library and appends the declarations the
+/// program reaches, together with every library `foreign import`. The bootstrap
+/// compiler has no module loader or linker, so the library is combined with the
+/// program before resolution; see [`prelude`]. Only reachable declarations are
+/// added so an unused library function does not pull in its WIT imports.
+fn merge_prelude(module: &mut psrs_ast::Module) -> Result<(), Vec<Diagnostic>> {
+    let mut prelude = lower_source_to_ast("<prelude>", prelude::SOURCE)?;
+    let mut needed = HashSet::new();
+    for declaration in &module.declarations {
+        collect_names(&declaration.value, &mut needed);
+    }
+    let mut include = vec![false; prelude.declarations.len()];
+    loop {
+        let mut changed = false;
+        for (index, declaration) in prelude.declarations.iter().enumerate() {
+            if include[index] || !needed.contains(&declaration.name.text) {
+                continue;
+            }
+            include[index] = true;
+            changed = true;
+            collect_names(&declaration.value, &mut needed);
+        }
+        if !changed {
+            break;
+        }
+    }
+    for (index, declaration) in std::mem::take(&mut prelude.declarations)
+        .into_iter()
+        .enumerate()
+    {
+        if include[index] {
+            module.declarations.push(declaration);
+        }
+    }
+    module.foreign_imports.append(&mut prelude.foreign_imports);
+    Ok(())
+}
+
+/// Collects every value name an expression mentions. Used only to decide which
+/// standard-library declarations a program reaches; over-approximation is safe.
+fn collect_names(expression: &psrs_ast::Expr, names: &mut HashSet<String>) {
+    use psrs_ast::ExprKind;
+    match &expression.kind {
+        ExprKind::Name(name) => {
+            names.insert(name.text.clone());
+        }
+        ExprKind::Integer(_) | ExprKind::String(_) | ExprKind::Char(_) => {}
+        ExprKind::Application(function, argument) => {
+            collect_names(function, names);
+            collect_names(argument, names);
+        }
+        ExprKind::Operator {
+            operator,
+            left,
+            right,
+        } => {
+            names.insert(operator.text.clone());
+            collect_names(left, names);
+            collect_names(right, names);
+        }
+        ExprKind::Lambda { body, .. } => collect_names(body, names),
+        ExprKind::Let { declarations, body } => {
+            for declaration in declarations {
+                collect_names(&declaration.value, names);
+            }
+            collect_names(body, names);
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_names(condition, names);
+            collect_names(then_branch, names);
+            collect_names(else_branch, names);
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_names(scrutinee, names);
+            for branch in branches {
+                collect_names(&branch.value, names);
+            }
+        }
+    }
 }
 
 /// Resolves a program from a list of `(source_name, source_text)` pairs. Module

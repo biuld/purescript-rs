@@ -44,6 +44,7 @@ fn module(declarations: Vec<AstDeclaration>) -> ast::Module {
         exports: None,
         imports: Vec::new(),
         declarations,
+        foreign_imports: Vec::new(),
         type_declarations: Vec::new(),
         span: TextRange::new(0, 100),
     }

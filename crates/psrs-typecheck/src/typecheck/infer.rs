@@ -7,7 +7,17 @@ impl Checker {
             external_kinds: module
                 .externals
                 .iter()
-                .map(|external| (external.symbol, external.kind))
+                .map(|external| (external.symbol, external.kind.clone()))
+                .collect(),
+            external_signatures: module
+                .externals
+                .iter()
+                .filter_map(|external| {
+                    external
+                        .signature
+                        .clone()
+                        .map(|signature| (external.symbol, signature))
+                })
                 .collect(),
             locals: HashMap::new(),
             type_names: module
@@ -127,7 +137,7 @@ impl Checker {
                     let ty = self.instantiate(&scheme);
                     (InferredExprKind::Global(*symbol), ty)
                 } else {
-                    let external = self.external_kinds.get(symbol).copied();
+                    let external = self.external_kinds.get(symbol).cloned();
                     match external {
                         Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => {
                             (InferredExprKind::Boolean(true), InferType::Boolean)
@@ -139,16 +149,17 @@ impl Checker {
                             InferredExprKind::Global(*symbol),
                             intrinsic_type(intrinsic)?,
                         ),
-                        Some(ExternalKind::Host) => {
-                            let Some(function) = hir::host_function_by_symbol(*symbol) else {
+                        Some(ExternalKind::Wit { .. }) => {
+                            let Some(signature) = self.external_signatures.get(symbol).cloned()
+                            else {
                                 self.errors.push(TypeCheckError::new(
                                     TypeCheckErrorKind::InvalidHir,
                                     span,
-                                    "host function is not in the runtime ABI registry",
+                                    "WIT import has no declared type",
                                 ));
                                 return None;
                             };
-                            let ty = self.elaborate_signature(&function.ty);
+                            let ty = self.elaborate_signature(&signature);
                             (InferredExprKind::Global(*symbol), ty)
                         }
                         None => {

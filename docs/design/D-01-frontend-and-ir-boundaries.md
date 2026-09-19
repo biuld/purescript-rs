@@ -160,7 +160,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-cst` | Concrete syntax nodes and token spans | `psrs-span` |
 | `psrs-syntax` | Lexer, layout processor, parser, parse diagnostics | `psrs-cst`, `psrs-span` |
 | `psrs-ast` | AST nodes and CST-to-AST lowering | `psrs-cst`, `psrs-span` |
-| `psrs-hir` | Resolved HIR nodes and IDs, and the host-function registry | `psrs-span` |
+| `psrs-hir` | Resolved HIR nodes and IDs, including WIT-bound external declarations | `psrs-span` |
 | `psrs-resolve` | Local and same-module value resolution, program module graph, import/export resolution | `psrs-ast`, `psrs-hir`, `psrs-span` |
 | `psrs-desugar` | HIR-preserving operator lowering | `psrs-hir` |
 | `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |

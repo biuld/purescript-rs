@@ -12,20 +12,35 @@ pub(super) struct Signature {
 }
 
 pub(super) fn runtime_signature(external: &ExternalSymbol) -> Option<Signature> {
-    match external.kind {
-        ExternalKind::Host => {
-            let function = psrs_hir::host_function_by_symbol(external.symbol)?;
-            Some(Signature {
-                arity: function.arity() as usize,
-                result: if function.returns_boolean() {
-                    ValueType::Boolean
-                } else {
-                    ValueType::I32
-                },
-            })
+    match &external.kind {
+        ExternalKind::Wit { .. } => {
+            let (arity, result) = declared_signature(external.signature.as_ref()?)?;
+            Some(Signature { arity, result })
         }
         ExternalKind::Intrinsic(_) => None,
     }
+}
+
+/// The arity and result scalar of a value declared with a WIT binding. The
+/// declared type's arrows become the call arity; the result must be a scalar the
+/// first backend slice can represent.
+fn declared_signature(signature: &psrs_hir::Type) -> Option<(usize, ValueType)> {
+    let mut ty = signature;
+    let mut arity = 0;
+    while let psrs_hir::TypeKind::Function { result, .. } = &ty.kind {
+        arity += 1;
+        ty = result;
+    }
+    let result = match &ty.kind {
+        psrs_hir::TypeKind::Constructor(psrs_hir::BuiltinType::Boolean) => ValueType::Boolean,
+        psrs_hir::TypeKind::Constructor(
+            psrs_hir::BuiltinType::Int
+            | psrs_hir::BuiltinType::String
+            | psrs_hir::BuiltinType::Unit,
+        ) => ValueType::I32,
+        _ => return None,
+    };
+    Some((arity, result))
 }
 
 /// The set of user types whose constructors are all nullary, which the first

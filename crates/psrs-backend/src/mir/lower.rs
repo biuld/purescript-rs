@@ -1,15 +1,18 @@
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
-use crate::abi::{self, WasiRegistry, names};
+use crate::abi::{self, WasiRegistry};
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
 use crate::types::{ValueDecl, ValueId, ValueType};
 use psrs_core::Primitive;
+use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId};
 use psrs_span::TextRange;
+use std::collections::HashMap;
 
 pub(super) fn lower_function(
     source: &cc::Function,
     wasi: &mut WasiRegistry,
+    externals: &[ExternalSymbol],
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
@@ -28,6 +31,16 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wasi,
+        wit_bindings: externals
+            .iter()
+            .filter_map(|external| match &external.kind {
+                ExternalKind::Wit {
+                    interface,
+                    function,
+                } => Some((external.symbol, (interface.clone(), function.clone()))),
+                ExternalKind::Intrinsic(_) => None,
+            })
+            .collect(),
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -57,6 +70,8 @@ struct FunctionLowerer<'a> {
     values: Vec<ValueDecl>,
     next_value: u32,
     wasi: &'a mut WasiRegistry,
+    /// `(interface, function)` WIT bindings for source-declared externals.
+    wit_bindings: HashMap<SymbolId, (String, String)>,
 }
 
 impl FunctionLowerer<'_> {
@@ -67,204 +82,152 @@ impl FunctionLowerer<'_> {
         id
     }
 
-    /// Dispatches a host function to its WASI lowering.
-    fn lower_host(
-        &mut self,
-        host: &psrs_hir::HostFunction,
-        destination: ValueId,
-        arguments: &[ValueId],
-        span: TextRange,
-        current: BlockId,
-    ) -> Result<(), Vec<BackendError>> {
-        match host.name {
-            "log" => self.lower_write(
-                names::STDOUT,
-                names::GET_STDOUT,
-                destination,
-                arguments,
-                span,
-                current,
-            ),
-            "error" => self.lower_write(
-                names::STDERR,
-                names::GET_STDERR,
-                destination,
-                arguments,
-                span,
-                current,
-            ),
-            "now" => self.lower_now(destination, span, current),
-            other => Err(vec![BackendError::new(
-                "P9 MIR lowering",
-                span,
-                format!("host function `{other}` has no WASI lowering"),
-            )]),
-        }
-    }
-
-    /// Writes a string and a newline to a WASI output stream.
-    fn lower_write(
+    /// Lowers a call to a WIT import generically from the declared arguments and
+    /// the import's canonical signature. Declared scalars and resource handles
+    /// map to one canonical parameter; a `String` argument maps to the
+    /// `(pointer, length)` of its length-prefixed buffer. A return pointer is
+    /// passed when the canonical result does not fit in one value.
+    fn lower_wit(
         &mut self,
         interface: &str,
-        getter: &str,
+        function: &str,
         destination: ValueId,
         arguments: &[ValueId],
         span: TextRange,
         current: BlockId,
     ) -> Result<(), Vec<BackendError>> {
-        let argument = arguments.first().copied().ok_or_else(|| {
-            vec![BackendError::new(
+        let import = self
+            .wasi
+            .import(interface, function)
+            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
+        if import.param_kinds.len() != arguments.len() {
+            return Err(vec![BackendError::new(
                 "P9 MIR lowering",
                 span,
-                "the host function takes one argument",
-            )]
-        })?;
-        let stream = self
-            .wasi
-            .import(interface, getter)
-            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
-        let write = self
-            .wasi
-            .import(names::STREAMS, names::WRITE_STDOUT)
-            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
-
-        let handle = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Call {
-                destination: handle,
-                function: stream.symbol,
-                arguments: Vec::new(),
+                format!(
+                    "`{interface}#{function}` takes {} arguments, but {} were provided",
+                    import.param_kinds.len(),
+                    arguments.len()
+                ),
+            )]);
+        }
+        let mut flat = Vec::new();
+        for (argument, kind) in arguments.iter().zip(&import.param_kinds) {
+            match kind {
+                abi::WasiParamKind::Scalar | abi::WasiParamKind::Handle => flat.push(*argument),
+                abi::WasiParamKind::List => {
+                    let length = self.fresh(ValueType::I32);
+                    self.append_instruction(
+                        current,
+                        Instruction::Load {
+                            destination: length,
+                            address: *argument,
+                            offset: 0,
+                            span,
+                        },
+                        span,
+                    )?;
+                    let four = self.fresh(ValueType::I32);
+                    self.append_instruction(
+                        current,
+                        Instruction::Constant {
+                            destination: four,
+                            value: 4,
+                            span,
+                        },
+                        span,
+                    )?;
+                    let bytes = self.fresh(ValueType::I32);
+                    self.append_instruction(
+                        current,
+                        Instruction::Primitive {
+                            destination: bytes,
+                            op: Primitive::Add,
+                            left: *argument,
+                            right: four,
+                            span,
+                        },
+                        span,
+                    )?;
+                    flat.push(bytes);
+                    flat.push(length);
+                }
+            }
+        }
+        if import.retptr {
+            let scratch = self.fresh(ValueType::I32);
+            self.append_instruction(
+                current,
+                Instruction::Constant {
+                    destination: scratch,
+                    value: abi::PRINT_SCRATCH,
+                    span,
+                },
                 span,
-            },
-            span,
-        )?;
-
-        let length = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Load {
-                destination: length,
-                address: argument,
-                offset: 0,
+            )?;
+            flat.push(scratch);
+        }
+        match import.result {
+            Some(ValueType::I64) => {
+                let value = self.fresh(ValueType::I64);
+                self.append_instruction(
+                    current,
+                    Instruction::Call {
+                        destination: value,
+                        function: import.symbol,
+                        arguments: flat,
+                        span,
+                    },
+                    span,
+                )?;
+                self.append_instruction(
+                    current,
+                    Instruction::WrapI64 {
+                        destination,
+                        value,
+                        span,
+                    },
+                    span,
+                )?;
+            }
+            Some(ValueType::I32) => self.append_instruction(
+                current,
+                Instruction::Call {
+                    destination,
+                    function: import.symbol,
+                    arguments: flat,
+                    span,
+                },
                 span,
-            },
-            span,
-        )?;
-        let four = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Constant {
-                destination: four,
-                value: 4,
-                span,
-            },
-            span,
-        )?;
-        let bytes = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Primitive {
-                destination: bytes,
-                op: Primitive::Add,
-                left: argument,
-                right: four,
-                span,
-            },
-            span,
-        )?;
-        let scratch = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Constant {
-                destination: scratch,
-                value: abi::PRINT_SCRATCH,
-                span,
-            },
-            span,
-        )?;
-        self.append_instruction(
-            current,
-            Instruction::CallVoid {
-                function: write.symbol,
-                arguments: vec![handle, bytes, length, scratch],
-                span,
-            },
-            span,
-        )?;
-
-        let newline = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Constant {
-                destination: newline,
-                value: abi::NEWLINE_ADDR as i32,
-                span,
-            },
-            span,
-        )?;
-        let one = self.fresh(ValueType::I32);
-        self.append_instruction(
-            current,
-            Instruction::Constant {
-                destination: one,
-                value: 1,
-                span,
-            },
-            span,
-        )?;
-        self.append_instruction(
-            current,
-            Instruction::CallVoid {
-                function: write.symbol,
-                arguments: vec![handle, newline, one, scratch],
-                span,
-            },
-            span,
-        )?;
-        self.append_instruction(
-            current,
-            Instruction::Constant {
-                destination,
-                value: 0,
-                span,
-            },
-            span,
-        )?;
-        Ok(())
-    }
-
-    /// Lowers `now` to the WASI monotonic clock, narrowing the 64-bit result.
-    fn lower_now(
-        &mut self,
-        destination: ValueId,
-        span: TextRange,
-        current: BlockId,
-    ) -> Result<(), Vec<BackendError>> {
-        let now = self
-            .wasi
-            .import(names::MONOTONIC_CLOCK, names::NOW)
-            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
-        let value = self.fresh(ValueType::I64);
-        self.append_instruction(
-            current,
-            Instruction::Call {
-                destination: value,
-                function: now.symbol,
-                arguments: Vec::new(),
-                span,
-            },
-            span,
-        )?;
-        self.append_instruction(
-            current,
-            Instruction::WrapI64 {
-                destination,
-                value,
-                span,
-            },
-            span,
-        )?;
+            )?,
+            None => {
+                self.append_instruction(
+                    current,
+                    Instruction::CallVoid {
+                        function: import.symbol,
+                        arguments: flat,
+                        span,
+                    },
+                    span,
+                )?;
+                self.append_instruction(
+                    current,
+                    Instruction::Constant {
+                        destination,
+                        value: 0,
+                        span,
+                    },
+                    span,
+                )?;
+            }
+            Some(_) => {
+                return Err(vec![BackendError::new(
+                    "P9 MIR lowering",
+                    span,
+                    "this WIT import's result type is not supported yet",
+                )]);
+            }
+        }
         Ok(())
     }
 
@@ -317,9 +280,12 @@ impl FunctionLowerer<'_> {
                     function,
                     arguments,
                 } => {
-                    if let Some(host) = psrs_hir::host_function_by_symbol(*function) {
-                        self.lower_host(
-                            &host,
+                    if let Some((interface, wit_function)) =
+                        self.wit_bindings.get(function).cloned()
+                    {
+                        self.lower_wit(
+                            &interface,
+                            &wit_function,
                             assignment.destination,
                             arguments,
                             assignment.span,

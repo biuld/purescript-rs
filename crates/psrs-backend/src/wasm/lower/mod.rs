@@ -1,7 +1,5 @@
 use super::convert::val_type;
-use super::{
-    Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
-};
+use super::{Body, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op};
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::mir::{self, Function as MirFunction};
@@ -17,8 +15,8 @@ mod structure;
 use runtime::collect_strings;
 use structure::Structurer;
 
-/// String data is placed after this scratch region. The newline byte the
-/// standard `print` appends lives at `abi::NEWLINE_ADDR`.
+/// String data is placed after this scratch region, which holds the return
+/// pointer for WASI calls and their results.
 pub(super) const SCRATCH_END: u32 = 16;
 
 /// Structures MIR control flow and builds the thin Wasm IR.
@@ -35,17 +33,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         ));
     };
 
-    let (string_offsets, mut data) = collect_strings(module);
-    let writes_stdout = module
-        .imports
-        .iter()
-        .any(|import| import.name == names::WRITE_STDOUT);
-    if writes_stdout {
-        data.push(DataSegment {
-            offset: abi::NEWLINE_ADDR,
-            bytes: vec![b'\n'],
-        });
-    }
+    let (string_offsets, data) = collect_strings(module);
 
     let (mut types, function_types) = collect_function_types(module)?;
     let defined = module

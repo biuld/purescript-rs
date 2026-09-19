@@ -59,6 +59,16 @@ fn lowers_string_log_to_wasi_stdout() {
 }
 
 #[test]
+fn lowers_a_source_foreign_import_with_a_wit_binding() {
+    let source = "module Main where\n\
+        foreign import \"wasi:clocks/monotonic-clock#now\" clock :: Int\n\
+        main = clock * 0\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("wasi:clocks/monotonic-clock@0.2.12"));
+    assert!(artifact.wat.contains("i32.wrap_i64"));
+}
+
+#[test]
 fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime("module Main where\nmain = 42\n") else {
         eprintln!("skipping: wasmtime is not installed");

@@ -287,6 +287,14 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_foreign_declaration(&mut self) -> Result<Declaration, ParseError> {
         let foreign_keyword_span = self.consume_raw(RawTokenKind::Foreign)?.span;
         let import_keyword_span = self.consume_raw(RawTokenKind::Import)?.span;
+        let binding = match &self.current().kind {
+            LayoutTokenKind::Raw(RawTokenKind::String(value)) => {
+                let binding = CstName::new(value.clone(), self.current().span);
+                self.bump();
+                Some(binding)
+            }
+            _ => None,
+        };
         let data_keyword_span = if self.at_raw(&RawTokenKind::Data) {
             Some(self.bump().span)
         } else {
@@ -303,6 +311,7 @@ impl<'a> Parser<'a> {
         Ok(Declaration::Foreign(ForeignDeclaration {
             foreign_keyword_span,
             import_keyword_span,
+            binding,
             data_keyword_span,
             name,
             double_colon_span,

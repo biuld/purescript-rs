@@ -324,6 +324,7 @@ struct ConstructorInfo {
 struct Checker {
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
+    external_signatures: HashMap<SymbolId, hir::Type>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
     synonyms: HashMap<hir::TypeId, Synonym>,

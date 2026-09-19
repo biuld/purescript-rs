@@ -24,9 +24,9 @@ delimited continuations. An algebraic-effect library is ordinary library code
 written after these phases, following `purescript-run`; it is out of scope
 here.
 
-Host services are independent of this work. They move to the runtime ABI
-registry and PureScript-facing library declarations described in
-[D-02](D-02-wasm-lowering.md).
+Host services are independent of this work. They are declared as WIT-bound
+`foreign import`s and PureScript-facing library code described in
+[D-07](D-07-wit-imports-and-std.md).
 
 ## Suite-driven milestones
 
@@ -416,8 +416,9 @@ Introduce user-defined data, the value side of Phase 2.
 
 The type features above make a PureScript-style algebraic-effect library
 possible. That library is ordinary PureScript-level code; it is not part of the
-type system and needs no new compiler rules. Host services continue to use the
-runtime ABI registry from [D-02](D-02-wasm-lowering.md).
+type system and needs no new compiler rules. Host services continue to use
+WIT-bound `foreign import`s and the standard library from
+[D-07](D-07-wit-imports-and-std.md).
 
 ## Dependency graph
 
@@ -472,8 +473,8 @@ type checker's rules.
 - Generalization is sound: a variable is quantified only when it is not free in
   the enclosing environment and not mentioned in unsolved constraints.
 - Recursive binding groups are inferred monomorphically.
-- The Wasm emitter never special-cases a language symbol; it reads the runtime
-  ABI registry.
+- The Wasm emitter never special-cases a language symbol; it lowers every
+  WIT-bound external through the same generic import path.
 
 ## Validation
 

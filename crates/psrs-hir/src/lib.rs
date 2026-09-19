@@ -4,7 +4,6 @@ use verify::verify_expr;
 
 mod expr;
 mod module;
-mod runtime;
 mod ty;
 mod types;
 
@@ -12,7 +11,6 @@ pub use expr::{
     CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
-pub use runtime::{HostFunction, host_function, host_function_by_symbol, host_functions};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{ClassMember, Constructor, TypeDeclaration, TypeDeclarationKind};
 pub use verify::VerifyError;
@@ -74,14 +72,20 @@ impl Intrinsic {
     }
 }
 
+/// Symbol index base for source-declared `foreign import`s, which live in the
+/// reserved intrinsic module but above the intrinsic and WASI import ranges.
+pub const FOREIGN_SYMBOL_BASE: u32 = 1 << 24;
+
 /// The kind of a known external value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExternalKind {
     /// A compiler primitive with a fixed lowering.
     Intrinsic(Intrinsic),
-    /// A host function declared by the runtime ABI registry. Its type and
-    /// lowering are data, not an enum variant; see [`runtime`].
-    Host,
+    /// A value imported from a WIT interface, declared in source with
+    /// `foreign import "<interface>#<function>" name :: Type`. The backend
+    /// resolves the canonical signature from the vendored WIT and lowers calls
+    /// generically. See `docs/design/D-07-wit-imports-and-std.md`.
+    Wit { interface: String, function: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,6 +93,9 @@ pub struct ExternalSymbol {
     pub symbol: SymbolId,
     pub name: String,
     pub kind: ExternalKind,
+    /// The declared type of a source-declared external (a `foreign import`).
+    /// Compiler primitives and intrinsics have no declaration type here.
+    pub signature: Option<Type>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

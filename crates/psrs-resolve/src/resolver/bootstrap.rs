@@ -1,4 +1,4 @@
-use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic, host_functions};
+use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic};
 
 /// The compiler-known externals available to every bootstrap module.
 pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
@@ -22,11 +22,7 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         symbol: intrinsic.symbol(),
         name: name.into(),
         kind: ExternalKind::Intrinsic(intrinsic),
+        signature: None,
     });
-    let host = host_functions().into_iter().map(|function| ExternalSymbol {
-        symbol: function.symbol,
-        name: function.name.into(),
-        kind: ExternalKind::Host,
-    });
-    intrinsics.chain(host).collect()
+    intrinsics.collect()
 }

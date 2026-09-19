@@ -89,7 +89,7 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
         .map_err(|message| vec![BackendError::new("P9 MIR lowering", module.span, message)])?;
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
-        functions.push(lower_function(function, &mut wasi)?);
+        functions.push(lower_function(function, &mut wasi, &module.externals)?);
     }
     let imports = wasi
         .imports()

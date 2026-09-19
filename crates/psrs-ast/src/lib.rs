@@ -24,7 +24,19 @@ pub struct Module {
     pub exports: Option<ExportList>,
     pub imports: Vec<Import>,
     pub declarations: Vec<Declaration>,
+    pub foreign_imports: Vec<ForeignImport>,
     pub type_declarations: Vec<TypeDeclaration>,
+    pub span: TextRange,
+}
+
+/// A `foreign import` with a WIT binding: a value provided by a WIT interface
+/// rather than defined in source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForeignImport {
+    pub name: Name,
+    pub annotation: Type,
+    /// The WIT binding, `<interface>#<function>`.
+    pub binding: String,
     pub span: TextRange,
 }
 
@@ -69,6 +81,7 @@ impl LowerError {
 pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut errors = Vec::new();
     let mut declarations = Vec::new();
+    let mut foreign_imports = Vec::new();
     let mut type_declarations = Vec::new();
     let mut index = 0;
     while index < module.declarations.len() {
@@ -101,6 +114,13 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                 }
                 index += 1;
             }
+            cst::Declaration::Foreign(declaration) => {
+                match lower_foreign_import(declaration) {
+                    Ok(foreign) => foreign_imports.push(foreign),
+                    Err(error) => errors.push(error),
+                }
+                index += 1;
+            }
             other => {
                 match lower_declaration(other) {
                     Ok(declaration) => declarations.push(declaration),
@@ -120,6 +140,7 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                 .map(import::lower_import)
                 .collect(),
             declarations,
+            foreign_imports,
             type_declarations,
             span: module.span,
         })
@@ -151,6 +172,30 @@ fn matches_kind_declaration(
         }
         _ => false,
     }
+}
+
+fn lower_foreign_import(declaration: cst::ForeignDeclaration) -> Result<ForeignImport, LowerError> {
+    if declaration.data_keyword_span.is_some() {
+        return Err(LowerError::new(
+            declaration.span,
+            "foreign type imports are not supported yet",
+        ));
+    }
+    let Some(binding) = declaration.binding else {
+        return Err(LowerError::new(
+            declaration.span,
+            "a foreign import requires a `\"<interface>#<function>\"` WIT binding",
+        ));
+    };
+    Ok(ForeignImport {
+        name: Name {
+            text: declaration.name.text,
+            span: declaration.name.span,
+        },
+        annotation: lower_type(declaration.type_expr)?,
+        binding: binding.text,
+        span: declaration.span,
+    })
 }
 
 fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, LowerError> {

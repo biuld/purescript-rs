@@ -18,7 +18,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
     let externals = module
         .externals
         .iter()
-        .map(|external| (external.symbol, external.kind))
+        .map(|external| (external.symbol, external.kind.clone()))
         .collect::<HashMap<_, _>>();
     let constructors = module
         .constructors
@@ -118,9 +118,9 @@ fn lower_expr(
             let argument = lower_expr(*argument, externals, constructors)?;
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
-                && let Some(op) = externals.get(&symbol).copied().and_then(|kind| match kind {
+                && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
                     ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
-                    ExternalKind::Host => None,
+                    ExternalKind::Wit { .. } => None,
                 })
             {
                 return Ok(Expr {

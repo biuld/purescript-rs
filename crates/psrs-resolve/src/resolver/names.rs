@@ -113,6 +113,25 @@ impl Resolver {
         }
     }
 
+    /// Registers a source-declared external (a `foreign import`) in the value
+    /// namespace, reporting a duplicate against an existing external.
+    pub(super) fn add_external(
+        &mut self,
+        name: String,
+        symbol: SymbolId,
+        external: ExternalSymbol,
+        span: TextRange,
+    ) {
+        if self.external_globals.insert(name.clone(), symbol).is_some() {
+            self.errors.push(ResolveError::named(
+                ResolveErrorKind::DuplicateExternal,
+                name,
+                span,
+            ));
+        }
+        self.externals.push(external);
+    }
+
     pub(super) fn resolve_expr(&mut self, expression: ast::Expr) -> Option<Expr> {
         let span = expression.span;
         let kind = match expression.kind {

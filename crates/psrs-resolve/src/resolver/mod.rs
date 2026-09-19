@@ -1,5 +1,7 @@
 use psrs_ast as ast;
-use psrs_hir::{self as hir, Declaration, ExternalSymbol, ModuleId, SymbolId, TypeId};
+use psrs_hir::{
+    self as hir, Declaration, ExternalKind, ExternalSymbol, ModuleId, SymbolId, TypeId,
+};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -234,6 +236,46 @@ pub(crate) fn resolve_ast_module(
         inputs.export_items,
         errors,
     );
+
+    // A `foreign import` declares an external value whose type and WIT binding
+    // come from source. Resolve its annotation first so expressions can refer
+    // to it by name.
+    for (index, foreign) in module.foreign_imports.iter().enumerate() {
+        let binding = foreign
+            .binding
+            .split_once('#')
+            .filter(|(interface, function)| !interface.is_empty() && !function.is_empty());
+        let Some((interface, function)) = binding else {
+            resolver.errors.push(ResolveError {
+                kind: ResolveErrorKind::InvalidHir,
+                span: foreign.span,
+                message: format!(
+                    "`{}` is not a `\"<interface>#<function>\"` WIT binding",
+                    foreign.binding
+                ),
+            });
+            continue;
+        };
+        let Some(signature) = resolver.resolve_type(foreign.annotation.clone()) else {
+            continue;
+        };
+        let symbol = foreign_symbol(module_id, index);
+        resolver.add_external(
+            foreign.name.text.clone(),
+            symbol,
+            ExternalSymbol {
+                symbol,
+                name: foreign.name.text.clone(),
+                kind: ExternalKind::Wit {
+                    interface: interface.to_string(),
+                    function: function.to_string(),
+                },
+                signature: Some(signature),
+            },
+            foreign.name.span,
+        );
+    }
+
     let declarations = module
         .declarations
         .into_iter()
@@ -380,6 +422,15 @@ fn type_members(declaration: &ast::TypeDeclaration) -> &[ast::ClassMember] {
 
 fn symbol_index(index: usize) -> u32 {
     u32::try_from(index).expect("a source module cannot contain more declarations than its range")
+}
+
+/// Allocates a symbol for a `foreign import` in the reserved intrinsic module,
+/// offset by the declaring module so modules cannot collide.
+fn foreign_symbol(module_id: ModuleId, index: usize) -> SymbolId {
+    let index = psrs_hir::FOREIGN_SYMBOL_BASE
+        .wrapping_add(module_id.0.wrapping_mul(0x1_0000))
+        .wrapping_add(index as u32);
+    SymbolId::new(ModuleId::INTRINSICS, index)
 }
 
 #[cfg(test)]

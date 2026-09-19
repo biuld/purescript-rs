@@ -207,6 +207,9 @@ pub struct DeriveDeclaration {
 pub struct ForeignDeclaration {
     pub foreign_keyword_span: TextRange,
     pub import_keyword_span: TextRange,
+    /// The WIT binding string, `<interface>#<function>`, written as a string
+    /// literal after `import`. Absent for plain foreign imports.
+    pub binding: Option<CstName>,
     pub data_keyword_span: Option<TextRange>,
     pub name: CstName,
     pub double_colon_span: TextRange,

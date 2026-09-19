@@ -103,6 +103,7 @@ mod tests {
                 symbol: operator_id,
                 name: "+".into(),
                 kind: ExternalKind::Intrinsic(Intrinsic::I32Add),
+                signature: None,
             }],
             imports: Vec::new(),
             exports: None,

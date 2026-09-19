@@ -6,8 +6,8 @@
 use crate::types::ValueType;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
-use wit_parser::Resolve;
 use wit_parser::abi::{AbiVariant, WasmType};
+use wit_parser::{Resolve, Type as WitType, TypeDefKind};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -17,21 +17,30 @@ pub const RUN_CORE_EXPORT: &str = "wasi:cli/run@0.2.12#run";
 /// whose result does not fit in a single canonical result.
 pub const PRINT_SCRATCH: i32 = 0;
 
-/// Linear-memory address of the newline byte the standard `print` appends.
-pub const NEWLINE_ADDR: u32 = 12;
-
-/// The WASI interfaces and functions the standard library uses.
+/// WASI interfaces and functions the backend itself references. The standard
+/// library names its own imports in source.
 pub mod names {
     pub const STDOUT: &str = "wasi:cli/stdout";
     pub const STDERR: &str = "wasi:cli/stderr";
     pub const STREAMS: &str = "wasi:io/streams";
     pub const EXIT: &str = "wasi:cli/exit";
-    pub const MONOTONIC_CLOCK: &str = "wasi:clocks/monotonic-clock";
     pub const GET_STDOUT: &str = "get-stdout";
     pub const GET_STDERR: &str = "get-stderr";
     pub const WRITE_STDOUT: &str = "[method]output-stream.blocking-write-and-flush";
     pub const EXIT_WITH_CODE: &str = "exit-with-code";
-    pub const NOW: &str = "now";
+}
+
+/// The shape of one WIT-level parameter, which decides how a declared argument
+/// maps to canonical parameters. Several shapes flatten to the same canonical
+/// types, so the shape is kept for the lowering to adapt arguments.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WasiParamKind {
+    /// A scalar flattened to one canonical parameter.
+    Scalar,
+    /// A resource handle flattened to one canonical `i32` handle.
+    Handle,
+    /// A string or list flattened to a `(pointer, length)` pair.
+    List,
 }
 
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
@@ -45,6 +54,9 @@ pub struct WasiImport {
     /// The core import field, for example `get-stdout`.
     pub name: String,
     pub parameters: Vec<ValueType>,
+    /// The WIT-level shape of each declared parameter, aligned with the
+    /// interface's parameters (including a method's receiver).
+    pub param_kinds: Vec<WasiParamKind>,
     pub result: Option<ValueType>,
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
@@ -109,6 +121,11 @@ impl WasiRegistry {
         let signature = self
             .resolve
             .wasm_signature(AbiVariant::GuestImport, wit_function);
+        let param_kinds = wit_function
+            .params
+            .iter()
+            .map(|param| param_kind(&self.resolve, &param.ty))
+            .collect();
         let parameters = signature
             .params
             .iter()
@@ -133,6 +150,7 @@ impl WasiRegistry {
             module,
             name: function.to_string(),
             parameters,
+            param_kinds,
             result,
             retptr: signature.retptr,
         });
@@ -142,6 +160,21 @@ impl WasiRegistry {
 
     pub fn imports(&self) -> &[WasiImport] {
         &self.imports
+    }
+}
+
+/// Classifies a WIT-level parameter so the lowering knows how many canonical
+/// parameters a declared argument produces. Aliases are followed.
+fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
+    match ty {
+        WitType::String => WasiParamKind::List,
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
+            TypeDefKind::Handle(_) => WasiParamKind::Handle,
+            TypeDefKind::Type(inner) => param_kind(resolve, inner),
+            _ => WasiParamKind::Scalar,
+        },
+        _ => WasiParamKind::Scalar,
     }
 }
 
@@ -166,12 +199,17 @@ mod tests {
             .expect("get-stdout should resolve");
         assert_eq!(stdout.module, "wasi:cli/stdout@0.2.12");
         assert!(stdout.parameters.is_empty());
+        assert!(stdout.param_kinds.is_empty());
         assert_eq!(stdout.result, Some(ValueType::I32));
 
         let write = registry
             .import(names::STREAMS, names::WRITE_STDOUT)
             .expect("blocking-write-and-flush should resolve");
         assert_eq!(write.module, "wasi:io/streams@0.2.12");
+        assert_eq!(
+            write.param_kinds,
+            vec![WasiParamKind::Handle, WasiParamKind::List]
+        );
         assert!(write.retptr);
 
         let exit = registry
