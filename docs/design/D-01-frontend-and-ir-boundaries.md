@@ -167,7 +167,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
 | `psrs-kind` | Kind inference and unification over resolved HIR, and kind diagnostics | `psrs-hir`, `psrs-span` |
 | `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
-| `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, the WASI runtime ABI (`_start`, `ps_rt_log` in the bootstrap), the WASI 0.2 import registry and `wit-component` componentization, structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter`, `wit-parser`, `wit-component` |
+| `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, the WASI import registry, `wit-component` componentization, structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter`, `wit-parser`, `wit-component` |
 | `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
 | `psrs-cli` | Source inspection, Wasm build, WAT output, and diagnostic rendering | `psrs-driver` plus frontend inspection crates |
 
@@ -264,19 +264,17 @@ intrinsics into Core primitive operations and keeps runtime functions, such as
 P8 flattens top-level lambdas and emits ANF assignments and direct calls.
 Captured closures, nested function values, and higher-order calls produce
 diagnostics. String literals become string constants. P9 creates scalar MIR
-values, string constants, and basic blocks; P10 structures the generated `if`
+values, string constants, and basic blocks, and lowers `log` to WASI: it reads
+the string's length from its length-prefixed buffer and calls
+`wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`
 diamonds into the thin Wasm encoding, whose leaf opcodes are
-`wasm_encoder::Instruction` values. It assigns string data segments, structures
-the WASI command entry, and synthesizes the `ps_rt_log` runtime function over
-`wasi_snapshot_preview1.fd_write`. P11 uses `wasm-encoder` to emit the binary,
-`wasmparser` to validate it, and `wasmprinter` to print WAT from the encoded
-binary. The current default artifact is still a WASI Preview 1 command: it
-exports a zero-argument `Int` function named `main`, exports `_start`, and
-imports `wasi_snapshot_preview1.proc_exit`, using `main`'s result as the exit
-code. The backend can also componentize a core module into a WASI 0.2 command
-component (exporting `wasi:cli/run@0.2.12`) with `wit-component`, and resolves
-WASI 0.2 import signatures from vendored WIT; switching `build` to components
-and replacing the Preview 1 `ps_rt_log` with WASI `stdout` calls remain.
+`wasm_encoder::Instruction` values, assigns string data segments, exports the
+canonical `wasi:cli/run@0.2.12#run` entry that calls `main` and
+`wasi:cli/exit.exit-with-code`, and declares the WASI imports. P11 uses
+`wasm-encoder` to emit the core module, `wit-component` to lift it into a
+component, `wasmparser` to validate it, and `wasmprinter` to print WAT from the
+encoded component. The artifact is a WASI 0.2 component that exports
+`wasi:cli/run@0.2.12` and imports only the WASI interfaces the program uses.
 
 `psrs build <file.purs> [-o output.wasm]` writes the validated core module.
 `psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a file. The

@@ -178,9 +178,9 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
     };
 
     let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
-    let binary = crate::wasm::encode_module(&wasm).expect("encoding");
+    let core = crate::wasm::encode_module(&wasm).expect("encoding");
     wasmparser::Validator::new()
-        .validate_all(&binary)
+        .validate_all(&core)
         .expect("the encoded module should validate");
 
     if std::process::Command::new("wasmtime")
@@ -191,8 +191,10 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         eprintln!("skipping: wasmtime is not installed");
         return;
     }
+    let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
+    let component = crate::component::componentize(&core, &resolve, world).expect("componentizing");
     let path = std::env::temp_dir().join(format!("psrs-mir-gc-{}.wasm", std::process::id()));
-    std::fs::write(&path, &binary).unwrap();
+    std::fs::write(&path, &component).unwrap();
     let output = std::process::Command::new("wasmtime")
         .arg("run")
         .arg(&path)

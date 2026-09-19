@@ -8,12 +8,11 @@ replacement for the official PureScript compiler.
 ## Current status
 
 The compiler now builds a small, single-module PureScript subset through the
-backend IRs and emits a validated core Wasm module plus WAT. The artifact is a
-WASI command: it exports `_start`, imports
-`wasi_snapshot_preview1.proc_exit`, and uses `main`'s result as the exit code.
-Programs can also print with `log` (a `String -> Unit` runtime function backed
-by `wasi_snapshot_preview1.fd_write`). Try the inspection and build commands
-with the included examples:
+backend IRs and emits a validated WASI 0.2 **Component Model** artifact plus
+WAT. The component exports `wasi:cli/run@0.2.12`; `main`'s result becomes the
+process exit code through `wasi:cli/exit`, and `log` writes through
+`wasi:cli/stdout`. Try the inspection and build commands with the included
+examples:
 
 ```sh
 cargo run -- lex examples/basic.purs

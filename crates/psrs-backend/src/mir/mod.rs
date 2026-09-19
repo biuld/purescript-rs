@@ -1,7 +1,11 @@
-use crate::BackendError;
-use crate::cc::{self, AssignmentKind};
+use crate::abi::{self, WasiRegistry, names};
 use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
-use psrs_hir::{ExternalSymbol, SymbolId};
+use crate::{
+    BackendError,
+    cc::{self, AssignmentKind},
+};
+use psrs_core::Primitive;
+use psrs_hir::{ExternalSymbol, RuntimeFunction, SymbolId};
 use psrs_span::TextRange;
 
 mod instruction;
@@ -82,15 +86,28 @@ pub enum Terminator {
 }
 
 pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
+    let mut wasi = WasiRegistry::load()
+        .map_err(|message| vec![BackendError::new("P9 MIR lowering", module.span, message)])?;
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
-        functions.push(lower_function(function)?);
+        functions.push(lower_function(function, &mut wasi)?);
     }
+    let imports = wasi
+        .imports()
+        .iter()
+        .map(|import| Import {
+            symbol: import.symbol,
+            module: import.module.clone(),
+            name: import.name.clone(),
+            parameters: import.parameters.clone(),
+            result: import.result,
+        })
+        .collect();
     let mir = Module {
         name: module.name,
         externals: module.externals,
         types: Vec::new(),
-        imports: Vec::new(),
+        imports,
         functions,
         span: module.span,
     };
@@ -98,7 +115,10 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
     Ok(mir)
 }
 
-fn lower_function(source: &cc::Function) -> Result<Function, Vec<BackendError>> {
+fn lower_function(
+    source: &cc::Function,
+    wasi: &mut WasiRegistry,
+) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
         next_block: 1,
@@ -108,6 +128,14 @@ fn lower_function(source: &cc::Function) -> Result<Function, Vec<BackendError>> 
             instructions: Vec::new(),
             terminator: None,
         }],
+        values: source.values.clone(),
+        next_value: source
+            .values
+            .iter()
+            .map(|value| value.id.0)
+            .max()
+            .map_or(0, |max| max + 1),
+        wasi,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -122,7 +150,7 @@ fn lower_function(source: &cc::Function) -> Result<Function, Vec<BackendError>> 
         symbol: source.symbol,
         name: source.name.clone(),
         parameters: source.parameters.clone(),
-        values: source.values.clone(),
+        values: lowerer.values,
         entry,
         blocks: lowerer.blocks,
         result: source.result,
@@ -131,12 +159,146 @@ fn lower_function(source: &cc::Function) -> Result<Function, Vec<BackendError>> 
     })
 }
 
-struct FunctionLowerer {
+struct FunctionLowerer<'a> {
     next_block: u32,
     blocks: Vec<BasicBlock>,
+    values: Vec<ValueDecl>,
+    next_value: u32,
+    wasi: &'a mut WasiRegistry,
 }
 
-impl FunctionLowerer {
+impl FunctionLowerer<'_> {
+    fn fresh(&mut self, ty: ValueType) -> ValueId {
+        let id = ValueId(self.next_value);
+        self.next_value += 1;
+        self.values.push(ValueDecl { id, ty });
+        id
+    }
+
+    /// Lowers `log` to WASI: get standard output, then write the string and a
+    /// newline through `blocking-write-and-flush`.
+    fn lower_print(
+        &mut self,
+        destination: ValueId,
+        argument: ValueId,
+        span: TextRange,
+        current: BlockId,
+    ) -> Result<(), Vec<BackendError>> {
+        let get_stdout = self
+            .wasi
+            .import(names::STDOUT, names::GET_STDOUT)
+            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
+        let write = self
+            .wasi
+            .import(names::STREAMS, names::WRITE_STDOUT)
+            .map_err(|message| vec![BackendError::new("P9 MIR lowering", span, message)])?;
+
+        let handle = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Call {
+                destination: handle,
+                function: get_stdout.symbol,
+                arguments: Vec::new(),
+                span,
+            },
+            span,
+        )?;
+
+        let length = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Load {
+                destination: length,
+                address: argument,
+                offset: 0,
+                span,
+            },
+            span,
+        )?;
+        let four = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Constant {
+                destination: four,
+                value: 4,
+                span,
+            },
+            span,
+        )?;
+        let bytes = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Primitive {
+                destination: bytes,
+                op: Primitive::Add,
+                left: argument,
+                right: four,
+                span,
+            },
+            span,
+        )?;
+        let scratch = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Constant {
+                destination: scratch,
+                value: abi::PRINT_SCRATCH,
+                span,
+            },
+            span,
+        )?;
+        self.append_instruction(
+            current,
+            Instruction::CallVoid {
+                function: write.symbol,
+                arguments: vec![handle, bytes, length, scratch],
+                span,
+            },
+            span,
+        )?;
+
+        let newline = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Constant {
+                destination: newline,
+                value: abi::NEWLINE_ADDR as i32,
+                span,
+            },
+            span,
+        )?;
+        let one = self.fresh(ValueType::I32);
+        self.append_instruction(
+            current,
+            Instruction::Constant {
+                destination: one,
+                value: 1,
+                span,
+            },
+            span,
+        )?;
+        self.append_instruction(
+            current,
+            Instruction::CallVoid {
+                function: write.symbol,
+                arguments: vec![handle, newline, one, scratch],
+                span,
+            },
+            span,
+        )?;
+        self.append_instruction(
+            current,
+            Instruction::Constant {
+                destination,
+                value: 0,
+                span,
+            },
+            span,
+        )?;
+        Ok(())
+    }
+
     fn lower_assignments(
         &mut self,
         assignments: &[cc::Assignment],
@@ -185,16 +347,34 @@ impl FunctionLowerer {
                 AssignmentKind::DirectCall {
                     function,
                     arguments,
-                } => self.append_instruction(
-                    current,
-                    Instruction::Call {
-                        destination: assignment.destination,
-                        function: *function,
-                        arguments: arguments.clone(),
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
+                } => {
+                    if *function == RuntimeFunction::ConsoleLog.symbol() {
+                        let argument = arguments.first().copied().ok_or_else(|| {
+                            vec![BackendError::new(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                "`log` takes one argument",
+                            )]
+                        })?;
+                        self.lower_print(
+                            assignment.destination,
+                            argument,
+                            assignment.span,
+                            current,
+                        )?;
+                    } else {
+                        self.append_instruction(
+                            current,
+                            Instruction::Call {
+                                destination: assignment.destination,
+                                function: *function,
+                                arguments: arguments.clone(),
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                    }
+                }
                 AssignmentKind::If {
                     condition,
                     then_assignments,

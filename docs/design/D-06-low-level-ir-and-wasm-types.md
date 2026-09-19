@@ -139,9 +139,8 @@ resolves a `command` world that exports `wasi:cli/run@0.2.12` and imports
 metadata, and lifts it into a component. A core module that imports those
 interfaces, calls `get-stdout` and `blocking-write-and-flush`, and exports
 `run` under the legacy core name `wasi:cli/run@0.2.12#run` componentizes and
-prints through WASI under `wasmtime`. What remains is wiring the frontend `log`
-and `main` to emit this WASI sequence (replacing the Preview 1 emitter) and
-switching `build` to emit components by default.
+writes through WASI under `wasmtime`. The frontend `log` and `main` emit this
+WASI sequence and `build` emits a component; the Preview 1 emitter is gone.
 
 ## Open items
 

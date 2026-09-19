@@ -1,10 +1,10 @@
 use super::convert::val_type;
 use super::{
     Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
-    RuntimeFunction,
 };
 use crate::BackendError;
-use crate::mir::{self, Function as MirFunction, Instruction as MirInstruction};
+use crate::abi::{self, names};
+use crate::mir::{self, Function as MirFunction};
 use crate::types::{ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -14,14 +14,11 @@ use wasm_encoder::{Instruction, ValType};
 mod runtime;
 mod structure;
 
-use runtime::{collect_strings, console_log_symbol, log_body};
+use runtime::collect_strings;
 use structure::Structurer;
 
-/// Runtime scratch layout: a single-entry iovec at `0`, the bytes-written cell
-/// at `8`, and the newline byte appended by `log` at `12`. String data is
-/// placed after this region.
-pub(super) const NWRITTEN_ADDR: u32 = 8;
-pub(super) const NEWLINE_ADDR: u32 = 12;
+/// String data is placed after this scratch region. The newline byte the
+/// standard `print` appends lives at `abi::NEWLINE_ADDR`.
 pub(super) const SCRATCH_END: u32 = 16;
 
 /// Structures MIR control flow and builds the thin Wasm IR.
@@ -34,25 +31,18 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     }) else {
         return Err(wasm_error(
             module.span,
-            "the first Wasm artifact requires a zero-argument Int `main` declaration",
+            "the component artifact requires a zero-argument Int `main` declaration",
         ));
     };
 
     let (string_offsets, mut data) = collect_strings(module);
-    let log_symbol = console_log_symbol(module);
-    let log_used = log_symbol.is_some_and(|symbol| {
-        module
-            .functions
-            .iter()
-            .flat_map(|function| &function.blocks)
-            .flat_map(|block| &block.instructions)
-            .any(|instruction| {
-                matches!(instruction, MirInstruction::Call { function, .. } if *function == symbol)
-            })
-    });
-    if log_used {
+    let writes_stdout = module
+        .imports
+        .iter()
+        .any(|import| import.name == names::WRITE_STDOUT);
+    if writes_stdout {
         data.push(DataSegment {
-            offset: NEWLINE_ADDR,
+            offset: abi::NEWLINE_ADDR,
             bytes: vec![b'\n'],
         });
     }
@@ -64,47 +54,10 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         .map(|group| group.0.len() as u32)
         .sum::<u32>();
 
-    // Import 0: exit with a status code, used by the synthesized entry.
-    let proc_exit_type = defined + types.len() as u32;
-    types.push(FuncType {
-        parameters: vec![ValType::I32],
-        results: Vec::new(),
-    });
-    let mut imports = vec![Import {
-        module: "wasi_snapshot_preview1".into(),
-        name: "proc_exit".into(),
-        type_index: proc_exit_type,
-    }];
-
-    let mut fd_write_index = None;
-    let mut log_type = None;
-    if log_used {
-        let fd_write_type = defined + types.len() as u32;
-        types.push(FuncType {
-            parameters: vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
-            results: vec![ValType::I32],
-        });
-        fd_write_index = Some(imports.len() as u32);
-        imports.push(Import {
-            module: "wasi_snapshot_preview1".into(),
-            name: "fd_write".into(),
-            type_index: fd_write_type,
-        });
-
-        let console_log_type = defined + types.len() as u32;
-        types.push(FuncType {
-            parameters: vec![ValType::I32],
-            results: vec![ValType::I32],
-        });
-        log_type = Some(console_log_type);
-    }
-
-    let import_count = imports.len() as u32;
-    let runtime_count = u32::from(log_used);
-
-    // Runtime ABI imports declared by MIR, appended after the WASI imports so
-    // the synthesized entry's `proc_exit` index stays stable.
-    let mut mir_import_indices = HashMap::new();
+    // Core imports: the WASI imports MIR declared, then `exit-with-code` used
+    // by the synthesized `run` entry.
+    let mut imports = Vec::new();
+    let mut import_indices = HashMap::new();
     for import in &module.imports {
         let type_index = defined + types.len() as u32;
         types.push(FuncType {
@@ -114,19 +67,47 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
                 .map(|ty| vec![val_type(ty)])
                 .unwrap_or_default(),
         });
-        mir_import_indices.insert(import.symbol, imports.len() as u32);
+        import_indices.insert(import.symbol, imports.len() as u32);
         imports.push(Import {
             module: import.module.clone(),
             name: import.name.clone(),
             type_index,
         });
     }
-    let import_count = import_count + mir_import_indices.len() as u32;
+    // The synthesized `run` entry exits with `main`'s code through WASI.
+    let mut registry = abi::WasiRegistry::load().map_err(|message| {
+        vec![BackendError::new(
+            "P10 Wasm structuring",
+            module.span,
+            message,
+        )]
+    })?;
+    let exit = registry
+        .import(names::EXIT, names::EXIT_WITH_CODE)
+        .map_err(|message| {
+            vec![BackendError::new(
+                "P10 Wasm structuring",
+                module.span,
+                message,
+            )]
+        })?;
+    let exit_type_index = defined + types.len() as u32;
+    types.push(FuncType {
+        parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
+        results: Vec::new(),
+    });
+    let exit_index = imports.len() as u32;
+    imports.push(Import {
+        module: exit.module,
+        name: exit.name,
+        type_index: exit_type_index,
+    });
 
+    let import_count = imports.len() as u32;
     let entry_type = defined + types.len() as u32;
     types.push(FuncType {
         parameters: Vec::new(),
-        results: Vec::new(),
+        results: vec![ValType::I32],
     });
 
     let mut function_indices = module
@@ -135,10 +116,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         .enumerate()
         .map(|(index, function)| (function.symbol, import_count + index as u32))
         .collect::<HashMap<_, _>>();
-    if let Some(index) = log_used.then_some(import_count + module.functions.len() as u32) {
-        function_indices.insert(log_symbol.expect("log is an external symbol"), index);
-    }
-    for (symbol, index) in &mir_import_indices {
+    for (symbol, index) in &import_indices {
         function_indices.insert(*symbol, *index);
     }
 
@@ -153,18 +131,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     }
 
     let main_index = import_count + main_position as u32;
-    let entry_index = import_count + module.functions.len() as u32 + runtime_count;
-
-    let mut runtime_functions = Vec::new();
-    if let (Some(type_index), Some(fd_write)) = (log_type, fd_write_index) {
-        runtime_functions.push(RuntimeFunction {
-            name: "ps_rt_log".into(),
-            type_index,
-            parameters: vec![ValType::I32],
-            locals: Vec::new(),
-            body: log_body(fd_write),
-        });
-    }
+    let entry_index = import_count + module.functions.len() as u32;
 
     let wasm = Module {
         name: module.name.clone(),
@@ -172,7 +139,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         types,
         type_defs: module.types.clone(),
         functions,
-        runtime_functions,
+        runtime_functions: Vec::new(),
         memories: vec![Memory {
             minimum: 1,
             maximum: None,
@@ -180,12 +147,7 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         data,
         exports: vec![
             Export {
-                name: "main".into(),
-                kind: ExportKind::Function,
-                index: main_index,
-            },
-            Export {
-                name: "_start".into(),
+                name: abi::RUN_CORE_EXPORT.into(),
                 kind: ExportKind::Function,
                 index: entry_index,
             },
@@ -199,7 +161,8 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
             type_index: entry_type,
             body: vec![
                 Op::Leaf(Instruction::Call(main_index)),
-                Op::Leaf(Instruction::Call(0)),
+                Op::Leaf(Instruction::Call(exit_index)),
+                Op::Leaf(Instruction::I32Const(0)),
             ],
         }),
         span: module.span,

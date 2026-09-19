@@ -46,7 +46,11 @@ pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<Back
     let cc = cc::lower_module(module)?;
     let mir = mir::lower_module(cc.clone())?;
     let wasm = wasm::lower_module(&mir)?;
-    let binary = wasm::encode_module(&wasm)?;
+    let core = wasm::encode_module(&wasm)?;
+    let (resolve, world) = component::command_world()
+        .map_err(|message| vec![BackendError::new("P11 component", mir.span, message)])?;
+    let binary = component::componentize(&core, &resolve, world)
+        .map_err(|message| vec![BackendError::new("P11 component", mir.span, message)])?;
     wasmparser::Validator::new()
         .validate_all(&binary)
         .map_err(|error| {

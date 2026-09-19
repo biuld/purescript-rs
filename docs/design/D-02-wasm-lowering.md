@@ -101,26 +101,25 @@ MIR records basic blocks, instructions, branch targets, merge blocks, and block
 parameters, and is the lowest long-lived IR. The Wasm structurer turns the
 reducible diamonds emitted for expression-level `if` into structured `if`
 regions; leaf opcodes reuse `wasm_encoder::Instruction` instead of a duplicate
-opcode enum. `wasm-encoder` emits the binary and `wasmparser` validates it
-before the compiler reports success. `wasmprinter` prints WAT from the
-validated binary.
+opcode enum. `wasm-encoder` emits the core module, `wit-component` lifts it
+into a component, `wasmparser` validates it, and `wasmprinter` prints WAT.
 
 The CLI commands are `psrs build <file.purs> [-o output.wasm]` and
-`psrs wat <file.purs> [-o output.wat]`. The generated core Wasm module exports
-a zero-argument `Int` function as `main`, exports `_start`, and imports
-`wasi_snapshot_preview1.proc_exit`. `_start` calls `main` and passes its result
-to `proc_exit`, so a compatible WASI runtime such as `wasmtime run` uses the
-return value as the process exit code. The module also declares and exports a
-linear memory because the WASI preview 1 adapter requires one.
+`psrs wat <file.purs> [-o output.wat]`. The artifact is a WASI 0.2 component
+that exports `wasi:cli/run@0.2.12`. The core module exports the canonical
+`wasi:cli/run@0.2.12#run` entry, which calls `main` and passes its result to
+`wasi:cli/exit.exit-with-code`, so a compatible runtime such as `wasmtime run`
+uses the value as the process exit code. The module exports its linear memory
+for the canonical ABI.
 
 String literals are placed in active data segments; a `String` value is the
-address of a length-prefixed UTF-8 buffer. Programs that call `log` also import
-`wasi_snapshot_preview1.fd_write` and use a synthesized `ps_rt_log` runtime
-function that writes the buffer and a trailing newline to standard output.
-See `examples/hello.purs`. It is not yet a Component Model artifact, and
-file/environment/argument services and a richer runtime ABI have not been
-implemented. `psrs dump <core|cc|mir> <file.purs>` prints any intermediate IR
-for debugging.
+address of a length-prefixed UTF-8 buffer. A program that calls `log` imports
+`wasi:cli/stdout` and `wasi:io/streams`; the standard-library lowering reads the
+buffer's length and calls `blocking-write-and-flush` with the bytes and then a
+newline. The component imports only the WASI interfaces the program uses. See
+`examples/hello.purs`. File, environment, argument, clock, and random services
+are not implemented yet. `psrs dump <core|cc|mir> <file.purs>` prints any
+intermediate IR for debugging.
 
 ## Type-system sequence
 
@@ -183,11 +182,9 @@ PureScript-facing standard library -> WASI interfaces -> host
 MIR declares the WASI imports a program uses in an import table with their
 canonical signatures; the backend emits calls to those imports and
 `wit-component` lifts the core module into a component. A component imports only
-the WASI capabilities the program uses. Until the component path replaces it,
-the bootstrap emits a core module that uses WASI Preview 1 imports for console
-and exit, where `log` maps to a synthesized `ps_rt_log` over
-`wasi_snapshot_preview1.fd_write`; that Preview 1 emitter is bootstrap-only and
-is removed once the WASI-based standard library lands.
+the WASI capabilities the program uses. The console and exit capabilities are
+implemented: `log` writes through `wasi:cli/stdout`, and `main`'s result exits
+through `wasi:cli/exit`.
 
 Initial library capabilities grow as testable modules for console, arguments,
 environment, files, clock, and randomness. Networking and HTTP are later

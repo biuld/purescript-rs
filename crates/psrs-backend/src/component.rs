@@ -73,11 +73,6 @@ mod tests {
     use psrs_span::TextRange;
     use wasm_encoder::{Instruction, ValType};
 
-    /// The core name `wit-component` expects for an exported interface function
-    /// under the legacy mangling it uses for a decoded world:
-    /// `{interface-id}#{func}`.
-    const RUN_CORE_NAME: &str = "wasi:cli/run@0.2.12#run";
-
     fn core_module_exporting_run() -> Vec<u8> {
         let span = TextRange::new(0, 1);
         let module = Module {
@@ -90,7 +85,7 @@ mod tests {
             type_defs: Vec::new(),
             functions: vec![Function {
                 symbol: SymbolId::new(ModuleId(0), 0),
-                name: RUN_CORE_NAME.into(),
+                name: crate::abi::RUN_CORE_EXPORT.into(),
                 type_index: 0,
                 parameters: Vec::new(),
                 locals: Vec::new(),
@@ -101,7 +96,7 @@ mod tests {
             memories: Vec::new(),
             data: Vec::new(),
             exports: vec![Export {
-                name: RUN_CORE_NAME.into(),
+                name: crate::abi::RUN_CORE_EXPORT.into(),
                 kind: ExportKind::Function,
                 index: 0,
             }],
@@ -186,7 +181,7 @@ mod tests {
             type_defs: Vec::new(),
             functions: vec![Function {
                 symbol: SymbolId::new(ModuleId(0), 0),
-                name: RUN_CORE_NAME.into(),
+                name: crate::abi::RUN_CORE_EXPORT.into(),
                 type_index: 2,
                 parameters: Vec::new(),
                 locals: vec![ValType::I32],
@@ -213,7 +208,7 @@ mod tests {
             }],
             exports: vec![
                 Export {
-                    name: RUN_CORE_NAME.into(),
+                    name: crate::abi::RUN_CORE_EXPORT.into(),
                     kind: ExportKind::Function,
                     index: 2,
                 },

@@ -4,9 +4,9 @@ use super::*;
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
     let source = "module Main where\nadd x y = x + y\nmain = add 40 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
-    assert_eq!(&artifact.wasm[..8], b"\0asm\x01\0\0\0");
+    assert_eq!(&artifact.wasm[..8], b"\0asm\x0d\0\x01\0");
+    assert!(artifact.wat.contains("(component"));
     assert!(artifact.wat.contains("i32.add"));
-    assert!(artifact.wat.contains("(export \"main\""));
 }
 
 #[test]
@@ -41,33 +41,25 @@ fn exposes_readable_core_and_backend_ir_dumps() {
 }
 
 #[test]
-fn emits_a_wasi_command_entry() {
+fn emits_a_wasi_command_component() {
     let source = "module Main where\nmain = 7\n";
     let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(
-        artifact
-            .wat
-            .contains("(import \"wasi_snapshot_preview1\" \"proc_exit\"")
-    );
-    assert!(artifact.wat.contains("(export \"_start\""));
-    assert!(artifact.wat.contains("(export \"memory\""));
+    assert!(artifact.wat.contains("(component"));
+    assert!(artifact.wat.contains("wasi:cli/run@0.2.12"));
+    assert!(artifact.wat.contains("wasi:cli/exit@0.2.12"));
 }
 
 #[test]
-fn lowers_string_log_to_a_wasi_import() {
+fn lowers_string_log_to_wasi_stdout() {
     let source = "module Main where\nmain = log \"hello world\"\n";
     let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(
-        artifact
-            .wat
-            .contains("(import \"wasi_snapshot_preview1\" \"fd_write\"")
-    );
+    assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
+    assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
     assert!(artifact.wat.contains("hello world"));
-    assert!(artifact.wat.contains("(data"));
 }
 
 #[test]
-fn runs_main_as_a_wasi_command_when_wasmtime_is_available() {
+fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime("module Main where\nmain = 42\n") else {
         eprintln!("skipping: wasmtime is not installed");
         return;

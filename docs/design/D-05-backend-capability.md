@@ -58,7 +58,7 @@ As of 2026-09:
 | Threads | wasmtime default | Allowed; the runtime is single-threaded initially |
 | Component model and WASI 0.2 | wasmtime default | Platform target; synchronous interfaces match the runtime, and a component emitter and canonical ABI are required |
 | WASI 0.3 | wasmtime 46+ | Later opt-in when async, streams, or futures are needed |
-| WASI Preview 1 (`wasi_snapshot_preview1`) | wasmtime default | Interim bootstrap for console and exit only |
+| WASI Preview 1 (`wasi_snapshot_preview1`) | wasmtime default | Not used; the standard library targets WASI 0.2 |
 | Stack switching, shared-everything threads, custom page sizes, custom descriptors | opt-in preview | Not used; adopting one requires updating this profile first |
 
 WASI 0.2 is the chosen component baseline rather than 0.3 because the runtime
@@ -79,16 +79,16 @@ byte-oriented WASI boundary.
 
 ## Runtime interface
 
-- **Current bootstrap artifact:** a core module that exports `main` and
-  `_start`, imports `wasi_snapshot_preview1.proc_exit` and, for `log`,
-  `wasi_snapshot_preview1.fd_write`, and declares a linear memory because the
-  Preview 1 adapter requires one. It runs as a WASI command under `wasmtime`.
+- **Current artifact:** a WASI 0.2 component that exports `wasi:cli/run@0.2.12`
+  and imports `wasi:cli/stdout`, `wasi:io/streams`, and `wasi:cli/exit`. The
+  core module is lifted into the component with `wit-component` and runs under
+  `wasmtime`.
 - **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry.
   WASI is the runtime ABI ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)):
   the PureScript-facing standard library is built on WASI interfaces, and the
   backend lowers to their canonical ABI. A component imports only the WASI
-  capabilities the program uses. Emitting the standard-library lowering and
-  switching `build` to components are later work.
+  capabilities the program uses. `build` emits a component and the standard
+  library implements console and exit over WASI.
 
 ## Verification
 
@@ -104,8 +104,8 @@ byte-oriented WASI boundary.
 
 ## Open items
 
-- Building the WASI 0.2 component emitter and canonical ABI, and deciding when
-  the artifact stops being a Preview 1 core module.
+- Building the remaining WASI 0.2 interfaces (files, clocks, random, sockets)
+  as PureScript-facing libraries.
 - Whether a language feature needs tail calls, exceptions, or stack switching;
   each is added to the profile before use.
 - Tracking the `wasmtime` baseline: a new release is a deliberate revision of
