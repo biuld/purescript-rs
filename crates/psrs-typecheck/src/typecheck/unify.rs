@@ -34,8 +34,10 @@ impl Checker {
                 self.bind_variable(variable, ty, span);
             }
             (InferType::I32, InferType::I32)
+            | (InferType::F64, InferType::F64)
             | (InferType::Boolean, InferType::Boolean)
             | (InferType::String, InferType::String)
+            | (InferType::Char, InferType::Char)
             | (InferType::Unit, InferType::Unit) => {}
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
@@ -96,8 +98,10 @@ impl Checker {
         match self.resolve_type(ty.clone()) {
             InferType::Variable(variable) => format!("_T{variable}"),
             InferType::I32 => "Int".into(),
+            InferType::F64 => "Number".into(),
             InferType::Boolean => "Boolean".into(),
             InferType::String => "String".into(),
+            InferType::Char => "Char".into(),
             InferType::Unit => "Unit".into(),
             InferType::Constructor(TypeConstructor::Array) => "Array".into(),
             InferType::Constructor(TypeConstructor::User(id)) => self
@@ -173,8 +177,10 @@ impl Checker {
                 }
             }
             InferType::I32
+            | InferType::F64
             | InferType::Boolean
             | InferType::String
+            | InferType::Char
             | InferType::Unit
             | InferType::Constructor(_) => {}
         }
@@ -224,8 +230,10 @@ impl Checker {
                 }
             }
             InferType::I32
+            | InferType::F64
             | InferType::Boolean
             | InferType::String
+            | InferType::Char
             | InferType::Unit
             | InferType::Constructor(_) => {}
         }
@@ -251,8 +259,10 @@ impl Checker {
                 None
             }
             InferType::I32 => Some(interner.intern(Type::I32)),
+            InferType::F64 => Some(interner.intern(Type::F64)),
             InferType::Boolean => Some(interner.intern(Type::Boolean)),
             InferType::String => Some(interner.intern(Type::String)),
+            InferType::Char => Some(interner.intern(Type::Char)),
             InferType::Unit => Some(interner.intern(Type::Unit)),
             InferType::Constructor(TypeConstructor::Array) => {
                 Some(interner.intern(Type::Constructor(thir::TypeConstructor::Array)))

@@ -85,6 +85,7 @@ fn verify_assignments(
         let mut uses = Vec::new();
         match &assignment.kind {
             AssignmentKind::Constant(_) => {}
+            AssignmentKind::NumberConstant(_) => {}
             AssignmentKind::StringConstant(_) => {}
             AssignmentKind::FunctionRef { .. } => {}
             AssignmentKind::ClosureGetCapture { closure, .. } => uses.push(*closure),

@@ -296,8 +296,12 @@ fn collect_captures(expression: &Expr, bound: &mut HashSet<LocalId>, captures: &
             collect_captures(then_branch, bound, captures);
             collect_captures(else_branch, bound, captures);
         }
-        ExprKind::Global(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) | ExprKind::String(_) => {
-        }
+        ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
     }
 }
 

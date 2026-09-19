@@ -27,8 +27,10 @@ pub enum Type {
     /// A generalized type variable; quantifiers are stored at each binding site.
     Variable(TypeVariableId),
     I32,
+    F64,
     Boolean,
     String,
+    Char,
     Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
@@ -149,8 +151,10 @@ pub enum ExprKind {
         arguments: Vec<Expr>,
     },
     Integer(i32),
+    Number(String),
     Boolean(bool),
     String(String),
+    Char(char),
     Array {
         elements: Vec<Expr>,
     },
@@ -320,8 +324,10 @@ fn verify_expr(
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
+        | ExprKind::Number(_)
         | ExprKind::Boolean(_)
-        | ExprKind::String(_) => {}
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
         ExprKind::Array { elements } => {
             for element in elements {
                 verify_expr(element, module, owner, globals, locals, errors);

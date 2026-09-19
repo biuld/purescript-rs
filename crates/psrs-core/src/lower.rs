@@ -31,8 +31,10 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         .map(|ty| match ty {
             psrs_thir::Type::Variable(variable) => Type::Variable(variable),
             psrs_thir::Type::I32 => Type::I32,
+            psrs_thir::Type::F64 => Type::F64,
             psrs_thir::Type::Boolean => Type::Boolean,
             psrs_thir::Type::String => Type::String,
+            psrs_thir::Type::Char => Type::Char,
             psrs_thir::Type::Unit => Type::Unit,
             psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
                 psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
@@ -153,8 +155,10 @@ fn lower_expr(
             }
         }
         TypedExprKind::Integer(value) => ExprKind::Integer(value),
+        TypedExprKind::Number(value) => ExprKind::Number(value),
         TypedExprKind::Boolean(value) => ExprKind::Boolean(value),
         TypedExprKind::String(value) => ExprKind::String(value),
+        TypedExprKind::Char(value) => ExprKind::Char(value),
         TypedExprKind::Array(elements) => ExprKind::Array {
             elements: elements
                 .into_iter()

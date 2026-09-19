@@ -233,8 +233,10 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
+        | ExprKind::Number(_)
         | ExprKind::Boolean(_)
-        | ExprKind::String(_) => false,
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => false,
     }
 }
 

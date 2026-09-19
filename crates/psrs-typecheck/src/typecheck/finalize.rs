@@ -12,8 +12,10 @@ impl Checker {
             InferredExprKind::Local(id) => thir::ExprKind::Local(id),
             InferredExprKind::Global(id) => thir::ExprKind::Global(id),
             InferredExprKind::Integer(value) => thir::ExprKind::Integer(value),
+            InferredExprKind::Number(value) => thir::ExprKind::Number(value),
             InferredExprKind::Boolean(value) => thir::ExprKind::Boolean(value),
             InferredExprKind::String(value) => thir::ExprKind::String(value),
+            InferredExprKind::Char(value) => thir::ExprKind::Char(value),
             InferredExprKind::Array(elements) => thir::ExprKind::Array(
                 elements
                     .into_iter()

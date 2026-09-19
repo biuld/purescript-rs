@@ -10,6 +10,20 @@ fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
 }
 
 #[test]
+fn compiles_character_literals_as_integer_valued_scalars() {
+    let source = "module Main where\nchoose :: Char -> Int\nchoose x = 42\nmain = choose 'A'\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("i32.const 65"));
+}
+
+#[test]
+fn compiles_number_literals_as_f64_scalars() {
+    let source = "module Main where\nchoose :: Number -> Int\nchoose x = 42\nmain = choose 1.5\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("f64.const"));
+}
+
+#[test]
 fn compiles_if_expression_through_cfg_to_structured_wasm() {
     let source = "module Main where\nmain = if true then 9 else 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();

@@ -27,6 +27,7 @@ pub struct Expr {
 pub enum ExprKind {
     Name(Name),
     Integer(String),
+    Number(String),
     String(String),
     Char(char),
     Array(Vec<Expr>),

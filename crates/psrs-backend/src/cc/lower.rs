@@ -173,11 +173,29 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            ExprKind::Number(value) => {
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::NumberConstant(value.clone()),
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
             ExprKind::Boolean(value) => {
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::Constant(i32::from(*value)),
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
+            ExprKind::Char(value) => {
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::Constant(*value as i32),
                     span: expression.span,
                 });
                 Ok(destination)

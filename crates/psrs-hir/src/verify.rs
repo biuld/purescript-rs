@@ -27,6 +27,7 @@ pub(crate) fn verify_expr(
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
+        | ExprKind::Number(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
         ExprKind::Array(elements) => {

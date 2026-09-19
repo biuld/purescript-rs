@@ -66,8 +66,10 @@ pub enum TypeKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BuiltinType {
     Int,
+    Number,
     Boolean,
     String,
+    Char,
     Unit,
     Type,
     Constraint,

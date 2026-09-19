@@ -30,8 +30,10 @@ impl Checker {
             }
             hir::TypeKind::Constructor(builtin) => match builtin {
                 hir::BuiltinType::Int => InferType::I32,
+                hir::BuiltinType::Number => InferType::F64,
                 hir::BuiltinType::Boolean => InferType::Boolean,
                 hir::BuiltinType::String => InferType::String,
+                hir::BuiltinType::Char => InferType::Char,
                 hir::BuiltinType::Unit => InferType::Unit,
                 hir::BuiltinType::Array => InferType::Constructor(TypeConstructor::Array),
                 hir::BuiltinType::Type

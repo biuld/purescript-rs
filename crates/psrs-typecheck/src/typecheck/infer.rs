@@ -193,6 +193,17 @@ impl Checker {
                     return None;
                 }
             },
+            hir::ExprKind::Number(text) => match text.parse::<f64>() {
+                Ok(_) => (InferredExprKind::Number(text.clone()), InferType::F64),
+                Err(_) => {
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::NumberOutOfRange,
+                        span,
+                        "number literal is not a valid Number",
+                    ));
+                    return None;
+                }
+            },
             hir::ExprKind::String(value) => {
                 (InferredExprKind::String(value.clone()), InferType::String)
             }
@@ -232,14 +243,7 @@ impl Checker {
             hir::ExprKind::FieldAccess { expression, field } => {
                 self.infer_field_access(expression, field, span)?
             }
-            hir::ExprKind::Char(_) => {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedExpression,
-                    span,
-                    "character literals are not supported yet",
-                ));
-                return None;
-            }
+            hir::ExprKind::Char(value) => (InferredExprKind::Char(*value), InferType::Char),
             hir::ExprKind::Application(function, argument) => {
                 let function = self.infer_expr(function);
                 let argument = self.infer_expr(argument);

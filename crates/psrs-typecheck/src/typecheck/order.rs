@@ -29,6 +29,7 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         hir::ExprKind::Local(_)
         | hir::ExprKind::Integer(_)
+        | hir::ExprKind::Number(_)
         | hir::ExprKind::String(_)
         | hir::ExprKind::Char(_) => {}
         hir::ExprKind::Array(elements) => {

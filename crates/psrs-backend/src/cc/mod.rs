@@ -62,6 +62,7 @@ pub struct Assignment {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AssignmentKind {
     Constant(i32),
+    NumberConstant(String),
     StringConstant(String),
     Primitive {
         op: Primitive,

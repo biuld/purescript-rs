@@ -22,6 +22,7 @@ pub(super) fn verify_instruction(
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
         Instruction::Constant { .. } => {}
+        Instruction::NumberConstant { .. } => {}
         Instruction::StringConstant { .. } => {}
         Instruction::Primitive {
             destination,

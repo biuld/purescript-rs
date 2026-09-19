@@ -257,6 +257,7 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
     let kind = match expression.kind {
         CstExprKind::Name(name) => ExprKind::Name(lower_name(name)),
         CstExprKind::Integer(value) => ExprKind::Integer(value),
+        CstExprKind::Number(value) => ExprKind::Number(value),
         CstExprKind::String(value) => ExprKind::String(value),
         CstExprKind::Char(value) => ExprKind::Char(value),
         CstExprKind::Array { elements, .. } => ExprKind::Array(
@@ -377,7 +378,6 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             return Ok(expression);
         }
         CstExprKind::Hole(_)
-        | CstExprKind::Number(_)
         | CstExprKind::Negate { .. }
         | CstExprKind::Do { .. }
         | CstExprKind::Tuple { .. }

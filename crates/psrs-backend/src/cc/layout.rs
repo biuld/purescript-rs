@@ -105,7 +105,9 @@ fn layoutable_field_type_inner(
         return true;
     }
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => true,
+        Some(Type::I32 | Type::Boolean | Type::F64 | Type::Char | Type::String | Type::Unit) => {
+            true
+        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
@@ -306,7 +308,10 @@ fn storage_type(
         }));
     }
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => Ok(StorageType::I32),
+        Some(Type::I32 | Type::Boolean | Type::Char | Type::String | Type::Unit) => {
+            Ok(StorageType::I32)
+        }
+        Some(Type::F64) => Ok(StorageType::F64),
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {

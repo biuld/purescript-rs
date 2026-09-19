@@ -135,8 +135,10 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 .collect(),
         },
         ExprKind::Integer(value) => ExprKind::Integer(value),
+        ExprKind::Number(value) => ExprKind::Number(value),
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
+        ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()
@@ -285,7 +287,12 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
                 collect_references(argument, out);
             }
         }
-        ExprKind::Local(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) | ExprKind::String(_) => {}
+        ExprKind::Local(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
         ExprKind::Array { elements } => {
             for element in elements {
                 collect_references(element, out);

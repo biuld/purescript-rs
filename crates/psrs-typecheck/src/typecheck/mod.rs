@@ -12,6 +12,7 @@ pub enum TypeCheckErrorKind {
     OccursCheck,
     UnconstrainedType,
     IntegerOutOfRange,
+    NumberOutOfRange,
     UnsupportedExpression,
     UnsupportedType,
     UnsupportedIntrinsic,
@@ -227,8 +228,10 @@ const TOP_LEVEL: u32 = 0;
 enum InferType {
     Variable(u32),
     I32,
+    F64,
     Boolean,
     String,
+    Char,
     Unit,
     Constructor(TypeConstructor),
     Application(Box<InferType>, Box<InferType>),
@@ -296,8 +299,10 @@ enum InferredExprKind {
     Local(LocalId),
     Global(SymbolId),
     Integer(i32),
+    Number(String),
     Boolean(bool),
     String(String),
+    Char(char),
     Array(Vec<InferredExpr>),
     Record(Vec<(String, InferredExpr)>),
     RecordUpdate {
@@ -424,8 +429,10 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         }
         InferType::Record(fields) => fields.iter().any(|(_, field)| occurs(variable, field)),
         InferType::I32
+        | InferType::F64
         | InferType::Boolean
         | InferType::String
+        | InferType::Char
         | InferType::Unit
         | InferType::Constructor(_) => false,
     }

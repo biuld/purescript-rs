@@ -143,6 +143,7 @@ impl Resolver {
                 }
             }
             AstExprKind::Integer(value) => ExprKind::Integer(value),
+            AstExprKind::Number(value) => ExprKind::Number(value),
             AstExprKind::String(value) => ExprKind::String(value),
             AstExprKind::Char(value) => ExprKind::Char(value),
             AstExprKind::Array(elements) => ExprKind::Array(
@@ -484,8 +485,10 @@ pub(super) fn is_uppercase(name: &str) -> bool {
 pub(super) fn builtin_type(name: &str) -> Option<BuiltinType> {
     Some(match name {
         "Int" => BuiltinType::Int,
+        "Number" => BuiltinType::Number,
         "Boolean" => BuiltinType::Boolean,
         "String" => BuiltinType::String,
+        "Char" => BuiltinType::Char,
         "Unit" => BuiltinType::Unit,
         "Type" => BuiltinType::Type,
         "Constraint" => BuiltinType::Constraint,

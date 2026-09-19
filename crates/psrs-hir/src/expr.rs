@@ -36,6 +36,7 @@ pub enum ExprKind {
     Local(LocalId),
     Global(SymbolId),
     Integer(String),
+    Number(String),
     String(String),
     Char(char),
     Array(Vec<Expr>),

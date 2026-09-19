@@ -182,6 +182,21 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                MirInstruction::NumberConstant {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    let value = value
+                        .parse::<f64>()
+                        .map_err(|_| wasm_error(*span, "invalid Number literal in MIR"))?;
+                    body.push(Op::Leaf(Instruction::F64Const(value.into())));
+                    body.push(Op::Leaf(Instruction::LocalSet(local(
+                        &self.locals,
+                        *destination,
+                        *span,
+                    )?)));
+                }
                 MirInstruction::StringConstant {
                     destination,
                     bytes,

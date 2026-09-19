@@ -10,6 +10,11 @@ pub enum Instruction {
         value: i32,
         span: TextRange,
     },
+    NumberConstant {
+        destination: ValueId,
+        value: String,
+        span: TextRange,
+    },
     StringConstant {
         destination: ValueId,
         bytes: String,
@@ -185,6 +190,7 @@ impl Instruction {
     pub fn destination(&self) -> Option<ValueId> {
         match self {
             Self::Constant { destination, .. }
+            | Self::NumberConstant { destination, .. }
             | Self::StringConstant { destination, .. }
             | Self::Primitive { destination, .. }
             | Self::Call { destination, .. }
@@ -217,7 +223,9 @@ impl Instruction {
     /// The values this instruction reads.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
-            Self::Constant { .. } | Self::StringConstant { .. } => Vec::new(),
+            Self::Constant { .. } | Self::NumberConstant { .. } | Self::StringConstant { .. } => {
+                Vec::new()
+            }
             Self::Primitive { left, right, .. } => vec![*left, *right],
             Self::Call { arguments, .. } => arguments.clone(),
             Self::RefFunc { .. } => Vec::new(),
@@ -270,6 +278,7 @@ impl Instruction {
     pub fn span(&self) -> TextRange {
         match self {
             Self::Constant { span, .. }
+            | Self::NumberConstant { span, .. }
             | Self::StringConstant { span, .. }
             | Self::Primitive { span, .. }
             | Self::Call { span, .. }

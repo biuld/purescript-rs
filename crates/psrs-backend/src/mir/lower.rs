@@ -87,6 +87,15 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::NumberConstant(value) => self.append_instruction(
+                    current,
+                    Instruction::NumberConstant {
+                        destination: assignment.destination,
+                        value: value.clone(),
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::StringConstant(bytes) => self.append_instruction(
                     current,
                     Instruction::StringConstant {

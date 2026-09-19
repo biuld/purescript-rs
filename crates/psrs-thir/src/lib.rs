@@ -19,8 +19,10 @@ pub enum Type {
     /// [`Binding::quantified`] for the variables bound at each site.
     Variable(TypeVariableId),
     I32,
+    F64,
     Boolean,
     String,
+    Char,
     Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
@@ -99,8 +101,10 @@ pub enum ExprKind {
     Local(LocalId),
     Global(SymbolId),
     Integer(i32),
+    Number(String),
     Boolean(bool),
     String(String),
+    Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
     RecordUpdate {
@@ -207,8 +211,10 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
+        | ExprKind::Number(_)
         | ExprKind::Boolean(_)
-        | ExprKind::String(_) => {}
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
         ExprKind::Array(elements) => {
             for element in elements {
                 verify_expr(element, type_count, errors);

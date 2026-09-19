@@ -60,8 +60,10 @@ impl KindDiagnostic {
 pub fn builtin_type_kind(builtin: BuiltinType) -> Kind {
     match builtin {
         BuiltinType::Int
+        | BuiltinType::Number
         | BuiltinType::Boolean
         | BuiltinType::String
+        | BuiltinType::Char
         | BuiltinType::Unit
         | BuiltinType::Type
         | BuiltinType::Constraint

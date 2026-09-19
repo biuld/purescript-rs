@@ -63,9 +63,13 @@ pub(crate) fn declaration_shape(
         value = body;
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::String | Type::Unit) => Ok(FunctionSignature {
+        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(FunctionSignature {
             parameters,
             result: ValueType::I32,
+        }),
+        Some(Type::F64) => Ok(FunctionSignature {
+            parameters,
+            result: ValueType::F64,
         }),
         Some(Type::Boolean) => Ok(FunctionSignature {
             parameters,
@@ -190,7 +194,8 @@ pub(crate) fn scalar_type(
     function_types: &HashMap<TypeId, u32>,
 ) -> Result<ValueType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
+        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(ValueType::I32),
+        Some(Type::F64) => Ok(ValueType::F64),
         Some(Type::Boolean) => Ok(ValueType::Boolean),
         Some(Type::Variable(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",

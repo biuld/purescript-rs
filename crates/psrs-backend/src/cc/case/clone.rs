@@ -61,6 +61,7 @@ impl FunctionLowerer<'_> {
     ) -> AssignmentKind {
         match kind {
             AssignmentKind::Constant(value) => AssignmentKind::Constant(*value),
+            AssignmentKind::NumberConstant(value) => AssignmentKind::NumberConstant(value.clone()),
             AssignmentKind::StringConstant(value) => AssignmentKind::StringConstant(value.clone()),
             AssignmentKind::Primitive { op, left, right } => AssignmentKind::Primitive {
                 op: *op,
