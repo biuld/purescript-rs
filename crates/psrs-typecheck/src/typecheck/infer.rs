@@ -1,7 +1,7 @@
 use super::*;
 
 impl Checker {
-    pub(super) fn new(module: &hir::Module) -> Self {
+    pub(super) fn new(module: &hir::Module, imported: &HashMap<SymbolId, hir::Type>) -> Self {
         let mut checker = Self {
             globals: HashMap::new(),
             external_kinds: module
@@ -19,6 +19,7 @@ impl Checker {
                         .map(|signature| (external.symbol, signature))
                 })
                 .collect(),
+            imported: imported.clone(),
             locals: HashMap::new(),
             type_names: module
                 .types
@@ -135,6 +136,9 @@ impl Checker {
             hir::ExprKind::Global(symbol) => {
                 if let Some(scheme) = self.globals.get(symbol).cloned() {
                     let ty = self.instantiate(&scheme);
+                    (InferredExprKind::Global(*symbol), ty)
+                } else if let Some(signature) = self.imported.get(symbol).cloned() {
+                    let ty = self.elaborate_signature(&signature);
                     (InferredExprKind::Global(*symbol), ty)
                 } else {
                     let external = self.external_kinds.get(symbol).cloned();

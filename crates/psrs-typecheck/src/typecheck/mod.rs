@@ -40,6 +40,16 @@ impl TypeCheckError {
 }
 
 pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_imports(module, &HashMap::new())
+}
+
+/// Type checks a module against the declared types of values it imports from
+/// other modules. Imported symbols resolve to their exporting declaration's
+/// signature, which the caller reads from the exporting module's HIR.
+pub fn typecheck_module_with_imports(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -53,7 +63,7 @@ pub fn typecheck_module(module: hir::Module) -> Result<thir::Module, Vec<TypeChe
             .collect());
     }
 
-    let mut checker = Checker::new(&module);
+    let mut checker = Checker::new(&module, imported);
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
@@ -325,6 +335,9 @@ struct Checker {
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
     external_signatures: HashMap<SymbolId, hir::Type>,
+    /// Declared types of values imported from other modules, keyed by the
+    /// exporting declaration's symbol.
+    imported: HashMap<SymbolId, hir::Type>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
     synonyms: HashMap<hir::TypeId, Synonym>,

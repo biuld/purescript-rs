@@ -1,4 +1,7 @@
+mod link;
 mod lower;
+
+pub use link::link;
 
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
@@ -190,6 +193,12 @@ pub struct LowerError {
 
 pub fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
     lower::lower_module(module)
+}
+
+/// Lowers a module without verifying the result, for a module that will be
+/// linked with others. Verify the linked module instead.
+pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
+    lower::lower_module_unverified(module)
 }
 
 impl Module {

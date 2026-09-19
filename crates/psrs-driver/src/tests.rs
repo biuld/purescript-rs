@@ -50,6 +50,66 @@ fn emits_a_wasi_command_component() {
 }
 
 #[test]
+fn typechecks_a_value_imported_from_another_module() {
+    let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
+    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    assert!(typecheck_program_sources(&[a, b]).is_ok());
+}
+
+#[test]
+fn reports_a_cross_module_type_mismatch() {
+    let a = (
+        "A.purs",
+        "module A where\nanswer :: String\nanswer = \"no\"\n",
+    );
+    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let errors = typecheck_program_sources(&[a, b]).unwrap_err();
+    assert!(!errors.is_empty());
+}
+
+#[test]
+fn compiles_a_value_imported_from_another_module() {
+    let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
+    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let artifact = compile_program_sources(&[a, b]).unwrap();
+    assert!(artifact.wat.contains("i32.add"));
+}
+
+#[test]
+fn runs_a_linked_program_when_wasmtime_is_available() {
+    let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
+    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let Some(output) = run_program_with_wasmtime(&[a, b]) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
+    if std::process::Command::new("wasmtime")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return None;
+    }
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let artifact = compile_program_sources(sources).unwrap();
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
+    std::fs::write(&path, &artifact.wasm).unwrap();
+    let output = std::process::Command::new("wasmtime")
+        .arg("run")
+        .arg(&path)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_file(&path);
+    Some(output)
+}
+
+#[test]
 fn lowers_string_log_to_wasi_stdout() {
     let source = "module Main where\nmain = log \"hello world\"\n";
     let artifact = compile_source("Main.purs", source).unwrap();

@@ -5,7 +5,7 @@ use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
-pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
+fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -79,6 +79,14 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         declarations,
         span: module.span,
     };
+    Ok(lowered)
+}
+
+/// Lowers a module and verifies the result. A module with unresolved
+/// cross-module global references cannot be verified on its own; use
+/// [`lower_module_unverified`] and verify the linked module instead.
+pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
+    let lowered = lower_module_inner(module)?;
     if lowered.verify().is_err() {
         return Err(vec![LowerError {
             span: lowered.span,
@@ -86,6 +94,13 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
         }]);
     }
     Ok(lowered)
+}
+
+/// Lowers a module without verifying the result, for linking.
+pub(super) fn lower_module_unverified(
+    module: psrs_thir::Module,
+) -> Result<Module, Vec<LowerError>> {
+    lower_module_inner(module)
 }
 
 fn lower_expr(
