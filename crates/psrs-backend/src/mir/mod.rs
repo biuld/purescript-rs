@@ -41,6 +41,9 @@ pub struct Import {
     pub name: String,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
+    /// Whether the import returns a `list`/`string` indirectly, so the module
+    /// needs an allocator (`cabi_realloc`) for the host to write it.
+    pub list_result: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +103,7 @@ pub fn lower_module(module: cc::Module) -> Result<Module, Vec<BackendError>> {
             name: import.name.clone(),
             parameters: import.parameters.clone(),
             result: import.result,
+            list_result: import.result_kind == crate::abi::WasiResultKind::List,
         })
         .collect();
     let mir = Module {

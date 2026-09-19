@@ -100,6 +100,7 @@ mod tests {
                 index: 0,
             }],
             entry: None,
+            realloc: None,
             span,
         };
         crate::wasm::encode_module(&module).expect("encoding the core module")
@@ -217,6 +218,7 @@ mod tests {
                 },
             ],
             entry: None,
+            realloc: None,
             span,
         };
         crate::wasm::encode_module(&module).expect("encoding the core module")

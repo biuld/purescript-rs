@@ -220,6 +220,7 @@ fn lowers_an_imported_call() {
             name: "[method]output-stream.blocking-write-and-flush".into(),
             parameters: vec![ValueType::I32, ValueType::I32],
             result: None,
+            list_result: false,
         }],
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),

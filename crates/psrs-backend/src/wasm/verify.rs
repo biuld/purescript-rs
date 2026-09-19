@@ -8,7 +8,8 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
     let function_count = (module.imports.len()
         + module.functions.len()
-        + usize::from(module.entry.is_some())) as u32;
+        + usize::from(module.entry.is_some())
+        + usize::from(module.realloc.is_some())) as u32;
     for import in &module.imports {
         if !valid_function_type(module, import.type_index) {
             errors.push(wasm_error(
@@ -53,6 +54,22 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             ));
         }
         verify_body(&entry.body, 0, function_count, module.span, &mut errors);
+    }
+    if let Some(realloc) = &module.realloc {
+        if !valid_function_type(module, realloc.type_index) {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm realloc type index is out of range",
+            ));
+        }
+        let local_count = (realloc.parameters.len() + realloc.locals.len()) as u32;
+        verify_body(
+            &realloc.body,
+            local_count,
+            function_count,
+            realloc.span,
+            &mut errors,
+        );
     }
     if errors.is_empty() {
         Ok(())

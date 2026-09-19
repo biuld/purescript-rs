@@ -1,13 +1,15 @@
 use super::convert::val_type;
-use super::{Body, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op};
+use super::{
+    Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
+};
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::mir::{self, Function as MirFunction};
 use crate::types::{ValueId, ValueType};
-use psrs_hir::SymbolId;
+use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::{Instruction, MemArg, ValType};
 
 mod runtime;
 mod structure;
@@ -33,7 +35,8 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         ));
     };
 
-    let (string_offsets, data) = collect_strings(module);
+    let (string_offsets, mut data, data_end) = collect_strings(module);
+    let needs_realloc = module.imports.iter().any(|import| import.list_result);
 
     let (mut types, function_types) = collect_function_types(module)?;
     let defined = module
@@ -121,6 +124,47 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     let main_index = import_count + main_position as u32;
     let entry_index = import_count + module.functions.len() as u32;
 
+    // An imported function that returns a list/string has the host allocate the
+    // buffer in guest memory, so the module must export `cabi_realloc`. The
+    // allocator is a bump allocator whose free pointer lives in a data segment
+    // after the string data. It prefixes each allocation with its length, so a
+    // returned `(pointer, length)` can be a length-prefixed string value.
+    let mut exports = vec![
+        Export {
+            name: abi::RUN_CORE_EXPORT.into(),
+            kind: ExportKind::Function,
+            index: entry_index,
+        },
+        Export {
+            name: "memory".into(),
+            kind: ExportKind::Memory,
+            index: 0,
+        },
+    ];
+    let mut minimum = 1;
+    let mut realloc = None;
+    if needs_realloc {
+        let heap_pointer = data_end.next_multiple_of(4);
+        let heap_start = (heap_pointer + 4).next_multiple_of(16);
+        let realloc_type = defined + types.len() as u32;
+        types.push(FuncType {
+            parameters: vec![ValType::I32; 4],
+            results: vec![ValType::I32],
+        });
+        let index = entry_index + 1;
+        exports.push(Export {
+            name: "cabi_realloc".into(),
+            kind: ExportKind::Function,
+            index,
+        });
+        data.push(DataSegment {
+            offset: heap_pointer,
+            bytes: heap_start.to_le_bytes().to_vec(),
+        });
+        minimum = (heap_start as u64).div_ceil(0x10000) + 1;
+        realloc = Some(build_realloc(realloc_type, heap_pointer, module.span));
+    }
+
     let wasm = Module {
         name: module.name.clone(),
         imports,
@@ -128,22 +172,11 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         type_defs: module.types.clone(),
         functions,
         memories: vec![Memory {
-            minimum: 1,
+            minimum,
             maximum: None,
         }],
         data,
-        exports: vec![
-            Export {
-                name: abi::RUN_CORE_EXPORT.into(),
-                kind: ExportKind::Function,
-                index: entry_index,
-            },
-            Export {
-                name: "memory".into(),
-                kind: ExportKind::Memory,
-                index: 0,
-            },
-        ],
+        exports,
         entry: Some(Entry {
             type_index: entry_type,
             body: vec![
@@ -152,10 +185,92 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
                 Op::Leaf(Instruction::I32Const(0)),
             ],
         }),
+        realloc,
         span: module.span,
     };
     super::verify::verify_module(&wasm)?;
     Ok(wasm)
+}
+
+/// Builds the bump-allocator `cabi_realloc` the canonical ABI calls to allocate
+/// returned `list`/`string` buffers in guest memory. Each allocation is
+/// preceded by a four-byte length so the result is a length-prefixed string
+/// value. Old allocations are not reclaimed.
+#[allow(clippy::vec_init_then_push)]
+fn build_realloc(type_index: u32, heap_pointer: u32, span: TextRange) -> Function {
+    let memarg = || MemArg {
+        offset: 0,
+        align: 2,
+        memory_index: 0,
+    };
+    let page_round = |body: &mut Body| {
+        // (value + 65535) >> 16, the number of pages needed to hold `value`.
+        body.push(Op::Leaf(Instruction::I32Const(65535)));
+        body.push(Op::Leaf(Instruction::I32Add));
+        body.push(Op::Leaf(Instruction::I32Const(16)));
+        body.push(Op::Leaf(Instruction::I32ShrU));
+    };
+    let mut body = Body::new();
+    // local 4 = free pointer
+    body.push(Op::Leaf(Instruction::I32Const(heap_pointer as i32)));
+    body.push(Op::Leaf(Instruction::I32Load(memarg())));
+    body.push(Op::Leaf(Instruction::LocalSet(4)));
+    // free pointer = (free + align - 1) & -align
+    body.push(Op::Leaf(Instruction::LocalGet(4)));
+    body.push(Op::Leaf(Instruction::LocalGet(2)));
+    body.push(Op::Leaf(Instruction::I32Add));
+    body.push(Op::Leaf(Instruction::I32Const(1)));
+    body.push(Op::Leaf(Instruction::I32Sub));
+    body.push(Op::Leaf(Instruction::I32Const(0)));
+    body.push(Op::Leaf(Instruction::LocalGet(2)));
+    body.push(Op::Leaf(Instruction::I32Sub));
+    body.push(Op::Leaf(Instruction::I32And));
+    body.push(Op::Leaf(Instruction::LocalSet(4)));
+    // local 5 = end = free pointer + new size + the four-byte length prefix
+    body.push(Op::Leaf(Instruction::LocalGet(4)));
+    body.push(Op::Leaf(Instruction::LocalGet(3)));
+    body.push(Op::Leaf(Instruction::I32Add));
+    body.push(Op::Leaf(Instruction::I32Const(4)));
+    body.push(Op::Leaf(Instruction::I32Add));
+    body.push(Op::Leaf(Instruction::LocalSet(5)));
+    // Grow the memory if the allocation crosses the current size.
+    body.push(Op::Leaf(Instruction::LocalGet(5)));
+    page_round(&mut body);
+    body.push(Op::Leaf(Instruction::MemorySize(0)));
+    body.push(Op::Leaf(Instruction::I32GtU));
+    let mut grow = Body::new();
+    grow.push(Op::Leaf(Instruction::LocalGet(5)));
+    page_round(&mut grow);
+    grow.push(Op::Leaf(Instruction::MemorySize(0)));
+    grow.push(Op::Leaf(Instruction::I32Sub));
+    grow.push(Op::Leaf(Instruction::MemoryGrow(0)));
+    grow.push(Op::Leaf(Instruction::Drop));
+    body.push(Op::If {
+        then_body: grow,
+        else_body: Body::new(),
+        result: None,
+        span,
+    });
+    // Store the length prefix and the new free pointer.
+    body.push(Op::Leaf(Instruction::LocalGet(4)));
+    body.push(Op::Leaf(Instruction::LocalGet(3)));
+    body.push(Op::Leaf(Instruction::I32Store(memarg())));
+    body.push(Op::Leaf(Instruction::I32Const(heap_pointer as i32)));
+    body.push(Op::Leaf(Instruction::LocalGet(5)));
+    body.push(Op::Leaf(Instruction::I32Store(memarg())));
+    // Return the buffer after its length prefix.
+    body.push(Op::Leaf(Instruction::LocalGet(4)));
+    body.push(Op::Leaf(Instruction::I32Const(4)));
+    body.push(Op::Leaf(Instruction::I32Add));
+    Function {
+        symbol: SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1),
+        name: "cabi_realloc".into(),
+        type_index,
+        parameters: vec![ValType::I32; 4],
+        locals: vec![ValType::I32, ValType::I32],
+        body,
+        span,
+    }
 }
 
 fn collect_function_types(

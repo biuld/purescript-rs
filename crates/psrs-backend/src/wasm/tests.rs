@@ -74,6 +74,7 @@ fn encodes_and_runs_a_gc_struct() {
             index: 0,
         }],
         entry: None,
+        realloc: None,
         span: span(),
     };
 
@@ -124,6 +125,7 @@ fn defined_types_precede_function_types() {
         data: Vec::new(),
         exports: Vec::new(),
         entry: None,
+        realloc: None,
         span: span(),
     };
     assert_eq!(module.defined_type_count(), 1);

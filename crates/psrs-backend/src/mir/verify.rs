@@ -330,6 +330,21 @@ fn verify_function(
                         ));
                     }
                 }
+                Instruction::WidenI64 {
+                    destination,
+                    value,
+                    span,
+                    ..
+                } => {
+                    if require_value(&definitions, *value, *span)? != ValueType::I32
+                        || value_type(function, *destination) != Some(ValueType::I64)
+                    {
+                        return Err(mir_error(
+                            *span,
+                            "MIR i64.extend_i32 operand or result type is invalid",
+                        ));
+                    }
+                }
             }
         }
         let terminator = block.terminator.as_ref().expect("checked above");

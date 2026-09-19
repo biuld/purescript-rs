@@ -136,6 +136,14 @@ pub enum Instruction {
         value: ValueId,
         span: TextRange,
     },
+    /// `i64.extend_i32_s`/`i64.extend_i32_u`, used to widen an `Int` argument to
+    /// a 64-bit WASI parameter.
+    WidenI64 {
+        destination: ValueId,
+        value: ValueId,
+        signed: bool,
+        span: TextRange,
+    },
 }
 
 impl Instruction {
@@ -159,7 +167,8 @@ impl Instruction {
             | Self::ArrayGet { destination, .. }
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
-            | Self::WrapI64 { destination, .. } => Some(*destination),
+            | Self::WrapI64 { destination, .. }
+            | Self::WidenI64 { destination, .. } => Some(*destination),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -200,7 +209,7 @@ impl Instruction {
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
-            Self::WrapI64 { value, .. } => vec![*value],
+            Self::WrapI64 { value, .. } | Self::WidenI64 { value, .. } => vec![*value],
         }
     }
 
@@ -227,7 +236,8 @@ impl Instruction {
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
             | Self::Store { span, .. }
-            | Self::WrapI64 { span, .. } => *span,
+            | Self::WrapI64 { span, .. }
+            | Self::WidenI64 { span, .. } => *span,
         }
     }
 }

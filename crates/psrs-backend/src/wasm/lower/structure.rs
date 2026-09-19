@@ -430,6 +430,20 @@ impl Structurer<'_> {
                     body.push(Op::Leaf(Instruction::I32WrapI64));
                     self.store(body, *destination, *span)?;
                 }
+                MirInstruction::WidenI64 {
+                    destination,
+                    value,
+                    signed,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(if *signed {
+                        Instruction::I64ExtendI32S
+                    } else {
+                        Instruction::I64ExtendI32U
+                    }));
+                    self.store(body, *destination, *span)?;
+                }
                 MirInstruction::CallVoid {
                     function,
                     arguments,

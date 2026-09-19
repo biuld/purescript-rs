@@ -35,12 +35,30 @@ pub mod names {
 /// types, so the shape is kept for the lowering to adapt arguments.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WasiParamKind {
-    /// A scalar flattened to one canonical parameter.
+    /// A scalar flattened to one canonical `i32` parameter.
     Scalar,
+    /// A 64-bit scalar (`u64`/`s64`) flattened to one canonical `i64`.
+    Scalar64,
     /// A resource handle flattened to one canonical `i32` handle.
     Handle,
     /// A string or list flattened to a `(pointer, length)` pair.
     List,
+}
+
+/// How a WIT import's result is represented, which decides how the lowering
+/// consumes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WasiResultKind {
+    /// No result.
+    None,
+    /// A scalar returned directly in a register.
+    Scalar,
+    /// A `list`/`string` returned indirectly through a return pointer as a
+    /// `(pointer, length)` pair.
+    List,
+    /// A result returned indirectly but not modeled (for example a `result` or
+    /// a record); the lowering discards it.
+    Discarded,
 }
 
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
@@ -58,6 +76,7 @@ pub struct WasiImport {
     /// interface's parameters (including a method's receiver).
     pub param_kinds: Vec<WasiParamKind>,
     pub result: Option<ValueType>,
+    pub result_kind: WasiResultKind,
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
     pub retptr: bool,
@@ -126,6 +145,10 @@ impl WasiRegistry {
             .iter()
             .map(|param| param_kind(&self.resolve, &param.ty))
             .collect();
+        let result_kind = match &wit_function.result {
+            None => WasiResultKind::None,
+            Some(ty) => result_kind(&self.resolve, ty),
+        };
         let parameters = signature
             .params
             .iter()
@@ -152,6 +175,7 @@ impl WasiRegistry {
             parameters,
             param_kinds,
             result,
+            result_kind,
             retptr: signature.retptr,
         });
         self.keys.insert(key, self.imports.len() - 1);
@@ -168,6 +192,7 @@ impl WasiRegistry {
 fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
     match ty {
         WitType::String => WasiParamKind::List,
+        WitType::U64 | WitType::S64 => WasiParamKind::Scalar64,
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
             TypeDefKind::Handle(_) => WasiParamKind::Handle,
@@ -175,6 +200,22 @@ fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
             _ => WasiParamKind::Scalar,
         },
         _ => WasiParamKind::Scalar,
+    }
+}
+
+/// Classifies a WIT-level result so the lowering knows whether it comes back in
+/// a register, through a return pointer, or is discarded. Aliases are followed.
+fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
+    match ty {
+        WitType::String => WasiResultKind::List,
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
+            TypeDefKind::Handle(_) => WasiResultKind::Scalar,
+            TypeDefKind::Enum(_) | TypeDefKind::Flags(_) => WasiResultKind::Scalar,
+            TypeDefKind::Type(inner) => result_kind(resolve, inner),
+            _ => WasiResultKind::Discarded,
+        },
+        _ => WasiResultKind::Scalar,
     }
 }
 

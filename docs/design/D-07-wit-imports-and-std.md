@@ -43,16 +43,29 @@ mapping** rather than a per-function recipe:
 
 - Each declared argument is classified against the WIT-level parameter it
   matches. A scalar parameter and a resource handle each flatten to one `i32`;
-  a `String` argument (a `list<u8>`) flattens to the data pointer and length of
-  its length-prefixed buffer.
+  a 64-bit scalar is widened with `i64.extend_i32_u`; a `String` argument (a
+  `list<u8>`) flattens to the data pointer and length of its length-prefixed
+  buffer.
 - If the canonical import takes a return pointer, the backend passes a scratch
   address as the last argument.
 - The canonical result is mapped to the declared result: `i32` as-is, `i64`
-  narrowed to `Int` with `i32.wrap_i64`, and no result to `Unit`.
+  narrowed to `Int` with `i32.wrap_i64`, no result to `Unit`, and a returned
+  `list`/`string` read back from the return pointer.
 
-An import that returns a list or string through the return pointer is not
-supported yet: the backend does not yet read the aggregate back. This is needed
-only for imports like `args` and `env`.
+### Returned lists and the allocator
+
+When an import returns a `list`/`string`, the host writes it into guest memory
+and passes `(pointer, length)` through the return pointer. Allocating in guest
+memory requires an exported `cabi_realloc`, so a module that imports such a
+function also exports one. It is a bump allocator whose free pointer lives in a
+data segment after the string data and grows memory on demand. Each allocation
+is prefixed with its length and the allocated pointer is returned after that
+prefix, so a returned `(pointer, length)` is exactly a length-prefixed string
+value: the lowering computes `pointer - 4`.
+
+A returned list whose element type is not a byte is not modeled yet; such
+imports (for example `get-arguments`, which returns `list<string>`) additionally
+need aggregate values in the backend.
 
 ### The standard library
 
@@ -81,12 +94,13 @@ string literal and becomes a data segment.
 - The embedded, merged library is a bootstrap stand-in for a real module system.
   A program cannot yet select which library modules it uses, and a declaration
   that collides with a library name is a duplicate-declaration error.
-- Functions that need heap allocation or returned lists (`args`, `env`,
-  `random`, `filesystem`) additionally require an allocator and `cabi_realloc`.
+- Imports that return a `list`/`string` need an allocator, so the module exports
+  `cabi_realloc`. Other returned aggregates (`list<string>`,
+  `list<tuple<...>>`) additionally need aggregate values in the backend.
 
 ## Open items
 
 - Standard-library module loading and linking: replace the embedded, merged
   source with real modules the program imports.
-- Reading aggregate results (returned strings and lists) back from a return
-  pointer, and an allocator with `cabi_realloc` for imports that return them.
+- Aggregate values in the backend, so imports like `get-arguments` and
+  `get-environment` can be exposed, and a real allocator with reclamation.

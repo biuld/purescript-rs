@@ -107,6 +107,29 @@ fn writes_to_stderr_when_wasmtime_is_available() {
     assert_eq!(output.stderr, b"oops\n");
 }
 
+#[test]
+fn lowers_a_list_returning_import_with_an_allocator() {
+    let source = "module Main where\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        main = let bytes = randomBytes 8 in 0\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
+    assert!(artifact.wat.contains("cabi_realloc"));
+    assert!(artifact.wat.contains("i64.extend_i32_u"));
+}
+
+#[test]
+fn reads_random_bytes_when_wasmtime_is_available() {
+    let source = "module Main where\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        main = let bytes = randomBytes 8 in 0\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+}
+
 fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

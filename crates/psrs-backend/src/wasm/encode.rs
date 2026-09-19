@@ -43,6 +43,9 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         if let Some(entry) = &module.entry {
             functions.function(entry.type_index);
         }
+        if let Some(realloc) = &module.realloc {
+            functions.function(realloc.type_index);
+        }
         encoder.section(&functions);
     }
 
@@ -87,6 +90,13 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             encoded.instruction(&Instruction::End);
             code.function(&encoded);
         }
+        if let Some(realloc) = &module.realloc {
+            let mut encoded =
+                EncoderFunction::new_with_locals_types(realloc.locals.iter().copied());
+            emit_body(&realloc.body, &mut encoded);
+            encoded.instruction(&Instruction::End);
+            code.function(&encoded);
+        }
         encoder.section(&code);
     }
 
@@ -106,7 +116,7 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
 }
 
 fn has_defined_functions(module: &Module) -> bool {
-    !module.functions.is_empty() || module.entry.is_some()
+    !module.functions.is_empty() || module.entry.is_some() || module.realloc.is_some()
 }
 
 fn emit_body(body: &Body, function: &mut EncoderFunction) {

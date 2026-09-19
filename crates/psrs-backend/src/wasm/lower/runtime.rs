@@ -4,10 +4,10 @@ use crate::wasm::DataSegment;
 use std::collections::HashMap;
 
 /// Collects string literals into length-prefixed data segments after the
-/// scratch region, returning their addresses.
+/// scratch region, returning their addresses and the first free offset.
 pub(super) fn collect_strings(
     module: &crate::mir::Module,
-) -> (HashMap<String, u32>, Vec<DataSegment>) {
+) -> (HashMap<String, u32>, Vec<DataSegment>, u32) {
     let mut offsets = HashMap::new();
     let mut data = Vec::new();
     let mut next = SCRATCH_END;
@@ -30,5 +30,5 @@ pub(super) fn collect_strings(
             }
         }
     }
-    (offsets, data)
+    (offsets, data, next)
 }
