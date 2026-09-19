@@ -22,7 +22,9 @@ platform?
 
 The official suite remains pinned to the PureScript `v0.15.16` corpus. Its
 passing, failing, warning, optimize, and layout cases are the acceptance
-oracle, but the feature matrices below are the primary planning artifact.
+oracle, but the feature matrices below are the primary planning artifact. A
+feature's implementation status and its suite acceptance status are tracked
+together; the former cannot silently replace the latter.
 
 ## Decision
 
@@ -35,10 +37,17 @@ the compiler:
 
 A feature is not marked `Implemented` merely because its syntax parses, a type
 exists in an IR, or a Wasm opcode can be emitted. `Implemented` means that the
-feature works end to end at the boundary named in its row and has a regression
-test. `Partial` is used for parser-only work, a restricted type/runtime slice,
-or a feature whose representation exists but is not yet connected through the
-whole pipeline.
+feature works end to end at the boundary named in its row, has a regression
+test, and has reached its official-suite gate when the suite exercises that
+feature. `Partial` is used for parser-only work, a restricted type/runtime
+slice, an incomplete suite gate, or a feature whose representation exists but
+is not yet connected through the whole pipeline.
+
+Backend infrastructure that the official suite cannot observe directly—such
+as a MIR verifier, a WIT registry, or WAT printing—also requires dedicated
+unit/integration tests. Those tests prove the infrastructure contract; they do
+not make the language or runtime suite complete. The passing-suite runtime gate
+remains the final evidence for end-to-end backend compatibility.
 
 ### Status legend
 
@@ -48,6 +57,49 @@ whole pipeline.
 | Partial | A restricted slice or an earlier compiler stage is implemented. |
 | Planned | No supported implementation yet; the feature remains on the roadmap. |
 | Excluded | Deliberately outside the current compatibility target. |
+
+## Official-suite progress and landing gates
+
+The following snapshot is part of this decision and must be updated with the
+feature matrices. Counts and harness rules are maintained by
+[D-04](../design/D-04-suite-roadmap.md); the rows below record what they mean
+for matrix status.
+
+| Gate | Official-suite scope | Current progress | `Implemented` threshold |
+| --- | --- | --- | --- |
+| L0 | Layout goldens | 13/15 agreement | 15/15, with all remaining layout cases covered by regression tests. |
+| L1 | Non-excluded parse behavior | 906/908 agreement using the annotations oracle | 100% agreement for the tracked corpus. |
+| L2 | Module, import, export, and name resolution | 44/70 failing cases; 32/413 passing modules resolve | The mapped resolution cases and all required passing-module cases agree. |
+| L3 | Kinds and higher-kinded types | 28/48 failing cases | 100% agreement for the mapped kind cases. |
+| L4 | Core type checking | The type gate is not complete | 100% agreement for the mapped type cases. |
+| L5 | Classes and instances | The class gate is not complete | 100% agreement for the mapped class cases. |
+| L6/M7 | Runtime and standard library | 414 non-FFI passing files are in scope; full compile/run coverage is not complete | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| M8-W | Warnings | 68 warning files are in scope; full warning-code coverage is not complete | Warning-code agreement reaches 100% for the tracked warning corpus. |
+| M8-O | Optimization | 10 optimize files are in scope; optimize agreement is not complete | Expected optimize/CoreFn output agrees for all tracked optimize files. |
+
+### Feature-to-gate crosswalk
+
+This crosswalk makes the suite state part of each matrix row without repeating
+the corpus counts in every row. A row with an open gate remains `Partial`, even
+when its local implementation tests pass.
+
+| Matrix rows | Required suite gate | Additional evidence |
+| --- | --- | --- |
+| FE-01 | L0 and L1 | Layout goldens and parser regression tests. |
+| FE-02 | L2 | Resolution scoreboard and cross-module tests. |
+| FE-03–FE-07 | L1–L2, then the relevant L4/L5 cases | CST/AST/HIR tests plus typed diagnostics. |
+| FE-08–FE-13 | L3–L4 and the corresponding L6/M7 passing cases | Type/kind scoreboards and typed Core tests. |
+| FE-14–FE-18 | L5 and the corresponding L6/M7 cases | Constraint, instance, and advanced-polymorphism tests. |
+| FE-19 | Non-FFI suite cases plus WIT-specific tests | JavaScript FFI remains excluded. |
+| FE-20 | L0–L5 diagnostics and M8-W | Error-code and warning-code scoreboards. |
+| FE-21 | M8-O and backend Core/MIR tests | Optimize output and semantics-preservation tests. |
+| BE-01–BE-11 | L6/M7 for source-visible behavior | CC/MIR lowering, representation, and execution tests. |
+| BE-12 | M8-O | Core/MIR optimization and output comparison. |
+| BE-13–BE-16 | L6/M7 for generated artifacts | Wasm feature-profile, validation, WAT, and runtime tests. |
+| BE-17–BE-23 | L6/M7 for programs using the capability | WIT registry, canonical ABI, component, and WASI execution tests. |
+| BE-24–BE-25 | No current acceptance gate | These are outside or later than the current target. |
+| BE-26–BE-27 | L6/M7 | Module-loading and full passing-suite execution scoreboards. |
+| BE-28 | No gate | JavaScript/Node.js FFI is excluded. |
 
 ## Frontend feature matrix
 
@@ -65,8 +117,8 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-05 | Expressions: application, operators, lambdas, `if`, `let`, `case`, records, arrays, literals, sections, `do`, and `ado` | Application, operators in the bootstrap subset, lambdas, `if`, `let`, `case`, scalar arrays, records, and selected literals work; sections, `do`/`ado`, and several literal forms remain open. | Partial | Land desugaring and typing for `do`/`ado`, sections, and the remaining literals. |
 | FE-06 | Patterns: variables, wildcards, constructors, records, literals, tuples, arrays, guards, and binders | Variable, wildcard, constructor, and restricted closed-record patterns work; guards, multiple scrutinees, literal/tuple/array patterns, exhaustiveness, and redundancy checks remain open. | Partial | Complete pattern typing, coverage checking, and lowering. |
 | FE-07 | Operators, sections, fixity declarations, and type/value operators | Operator syntax and the current intrinsic operators work; complete fixity resolution, aliases, sections, and type operators are pending. | Partial | Implement one shared fixity and operator-resolution pass. |
-| FE-08 | Primitive types and monomorphic inference | `Int`, `Boolean`, `String`, `Unit`, function types, unification, occurs check, and source-spanned primitive errors work. | Implemented | Extend the primitive set with `Number`, `Char`, and the remaining literal semantics. |
-| FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, and outermost `forall` work through THIR/Core. | Implemented | Connect polymorphic Core to dictionary passing and runtime erasure. |
+| FE-08 | Primitive types and monomorphic inference | `Int`, `Boolean`, `String`, `Unit`, function types, unification, occurs check, and source-spanned primitive errors work. | Partial | Reach the complete L4/L6 gate, then extend the primitive set with `Number`, `Char`, and the remaining literal semantics. |
+| FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, and outermost `forall` work through THIR/Core. | Partial | Reach the corresponding type/runtime suite gate, then connect polymorphic Core to dictionary passing and runtime erasure. |
 | FE-10 | Type constructors, type application, type synonyms, and saturation | Constructor/application types, built-in and user constructors, and synonym substitution work in a restricted set. | Partial | Complete constructor environments, arity rules, recursive synonyms, and backend-independent acceptance. |
 | FE-11 | Kinds, kind signatures, higher-kinded types, kind annotations, and kind variables | Dedicated kind inference/checking covers several declarations, annotations, records/rows, and official kind errors. | Partial | Complete cross-module environments, rows in kinds, and expression-level cases. |
 | FE-12 | Algebraic data types, constructors, newtypes, and constructor typing | Data/newtype declarations, constructor schemes, constructor application, and basic case typing work. | Partial | Add full recursive/parameterized checking, exhaustiveness, and all pattern forms. |
@@ -97,28 +149,28 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
-| BE-01 | ANF and explicit evaluation order | Direct-style CC/ANF lowering is implemented and tested for the bootstrap expression set. | Implemented | Extend the lowering to every frontend expression form. |
+| BE-01 | ANF and explicit evaluation order | Direct-style CC/ANF lowering is implemented and tested for the bootstrap expression set. | Partial | Extend the lowering to every frontend expression form and pass the L6/M7 gate. |
 | BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, scalar captures, closure structs, and `call_ref` work. | Partial | Support aggregate/polymorphic captures after frontend type-class and representation work. |
-| BE-03 | MIR/CFG, block parameters, terminators, and verification | Typed basic blocks, explicit instructions/terminators, runtime layouts, and MIR verification work. | Implemented | Grow the instruction set with the remaining language/runtime constructs. |
+| BE-03 | MIR/CFG, block parameters, terminators, and verification | Typed basic blocks, explicit instructions/terminators, runtime layouts, and MIR verification work. | Partial | Grow the instruction set with the remaining language/runtime constructs and pass the L6/M7 gate. |
 | BE-04 | Primitive runtime representation and calling conventions | `Int`, `Boolean`, `String`, `Unit`, direct calls, and the current closure ABI work. | Partial | Add `Number`, `Char`, richer values, and stable ABI tests. |
-| BE-05 | Nullary ADT tags and case lowering | Nullary constructors lower to integer tags and execute under WASI. | Implemented | Integrate with the complete pattern and exhaustiveness model. |
+| BE-05 | Nullary ADT tags and case lowering | Nullary constructors lower to integer tags and execute under WASI. | Partial | Integrate with the complete pattern and exhaustiveness model and pass the L6/M7 gate. |
 | BE-06 | Field-bearing ADTs and constructor-pattern lowering | Non-parameterized constructors use Wasm GC structs; nested constructor patterns work in a restricted form. | Partial | Complete recursive, polymorphic, and mixed-field layouts. |
-| BE-07 | Newtype erasure | Single-field newtype construction and matching erase without allocation. | Implemented | Connect erasure to coercions, roles, and derived instances. |
+| BE-07 | Newtype erasure | Single-field newtype construction and matching erase without allocation. | Partial | Connect erasure to coercions, roles, derived instances, and the relevant L6/M7 cases. |
 | BE-08 | Parameterized ADT representation and erasure | A first concrete slice boxes parameter-dependent fields as `eqref`; fully polymorphic declarations remain rejected. | Partial | Generalize the erased layout and verify all instantiations. |
 | BE-09 | Records and row values | Closed concrete records, field reads, updates, and restricted patterns use GC structs. | Partial | Add open rows, polymorphic records, variants, and generic field operations. |
 | BE-10 | Arrays and aggregate values | Concrete scalar arrays support literals, length, indexing, and updates through Wasm GC arrays. | Partial | Support polymorphic and aggregate element representations. |
 | BE-11 | Strings, linear memory, data segments, and allocation | String literals use length-prefixed UTF-8 data; a bump `cabi_realloc` supports returned byte lists/strings. | Partial | Stabilize allocator ownership and returned aggregate handling. |
 | BE-12 | Core optimization and MIR optimization | Optimization is not yet a compatibility target. | Planned | Add semantics-preserving passes after the unoptimized path is complete. |
-| BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`. | Implemented | Cover the remaining MIR instruction and control-flow forms. |
-| BE-14 | Wasm validation and WAT output | Generated core modules are validated with `wasmparser` and printed with `wasmprinter`. | Implemented | Make feature-profile validation part of every backend acceptance test. |
+| BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`. | Partial | Cover the remaining MIR instruction and control-flow forms and pass the L6/M7 gate. |
+| BE-14 | Wasm validation and WAT output | Generated core modules are validated with `wasmparser` and printed with `wasmprinter`. | Partial | Make feature-profile validation part of every backend acceptance test and pass the L6/M7 gate. |
 | BE-15 | Wasm GC, reference types, typed function references, and `call_ref` | The selected `wasmtime` profile and the GC/reference subset used by the backend are integrated. | Partial | Add profile tests for every feature the backend starts to rely on. |
 | BE-16 | Wasm feature profile and pinned runtime | The profile is documented for the pinned `wasmtime` baseline; tail calls, exceptions, SIMD, threads, and multi-memory are allowed but not used. | Partial | Keep the profile and execution tests synchronized with runtime upgrades. |
-| BE-17 | WIT vendoring, parsing, name resolution, and canonical signatures | Vendored WASI WIT is loaded into a registry and resolves interfaces, functions, resources, lists, and results. | Implemented | Expand the accepted source and result type mapping. |
+| BE-17 | WIT vendoring, parsing, name resolution, and canonical signatures | Vendored WASI WIT is loaded into a registry and resolves interfaces, functions, resources, lists, and results. | Partial | Expand the accepted source and result type mapping and pass the L6/M7 capability gate. |
 | BE-18 | Generic source-declared WIT imports | Compatible scalar, handle, and byte-list/string imports lower through the canonical ABI with signature validation. | Partial | Add aggregate WIT values, richer results, and user-library loading. |
 | BE-19 | WIT aggregate values and resources | Resource handles and byte lists have a bootstrap path; lists of strings, tuples, and general aggregates are rejected. | Partial | Add aggregate layouts and ownership/lifetime rules. |
-| BE-20 | Component Model packaging and capability-based imports | `wit-component` lifts the core module to a WASI 0.2 component and prunes unused imports. | Implemented | Add component import/export regression cases beyond the CLI path. |
-| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. | Implemented | Exercise the interfaces through source standard-library modules. |
-| BE-22 | WASI clocks and randomness | Monotonic time and random bytes are wired through WASI and tested. | Implemented | Expose the remaining clock/random library surface. |
+| BE-20 | Component Model packaging and capability-based imports | `wit-component` lifts the core module to a WASI 0.2 component and prunes unused imports. | Partial | Add component import/export regression cases beyond the CLI path and pass the L6/M7 gate. |
+| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. | Partial | Exercise the interfaces through source standard-library modules and pass the L6/M7 gate. |
+| BE-22 | WASI clocks and randomness | Monotonic time and random bytes are wired through WASI and tested. | Partial | Expose the remaining clock/random library surface and pass the L6/M7 gate. |
 | BE-23 | WASI arguments, environment, and filesystem | WIT descriptions are vendored, but the source library and aggregate lowering are not complete. | Planned | Add module loading and aggregate/list support, then expose these services. |
 | BE-24 | WASI sockets and HTTP | Not part of the current synchronous portable-program target. | Excluded | Revisit as a separate platform scope after the core target is stable. |
 | BE-25 | WASI 0.3 async streams and futures | The current compiler targets synchronous WASI 0.2. | Planned | Revisit only with an explicit platform decision and async language/library plan. |
