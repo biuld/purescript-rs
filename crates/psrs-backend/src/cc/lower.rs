@@ -8,8 +8,10 @@ use std::collections::{HashMap, HashSet};
 mod array;
 mod call;
 mod erased;
+mod lambda;
 mod record;
 use call::{CallShape, collect_application};
+use lambda::LambdaLowering;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -29,7 +31,7 @@ pub(super) struct LoweringContext<'a> {
 pub(super) fn lower_function(
     declaration: &psrs_core::Declaration,
     context: &LoweringContext<'_>,
-) -> Result<Function, Vec<BackendError>> {
+) -> Result<(Function, Vec<Function>), Vec<BackendError>> {
     let module = context.module;
     let mut state = FunctionLowerer {
         next_value: 0,
@@ -47,6 +49,7 @@ pub(super) fn lower_function(
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
         function_types: context.function_types,
+        generated: Vec::new(),
     };
     let mut value = &declaration.value;
     let mut parameters = Vec::new();
@@ -91,7 +94,8 @@ pub(super) fn lower_function(
         span: declaration.span,
     };
     super::verify::verify_function(&function, context.signatures)?;
-    Ok(function)
+    let generated = state.generated;
+    Ok((function, generated))
 }
 
 pub(super) struct FunctionLowerer<'a> {
@@ -110,6 +114,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) generated: Vec<Function>,
 }
 
 impl FunctionLowerer<'_> {
@@ -487,11 +492,7 @@ impl FunctionLowerer<'_> {
                     assignments,
                 )
             }
-            ExprKind::Lambda { .. } => Err(vec![BackendError::new(
-                "P8 closure conversion",
-                expression.span,
-                "capturing or nested lambdas require closure conversion and are not in the first slice",
-            )]),
+            ExprKind::Lambda { .. } => self.lower_non_capturing_lambda(expression, ty, assignments),
         }
     }
 }

@@ -213,13 +213,14 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         function_types: &layout.function_types,
     };
     for declaration in &module.declarations {
-        let lowered = lower_function(declaration, &context).map_err(|errors| {
+        let (lowered, generated) = lower_function(declaration, &context).map_err(|errors| {
             errors
                 .into_iter()
                 .map(|error| error.with_module(declaration.symbol.module))
                 .collect::<Vec<_>>()
         })?;
         functions.push(lowered);
+        functions.extend(generated);
     }
     let cc = Module {
         name: module.name,

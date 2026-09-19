@@ -247,10 +247,11 @@ fixed by
 Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by
 [DEC-05](../decision/DEC-05-wasmtime-feature-set.md).
 
-The first M7 closure slice is now executable: a top-level function can be
-passed as a value, a local function parameter can be invoked with `call_ref`,
-and the Wasm artifact validates and runs through the component path. Capturing
-and nested lambdas still await closure conversion and capture-record lowering.
+The first M7 closure slice is now executable: top-level functions and
+non-capturing local lambdas can be passed as values, local function parameters
+can be invoked with `call_ref`, and the Wasm artifact validates and runs
+through the component path. Capturing lambdas still await closure conversion
+and capture-record lowering.
 
 ### M7 — Runtime and standard library
 

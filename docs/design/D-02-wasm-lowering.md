@@ -64,8 +64,8 @@ arithmetic, direct function calls, `let`, and `if`. The bootstrap may combine
 implementations of passes that have no independent capability in this slice,
 but it must preserve the Typed Core boundary and lower through an explicit
 MIR/CFG before Wasm emission. Add algebraic data types and pattern matching
-next; the first higher-order slice uses non-capturing top-level function
-values, with captured closures following closure conversion.
+next; the first higher-order slice uses non-capturing function values,
+including local lambdas, with captured closures following closure conversion.
 
 Use a Wasm encoder and validator for binary generation. Keep readable dumps of
 Typed Core, CC IR, and MIR. Test observable behavior rather than binary byte
@@ -81,7 +81,7 @@ module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
 ```
 
 The supported program shape includes top-level direct functions, non-capturing
-top-level function values, and higher-order calls through typed function
+function values, and higher-order calls through typed function
 references, alongside `Int`, `Boolean`, `String`, and `Unit`, integer
 arithmetic and comparisons, string literals, local scalar `let` bindings, and
 value-producing `if`. A data type
@@ -90,7 +90,7 @@ over it to tag comparisons. A non-parameterized data type with fields lowers to
 one Wasm GC struct per constructor; construction uses `struct.new`, and field
 patterns use `ref.test`, `ref.cast`, and `struct.get`. Top-level lambdas become
 direct parameters. The `log` runtime function writes a `String` to standard
-output and returns `Unit`. Nested or capturing lambdas, record updates, and
+output and returns `Unit`. Capturing lambdas, record updates, and
 open rows are rejected with source diagnostics. Closed concrete record literals lower to Wasm GC
 structs, and field reads lower to `struct.get`. Concrete scalar array literals
 lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
@@ -105,8 +105,8 @@ concrete instantiations may use the first erased layout slice, which boxes
 parameter-dependent scalar fields as `eqref`; fully polymorphic declarations
 and unsupported instantiations remain diagnostics. Top-level function values
 lower to typed `ref.func` values and higher-order calls lower to `call_ref`;
-nested and capturing lambdas remain diagnostics until closure conversion adds
-capture records.
+capturing lambdas remain diagnostics until closure conversion adds capture
+records.
 Compatible source WIT imports are lowered through the generic canonical-ABI
 adapter; mismatched source signatures, non-byte lists, and unsupported
 aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it

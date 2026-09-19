@@ -14,10 +14,15 @@ pub(super) fn append_function_types(
     record_types: &HashMap<TypeId, u32>,
     definitions: &mut Vec<DefinedType>,
 ) -> Result<HashMap<TypeId, u32>, Vec<BackendError>> {
-    let needs_function_types = module
-        .declarations
-        .iter()
-        .any(|declaration| contains_function_value(&declaration.value, module));
+    let needs_function_types = module.declarations.iter().any(|declaration| {
+        let mut value = &declaration.value;
+        let mut function_parameter = false;
+        while let ExprKind::Lambda { binder, body } = &value.kind {
+            function_parameter |= is_function_type(module, binder.ty);
+            value = body;
+        }
+        function_parameter || contains_function_value(value, module)
+    });
     if !needs_function_types {
         return Ok(HashMap::new());
     }
@@ -109,20 +114,17 @@ fn function_types_count_before(module: &CoreModule, index: usize) -> u32 {
 }
 
 fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
-    let is_function =
-        |id: TypeId| matches!(module.types.get(id.0 as usize), Some(Type::Function { .. }));
     match &expression.kind {
-        ExprKind::Lambda { binder, body } => {
-            is_function(binder.ty) || contains_function_value(body, module)
-        }
+        ExprKind::Lambda { .. } => true,
         ExprKind::Let { bindings, body } => {
             bindings.iter().any(|binding| {
-                is_function(binding.binder.ty) || contains_function_value(&binding.value, module)
+                is_function_type(module, binding.binder.ty)
+                    || contains_function_value(&binding.value, module)
             }) || contains_function_value(body, module)
         }
         ExprKind::Application(function, argument) => {
-            (!matches!(function.kind, ExprKind::Global(_)) && is_function(function.ty))
-                || is_function(argument.ty)
+            (!matches!(function.kind, ExprKind::Global(_)) && is_function_type(module, function.ty))
+                || is_function_type(module, argument.ty)
                 || contains_function_value(function, module)
                 || contains_function_value(argument, module)
         }
@@ -177,4 +179,8 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
         | ExprKind::Boolean(_)
         | ExprKind::String(_) => false,
     }
+}
+
+fn is_function_type(module: &CoreModule, id: TypeId) -> bool {
+    matches!(module.types.get(id.0 as usize), Some(Type::Function { .. }))
 }
