@@ -1,10 +1,13 @@
 // The application world for the Component Model artifact: a WASI command that
-// exports `wasi:cli/run@0.2.12`. The vendored WASI WIT lives in `deps/` and is
-// pinned to 0.2.12, matching the wasmtime baseline.
+// exports `wasi:cli/run@0.2.12` and imports the WASI interfaces the standard
+// library uses. The vendored WASI WIT lives in `deps/` and is pinned to 0.2.12,
+// matching the wasmtime baseline.
 // See docs/decision/DEC-06-runtime-interface-via-wit.md.
 
 package psrs:app;
 
 world command {
+    import wasi:cli/stdout@0.2.12;
+    import wasi:io/streams@0.2.12;
     export wasi:cli/run@0.2.12;
 }

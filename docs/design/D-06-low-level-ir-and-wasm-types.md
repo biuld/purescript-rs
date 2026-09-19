@@ -134,12 +134,13 @@ The runtime is a separate track: MIR has an import table, void calls, and
 linear-memory load/store, and `psrs-backend::abi` resolves the WASI imports the
 standard library uses into canonical ABI signatures from the vendored WASI WIT.
 Componentization uses `wit-component`: the compiler vendors WASI 0.2.12 WIT,
-resolves a `command` world that exports `wasi:cli/run@0.2.12`, annotates a core
-module with world metadata, and lifts it into a component. A core module
-exporting the canonical `run` under the legacy core name
-`wasi:cli/run@0.2.12#run` componentizes and runs under `wasmtime`. What remains
-is the standard-library lowering that emits the `wasi:cli/stdout` calls (the
-`print` implementation), the `main`/exit-code mapping via `wasi:cli/exit`, and
+resolves a `command` world that exports `wasi:cli/run@0.2.12` and imports
+`wasi:cli/stdout` and `wasi:io/streams`, annotates a core module with world
+metadata, and lifts it into a component. A core module that imports those
+interfaces, calls `get-stdout` and `blocking-write-and-flush`, and exports
+`run` under the legacy core name `wasi:cli/run@0.2.12#run` componentizes and
+prints through WASI under `wasmtime`. What remains is wiring the frontend `log`
+and `main` to emit this WASI sequence (replacing the Preview 1 emitter) and
 switching `build` to emit components by default.
 
 ## Open items

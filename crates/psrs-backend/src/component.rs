@@ -66,7 +66,9 @@ pub fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wasm::{Export, ExportKind, FuncType, Function, Module, Op};
+    use crate::wasm::{
+        DataSegment, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
+    };
     use psrs_hir::{ModuleId, SymbolId};
     use psrs_span::TextRange;
     use wasm_encoder::{Instruction, ValType};
@@ -149,5 +151,112 @@ mod tests {
             output.status.success(),
             "wasmtime failed to run the component: {output:?}"
         );
+    }
+
+    fn core_module_printing() -> Vec<u8> {
+        let span = TextRange::new(0, 1);
+        let module = Module {
+            name: "Print".into(),
+            imports: vec![
+                Import {
+                    module: "wasi:cli/stdout@0.2.12".into(),
+                    name: "get-stdout".into(),
+                    type_index: 0,
+                },
+                Import {
+                    module: "wasi:io/streams@0.2.12".into(),
+                    name: "[method]output-stream.blocking-write-and-flush".into(),
+                    type_index: 1,
+                },
+            ],
+            types: vec![
+                FuncType {
+                    parameters: Vec::new(),
+                    results: vec![ValType::I32],
+                },
+                FuncType {
+                    parameters: vec![ValType::I32; 4],
+                    results: Vec::new(),
+                },
+                FuncType {
+                    parameters: Vec::new(),
+                    results: vec![ValType::I32],
+                },
+            ],
+            type_defs: Vec::new(),
+            functions: vec![Function {
+                symbol: SymbolId::new(ModuleId(0), 0),
+                name: RUN_CORE_NAME.into(),
+                type_index: 2,
+                parameters: Vec::new(),
+                locals: vec![ValType::I32],
+                body: vec![
+                    Op::Leaf(Instruction::Call(0)),
+                    Op::Leaf(Instruction::LocalSet(0)),
+                    Op::Leaf(Instruction::LocalGet(0)),
+                    Op::Leaf(Instruction::I32Const(100)),
+                    Op::Leaf(Instruction::I32Const(6)),
+                    Op::Leaf(Instruction::I32Const(0)),
+                    Op::Leaf(Instruction::Call(1)),
+                    Op::Leaf(Instruction::I32Const(0)),
+                ],
+                span,
+            }],
+            runtime_functions: Vec::new(),
+            memories: vec![Memory {
+                minimum: 1,
+                maximum: None,
+            }],
+            data: vec![DataSegment {
+                offset: 100,
+                bytes: b"hello\n".to_vec(),
+            }],
+            exports: vec![
+                Export {
+                    name: RUN_CORE_NAME.into(),
+                    kind: ExportKind::Function,
+                    index: 2,
+                },
+                Export {
+                    name: "memory".into(),
+                    kind: ExportKind::Memory,
+                    index: 0,
+                },
+            ],
+            entry: None,
+            span,
+        };
+        crate::wasm::encode_module(&module).expect("encoding the core module")
+    }
+
+    #[test]
+    fn prints_via_wasi_stdout_when_wasmtime_is_available() {
+        if std::process::Command::new("wasmtime")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipping: wasmtime is not installed");
+            return;
+        }
+        let (resolve, world) = command_world().expect("WASI and application WIT should load");
+        let core = core_module_printing();
+        let component = componentize(&core, &resolve, world).expect("componentizing");
+        wasmparser::Validator::new()
+            .validate_all(&component)
+            .expect("the component should validate");
+        let path = std::env::temp_dir().join(format!("psrs-print-{}.wasm", std::process::id()));
+        std::fs::write(&path, &component).unwrap();
+        let output = std::process::Command::new("wasmtime")
+            .arg("run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            output.status.success(),
+            "wasmtime failed to run the component: {output:?}"
+        );
+        assert_eq!(output.stdout, b"hello\n");
     }
 }
