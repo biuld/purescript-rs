@@ -231,7 +231,7 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
     }
     let mut value = lower_expr(value)?;
     for parameter in declaration.parameters.into_iter().rev() {
-        value = lower_pattern_lambda(parameter, value)?;
+        value = expr::lower_pattern_lambda(parameter, value)?;
     }
     Ok(Declaration {
         name: lower_name(declaration.name),
@@ -278,42 +278,6 @@ fn check_pattern_names(pattern: &cst::Pattern, seen: &mut HashSet<String>) -> Op
     None
 }
 
-fn lower_pattern_lambda(pattern: cst::Pattern, body: Expr) -> Result<Expr, LowerError> {
-    if let cst::PatternKind::Var(name) = &pattern.kind {
-        return Ok(lower_lambda(
-            Binder {
-                name: name.text.clone(),
-                span: name.span,
-            },
-            body,
-        ));
-    }
-
-    let span = pattern.span;
-    let name = format!("__psrs_pattern_{}", span.start);
-    let binder = Binder {
-        name: name.clone(),
-        span,
-    };
-    let scrutinee = Expr {
-        kind: ExprKind::Name(Name { text: name, span }),
-        span,
-    };
-    let pattern = lower_pattern(pattern)?;
-    let case = Expr {
-        kind: ExprKind::Case {
-            scrutinee: Box::new(scrutinee),
-            branches: vec![CaseBranch {
-                pattern,
-                value: body.clone(),
-                span: TextRange::new(span.start, body.span.end),
-            }],
-        },
-        span: TextRange::new(span.start, body.span.end),
-    };
-    Ok(lower_lambda(binder, case))
-}
-
 fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
     let span = expression.span;
     let kind = match expression.kind {
@@ -327,6 +291,13 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .map(lower_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        CstExprKind::Record { fields, tail, .. } => expr::lower_record(fields, tail, span)?,
+        CstExprKind::FieldAccess {
+            expression, field, ..
+        } => ExprKind::FieldAccess {
+            expression: Box::new(lower_expr(*expression)?),
+            field: field.text,
+        },
         CstExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(lower_expr(*function)?),
             Box::new(lower_expr(*argument)?),
@@ -345,7 +316,7 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         } => {
             let mut body = lower_expr(*body)?;
             for parameter in parameters.into_iter().rev() {
-                body = lower_pattern_lambda(parameter, body)?;
+                body = expr::lower_pattern_lambda(parameter, body)?;
             }
             return Ok(Expr {
                 kind: body.kind,
@@ -429,9 +400,7 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         }
         CstExprKind::Hole(_)
         | CstExprKind::Number(_)
-        | CstExprKind::Record { .. }
         | CstExprKind::RecordUpdate { .. }
-        | CstExprKind::FieldAccess { .. }
         | CstExprKind::Negate { .. }
         | CstExprKind::Do { .. }
         | CstExprKind::Tuple { .. }

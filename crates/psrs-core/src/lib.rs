@@ -30,6 +30,7 @@ pub enum Type {
     Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
+    Record(Vec<(String, TypeId)>),
     Function {
         parameter: TypeId,
         result: TypeId,
@@ -151,6 +152,13 @@ pub enum ExprKind {
     Array {
         elements: Vec<Expr>,
     },
+    Record {
+        fields: Vec<(String, Expr)>,
+    },
+    FieldAccess {
+        record: Box<Expr>,
+        field: String,
+    },
     ArrayLength(Box<Expr>),
     ArrayIndex {
         array: Box<Expr>,
@@ -244,10 +252,17 @@ impl Module {
             .collect::<HashSet<_>>();
         let mut errors = Vec::new();
         for ty in &self.types {
-            if let Type::Function { parameter, result } | Type::Application(parameter, result) = ty
-            {
-                verify_type(*parameter, self, self.id, self.span, &mut errors);
-                verify_type(*result, self, self.id, self.span, &mut errors);
+            match ty {
+                Type::Function { parameter, result } | Type::Application(parameter, result) => {
+                    verify_type(*parameter, self, self.id, self.span, &mut errors);
+                    verify_type(*result, self, self.id, self.span, &mut errors);
+                }
+                Type::Record(fields) => {
+                    for (_, field) in fields {
+                        verify_type(*field, self, self.id, self.span, &mut errors);
+                    }
+                }
+                _ => {}
             }
         }
         for declaration in &self.declarations {
@@ -322,6 +337,14 @@ fn verify_expr(
             for element in elements {
                 verify_expr(element, module, owner, globals, locals, errors);
             }
+        }
+        ExprKind::Record { fields } => {
+            for (_, value) in fields {
+                verify_expr(value, module, owner, globals, locals, errors);
+            }
+        }
+        ExprKind::FieldAccess { record, .. } => {
+            verify_expr(record, module, owner, globals, locals, errors);
         }
         ExprKind::ArrayLength(value) => verify_expr(value, module, owner, globals, locals, errors),
         ExprKind::ArrayIndex { array, index } => {

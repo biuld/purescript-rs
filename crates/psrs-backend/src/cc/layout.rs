@@ -126,6 +126,7 @@ fn layoutable_field_type_inner(
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
         Some(Type::Variable(_))
         | Some(Type::Constructor(TypeConstructor::Array))
+        | Some(Type::Record(_))
         | Some(Type::Function { .. })
         | None => false,
         Some(Type::Application(_, _)) => array_element_type(module, id).is_some(),
@@ -174,6 +175,7 @@ pub(super) fn type_layout(
             aggregate_types,
             newtype_ids,
             &array_types,
+            &HashMap::new(),
             module.span,
         ) else {
             continue;
@@ -187,6 +189,34 @@ pub(super) fn type_layout(
                 storage,
                 mutable: true,
             }),
+        });
+    }
+    let mut record_types = HashMap::new();
+    for (index, ty) in module.types.iter().enumerate() {
+        let Type::Record(fields) = ty else {
+            continue;
+        };
+        let mut layout_fields = Vec::with_capacity(fields.len());
+        for (_, field) in fields {
+            layout_fields.push(FieldType {
+                storage: storage_type(
+                    module,
+                    *field,
+                    aggregate_types,
+                    newtype_ids,
+                    &array_types,
+                    &record_types,
+                    module.span,
+                )?,
+                mutable: false,
+            });
+        }
+        let type_index = definitions.len() as u32;
+        record_types.insert(TypeId(index as u32), type_index);
+        definitions.push(DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Struct(layout_fields),
         });
     }
     for constructor in &module.constructors {
@@ -212,6 +242,7 @@ pub(super) fn type_layout(
                     aggregate_types,
                     newtype_ids,
                     &array_types,
+                    &record_types,
                     module.span,
                 )?,
                 mutable: false,
@@ -233,6 +264,7 @@ pub(super) fn type_layout(
     Ok(TypeLayout {
         types,
         array_types,
+        record_types,
         constructor_types,
         boxed_i32_type,
     })
@@ -241,6 +273,7 @@ pub(super) fn type_layout(
 pub(super) struct TypeLayout {
     pub(super) types: Vec<RecGroup>,
     pub(super) array_types: HashMap<TypeId, u32>,
+    pub(super) record_types: HashMap<TypeId, u32>,
     pub(super) constructor_types: HashMap<SymbolId, u32>,
     pub(super) boxed_i32_type: Option<u32>,
 }
@@ -251,6 +284,7 @@ fn storage_type(
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
     array_types: &HashMap<TypeId, u32>,
+    record_types: &HashMap<TypeId, u32>,
     span: TextRange,
 ) -> Result<StorageType, Vec<BackendError>> {
     if depends_on_type_variable(module, id) {
@@ -273,6 +307,7 @@ fn storage_type(
                 aggregate_types,
                 newtype_ids,
                 array_types,
+                record_types,
                 span,
             )
         }
@@ -291,9 +326,14 @@ fn storage_type(
                 heap: HeapType::Index(array_types[&id]),
             }))
         }
+        Some(Type::Record(_)) if record_types.contains_key(&id) => Ok(StorageType::Ref(RefType {
+            nullable: false,
+            heap: HeapType::Index(record_types[&id]),
+        })),
         Some(Type::Variable(_))
         | Some(Type::Constructor(TypeConstructor::Array))
         | Some(Type::Application(_, _))
+        | Some(Type::Record(_))
         | Some(Type::Function { .. })
         | None => Err(vec![BackendError::new(
             "P8 closure conversion",

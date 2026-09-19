@@ -44,6 +44,16 @@ fn desugar_expr(expression: Expr) -> Expr {
             Box::new(desugar_expr(*function)),
             Box::new(desugar_expr(*argument)),
         ),
+        ExprKind::Record(fields) => ExprKind::Record(
+            fields
+                .into_iter()
+                .map(|(label, value)| (label, desugar_expr(value)))
+                .collect(),
+        ),
+        ExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
+            expression: Box::new(desugar_expr(*expression)),
+            field,
+        },
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder,
             body: Box::new(desugar_expr(*body)),

@@ -79,6 +79,12 @@ fn shift_type(ty: &Type, offset: u32) -> Type {
             parameter: shift_id(*parameter, offset),
             result: shift_id(*result, offset),
         },
+        Type::Record(fields) => Type::Record(
+            fields
+                .iter()
+                .map(|(label, field)| (label.clone(), shift_id(*field, offset)))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -136,6 +142,16 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 .into_iter()
                 .map(|element| shift_expr(element, offset))
                 .collect(),
+        },
+        ExprKind::Record { fields } => ExprKind::Record {
+            fields: fields
+                .into_iter()
+                .map(|(label, value)| (label, shift_expr(value, offset)))
+                .collect(),
+        },
+        ExprKind::FieldAccess { record, field } => ExprKind::FieldAccess {
+            record: Box::new(shift_expr(*record, offset)),
+            field,
         },
         ExprKind::ArrayLength(value) => ExprKind::ArrayLength(Box::new(shift_expr(*value, offset))),
         ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
@@ -252,6 +268,12 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
                 collect_references(element, out);
             }
         }
+        ExprKind::Record { fields } => {
+            for (_, value) in fields {
+                collect_references(value, out);
+            }
+        }
+        ExprKind::FieldAccess { record, .. } => collect_references(record, out),
         ExprKind::ArrayLength(value) => collect_references(value, out),
         ExprKind::ArrayIndex { array, index } => {
             collect_references(array, out);

@@ -41,6 +41,12 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             psrs_thir::Type::Application(function, argument) => {
                 Type::Application(TypeId(function.0), TypeId(argument.0))
             }
+            psrs_thir::Type::Record(fields) => Type::Record(
+                fields
+                    .into_iter()
+                    .map(|(label, field)| (label, TypeId(field.0)))
+                    .collect(),
+            ),
             psrs_thir::Type::Function { parameter, result } => Type::Function {
                 parameter: TypeId(parameter.0),
                 result: TypeId(result.0),
@@ -154,6 +160,16 @@ fn lower_expr(
                 .into_iter()
                 .map(|element| lower_expr(element, externals, constructors))
                 .collect::<Result<Vec<_>, _>>()?,
+        },
+        TypedExprKind::Record(fields) => ExprKind::Record {
+            fields: fields
+                .into_iter()
+                .map(|(label, value)| Ok((label, lower_expr(value, externals, constructors)?)))
+                .collect::<Result<Vec<_>, LowerError>>()?,
+        },
+        TypedExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
+            record: Box::new(lower_expr(*expression, externals, constructors)?),
+            field,
         },
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors)?;

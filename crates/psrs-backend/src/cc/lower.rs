@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 mod array;
 mod erased;
+mod record;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -16,6 +17,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_i32_type: Option<u32>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) record_types: &'a HashMap<psrs_core::TypeId, u32>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -37,6 +39,7 @@ pub(super) fn lower_function(
         newtype_ids: context.newtype_ids,
         boxed_i32_type: context.boxed_i32_type,
         array_types: context.array_types,
+        record_types: context.record_types,
         constructor_tags: context.constructor_tags,
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
@@ -52,6 +55,7 @@ pub(super) fn lower_function(
             context.aggregate_types,
             context.newtype_ids,
             context.array_types,
+            context.record_types,
         )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
@@ -68,6 +72,7 @@ pub(super) fn lower_function(
         context.aggregate_types,
         context.newtype_ids,
         context.array_types,
+        context.record_types,
     )?;
     let function = Function {
         symbol: declaration.symbol,
@@ -94,6 +99,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_i32_type: Option<u32>,
     pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) record_types: &'a HashMap<psrs_core::TypeId, u32>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -120,6 +126,7 @@ impl FunctionLowerer<'_> {
             self.aggregate_types,
             self.newtype_ids,
             self.array_types,
+            self.record_types,
         )?;
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
@@ -182,6 +189,10 @@ impl FunctionLowerer<'_> {
             }
             ExprKind::Array { elements } => {
                 self.lower_array(expression, elements, ty, assignments)
+            }
+            ExprKind::Record { fields } => self.lower_record(expression, fields, ty, assignments),
+            ExprKind::FieldAccess { record, field } => {
+                self.lower_field_access(expression, record, field, ty, assignments)
             }
             ExprKind::ArrayIndex { array, index } => {
                 let Some(type_index) = self.array_types.get(&array.ty).copied() else {

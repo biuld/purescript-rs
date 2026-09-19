@@ -1,4 +1,5 @@
-use crate::{Name, Type};
+use crate::{LowerError, Name, Type};
+use psrs_cst::RecordField;
 use psrs_span::TextRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +29,11 @@ pub enum ExprKind {
     String(String),
     Char(char),
     Array(Vec<Expr>),
+    Record(Vec<(String, Expr)>),
+    FieldAccess {
+        expression: Box<Expr>,
+        field: String,
+    },
     Application(Box<Expr>, Box<Expr>),
     Operator {
         operator: Name,
@@ -75,4 +81,61 @@ pub enum PatternKind {
         name: Name,
         arguments: Vec<Pattern>,
     },
+}
+
+pub(super) fn lower_record(
+    fields: Vec<RecordField>,
+    tail: Option<Box<psrs_cst::Expr>>,
+    span: TextRange,
+) -> Result<ExprKind, LowerError> {
+    if tail.is_some() {
+        return Err(LowerError::new(
+            span,
+            "open record rows are not supported yet",
+        ));
+    }
+    Ok(ExprKind::Record(
+        fields
+            .into_iter()
+            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
+            .collect::<Result<Vec<_>, LowerError>>()?,
+    ))
+}
+
+pub(super) fn lower_pattern_lambda(
+    pattern: psrs_cst::Pattern,
+    body: Expr,
+) -> Result<Expr, LowerError> {
+    if let psrs_cst::PatternKind::Var(name) = &pattern.kind {
+        return Ok(super::lower_lambda(
+            Binder {
+                name: name.text.clone(),
+                span: name.span,
+            },
+            body,
+        ));
+    }
+    let span = pattern.span;
+    let name = format!("__psrs_pattern_{}", span.start);
+    let binder = Binder {
+        name: name.clone(),
+        span,
+    };
+    let scrutinee = Expr {
+        kind: ExprKind::Name(Name { text: name, span }),
+        span,
+    };
+    let pattern = super::lower_pattern(pattern)?;
+    let case = Expr {
+        kind: ExprKind::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![CaseBranch {
+                pattern,
+                value: body.clone(),
+                span: TextRange::new(span.start, body.span.end),
+            }],
+        },
+        span: TextRange::new(span.start, body.span.end),
+    };
+    Ok(super::lower_lambda(binder, case))
 }

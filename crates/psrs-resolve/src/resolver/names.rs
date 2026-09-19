@@ -151,6 +151,16 @@ impl Resolver {
                     .map(|element| self.resolve_expr(element))
                     .collect::<Option<Vec<_>>>()?,
             ),
+            AstExprKind::Record(fields) => ExprKind::Record(
+                fields
+                    .into_iter()
+                    .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+            AstExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
+                expression: Box::new(self.resolve_expr(*expression)?),
+                field,
+            },
             AstExprKind::Application(function, argument) => {
                 let function = self.resolve_expr(*function);
                 let argument = self.resolve_expr(*argument);

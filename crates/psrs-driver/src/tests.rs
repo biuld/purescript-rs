@@ -673,3 +673,5 @@ mod typecheck;
 mod adts;
 
 mod arrays;
+
+mod records;

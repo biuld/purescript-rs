@@ -7,6 +7,7 @@ pub(crate) fn declaration_shape(
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
     array_types: &HashMap<TypeId, u32>,
+    record_types: &HashMap<TypeId, u32>,
 ) -> Result<(usize, ValueType), Vec<BackendError>> {
     if !declaration.quantified.is_empty() {
         return Err(vec![BackendError::new(
@@ -56,6 +57,9 @@ pub(crate) fn declaration_shape(
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok((arity, aggregate_value_type()))
         }
+        Some(Type::Record(_)) if record_types.contains_key(&ty) => {
+            Ok((arity, aggregate_value_type_for(record_types[&ty])))
+        }
         Some(Type::Application(_, _)) => {
             if let Some(type_index) = array_types.get(&ty) {
                 return Ok((
@@ -98,6 +102,7 @@ pub(crate) fn declaration_shape(
                     aggregate_types,
                     newtype_ids,
                     array_types,
+                    record_types,
                 )?,
             ))
         }
@@ -105,6 +110,11 @@ pub(crate) fn declaration_shape(
             "P8 closure conversion",
             declaration.span,
             "the first backend slice cannot represent aggregate or parameterized types",
+        )]),
+        Some(Type::Record(_)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.span,
+            "record type has no concrete GC struct layout",
         )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -114,6 +124,7 @@ pub(crate) fn declaration_shape(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn scalar_type(
     module: &CoreModule,
     id: psrs_core::TypeId,
@@ -122,6 +133,7 @@ pub(crate) fn scalar_type(
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
     array_types: &HashMap<TypeId, u32>,
+    record_types: &HashMap<TypeId, u32>,
 ) -> Result<ValueType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
@@ -147,6 +159,9 @@ pub(crate) fn scalar_type(
                 nullable: false,
                 heap: HeapType::Index(array_types[&id]),
             }))
+        }
+        Some(Type::Record(_)) if record_types.contains_key(&id) => {
+            Ok(aggregate_value_type_for(record_types[&id]))
         }
         Some(Type::Application(_, _)) => {
             let Some(type_id) = user_type_id(module, id) else {
@@ -182,12 +197,18 @@ pub(crate) fn scalar_type(
                 aggregate_types,
                 newtype_ids,
                 array_types,
+                record_types,
             )
         }
         Some(Type::Constructor(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,
             "aggregate and parameterized types are not supported by the first backend slice",
+        )]),
+        Some(Type::Record(_)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "record type has no concrete GC struct layout",
         )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -201,5 +222,12 @@ fn aggregate_value_type() -> ValueType {
     ValueType::Ref(RefType {
         nullable: false,
         heap: HeapType::Struct,
+    })
+}
+
+fn aggregate_value_type_for(type_index: u32) -> ValueType {
+    ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Index(type_index),
     })
 }

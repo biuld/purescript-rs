@@ -36,6 +36,12 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(element, out);
             }
         }
+        hir::ExprKind::Record(fields) => {
+            for (_, value) in fields {
+                collect_globals(value, out);
+            }
+        }
+        hir::ExprKind::FieldAccess { expression, .. } => collect_globals(expression, out),
         hir::ExprKind::Global(symbol) => out.push(*symbol),
         hir::ExprKind::Operator {
             operator,

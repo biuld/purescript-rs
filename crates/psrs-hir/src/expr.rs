@@ -39,6 +39,11 @@ pub enum ExprKind {
     String(String),
     Char(char),
     Array(Vec<Expr>),
+    Record(Vec<(String, Expr)>),
+    FieldAccess {
+        expression: Box<Expr>,
+        field: String,
+    },
     Application(Box<Expr>, Box<Expr>),
     Operator {
         operator: SymbolId,

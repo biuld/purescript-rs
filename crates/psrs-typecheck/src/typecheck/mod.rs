@@ -232,6 +232,7 @@ enum InferType {
     Unit,
     Constructor(TypeConstructor),
     Application(Box<InferType>, Box<InferType>),
+    Record(Vec<(String, InferType)>),
     Function(Box<InferType>, Box<InferType>),
 }
 
@@ -298,6 +299,11 @@ enum InferredExprKind {
     Boolean(bool),
     String(String),
     Array(Vec<InferredExpr>),
+    Record(Vec<(String, InferredExpr)>),
+    FieldAccess {
+        expression: Box<InferredExpr>,
+        field: String,
+    },
     Application(Box<InferredExpr>, Box<InferredExpr>),
     Lambda {
         binder: InferredBinder,
@@ -408,6 +414,7 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         InferType::Application(function, argument) | InferType::Function(function, argument) => {
             occurs(variable, function) || occurs(variable, argument)
         }
+        InferType::Record(fields) => fields.iter().any(|(_, field)| occurs(variable, field)),
         InferType::I32
         | InferType::Boolean
         | InferType::String

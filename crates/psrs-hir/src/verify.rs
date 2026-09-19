@@ -34,6 +34,14 @@ pub(crate) fn verify_expr(
                 verify_expr(element, globals, visible_locals, declared_locals, errors);
             }
         }
+        ExprKind::Record(fields) => {
+            for (_, value) in fields {
+                verify_expr(value, globals, visible_locals, declared_locals, errors);
+            }
+        }
+        ExprKind::FieldAccess { expression, .. } => {
+            verify_expr(expression, globals, visible_locals, declared_locals, errors);
+        }
         ExprKind::Application(function, argument) => {
             verify_expr(function, globals, visible_locals, declared_locals, errors);
             verify_expr(argument, globals, visible_locals, declared_locals, errors);

@@ -1,6 +1,7 @@
 use super::*;
 
 mod intrinsics;
+mod records;
 use intrinsics::intrinsic_type;
 
 impl Checker {
@@ -222,6 +223,10 @@ impl Checker {
                         Box::new(element_ty),
                     ),
                 )
+            }
+            hir::ExprKind::Record(fields) => self.infer_record(fields, span)?,
+            hir::ExprKind::FieldAccess { expression, field } => {
+                self.infer_field_access(expression, field, span)?
             }
             hir::ExprKind::Char(_) => {
                 self.errors.push(TypeCheckError::new(

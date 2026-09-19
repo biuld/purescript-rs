@@ -42,6 +42,14 @@ impl Checker {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
             }
+            (InferType::Record(left), InferType::Record(right))
+                if left.len() == right.len()
+                    && left.iter().zip(&right).all(|((a, _), (b, _))| a == b) =>
+            {
+                for ((_, left), (_, right)) in left.into_iter().zip(right) {
+                    self.unify(left, right, span);
+                }
+            }
             (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
                 self.unify(*a1, *a2, span);
                 self.unify(*r1, *r2, span);
@@ -104,6 +112,14 @@ impl Checker {
                     self.display_type(&argument)
                 )
             }
+            InferType::Record(fields) => {
+                let fields = fields
+                    .iter()
+                    .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{{fields}}}")
+            }
             InferType::Function(parameter, result) => format!(
                 "({} -> {})",
                 self.display_type(&parameter),
@@ -122,6 +138,12 @@ impl Checker {
             InferType::Application(function, argument) => InferType::Application(
                 Box::new(self.resolve_type(*function)),
                 Box::new(self.resolve_type(*argument)),
+            ),
+            InferType::Record(fields) => InferType::Record(
+                fields
+                    .into_iter()
+                    .map(|(label, ty)| (label, self.resolve_type(ty)))
+                    .collect(),
             ),
             InferType::Function(parameter, result) => InferType::Function(
                 Box::new(self.resolve_type(*parameter)),
@@ -144,6 +166,11 @@ impl Checker {
             | InferType::Function(function, argument) => {
                 self.adjust_levels(function, max_level);
                 self.adjust_levels(argument, max_level);
+            }
+            InferType::Record(fields) => {
+                for (_, field) in fields {
+                    self.adjust_levels(field, max_level);
+                }
             }
             InferType::I32
             | InferType::Boolean
@@ -191,6 +218,11 @@ impl Checker {
                 self.collect_generalizable(function, outer_level, out);
                 self.collect_generalizable(argument, outer_level, out);
             }
+            InferType::Record(fields) => {
+                for (_, field) in fields {
+                    self.collect_generalizable(field, outer_level, out);
+                }
+            }
             InferType::I32
             | InferType::Boolean
             | InferType::String
@@ -233,6 +265,15 @@ impl Checker {
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
+            InferType::Record(fields) => {
+                let fields = fields
+                    .into_iter()
+                    .map(|(label, field)| {
+                        Some((label, self.finalize_type(&field, span, interner, generics)?))
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(interner.intern(Type::Record(fields)))
+            }
             InferType::Function(parameter, result) => {
                 let parameter = self.finalize_type(&parameter, span, interner, generics);
                 let result = self.finalize_type(&result, span, interner, generics);
@@ -258,6 +299,12 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
         InferType::Function(parameter, result) => InferType::Function(
             Box::new(substitute(parameter, mapping)),
             Box::new(substitute(result, mapping)),
+        ),
+        InferType::Record(fields) => InferType::Record(
+            fields
+                .iter()
+                .map(|(label, field)| (label.clone(), substitute(field, mapping)))
+                .collect(),
         ),
         primitive => primitive.clone(),
     }

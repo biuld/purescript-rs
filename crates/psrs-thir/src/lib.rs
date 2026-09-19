@@ -24,6 +24,7 @@ pub enum Type {
     Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
+    Record(Vec<(String, TypeId)>),
     Function {
         parameter: TypeId,
         result: TypeId,
@@ -101,6 +102,11 @@ pub enum ExprKind {
     Boolean(bool),
     String(String),
     Array(Vec<Expr>),
+    Record(Vec<(String, Expr)>),
+    FieldAccess {
+        expression: Box<Expr>,
+        field: String,
+    },
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -162,6 +168,11 @@ impl Module {
                     verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
                     verify_type_id(*result, self.types.len(), self.span, &mut errors);
                 }
+                Type::Record(fields) => {
+                    for (_, field) in fields {
+                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
+                    }
+                }
                 _ => {}
             }
         }
@@ -195,6 +206,12 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
                 verify_expr(element, type_count, errors);
             }
         }
+        ExprKind::Record(fields) => {
+            for (_, value) in fields {
+                verify_expr(value, type_count, errors);
+            }
+        }
+        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, type_count, errors),
         ExprKind::Application(function, argument) => {
             verify_expr(function, type_count, errors);
             verify_expr(argument, type_count, errors);

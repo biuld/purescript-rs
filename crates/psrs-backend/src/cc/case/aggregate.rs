@@ -189,6 +189,7 @@ impl FunctionLowerer<'_> {
                                 self.aggregate_types,
                                 self.newtype_ids,
                                 self.array_types,
+                                self.record_types,
                             )?;
                             let value = self.fresh(field_type);
                             assignments.push(Assignment {
