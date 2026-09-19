@@ -3,7 +3,6 @@ use super::*;
 mod intrinsics;
 mod pattern;
 mod records;
-use intrinsics::intrinsic_type;
 
 impl Checker {
     pub(super) fn new(module: &hir::Module, imported: &HashMap<SymbolId, hir::Type>) -> Self {
@@ -156,7 +155,7 @@ impl Checker {
                         }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
-                            intrinsic_type(intrinsic)?,
+                            self.intrinsic_type(intrinsic)?,
                         ),
                         Some(ExternalKind::Wit { .. }) => {
                             let Some(signature) = self.external_signatures.get(symbol).cloned()
