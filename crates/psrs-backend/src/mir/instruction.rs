@@ -28,6 +28,19 @@ pub enum Instruction {
         arguments: Vec<ValueId>,
         span: TextRange,
     },
+    RefFunc {
+        destination: ValueId,
+        function: SymbolId,
+        type_index: u32,
+        span: TextRange,
+    },
+    CallRef {
+        destination: ValueId,
+        function: ValueId,
+        type_index: u32,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    },
     /// A call to a runtime import that returns nothing.
     CallVoid {
         function: SymbolId,
@@ -149,6 +162,8 @@ impl Instruction {
             | Self::StringConstant { destination, .. }
             | Self::Primitive { destination, .. }
             | Self::Call { destination, .. }
+            | Self::RefFunc { destination, .. }
+            | Self::CallRef { destination, .. }
             | Self::RefNull { destination, .. }
             | Self::RefIsNull { destination, .. }
             | Self::RefTest { destination, .. }
@@ -176,6 +191,14 @@ impl Instruction {
             Self::Constant { .. } | Self::StringConstant { .. } => Vec::new(),
             Self::Primitive { left, right, .. } => vec![*left, *right],
             Self::Call { arguments, .. } => arguments.clone(),
+            Self::RefFunc { .. } => Vec::new(),
+            Self::CallRef {
+                function,
+                arguments,
+                ..
+            } => std::iter::once(*function)
+                .chain(arguments.iter().copied())
+                .collect(),
             Self::CallVoid { arguments, .. } => arguments.clone(),
             Self::RefNull { .. } => Vec::new(),
             Self::RefIsNull { value, .. }
@@ -212,6 +235,8 @@ impl Instruction {
             | Self::StringConstant { span, .. }
             | Self::Primitive { span, .. }
             | Self::Call { span, .. }
+            | Self::RefFunc { span, .. }
+            | Self::CallRef { span, .. }
             | Self::CallVoid { span, .. }
             | Self::RefNull { span, .. }
             | Self::RefIsNull { span, .. }

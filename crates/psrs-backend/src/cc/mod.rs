@@ -72,6 +72,15 @@ pub enum AssignmentKind {
         function: SymbolId,
         arguments: Vec<ValueId>,
     },
+    FunctionRef {
+        function: SymbolId,
+        type_index: u32,
+    },
+    IndirectCall {
+        function: ValueId,
+        type_index: u32,
+        arguments: Vec<ValueId>,
+    },
     RefTest {
         destination: ValueId,
         value: ValueId,
@@ -137,7 +146,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     let newtype_ids = module.newtype_ids.iter().copied().collect();
     let enum_types = enum_type_ids(&module, &newtype_ids);
     let aggregate_types = aggregate_type_ids(&module, &newtype_ids);
-    let layout = type_layout(&module, &aggregate_types, &newtype_ids)?;
+    let layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
     for constructor in &module.constructors {
@@ -149,7 +158,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     }
     let mut signatures = HashMap::new();
     for declaration in &module.declarations {
-        let (arity, result_ty) = declaration_shape(
+        let signature = declaration_shape(
             declaration,
             &module,
             &enum_types,
@@ -157,6 +166,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             &newtype_ids,
             &layout.array_types,
             &layout.record_types,
+            &layout.function_types,
         )
         .map_err(|errors| {
             errors
@@ -164,13 +174,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
                 .map(|error| error.with_module(declaration.symbol.module))
                 .collect::<Vec<_>>()
         })?;
-        signatures.insert(
-            declaration.symbol,
-            Signature {
-                arity,
-                result: result_ty,
-            },
-        );
+        signatures.insert(declaration.symbol, signature);
     }
     let mut externals = Vec::new();
     for external in &module.externals {
@@ -206,6 +210,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         constructor_tags: &constructor_tags,
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,
+        function_types: &layout.function_types,
     };
     for declaration in &module.declarations {
         let lowered = lower_function(declaration, &context).map_err(|errors| {
@@ -230,7 +235,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
 
 fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
     Some(Signature {
-        arity: signature.parameters.len(),
+        parameters: vec![ValueType::I32; signature.parameters.len()],
         result: scalar_source_type(signature.result)?,
     })
 }

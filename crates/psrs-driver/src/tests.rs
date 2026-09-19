@@ -675,3 +675,5 @@ mod adts;
 mod arrays;
 
 mod records;
+
+mod functions;

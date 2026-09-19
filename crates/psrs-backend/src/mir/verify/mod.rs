@@ -8,6 +8,7 @@ use crate::types::{CompositeType, DefinedType, HeapType, StorageType};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod call;
 mod function;
 mod instruction;
 mod util;

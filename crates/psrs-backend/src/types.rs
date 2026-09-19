@@ -13,6 +13,13 @@ pub enum ValueType {
     Ref(RefType),
 }
 
+/// The runtime signature of a non-void function value or call target.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct FunctionSignature {
+    pub parameters: Vec<ValueType>,
+    pub result: ValueType,
+}
+
 /// A WebAssembly reference type: nullable or not, referring to a heap type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RefType {

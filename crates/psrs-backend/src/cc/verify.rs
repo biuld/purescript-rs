@@ -12,7 +12,17 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             (
                 function.symbol,
                 Signature {
-                    arity: function.parameters.len(),
+                    parameters: function
+                        .parameters
+                        .iter()
+                        .filter_map(|parameter| {
+                            function
+                                .values
+                                .iter()
+                                .find(|value| value.id == *parameter)
+                                .map(|value| value.ty)
+                        })
+                        .collect(),
                     result: function.result_type,
                 },
             )
@@ -76,6 +86,7 @@ fn verify_assignments(
         match &assignment.kind {
             AssignmentKind::Constant(_) => {}
             AssignmentKind::StringConstant(_) => {}
+            AssignmentKind::FunctionRef { .. } => {}
             AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
             AssignmentKind::RefTest { value, .. }
             | AssignmentKind::RefCast { value, .. }
@@ -101,13 +112,21 @@ fn verify_assignments(
                         "direct call references an unknown function",
                     )]);
                 };
-                if signature.arity != arguments.len() {
+                if signature.parameters.len() != arguments.len() {
                     return Err(vec![BackendError::new(
                         "P8 CC verification",
                         assignment.span,
                         "direct call argument count does not match its signature",
                     )]);
                 }
+                uses.extend(arguments.iter().copied());
+            }
+            AssignmentKind::IndirectCall {
+                function,
+                arguments,
+                type_index: _,
+            } => {
+                uses.push(*function);
                 uses.extend(arguments.iter().copied());
             }
             AssignmentKind::If {

@@ -1,5 +1,8 @@
 use super::*;
+use crate::types::FunctionSignature;
+use psrs_core::ExprKind;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn declaration_shape(
     declaration: &psrs_core::Declaration,
     module: &CoreModule,
@@ -8,7 +11,8 @@ pub(crate) fn declaration_shape(
     newtype_ids: &HashSet<HirTypeId>,
     array_types: &HashMap<TypeId, u32>,
     record_types: &HashMap<TypeId, u32>,
-) -> Result<(usize, ValueType), Vec<BackendError>> {
+    function_types: &HashMap<TypeId, u32>,
+) -> Result<FunctionSignature, Vec<BackendError>> {
     if !declaration.quantified.is_empty() {
         return Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -17,7 +21,7 @@ pub(crate) fn declaration_shape(
         )]);
     }
     let mut ty = declaration.ty;
-    let mut arity = 0;
+    let mut parameters = Vec::new();
     let mut value = &declaration.value;
     while let ExprKind::Lambda { binder, body } = &value.kind {
         let Some(Type::Function { parameter, result }) = module.types.get(ty.0 as usize) else {
@@ -34,41 +38,83 @@ pub(crate) fn declaration_shape(
                 "lambda binder type differs from the function parameter type",
             )]);
         }
+        if matches!(
+            module.types.get(binder.ty.0 as usize),
+            Some(Type::Variable(_))
+        ) {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                declaration.name_span,
+                "polymorphic declarations are not supported by the first backend slice",
+            )]);
+        }
         ty = *result;
-        arity += 1;
+        parameters.push(scalar_type(
+            module,
+            binder.ty,
+            binder.span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            array_types,
+            record_types,
+            function_types,
+        )?);
         value = body;
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::String | Type::Unit) => Ok((arity, ValueType::I32)),
-        Some(Type::Boolean) => Ok((arity, ValueType::Boolean)),
+        Some(Type::I32 | Type::String | Type::Unit) => Ok(FunctionSignature {
+            parameters,
+            result: ValueType::I32,
+        }),
+        Some(Type::Boolean) => Ok(FunctionSignature {
+            parameters,
+            result: ValueType::Boolean,
+        }),
         Some(Type::Variable(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.name_span,
             "polymorphic declarations are not supported by the first backend slice",
         )]),
-        Some(Type::Function { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "the first backend slice cannot return a function value",
-        )]),
+        Some(Type::Function { .. }) => Ok(FunctionSignature {
+            parameters,
+            result: scalar_type(
+                module,
+                ty,
+                declaration.span,
+                enum_types,
+                aggregate_types,
+                newtype_ids,
+                array_types,
+                record_types,
+                function_types,
+            )?,
+        }),
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
-            Ok((arity, ValueType::I32))
+            Ok(FunctionSignature {
+                parameters,
+                result: ValueType::I32,
+            })
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
-            Ok((arity, aggregate_value_type()))
+            Ok(FunctionSignature {
+                parameters,
+                result: aggregate_value_type(),
+            })
         }
-        Some(Type::Record(_)) if record_types.contains_key(&ty) => {
-            Ok((arity, aggregate_value_type_for(record_types[&ty])))
-        }
+        Some(Type::Record(_)) if record_types.contains_key(&ty) => Ok(FunctionSignature {
+            parameters,
+            result: aggregate_value_type_for(record_types[&ty]),
+        }),
         Some(Type::Application(_, _)) => {
             if let Some(type_index) = array_types.get(&ty) {
-                return Ok((
-                    arity,
-                    ValueType::Ref(RefType {
+                return Ok(FunctionSignature {
+                    parameters,
+                    result: ValueType::Ref(RefType {
                         nullable: false,
                         heap: HeapType::Index(*type_index),
                     }),
-                ));
+                });
             }
             let Some(type_id) = user_type_id(module, ty) else {
                 return Err(vec![BackendError::new(
@@ -78,9 +124,15 @@ pub(crate) fn declaration_shape(
                 )]);
             };
             if enum_types.contains(&type_id) {
-                Ok((arity, ValueType::I32))
+                Ok(FunctionSignature {
+                    parameters,
+                    result: ValueType::I32,
+                })
             } else if aggregate_types.contains(&type_id) {
-                Ok((arity, aggregate_value_type()))
+                Ok(FunctionSignature {
+                    parameters,
+                    result: aggregate_value_type(),
+                })
             } else {
                 Err(vec![BackendError::new(
                     "P8 closure conversion",
@@ -92,9 +144,9 @@ pub(crate) fn declaration_shape(
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
-            Ok((
-                arity,
-                scalar_type(
+            Ok(FunctionSignature {
+                parameters,
+                result: scalar_type(
                     module,
                     ty,
                     declaration.span,
@@ -103,8 +155,9 @@ pub(crate) fn declaration_shape(
                     newtype_ids,
                     array_types,
                     record_types,
+                    function_types,
                 )?,
-            ))
+            })
         }
         Some(Type::Constructor(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -134,6 +187,7 @@ pub(crate) fn scalar_type(
     newtype_ids: &HashSet<HirTypeId>,
     array_types: &HashMap<TypeId, u32>,
     record_types: &HashMap<TypeId, u32>,
+    function_types: &HashMap<TypeId, u32>,
 ) -> Result<ValueType, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::String | Type::Unit) => Ok(ValueType::I32),
@@ -143,11 +197,15 @@ pub(crate) fn scalar_type(
             span,
             "polymorphic values are not supported by the first backend slice",
         )]),
-        Some(Type::Function { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "function values are supported only as top-level direct-call targets",
-        )]),
+        Some(Type::Function { .. }) => {
+            let Some(type_index) = function_types.get(&id).copied() else {
+                return Err(layout_error(span, "function type has no runtime layout"));
+            };
+            Ok(ValueType::Ref(RefType {
+                nullable: false,
+                heap: HeapType::Index(type_index),
+            }))
+        }
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok(ValueType::I32)
         }
@@ -198,6 +256,7 @@ pub(crate) fn scalar_type(
                 newtype_ids,
                 array_types,
                 record_types,
+                function_types,
             )
         }
         Some(Type::Constructor(_)) => Err(vec![BackendError::new(

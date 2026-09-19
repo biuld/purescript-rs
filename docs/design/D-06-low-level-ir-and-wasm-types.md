@@ -44,12 +44,13 @@ source-language type system:
 
 MIR owns the defined-type table; the thin Wasm encoding emits it. The type
 index space is the single Wasm type index space shared with function types. The
-lowering emits defined types first and function types after them, so a defined
-type keeps its MIR index and a function type index is `defined_count + index`.
-Defined types must come first because a function signature may reference a
-defined type. This rule keeps type indices stable for instructions such as
-`struct.new` and is recorded here because both MIR and the Wasm encoding depend
-on it.
+lowering emits the defined-type prefix first. This prefix may contain GC types
+and nominal function types used by typed function references; plain function
+types used only by fallback calls or ABI entries are appended after that
+prefix. Defined types must come first because a function signature may
+reference a defined type. This rule keeps type indices stable for instructions
+such as `struct.new` and `call_ref` and is recorded here because both MIR and
+the Wasm encoding depend on it.
 
 ## Instructions
 
@@ -129,10 +130,9 @@ and OCaml's Wasm backend.
    and lowering into the Wasm type section. *(implemented)*
 3. Add MIR reference and GC instructions with lowering and verification.
    *(implemented for `ref.null`, `ref.is_null`, `ref.test`, `ref.cast`,
-   `i31.new`/`i31.get`, `struct.new`/`get`/`set`, and `array.new`/`get`/`set`/
-   `len`; `ref.func` and `call_ref` need declarative element segments, and
-   `br_on_cast` needs general structured control, so those follow with
-   closures and the structurer work.)*
+   `ref.func`, typed `call_ref`, `i31.new`/`i31.get`,
+   `struct.new`/`get`/`set`, and `array.new`/`get`/`set`/`len`; `br_on_cast`
+   still needs general structured control.)*
 4. Lower data types, records, and closures into the model in P9.
 5. Generalize structured control flow beyond `if` diamonds.
 

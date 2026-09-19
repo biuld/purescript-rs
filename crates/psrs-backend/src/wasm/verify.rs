@@ -1,5 +1,6 @@
 use super::{Body, ExportKind, Module, Op};
 use crate::BackendError;
+use crate::types::CompositeType;
 use psrs_span::TextRange;
 use wasm_encoder::Instruction;
 
@@ -40,6 +41,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         let local_count = (function.parameters.len() + function.locals.len()) as u32;
         verify_body(
             &function.body,
+            module,
             local_count,
             function_count,
             function.span,
@@ -53,7 +55,14 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 "Wasm entry type index is out of range",
             ));
         }
-        verify_body(&entry.body, 0, function_count, module.span, &mut errors);
+        verify_body(
+            &entry.body,
+            module,
+            0,
+            function_count,
+            module.span,
+            &mut errors,
+        );
     }
     if let Some(realloc) = &module.realloc {
         if !valid_function_type(module, realloc.type_index) {
@@ -65,6 +74,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         let local_count = (realloc.parameters.len() + realloc.locals.len()) as u32;
         verify_body(
             &realloc.body,
+            module,
             local_count,
             function_count,
             realloc.span,
@@ -80,6 +90,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
 
 fn verify_body(
     body: &Body,
+    module: &Module,
     local_count: u32,
     function_count: u32,
     span: TextRange,
@@ -88,15 +99,22 @@ fn verify_body(
     for op in body {
         match op {
             Op::Leaf(instruction) => {
-                verify_instruction(instruction, local_count, function_count, span, errors);
+                verify_instruction(
+                    instruction,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    errors,
+                );
             }
             Op::If {
                 then_body,
                 else_body,
                 ..
             } => {
-                verify_body(then_body, local_count, function_count, span, errors);
-                verify_body(else_body, local_count, function_count, span, errors);
+                verify_body(then_body, module, local_count, function_count, span, errors);
+                verify_body(else_body, module, local_count, function_count, span, errors);
             }
         }
     }
@@ -104,6 +122,7 @@ fn verify_body(
 
 fn verify_instruction(
     instruction: &Instruction<'_>,
+    module: &Module,
     local_count: u32,
     function_count: u32,
     span: TextRange,
@@ -120,13 +139,27 @@ fn verify_instruction(
         Instruction::Call(index) if *index >= function_count => {
             errors.push(wasm_error(span, "Wasm function index is out of range"));
         }
+        Instruction::RefFunc(index) if *index >= function_count => {
+            errors.push(wasm_error(span, "Wasm ref.func index is out of range"));
+        }
+        Instruction::CallRef(index) if !valid_function_type(module, *index) => {
+            errors.push(wasm_error(span, "Wasm call_ref type index is out of range"));
+        }
         _ => {}
     }
 }
 
 fn valid_function_type(module: &Module, index: u32) -> bool {
     let defined = module.defined_type_count();
-    index >= defined && index < defined + module.types.len() as u32
+    if index < defined {
+        return module
+            .type_defs
+            .iter()
+            .flat_map(|group| group.0.iter())
+            .nth(index as usize)
+            .is_some_and(|definition| matches!(definition.composite, CompositeType::Func { .. }));
+    }
+    index < defined + module.types.len() as u32
 }
 
 fn wasm_error(span: TextRange, message: &'static str) -> BackendError {

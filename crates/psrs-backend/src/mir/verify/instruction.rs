@@ -1,6 +1,7 @@
 //! Instruction and terminator type checks for MIR verification.
 
 use super::Signature;
+use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
     check_heap, composite_at, is_ref, is_ref_opt, mir_error, require_value, storage_value_type,
     value_type,
@@ -81,6 +82,10 @@ pub(super) fn verify_instruction(
             if value_type(function, *destination) != Some(expected) {
                 return Err(mir_error(*span, "MIR call result has the wrong type"));
             }
+        }
+        Instruction::RefFunc { .. } => verify_ref_func(function, instruction, signatures, defined)?,
+        Instruction::CallRef { .. } => {
+            verify_call_ref(function, instruction, definitions, defined)?
         }
         Instruction::CallVoid {
             function: callee,

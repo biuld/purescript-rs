@@ -1,9 +1,11 @@
 use super::{Body, ExportKind, Module, Op};
 use crate::BackendError;
+use std::borrow::Cow;
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, DataSection, EntityType, ExportKind as WasmExportKind,
-    ExportSection, Function as EncoderFunction, FunctionSection, ImportSection, Instruction,
-    MemorySection, MemoryType, Module as EncoderModule, TypeSection, ValType,
+    BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
+    ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction, FunctionSection,
+    ImportSection, Instruction, MemorySection, MemoryType, Module as EncoderModule, TypeSection,
+    ValType,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -75,6 +77,13 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         encoder.section(&exports);
     }
 
+    let function_references = referenced_functions(module);
+    if !function_references.is_empty() {
+        let mut elements = ElementSection::new();
+        elements.declared(Elements::Functions(Cow::Owned(function_references)));
+        encoder.section(&elements);
+    }
+
     if has_defined_functions(module) {
         let mut code = CodeSection::new();
         for function in &module.functions {
@@ -113,6 +122,39 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
     }
 
     Ok(encoder.finish())
+}
+
+fn referenced_functions(module: &Module) -> Vec<u32> {
+    let mut references = Vec::new();
+    for function in &module.functions {
+        collect_references(&function.body, &mut references);
+    }
+    if let Some(entry) = &module.entry {
+        collect_references(&entry.body, &mut references);
+    }
+    if let Some(realloc) = &module.realloc {
+        collect_references(&realloc.body, &mut references);
+    }
+    references.sort_unstable();
+    references.dedup();
+    references
+}
+
+fn collect_references(body: &Body, references: &mut Vec<u32>) {
+    for op in body {
+        match op {
+            Op::Leaf(Instruction::RefFunc(function)) => references.push(*function),
+            Op::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_references(then_body, references);
+                collect_references(else_body, references);
+            }
+            Op::Leaf(_) => {}
+        }
+    }
 }
 
 fn has_defined_functions(module: &Module) -> bool {

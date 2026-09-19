@@ -1,29 +1,25 @@
 use super::ValueType;
 use crate::BackendError;
 use crate::types::{
-    CompositeType, DefinedType, FieldType, HeapType, RecGroup, RefType, StorageType,
+    CompositeType, DefinedType, FieldType, FunctionSignature, HeapType, RecGroup, RefType,
+    StorageType,
 };
-use psrs_core::{ExprKind, Module as CoreModule, Type, TypeConstructor, TypeId};
+use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
 use psrs_hir::{ExternalKind, ExternalSymbol, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod functions;
 mod scalar;
 
+pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, scalar_type};
 
-#[derive(Clone, Copy)]
-pub(super) struct Signature {
-    pub(super) arity: usize,
-    pub(super) result: ValueType,
-}
+pub(super) type Signature = FunctionSignature;
 
 pub(super) fn runtime_signature(external: &ExternalSymbol) -> Option<Signature> {
     match &external.kind {
-        ExternalKind::Wit { .. } => {
-            let (arity, result) = declared_signature(external.signature.as_ref()?)?;
-            Some(Signature { arity, result })
-        }
+        ExternalKind::Wit { .. } => declared_signature(external.signature.as_ref()?),
         ExternalKind::Intrinsic(_) => None,
     }
 }
@@ -31,11 +27,11 @@ pub(super) fn runtime_signature(external: &ExternalSymbol) -> Option<Signature> 
 /// The arity and result scalar of a value declared with a WIT binding. The
 /// declared type's arrows become the call arity; the result must be a scalar the
 /// first backend slice can represent.
-fn declared_signature(signature: &psrs_hir::Type) -> Option<(usize, ValueType)> {
+fn declared_signature(signature: &psrs_hir::Type) -> Option<Signature> {
     let mut ty = signature;
-    let mut arity = 0;
+    let mut parameters = Vec::new();
     while let psrs_hir::TypeKind::Function { result, .. } = &ty.kind {
-        arity += 1;
+        parameters.push(ValueType::I32);
         ty = result;
     }
     let result = match &ty.kind {
@@ -47,7 +43,7 @@ fn declared_signature(signature: &psrs_hir::Type) -> Option<(usize, ValueType)> 
         ) => ValueType::I32,
         _ => return None,
     };
-    Some((arity, result))
+    Some(Signature { parameters, result })
 }
 
 /// The set of user types whose constructors are all nullary, which the first
@@ -139,6 +135,7 @@ fn layoutable_field_type_inner(
 /// lowering casts them to the concrete constructor type.
 pub(super) fn type_layout(
     module: &CoreModule,
+    enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
 ) -> Result<TypeLayout, Vec<BackendError>> {
@@ -256,6 +253,15 @@ pub(super) fn type_layout(
             composite: CompositeType::Struct(fields),
         });
     }
+    let function_types = functions::append_function_types(
+        module,
+        enum_types,
+        aggregate_types,
+        newtype_ids,
+        &array_types,
+        &record_types,
+        &mut definitions,
+    )?;
     let types = if definitions.is_empty() {
         Vec::new()
     } else {
@@ -267,6 +273,7 @@ pub(super) fn type_layout(
         record_types,
         constructor_types,
         boxed_i32_type,
+        function_types,
     })
 }
 
@@ -276,6 +283,7 @@ pub(super) struct TypeLayout {
     pub(super) record_types: HashMap<TypeId, u32>,
     pub(super) constructor_types: HashMap<SymbolId, u32>,
     pub(super) boxed_i32_type: Option<u32>,
+    pub(super) function_types: HashMap<TypeId, u32>,
 }
 
 fn storage_type(

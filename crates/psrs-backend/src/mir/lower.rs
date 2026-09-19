@@ -247,6 +247,34 @@ impl FunctionLowerer<'_> {
                         )?;
                     }
                 }
+                AssignmentKind::FunctionRef {
+                    function,
+                    type_index,
+                } => self.append_instruction(
+                    current,
+                    Instruction::RefFunc {
+                        destination: assignment.destination,
+                        function: *function,
+                        type_index: *type_index,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::IndirectCall {
+                    function,
+                    type_index,
+                    arguments,
+                } => self.append_instruction(
+                    current,
+                    Instruction::CallRef {
+                        destination: assignment.destination,
+                        function: *function,
+                        type_index: *type_index,
+                        arguments: arguments.clone(),
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::If {
                     condition,
                     then_assignments,

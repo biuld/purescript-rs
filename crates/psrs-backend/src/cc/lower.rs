@@ -1,4 +1,4 @@
-use super::layout::{Signature, depends_on_type_variable, scalar_type};
+use super::layout::{Signature, depends_on_type_variable, function_signature, scalar_type};
 use super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueType};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
@@ -6,8 +6,10 @@ use psrs_hir::{LocalId, SymbolId, TypeId as HirTypeId};
 use std::collections::{HashMap, HashSet};
 
 mod array;
+mod call;
 mod erased;
 mod record;
+use call::{CallShape, collect_application};
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -21,6 +23,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
+    pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
 }
 
 pub(super) fn lower_function(
@@ -43,6 +46,7 @@ pub(super) fn lower_function(
         constructor_tags: context.constructor_tags,
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
+        function_types: context.function_types,
     };
     let mut value = &declaration.value;
     let mut parameters = Vec::new();
@@ -56,6 +60,7 @@ pub(super) fn lower_function(
             context.newtype_ids,
             context.array_types,
             context.record_types,
+            context.function_types,
         )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
@@ -73,6 +78,7 @@ pub(super) fn lower_function(
         context.newtype_ids,
         context.array_types,
         context.record_types,
+        context.function_types,
     )?;
     let function = Function {
         symbol: declaration.symbol,
@@ -103,6 +109,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
+    pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
 }
 
 impl FunctionLowerer<'_> {
@@ -127,6 +134,7 @@ impl FunctionLowerer<'_> {
             self.newtype_ids,
             self.array_types,
             self.record_types,
+            self.function_types,
         )?;
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
@@ -144,30 +152,62 @@ impl FunctionLowerer<'_> {
                         "global is not a local top-level function",
                     )]);
                 };
-                if signature.arity != 0 {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "a function value escapes direct-call position",
-                    )]);
+                if matches!(self.module.types.get(expression.ty.0 as usize), Some(psrs_core::Type::Function { .. })) {
+                    let Some(type_index) = self.function_types.get(&expression.ty).copied() else {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "function value has no runtime function type",
+                        )]);
+                    };
+                    if ty
+                        != ValueType::Ref(crate::types::RefType {
+                            nullable: false,
+                            heap: crate::types::HeapType::Index(type_index),
+                        })
+                    {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "global function reference has the wrong runtime type",
+                        )]);
+                    }
+                    let destination = self.fresh(ty);
+                    assignments.push(Assignment {
+                        destination,
+                        kind: AssignmentKind::FunctionRef {
+                            function: *function,
+                            type_index,
+                        },
+                        span: expression.span,
+                    });
+                    Ok(destination)
+                } else {
+                    if !signature.parameters.is_empty() {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "a function value escapes direct-call position",
+                        )]);
+                    }
+                    if ty != signature.result {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "global value type differs from its function result type",
+                        )]);
+                    }
+                    let destination = self.fresh(ty);
+                    assignments.push(Assignment {
+                        destination,
+                        kind: AssignmentKind::DirectCall {
+                            function: *function,
+                            arguments: Vec::new(),
+                        },
+                        span: expression.span,
+                    });
+                    Ok(destination)
                 }
-                if ty != signature.result {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "global value type differs from its function result type",
-                    )]);
-                }
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::DirectCall {
-                        function: *function,
-                        arguments: Vec::new(),
-                    },
-                    span: expression.span,
-                });
-                Ok(destination)
             }
             ExprKind::Integer(value) => {
                 let destination = self.fresh(ty);
@@ -341,52 +381,65 @@ impl FunctionLowerer<'_> {
             }
             ExprKind::Application(_, _) => {
                 let (head, arguments) = collect_application(expression);
-                let ExprKind::Global(function) = head.kind else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        head.span,
-                        "only direct calls to top-level functions are supported",
-                    )]);
-                };
-                let signature = self.signatures.get(&function).ok_or_else(|| {
-                    vec![BackendError::new(
-                        "P8 closure conversion",
-                        head.span,
-                        "call target is not a local top-level function",
-                    )]
-                })?;
-                if signature.arity != arguments.len() {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        format!(
-                            "direct call expects {} arguments but received {}",
-                            signature.arity,
-                            arguments.len()
-                        ),
-                    )]);
+                if let ExprKind::Global(function) = head.kind {
+                    let signature = self.signatures.get(&function).ok_or_else(|| {
+                        vec![BackendError::new(
+                            "P8 closure conversion",
+                            head.span,
+                            "call target is not a local top-level function",
+                        )]
+                    })?;
+                    self.check_call_shape(signature, arguments.len(), ty, expression.span)?;
+                    let values = arguments
+                        .into_iter()
+                        .map(|argument| self.lower_value(argument, assignments))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let destination = self.fresh(ty);
+                    assignments.push(Assignment {
+                        destination,
+                        kind: AssignmentKind::DirectCall {
+                            function,
+                            arguments: values,
+                        },
+                        span: expression.span,
+                    });
+                    Ok(destination)
+                } else {
+                    let signature = function_signature(
+                        self.module,
+                        head.ty,
+                        self.enum_types,
+                        self.aggregate_types,
+                        self.newtype_ids,
+                        self.array_types,
+                        self.record_types,
+                        self.function_types,
+                    )?;
+                    self.check_call_shape(&signature, arguments.len(), ty, expression.span)?;
+                    let function = self.lower_value(head, assignments)?;
+                    let values = arguments
+                        .into_iter()
+                        .map(|argument| self.lower_value(argument, assignments))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let Some(type_index) = self.function_types.get(&head.ty).copied() else {
+                        return Err(vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "higher-order call has no runtime function type",
+                        )]);
+                    };
+                    let destination = self.fresh(ty);
+                    assignments.push(Assignment {
+                        destination,
+                        kind: AssignmentKind::IndirectCall {
+                            function,
+                            type_index,
+                            arguments: values,
+                        },
+                        span: expression.span,
+                    });
+                    Ok(destination)
                 }
-                if ty != signature.result {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "direct call result type differs from the declared function type",
-                    )]);
-                }
-                let mut values = Vec::with_capacity(arguments.len());
-                for argument in arguments {
-                    values.push(self.lower_value(argument, assignments)?);
-                }
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::DirectCall {
-                        function,
-                        arguments: values,
-                    },
-                    span: expression.span,
-                });
-                Ok(destination)
             }
             ExprKind::Let { bindings, body } => {
                 for binding in bindings {
@@ -441,15 +494,4 @@ impl FunctionLowerer<'_> {
             )]),
         }
     }
-}
-
-fn collect_application(expression: &Expr) -> (&Expr, Vec<&Expr>) {
-    let mut arguments = Vec::new();
-    let mut head = expression;
-    while let ExprKind::Application(function, argument) = &head.kind {
-        arguments.push(argument.as_ref());
-        head = function;
-    }
-    arguments.reverse();
-    (head, arguments)
 }

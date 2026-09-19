@@ -5,7 +5,7 @@ use super::{
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{ValueId, ValueType};
+use crate::types::{CompositeType, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -54,12 +54,12 @@ pub fn lower_module(
         .iter()
         .any(|import| wasi.has_list_result(import.symbol));
 
-    let (mut types, function_types) = collect_function_types(module)?;
     let defined = module
         .types
         .iter()
         .map(|group| group.0.len() as u32)
         .sum::<u32>();
+    let (mut types, function_types) = collect_function_types(module, defined)?;
 
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
     // by the synthesized `run` entry.
@@ -129,7 +129,7 @@ pub fn lower_module(
     for (index, source) in module.functions.iter().enumerate() {
         let lowered = lower_function(
             source,
-            defined + function_types[index],
+            function_types[index],
             &function_indices,
             &string_offsets,
         )
@@ -296,9 +296,31 @@ fn build_realloc(type_index: u32, heap_pointer: u32, span: TextRange) -> Functio
 
 fn collect_function_types(
     module: &mir::Module,
+    defined: u32,
 ) -> Result<(Vec<FuncType>, Vec<u32>), Vec<BackendError>> {
     let mut types = Vec::<FuncType>::new();
     let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), u32>::new();
+    for (index, definition) in module
+        .types
+        .iter()
+        .flat_map(|group| group.0.iter())
+        .enumerate()
+    {
+        let CompositeType::Func {
+            parameters,
+            results,
+        } = &definition.composite
+        else {
+            continue;
+        };
+        indices.insert(
+            (
+                parameters.iter().copied().map(val_type).collect(),
+                results.iter().copied().map(val_type).collect(),
+            ),
+            index as u32,
+        );
+    }
     let mut function_types = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
         if function.parameters.len() > function.values.len() {
@@ -318,7 +340,7 @@ fn collect_function_types(
         let type_index = match indices.get(&key) {
             Some(index) => *index,
             None => {
-                let index = types.len() as u32;
+                let index = defined + types.len() as u32;
                 types.push(FuncType {
                     parameters: key.0.clone(),
                     results: key.1.clone(),

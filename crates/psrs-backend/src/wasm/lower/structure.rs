@@ -8,9 +8,10 @@ use crate::wasm::convert::{heap_type, val_type};
 use crate::wasm::{Body, Op};
 use ops::{memory, primitive, ref_cast, ref_test};
 
+mod helpers;
 mod ops;
+use helpers::ValueOps;
 use psrs_hir::SymbolId;
-use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::Instruction;
 
@@ -246,6 +247,40 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                MirInstruction::RefFunc {
+                    destination,
+                    function,
+                    span,
+                    ..
+                } => {
+                    let index = self
+                        .function_indices
+                        .get(function)
+                        .copied()
+                        .ok_or_else(|| {
+                            wasm_error(*span, "MIR ref.func target has no Wasm function index")
+                        })?;
+                    body.push(Op::Leaf(Instruction::RefFunc(index)));
+                    body.push(Op::Leaf(Instruction::LocalSet(local(
+                        &self.locals,
+                        *destination,
+                        *span,
+                    )?)));
+                }
+                MirInstruction::CallRef {
+                    destination,
+                    function,
+                    type_index,
+                    arguments,
+                    span,
+                } => {
+                    for argument in arguments {
+                        self.load(body, *argument, *span)?;
+                    }
+                    self.load(body, *function, *span)?;
+                    body.push(Op::Leaf(Instruction::CallRef(*type_index)));
+                    self.store(body, *destination, *span)?;
+                }
                 MirInstruction::RefNull {
                     destination,
                     heap,
@@ -451,34 +486,6 @@ impl Structurer<'_> {
                 }
             }
         }
-        Ok(())
-    }
-
-    fn load(
-        &self,
-        body: &mut Body,
-        value: ValueId,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        body.push(Op::Leaf(Instruction::LocalGet(local(
-            &self.locals,
-            value,
-            span,
-        )?)));
-        Ok(())
-    }
-
-    fn store(
-        &self,
-        body: &mut Body,
-        destination: ValueId,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        body.push(Op::Leaf(Instruction::LocalSet(local(
-            &self.locals,
-            destination,
-            span,
-        )?)));
         Ok(())
     }
 }
