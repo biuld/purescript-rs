@@ -140,9 +140,18 @@ pub struct TypeSynonymDeclaration {
     pub span: TextRange,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KindFor {
+    Data,
+    Newtype,
+    TypeSynonym,
+    Class,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KindSignature {
     pub keyword_span: TextRange,
+    pub kind_for: KindFor,
     pub name: CstName,
     pub double_colon_span: TextRange,
     pub kind: TypeExpr,

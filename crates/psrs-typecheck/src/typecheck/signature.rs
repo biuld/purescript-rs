@@ -38,6 +38,14 @@ impl Checker {
                 Box::new(self.elaborate_type(parameter, variables)),
                 Box::new(self.elaborate_type(result, variables)),
             ),
+            hir::TypeKind::Named(_) | hir::TypeKind::Application(_, _) => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedType,
+                    ty.span,
+                    "this type is not supported yet",
+                ));
+                self.fresh()
+            }
         }
     }
 }

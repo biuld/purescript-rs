@@ -19,6 +19,13 @@ fn run() -> Result<(), String> {
     let Some(command) = args.next() else {
         return Err(usage());
     };
+    if command == "check-program" {
+        let paths: Vec<String> = args.collect();
+        if paths.is_empty() {
+            return Err(usage());
+        }
+        return check_program(&paths);
+    }
     if command == "dump" {
         let Some(stage) = args.next() else {
             return Err(usage());
@@ -183,7 +190,38 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+}
+
+fn check_program(paths: &[String]) -> Result<(), String> {
+    let mut sources = Vec::with_capacity(paths.len());
+    for path in paths {
+        let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
+        sources.push((path.clone(), text));
+    }
+    let inputs: Vec<(&str, &str)> = sources
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    match psrs_driver::check_program(&inputs) {
+        Ok(()) => Ok(()),
+        Err(errors) => {
+            for error in errors {
+                let Some((path, text)) = sources.get(error.source) else {
+                    continue;
+                };
+                let source = SourceFile::new(path.as_str(), text.as_str());
+                print_coded_diagnostic(
+                    &source,
+                    error.diagnostic.span,
+                    error.diagnostic.stage,
+                    error.diagnostic.code,
+                    &error.diagnostic.message,
+                );
+            }
+            Err(String::new())
+        }
+    }
 }
 
 fn dump_ir(stage: &str, path: &str) -> Result<(), String> {
@@ -240,4 +278,23 @@ fn format_raw_kind(kind: &RawTokenKind) -> String {
 fn print_diagnostic(source: &SourceFile, span: TextRange, kind: &str, message: &str) {
     let (line, column) = source.line_column(span.start);
     eprintln!("{}:{line}:{column}: {kind}: {message}", source.name());
+}
+
+fn print_coded_diagnostic(
+    source: &SourceFile,
+    span: TextRange,
+    kind: &str,
+    code: Option<&str>,
+    message: &str,
+) {
+    let (line, column) = source.line_column(span.start);
+    match code {
+        Some(code) => {
+            eprintln!(
+                "{}:{line}:{column}: {kind} [{code}]: {message}",
+                source.name()
+            )
+        }
+        None => print_diagnostic(source, span, kind, message),
+    }
 }

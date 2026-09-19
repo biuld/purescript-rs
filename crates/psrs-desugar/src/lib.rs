@@ -90,6 +90,9 @@ mod tests {
                 name: "+".into(),
                 kind: ExternalKind::Intrinsic(Intrinsic::I32Add),
             }],
+            imports: Vec::new(),
+            exports: None,
+            types: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(module_id, 0),
                 name: "main".into(),

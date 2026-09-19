@@ -129,6 +129,38 @@ the Corpus caveat).
   module resolves.
 - **Prerequisite:** M1.
 
+**Progress (implemented slice):** the front end resolves a value-namespace
+module graph: stable module IDs, duplicate (`DuplicateModule`), missing
+(`ModuleNotFound`), and cyclic (`CycleInModules`) module diagnostics,
+unqualified, qualified, and aliased imports, explicit and `hiding` import
+lists (`UnknownImport`), explicit export lists (`UnknownExport`), and
+cross-module value references. It also lowers `data`, `newtype`, `type`, and
+`class` declarations into AST and HIR, resolves user type names and type-level
+application in types, treats data constructors and class members as values, and
+reports conflicts in the shared uppercase namespace (`DeclConflict`). Types,
+constructors, and classes import and export across modules: `import M (T(..))`
+brings the type and its constructors, `T(A, B)` selects constructors
+(`UnknownImportDataConstructor`), and export lists validate constructors
+(`UnknownExportDataConstructor`, `TransitiveDctorExportError`) and require
+referenced types, superclasses, and class members to be exported too
+(`TransitiveExportError`). An import with an `as` alias is qualified-only, so
+`module A` re-exports validate through the alias: ambiguous aliases and
+unaliased names report `ScopeConflict`, while the same name re-exported from
+two modules reports `ExportConflict`. Surface lowering reports
+`OrphanTypeDeclaration`, `OrphanKindDeclaration`, and `OverlappingArgNames`;
+resolution reports `DuplicateValueDeclaration` and `OverlappingNamesInLet`.
+Operator and fixity aliases, kind-annotation references, and value-type-based
+transitive exports are still open.
+
+**Measured baseline (annotations oracle):** the scoreboard also loads a case's
+support modules from its sibling directory, matching the corpus layout. M2
+failing agreement is 42/70 and 31/413 `passing` modules resolve, including all
+11 `DeclConflict` cases, `ExportConflict` 5/7, `ScopeConflict` 5/6,
+`UnknownImport`, `UnknownImportDataConstructor`, `UnknownExportDataConstructor`,
+`TransitiveDctorExportError`, and the self-contained `TransitiveExportError`
+subsets. The remaining failures need expression forms (records, `do`, guards,
+`where`), instances, pattern binders, or fixity aliases rather than names.
+
 ### M3 — Kinds and higher-kinded types
 
 - **Suite:** `KindsDoNotUnify` (29), `PartiallyAppliedSynonym` (12),
@@ -224,6 +256,10 @@ The harness is opt-in and skips without `purs` or a checkout, so
 PURESCRIPT_REPO=/path/to/purescript \
   cargo test -p psrs-driver --test suite -- --ignored --nocapture
 ```
+
+The resolution scoreboard reads the corpus's own `@shouldFailWith` annotations
+and does not need `purs` or the support libraries, so it also runs against the
+vendored corpus without `PURESCRIPT_REPO`.
 
 Each milestone is complete only when its subset reaches 100% agreement. New
 diagnostics must align to an official `errorCode`; message text and `.out`

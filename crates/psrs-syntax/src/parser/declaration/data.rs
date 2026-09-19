@@ -1,6 +1,6 @@
 use crate::{LayoutTokenKind, RawTokenKind};
 use psrs_cst::{
-    DataConstructor, DataDeclaration, Declaration, DerivingClause, KindSignature,
+    DataConstructor, DataDeclaration, Declaration, DerivingClause, KindFor, KindSignature,
     NewtypeDeclaration,
 };
 use psrs_span::TextRange;
@@ -17,6 +17,7 @@ impl<'a> Parser<'a> {
             let span = TextRange::new(keyword_span.start, kind.span.end);
             return Ok(Declaration::KindSignature(KindSignature {
                 keyword_span,
+                kind_for: KindFor::Data,
                 name,
                 double_colon_span,
                 kind,
@@ -122,6 +123,7 @@ impl<'a> Parser<'a> {
             let span = TextRange::new(keyword_span.start, kind.span.end);
             return Ok(Declaration::KindSignature(KindSignature {
                 keyword_span,
+                kind_for: KindFor::Newtype,
                 name,
                 double_colon_span,
                 kind,

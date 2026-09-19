@@ -5,12 +5,23 @@ pub struct Diagnostic {
     pub stage: &'static str,
     pub span: TextRange,
     pub message: String,
+    /// The official PureScript `errorCode` for this diagnostic, when it maps to
+    /// one. Internal or unsupported-syntax diagnostics have no code.
+    pub code: Option<&'static str>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Artifact {
     pub wasm: Vec<u8>,
     pub wat: String,
+}
+
+/// A diagnostic attributed to one source in a multi-module program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramDiagnostic {
+    /// Index into the source list passed to [`resolve_program_sources`].
+    pub source: usize,
+    pub diagnostic: Diagnostic,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,29 +81,20 @@ fn check_source_to_thir(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_thir::Module, Vec<Diagnostic>> {
-    let source = SourceFile::new(source_name, source_text);
-    let (tokens, lex_errors) = psrs_syntax::lex(source.text());
-    if !lex_errors.is_empty() {
-        return Err(lex_errors
-            .into_iter()
-            .map(|error| diagnostic("P0 lex", error.span, error.message))
-            .collect());
-    }
-    let layout_tokens = psrs_syntax::add_layout(&source, &tokens);
-    let cst = psrs_syntax::parse_module(&layout_tokens)
-        .map_err(|error| vec![diagnostic("P1 parse", error.span, error.message)])?;
-    let ast = psrs_ast::lower_module(cst).map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|error| diagnostic("P2 surface lowering", error.span, error.message))
-            .collect::<Vec<_>>()
-    })?;
+    let ast = lower_source_to_ast(source_name, source_text)?;
     let intrinsics = psrs_resolve::bootstrap_externals();
     let hir = psrs_resolve::resolve_module_with_externals(ast, psrs_hir::ModuleId(0), &intrinsics)
         .map_err(|errors| {
             errors
                 .into_iter()
-                .map(|error| diagnostic("P3 resolve", error.span, error.message()))
+                .map(|error| {
+                    coded_diagnostic(
+                        "P3 resolve",
+                        error.span,
+                        error.error_code(),
+                        error.message(),
+                    )
+                })
                 .collect::<Vec<_>>()
         })?;
     let hir = psrs_desugar::desugar_module(hir).map_err(|errors| {
@@ -110,6 +112,136 @@ fn check_source_to_thir(
     Ok(thir)
 }
 
+/// Runs lexing, layout, parsing, and surface lowering (P0–P2), returning the
+/// unresolved AST module.
+fn lower_source_to_ast(
+    source_name: &str,
+    source_text: &str,
+) -> Result<psrs_ast::Module, Vec<Diagnostic>> {
+    let source = SourceFile::new(source_name, source_text);
+    let (tokens, lex_errors) = psrs_syntax::lex(source.text());
+    if !lex_errors.is_empty() {
+        return Err(lex_errors
+            .into_iter()
+            .map(|error| {
+                coded_diagnostic(
+                    "P0 lex",
+                    error.span,
+                    Some("ErrorParsingModule"),
+                    error.message,
+                )
+            })
+            .collect());
+    }
+    let layout_tokens = psrs_syntax::add_layout(&source, &tokens);
+    let cst = psrs_syntax::parse_module(&layout_tokens).map_err(|error| {
+        vec![coded_diagnostic(
+            "P1 parse",
+            error.span,
+            Some("ErrorParsingModule"),
+            error.message,
+        )]
+    })?;
+    psrs_ast::lower_module(cst).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| {
+                coded_diagnostic("P2 surface lowering", error.span, error.code, error.message)
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+/// Resolves a program from a list of `(source_name, source_text)` pairs. Module
+/// IDs equal each source's index in the list. This is the module-graph entry
+/// point used to measure module, import, export, and name resolution.
+pub fn resolve_program_sources(
+    sources: &[(&str, &str)],
+) -> Result<Vec<psrs_hir::Module>, Vec<ProgramDiagnostic>> {
+    let mut modules = Vec::with_capacity(sources.len());
+    let mut errors = Vec::new();
+    for (index, (name, text)) in sources.iter().enumerate() {
+        match lower_source_to_ast(name, text) {
+            Ok(module) => modules.push(module),
+            Err(diagnostics) => {
+                for diagnostic in diagnostics {
+                    errors.push(ProgramDiagnostic {
+                        source: index,
+                        diagnostic,
+                    });
+                }
+            }
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    match psrs_resolve::resolve_program(modules) {
+        Ok(resolved) => Ok(resolved),
+        Err(program_errors) => Err(program_errors
+            .into_iter()
+            .map(|error| ProgramDiagnostic {
+                source: error.module,
+                diagnostic: coded_diagnostic(
+                    "P3 resolve",
+                    error.error.span,
+                    error.error.error_code(),
+                    error.error.message(),
+                ),
+            })
+            .collect()),
+    }
+}
+
+/// Resolves a program and reports only resolution diagnostics. Type checking a
+/// multi-module program is not implemented yet.
+pub fn check_program(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
+    resolve_program_sources(sources).map(|_| ())
+}
+
+/// Resolves a program while tolerating imports whose modules are not provided,
+/// and reports every resolution diagnostic. This is used to measure module,
+/// import, export, and name resolution against the corpus, where support
+/// libraries such as `Prelude` are not part of the input.
+pub fn check_program_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
+    let mut modules = Vec::with_capacity(sources.len());
+    let mut errors = Vec::new();
+    for (index, (name, text)) in sources.iter().enumerate() {
+        match lower_source_to_ast(name, text) {
+            Ok(module) => modules.push(module),
+            Err(diagnostics) => {
+                for diagnostic in diagnostics {
+                    errors.push(ProgramDiagnostic {
+                        source: index,
+                        diagnostic,
+                    });
+                }
+            }
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let options = psrs_resolve::ResolveOptions {
+        tolerate_missing_modules: true,
+    };
+    match psrs_resolve::resolve_program_with_options(modules, options) {
+        Ok(_) => Ok(()),
+        Err(program_errors) => Err(program_errors
+            .into_iter()
+            .map(|error| ProgramDiagnostic {
+                source: error.module,
+                diagnostic: coded_diagnostic(
+                    "P3 resolve",
+                    error.error.span,
+                    error.error.error_code(),
+                    error.error.message(),
+                ),
+            })
+            .collect()),
+    }
+}
+
 /// Runs the source stages P0 through P5 and reports diagnostics without
 /// lowering to Core or the backend. Useful for checking source acceptance.
 pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
@@ -124,12 +256,25 @@ pub fn parse_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diag
     if !lex_errors.is_empty() {
         return Err(lex_errors
             .into_iter()
-            .map(|error| diagnostic("P0 lex", error.span, error.message))
+            .map(|error| {
+                coded_diagnostic(
+                    "P0 lex",
+                    error.span,
+                    Some("ErrorParsingModule"),
+                    error.message,
+                )
+            })
             .collect());
     }
     let layout_tokens = psrs_syntax::add_layout(&source, &tokens);
-    psrs_syntax::parse_module(&layout_tokens)
-        .map_err(|error| vec![diagnostic("P1 parse", error.span, error.message)])?;
+    psrs_syntax::parse_module(&layout_tokens).map_err(|error| {
+        vec![coded_diagnostic(
+            "P1 parse",
+            error.span,
+            Some("ErrorParsingModule"),
+            error.message,
+        )]
+    })?;
     Ok(())
 }
 
@@ -159,146 +304,23 @@ fn diagnostic(stage: &'static str, span: TextRange, message: impl Into<String>) 
         stage,
         span,
         message: message.into(),
+        code: None,
+    }
+}
+
+fn coded_diagnostic(
+    stage: &'static str,
+    span: TextRange,
+    code: Option<&'static str>,
+    message: impl Into<String>,
+) -> Diagnostic {
+    Diagnostic {
+        stage,
+        span,
+        message: message.into(),
+        code,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
-        let source = "module Main where\nadd x y = x + y\nmain = add 40 2\n";
-        let artifact = compile_source("Main.purs", source).unwrap();
-        assert_eq!(&artifact.wasm[..8], b"\0asm\x01\0\0\0");
-        assert!(artifact.wat.contains("i32.add"));
-        assert!(artifact.wat.contains("(export \"main\""));
-    }
-
-    #[test]
-    fn compiles_if_expression_through_cfg_to_structured_wasm() {
-        let source = "module Main where\nmain = if true then 9 else 2\n";
-        let artifact = compile_source("Main.purs", source).unwrap();
-        assert!(artifact.wat.contains("if (result i32)"));
-        assert!(artifact.wasm.len() > 8);
-    }
-
-    #[test]
-    fn lowers_top_level_scalar_references_to_direct_calls() {
-        let source = "module Main where\nanswer = 40\nmain = answer + 2\n";
-        let artifact = compile_source("Main.purs", source).unwrap();
-        assert!(artifact.wat.contains("call 0"));
-        assert!(artifact.wat.contains("i32.add"));
-    }
-
-    #[test]
-    fn exposes_readable_core_and_backend_ir_dumps() {
-        let source = "module Main where\nmain = 42\n";
-        let compilation = compile_source_with_dumps("Main.purs", source).unwrap();
-        for stage in ["core", "cc", "mir"] {
-            assert!(
-                compilation
-                    .dumps
-                    .get(stage)
-                    .is_some_and(|dump| !dump.is_empty())
-            );
-        }
-        assert!(compilation.dumps.get("wasm").is_none());
-    }
-
-    #[test]
-    fn emits_a_wasi_command_entry() {
-        let source = "module Main where\nmain = 7\n";
-        let artifact = compile_source("Main.purs", source).unwrap();
-        assert!(
-            artifact
-                .wat
-                .contains("(import \"wasi_snapshot_preview1\" \"proc_exit\"")
-        );
-        assert!(artifact.wat.contains("(export \"_start\""));
-        assert!(artifact.wat.contains("(export \"memory\""));
-    }
-
-    #[test]
-    fn lowers_string_log_to_a_wasi_import() {
-        let source = "module Main where\nmain = log \"hello world\"\n";
-        let artifact = compile_source("Main.purs", source).unwrap();
-        assert!(
-            artifact
-                .wat
-                .contains("(import \"wasi_snapshot_preview1\" \"fd_write\"")
-        );
-        assert!(artifact.wat.contains("hello world"));
-        assert!(artifact.wat.contains("(data"));
-    }
-
-    #[test]
-    fn runs_main_as_a_wasi_command_when_wasmtime_is_available() {
-        let Some(output) = run_with_wasmtime("module Main where\nmain = 42\n") else {
-            eprintln!("skipping: wasmtime is not installed");
-            return;
-        };
-        assert_eq!(output.status.code(), Some(42));
-    }
-
-    #[test]
-    fn prints_hello_world_when_wasmtime_is_available() {
-        let Some(output) = run_with_wasmtime("module Main where\nmain = log \"hello world\"\n")
-        else {
-            eprintln!("skipping: wasmtime is not installed");
-            return;
-        };
-        assert_eq!(output.status.code(), Some(0));
-        assert_eq!(output.stdout, b"hello world\n");
-    }
-
-    fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
-        if std::process::Command::new("wasmtime")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return None;
-        }
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let artifact = compile_source("Main.purs", source).unwrap();
-        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
-        std::fs::write(&path, &artifact.wasm).unwrap();
-        let output = std::process::Command::new("wasmtime")
-            .arg("run")
-            .arg(&path)
-            .output()
-            .unwrap();
-        let _ = std::fs::remove_file(&path);
-        Some(output)
-    }
-
-    #[test]
-    fn structures_wasm_ir_with_an_explicit_if_region() {
-        let source = "module Main where\nmain = if true then 9 else 2\n";
-        let core = lower_source_to_core("Main.purs", source).unwrap();
-        let stages = psrs_backend::compile_with_stages(core).unwrap();
-        assert!(
-            stages.wasm.functions.iter().any(|function| function
-                .body
-                .iter()
-                .any(|op| matches!(op, psrs_backend::wasm::Op::If { .. }))),
-            "expected a structured if region in the Wasm IR"
-        );
-    }
-
-    #[test]
-    fn reports_type_errors_with_source_ranges() {
-        let source = "module Main where\nmain = if 1 then 2 else 3\n";
-        let errors = compile_source("Main.purs", source).unwrap_err();
-        assert!(errors.iter().any(|error| error.stage == "P5 typecheck"));
-        let integer_offset = source.find("1 then").unwrap() as u32;
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.span == TextRange::new(integer_offset, integer_offset + 1))
-        );
-    }
-}
+mod tests;

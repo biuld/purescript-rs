@@ -3,6 +3,10 @@ use psrs_ast::{
     Binder, Declaration as AstDeclaration, ExprKind as AstExprKind, Name, Type as AstType,
     TypeKind as AstTypeKind,
 };
+use psrs_hir::{
+    BuiltinType, ExprKind, Intrinsic, LocalId, ModuleId, SymbolId, Type as HirType,
+    TypeKind as HirTypeKind,
+};
 
 fn name(text: &str, start: u32) -> Name {
     Name {
@@ -37,7 +41,10 @@ fn type_name(text: &str, start: u32) -> AstType {
 fn module(declarations: Vec<AstDeclaration>) -> ast::Module {
     ast::Module {
         name: name("Main", 7),
+        exports: None,
+        imports: Vec::new(),
         declarations,
+        type_declarations: Vec::new(),
         span: TextRange::new(0, 100),
     }
 }

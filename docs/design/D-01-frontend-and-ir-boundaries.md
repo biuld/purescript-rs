@@ -158,7 +158,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-syntax` | Lexer, layout processor, parser, parse diagnostics | `psrs-cst`, `psrs-span` |
 | `psrs-ast` | AST nodes and CST-to-AST lowering | `psrs-cst`, `psrs-span` |
 | `psrs-hir` | Resolved HIR nodes and IDs | `psrs-span` |
-| `psrs-resolve` | Local and same-module value resolution | `psrs-ast`, `psrs-hir`, `psrs-span` |
+| `psrs-resolve` | Local and same-module value resolution, program module graph, import/export resolution | `psrs-ast`, `psrs-hir`, `psrs-span` |
 | `psrs-desugar` | HIR-preserving operator lowering | `psrs-hir` |
 | `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
@@ -208,9 +208,28 @@ not a replacement for module imports or general operator resolution.
 The caller supplies the module ID; the resolver assigns deterministic
 declaration and local IDs. It resolves forward references, lambda locals, and
 mutually recursive local `let` bindings within one parsed module. It rejects
-duplicate or unknown value names and verifies its HIR output. Module imports,
-exports, cross-module resolution, type namespaces, and class members are not
-implemented yet.
+duplicate or unknown value names and verifies its HIR output.
+
+A program resolver builds the module graph: it assigns one stable `ModuleId`
+per source in input order, detects duplicate modules, missing imports
+(`ModuleNotFound`), and import cycles (`CycleInModules`), then resolves modules
+in dependency order. Value names resolve across modules through imported
+symbols, including qualified (`Module.value`) and aliased (`import M as X`)
+references, explicit import lists, `hiding` lists, and explicit export lists
+(`UnknownImport`, `UnknownExport`, `ScopeConflict`). The AST and HIR carry
+module headers and resolved import/export metadata.
+
+Type-level declarations (`data`, `newtype`, `type`, and `class`) lower into AST
+and HIR with stable `TypeId`s. The resolver collects the shared uppercase
+namespace of type names and data constructors, reports `DeclConflict`, resolves
+user type names and type-level application in signatures and declaration
+bodies, and treats data constructors and class members as values. Types,
+constructors, and classes also cross module boundaries: imports carry resolved
+type IDs and exported constructors, explicit import and export lists validate
+them, export lists report the transitive requirements that `purs` enforces, and
+`module X` re-exports resolve through the import's alias. An import with an
+`as` alias is qualified-only, matching PureScript. A resolved multi-module
+program is not yet linked into the backend (which still compiles one module).
 
 The type checker supports monomorphic `Int`, `Boolean`, `String`, `Unit`, and
 function types with unification and an occurs check, plus rank-1 polymorphism:

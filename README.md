@@ -36,7 +36,12 @@ signatures (function arrows, `forall`, and parentheses), names,
 integer/string/character literals, application, infix operators, lambdas,
 `if`, and `let`. `parse` displays the concrete syntax tree; `ast` displays the
 normalized AST; `hir` displays resolved local and same-module value names.
-The first executable slice supports monomorphic `Int`, `Boolean`, `String`,
+A module loader resolves a whole program: it assigns stable module IDs, builds
+the import graph, reports duplicate, missing, and cyclic modules, and resolves
+imported values through unqualified, qualified, and aliased names while
+respecting explicit and `hiding` import lists and explicit export lists.
+`check-program <file.purs>...` runs that resolution over a set of modules. The
+first executable slice supports monomorphic `Int`, `Boolean`, `String`,
 `Unit`, direct top-level calls, integer operators, string literals and `log`,
 scalar `let`, and value-producing `if`. Type inference adds rank-1
 polymorphism: local `let` groups and top-level strongly connected components are
@@ -45,8 +50,8 @@ polymorphic declarations until type erasure and dictionary passing exist;
 `identity` therefore reports a backend diagnostic. `build` writes a validated
 core Wasm WASI command exporting zero-argument `main` and `_start`; `wat`
 renders the corresponding text form. General PureScript compatibility, type
-classes, higher-kinded types, source imports, closures, aggregate values, and
-the Component Model layer are not implemented yet.
+classes, higher-kinded types, cross-module compilation to Wasm, closures,
+aggregate values, and the Component Model layer are not implemented yet.
 
 ## Workspace
 
@@ -55,7 +60,8 @@ the Component Model layer are not implemented yet.
   subset with source ranges for names, binders, and supported punctuation.
 - `psrs-ast` owns the normalized AST and the explicit CST-to-AST lowering pass.
 - `psrs-hir` owns resolved HIR nodes and stable declaration/local IDs.
-- `psrs-resolve` resolves locals and same-module value names into HIR.
+- `psrs-resolve` resolves locals, same-module value names, and whole-program
+  module graphs (imports, exports, and cross-module values) into HIR.
 - `psrs-syntax` implements lexing, layout insertion, and parsing.
 - `psrs-thir` and `psrs-typecheck` own typed expressions and rank-1
   polymorphic type inference.

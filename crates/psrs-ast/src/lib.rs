@@ -1,10 +1,25 @@
 use psrs_cst::{self as cst, ExprKind as CstExprKind, TypeExprKind as CstTypeExprKind};
 use psrs_span::TextRange;
+use std::collections::HashSet;
+
+mod export;
+mod import;
+mod type_decl;
+
+pub use export::{ExportList, ExportRef, TypeMembers};
+pub use import::{Import, ImportList, ImportRef};
+pub use type_decl::{
+    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, NewtypeDeclaration,
+    TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: Name,
+    pub exports: Option<ExportList>,
+    pub imports: Vec<Import>,
     pub declarations: Vec<Declaration>,
+    pub type_declarations: Vec<TypeDeclaration>,
     pub span: TextRange,
 }
 
@@ -37,6 +52,7 @@ pub struct Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
     Name(Name),
+    Application(Box<Type>, Box<Type>),
     Function {
         parameter: Box<Type>,
         result: Box<Type>,
@@ -80,29 +96,93 @@ pub enum ExprKind {
     },
 }
 
-/// A construct that parsed but has no AST lowering yet. Returning an error
-/// instead of inventing a node keeps unsupported syntax from reaching later
-/// passes, and lets the parser grow ahead of resolution and type checking.
+/// A construct that parsed but has no AST lowering yet, or a name-level error
+/// the surface layer can detect. Returning an error instead of inventing a node
+/// keeps unsupported syntax from reaching later passes, and lets the parser
+/// grow ahead of resolution and type checking.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LowerError {
     pub span: TextRange,
     pub message: &'static str,
+    /// The official PureScript `errorCode` for this diagnostic, when one
+    /// applies. Unsupported-syntax errors have no code.
+    pub code: Option<&'static str>,
+}
+
+impl LowerError {
+    pub fn new(span: TextRange, message: &'static str) -> Self {
+        Self {
+            span,
+            message,
+            code: None,
+        }
+    }
+
+    pub fn coded(span: TextRange, code: &'static str, message: &'static str) -> Self {
+        Self {
+            span,
+            message,
+            code: Some(code),
+        }
+    }
 }
 
 /// Converts source-oriented CST nodes into a normalized, unresolved surface AST.
 pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut errors = Vec::new();
     let mut declarations = Vec::new();
-    for declaration in module.declarations {
-        match lower_declaration(declaration) {
-            Ok(declaration) => declarations.push(declaration),
-            Err(error) => errors.push(error),
+    let mut type_declarations = Vec::new();
+    let mut index = 0;
+    while index < module.declarations.len() {
+        let declaration = module.declarations[index].clone();
+        match declaration {
+            cst::Declaration::KindSignature(signature) => {
+                if matches_kind_declaration(&signature, module.declarations.get(index + 1)) {
+                    let target = module.declarations[index + 1].clone();
+                    match type_decl::lower_type_declaration(Some(signature), target) {
+                        Ok(declaration) => type_declarations.push(declaration),
+                        Err(error) => errors.push(error),
+                    }
+                    index += 2;
+                } else {
+                    errors.push(LowerError::coded(
+                        signature.span,
+                        "OrphanKindDeclaration",
+                        "a kind declaration must be followed by a matching declaration",
+                    ));
+                    index += 1;
+                }
+            }
+            cst::Declaration::Data(_)
+            | cst::Declaration::Newtype(_)
+            | cst::Declaration::TypeSynonym(_)
+            | cst::Declaration::Class(_) => {
+                match type_decl::lower_type_declaration(None, declaration) {
+                    Ok(declaration) => type_declarations.push(declaration),
+                    Err(error) => errors.push(error),
+                }
+                index += 1;
+            }
+            other => {
+                match lower_declaration(other) {
+                    Ok(declaration) => declarations.push(declaration),
+                    Err(error) => errors.push(error),
+                }
+                index += 1;
+            }
         }
     }
     if errors.is_empty() {
         Ok(Module {
             name: lower_name(module.name),
+            exports: module.exports.map(export::lower_export_list),
+            imports: module
+                .imports
+                .into_iter()
+                .map(import::lower_import)
+                .collect(),
             declarations,
+            type_declarations,
             span: module.span,
         })
     } else {
@@ -110,25 +190,61 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     }
 }
 
-fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, LowerError> {
-    let span = declaration.span();
-    let cst::Declaration::Value(declaration) = declaration else {
-        return Err(LowerError {
-            span,
-            message: "this declaration is not supported yet",
-        });
+/// A kind declaration is matched by the declaration that immediately follows it
+/// with the same name and the same declaration keyword, as `purs` requires.
+fn matches_kind_declaration(
+    signature: &cst::KindSignature,
+    next: Option<&cst::Declaration>,
+) -> bool {
+    let Some(next) = next else {
+        return false;
     };
+    let name = signature.name.text.as_str();
+    match (signature.kind_for, next) {
+        (cst::KindFor::Data, cst::Declaration::Data(declaration)) => declaration.name.text == name,
+        (cst::KindFor::Newtype, cst::Declaration::Newtype(declaration)) => {
+            declaration.name.text == name
+        }
+        (cst::KindFor::TypeSynonym, cst::Declaration::TypeSynonym(declaration)) => {
+            declaration.name.text == name
+        }
+        (cst::KindFor::Class, cst::Declaration::Class(declaration)) => {
+            declaration.name.text == name
+        }
+        _ => false,
+    }
+}
+
+fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, LowerError> {
+    match declaration {
+        cst::Declaration::Value(declaration) => lower_value_declaration(declaration),
+        cst::Declaration::TypeSignature(signature) => Err(LowerError::coded(
+            signature.span,
+            "OrphanTypeDeclaration",
+            "a type declaration must be followed by a matching value declaration",
+        )),
+        other => Err(LowerError::new(
+            other.span(),
+            "this declaration is not supported yet",
+        )),
+    }
+}
+
+fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declaration, LowerError> {
+    if let Some(error) = check_argument_names(&declaration.parameters) {
+        return Err(error);
+    }
     let cst::ValueRhs::Plain { value, .. } = declaration.rhs else {
-        return Err(LowerError {
-            span: declaration.span,
-            message: "guarded equations are not supported yet",
-        });
+        return Err(LowerError::new(
+            declaration.span,
+            "guarded equations are not supported yet",
+        ));
     };
     if let Some(block) = declaration.where_block {
-        return Err(LowerError {
-            span: block.span,
-            message: "where blocks are not supported yet",
-        });
+        return Err(LowerError::new(
+            block.span,
+            "where blocks are not supported yet",
+        ));
     }
     let mut value = lower_expr(value)?;
     for parameter in declaration.parameters.into_iter().rev() {
@@ -142,6 +258,23 @@ fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, Lower
     })
 }
 
+/// Reports the second occurrence of a repeated value argument name.
+fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
+    let mut seen = HashSet::new();
+    for parameter in parameters {
+        if let cst::PatternKind::Var(name) = &parameter.kind
+            && !seen.insert(name.text.as_str())
+        {
+            return Some(LowerError::coded(
+                parameter.span,
+                "OverlappingArgNames",
+                "two arguments share the same name",
+            ));
+        }
+    }
+    None
+}
+
 fn lower_pattern_lambda(pattern: cst::Pattern, body: Expr) -> Result<Expr, LowerError> {
     match pattern.kind {
         cst::PatternKind::Var(name) => Ok(lower_lambda(
@@ -152,16 +285,27 @@ fn lower_pattern_lambda(pattern: cst::Pattern, body: Expr) -> Result<Expr, Lower
             body,
         )),
         cst::PatternKind::Parens { pattern, .. } => lower_pattern_lambda(*pattern, body),
-        _ => Err(LowerError {
-            span: pattern.span,
-            message: "only variable binders are supported yet",
-        }),
+        _ => Err(LowerError::new(
+            pattern.span,
+            "only variable binders are supported yet",
+        )),
     }
 }
 
-fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
+pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
     let span = expression.span;
     let kind = match expression.kind {
+        CstTypeExprKind::Application(function, arguments) => {
+            let mut lowered = lower_type(*function)?;
+            for argument in arguments {
+                let argument = lower_type(argument)?;
+                lowered = Type {
+                    kind: TypeKind::Application(Box::new(lowered), Box::new(argument)),
+                    span,
+                };
+            }
+            return Ok(lowered);
+        }
         CstTypeExprKind::Name(name) => TypeKind::Name(lower_name(name)),
         CstTypeExprKind::Function { left, right, .. } => TypeKind::Function {
             parameter: Box::new(lower_type(*left)?),
@@ -186,17 +330,16 @@ fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
         | CstTypeExprKind::Integer(_)
         | CstTypeExprKind::String(_)
         | CstTypeExprKind::Constrained { .. }
-        | CstTypeExprKind::Application(..)
         | CstTypeExprKind::Operator { .. }
         | CstTypeExprKind::PrefixOperator { .. }
         | CstTypeExprKind::Tuple { .. }
         | CstTypeExprKind::Row { .. }
         | CstTypeExprKind::Record { .. }
         | CstTypeExprKind::KindAnnotation { .. } => {
-            return Err(LowerError {
+            return Err(LowerError::new(
                 span,
-                message: "this type syntax is not supported yet",
-            });
+                "this type syntax is not supported yet",
+            ));
         }
     };
     Ok(Type { kind, span })
@@ -273,10 +416,10 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         | CstExprKind::Tuple { .. }
         | CstExprKind::Typed { .. }
         | CstExprKind::TypeApplication { .. } => {
-            return Err(LowerError {
+            return Err(LowerError::new(
                 span,
-                message: "this expression syntax is not supported yet",
-            });
+                "this expression syntax is not supported yet",
+            ));
         }
     };
     Ok(Expr { kind, span })
@@ -293,7 +436,7 @@ fn lower_lambda(binder: Binder, body: Expr) -> Expr {
     }
 }
 
-fn lower_name(name: cst::CstName) -> Name {
+pub(crate) fn lower_name(name: cst::CstName) -> Name {
     Name {
         text: name.text,
         span: name.span,
@@ -301,175 +444,4 @@ fn lower_name(name: cst::CstName) -> Name {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use psrs_cst::{
-        CstName, Declaration as CstDeclaration, Module as CstModule, Pattern, PatternKind,
-        TypeVarBinder, ValueDeclaration, ValueRhs,
-    };
-    use psrs_span::TextRange;
-
-    fn name(text: &str, start: u32) -> CstName {
-        CstName {
-            text: text.into(),
-            span: TextRange::new(start, start + text.len() as u32),
-        }
-    }
-
-    fn pattern_var(text: &str, start: u32) -> Pattern {
-        Pattern {
-            kind: PatternKind::Var(name(text, start)),
-            span: TextRange::new(start, start + text.len() as u32),
-        }
-    }
-
-    fn type_var_binder(text: &str, start: u32) -> TypeVarBinder {
-        TypeVarBinder {
-            name: name(text, start),
-            kind: None,
-            span: TextRange::new(start, start + text.len() as u32),
-        }
-    }
-
-    fn cst_module(declaration: CstDeclaration) -> CstModule {
-        CstModule {
-            module_keyword_span: TextRange::new(0, 6),
-            name: name("Main", 7),
-            exports: None,
-            where_keyword_span: TextRange::new(12, 17),
-            imports: Vec::new(),
-            declarations: vec![declaration],
-            span: TextRange::new(0, 40),
-        }
-    }
-
-    fn value_declaration(
-        name_text: &str,
-        name_start: u32,
-        parameters: Vec<Pattern>,
-        equals_span: TextRange,
-        value: cst::Expr,
-        span_end: u32,
-        annotation: Option<cst::TypeExpr>,
-    ) -> CstDeclaration {
-        CstDeclaration::Value(ValueDeclaration {
-            name: name(name_text, name_start),
-            parameters,
-            rhs: ValueRhs::Plain { equals_span, value },
-            where_block: None,
-            span: TextRange::new(name_start, span_end),
-            annotation,
-        })
-    }
-
-    #[test]
-    fn function_parameters_become_nested_lambdas_and_names_stay_unresolved() {
-        let value = cst::Expr {
-            kind: CstExprKind::Operator {
-                operator: name("+", 33),
-                left: Box::new(cst::Expr {
-                    kind: CstExprKind::Name(name("x", 31)),
-                    span: TextRange::new(31, 32),
-                }),
-                right: Box::new(cst::Expr {
-                    kind: CstExprKind::Name(name("y", 35)),
-                    span: TextRange::new(35, 36),
-                }),
-            },
-            span: TextRange::new(31, 36),
-        };
-        let declaration = value_declaration(
-            "add",
-            19,
-            vec![pattern_var("x", 23), pattern_var("y", 25)],
-            TextRange::new(27, 28),
-            value,
-            36,
-            None,
-        );
-        let module = lower_module(cst_module(declaration)).unwrap();
-        let ExprKind::Lambda { binder, body } = &module.declarations[0].value.kind else {
-            panic!("expected the first normalized lambda");
-        };
-        assert_eq!(binder.name, "x");
-        let ExprKind::Lambda { binder, body } = &body.kind else {
-            panic!("expected the second normalized lambda");
-        };
-        assert_eq!(binder.name, "y");
-        let ExprKind::Operator { left, right, .. } = &body.kind else {
-            panic!("expected the source operator to remain unresolved");
-        };
-        assert!(matches!(&left.kind, ExprKind::Name(name) if name.text == "x"));
-        assert!(matches!(&right.kind, ExprKind::Name(name) if name.text == "y"));
-    }
-
-    #[test]
-    fn parentheses_are_removed_without_losing_the_expression_range() {
-        let declaration = value_declaration(
-            "main",
-            18,
-            Vec::new(),
-            TextRange::new(23, 24),
-            cst::Expr {
-                kind: CstExprKind::Parens {
-                    open_paren_span: TextRange::new(25, 26),
-                    expression: Box::new(cst::Expr {
-                        kind: CstExprKind::Integer("42".into()),
-                        span: TextRange::new(26, 28),
-                    }),
-                    close_paren_span: TextRange::new(28, 29),
-                },
-                span: TextRange::new(25, 29),
-            },
-            29,
-            None,
-        );
-        let module = lower_module(cst_module(declaration)).unwrap();
-        let value = &module.declarations[0].value;
-        assert!(matches!(value.kind, ExprKind::Integer(ref value) if value == "42"));
-        assert_eq!(value.span, TextRange::new(25, 29));
-    }
-
-    #[test]
-    fn lowers_forall_types_and_removes_parentheses() {
-        let annotation = cst::TypeExpr {
-            kind: cst::TypeExprKind::Forall {
-                forall_span: TextRange::new(0, 6),
-                variables: vec![type_var_binder("a", 7)],
-                dot_span: TextRange::new(8, 9),
-                body: Box::new(cst::TypeExpr {
-                    kind: cst::TypeExprKind::Parens {
-                        open_paren_span: TextRange::new(10, 11),
-                        expression: Box::new(cst::TypeExpr {
-                            kind: cst::TypeExprKind::Name(name("a", 11)),
-                            span: TextRange::new(11, 12),
-                        }),
-                        close_paren_span: TextRange::new(12, 13),
-                    },
-                    span: TextRange::new(10, 13),
-                }),
-            },
-            span: TextRange::new(0, 13),
-        };
-        let declaration = value_declaration(
-            "id",
-            19,
-            vec![pattern_var("x", 23)],
-            TextRange::new(25, 26),
-            cst::Expr {
-                kind: CstExprKind::Name(name("x", 27)),
-                span: TextRange::new(27, 28),
-            },
-            28,
-            Some(annotation),
-        );
-        let module = lower_module(cst_module(declaration)).unwrap();
-        let annotation = module.declarations[0].annotation.as_ref().unwrap();
-        let TypeKind::Forall { variables, body } = &annotation.kind else {
-            panic!("expected a lowered forall");
-        };
-        assert_eq!(variables, &["a".to_owned()]);
-        assert!(matches!(&body.kind, TypeKind::Name(name) if name.text == "a"));
-        assert_eq!(body.span, TextRange::new(10, 13));
-    }
-}
+mod tests;

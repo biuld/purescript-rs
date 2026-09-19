@@ -1,11 +1,19 @@
-use psrs_ast::{self as ast, ExprKind as AstExprKind};
-use psrs_hir::{
-    self as hir, BuiltinType, Declaration, Expr, ExprKind, ExternalKind, ExternalSymbol, Intrinsic,
-    LocalBinder, LocalBinding, LocalId, ModuleId, RuntimeFunction, SymbolId, Type as HirType,
-    TypeKind as HirTypeKind,
-};
+use psrs_ast as ast;
+use psrs_hir::{self as hir, Declaration, ExternalSymbol, ModuleId, SymbolId, TypeId};
 use psrs_span::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+mod program;
+
+pub use program::{ProgramError, ResolveOptions, resolve_program, resolve_program_with_options};
+
+mod bootstrap;
+mod exports;
+mod names;
+mod type_resolution;
+
+pub use bootstrap::bootstrap_externals;
+use names::Resolver;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResolveErrorKind {
@@ -14,7 +22,44 @@ pub enum ResolveErrorKind {
     DuplicateExternal,
     UnknownName,
     UnknownTypeName,
+    DuplicateModule,
+    ModuleNotFound,
+    CycleInModules,
+    UnknownImport,
+    UnknownImportDataConstructor,
+    UnknownExport,
+    UnknownExportDataConstructor,
+    TransitiveExportError,
+    TransitiveDctorExportError,
+    ExportConflict,
+    ScopeConflict,
+    DeclConflict,
     InvalidHir,
+}
+
+impl ResolveErrorKind {
+    /// The official PureScript `errorCode` this diagnostic reports, when one
+    /// exists. Internal invariants have no compatible code.
+    pub fn error_code(self) -> Option<&'static str> {
+        Some(match self {
+            Self::DuplicateDeclaration => "DuplicateValueDeclaration",
+            Self::DuplicateLocalBinding => "OverlappingNamesInLet",
+            Self::UnknownName | Self::UnknownTypeName => "UnknownName",
+            Self::DuplicateModule => "DuplicateModule",
+            Self::ModuleNotFound => "ModuleNotFound",
+            Self::CycleInModules => "CycleInModules",
+            Self::UnknownImport => "UnknownImport",
+            Self::UnknownImportDataConstructor => "UnknownImportDataConstructor",
+            Self::UnknownExport => "UnknownExport",
+            Self::UnknownExportDataConstructor => "UnknownExportDataConstructor",
+            Self::TransitiveExportError => "TransitiveExportError",
+            Self::TransitiveDctorExportError => "TransitiveDctorExportError",
+            Self::ExportConflict => "ExportConflict",
+            Self::ScopeConflict => "ScopeConflict",
+            Self::DeclConflict => "DeclConflict",
+            Self::DuplicateExternal | Self::InvalidHir => return None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,6 +80,38 @@ impl ResolveError {
             }
             ResolveErrorKind::DuplicateExternal => {
                 format!("duplicate external symbol `{name}`")
+            }
+            ResolveErrorKind::DuplicateModule => format!("duplicate module `{name}`"),
+            ResolveErrorKind::ModuleNotFound => format!("module `{name}` was not found"),
+            ResolveErrorKind::CycleInModules => {
+                format!("a module cycle was detected involving `{name}`")
+            }
+            ResolveErrorKind::UnknownImport => {
+                format!("`{name}` is not exported by the imported module")
+            }
+            ResolveErrorKind::UnknownImportDataConstructor => {
+                format!("`{name}` is not a data constructor of the imported type")
+            }
+            ResolveErrorKind::UnknownExport => {
+                format!("`{name}` is not declared in this module")
+            }
+            ResolveErrorKind::UnknownExportDataConstructor => {
+                format!("`{name}` is not a data constructor of the exported type")
+            }
+            ResolveErrorKind::TransitiveExportError => {
+                format!("the export of `{name}` requires another name to be exported")
+            }
+            ResolveErrorKind::TransitiveDctorExportError => {
+                format!("the export of `{name}` requires all of its data constructors")
+            }
+            ResolveErrorKind::ExportConflict => {
+                format!("`{name}` is exported from more than one module")
+            }
+            ResolveErrorKind::ScopeConflict => {
+                format!("`{name}` is in scope from more than one import")
+            }
+            ResolveErrorKind::DeclConflict => {
+                format!("the name `{name}` is declared in more than one type declaration")
             }
             ResolveErrorKind::UnknownName => format!("unknown name `{name}`"),
             ResolveErrorKind::UnknownTypeName => format!("unknown type name `{name}`"),
@@ -58,6 +135,19 @@ impl ResolveError {
     pub fn message(&self) -> &str {
         &self.message
     }
+
+    /// The official PureScript `errorCode` for this diagnostic, if any.
+    pub fn error_code(&self) -> Option<&'static str> {
+        self.kind.error_code()
+    }
+}
+
+/// The environment a module resolves against, assembled by the program loader.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ModuleInputs {
+    pub externals: Vec<ExternalSymbol>,
+    pub imports: Vec<hir::Import>,
+    pub export_items: Option<ast::ExportList>,
 }
 
 /// Resolves local and same-module value names in the currently supported AST.
@@ -69,14 +159,30 @@ pub fn resolve_module(
     resolve_module_with_externals(module, module_id, &[])
 }
 
-/// Resolves a module using an explicit set of known external values.
+/// Resolves a single module using an explicit set of known external values.
+/// Imports are not resolved here; use [`resolve_program`] for a module graph.
 pub fn resolve_module_with_externals(
     module: ast::Module,
     module_id: ModuleId,
     externals: &[ExternalSymbol],
 ) -> Result<hir::Module, Vec<ResolveError>> {
+    resolve_ast_module(
+        module,
+        module_id,
+        ModuleInputs {
+            externals: externals.to_vec(),
+            imports: Vec::new(),
+            export_items: None,
+        },
+    )
+}
+
+pub(crate) fn resolve_ast_module(
+    module: ast::Module,
+    module_id: ModuleId,
+    inputs: ModuleInputs,
+) -> Result<hir::Module, Vec<ResolveError>> {
     let mut globals = HashMap::new();
-    let mut external_globals = HashMap::new();
     let mut errors = Vec::new();
 
     for (index, declaration) in module.declarations.iter().enumerate() {
@@ -93,7 +199,17 @@ pub fn resolve_module_with_externals(
         }
     }
 
-    for external in externals {
+    let mut type_declarations = module.type_declarations;
+    let (plans, type_names) = plan_type_declarations(
+        module_id,
+        &type_declarations,
+        module.declarations.len() as u32,
+        &mut globals,
+        &mut errors,
+    );
+
+    let mut external_globals = HashMap::new();
+    for external in &inputs.externals {
         if external_globals
             .insert(external.name.clone(), external.symbol)
             .is_some()
@@ -106,14 +222,15 @@ pub fn resolve_module_with_externals(
         }
     }
 
-    let mut resolver = Resolver {
+    let mut resolver = Resolver::new(
         globals,
         external_globals,
-        externals: externals.to_vec(),
-        scopes: Vec::new(),
-        next_local: 0,
+        type_names,
+        inputs.externals,
+        inputs.imports,
+        inputs.export_items,
         errors,
-    };
+    );
     let declarations = module
         .declarations
         .into_iter()
@@ -134,13 +251,22 @@ pub fn resolve_module_with_externals(
             })
         })
         .collect();
+    let types: Vec<hir::TypeDeclaration> = type_declarations
+        .drain(..)
+        .zip(plans)
+        .filter_map(|(declaration, plan)| resolver.resolve_type_declaration(plan, declaration))
+        .collect();
+    let exports = resolver.build_exports(&types);
 
     if resolver.errors.is_empty() {
         let resolved = hir::Module {
             id: module_id,
             name: module.name.text,
             externals: resolver.externals,
+            imports: resolver.imports,
+            exports,
             declarations,
+            types,
             span: module.span,
         };
         match resolved.verify() {
@@ -155,176 +281,97 @@ pub fn resolve_module_with_externals(
     }
 }
 
-struct Resolver {
-    globals: HashMap<String, SymbolId>,
-    external_globals: HashMap<String, SymbolId>,
-    externals: Vec<ExternalSymbol>,
-    scopes: Vec<HashMap<String, LocalBinder>>,
-    next_local: u32,
-    errors: Vec<ResolveError>,
+/// The allocated IDs for one type declaration, aligned with its constructors
+/// and members.
+struct PlannedType {
+    id: TypeId,
+    constructors: Vec<SymbolId>,
+    members: Vec<SymbolId>,
 }
 
-impl Resolver {
-    fn resolve_expr(&mut self, expression: ast::Expr) -> Option<Expr> {
-        let span = expression.span;
-        let kind = match expression.kind {
-            AstExprKind::Name(name) => {
-                if let Some(local) = self.lookup_local(&name.text) {
-                    ExprKind::Local(local.id)
-                } else if let Some(symbol) = self.globals.get(&name.text) {
-                    ExprKind::Global(*symbol)
-                } else if let Some(symbol) = self.external_globals.get(&name.text) {
-                    ExprKind::Global(*symbol)
-                } else {
-                    self.report(ResolveErrorKind::UnknownName, name.text, name.span);
-                    return None;
-                }
-            }
-            AstExprKind::Integer(value) => ExprKind::Integer(value),
-            AstExprKind::String(value) => ExprKind::String(value),
-            AstExprKind::Char(value) => ExprKind::Char(value),
-            AstExprKind::Application(function, argument) => {
-                let function = self.resolve_expr(*function);
-                let argument = self.resolve_expr(*argument);
-                ExprKind::Application(Box::new(function?), Box::new(argument?))
-            }
-            AstExprKind::Operator {
-                operator,
-                left,
-                right,
-            } => {
-                let operator_span = operator.span;
-                let symbol = self
-                    .globals
-                    .get(&operator.text)
-                    .or_else(|| self.external_globals.get(&operator.text))
-                    .copied();
-                if symbol.is_none() {
-                    self.report(
-                        ResolveErrorKind::UnknownName,
-                        operator.text.clone(),
-                        operator_span,
-                    );
-                }
-                let left = self.resolve_expr(*left);
-                let right = self.resolve_expr(*right);
-                ExprKind::Operator {
-                    operator: symbol?,
-                    operator_span,
-                    left: Box::new(left?),
-                    right: Box::new(right?),
-                }
-            }
-            AstExprKind::Lambda { binder, body } => {
-                let binder = self.new_local(binder.name, binder.span);
-                self.scopes
-                    .push(HashMap::from([(binder.name.clone(), binder.clone())]));
-                let body = self.resolve_expr(*body);
-                self.scopes.pop();
-                ExprKind::Lambda {
-                    binder,
-                    body: Box::new(body?),
-                }
-            }
-            AstExprKind::Let { declarations, body } => self.resolve_let(declarations, *body)?,
-            AstExprKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let condition = self.resolve_expr(*condition);
-                let then_branch = self.resolve_expr(*then_branch);
-                let else_branch = self.resolve_expr(*else_branch);
-                ExprKind::If {
-                    condition: Box::new(condition?),
-                    then_branch: Box::new(then_branch?),
-                    else_branch: Box::new(else_branch?),
-                }
-            }
-        };
-        Some(Expr { kind, span })
-    }
+/// Allocates IDs and symbols for a module's type declarations and reports
+/// conflicts in the shared uppercase namespace (`DeclConflict`), matching the
+/// order `purs` checks: constructors against earlier declarations first, then
+/// the type name, so `data T = T` is allowed but a second `data T` is not.
+fn plan_type_declarations(
+    module_id: ModuleId,
+    declarations: &[ast::TypeDeclaration],
+    first_symbol: u32,
+    globals: &mut HashMap<String, SymbolId>,
+    errors: &mut Vec<ResolveError>,
+) -> (Vec<PlannedType>, HashMap<String, TypeId>) {
+    let mut plans = Vec::with_capacity(declarations.len());
+    let mut type_names = HashMap::new();
+    let mut uppercase: HashSet<String> = HashSet::new();
+    let mut next_symbol = first_symbol;
 
-    fn resolve_type(&mut self, expression: ast::Type) -> Option<HirType> {
-        let span = expression.span;
-        let kind = match expression.kind {
-            ast::TypeKind::Name(name) => match name.text.as_str() {
-                "Int" => HirTypeKind::Constructor(BuiltinType::Int),
-                "Boolean" => HirTypeKind::Constructor(BuiltinType::Boolean),
-                "String" => HirTypeKind::Constructor(BuiltinType::String),
-                "Unit" => HirTypeKind::Constructor(BuiltinType::Unit),
-                _ if name
-                    .text
-                    .chars()
-                    .next()
-                    .is_some_and(|first| first.is_uppercase()) =>
-                {
-                    self.report(ResolveErrorKind::UnknownTypeName, name.text, name.span);
-                    return None;
-                }
-                _ => HirTypeKind::Variable(name.text),
-            },
-            ast::TypeKind::Function { parameter, result } => HirTypeKind::Function {
-                parameter: Box::new(self.resolve_type(*parameter)?),
-                result: Box::new(self.resolve_type(*result)?),
-            },
-            ast::TypeKind::Forall { body, .. } => self.resolve_type(*body)?.kind,
-        };
-        Some(HirType { kind, span })
-    }
+    for (index, declaration) in declarations.iter().enumerate() {
+        let id = TypeId::new(module_id, symbol_index(index));
+        let name = declaration.name();
 
-    fn resolve_let(
-        &mut self,
-        declarations: Vec<ast::Declaration>,
-        body: ast::Expr,
-    ) -> Option<ExprKind> {
-        let mut scope = HashMap::new();
-        let mut binders = Vec::with_capacity(declarations.len());
-        for declaration in &declarations {
-            let binder = self.new_local(declaration.name.text.clone(), declaration.name.span);
-            if scope.insert(binder.name.clone(), binder.clone()).is_some() {
-                self.report(
-                    ResolveErrorKind::DuplicateLocalBinding,
-                    binder.name.clone(),
-                    binder.span,
-                );
+        let mut constructor_symbols = Vec::new();
+        let mut constructor_names = HashSet::new();
+        for constructor in type_constructors(declaration) {
+            if !constructor_names.insert(constructor.name.text.clone())
+                || uppercase.contains(&constructor.name.text)
+            {
+                errors.push(ResolveError::named(
+                    ResolveErrorKind::DeclConflict,
+                    constructor.name.text.clone(),
+                    constructor.name.span,
+                ));
             }
-            binders.push(binder);
+            let symbol = SymbolId::new(module_id, next_symbol);
+            next_symbol += 1;
+            constructor_symbols.push(symbol);
+            globals
+                .entry(constructor.name.text.clone())
+                .or_insert(symbol);
         }
 
-        self.scopes.push(scope);
-        let bindings = declarations
-            .into_iter()
-            .zip(binders)
-            .filter_map(|(declaration, binder)| {
-                let value = self.resolve_expr(declaration.value)?;
-                Some(LocalBinding {
-                    binder,
-                    value,
-                    span: declaration.span,
-                })
-            })
-            .collect::<Vec<_>>();
-        let body = self.resolve_expr(body);
-        self.scopes.pop();
-        Some(ExprKind::Let {
-            bindings,
-            body: Box::new(body?),
-        })
+        if uppercase.contains(&name.text) {
+            errors.push(ResolveError::named(
+                ResolveErrorKind::DeclConflict,
+                name.text.clone(),
+                name.span,
+            ));
+        }
+        uppercase.insert(name.text.clone());
+        for constructor in type_constructors(declaration) {
+            uppercase.insert(constructor.name.text.clone());
+        }
+        type_names.insert(name.text.clone(), id);
+
+        let mut member_symbols = Vec::new();
+        for member in type_members(declaration) {
+            let symbol = SymbolId::new(module_id, next_symbol);
+            next_symbol += 1;
+            member_symbols.push(symbol);
+            globals.entry(member.name.text.clone()).or_insert(symbol);
+        }
+
+        plans.push(PlannedType {
+            id,
+            constructors: constructor_symbols,
+            members: member_symbols,
+        });
     }
 
-    fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
-        self.scopes.iter().rev().find_map(|scope| scope.get(name))
-    }
+    (plans, type_names)
+}
 
-    fn new_local(&mut self, name: String, span: TextRange) -> LocalBinder {
-        let id = LocalId(self.next_local);
-        self.next_local += 1;
-        LocalBinder { id, name, span }
+fn type_constructors(declaration: &ast::TypeDeclaration) -> Vec<&ast::DataConstructor> {
+    match declaration {
+        ast::TypeDeclaration::Data(declaration) => declaration.constructors.iter().collect(),
+        ast::TypeDeclaration::Newtype(declaration) => declaration.constructor.iter().collect(),
+        _ => Vec::new(),
     }
+}
 
-    fn report(&mut self, kind: ResolveErrorKind, name: String, span: TextRange) {
-        self.errors.push(ResolveError::named(kind, name, span));
+fn type_members(declaration: &ast::TypeDeclaration) -> &[ast::ClassMember] {
+    match declaration {
+        ast::TypeDeclaration::Class(declaration) => &declaration.members,
+        _ => &[],
     }
 }
 
@@ -332,38 +379,7 @@ fn symbol_index(index: usize) -> u32 {
     u32::try_from(index).expect("a source module cannot contain more declarations than its range")
 }
 
-/// The compiler-known externals available to every bootstrap module.
-pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
-    let intrinsics = [
-        ("true", Intrinsic::BoolTrue),
-        ("false", Intrinsic::BoolFalse),
-        ("+", Intrinsic::I32Add),
-        ("-", Intrinsic::I32Sub),
-        ("*", Intrinsic::I32Mul),
-        ("/", Intrinsic::I32DivS),
-        ("%", Intrinsic::I32RemS),
-        ("==", Intrinsic::I32Eq),
-        ("/=", Intrinsic::I32Ne),
-        ("<", Intrinsic::I32LtS),
-        ("<=", Intrinsic::I32LeS),
-        (">", Intrinsic::I32GtS),
-        (">=", Intrinsic::I32GeS),
-    ]
-    .into_iter()
-    .map(|(name, intrinsic)| ExternalSymbol {
-        symbol: intrinsic.symbol(),
-        name: name.into(),
-        kind: ExternalKind::Intrinsic(intrinsic),
-    });
-    let runtime = [("log", RuntimeFunction::ConsoleLog)]
-        .into_iter()
-        .map(|(name, function)| ExternalSymbol {
-            symbol: function.symbol(),
-            name: name.into(),
-            kind: ExternalKind::Runtime(function),
-        });
-    intrinsics.chain(runtime).collect()
-}
-
+#[cfg(test)]
+mod program_tests;
 #[cfg(test)]
 mod tests;

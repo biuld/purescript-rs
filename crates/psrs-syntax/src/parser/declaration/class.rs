@@ -1,8 +1,8 @@
 use crate::{LayoutTokenKind, RawTokenKind};
 use psrs_cst::{
     ClassDeclaration, CstName, Declaration, DeriveDeclaration, Fixity, FixityDeclaration,
-    ForeignDeclaration, FunctionalDependency, InstanceDeclaration, KindSignature, RoleDeclaration,
-    TypeSynonymDeclaration,
+    ForeignDeclaration, FunctionalDependency, InstanceDeclaration, KindFor, KindSignature,
+    RoleDeclaration, TypeSynonymDeclaration,
 };
 use psrs_span::TextRange;
 
@@ -37,6 +37,7 @@ impl<'a> Parser<'a> {
             let span = TextRange::new(keyword_span.start, kind.span.end);
             return Ok(Declaration::KindSignature(KindSignature {
                 keyword_span,
+                kind_for: KindFor::TypeSynonym,
                 name,
                 double_colon_span,
                 kind,
@@ -74,6 +75,7 @@ impl<'a> Parser<'a> {
             let span = TextRange::new(keyword_span.start, kind.span.end);
             return Ok(Declaration::KindSignature(KindSignature {
                 keyword_span,
+                kind_for: KindFor::Class,
                 name,
                 double_colon_span,
                 kind,

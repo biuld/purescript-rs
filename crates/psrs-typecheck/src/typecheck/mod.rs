@@ -14,6 +14,7 @@ pub enum TypeCheckErrorKind {
     UnconstrainedType,
     IntegerOutOfRange,
     UnsupportedExpression,
+    UnsupportedType,
     UnsupportedIntrinsic,
     UnloweredOperator,
 }

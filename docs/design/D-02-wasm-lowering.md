@@ -187,7 +187,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | Milestone | Capability |
 | --- | --- |
 | M0–M1 | Implemented source inspection, CST, and normalized AST subset |
-| M2 | Partial: same-module value resolution and stable IDs; module graph is pending |
+| M2 | Partial: stable IDs, a module graph, imports/exports, and value resolution across modules; type and constructor namespaces pending |
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a `_start`/`proc_exit` WASI command entry, binary validation, and WAT output |
