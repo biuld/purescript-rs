@@ -313,6 +313,34 @@ fn reads_random_bytes_when_wasmtime_is_available() {
     assert_eq!(output.status.code(), Some(0));
 }
 
+#[test]
+fn passes_a_returned_wit_string_to_another_import() {
+    let source = "module Main where\n\
+        import Prelude\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        main = log (randomBytes 8)\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert!(output.status.success(), "wasmtime failed: {output:?}");
+    assert_eq!(output.stdout.len(), 9);
+}
+
+#[test]
+fn keeps_multiple_returned_wit_strings_in_distinct_allocations() {
+    let source = "module Main where\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        main = let first = randomBytes 8 in let second = randomBytes 8 in 0\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering repeated list results");
+    assert!(artifact.wat.matches("cabi_realloc").count() >= 1);
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+}
+
 fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

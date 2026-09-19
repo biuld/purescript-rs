@@ -68,6 +68,9 @@ value: the lowering computes `pointer - 4`.
 A returned list whose element type is not a byte is rejected with a source
 diagnostic; such imports (for example `get-arguments`, which returns
 `list<string>`) require aggregate values before they can be enabled.
+Returned byte lists are covered by execution tests that feed the recovered
+`String` to the ordinary `writeStdout` WIT import and exercise repeated
+allocator calls.
 
 ### The standard library
 
