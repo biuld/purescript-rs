@@ -105,8 +105,10 @@ temporary parameter plus `case`. Parameterized ADTs use the erased runtime
 representation selected by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md):
 concrete instantiations may use the first erased layout slice, which boxes
-parameter-dependent scalar fields as `eqref`; fully polymorphic declarations
-and unsupported instantiations remain diagnostics. Function values lower to GC
+parameter-dependent scalar fields as `eqref`, and concrete instance types are
+retained on patterns so nested constructor matches can recover those fields;
+fully polymorphic declarations and unsupported instantiations remain
+diagnostics. Function values lower to GC
 structs containing a code reference and an immutable `eqref` capture array;
 closure calls extract the typed code reference and lower to `call_ref`. Scalar
 captures are boxed as `i31` values, while reference captures retain their GC

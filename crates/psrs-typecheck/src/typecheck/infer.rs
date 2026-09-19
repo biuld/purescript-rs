@@ -463,7 +463,11 @@ impl Checker {
                 }
             }
         };
-        Some(InferredPattern { kind, span })
+        Some(InferredPattern {
+            kind,
+            ty: self.resolve_type(expected.clone()),
+            span,
+        })
     }
 
     /// Instantiates a constructor's parameter variables and returns its result

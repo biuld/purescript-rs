@@ -242,6 +242,7 @@ fn shift_pattern(pattern: crate::Pattern, offset: u32) -> crate::Pattern {
     };
     crate::Pattern {
         kind,
+        ty: shift_id(pattern.ty, offset),
         span: pattern.span,
     }
 }

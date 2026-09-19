@@ -207,6 +207,7 @@ pub struct CaseBranch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pattern {
     pub kind: PatternKind,
+    pub ty: TypeId,
     pub span: TextRange,
 }
 
@@ -455,6 +456,7 @@ fn verify_pattern(
     locals: &mut HashSet<LocalId>,
     errors: &mut Vec<VerifyError>,
 ) {
+    verify_type(pattern.ty, module, owner, pattern.span, errors);
     match &pattern.kind {
         PatternKind::Wildcard => {}
         PatternKind::Var { id, ty } => {

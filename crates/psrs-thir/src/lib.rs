@@ -141,6 +141,7 @@ pub struct CaseBranch {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Pattern {
     pub kind: PatternKind,
+    pub ty: TypeId,
     pub span: TextRange,
 }
 
@@ -260,6 +261,7 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
 }
 
 fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyError>) {
+    verify_type_id(pattern.ty, type_count, pattern.span, errors);
     match &pattern.kind {
         PatternKind::Wildcard => {}
         PatternKind::Var { ty, .. } => verify_type_id(*ty, type_count, pattern.span, errors),

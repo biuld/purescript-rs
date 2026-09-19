@@ -147,6 +147,7 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Pattern> {
+        let ty = self.finalize_type(&pattern.ty, pattern.span, interner, generics)?;
         let kind = match pattern.kind {
             InferredPatternKind::Wildcard => thir::PatternKind::Wildcard,
             InferredPatternKind::Var { binder, ty } => {
@@ -163,6 +164,7 @@ impl Checker {
         };
         Some(thir::Pattern {
             kind,
+            ty,
             span: pattern.span,
         })
     }

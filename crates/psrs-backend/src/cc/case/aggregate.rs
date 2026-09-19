@@ -235,14 +235,8 @@ impl FunctionLowerer<'_> {
                 continue;
             }
             let value = if depends_on_type_variable(self.module, constructor.field_types[field]) {
-                let PatternKind::Var { ty, .. } = &pattern.kind else {
-                    return Err(case_error(
-                        pattern.span,
-                        "nested patterns on erased constructor fields are not supported",
-                    ));
-                };
                 self.lower_erased_field(
-                    *ty,
+                    pattern.ty,
                     cast,
                     type_index,
                     field as u32 + 1,
@@ -296,6 +290,11 @@ impl FunctionLowerer<'_> {
         source_type: psrs_core::TypeId,
         state: &mut PatternState<'_>,
     ) -> Result<(), Vec<BackendError>> {
+        let source_type = if depends_on_type_variable(self.module, source_type) {
+            pattern.ty
+        } else {
+            source_type
+        };
         match &pattern.kind {
             PatternKind::Wildcard => Ok(()),
             PatternKind::Var { id, .. } => {
@@ -426,10 +425,21 @@ impl FunctionLowerer<'_> {
                         continue;
                     }
                     if depends_on_type_variable(self.module, constructor.field_types[field]) {
-                        return Err(case_error(
+                        let child_value = self.lower_erased_field(
+                            child.ty,
+                            cast,
+                            type_index,
+                            field as u32 + 1,
                             child.span,
-                            "nested patterns on erased constructor fields are not supported",
-                        ));
+                            state.assignments,
+                        )?;
+                        self.lower_pattern(
+                            child,
+                            child_value,
+                            constructor.field_types[field],
+                            state,
+                        )?;
+                        continue;
                     }
                     let child_type = scalar_type(
                         self.module,

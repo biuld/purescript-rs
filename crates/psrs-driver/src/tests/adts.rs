@@ -237,6 +237,45 @@ main = fromJust (Just 42)
 }
 
 #[test]
+fn runs_a_nested_pattern_on_an_erased_parameterized_field() {
+    let source = "\
+module Main where
+data Maybe a = Nothing | Just a
+fromJust :: Maybe (Maybe Int) -> Int
+fromJust value = case value of
+  Just (Just number) -> number
+  _ -> 0
+main = fromJust (Just (Just 42))
+";
+    let artifact = compile_source("Main.purs", source).expect("lowering nested Maybe");
+    assert!(artifact.wat.contains("struct.new"));
+    assert!(artifact.wat.contains("ref.cast"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn falls_back_when_a_nested_erased_pattern_does_not_match() {
+    let source = "\
+module Main where
+data Maybe a = Nothing | Just a
+fromJust :: Maybe (Maybe Int) -> Int
+fromJust value = case value of
+  Just (Just number) -> number
+  _ -> 7
+main = fromJust (Just Nothing)
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(7));
+}
+
+#[test]
 fn reports_uninstantiated_parameterized_declarations_as_a_limitation() {
     let source = "module Main where\ndata Maybe a = Nothing | Just a\nid :: forall a. Maybe a -> Maybe a\nid x = x\nmain = id (Just 0)\n";
     let errors = compile_source("Main.purs", source).unwrap_err();

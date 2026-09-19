@@ -321,7 +321,11 @@ fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerErr
             }
         }
     };
-    Ok(crate::Pattern { kind, span })
+    Ok(crate::Pattern {
+        kind,
+        ty: TypeId(pattern.ty.0),
+        span,
+    })
 }
 
 fn constructor_application<'a>(

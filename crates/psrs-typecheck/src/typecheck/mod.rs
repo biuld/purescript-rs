@@ -338,6 +338,7 @@ struct InferredCaseBranch {
 #[derive(Clone, Debug)]
 struct InferredPattern {
     kind: InferredPatternKind,
+    ty: InferType,
     span: TextRange,
 }
 
