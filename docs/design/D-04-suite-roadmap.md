@@ -241,9 +241,10 @@ concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
 as demonstrated by `Maybe Int`. Concrete scalar array literals, length, and
 indexing and updates now also lower to Wasm GC arrays. Closed concrete record
-literals, field reads, updates, and variable/wildcard field-binding patterns
-lower to Wasm GC structs. These patterns are currently limited to concrete
-record types with no open row tail. Fully polymorphic
+literals, field reads, updates, and record patterns lower to Wasm GC structs.
+Nested constructor and record field patterns use conditional matching. These
+patterns are currently limited to concrete record types with no open row tail.
+Fully polymorphic
 declarations, open rows, and richer heap or tagged aggregate layouts are still
 open, and
 the backend reports them as named limitations. The parameterized ADT representation is

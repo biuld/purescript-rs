@@ -1,20 +1,13 @@
 use super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
 use super::super::lower::FunctionLowerer;
 use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
-use super::case_error;
 use super::clone::AssignmentCloning;
+use super::{PatternState, case_error};
 use crate::BackendError;
 use crate::types::{HeapType, RefType};
 use psrs_core::{CaseBranch, PatternKind, Primitive};
 use psrs_span::TextRange;
 use std::collections::HashSet;
-
-struct PatternState<'a> {
-    check_nested: bool,
-    conditions: &'a mut Vec<ValueId>,
-    bound: &'a mut Vec<psrs_hir::LocalId>,
-    assignments: &'a mut Vec<Assignment>,
-}
 
 impl FunctionLowerer<'_> {
     pub(super) fn lower_aggregate_case(
@@ -289,7 +282,7 @@ impl FunctionLowerer<'_> {
         value.map(|value| (value, conditions))
     }
 
-    fn lower_pattern(
+    pub(super) fn lower_pattern(
         &mut self,
         pattern: &psrs_core::Pattern,
         value: ValueId,
@@ -473,10 +466,9 @@ impl FunctionLowerer<'_> {
                 }
                 Ok(())
             }
-            PatternKind::Record { .. } => Err(case_error(
-                pattern.span,
-                "record pattern does not match an algebraic data type",
-            )),
+            PatternKind::Record { fields } => {
+                self.lower_record_pattern(fields, value, source_type, state)
+            }
         }
     }
 }

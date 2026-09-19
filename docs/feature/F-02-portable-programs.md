@@ -57,8 +57,8 @@ fields, single-field `newtype` values, constructor patterns in `case` and
 function parameters, including nested constructor patterns,
 a restricted parameterized ADT slice with erased scalar
 fields, concrete scalar array literals and indexing, closed concrete records,
-field reads, record updates, and closed concrete record patterns with variable
-or wildcard field bindings, function values including scalar-capturing closures,
+field reads, record updates, and closed concrete record patterns with variable,
+wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented WASI console, clock, and random capabilities. The selected entry
 must be a zero-argument integer `main` function. Fully polymorphic

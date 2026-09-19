@@ -12,6 +12,13 @@ mod clone;
 mod erased;
 mod record;
 
+struct PatternState<'a> {
+    check_nested: bool,
+    conditions: &'a mut Vec<ValueId>,
+    bound: &'a mut Vec<psrs_hir::LocalId>,
+    assignments: &'a mut Vec<Assignment>,
+}
+
 impl FunctionLowerer<'_> {
     /// Lowers a `case` over a type whose constructors are all nullary into a
     /// chain of tag comparisons.

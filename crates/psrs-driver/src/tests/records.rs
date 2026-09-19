@@ -65,6 +65,40 @@ fn runs_a_record_pattern_in_a_function_parameter() {
 }
 
 #[test]
+fn runs_a_nested_constructor_pattern_in_a_record_field() {
+    let source = "module Main where\ndata Inner = First Int | Second Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 0\nmain = unpack { payload: First 42 }\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("lowering a nested constructor record pattern");
+    assert!(artifact.wat.contains("struct.get"));
+    assert!(artifact.wat.contains("ref.test"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn falls_back_when_a_nested_record_pattern_constructor_does_not_match() {
+    let source = "module Main where\ndata Inner = First Int | Second Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 7\nmain = unpack { payload: Second 10 }\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(7));
+}
+
+#[test]
+fn runs_a_nested_record_pattern_in_a_record_field() {
+    let source = "module Main where\nunpack value = case value of\n  { payload: { answer: number } } -> number\n  _ -> 0\nmain = unpack { payload: { answer: 42 } }\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn rejects_a_record_update_with_an_unknown_field() {
     let source = "module Main where\nmain = { answer: 1 } { missing = 42 }.answer\n";
     let errors = compile_source("Main.purs", source).expect_err("unknown record field");

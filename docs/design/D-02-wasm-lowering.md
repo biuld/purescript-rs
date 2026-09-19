@@ -95,10 +95,10 @@ output and returns `Unit`. Closed concrete record literals and record updates
 lower to Wasm GC structs: an update evaluates its base once, evaluates update
 values in source order, reads unchanged fields with `struct.get`, and rebuilds
 the value with `struct.new`. Open rows remain rejected with source diagnostics.
-Field reads lower to `struct.get`. Closed concrete record patterns with
-variable or wildcard field bindings extract fields with `struct.get`; open
-record patterns and nested refutable field patterns remain rejected. Concrete
-scalar array literals
+Field reads lower to `struct.get`. Closed concrete record patterns extract
+fields with `struct.get`; nested constructor and record field patterns reuse
+the existing conditional pattern lowering, while open record patterns remain
+rejected. Concrete scalar array literals
 lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
 to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
 the concrete `arrayUpdate` intrinsic lowers to `array.set`.

@@ -99,17 +99,6 @@ impl Checker {
                         ));
                         return None;
                     };
-                    if !matches!(
-                        &field_pattern.kind,
-                        hir::PatternKind::Wildcard | hir::PatternKind::Var(_)
-                    ) {
-                        self.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::UnsupportedExpression,
-                            field_pattern.span,
-                            "nested patterns in record patterns are not supported yet",
-                        ));
-                        return None;
-                    }
                     lowered.push((
                         label.clone(),
                         self.check_pattern(field_pattern, field_ty, inserted)?,
