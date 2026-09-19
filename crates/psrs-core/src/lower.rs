@@ -320,6 +320,12 @@ fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerErr
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
+        psrs_thir::PatternKind::Record { fields } => crate::PatternKind::Record {
+            fields: fields
+                .into_iter()
+                .map(|(label, pattern)| Ok((label, lower_pattern(pattern)?)))
+                .collect::<Result<Vec<_>, LowerError>>()?,
+        },
     };
     Ok(crate::Pattern {
         kind,

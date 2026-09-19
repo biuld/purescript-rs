@@ -161,6 +161,14 @@ impl Checker {
                     .collect::<Option<Vec<_>>>()?;
                 thir::PatternKind::Constructor { symbol, arguments }
             }
+            InferredPatternKind::Record { fields } => thir::PatternKind::Record {
+                fields: fields
+                    .into_iter()
+                    .map(|(label, pattern)| {
+                        Some((label, self.finalize_pattern(pattern, interner, generics)?))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            },
         };
         Some(thir::Pattern {
             kind,

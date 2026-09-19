@@ -353,6 +353,9 @@ enum InferredPatternKind {
         symbol: SymbolId,
         arguments: Vec<InferredPattern>,
     },
+    Record {
+        fields: Vec<(String, InferredPattern)>,
+    },
 }
 
 /// A resolved type synonym, expanded during signature elaboration.

@@ -311,6 +311,11 @@ fn collect_pattern_locals(pattern: &PatternKind, bound: &mut HashSet<LocalId>) {
                 collect_pattern_locals(&argument.kind, bound);
             }
         }
+        PatternKind::Record { fields } => {
+            for (_, field) in fields {
+                collect_pattern_locals(&field.kind, bound);
+            }
+        }
         PatternKind::Wildcard => {}
     }
 }

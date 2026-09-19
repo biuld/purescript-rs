@@ -199,5 +199,17 @@ fn verify_pattern(
                 );
             }
         }
+        PatternKind::Record { fields } => {
+            for (_, field) in fields {
+                verify_pattern(
+                    field,
+                    globals,
+                    visible_locals,
+                    declared_locals,
+                    inserted,
+                    errors,
+                );
+            }
+        }
     }
 }

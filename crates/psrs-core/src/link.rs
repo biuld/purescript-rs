@@ -239,6 +239,12 @@ fn shift_pattern(pattern: crate::Pattern, offset: u32) -> crate::Pattern {
                 .map(|argument| shift_pattern(argument, offset))
                 .collect(),
         },
+        PatternKind::Record { fields } => PatternKind::Record {
+            fields: fields
+                .into_iter()
+                .map(|(label, pattern)| (label, shift_pattern(pattern, offset)))
+                .collect(),
+        },
     };
     crate::Pattern {
         kind,
@@ -345,10 +351,18 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
 }
 
 fn collect_pattern(pattern: &crate::Pattern, out: &mut Vec<SymbolId>) {
-    if let PatternKind::Constructor { symbol, arguments } = &pattern.kind {
-        out.push(*symbol);
-        for argument in arguments {
-            collect_pattern(argument, out);
+    match &pattern.kind {
+        PatternKind::Constructor { symbol, arguments } => {
+            out.push(*symbol);
+            for argument in arguments {
+                collect_pattern(argument, out);
+            }
         }
+        PatternKind::Record { fields } => {
+            for (_, field) in fields {
+                collect_pattern(field, out);
+            }
+        }
+        _ => {}
     }
 }

@@ -156,6 +156,9 @@ pub enum PatternKind {
         symbol: SymbolId,
         arguments: Vec<Pattern>,
     },
+    Record {
+        fields: Vec<(String, Pattern)>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -268,6 +271,11 @@ fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyE
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 verify_pattern(argument, type_count, errors);
+            }
+        }
+        PatternKind::Record { fields } => {
+            for (_, field) in fields {
+                verify_pattern(field, type_count, errors);
             }
         }
     }

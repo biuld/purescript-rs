@@ -1,8 +1,11 @@
 mod link;
 mod lower;
+mod pattern;
 
 pub use link::{link, prune_unreachable};
+pub use pattern::{Pattern, PatternKind};
 
+use pattern::{remove_pattern_locals, verify_pattern};
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
 };
@@ -202,27 +205,6 @@ pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
     pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pattern {
-    pub kind: PatternKind,
-    pub ty: TypeId,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PatternKind {
-    Wildcard,
-    Var {
-        id: LocalId,
-        ty: TypeId,
-    },
-    /// A constructor pattern, with one nested pattern per field.
-    Constructor {
-        symbol: SymbolId,
-        arguments: Vec<Pattern>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -446,53 +428,6 @@ fn verify_expr(
                 remove_pattern_locals(&branch.pattern, locals);
             }
         }
-    }
-}
-
-fn verify_pattern(
-    pattern: &Pattern,
-    module: &Module,
-    owner: ModuleId,
-    locals: &mut HashSet<LocalId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    verify_type(pattern.ty, module, owner, pattern.span, errors);
-    match &pattern.kind {
-        PatternKind::Wildcard => {}
-        PatternKind::Var { id, ty } => {
-            verify_type(*ty, module, owner, pattern.span, errors);
-            locals.insert(*id);
-        }
-        PatternKind::Constructor { symbol, arguments } => {
-            if !module
-                .constructors
-                .iter()
-                .any(|constructor| constructor.symbol == *symbol)
-            {
-                errors.push(VerifyError {
-                    module: owner,
-                    span: pattern.span,
-                    message: "pattern constructor is not declared",
-                });
-            }
-            for argument in arguments {
-                verify_pattern(argument, module, owner, locals, errors);
-            }
-        }
-    }
-}
-
-fn remove_pattern_locals(pattern: &Pattern, locals: &mut HashSet<LocalId>) {
-    match &pattern.kind {
-        PatternKind::Var { id, .. } => {
-            locals.remove(id);
-        }
-        PatternKind::Constructor { arguments, .. } => {
-            for argument in arguments {
-                remove_pattern_locals(argument, locals);
-            }
-        }
-        PatternKind::Wildcard => {}
     }
 }
 

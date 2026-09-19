@@ -49,6 +49,12 @@ impl FunctionLowerer<'_> {
                     constructor_branches.push((branch, *tag, type_index));
                 }
                 PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
+                PatternKind::Record { .. } => {
+                    return Err(case_error(
+                        branch.pattern.span,
+                        "record pattern does not match an algebraic data type",
+                    ));
+                }
             }
         }
         let fallback = if let Some(branch) = default {
@@ -467,6 +473,10 @@ impl FunctionLowerer<'_> {
                 }
                 Ok(())
             }
+            PatternKind::Record { .. } => Err(case_error(
+                pattern.span,
+                "record pattern does not match an algebraic data type",
+            )),
         }
     }
 }

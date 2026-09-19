@@ -99,4 +99,7 @@ pub enum PatternKind {
         name_span: TextRange,
         arguments: Vec<Pattern>,
     },
+    Record {
+        fields: Vec<(String, Pattern)>,
+    },
 }

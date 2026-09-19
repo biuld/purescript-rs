@@ -1,6 +1,7 @@
 use crate::{LowerError, Name, Type};
-use psrs_cst::{RecordField, RecordUpdateField};
+use psrs_cst::{self as cst, RecordField, RecordUpdateField};
 use psrs_span::TextRange;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binder {
@@ -85,6 +86,9 @@ pub enum PatternKind {
         name: Name,
         arguments: Vec<Pattern>,
     },
+    Record {
+        fields: Vec<(String, Pattern)>,
+    },
 }
 
 pub(super) fn lower_record(
@@ -142,7 +146,7 @@ pub(super) fn lower_pattern_lambda(
         kind: ExprKind::Name(Name { text: name, span }),
         span,
     };
-    let pattern = super::lower_pattern(pattern)?;
+    let pattern = lower_pattern(pattern)?;
     let case = Expr {
         kind: ExprKind::Case {
             scrutinee: Box::new(scrutinee),
@@ -155,4 +159,107 @@ pub(super) fn lower_pattern_lambda(
         span: TextRange::new(span.start, body.span.end),
     };
     Ok(super::lower_lambda(binder, case))
+}
+
+pub(super) fn check_pattern_names(
+    pattern: &cst::Pattern,
+    seen: &mut HashSet<String>,
+) -> Option<LowerError> {
+    match &pattern.kind {
+        cst::PatternKind::Var(name) => {
+            if !seen.insert(name.text.clone()) {
+                return Some(LowerError::coded(
+                    pattern.span,
+                    "OverlappingArgNames",
+                    "two arguments share the same name",
+                ));
+            }
+        }
+        cst::PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                if let Some(error) = check_pattern_names(argument, seen) {
+                    return Some(error);
+                }
+            }
+        }
+        cst::PatternKind::Record { fields, .. } => {
+            for field in fields {
+                if let Some((_, pattern)) = &field.value {
+                    if let Some(error) = check_pattern_names(pattern, seen) {
+                        return Some(error);
+                    }
+                } else if !seen.insert(field.label.text.clone()) {
+                    return Some(LowerError::coded(
+                        field.label.span,
+                        "OverlappingArgNames",
+                        "two arguments share the same name",
+                    ));
+                }
+            }
+        }
+        cst::PatternKind::Parens { pattern, .. } => {
+            return check_pattern_names(pattern, seen);
+        }
+        _ => {}
+    }
+    None
+}
+
+/// Lowers a pattern in a `case` alternative or binder position.
+pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError> {
+    let span = pattern.span;
+    let kind = match pattern.kind {
+        cst::PatternKind::Wildcard(_) => PatternKind::Wildcard,
+        cst::PatternKind::Var(name) => PatternKind::Var(Binder {
+            name: name.text,
+            span: name.span,
+        }),
+        cst::PatternKind::Constructor { name, arguments } => PatternKind::Constructor {
+            name: super::lower_name(name),
+            arguments: arguments
+                .into_iter()
+                .map(lower_pattern)
+                .collect::<Result<_, _>>()?,
+        },
+        cst::PatternKind::Record { fields, tail, .. } => {
+            if tail.is_some() {
+                return Err(LowerError::new(
+                    span,
+                    "open record patterns are not supported yet",
+                ));
+            }
+            PatternKind::Record {
+                fields: fields
+                    .into_iter()
+                    .map(|field| {
+                        let pattern = field.value.map_or_else(
+                            || {
+                                Ok(Pattern {
+                                    kind: PatternKind::Var(Binder {
+                                        name: field.label.text.clone(),
+                                        span: field.label.span,
+                                    }),
+                                    span: field.label.span,
+                                })
+                            },
+                            |(_, pattern)| lower_pattern(pattern),
+                        )?;
+                        Ok((field.label.text, pattern))
+                    })
+                    .collect::<Result<_, LowerError>>()?,
+            }
+        }
+        cst::PatternKind::Parens { pattern, .. } => {
+            let mut lowered = lower_pattern(*pattern)?;
+            lowered.span = span;
+            return Ok(lowered);
+        }
+        _ => {
+            return Err(LowerError::new(
+                span,
+                "this pattern syntax is not supported yet",
+            ));
+        }
+    };
+    Ok(Pattern { kind, span })
 }

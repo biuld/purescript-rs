@@ -1,6 +1,7 @@
 use super::*;
 
 mod intrinsics;
+mod pattern;
 mod records;
 use intrinsics::intrinsic_type;
 
@@ -402,70 +403,6 @@ impl Checker {
                 branches: inferred,
             },
             ty,
-            span,
-        })
-    }
-
-    /// Checks a pattern against the scrutinee type, binding its variables in the
-    /// current local scope. The returned list is the locals to remove after the
-    /// branch is inferred.
-    fn check_pattern(
-        &mut self,
-        pattern: &hir::Pattern,
-        expected: &InferType,
-        inserted: &mut Vec<LocalId>,
-    ) -> Option<InferredPattern> {
-        let span = pattern.span;
-        let kind = match &pattern.kind {
-            hir::PatternKind::Wildcard => InferredPatternKind::Wildcard,
-            hir::PatternKind::Var(binder) => {
-                self.locals
-                    .insert(binder.id, Scheme::monomorphic(expected.clone()));
-                inserted.push(binder.id);
-                InferredPatternKind::Var {
-                    binder: binder.clone(),
-                    ty: expected.clone(),
-                }
-            }
-            hir::PatternKind::Constructor {
-                symbol, arguments, ..
-            } => {
-                let Some(info) = self.constructor_info.get(symbol).cloned() else {
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::InvalidHir,
-                        span,
-                        "pattern constructor has no type declaration",
-                    ));
-                    return None;
-                };
-                let (result, fields) = self.instantiate_constructor(&info);
-                self.unify(expected.clone(), result, span);
-                if arguments.len() != fields.len() {
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::TypeMismatch,
-                        span,
-                        format!(
-                            "constructor `{}` expects {} arguments but the pattern has {}",
-                            info.name,
-                            fields.len(),
-                            arguments.len()
-                        ),
-                    ));
-                    return None;
-                }
-                let mut lowered = Vec::with_capacity(arguments.len());
-                for (argument, field) in arguments.iter().zip(fields) {
-                    lowered.push(self.check_pattern(argument, &field, inserted)?);
-                }
-                InferredPatternKind::Constructor {
-                    symbol: *symbol,
-                    arguments: lowered,
-                }
-            }
-        };
-        Some(InferredPattern {
-            kind,
-            ty: self.resolve_type(expected.clone()),
             span,
         })
     }

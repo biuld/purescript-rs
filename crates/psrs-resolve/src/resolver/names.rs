@@ -335,6 +335,12 @@ impl Resolver {
                         .collect::<Option<Vec<_>>>()?,
                 }
             }
+            ast::PatternKind::Record { fields } => hir::PatternKind::Record {
+                fields: fields
+                    .into_iter()
+                    .map(|(label, pattern)| Some((label, self.resolve_pattern(pattern, scope)?)))
+                    .collect::<Option<Vec<_>>>()?,
+            },
         };
         Some(hir::Pattern { kind, span })
     }

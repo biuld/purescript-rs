@@ -10,6 +10,7 @@ use std::collections::HashSet;
 mod aggregate;
 mod clone;
 mod erased;
+mod record;
 
 impl FunctionLowerer<'_> {
     /// Lowers a `case` over a type whose constructors are all nullary into a
@@ -23,6 +24,19 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        if matches!(
+            self.module.types.get(scrutinee_type.0 as usize),
+            Some(psrs_core::Type::Record(_))
+        ) {
+            return self.lower_record_case(
+                scrutinee_type,
+                scrutinee,
+                branches,
+                result_type,
+                span,
+                assignments,
+            );
+        }
         let Some(type_id) = user_type_id(self.module, scrutinee_type) else {
             return Err(case_error(span, "case scrutinee is not a data type"));
         };
@@ -75,6 +89,12 @@ impl FunctionLowerer<'_> {
                     constructor_branches.push((branch, *tag));
                 }
                 PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
+                PatternKind::Record { .. } => {
+                    return Err(case_error(
+                        branch.pattern.span,
+                        "record pattern does not match a data type",
+                    ));
+                }
             }
         }
 
@@ -149,6 +169,12 @@ impl FunctionLowerer<'_> {
                     has_constructor_pattern |=
                         matches!(arguments[0].kind, PatternKind::Constructor { .. });
                     arguments[0].clone()
+                }
+                PatternKind::Record { .. } => {
+                    return Err(case_error(
+                        branch.pattern.span,
+                        "record pattern does not match a newtype",
+                    ));
                 }
             };
             lowered_branches.push(CaseBranch {

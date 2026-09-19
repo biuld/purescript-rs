@@ -245,35 +245,9 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
 fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
     let mut seen = HashSet::new();
     for parameter in parameters {
-        if let Some(error) = check_pattern_names(parameter, &mut seen) {
+        if let Some(error) = expr::check_pattern_names(parameter, &mut seen) {
             return Some(error);
         }
-    }
-    None
-}
-
-fn check_pattern_names(pattern: &cst::Pattern, seen: &mut HashSet<String>) -> Option<LowerError> {
-    match &pattern.kind {
-        cst::PatternKind::Var(name) => {
-            if !seen.insert(name.text.clone()) {
-                return Some(LowerError::coded(
-                    pattern.span,
-                    "OverlappingArgNames",
-                    "two arguments share the same name",
-                ));
-            }
-        }
-        cst::PatternKind::Constructor { arguments, .. } => {
-            for argument in arguments {
-                if let Some(error) = check_pattern_names(argument, seen) {
-                    return Some(error);
-                }
-            }
-        }
-        cst::PatternKind::Parens { pattern, .. } => {
-            return check_pattern_names(pattern, seen);
-        }
-        _ => {}
     }
     None
 }
@@ -383,7 +357,8 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                         "where blocks are not supported yet",
                     ));
                 }
-                let pattern = lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
+                let pattern =
+                    expr::lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
                 let value = lower_expr(value)?;
                 branches.push(CaseBranch {
                     pattern,
@@ -415,37 +390,6 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         }
     };
     Ok(Expr { kind, span })
-}
-
-/// Lowers a pattern in a `case` alternative or binder position.
-pub(crate) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError> {
-    let span = pattern.span;
-    let kind = match pattern.kind {
-        cst::PatternKind::Wildcard(_) => PatternKind::Wildcard,
-        cst::PatternKind::Var(name) => PatternKind::Var(Binder {
-            name: name.text,
-            span: name.span,
-        }),
-        cst::PatternKind::Constructor { name, arguments } => PatternKind::Constructor {
-            name: lower_name(name),
-            arguments: arguments
-                .into_iter()
-                .map(lower_pattern)
-                .collect::<Result<_, _>>()?,
-        },
-        cst::PatternKind::Parens { pattern, .. } => {
-            let mut lowered = lower_pattern(*pattern)?;
-            lowered.span = span;
-            return Ok(lowered);
-        }
-        _ => {
-            return Err(LowerError::new(
-                span,
-                "this pattern syntax is not supported yet",
-            ));
-        }
-    };
-    Ok(Pattern { kind, span })
 }
 
 fn lower_lambda(binder: Binder, body: Expr) -> Expr {
