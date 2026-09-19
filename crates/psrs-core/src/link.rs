@@ -173,12 +173,33 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
             branches: branches
                 .into_iter()
                 .map(|branch| CaseBranch {
-                    pattern: branch.pattern,
+                    pattern: shift_pattern(branch.pattern, offset),
                     value: shift_expr(branch.value, offset),
                     span: branch.span,
                 })
                 .collect(),
         },
+    }
+}
+
+fn shift_pattern(pattern: crate::Pattern, offset: u32) -> crate::Pattern {
+    let kind = match pattern.kind {
+        PatternKind::Wildcard => PatternKind::Wildcard,
+        PatternKind::Var { id, ty } => PatternKind::Var {
+            id,
+            ty: shift_id(ty, offset),
+        },
+        PatternKind::Constructor { symbol, arguments } => PatternKind::Constructor {
+            symbol,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| shift_pattern(argument, offset))
+                .collect(),
+        },
+    };
+    crate::Pattern {
+        kind,
+        span: pattern.span,
     }
 }
 

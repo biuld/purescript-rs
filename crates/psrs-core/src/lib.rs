@@ -186,7 +186,10 @@ pub struct Pattern {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
-    Var(LocalId),
+    Var {
+        id: LocalId,
+        ty: TypeId,
+    },
     /// A constructor pattern, with one nested pattern per field.
     Constructor {
         symbol: SymbolId,
@@ -389,7 +392,8 @@ fn verify_pattern(
 ) {
     match &pattern.kind {
         PatternKind::Wildcard => {}
-        PatternKind::Var(id) => {
+        PatternKind::Var { id, ty } => {
+            verify_type(*ty, module, owner, pattern.span, errors);
             locals.insert(*id);
         }
         PatternKind::Constructor { symbol, arguments } => {
@@ -413,7 +417,7 @@ fn verify_pattern(
 
 fn remove_pattern_locals(pattern: &Pattern, locals: &mut HashSet<LocalId>) {
     match &pattern.kind {
-        PatternKind::Var(id) => {
+        PatternKind::Var { id, .. } => {
             locals.remove(id);
         }
         PatternKind::Constructor { arguments, .. } => {

@@ -176,6 +176,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
+        boxed_i32_type: layout.boxed_i32_type,
         constructor_tags: &constructor_tags,
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,

@@ -146,13 +146,33 @@ main = sum (Pair 20 22)
 }
 
 #[test]
-fn reports_parameterized_types_as_a_limitation() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: Maybe Int -> Maybe Int\nf x = x\n";
+fn runs_a_parameterized_adt_with_an_erased_scalar_field() {
+    let source = "\
+module Main where
+data Maybe a = Nothing | Just a
+fromJust :: Maybe Int -> Int
+fromJust value = case value of
+  Just number -> number
+  _ -> 0
+main = fromJust (Just 42)
+";
+    let artifact = compile_source("Main.purs", source).expect("lowering Maybe Int");
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn reports_uninstantiated_parameterized_declarations_as_a_limitation() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nid :: forall a. Maybe a -> Maybe a\nid x = x\nmain = id (Just 0)\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("aggregate or parameterized types")),
+            .any(|error| error.message.contains("polymorphic declarations")),
         "{errors:?}"
     );
 }

@@ -13,13 +13,13 @@ fn typechecks_user_type_constructors_in_signatures() {
 }
 
 #[test]
-fn reports_user_types_as_a_backend_limitation() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: Maybe Int -> Maybe Int\nf x = x\n";
+fn reports_polymorphic_user_type_declarations_as_a_backend_limitation() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nf :: forall a. Maybe a -> Maybe a\nf x = x\nmain = f (Just 0)\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("aggregate or parameterized types")),
+            .any(|error| error.message.contains("polymorphic declarations")),
         "{errors:?}"
     );
 }

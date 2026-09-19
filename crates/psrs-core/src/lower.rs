@@ -232,7 +232,10 @@ fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerErr
     let span = pattern.span;
     let kind = match pattern.kind {
         psrs_thir::PatternKind::Wildcard => crate::PatternKind::Wildcard,
-        psrs_thir::PatternKind::Var { id, .. } => crate::PatternKind::Var(id),
+        psrs_thir::PatternKind::Var { id, ty } => crate::PatternKind::Var {
+            id,
+            ty: TypeId(ty.0),
+        },
         psrs_thir::PatternKind::Constructor { symbol, arguments } => {
             crate::PatternKind::Constructor {
                 symbol,

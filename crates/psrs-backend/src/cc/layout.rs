@@ -101,6 +101,9 @@ fn layoutable_field_type_inner(
     newtype_ids: &HashSet<HirTypeId>,
     visiting: &mut HashSet<HirTypeId>,
 ) -> bool {
+    if depends_on_type_variable(module, id) {
+        return true;
+    }
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => true,
         Some(Type::Constructor(TypeConstructor::User(type_id)))
@@ -136,6 +139,25 @@ pub(super) fn type_layout(
 ) -> Result<TypeLayout, Vec<BackendError>> {
     let mut definitions = Vec::new();
     let mut constructor_types = HashMap::new();
+    let boxed_i32_type = if module
+        .constructors
+        .iter()
+        .flat_map(|constructor| &constructor.field_types)
+        .any(|field| depends_on_type_variable(module, *field))
+    {
+        let type_index = definitions.len() as u32;
+        definitions.push(DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Struct(vec![FieldType {
+                storage: StorageType::I32,
+                mutable: false,
+            }]),
+        });
+        Some(type_index)
+    } else {
+        None
+    };
     for constructor in &module.constructors {
         if !aggregate_types.contains(&constructor.type_id) {
             continue;
@@ -173,12 +195,14 @@ pub(super) fn type_layout(
     Ok(TypeLayout {
         types,
         constructor_types,
+        boxed_i32_type,
     })
 }
 
 pub(super) struct TypeLayout {
     pub(super) types: Vec<RecGroup>,
     pub(super) constructor_types: HashMap<SymbolId, u32>,
+    pub(super) boxed_i32_type: Option<u32>,
 }
 
 fn storage_type(
@@ -188,6 +212,12 @@ fn storage_type(
     newtype_ids: &HashSet<HirTypeId>,
     span: TextRange,
 ) -> Result<StorageType, Vec<BackendError>> {
+    if depends_on_type_variable(module, id) {
+        return Ok(StorageType::Ref(RefType {
+            nullable: false,
+            heap: HeapType::Eq,
+        }));
+    }
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::Boolean | Type::String | Type::Unit) => Ok(StorageType::I32),
         Some(Type::Constructor(TypeConstructor::User(type_id)))
@@ -234,6 +264,37 @@ fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Option<TypeId>
 
 fn layout_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
+pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTypeId> {
+    loop {
+        match module.types.get(id.0 as usize)? {
+            Type::Constructor(TypeConstructor::User(type_id)) => return Some(*type_id),
+            Type::Application(function, _) => id = *function,
+            _ => return None,
+        }
+    }
+}
+
+pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool {
+    fn visit(module: &CoreModule, id: TypeId, visiting: &mut HashSet<TypeId>) -> bool {
+        if !visiting.insert(id) {
+            return false;
+        }
+        let result = match module.types.get(id.0 as usize) {
+            Some(Type::Variable(_)) => true,
+            Some(Type::Application(function, argument))
+            | Some(Type::Function {
+                parameter: function,
+                result: argument,
+            }) => visit(module, *function, visiting) || visit(module, *argument, visiting),
+            _ => false,
+        };
+        visiting.remove(&id);
+        result
+    }
+
+    visit(module, id, &mut HashSet::new())
 }
 
 pub(super) fn declaration_shape(
@@ -291,6 +352,26 @@ pub(super) fn declaration_shape(
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok((arity, aggregate_value_type()))
         }
+        Some(Type::Application(_, _)) => {
+            let Some(type_id) = user_type_id(module, ty) else {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "the first backend slice cannot represent aggregate or parameterized types",
+                )]);
+            };
+            if enum_types.contains(&type_id) {
+                Ok((arity, ValueType::I32))
+            } else if aggregate_types.contains(&type_id) {
+                Ok((arity, aggregate_value_type()))
+            } else {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "the first backend slice cannot represent aggregate or parameterized types",
+                )])
+            }
+        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
@@ -306,7 +387,7 @@ pub(super) fn declaration_shape(
                 )?,
             ))
         }
-        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
+        Some(Type::Constructor(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
             "the first backend slice cannot represent aggregate or parameterized types",
@@ -346,6 +427,26 @@ pub(super) fn scalar_type(
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok(aggregate_value_type())
         }
+        Some(Type::Application(_, _)) => {
+            let Some(type_id) = user_type_id(module, id) else {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    span,
+                    "aggregate and parameterized types are not supported by the first backend slice",
+                )]);
+            };
+            if enum_types.contains(&type_id) {
+                Ok(ValueType::I32)
+            } else if aggregate_types.contains(&type_id) {
+                Ok(aggregate_value_type())
+            } else {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    span,
+                    "aggregate and parameterized types are not supported by the first backend slice",
+                )])
+            }
+        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
@@ -361,7 +462,7 @@ pub(super) fn scalar_type(
                 newtype_ids,
             )
         }
-        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
+        Some(Type::Constructor(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,
             "aggregate and parameterized types are not supported by the first backend slice",
