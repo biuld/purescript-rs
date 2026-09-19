@@ -131,7 +131,8 @@ impl Primitive {
             Intrinsic::BoolTrue
             | Intrinsic::BoolFalse
             | Intrinsic::ArrayLength
-            | Intrinsic::ArrayIndex => return None,
+            | Intrinsic::ArrayIndex
+            | Intrinsic::ArrayUpdate => return None,
         })
     }
 }
@@ -163,6 +164,11 @@ pub enum ExprKind {
     ArrayIndex {
         array: Box<Expr>,
         index: Box<Expr>,
+    },
+    ArrayUpdate {
+        array: Box<Expr>,
+        index: Box<Expr>,
+        value: Box<Expr>,
     },
     Primitive {
         op: Primitive,
@@ -350,6 +356,15 @@ fn verify_expr(
         ExprKind::ArrayIndex { array, index } => {
             verify_expr(array, module, owner, globals, locals, errors);
             verify_expr(index, module, owner, globals, locals, errors);
+        }
+        ExprKind::ArrayUpdate {
+            array,
+            index,
+            value,
+        } => {
+            verify_expr(array, module, owner, globals, locals, errors);
+            verify_expr(index, module, owner, globals, locals, errors);
+            verify_expr(value, module, owner, globals, locals, errors);
         }
         ExprKind::Constructor { symbol, arguments } => {
             if let Some(constructor) = module

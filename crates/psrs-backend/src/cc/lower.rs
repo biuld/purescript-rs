@@ -217,6 +217,11 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            ExprKind::ArrayUpdate {
+                array,
+                index,
+                value,
+            } => self.lower_array_update(expression, array, index, value, assignments),
             ExprKind::ArrayLength(value) => {
                 let value = self.lower_value(value, assignments)?;
                 let destination = self.fresh(ty);

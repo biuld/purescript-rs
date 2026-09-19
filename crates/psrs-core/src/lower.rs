@@ -191,6 +191,23 @@ fn lower_expr(
                 });
             }
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
+                && args.len() == 3
+                && matches!(
+                    externals.get(&symbol),
+                    Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::ArrayUpdate))
+                )
+            {
+                return Ok(Expr {
+                    kind: ExprKind::ArrayUpdate {
+                        array: Box::new(args[0].clone()),
+                        index: Box::new(args[1].clone()),
+                        value: Box::new(args[2].clone()),
+                    },
+                    ty,
+                    span,
+                });
+            }
+            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 1
                 && matches!(
                     externals.get(&symbol),

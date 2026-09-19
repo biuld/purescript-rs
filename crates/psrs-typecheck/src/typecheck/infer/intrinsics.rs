@@ -23,6 +23,22 @@ pub(super) fn intrinsic_type(intrinsic: Intrinsic) -> Option<InferType> {
             )),
         ));
     }
+    if intrinsic == Intrinsic::ArrayUpdate {
+        let array = InferType::Application(
+            Box::new(InferType::Constructor(TypeConstructor::Array)),
+            Box::new(InferType::I32),
+        );
+        return Some(InferType::Function(
+            Box::new(array.clone()),
+            Box::new(InferType::Function(
+                Box::new(InferType::I32),
+                Box::new(InferType::Function(
+                    Box::new(InferType::I32),
+                    Box::new(array),
+                )),
+            )),
+        ));
+    }
     let result = match intrinsic {
         Intrinsic::I32Add
         | Intrinsic::I32Sub
@@ -38,7 +54,8 @@ pub(super) fn intrinsic_type(intrinsic: Intrinsic) -> Option<InferType> {
         Intrinsic::BoolTrue
         | Intrinsic::BoolFalse
         | Intrinsic::ArrayLength
-        | Intrinsic::ArrayIndex => return None,
+        | Intrinsic::ArrayIndex
+        | Intrinsic::ArrayUpdate => return None,
     };
     Some(InferType::Function(
         Box::new(InferType::I32),

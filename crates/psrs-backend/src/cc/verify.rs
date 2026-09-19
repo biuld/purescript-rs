@@ -84,6 +84,12 @@ fn verify_assignments(
             AssignmentKind::ArrayNew { elements, .. } => uses.extend(elements.iter().copied()),
             AssignmentKind::ArrayLen { value, .. } => uses.push(*value),
             AssignmentKind::ArrayGet { value, index, .. } => uses.extend([*value, *index]),
+            AssignmentKind::ArraySet {
+                value,
+                index,
+                new_value,
+                ..
+            } => uses.extend([*value, *index, *new_value]),
             AssignmentKind::DirectCall {
                 function,
                 arguments,
@@ -142,7 +148,15 @@ fn verify_assignments(
         if uses.iter().any(|value| !available.contains(value)) {
             return Err(undef_error(assignment.span, function_span));
         }
-        if !available.insert(assignment.destination) {
+        let preserves_existing_value = matches!(
+            &assignment.kind,
+            AssignmentKind::ArraySet {
+                destination,
+                value,
+                ..
+            } if *destination == *value && *destination == assignment.destination
+        );
+        if !preserves_existing_value && !available.insert(assignment.destination) {
             return Err(vec![BackendError::new(
                 "P8 CC verification",
                 assignment.span,

@@ -108,6 +108,13 @@ pub enum AssignmentKind {
         value: ValueId,
         index: ValueId,
     },
+    ArraySet {
+        destination: ValueId,
+        type_index: u32,
+        value: ValueId,
+        index: ValueId,
+        new_value: ValueId,
+    },
     If {
         condition: ValueId,
         then_assignments: Vec<Assignment>,

@@ -58,8 +58,8 @@ function parameters, a restricted parameterized ADT slice with erased scalar
 fields, concrete scalar array literals and indexing, closed concrete records
 and field reads, and the implemented WASI console, clock, and random
 capabilities. The selected entry must be a zero-argument integer `main`
-function. Fully polymorphic declarations, record updates and open rows,
-closures, higher-order calls, and unsupported WIT shapes receive
+function. Fully polymorphic declarations, open rows, closures, higher-order
+calls, and unsupported WIT shapes receive
 source-oriented diagnostics.
 
 ## Acceptance criteria

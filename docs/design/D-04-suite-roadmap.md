@@ -237,7 +237,7 @@ and matching pass through the field value, with no GC allocation. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
 as demonstrated by `Maybe Int`. Concrete scalar array literals, length, and
-indexing now also lower to Wasm GC arrays. Closed concrete record literals and
+indexing and updates now also lower to Wasm GC arrays. Closed concrete record literals and
 field reads lower to Wasm GC structs. Fully polymorphic declarations, open
 rows, record updates, array updates, and richer heap or tagged aggregate
 layouts are still open, and

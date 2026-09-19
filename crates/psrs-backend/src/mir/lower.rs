@@ -204,6 +204,23 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::ArraySet {
+                    type_index,
+                    value,
+                    index,
+                    new_value,
+                    ..
+                } => self.append_instruction(
+                    current,
+                    Instruction::ArraySet {
+                        type_index: *type_index,
+                        value: *value,
+                        index: *index,
+                        new_value: *new_value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::DirectCall {
                     function,
                     arguments,

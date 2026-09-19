@@ -35,3 +35,15 @@ fn runs_array_index_through_the_gc_array() {
     };
     assert_eq!(output.status.code(), Some(20));
 }
+
+#[test]
+fn runs_array_update_through_the_gc_array() {
+    let source = "module Main where\nmain = arrayIndex (arrayUpdate [10, 20, 30] 1 42) 1\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering array update");
+    assert!(artifact.wat.contains("array.set"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}

@@ -34,4 +34,36 @@ impl FunctionLowerer<'_> {
         });
         Ok(destination)
     }
+
+    pub(super) fn lower_array_update(
+        &mut self,
+        expression: &Expr,
+        array: &Expr,
+        index: &Expr,
+        new_value: &Expr,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(type_index) = self.array_types.get(&array.ty).copied() else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "array update has no concrete GC array layout",
+            )]);
+        };
+        let array = self.lower_value(array, assignments)?;
+        let index = self.lower_value(index, assignments)?;
+        let new_value = self.lower_value(new_value, assignments)?;
+        assignments.push(Assignment {
+            destination: array,
+            kind: AssignmentKind::ArraySet {
+                destination: array,
+                type_index,
+                value: array,
+                index,
+                new_value,
+            },
+            span: expression.span,
+        });
+        Ok(array)
+    }
 }

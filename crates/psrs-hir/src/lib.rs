@@ -66,6 +66,7 @@ pub enum Intrinsic {
     I32GeS,
     ArrayLength,
     ArrayIndex,
+    ArrayUpdate,
 }
 
 impl Intrinsic {
