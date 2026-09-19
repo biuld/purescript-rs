@@ -98,6 +98,10 @@ pub enum AssignmentKind {
         type_index: u32,
         elements: Vec<ValueId>,
     },
+    ArrayLen {
+        destination: ValueId,
+        value: ValueId,
+    },
     If {
         condition: ValueId,
         then_assignments: Vec<Assignment>,

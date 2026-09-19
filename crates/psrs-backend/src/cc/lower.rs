@@ -183,6 +183,16 @@ impl FunctionLowerer<'_> {
             ExprKind::Array { elements } => {
                 self.lower_array(expression, elements, ty, assignments)
             }
+            ExprKind::ArrayLength(value) => {
+                let value = self.lower_value(value, assignments)?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::ArrayLen { destination, value },
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
             ExprKind::Constructor { symbol, arguments } => {
                 let constructor = self
                     .module

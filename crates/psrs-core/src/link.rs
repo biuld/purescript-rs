@@ -137,6 +137,7 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 .map(|element| shift_expr(element, offset))
                 .collect(),
         },
+        ExprKind::ArrayLength(value) => ExprKind::ArrayLength(Box::new(shift_expr(*value, offset))),
         ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
             op,
             left: Box::new(shift_expr(*left, offset)),
@@ -247,6 +248,7 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
                 collect_references(element, out);
             }
         }
+        ExprKind::ArrayLength(value) => collect_references(value, out),
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             collect_references(left, out);
             collect_references(right, out);

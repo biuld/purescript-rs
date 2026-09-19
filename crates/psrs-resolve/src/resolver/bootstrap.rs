@@ -16,6 +16,7 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         ("<=", Intrinsic::I32LeS),
         (">", Intrinsic::I32GtS),
         (">=", Intrinsic::I32GeS),
+        ("arrayLength", Intrinsic::ArrayLength),
     ]
     .into_iter()
     .map(|(name, intrinsic)| ExternalSymbol {

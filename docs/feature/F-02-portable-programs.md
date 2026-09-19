@@ -57,8 +57,8 @@ fields, single-field `newtype` values, constructor patterns in `case` and
 function parameters, a restricted parameterized ADT slice with erased scalar
 fields, concrete scalar array literals, and the implemented WASI console, clock,
 and random capabilities. The selected entry must be a zero-argument integer
-`main` function. Fully polymorphic declarations, records, array operations,
-closures, higher-order calls, and unsupported WIT shapes receive
+`main` function. Fully polymorphic declarations, records, array indexing and
+updates, closures, higher-order calls, and unsupported WIT shapes receive
 source-oriented diagnostics.
 
 ## Acceptance criteria

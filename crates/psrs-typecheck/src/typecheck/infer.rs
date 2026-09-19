@@ -1,5 +1,8 @@
 use super::*;
 
+mod intrinsics;
+use intrinsics::intrinsic_type;
+
 impl Checker {
     pub(super) fn new(module: &hir::Module, imported: &HashMap<SymbolId, hir::Type>) -> Self {
         let mut checker = Self {
@@ -476,28 +479,4 @@ impl Checker {
             .collect();
         (result, fields)
     }
-}
-
-fn intrinsic_type(intrinsic: Intrinsic) -> Option<InferType> {
-    let result = match intrinsic {
-        Intrinsic::I32Add
-        | Intrinsic::I32Sub
-        | Intrinsic::I32Mul
-        | Intrinsic::I32DivS
-        | Intrinsic::I32RemS => InferType::I32,
-        Intrinsic::I32Eq
-        | Intrinsic::I32Ne
-        | Intrinsic::I32LtS
-        | Intrinsic::I32LeS
-        | Intrinsic::I32GtS
-        | Intrinsic::I32GeS => InferType::Boolean,
-        Intrinsic::BoolTrue | Intrinsic::BoolFalse => return None,
-    };
-    Some(InferType::Function(
-        Box::new(InferType::I32),
-        Box::new(InferType::Function(
-            Box::new(InferType::I32),
-            Box::new(result),
-        )),
-    ))
 }

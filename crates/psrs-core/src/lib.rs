@@ -127,7 +127,7 @@ impl Primitive {
             Intrinsic::I32LeS => Self::LeS,
             Intrinsic::I32GtS => Self::GtS,
             Intrinsic::I32GeS => Self::GeS,
-            Intrinsic::BoolTrue | Intrinsic::BoolFalse => return None,
+            Intrinsic::BoolTrue | Intrinsic::BoolFalse | Intrinsic::ArrayLength => return None,
         })
     }
 }
@@ -148,6 +148,7 @@ pub enum ExprKind {
     Array {
         elements: Vec<Expr>,
     },
+    ArrayLength(Box<Expr>),
     Primitive {
         op: Primitive,
         left: Box<Expr>,
@@ -315,6 +316,7 @@ fn verify_expr(
                 verify_expr(element, module, owner, globals, locals, errors);
             }
         }
+        ExprKind::ArrayLength(value) => verify_expr(value, module, owner, globals, locals, errors),
         ExprKind::Constructor { symbol, arguments } => {
             if let Some(constructor) = module
                 .constructors

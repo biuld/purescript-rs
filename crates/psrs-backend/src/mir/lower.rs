@@ -179,6 +179,15 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::ArrayLen { destination, value } => self.append_instruction(
+                    current,
+                    Instruction::ArrayLen {
+                        destination: *destination,
+                        value: *value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::DirectCall {
                     function,
                     arguments,

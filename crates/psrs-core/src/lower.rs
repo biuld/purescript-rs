@@ -159,6 +159,19 @@ fn lower_expr(
             let function = lower_expr(*function, externals, constructors)?;
             let argument = lower_expr(*argument, externals, constructors)?;
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
+                && args.len() == 1
+                && matches!(
+                    externals.get(&symbol),
+                    Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::ArrayLength))
+                )
+            {
+                return Ok(Expr {
+                    kind: ExprKind::ArrayLength(Box::new(args[0].clone())),
+                    ty,
+                    span,
+                });
+            }
+            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
                 && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
                     ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
