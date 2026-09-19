@@ -11,6 +11,16 @@ compatibility goal is PureScript language semantics plus the project's
 PureScript-facing WASI libraries; Node.js and JavaScript FFI compatibility are
 outside this target.
 
+The artifact targets the WebAssembly feature set of a pinned `wasmtime` release
+rather than the minimal core specification. It may use the standardized
+WebAssembly 3.0 features that release implements—including garbage collection,
+function references, tail calls, and exception handling—as well as proposals
+that are still in preview. The baseline and its consequences are fixed by
+[DEC-05](../decision/DEC-05-wasmtime-feature-set.md), and the concrete feature
+list, WASI surface, and verification are defined by
+[D-05](D-05-backend-capability.md). Target features are chosen in MIR and never
+leak into the frontend IRs.
+
 The backend starts from Typed Core, the stable frontend/backend boundary. Wasm
 is the primary backend. A native executable, if added, should embed or run the
 Wasm artifact rather than introduce an independent code generator.
@@ -71,11 +81,13 @@ module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
 
 The supported program shape includes top-level direct functions, `Int`,
 `Boolean`, `String`, and `Unit`, integer arithmetic and comparisons, string
-literals, local scalar `let` bindings, and value-producing `if`. Top-level
+literals, local scalar `let` bindings, and value-producing `if`. A data type
+whose constructors are all nullary lowers to immediate integer tags and `case`
+over it to tag comparisons, so enum-style programs run under WASI. Top-level
 lambdas become direct parameters. The `log` runtime function writes a `String`
 to standard output and returns `Unit`. Nested or capturing lambdas, function
-values, higher-order calls, source imports, and aggregate values are rejected
-with source diagnostics. Type inference supports rank-1 polymorphism: it
+values, higher-order calls, source imports, and aggregate values with fields are
+rejected with source diagnostics. Type inference supports rank-1 polymorphism: it
 generalizes local `let` groups and top-level strongly connected components and
 instantiates schemes at use sites. Declarations may carry a `name :: Type`
 signature with function arrows and `forall`; the checker elaborates it with
@@ -129,26 +141,37 @@ lowering passes. Do not add type-system special cases to the Wasm emitter.
 
 ## Runtime and representation
 
-Keep target representation decisions in P9. The first runtime can use a bump
-allocator for heap objects. Establish a small ABI before adding services:
+Keep target representation decisions in P9. Aggregates and closures use Wasm GC
+per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md); linear memory is
+reserved for the byte-oriented WASI boundary, not for the language heap.
+Establish a small ABI before adding services:
 
 - `Int` uses signed 32-bit values; `Number` uses 64-bit floating point.
 - `Boolean` uses an integer zero/one representation and `Char` a Unicode scalar.
-- `String` values are linear-memory pointers to a length-prefixed UTF-8 buffer;
-  literals live in data segments. A heap string type replaces this later.
+- `String` values remain linear-memory pointers to a length-prefixed UTF-8
+  buffer for the WASI boundary; literals live in data segments. A GC string
+  representation can replace it later without changing source semantics.
 - `Unit` has no payload and uses the integer zero.
-- Algebraic data values carry a constructor tag and payload.
-- Closures pair a table entry with an environment reference.
-- Records use a compile-time shape and a runtime layout selected during MIR
-  lowering.
+- A data type whose constructors are all nullary uses immediate integer tags and
+  allocates nothing.
+- A data type with fields uses a `rec` group of GC `struct` types: one subtype
+  per constructor under an abstract supertype, with each field a reference or a
+  scalar. Constructor application allocates with `struct.new`, and pattern
+  matching uses `br_on_cast`/`ref.test`.
+- Closures are GC `struct` values holding a `funcref` and their captures, called
+  with `call_ref`.
+- Records use a GC `struct` with a compile-time field shape, and arrays use a GC
+  `array`.
 
 The exact Wasm reference strategy may evolve, but it must not leak into CST,
-AST, HIR, THIR, or Typed Core. A production garbage collector and Wasm GC
-objects are later work.
+AST, HIR, THIR, or Typed Core.
 
 ## WASI platform model
 
-Use WASI 0.2 Component Model/WIT as the initial platform baseline. The
+The platform target is a WASI Component Model release; the exact release
+(0.2 or 0.3) is an open item in [D-05](D-05-backend-capability.md). Until the
+component emitter and canonical ABI exist, the bootstrap emits a core module
+that uses WASI Preview 1 imports for console and exit only. The
 PureScript-facing library calls a stable compiler runtime ABI; the runtime
 adapter maps that ABI to WASI interfaces. Keep the three layers separate:
 
@@ -191,7 +214,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a `_start`/`proc_exit` WASI command entry, binary validation, and WAT output |
-| M6 | Algebraic data types and pattern matching |
+| M6 | Partial: nullary data types lower to integer tags and run; fields, tagged layouts, and GC-backed aggregates pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |
 | M10 | WASI runtime and PureScript-facing base libraries |

@@ -90,8 +90,13 @@ aggregate values, and the Component Model layer are not implemented yet.
 
 The compiler architecture defines twelve major passes across six long-lived
 IR families. The first Wasm slice is implemented; the WASI runtime and
-Component Model linker remain future work. See [D-01](docs/design/D-01-frontend-and-ir-boundaries.md)
-and [D-02](docs/design/D-02-wasm-lowering.md).
+Component Model linker remain future work. The executable baseline is a pinned
+`wasmtime` release and may use the standardized WebAssembly 3.0 features
+(garbage collection, function references, tail calls, and exception handling)
+as well as preview proposals, per
+[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md). See
+[D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
+[D-02](docs/design/D-02-wasm-lowering.md).
 
 ## Project documents
 
@@ -105,11 +110,14 @@ and [D-02](docs/design/D-02-wasm-lowering.md).
 The main user-facing goals are described by [F-01](docs/feature/F-01-source-inspection.md)
 and [F-02](docs/feature/F-02-portable-programs.md). Their implementations are
 specified in [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
-[D-02](docs/design/D-02-wasm-lowering.md). The type system is specified in
+[D-02](docs/design/D-02-wasm-lowering.md), with the WebAssembly and WASI target
+features fixed in
+[D-05](docs/design/D-05-backend-capability.md). The type system is specified in
 [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md); the corresponding decisions are
-[DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md) and
-[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md).
+[DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md),
+[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md), and
+[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md).
 
 ## Development checks
 

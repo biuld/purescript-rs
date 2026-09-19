@@ -17,12 +17,22 @@ psrs build src/Main.purs -o main.wasm
 <compatible WASI runtime> main.wasm
 ```
 
-The first platform target is WASI, using the WASI 0.2 Component Model as its
-baseline. Programs use the project's PureScript-facing WASI libraries for
-platform services. Existing Node.js APIs and JavaScript FFI modules are not
-supported compatibility targets. Programs that use unsupported syntax,
-types, or platform services receive source-oriented diagnostics rather than a
-malformed artifact.
+The first platform target is WASI on the Component Model (WASI 0.2, or 0.3
+where the runtime baseline supports it). Programs use the project's
+PureScript-facing WASI libraries for platform services. Existing Node.js APIs
+and JavaScript FFI modules are not supported compatibility targets. Programs
+that use unsupported syntax, types, or platform services receive source-oriented
+diagnostics rather than a malformed artifact.
+
+Until a component artifact exists, the compiler emits an interim core module
+that uses the legacy WASI Preview 1 imports for console and exit only.
+
+The executable baseline is a documented, pinned WebAssembly runtime
+(`wasmtime`). An artifact may require the WebAssembly features that baseline
+enables, from the standardized WebAssembly 3.0 set (garbage collection,
+function references, tail calls, and exception handling) to proposals still in
+the preview stage, so portability is defined against engines that implement the
+same feature set rather than against the minimal core specification.
 
 Compatibility is measured against the official PureScript test suite, layer by
 layer, as decided in [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md):

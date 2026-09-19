@@ -233,7 +233,9 @@ non-parameterized data type to immediate integer tags and `case` over it to tag
 comparisons, so enum-style programs compile to Wasm and run under WASI.
 Constructors with fields, parameterized types, `newtype` erasure, records,
 rows, and heap or tagged aggregate layouts are still open, and the backend
-reports them as named limitations.
+reports them as named limitations. Fields and closures will use Wasm GC
+objects under the runtime baseline fixed by
+[DEC-05](../decision/DEC-05-wasmtime-feature-set.md).
 
 ### M7 — Runtime and standard library
 
