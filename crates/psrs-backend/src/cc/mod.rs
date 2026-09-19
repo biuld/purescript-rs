@@ -75,11 +75,22 @@ pub enum AssignmentKind {
     FunctionRef {
         function: SymbolId,
         type_index: u32,
+        closure_type: u32,
+        capture_array_type: u32,
+        captures: Vec<ValueId>,
     },
     IndirectCall {
         function: ValueId,
         type_index: u32,
+        closure_type: u32,
+        capture_array_type: u32,
         arguments: Vec<ValueId>,
+    },
+    ClosureGetCapture {
+        closure: ValueId,
+        closure_type: u32,
+        capture_array_type: u32,
+        index: u32,
     },
     RefTest {
         destination: ValueId,
@@ -198,6 +209,19 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         }
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
+    let function_wrappers = module
+        .declarations
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.symbol,
+                SymbolId::new(
+                    declaration.symbol.module,
+                    u32::MAX - 0x4000_0000 - declaration.symbol.index,
+                ),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let context = LoweringContext {
         module: &module,
         signatures: &signatures,
@@ -211,6 +235,9 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,
         function_types: &layout.function_types,
+        capture_array_type: layout.capture_array_type,
+        closure_type: layout.closure_type,
+        function_wrappers: &function_wrappers,
     };
     for declaration in &module.declarations {
         let (lowered, generated) = lower_function(declaration, &context).map_err(|errors| {

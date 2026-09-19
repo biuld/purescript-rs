@@ -253,7 +253,7 @@ pub(super) fn type_layout(
             composite: CompositeType::Struct(fields),
         });
     }
-    let function_types = functions::append_function_types(
+    let function_layout = functions::append_function_types(
         module,
         enum_types,
         aggregate_types,
@@ -273,7 +273,9 @@ pub(super) fn type_layout(
         record_types,
         constructor_types,
         boxed_i32_type,
-        function_types,
+        function_types: function_layout.function_types,
+        capture_array_type: function_layout.capture_array_type,
+        closure_type: function_layout.closure_type,
     })
 }
 
@@ -284,6 +286,8 @@ pub(super) struct TypeLayout {
     pub(super) constructor_types: HashMap<SymbolId, u32>,
     pub(super) boxed_i32_type: Option<u32>,
     pub(super) function_types: HashMap<TypeId, u32>,
+    pub(super) capture_array_type: Option<u32>,
+    pub(super) closure_type: Option<u32>,
 }
 
 fn storage_type(

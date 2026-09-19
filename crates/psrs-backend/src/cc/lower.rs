@@ -8,9 +8,11 @@ use std::collections::{HashMap, HashSet};
 mod array;
 mod call;
 mod erased;
+mod global;
 mod lambda;
 mod record;
 use call::{CallShape, collect_application};
+use global::GlobalLowering;
 use lambda::LambdaLowering;
 
 pub(super) struct LoweringContext<'a> {
@@ -26,6 +28,9 @@ pub(super) struct LoweringContext<'a> {
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) capture_array_type: Option<u32>,
+    pub(super) closure_type: Option<u32>,
+    pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
 }
 
 pub(super) fn lower_function(
@@ -49,6 +54,9 @@ pub(super) fn lower_function(
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
         function_types: context.function_types,
+        capture_array_type: context.capture_array_type,
+        closure_type: context.closure_type,
+        function_wrappers: context.function_wrappers,
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
@@ -94,7 +102,8 @@ pub(super) fn lower_function(
         span: declaration.span,
     };
     super::verify::verify_function(&function, context.signatures)?;
-    let generated = state.generated;
+    let mut generated = state.generated;
+    generated.push(lambda::make_wrapper(&function, declaration, context));
     Ok((function, generated))
 }
 
@@ -114,6 +123,9 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) capture_array_type: Option<u32>,
+    pub(super) closure_type: Option<u32>,
+    pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated: Vec<Function>,
 }
 
@@ -150,69 +162,7 @@ impl FunctionLowerer<'_> {
                 )]
             }),
             ExprKind::Global(function) => {
-                let Some(signature) = self.signatures.get(function) else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "global is not a local top-level function",
-                    )]);
-                };
-                if matches!(self.module.types.get(expression.ty.0 as usize), Some(psrs_core::Type::Function { .. })) {
-                    let Some(type_index) = self.function_types.get(&expression.ty).copied() else {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "function value has no runtime function type",
-                        )]);
-                    };
-                    if ty
-                        != ValueType::Ref(crate::types::RefType {
-                            nullable: false,
-                            heap: crate::types::HeapType::Index(type_index),
-                        })
-                    {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "global function reference has the wrong runtime type",
-                        )]);
-                    }
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::FunctionRef {
-                            function: *function,
-                            type_index,
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                } else {
-                    if !signature.parameters.is_empty() {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "a function value escapes direct-call position",
-                        )]);
-                    }
-                    if ty != signature.result {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "global value type differs from its function result type",
-                        )]);
-                    }
-                    let destination = self.fresh(ty);
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::DirectCall {
-                            function: *function,
-                            arguments: Vec::new(),
-                        },
-                        span: expression.span,
-                    });
-                    Ok(destination)
-                }
+                self.lower_global(expression, *function, ty, assignments)
             }
             ExprKind::Integer(value) => {
                 let destination = self.fresh(ty);
@@ -439,6 +389,20 @@ impl FunctionLowerer<'_> {
                         kind: AssignmentKind::IndirectCall {
                             function,
                             type_index,
+                            closure_type: self.closure_type.ok_or_else(|| {
+                                vec![BackendError::new(
+                                    "P8 closure conversion",
+                                    expression.span,
+                                    "higher-order call has no closure layout",
+                                )]
+                            })?,
+                            capture_array_type: self.capture_array_type.ok_or_else(|| {
+                                vec![BackendError::new(
+                                    "P8 closure conversion",
+                                    expression.span,
+                                    "higher-order call has no capture array layout",
+                                )]
+                            })?,
                             arguments: values,
                         },
                         span: expression.span,
@@ -492,7 +456,7 @@ impl FunctionLowerer<'_> {
                     assignments,
                 )
             }
-            ExprKind::Lambda { .. } => self.lower_non_capturing_lambda(expression, ty, assignments),
+            ExprKind::Lambda { .. } => self.lower_lambda(expression, ty, assignments),
         }
     }
 }

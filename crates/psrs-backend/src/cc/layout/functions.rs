@@ -1,6 +1,8 @@
 use super::{Signature, scalar_type};
 use crate::BackendError;
-use crate::types::{CompositeType, DefinedType};
+use crate::types::{
+    CompositeType, DefinedType, FieldType, HeapType, RefType, StorageType, ValueType,
+};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use std::collections::{HashMap, HashSet};
@@ -13,7 +15,7 @@ pub(super) fn append_function_types(
     array_types: &HashMap<TypeId, u32>,
     record_types: &HashMap<TypeId, u32>,
     definitions: &mut Vec<DefinedType>,
-) -> Result<HashMap<TypeId, u32>, Vec<BackendError>> {
+) -> Result<FunctionLayouts, Vec<BackendError>> {
     let needs_function_types = module.declarations.iter().any(|declaration| {
         let mut value = &declaration.value;
         let mut function_parameter = false;
@@ -24,7 +26,11 @@ pub(super) fn append_function_types(
         function_parameter || contains_function_value(value, module)
     });
     if !needs_function_types {
-        return Ok(HashMap::new());
+        return Ok(FunctionLayouts {
+            function_types: HashMap::new(),
+            capture_array_type: None,
+            closure_type: None,
+        });
     }
     let function_type_base = definitions.len() as u32;
     let function_types = module
@@ -56,12 +62,57 @@ pub(super) fn append_function_types(
             final_type: true,
             supertype: None,
             composite: CompositeType::Func {
-                parameters: signature.parameters,
+                parameters: std::iter::once(closure_value_type())
+                    .chain(signature.parameters)
+                    .collect(),
                 results: vec![signature.result],
             },
         });
     }
-    Ok(function_types)
+    let capture_array_type = definitions.len() as u32;
+    definitions.push(DefinedType {
+        final_type: true,
+        supertype: None,
+        composite: CompositeType::Array(FieldType {
+            storage: StorageType::Ref(RefType {
+                nullable: true,
+                heap: HeapType::Eq,
+            }),
+            mutable: false,
+        }),
+    });
+    let closure_type = definitions.len() as u32;
+    definitions.push(DefinedType {
+        final_type: true,
+        supertype: None,
+        composite: CompositeType::Struct(vec![
+            FieldType {
+                storage: StorageType::Ref(RefType {
+                    nullable: false,
+                    heap: HeapType::Func,
+                }),
+                mutable: false,
+            },
+            FieldType {
+                storage: StorageType::Ref(RefType {
+                    nullable: false,
+                    heap: HeapType::Index(capture_array_type),
+                }),
+                mutable: false,
+            },
+        ]),
+    });
+    Ok(FunctionLayouts {
+        function_types,
+        capture_array_type: Some(capture_array_type),
+        closure_type: Some(closure_type),
+    })
+}
+
+pub(super) struct FunctionLayouts {
+    pub(super) function_types: HashMap<TypeId, u32>,
+    pub(super) capture_array_type: Option<u32>,
+    pub(super) closure_type: Option<u32>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -183,4 +234,11 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
 
 fn is_function_type(module: &CoreModule, id: TypeId) -> bool {
     matches!(module.types.get(id.0 as usize), Some(Type::Function { .. }))
+}
+
+fn closure_value_type() -> ValueType {
+    ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Struct,
+    })
 }

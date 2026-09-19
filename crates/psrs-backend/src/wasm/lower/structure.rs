@@ -8,8 +8,10 @@ use crate::wasm::convert::{heap_type, val_type};
 use crate::wasm::{Body, Op};
 use ops::{memory, primitive, ref_cast, ref_test};
 
+mod closure;
 mod helpers;
 mod ops;
+use closure::ClosureOps;
 use helpers::ValueOps;
 use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
@@ -267,6 +269,7 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                MirInstruction::ClosureNew { .. } => self.emit_closure_new(body, instruction)?,
                 MirInstruction::CallRef {
                     destination,
                     function,
@@ -280,6 +283,10 @@ impl Structurer<'_> {
                     self.load(body, *function, *span)?;
                     body.push(Op::Leaf(Instruction::CallRef(*type_index)));
                     self.store(body, *destination, *span)?;
+                }
+                MirInstruction::ClosureCall { .. } => self.emit_closure_call(body, instruction)?,
+                MirInstruction::ClosureGetCapture { .. } => {
+                    self.emit_closure_get_capture(body, instruction)?
                 }
                 MirInstruction::RefNull {
                     destination,

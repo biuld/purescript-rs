@@ -250,12 +250,18 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::FunctionRef {
                     function,
                     type_index,
+                    closure_type,
+                    capture_array_type,
+                    captures,
                 } => self.append_instruction(
                     current,
-                    Instruction::RefFunc {
+                    Instruction::ClosureNew {
                         destination: assignment.destination,
                         function: *function,
                         type_index: *type_index,
+                        closure_type: *closure_type,
+                        capture_array_type: *capture_array_type,
+                        captures: captures.clone(),
                         span: assignment.span,
                     },
                     assignment.span,
@@ -263,14 +269,35 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::IndirectCall {
                     function,
                     type_index,
+                    closure_type,
+                    capture_array_type,
                     arguments,
                 } => self.append_instruction(
                     current,
-                    Instruction::CallRef {
+                    Instruction::ClosureCall {
                         destination: assignment.destination,
                         function: *function,
                         type_index: *type_index,
+                        closure_type: *closure_type,
+                        capture_array_type: *capture_array_type,
                         arguments: arguments.clone(),
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::ClosureGetCapture {
+                    closure,
+                    closure_type,
+                    capture_array_type,
+                    index,
+                } => self.append_instruction(
+                    current,
+                    Instruction::ClosureGetCapture {
+                        destination: assignment.destination,
+                        closure: *closure,
+                        closure_type: *closure_type,
+                        capture_array_type: *capture_array_type,
+                        index: *index,
                         span: assignment.span,
                     },
                     assignment.span,

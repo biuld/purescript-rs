@@ -34,11 +34,37 @@ pub enum Instruction {
         type_index: u32,
         span: TextRange,
     },
+    ClosureNew {
+        destination: ValueId,
+        function: SymbolId,
+        type_index: u32,
+        closure_type: u32,
+        capture_array_type: u32,
+        captures: Vec<ValueId>,
+        span: TextRange,
+    },
     CallRef {
         destination: ValueId,
         function: ValueId,
         type_index: u32,
         arguments: Vec<ValueId>,
+        span: TextRange,
+    },
+    ClosureCall {
+        destination: ValueId,
+        function: ValueId,
+        type_index: u32,
+        closure_type: u32,
+        capture_array_type: u32,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    },
+    ClosureGetCapture {
+        destination: ValueId,
+        closure: ValueId,
+        closure_type: u32,
+        capture_array_type: u32,
+        index: u32,
         span: TextRange,
     },
     /// A call to a runtime import that returns nothing.
@@ -163,7 +189,10 @@ impl Instruction {
             | Self::Primitive { destination, .. }
             | Self::Call { destination, .. }
             | Self::RefFunc { destination, .. }
+            | Self::ClosureNew { destination, .. }
             | Self::CallRef { destination, .. }
+            | Self::ClosureCall { destination, .. }
+            | Self::ClosureGetCapture { destination, .. }
             | Self::RefNull { destination, .. }
             | Self::RefIsNull { destination, .. }
             | Self::RefTest { destination, .. }
@@ -192,6 +221,7 @@ impl Instruction {
             Self::Primitive { left, right, .. } => vec![*left, *right],
             Self::Call { arguments, .. } => arguments.clone(),
             Self::RefFunc { .. } => Vec::new(),
+            Self::ClosureNew { captures, .. } => captures.clone(),
             Self::CallRef {
                 function,
                 arguments,
@@ -199,6 +229,14 @@ impl Instruction {
             } => std::iter::once(*function)
                 .chain(arguments.iter().copied())
                 .collect(),
+            Self::ClosureCall {
+                function,
+                arguments,
+                ..
+            } => std::iter::once(*function)
+                .chain(arguments.iter().copied())
+                .collect(),
+            Self::ClosureGetCapture { closure, .. } => vec![*closure],
             Self::CallVoid { arguments, .. } => arguments.clone(),
             Self::RefNull { .. } => Vec::new(),
             Self::RefIsNull { value, .. }
@@ -236,7 +274,10 @@ impl Instruction {
             | Self::Primitive { span, .. }
             | Self::Call { span, .. }
             | Self::RefFunc { span, .. }
+            | Self::ClosureNew { span, .. }
             | Self::CallRef { span, .. }
+            | Self::ClosureCall { span, .. }
+            | Self::ClosureGetCapture { span, .. }
             | Self::CallVoid { span, .. }
             | Self::RefNull { span, .. }
             | Self::RefIsNull { span, .. }

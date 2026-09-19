@@ -261,10 +261,12 @@ currently lowers resolved operators to applications. P6 turns saturated integer
 intrinsics into Core primitive operations and keeps runtime functions, such as
 `log`, as direct calls. P7 Core optimization has no implementation yet.
 
-P8 flattens top-level lambdas and emits ANF assignments and direct calls.
-Captured closures, nested function values, and higher-order calls produce
-diagnostics. String literals become string constants. P9 creates typed MIR
-values, including GC references for supported data constructors, string
+P8 flattens top-level lambdas, makes closure captures explicit, and emits ANF
+assignments with direct or closure calls. Function values use a uniform GC
+closure representation; scalar captures are boxed into `i31` values and
+reference captures remain GC references. String literals become string
+constants. P9 creates typed MIR values, including GC references for supported
+data constructors, string
 constants, and basic blocks, and lowers `log` to WASI: it reads
 the string's length from its length-prefixed buffer and calls
 `wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`

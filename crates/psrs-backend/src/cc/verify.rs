@@ -87,6 +87,7 @@ fn verify_assignments(
             AssignmentKind::Constant(_) => {}
             AssignmentKind::StringConstant(_) => {}
             AssignmentKind::FunctionRef { .. } => {}
+            AssignmentKind::ClosureGetCapture { closure, .. } => uses.push(*closure),
             AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
             AssignmentKind::RefTest { value, .. }
             | AssignmentKind::RefCast { value, .. }
@@ -124,7 +125,7 @@ fn verify_assignments(
             AssignmentKind::IndirectCall {
                 function,
                 arguments,
-                type_index: _,
+                ..
             } => {
                 uses.push(*function);
                 uses.extend(arguments.iter().copied());

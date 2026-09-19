@@ -84,8 +84,21 @@ pub(super) fn verify_instruction(
             }
         }
         Instruction::RefFunc { .. } => verify_ref_func(function, instruction, signatures, defined)?,
+        Instruction::ClosureNew { .. } => super::call::verify_closure_new(
+            function,
+            instruction,
+            definitions,
+            signatures,
+            defined,
+        )?,
         Instruction::CallRef { .. } => {
             verify_call_ref(function, instruction, definitions, defined)?
+        }
+        Instruction::ClosureCall { .. } => {
+            super::call::verify_closure_call(function, instruction, definitions, defined)?
+        }
+        Instruction::ClosureGetCapture { .. } => {
+            super::call::verify_closure_get_capture(function, instruction, definitions, defined)?
         }
         Instruction::CallVoid {
             function: callee,

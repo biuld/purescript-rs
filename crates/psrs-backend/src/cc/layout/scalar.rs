@@ -198,13 +198,10 @@ pub(crate) fn scalar_type(
             "polymorphic values are not supported by the first backend slice",
         )]),
         Some(Type::Function { .. }) => {
-            let Some(type_index) = function_types.get(&id).copied() else {
+            if !function_types.contains_key(&id) {
                 return Err(layout_error(span, "function type has no runtime layout"));
-            };
-            Ok(ValueType::Ref(RefType {
-                nullable: false,
-                heap: HeapType::Index(type_index),
-            }))
+            }
+            Ok(aggregate_value_type())
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok(ValueType::I32)
