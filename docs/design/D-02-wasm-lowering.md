@@ -169,24 +169,25 @@ AST, HIR, THIR, or Typed Core.
 ## WASI platform model
 
 The platform target is a WASI 0.2 Component Model release; the choice and its
-rationale are in [D-05](D-05-backend-capability.md). The runtime interface is
-defined in WIT and lowered to the canonical ABI, and the emitter reads a runtime
-ABI registry instead of hard-coding a host ABI
+rationale are in [D-05](D-05-backend-capability.md). **WASI is the runtime ABI**:
+the project does not define a separate host ABI
 ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)). The PureScript-facing
-library calls that runtime ABI; an adapter maps it to WASI interfaces. Keep the
-three layers separate:
+standard library is built on WASI (for example `print` writes to
+`wasi:cli/stdout`), and the backend lowers to WASI's canonical ABI. Keep the
+layers separate:
 
 ```text
-PureScript WASI library -> compiler runtime ABI (WIT) -> WASI host interface
+PureScript-facing standard library -> WASI interfaces -> host
 ```
 
-MIR declares the runtime ABI imports in an import table with their canonical
-signatures; the backend emits calls to those imports and `wit-component` lifts
-the core module into a component. Until that path replaces it, the bootstrap
-emits a core module that uses WASI Preview 1 imports for console and exit only,
-where the `log` value maps to a synthesized `ps_rt_log` over
-`wasi_snapshot_preview1.fd_write`. That Preview 1 emitter is bootstrap-only and
-is removed once the component path lands.
+MIR declares the WASI imports a program uses in an import table with their
+canonical signatures; the backend emits calls to those imports and
+`wit-component` lifts the core module into a component. A component imports only
+the WASI capabilities the program uses. Until the component path replaces it,
+the bootstrap emits a core module that uses WASI Preview 1 imports for console
+and exit, where `log` maps to a synthesized `ps_rt_log` over
+`wasi_snapshot_preview1.fd_write`; that Preview 1 emitter is bootstrap-only and
+is removed once the WASI-based standard library lands.
 
 Initial library capabilities grow as testable modules for console, arguments,
 environment, files, clock, and randomness. Networking and HTTP are later

@@ -1,87 +1,90 @@
-//! The compiler runtime ABI, derived from the WIT package in `wit/` and lowered
-//! to the Component Model canonical ABI. See
-//! `docs/decision/DEC-06-runtime-interface-via-wit.md`.
+//! The WASI imports the standard library may emit, with their canonical ABI
+//! signatures derived from the vendored WASI WIT. The project does not define a
+//! separate host ABI. See `docs/decision/DEC-06-runtime-interface-via-wit.md`.
 
 use crate::types::ValueType;
-use psrs_hir::{RuntimeFunction, SymbolId};
 use wit_parser::Resolve;
 use wit_parser::abi::{AbiVariant, WasmType};
 
-/// The WIT package embedded in the compiler. Kept in sync with the runtime
-/// operations the frontend exposes.
-const RUNTIME_WIT: &str = include_str!("../wit/psrs-runtime.wit");
+/// The WASI functions the standard library uses, as
+/// `(package, interface, function)`.
+const WASI_IMPORTS: &[(&str, &str, &str)] = &[
+    ("wasi:cli", "stdout", "get-stdout"),
+    (
+        "wasi:io",
+        "streams",
+        "[method]output-stream.blocking-write-and-flush",
+    ),
+    ("wasi:cli", "exit", "exit-with-code"),
+];
 
-/// The runtime operations and the WIT function each maps to.
-const RUNTIME_FUNCTIONS: &[(RuntimeFunction, &str)] = &[(RuntimeFunction::ConsoleLog, "log")];
-
-/// A runtime operation as a core Wasm import, with its canonical ABI signature.
+/// A WASI import as a core Wasm import with its canonical ABI signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RuntimeImport {
-    pub symbol: SymbolId,
-    /// The core import module: the interface's fully-qualified WIT name. This is
-    /// the naming `wit-component` expects for a core import of the interface.
+pub struct WasiImport {
+    /// The core import module: the interface's canonical id, for example
+    /// `wasi:cli/stdout@0.2.12`.
     pub module: String,
+    /// The core import field, for example `get-stdout`.
     pub name: String,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
 }
 
-/// The runtime imports the backend may emit, keyed by runtime operation.
-#[derive(Clone, Debug, Default)]
-pub struct RuntimeAbi {
-    imports: Vec<RuntimeImport>,
+/// Resolves the WASI imports the standard library uses.
+pub fn wasi_imports() -> Result<Vec<WasiImport>, String> {
+    let mut resolve = Resolve::default();
+    crate::component::load_vendored_wasi(&mut resolve)?;
+    WASI_IMPORTS
+        .iter()
+        .map(|(package, interface, function)| {
+            resolve_import(&resolve, package, interface, function)
+        })
+        .collect()
 }
 
-impl RuntimeAbi {
-    /// Parses the embedded WIT package and lowers each runtime operation to its
-    /// canonical ABI import signature.
-    pub fn load() -> Result<Self, String> {
-        let mut resolve = Resolve::default();
-        let package_id = resolve
-            .push_str("psrs-runtime.wit", RUNTIME_WIT)
-            .map_err(|error| format!("invalid runtime WIT: {error}"))?;
-        let interface_id = resolve.packages[package_id]
-            .interfaces
-            .get("runtime")
-            .copied()
-            .ok_or_else(|| "runtime WIT is missing the `runtime` interface".to_string())?;
-        let package = &resolve.packages[package_id];
-        let interface = &resolve.interfaces[interface_id];
-        let module = match &interface.name {
-            Some(name) => format!("{}:{}/{}", package.name.namespace, package.name.name, name),
-            None => format!("{}:{}", package.name.namespace, package.name.name),
-        };
-        let mut imports = Vec::new();
-        for (function, wit_name) in RUNTIME_FUNCTIONS {
-            let Some(wit_function) = interface.functions.get(*wit_name) else {
-                return Err(format!("runtime WIT is missing `{wit_name}`"));
-            };
-            let signature = resolve.wasm_signature(AbiVariant::GuestImport, wit_function);
-            let parameters = signature
-                .params
-                .iter()
-                .copied()
-                .map(value_type)
-                .collect::<Result<Vec<_>, _>>()?;
-            let result = match signature.results.as_slice() {
-                [] => None,
-                [single] => Some(value_type(*single)?),
-                _ => return Err(format!("`{wit_name}` has multiple canonical results")),
-            };
-            imports.push(RuntimeImport {
-                symbol: function.symbol(),
-                module: module.clone(),
-                name: (*wit_name).to_string(),
-                parameters,
-                result,
-            });
-        }
-        Ok(Self { imports })
-    }
-
-    pub fn imports(&self) -> &[RuntimeImport] {
-        &self.imports
-    }
+fn resolve_import(
+    resolve: &Resolve,
+    package: &str,
+    interface: &str,
+    function: &str,
+) -> Result<WasiImport, String> {
+    let package_id = resolve
+        .packages
+        .iter()
+        .find_map(|(id, candidate)| {
+            (format!("{}:{}", candidate.name.namespace, candidate.name.name) == package)
+                .then_some(id)
+        })
+        .ok_or_else(|| format!("WASI package `{package}` is not vendored"))?;
+    let interface_id = resolve.packages[package_id]
+        .interfaces
+        .get(interface)
+        .copied()
+        .ok_or_else(|| format!("`{package}/{interface}` is not vendored"))?;
+    let wit_function = resolve.interfaces[interface_id]
+        .functions
+        .get(function)
+        .ok_or_else(|| format!("`{package}/{interface}.{function}` is not vendored"))?;
+    let signature = resolve.wasm_signature(AbiVariant::GuestImport, wit_function);
+    let parameters = signature
+        .params
+        .iter()
+        .copied()
+        .map(value_type)
+        .collect::<Result<Vec<_>, _>>()?;
+    let result = match signature.results.as_slice() {
+        [] => None,
+        [single] => Some(value_type(*single)?),
+        _ => return Err(format!("`{function}` has multiple canonical results")),
+    };
+    Ok(WasiImport {
+        module: resolve
+            .id_of(interface_id)
+            .ok_or_else(|| format!("`{package}/{interface}` has no canonical id"))?,
+        name: function.to_string(),
+        parameters,
+        result,
+    })
 }
 
 fn value_type(ty: WasmType) -> Result<ValueType, String> {
@@ -98,16 +101,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn loads_the_runtime_wit_and_lowers_log_to_ptr_len() {
-        let abi = RuntimeAbi::load().expect("runtime WIT should load");
-        let log = abi
-            .imports()
+    fn resolves_stdout_and_exit_imports() {
+        let imports = wasi_imports().expect("WASI imports should resolve");
+        let stdout = imports
             .iter()
-            .find(|import| import.symbol == RuntimeFunction::ConsoleLog.symbol())
-            .expect("log should be present");
-        assert_eq!(log.name, "log");
-        assert_eq!(log.module, "psrs:runtime/runtime");
-        assert_eq!(log.parameters, vec![ValueType::I32, ValueType::I32]);
-        assert_eq!(log.result, None);
+            .find(|import| import.name == "get-stdout")
+            .expect("get-stdout should be present");
+        assert_eq!(stdout.module, "wasi:cli/stdout@0.2.12");
+        assert!(stdout.parameters.is_empty());
+        assert_eq!(stdout.result, Some(ValueType::I32));
+
+        let exit = imports
+            .iter()
+            .find(|import| import.name == "exit-with-code")
+            .expect("exit-with-code should be present");
+        assert_eq!(exit.module, "wasi:cli/exit@0.2.12");
+        assert_eq!(exit.parameters, vec![ValueType::I32]);
+        assert_eq!(exit.result, None);
     }
 }

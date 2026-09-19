@@ -45,9 +45,9 @@ Specifically:
   `purescript-run` style). The compiler does not add effect rows, handlers, or
   delimited continuations to CST, AST, HIR, THIR, or Typed Core.
 - Replace the `Intrinsic`/`RuntimeFunction` enums with registry-backed
-  externals plus library declarations, keeping the three-layer split of
-  [D-02](../design/D-02-wasm-lowering.md): PureScript-facing library →
-  compiler runtime ABI → WASI host interface.
+  externals plus library declarations, keeping the two-layer split of
+  [D-02](../design/D-02-wasm-lowering.md): PureScript-facing standard library →
+  WASI interfaces ([DEC-06](DEC-06-runtime-interface-via-wit.md)).
 - The compiler-native algebraic-effect standard library proposed earlier is
   rejected.
 

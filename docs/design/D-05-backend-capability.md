@@ -67,8 +67,8 @@ operations, while 0.3 expresses I/O with the component model's async
 `stream<T>`/`future<T>` primitives, so even writing to standard output would
 require async plumbing before the compiler has any async language features.
 0.2 is also the most widely deployed component baseline. Moving to 0.3 later is
-a revision of this profile and stays behind the runtime ABI adapter, so it does
-not reach the frontend.
+a revision of this profile and stays behind the WASI boundary, so it does not
+reach the frontend.
 
 Target representations per [D-02](D-02-wasm-lowering.md): a data type whose
 constructors are all nullary uses immediate integer tags; a data type with
@@ -83,11 +83,12 @@ byte-oriented WASI boundary.
   `_start`, imports `wasi_snapshot_preview1.proc_exit` and, for `log`,
   `wasi_snapshot_preview1.fd_write`, and declares a linear memory because the
   Preview 1 adapter requires one. It runs as a WASI command under `wasmtime`.
-- **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry
-  that links against a small compiler runtime ABI. The ABI stays between the
-  PureScript-facing libraries and the WASI adapters, so the source language
-  never names a runtime symbol. Emitting components and the canonical ABI is
-  later work.
+- **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry.
+  WASI is the runtime ABI ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)):
+  the PureScript-facing standard library is built on WASI interfaces, and the
+  backend lowers to their canonical ABI. A component imports only the WASI
+  capabilities the program uses. Emitting the standard-library lowering and
+  switching `build` to components are later work.
 
 ## Verification
 

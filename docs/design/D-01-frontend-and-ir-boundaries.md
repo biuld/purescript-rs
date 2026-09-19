@@ -167,7 +167,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
 | `psrs-kind` | Kind inference and unification over resolved HIR, and kind diagnostics | `psrs-hir`, `psrs-span` |
 | `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
-| `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, runtime ABI (`_start`, `ps_rt_log`), structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
+| `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, the WASI runtime ABI (`_start`, `ps_rt_log` in the bootstrap), the WASI 0.2 import registry and `wit-component` componentization, structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter`, `wit-parser`, `wit-component` |
 | `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
 | `psrs-cli` | Source inspection, Wasm build, WAT output, and diagnostic rendering | `psrs-driver` plus frontend inspection crates |
 
@@ -270,10 +270,13 @@ diamonds into the thin Wasm encoding, whose leaf opcodes are
 the WASI command entry, and synthesizes the `ps_rt_log` runtime function over
 `wasi_snapshot_preview1.fd_write`. P11 uses `wasm-encoder` to emit the binary,
 `wasmparser` to validate it, and `wasmprinter` to print WAT from the encoded
-binary. The current artifact is a WASI command: it exports a zero-argument
-`Int` function named `main`, exports `_start`, and imports
-`wasi_snapshot_preview1.proc_exit`, using `main`'s result as the exit code. It
-does not yet include a Component Model adapter or a richer runtime ABI.
+binary. The current default artifact is still a WASI Preview 1 command: it
+exports a zero-argument `Int` function named `main`, exports `_start`, and
+imports `wasi_snapshot_preview1.proc_exit`, using `main`'s result as the exit
+code. The backend can also componentize a core module into a WASI 0.2 command
+component (exporting `wasi:cli/run@0.2.12`) with `wit-component`, and resolves
+WASI 0.2 import signatures from vendored WIT; switching `build` to components
+and replacing the Preview 1 `ps_rt_log` with WASI `stdout` calls remain.
 
 `psrs build <file.purs> [-o output.wasm]` writes the validated core module.
 `psrs wat <file.purs> [-o output.wat]` prints WAT or writes it to a file. The

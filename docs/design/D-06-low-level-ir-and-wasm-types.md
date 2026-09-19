@@ -79,15 +79,16 @@ follow-up work rather than a permanent limitation.
 
 Direct calls and indirect (`call_ref`) calls are distinct. Closures are GC
 `struct` values holding a `funcref` and their captures, per
-[D-02](D-02-wasm-lowering.md). Host services cross the runtime ABI described in
-D-02, D-05, and [DEC-06](../decision/DEC-06-runtime-interface-via-wit.md): the
-runtime ABI is defined in WIT, and the low-level IR sees only calls and imported
-functions, never WASI interfaces. MIR declares runtime imports in an import
-table with their canonical ABI signature (derived from the WIT package) and
-calls them like any other function, including a void call for imports with no
-result. Adapting a value to the canonical ABI (for example a string to a
-`(ptr, len)` pair) is emitted as ordinary MIR instructions using the declared
-linear-memory load/store.
+[D-02](D-02-wasm-lowering.md). Host services are **WASI** itself: the project
+does not define its own host ABI
+([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)). MIR declares WASI
+imports in an import table with their canonical ABI signature (derived from the
+vendored WASI WIT) and calls them like any other function, including a void
+call for imports with no result. Adapting a value to the canonical ABI (for
+example a string to a `(ptr, len)` pair) is emitted as ordinary MIR
+instructions using the declared linear-memory load/store. The PureScript-facing
+standard library (`print`, program exit, and later files/random) is built on
+these WASI imports.
 
 ## Layout ownership
 
@@ -129,16 +130,17 @@ and OCaml's Wasm backend.
 4. Lower data types, records, and closures into the model in P9.
 5. Generalize structured control flow beyond `if` diamonds.
 
-The runtime ABI is a separate track: MIR has an import table, void calls, and
-linear-memory load/store, and the runtime ABI is parsed from WIT into canonical
-import signatures ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)).
+The runtime is a separate track: MIR has an import table, void calls, and
+linear-memory load/store, and `psrs-backend::abi` resolves the WASI imports the
+standard library uses into canonical ABI signatures from the vendored WASI WIT.
 Componentization uses `wit-component`: the compiler vendors WASI 0.2.12 WIT,
 resolves a `command` world that exports `wasi:cli/run@0.2.12`, annotates a core
 module with world metadata, and lifts it into a component. A core module
 exporting the canonical `run` under the legacy core name
 `wasi:cli/run@0.2.12#run` componentizes and runs under `wasmtime`. What remains
-is the runtime adapter that maps `psrs:runtime` onto WASI (for `log`), the
-`main`/exit-code mapping, and switching `build` to emit components by default.
+is the standard-library lowering that emits the `wasi:cli/stdout` calls (the
+`print` implementation), the `main`/exit-code mapping via `wasi:cli/exit`, and
+switching `build` to emit components by default.
 
 ## Open items
 

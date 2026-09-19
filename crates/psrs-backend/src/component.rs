@@ -9,7 +9,7 @@ use wit_parser::{Resolve, WorldId};
 /// Vendored WASI 0.2.12 WIT, matching the `wasi:cli/run@0.2.12` export that the
 /// pinned `wasmtime` baseline expects. Pushed into the `Resolve` in dependency
 /// order before the application world.
-const WASI_DEPS: &[(&str, &str)] = &[
+pub(crate) const WASI_DEPS: &[(&str, &str)] = &[
     ("wasi/io.wit", include_str!("../wit/deps/io.wit")),
     ("wasi/clocks.wit", include_str!("../wit/deps/clocks.wit")),
     ("wasi/random.wit", include_str!("../wit/deps/random.wit")),
@@ -24,14 +24,20 @@ const WASI_DEPS: &[(&str, &str)] = &[
 /// The application world: a WASI command that only exports `wasi:cli/run`.
 const APP_WIT: &str = include_str!("../wit/psrs-app.wit");
 
-/// Resolves the `psrs:app` command world against the vendored WASI WIT.
-pub fn command_world() -> Result<(Resolve, WorldId), String> {
-    let mut resolve = Resolve::default();
+/// Pushes the vendored WASI WIT into `resolve` in dependency order.
+pub(crate) fn load_vendored_wasi(resolve: &mut Resolve) -> Result<(), String> {
     for (path, contents) in WASI_DEPS {
         resolve
             .push_str(path, contents)
             .map_err(|error| format!("invalid vendored WIT `{path}`: {error}"))?;
     }
+    Ok(())
+}
+
+/// Resolves the `psrs:app` command world against the vendored WASI WIT.
+pub fn command_world() -> Result<(Resolve, WorldId), String> {
+    let mut resolve = Resolve::default();
+    load_vendored_wasi(&mut resolve)?;
     let package = resolve
         .push_str("psrs-app.wit", APP_WIT)
         .map_err(|error| format!("invalid application WIT: {error}"))?;

@@ -202,20 +202,20 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
     assert_eq!(output.status.code(), Some(7), "wasmtime output: {output:?}");
 }
 
-/// A MIR module that calls the WIT-derived runtime import through the canonical
-/// ABI: read a string's length from its length-prefixed buffer, pass the data
-/// pointer and length, and call the void `log` import.
+/// A MIR module that calls a declared import through the canonical ABI: read a
+/// string's length from its length-prefixed buffer, pass the data pointer and
+/// length, and make a void call. WASI import names come from `crate::abi`.
 #[test]
-fn lowers_a_runtime_abi_import_call() {
-    let log = psrs_hir::RuntimeFunction::ConsoleLog.symbol();
+fn lowers_an_imported_call() {
+    let callee = SymbolId::new(ModuleId(0), 100);
     let mir = Module {
         name: "MirImport".into(),
         externals: Vec::new(),
         types: Vec::new(),
         imports: vec![Import {
-            symbol: log,
-            module: "psrs:runtime/runtime".into(),
-            name: "log".into(),
+            symbol: callee,
+            module: "wasi:io/streams@0.2.12".into(),
+            name: "[method]output-stream.blocking-write-and-flush".into(),
             parameters: vec![ValueType::I32, ValueType::I32],
             result: None,
         }],
@@ -274,7 +274,7 @@ fn lowers_a_runtime_abi_import_call() {
                         span: span(),
                     },
                     Instruction::CallVoid {
-                        function: log,
+                        function: callee,
                         arguments: vec![ValueId(3), ValueId(2)],
                         span: span(),
                     },
@@ -297,12 +297,12 @@ fn lowers_a_runtime_abi_import_call() {
     };
 
     let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
-    let log_import = wasm
+    let imported = wasm
         .imports
         .iter()
-        .find(|import| import.name == "log")
-        .expect("the runtime import should be declared");
-    assert_eq!(log_import.module, "psrs:runtime/runtime");
+        .find(|import| import.name == "[method]output-stream.blocking-write-and-flush")
+        .expect("the WASI import should be declared");
+    assert_eq!(imported.module, "wasi:io/streams@0.2.12");
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
     wasmparser::Validator::new()
         .validate_all(&binary)
