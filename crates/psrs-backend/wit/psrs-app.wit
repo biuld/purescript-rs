@@ -1,0 +1,9 @@
+// A minimal application world for the first Component Model artifact. It
+// exports a `run` function and imports nothing, so it componentizes without a
+// WASI adapter. See docs/decision/DEC-06-runtime-interface-via-wit.md.
+
+package psrs:app;
+
+world app {
+    export run: func() -> result;
+}

@@ -1,5 +1,6 @@
 pub mod abi;
 pub mod cc;
+pub mod component;
 pub mod mir;
 pub mod types;
 pub mod wasm;
