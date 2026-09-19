@@ -56,9 +56,19 @@ As of 2026-09:
 | Multi-memory and 64-bit memory | wasmtime default | Allowed; not used initially |
 | SIMD and relaxed SIMD | wasmtime default | Allowed; not used initially |
 | Threads | wasmtime default | Allowed; the runtime is single-threaded initially |
-| Component model and WASI 0.2/0.3 | wasmtime default | Platform target; requires a component emitter and canonical ABI |
+| Component model and WASI 0.2 | wasmtime default | Platform target; synchronous interfaces match the runtime, and a component emitter and canonical ABI are required |
+| WASI 0.3 | wasmtime 46+ | Later opt-in when async, streams, or futures are needed |
 | WASI Preview 1 (`wasi_snapshot_preview1`) | wasmtime default | Interim bootstrap for console and exit only |
 | Stack switching, shared-everything threads, custom page sizes, custom descriptors | opt-in preview | Not used; adopting one requires updating this profile first |
+
+WASI 0.2 is the chosen component baseline rather than 0.3 because the runtime
+is synchronous: 0.2 exposes blocking `output-stream`/`input-stream`
+operations, while 0.3 expresses I/O with the component model's async
+`stream<T>`/`future<T>` primitives, so even writing to standard output would
+require async plumbing before the compiler has any async language features.
+0.2 is also the most widely deployed component baseline. Moving to 0.3 later is
+a revision of this profile and stays behind the runtime ABI adapter, so it does
+not reach the frontend.
 
 Target representations per [D-02](D-02-wasm-lowering.md): a data type whose
 constructors are all nullary uses immediate integer tags; a data type with
@@ -73,7 +83,7 @@ byte-oriented WASI boundary.
   `_start`, imports `wasi_snapshot_preview1.proc_exit` and, for `log`,
   `wasi_snapshot_preview1.fd_write`, and declares a linear memory because the
   Preview 1 adapter requires one. It runs as a WASI command under `wasmtime`.
-- **Platform target:** a WASI 0.3 component with a `wasi:cli/command` entry
+- **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry
   that links against a small compiler runtime ABI. The ABI stays between the
   PureScript-facing libraries and the WASI adapters, so the source language
   never names a runtime symbol. Emitting components and the canonical ABI is
@@ -93,8 +103,8 @@ byte-oriented WASI boundary.
 
 ## Open items
 
-- Choosing the exact WASI release to emit first (0.2 or 0.3) and building the
-  component emitter and canonical ABI.
+- Building the WASI 0.2 component emitter and canonical ABI, and deciding when
+  the artifact stops being a Preview 1 core module.
 - Whether a language feature needs tail calls, exceptions, or stack switching;
   each is added to the profile before use.
 - Tracking the `wasmtime` baseline: a new release is a deliberate revision of

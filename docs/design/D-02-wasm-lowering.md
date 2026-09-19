@@ -168,12 +168,12 @@ AST, HIR, THIR, or Typed Core.
 
 ## WASI platform model
 
-The platform target is a WASI Component Model release; the exact release
-(0.2 or 0.3) is an open item in [D-05](D-05-backend-capability.md). Until the
-component emitter and canonical ABI exist, the bootstrap emits a core module
-that uses WASI Preview 1 imports for console and exit only. The
-PureScript-facing library calls a stable compiler runtime ABI; the runtime
-adapter maps that ABI to WASI interfaces. Keep the three layers separate:
+The platform target is a WASI 0.2 Component Model release; the choice and its
+rationale are in [D-05](D-05-backend-capability.md). Until the component
+emitter and canonical ABI exist, the bootstrap emits a core module that uses
+WASI Preview 1 imports for console and exit only. The PureScript-facing library
+calls a stable compiler runtime ABI; the runtime adapter maps that ABI to WASI
+interfaces. Keep the three layers separate:
 
 ```text
 PureScript WASI library -> compiler runtime ABI -> WASI host interface

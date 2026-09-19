@@ -17,12 +17,12 @@ psrs build src/Main.purs -o main.wasm
 <compatible WASI runtime> main.wasm
 ```
 
-The first platform target is WASI on the Component Model (WASI 0.2, or 0.3
-where the runtime baseline supports it). Programs use the project's
-PureScript-facing WASI libraries for platform services. Existing Node.js APIs
-and JavaScript FFI modules are not supported compatibility targets. Programs
-that use unsupported syntax, types, or platform services receive source-oriented
-diagnostics rather than a malformed artifact.
+The first platform target is WASI 0.2 on the Component Model, whose synchronous
+interfaces match the runtime; WASI 0.3's async model is later work. Programs
+use the project's PureScript-facing WASI libraries for platform services.
+Existing Node.js APIs and JavaScript FFI modules are not supported compatibility
+targets. Programs that use unsupported syntax, types, or platform services
+receive source-oriented diagnostics rather than a malformed artifact.
 
 Until a component artifact exists, the compiler emits an interim core module
 that uses the legacy WASI Preview 1 imports for console and exit only.
