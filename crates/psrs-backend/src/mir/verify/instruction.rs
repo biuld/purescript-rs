@@ -70,7 +70,8 @@ pub(super) fn verify_instruction(
                 ));
             }
             for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                if require_value(definitions, *argument, *span)? != *expected {
+                if !call_value_types_match(require_value(definitions, *argument, *span)?, *expected)
+                {
                     return Err(mir_error(*span, "MIR call argument has the wrong type"));
                 }
             }
@@ -80,7 +81,9 @@ pub(super) fn verify_instruction(
                     "MIR call to a void import has a destination",
                 ));
             };
-            if value_type(function, *destination) != Some(expected) {
+            if value_type(function, *destination)
+                .is_none_or(|actual| !call_value_types_match(actual, expected))
+            {
                 return Err(mir_error(*span, "MIR call result has the wrong type"));
             }
         }
@@ -122,7 +125,8 @@ pub(super) fn verify_instruction(
                 ));
             }
             for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                if require_value(definitions, *argument, *span)? != *expected {
+                if !call_value_types_match(require_value(definitions, *argument, *span)?, *expected)
+                {
                     return Err(mir_error(*span, "MIR call argument has the wrong type"));
                 }
             }
@@ -462,4 +466,15 @@ pub(super) fn verify_instruction(
         }
     }
     Ok(())
+}
+
+/// `Boolean` is a logical MIR type but uses the same `i32` representation as a
+/// canonical ABI scalar. Calls at the ABI boundary may therefore connect the
+/// two without an instruction-level conversion.
+fn call_value_types_match(actual: ValueType, expected: ValueType) -> bool {
+    actual == expected
+        || matches!(
+            (actual, expected),
+            (ValueType::Boolean, ValueType::I32) | (ValueType::I32, ValueType::Boolean)
+        )
 }

@@ -82,6 +82,7 @@ pub enum WasiResultKind {
 pub enum SourceType {
     Int,
     Boolean,
+    Number,
     String,
     Unit,
 }
@@ -269,7 +270,10 @@ impl WasiRegistry {
         for (parameter, kind) in signature.parameters.iter().zip(&import.param_kinds) {
             let valid = match kind {
                 WasiParamKind::Scalar => {
-                    matches!(parameter, SourceType::Int | SourceType::Boolean)
+                    matches!(
+                        parameter,
+                        SourceType::Int | SourceType::Boolean | SourceType::Number
+                    )
                 }
                 WasiParamKind::Scalar64 { .. } | WasiParamKind::Handle => {
                     matches!(parameter, SourceType::Int)
@@ -290,8 +294,9 @@ impl WasiRegistry {
                     matches!(signature.result, SourceType::Int)
                 }
                 Some(ValueType::I32) => {
-                    matches!(signature.result, SourceType::Int)
+                    matches!(signature.result, SourceType::Int | SourceType::Boolean)
                 }
+                Some(ValueType::F64) => matches!(signature.result, SourceType::Number),
                 _ => false,
             },
             WasiResultKind::List => matches!(signature.result, SourceType::String),
@@ -333,6 +338,7 @@ fn source_type(ty: &HirType) -> Option<SourceType> {
     match ty.kind {
         HirTypeKind::Constructor(BuiltinType::Int) => Some(SourceType::Int),
         HirTypeKind::Constructor(BuiltinType::Boolean) => Some(SourceType::Boolean),
+        HirTypeKind::Constructor(BuiltinType::Number) => Some(SourceType::Number),
         HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
         HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
         _ => None,

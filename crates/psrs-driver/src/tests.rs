@@ -202,6 +202,16 @@ fn lowers_a_source_foreign_import_with_a_wit_binding() {
 }
 
 #[test]
+fn lowers_a_boolean_wit_result_with_a_boolean_source_type() {
+    let source = "module Main where\n\
+        foreign import \"wasi:io/poll#[method]pollable.ready\" ready :: Int -> Boolean\n\
+        main = if ready 0 then 1 else 0\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering a Boolean WIT result");
+    assert!(artifact.wat.contains("wasi:io/poll@0.2.12"));
+    assert!(artifact.wat.contains("call"));
+}
+
+#[test]
 fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime("module Main where\nmain = 42\n") else {
         eprintln!("skipping: wasmtime is not installed");

@@ -9,13 +9,6 @@ impl FunctionLowerer<'_> {
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(boxed_type) = self.boxed_i32_type else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "parameterized constructor has no erased value box layout",
-            )]);
-        };
         let value_type = self
             .values
             .iter()
@@ -30,6 +23,36 @@ impl FunctionLowerer<'_> {
             })?;
         let erased = match value_type {
             ValueType::I32 | ValueType::Boolean => {
+                let Some(boxed_type) = self.boxed_i32_type else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        span,
+                        "parameterized constructor has no i32 erased value box layout",
+                    )]);
+                };
+                let boxed = self.fresh(ValueType::Ref(crate::types::RefType {
+                    nullable: false,
+                    heap: crate::types::HeapType::Index(boxed_type),
+                }));
+                assignments.push(Assignment {
+                    destination: boxed,
+                    kind: AssignmentKind::StructNew {
+                        destination: boxed,
+                        type_index: boxed_type,
+                        arguments: vec![value],
+                    },
+                    span,
+                });
+                boxed
+            }
+            ValueType::F64 => {
+                let Some(boxed_type) = self.boxed_f64_type else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        span,
+                        "parameterized constructor has no f64 erased value box layout",
+                    )]);
+                };
                 let boxed = self.fresh(ValueType::Ref(crate::types::RefType {
                     nullable: false,
                     heap: crate::types::HeapType::Index(boxed_type),

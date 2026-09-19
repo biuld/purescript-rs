@@ -240,7 +240,8 @@ and matching pass through the field value, with no GC allocation; nested
 constructor patterns are lowered against that erased field. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
-as demonstrated by `Maybe Int`. Concrete scalar and aggregate array literals,
+as demonstrated by `Maybe Int` and `Maybe Number`, whose erased fields use
+typed GC boxes before being recovered through `eqref`. Concrete scalar and aggregate array literals,
 length, indexing, and updates now also lower to Wasm GC arrays, including
 nested arrays, records, field-bearing data values, and `Number`. Closed
 concrete record literals, field reads, updates, and record patterns lower to

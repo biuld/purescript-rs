@@ -75,6 +75,39 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(value)
             }
+            ValueType::F64 => {
+                let Some(boxed_type) = self.boxed_f64_type else {
+                    return Err(case_error(span, "erased f64 value box layout is missing"));
+                };
+                let concrete_box = self.fresh(ValueType::Ref(RefType {
+                    nullable: false,
+                    heap: HeapType::Index(boxed_type),
+                }));
+                assignments.push(Assignment {
+                    destination: concrete_box,
+                    kind: AssignmentKind::RefCast {
+                        destination: concrete_box,
+                        value: boxed_value,
+                        reference: RefType {
+                            nullable: false,
+                            heap: HeapType::Index(boxed_type),
+                        },
+                    },
+                    span,
+                });
+                let value = self.fresh(expected);
+                assignments.push(Assignment {
+                    destination: value,
+                    kind: AssignmentKind::StructGet {
+                        destination: value,
+                        type_index: boxed_type,
+                        field: 0,
+                        value: concrete_box,
+                    },
+                    span,
+                });
+                Ok(value)
+            }
             ValueType::Ref(RefType {
                 nullable: false,
                 heap: HeapType::Eq,

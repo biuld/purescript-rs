@@ -237,6 +237,19 @@ main = fromJust (Just 42)
 }
 
 #[test]
+fn runs_a_parameterized_adt_with_an_erased_number_field() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nfromJust :: Maybe Number -> Number\nfromJust value = case value of\n  Just number -> number\n  _ -> 0.0\nuse :: Number -> Int\nuse value = 42\nmain = use (fromJust (Just 1.5))\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering Maybe Number");
+    assert!(artifact.wat.contains("f64.const"));
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_a_nested_pattern_on_an_erased_parameterized_field() {
     let source = "\
 module Main where

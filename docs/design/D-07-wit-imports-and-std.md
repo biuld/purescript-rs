@@ -42,7 +42,8 @@ vendored WASI WIT (`WasiRegistry`) and lowers the call by **type-directed
 mapping** rather than a per-function recipe:
 
 - Each declared argument is classified against the WIT-level parameter it
-  matches. A scalar parameter and a resource handle each flatten to one `i32`;
+  matches. A scalar parameter and a resource handle each flatten to one `i32`
+  (or `f64` for `Number`-compatible WIT scalars);
   a 64-bit scalar is widened from `Int` with the extension its WIT signedness
   requires (`i64.extend_i32_s` for `s64`, `i64.extend_i32_u` for `u64`); a
   `String` argument (a `list<u8>`) flattens to the data pointer and length of

@@ -31,7 +31,22 @@ fn declared_signature(signature: &psrs_hir::Type) -> Option<Signature> {
     let mut ty = signature;
     let mut parameters = Vec::new();
     while let psrs_hir::TypeKind::Function { result, .. } = &ty.kind {
-        parameters.push(ValueType::I32);
+        let parameter = match &ty.kind {
+            psrs_hir::TypeKind::Function { parameter, .. } => match &parameter.kind {
+                psrs_hir::TypeKind::Constructor(psrs_hir::BuiltinType::Boolean) => {
+                    ValueType::Boolean
+                }
+                psrs_hir::TypeKind::Constructor(psrs_hir::BuiltinType::Number) => ValueType::F64,
+                psrs_hir::TypeKind::Constructor(
+                    psrs_hir::BuiltinType::Int
+                    | psrs_hir::BuiltinType::String
+                    | psrs_hir::BuiltinType::Unit,
+                ) => ValueType::I32,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        parameters.push(parameter);
         ty = result;
     }
     let result = match &ty.kind {
@@ -41,6 +56,7 @@ fn declared_signature(signature: &psrs_hir::Type) -> Option<Signature> {
             | psrs_hir::BuiltinType::String
             | psrs_hir::BuiltinType::Unit,
         ) => ValueType::I32,
+        psrs_hir::TypeKind::Constructor(psrs_hir::BuiltinType::Number) => ValueType::F64,
         _ => return None,
     };
     Some(Signature { parameters, result })

@@ -267,7 +267,12 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
 
 fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
     Some(Signature {
-        parameters: vec![ValueType::I32; signature.parameters.len()],
+        parameters: signature
+            .parameters
+            .iter()
+            .copied()
+            .map(scalar_source_type)
+            .collect::<Option<Vec<_>>>()?,
         result: scalar_source_type(signature.result)?,
     })
 }
@@ -276,5 +281,6 @@ fn scalar_source_type(ty: SourceType) -> Option<ValueType> {
     Some(match ty {
         SourceType::Int | SourceType::String | SourceType::Unit => ValueType::I32,
         SourceType::Boolean => ValueType::Boolean,
+        SourceType::Number => ValueType::F64,
     })
 }
