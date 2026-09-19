@@ -15,6 +15,26 @@ impl Checker {
                 .iter()
                 .map(|declaration| (declaration.id, declaration.name.clone()))
                 .collect(),
+            synonyms: module
+                .types
+                .iter()
+                .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::TypeSynonym)
+                .filter_map(|declaration| {
+                    let body = declaration.body.clone()?;
+                    Some((
+                        declaration.id,
+                        Synonym {
+                            parameters: declaration
+                                .parameters
+                                .iter()
+                                .map(|parameter| parameter.name.clone())
+                                .collect(),
+                            body,
+                        },
+                    ))
+                })
+                .collect(),
+            expanding: HashSet::new(),
             substitutions: HashMap::new(),
             levels: HashMap::new(),
             generic_variables: HashSet::new(),

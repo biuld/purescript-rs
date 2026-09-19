@@ -261,11 +261,20 @@ enum InferredExprKind {
     },
 }
 
+/// A resolved type synonym, expanded during signature elaboration.
+#[derive(Clone, Debug)]
+struct Synonym {
+    parameters: Vec<String>,
+    body: hir::Type,
+}
+
 struct Checker {
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
+    synonyms: HashMap<hir::TypeId, Synonym>,
+    expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,
     levels: HashMap<u32, u32>,
     generic_variables: HashSet<u32>,

@@ -216,3 +216,98 @@ fn rejects_distinct_type_constructors() {
         "{errors:?}"
     );
 }
+
+fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir::TypeDeclaration {
+    psrs_hir::TypeDeclaration {
+        id: psrs_hir::TypeId::new(ModuleId(0), id),
+        name: name.into(),
+        name_span: TextRange::new(0, 1),
+        kind: psrs_hir::TypeDeclarationKind::TypeSynonym,
+        parameters: parameters
+            .iter()
+            .map(|parameter| psrs_hir::TypeParameter {
+                name: (*parameter).into(),
+                name_span: TextRange::new(0, 1),
+                kind: None,
+            })
+            .collect(),
+        constructors: Vec::new(),
+        members: Vec::new(),
+        body: Some(body),
+        superclasses: Vec::new(),
+        declared_kind: None,
+        span: TextRange::new(0, 1),
+    }
+}
+
+#[test]
+fn expands_type_synonyms_in_signatures() {
+    let pair_int = applied(
+        named(0, 20),
+        builtin(psrs_hir::BuiltinType::Int, 25),
+        20,
+        28,
+    );
+    let signature = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(pair_int.clone()),
+            result: Box::new(pair_int),
+        },
+        span: TextRange::new(20, 30),
+    };
+    let declaration = declaration_with_signature(0, "f", 19, signature, identity_lambda(40));
+    let mut resolved = module(vec![declaration], false);
+    resolved.types = vec![synonym(
+        0,
+        "Pair",
+        &["a"],
+        applied(
+            builtin(psrs_hir::BuiltinType::Array, 10),
+            variable("a", 16),
+            10,
+            17,
+        ),
+    )];
+
+    let typed = typecheck_module(resolved).unwrap();
+    assert!(
+        typed
+            .types
+            .iter()
+            .any(|ty| matches!(ty, Type::Constructor(thir::TypeConstructor::Array)))
+    );
+    assert!(!typed.types.iter().any(|ty| matches!(
+        ty,
+        Type::Constructor(thir::TypeConstructor::User(id)) if id.index == 0
+    )));
+    typed.verify().unwrap();
+}
+
+#[test]
+fn rejects_a_partially_applied_synonym() {
+    let signature = HirType {
+        kind: HirTypeKind::Named(psrs_hir::TypeId::new(ModuleId(0), 0)),
+        span: TextRange::new(20, 24),
+    };
+    let declaration = declaration_with_signature(0, "f", 19, signature, identity_lambda(40));
+    let mut resolved = module(vec![declaration], false);
+    resolved.types = vec![synonym(
+        0,
+        "Pair",
+        &["a"],
+        applied(
+            builtin(psrs_hir::BuiltinType::Array, 10),
+            variable("a", 16),
+            10,
+            17,
+        ),
+    )];
+
+    let errors = typecheck_module(resolved).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.kind == TypeCheckErrorKind::UnsupportedType),
+        "{errors:?}"
+    );
+}

@@ -77,16 +77,18 @@ unifies kinds with an occurs check and reports the official
 `CycleInTypeSynonym`, `CycleInKindDeclaration`, and `UndefinedTypeVariable`
 codes.
 
-Steps 2.3 and 2.5 are implemented. `InferType`, THIR, and Typed Core carry type
-constructors and application; signature elaboration maps `Array` and user type
-names to constructors, and unification decomposes applications and compares
-constructors by identity. A signature such as `Maybe Int -> Maybe Int` or
-`Array a -> Array a` now elaborates and checks. Type synonyms are still opaque
-to inference, and the backend rejects aggregate and user-defined types with a
-named limitation rather than lowering them.
+Steps 2.3, 2.5, and part of 2.6 are implemented. `InferType`, THIR, and Typed
+Core carry type constructors and application; signature elaboration maps
+`Array` and user type names to constructors, expands type synonyms by
+substituting their parameters, and unification decomposes applications and
+compares constructors by identity. A signature such as `Maybe Int ->
+Maybe Int`, `Array a -> Array a`, or a synonym like `type Result = Array Int`
+now elaborates and checks. The backend rejects aggregate and user-defined types
+with a named limitation rather than lowering them.
 
-Step 2.6 and later are not implemented: no synonym expansion during inference,
-no algebraic data types, class constraints, or rank-N types.
+The rest of 2.6 and later are not implemented: no saturation of built-in
+constructors into runtime layouts, algebraic data types, class constraints, or
+rank-N types.
 
 ## Roadmap overview
 

@@ -23,3 +23,21 @@ fn reports_user_types_as_a_backend_limitation() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn typechecks_expanded_type_synonyms() {
+    let source = "module Main where\ntype Result = Array Int\nf :: Result -> Result\nf x = x\n";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn reports_a_type_synonym_mismatch_after_expansion() {
+    let source = "module Main where\ntype Result = Array Int\nf :: Result -> Result\nf x = 1\n";
+    let errors = check_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("Array Int")),
+        "{errors:?}"
+    );
+}
