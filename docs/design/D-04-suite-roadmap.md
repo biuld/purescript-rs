@@ -231,9 +231,9 @@ and wildcard patterns type-checks, and the constructor table flows through THIR
 and Core. The first runtime slice lowers the nullary constructors of a
 non-parameterized data type to immediate integer tags and `case` over it to tag
 comparisons, so enum-style programs compile to Wasm and run under WASI.
-Constructors with fields, parameterized types, `newtype` erasure, records,
-rows, and heap or tagged aggregate layouts are still open, and the backend
-reports them as named limitations. Fields and closures will use Wasm GC
+Parameterized types, `newtype` erasure, records, rows, and richer heap or
+tagged aggregate layouts are still open, and the backend reports them as named
+limitations. Supported non-parameterized fields use Wasm GC
 objects under the runtime baseline fixed by
 [DEC-05](../decision/DEC-05-wasmtime-feature-set.md).
 

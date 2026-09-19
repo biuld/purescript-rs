@@ -52,9 +52,10 @@ psrs wat src/Helper.purs src/Main.purs -o main.wat
 
 The initial slice supports direct top-level functions, integer and boolean
 values, integer arithmetic and comparisons, scalar `let`, `if`, nullary enum
-tags, and the implemented WASI console, clock, and random capabilities. The
-selected entry must be a zero-argument integer `main` function. Aggregate
-values with fields, closures, higher-order calls, and unsupported WIT shapes
+tags, non-parameterized data constructors with scalar or nested aggregate
+fields, and the implemented WASI console, clock, and random capabilities. The
+selected entry must be a zero-argument integer `main` function. Parameterized
+aggregates, records, closures, higher-order calls, and unsupported WIT shapes
 receive source-oriented diagnostics.
 
 ## Acceptance criteria

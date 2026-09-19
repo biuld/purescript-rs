@@ -120,7 +120,7 @@ pub fn typecheck_module_with_imports(
     let inferred = inferred.into_iter().flatten().collect::<Vec<_>>();
 
     let mut types = TypeInterner::default();
-    let generics = checker.generic_variables.clone();
+    let mut generics = checker.generic_variables.clone();
     let declarations = inferred
         .into_iter()
         .filter_map(|declaration| {
@@ -153,16 +153,40 @@ pub fn typecheck_module_with_imports(
         return Err(checker.errors);
     }
 
-    let constructors = checker
+    let constructor_infos = checker
         .constructor_info
         .values()
-        .map(|info| thir::ConstructorInfo {
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut constructors = Vec::with_capacity(constructor_infos.len());
+    for info in constructor_infos {
+        let mut variables = HashMap::new();
+        for parameter in &info.parameters {
+            let variable = checker.fresh();
+            if let InferType::Variable(id) = variable {
+                generics.insert(id);
+            }
+            variables.insert(parameter.clone(), variable);
+        }
+        let Some(field_types) = info
+            .fields
+            .iter()
+            .map(|field| {
+                let inferred = checker.elaborate_type(field, &mut variables);
+                checker.finalize_type(&inferred, field.span, &mut types, &generics)
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        constructors.push(thir::ConstructorInfo {
             symbol: info.symbol,
             type_id: info.type_id,
             tag: info.tag,
-            field_count: info.fields.len(),
-        })
-        .collect::<Vec<_>>();
+            field_count: field_types.len(),
+            field_types,
+        });
+    }
 
     let typed = thir::Module {
         id: module.id,

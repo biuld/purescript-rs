@@ -76,18 +76,20 @@ The bootstrap compiler now lowers this source subset through every IR family:
 
 ```text
 module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
-  -> scalar MIR / CFG -> structured Wasm -> .wasm and WAT
+  -> typed MIR / CFG -> structured Wasm -> .wasm and WAT
 ```
 
 The supported program shape includes top-level direct functions, `Int`,
 `Boolean`, `String`, and `Unit`, integer arithmetic and comparisons, string
 literals, local scalar `let` bindings, and value-producing `if`. A data type
 whose constructors are all nullary lowers to immediate integer tags and `case`
-over it to tag comparisons, so enum-style programs run under WASI. Top-level
-lambdas become direct parameters. The `log` runtime function writes a `String`
-to standard output and returns `Unit`. Nested or capturing lambdas, function
-values, higher-order calls, and aggregate values with fields are rejected with
-source diagnostics. Compatible source WIT imports are lowered through the
+over it to tag comparisons. A non-parameterized data type with fields lowers to
+one Wasm GC struct per constructor; construction uses `struct.new`, and field
+patterns use `ref.test`, `ref.cast`, and `struct.get`. Top-level lambdas become
+direct parameters. The `log` runtime function writes a `String` to standard
+output and returns `Unit`. Nested or capturing lambdas, function values,
+higher-order calls, parameterized aggregates, records, and arrays are rejected
+with source diagnostics. Compatible source WIT imports are lowered through the
 generic canonical-ABI adapter; mismatched source signatures, non-byte lists,
 and unsupported aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
 generalizes local `let` groups and top-level strongly connected components and
@@ -221,7 +223,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
-| M6 | Partial: nullary data types lower to integer tags and run; fields, tagged layouts, and GC-backed aggregates pending |
+| M6 | Partial: nullary data types and non-parameterized field constructors lower and run through Wasm GC; parameterized aggregates, records, and arrays pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |
 | M10 | WASI runtime and PureScript-facing base libraries |

@@ -165,7 +165,7 @@ pub fn lower_module(module: cc::Module) -> Result<(Module, WasiRegistry), Vec<Ba
         .collect();
     let mir = Module {
         name: module.name,
-        types: Vec::new(),
+        types: module.types,
         imports,
         functions,
         entry: module.entry,

@@ -37,12 +37,13 @@ pub enum Type {
 }
 
 /// A data constructor known to the module, mirrored from THIR.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructorInfo {
     pub symbol: SymbolId,
     pub type_id: HirTypeId,
     pub tag: u32,
     pub field_count: usize,
+    pub field_types: Vec<TypeId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,8 +133,12 @@ impl Primitive {
 pub enum ExprKind {
     Local(LocalId),
     Global(SymbolId),
-    /// A nullary data constructor value; its tag identifies it at runtime.
-    Constructor(SymbolId),
+    /// A data constructor application. Nullary constructors have no
+    /// arguments; aggregate constructors carry their field expressions.
+    Constructor {
+        symbol: SymbolId,
+        arguments: Vec<Expr>,
+    },
     Integer(i32),
     Boolean(bool),
     String(String),
@@ -179,8 +184,11 @@ pub struct Pattern {
 pub enum PatternKind {
     Wildcard,
     Var(LocalId),
-    /// A nullary constructor pattern, tagged by its value symbol.
-    Constructor(SymbolId),
+    /// A constructor pattern, with one nested pattern per field.
+    Constructor {
+        symbol: SymbolId,
+        arguments: Vec<Pattern>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -293,19 +301,30 @@ fn verify_expr(
         | ExprKind::Integer(_)
         | ExprKind::Boolean(_)
         | ExprKind::String(_) => {}
-        ExprKind::Constructor(symbol)
-            if !module
+        ExprKind::Constructor { symbol, arguments } => {
+            if let Some(constructor) = module
                 .constructors
                 .iter()
-                .any(|constructor| constructor.symbol == *symbol) =>
-        {
-            errors.push(VerifyError {
-                module: owner,
-                span: expression.span,
-                message: "constructor reference is not declared",
-            });
+                .find(|constructor| constructor.symbol == *symbol)
+            {
+                if constructor.field_count != arguments.len() {
+                    errors.push(VerifyError {
+                        module: owner,
+                        span: expression.span,
+                        message: "constructor application has the wrong field count",
+                    });
+                }
+            } else {
+                errors.push(VerifyError {
+                    module: owner,
+                    span: expression.span,
+                    message: "constructor reference is not declared",
+                });
+            }
+            for argument in arguments {
+                verify_expr(argument, module, owner, globals, locals, errors);
+            }
         }
-        ExprKind::Constructor(_) => {}
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             verify_expr(left, module, owner, globals, locals, errors);
             verify_expr(right, module, owner, globals, locals, errors);
@@ -370,7 +389,7 @@ fn verify_pattern(
         PatternKind::Var(id) => {
             locals.insert(*id);
         }
-        PatternKind::Constructor(symbol) => {
+        PatternKind::Constructor { symbol, arguments } => {
             if !module
                 .constructors
                 .iter()
@@ -382,13 +401,24 @@ fn verify_pattern(
                     message: "pattern constructor is not declared",
                 });
             }
+            for argument in arguments {
+                verify_pattern(argument, module, owner, locals, errors);
+            }
         }
     }
 }
 
 fn remove_pattern_locals(pattern: &Pattern, locals: &mut HashSet<LocalId>) {
-    if let PatternKind::Var(id) = &pattern.kind {
-        locals.remove(id);
+    match &pattern.kind {
+        PatternKind::Var(id) => {
+            locals.remove(id);
+        }
+        PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                remove_pattern_locals(argument, locals);
+            }
+        }
+        PatternKind::Wildcard => {}
     }
 }
 

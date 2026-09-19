@@ -32,12 +32,16 @@ pub enum Type {
 
 /// A data constructor known to the module. `tag` is its zero-based position in
 /// the declaration; `field_count` is the number of fields it takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructorInfo {
     pub symbol: SymbolId,
     pub type_id: HirTypeId,
     pub tag: u32,
     pub field_count: usize,
+    /// The elaborated field types, in constructor order. Keeping these in
+    /// THIR lets later representations choose a runtime layout without
+    /// consulting HIR again.
+    pub field_types: Vec<TypeId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

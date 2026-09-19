@@ -1,4 +1,7 @@
-use crate::{Binding, CaseBranch, Declaration, Expr, ExprKind, Module, PatternKind, Type, TypeId};
+use crate::{
+    Binding, CaseBranch, ConstructorInfo, Declaration, Expr, ExprKind, Module, PatternKind, Type,
+    TypeId,
+};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::HashSet;
@@ -25,7 +28,16 @@ pub fn link(modules: Vec<Module>) -> Module {
         for ty in &module.types {
             types.push(shift_type(ty, offset));
         }
-        constructors.extend(module.constructors);
+        constructors.extend(module.constructors.into_iter().map(|constructor| {
+            ConstructorInfo {
+                field_types: constructor
+                    .field_types
+                    .into_iter()
+                    .map(|field| shift_id(field, offset))
+                    .collect(),
+                ..constructor
+            }
+        }));
         declarations.extend(
             module
                 .declarations
@@ -106,7 +118,13 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
     match kind {
         ExprKind::Local(id) => ExprKind::Local(id),
         ExprKind::Global(symbol) => ExprKind::Global(symbol),
-        ExprKind::Constructor(symbol) => ExprKind::Constructor(symbol),
+        ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
+            symbol,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| shift_expr(argument, offset))
+                .collect(),
+        },
         ExprKind::Integer(value) => ExprKind::Integer(value),
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
@@ -186,7 +204,13 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
 
 fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
-        ExprKind::Global(symbol) | ExprKind::Constructor(symbol) => out.push(*symbol),
+        ExprKind::Global(symbol) => out.push(*symbol),
+        ExprKind::Constructor { symbol, arguments } => {
+            out.push(*symbol);
+            for argument in arguments {
+                collect_references(argument, out);
+            }
+        }
         ExprKind::Local(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) | ExprKind::String(_) => {}
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             collect_references(left, out);
@@ -222,7 +246,10 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
 }
 
 fn collect_pattern(pattern: &crate::Pattern, out: &mut Vec<SymbolId>) {
-    if let PatternKind::Constructor(symbol) = &pattern.kind {
+    if let PatternKind::Constructor { symbol, arguments } = &pattern.kind {
         out.push(*symbol);
+        for argument in arguments {
+            collect_pattern(argument, out);
+        }
     }
 }

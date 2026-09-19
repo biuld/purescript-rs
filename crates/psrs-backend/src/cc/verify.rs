@@ -77,6 +77,10 @@ fn verify_assignments(
             AssignmentKind::Constant(_) => {}
             AssignmentKind::StringConstant(_) => {}
             AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
+            AssignmentKind::RefTest { value, .. }
+            | AssignmentKind::RefCast { value, .. }
+            | AssignmentKind::StructGet { value, .. } => uses.push(*value),
+            AssignmentKind::StructNew { arguments, .. } => uses.extend(arguments.iter().copied()),
             AssignmentKind::DirectCall {
                 function,
                 arguments,

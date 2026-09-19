@@ -107,6 +107,64 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::RefTest {
+                    destination,
+                    value,
+                    reference,
+                } => self.append_instruction(
+                    current,
+                    Instruction::RefTest {
+                        destination: *destination,
+                        value: *value,
+                        reference: *reference,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::RefCast {
+                    destination,
+                    value,
+                    reference,
+                } => self.append_instruction(
+                    current,
+                    Instruction::RefCast {
+                        destination: *destination,
+                        value: *value,
+                        reference: *reference,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::StructNew {
+                    destination,
+                    type_index,
+                    arguments,
+                } => self.append_instruction(
+                    current,
+                    Instruction::StructNew {
+                        destination: *destination,
+                        type_index: *type_index,
+                        arguments: arguments.clone(),
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
+                AssignmentKind::StructGet {
+                    destination,
+                    type_index,
+                    field,
+                    value,
+                } => self.append_instruction(
+                    current,
+                    Instruction::StructGet {
+                        destination: *destination,
+                        type_index: *type_index,
+                        field: *field,
+                        value: *value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::DirectCall {
                     function,
                     arguments,

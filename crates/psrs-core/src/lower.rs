@@ -23,7 +23,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
     let constructors = module
         .constructors
         .iter()
-        .map(|constructor| (constructor.symbol, *constructor))
+        .map(|constructor| (constructor.symbol, constructor.clone()))
         .collect::<HashMap<_, _>>();
     let types = module
         .types
@@ -74,6 +74,11 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
                 type_id: constructor.type_id,
                 tag: constructor.tag,
                 field_count: constructor.field_count,
+                field_types: constructor
+                    .field_types
+                    .iter()
+                    .map(|field| TypeId(field.0))
+                    .collect(),
             })
             .collect(),
         declarations,
@@ -111,6 +116,17 @@ fn lower_expr(
 ) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
+    if let Some((symbol, arguments)) = constructor_application(&expression, constructors) {
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| lower_expr(argument.clone(), externals, constructors))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(Expr {
+            kind: ExprKind::Constructor { symbol, arguments },
+            ty,
+            span,
+        });
+    }
     let kind = match expression.kind {
         TypedExprKind::Local(id) => ExprKind::Local(id),
         TypedExprKind::Global(id) => {
@@ -118,10 +134,13 @@ fn lower_expr(
                 if constructor.field_count != 0 {
                     return Err(LowerError {
                         span,
-                        message: "constructors with fields are not supported by the first backend slice",
+                        message: "partially applied field constructors require closure conversion",
                     });
                 }
-                ExprKind::Constructor(id)
+                ExprKind::Constructor {
+                    symbol: id,
+                    arguments: Vec::new(),
+                }
             } else {
                 ExprKind::Global(id)
             }
@@ -214,16 +233,36 @@ fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerErr
         psrs_thir::PatternKind::Wildcard => crate::PatternKind::Wildcard,
         psrs_thir::PatternKind::Var { id, .. } => crate::PatternKind::Var(id),
         psrs_thir::PatternKind::Constructor { symbol, arguments } => {
-            if !arguments.is_empty() {
-                return Err(LowerError {
-                    span,
-                    message: "constructor patterns with fields are not supported by the first backend slice",
-                });
+            crate::PatternKind::Constructor {
+                symbol,
+                arguments: arguments
+                    .into_iter()
+                    .map(lower_pattern)
+                    .collect::<Result<Vec<_>, _>>()?,
             }
-            crate::PatternKind::Constructor(symbol)
         }
     };
     Ok(crate::Pattern { kind, span })
+}
+
+fn constructor_application<'a>(
+    expression: &'a TypedExpr,
+    constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
+) -> Option<(SymbolId, Vec<&'a TypedExpr>)> {
+    let mut arguments = Vec::new();
+    let mut head = expression;
+    while let TypedExprKind::Application(function, argument) = &head.kind {
+        arguments.push(argument.as_ref());
+        head = function;
+    }
+    let TypedExprKind::Global(symbol) = head.kind else {
+        return None;
+    };
+    let constructor = constructors.get(&symbol)?;
+    (constructor.field_count == arguments.len()).then(|| {
+        arguments.reverse();
+        (symbol, arguments)
+    })
 }
 
 fn flatten_intrinsic(

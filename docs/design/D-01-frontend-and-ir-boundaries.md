@@ -263,8 +263,9 @@ intrinsics into Core primitive operations and keeps runtime functions, such as
 
 P8 flattens top-level lambdas and emits ANF assignments and direct calls.
 Captured closures, nested function values, and higher-order calls produce
-diagnostics. String literals become string constants. P9 creates scalar MIR
-values, string constants, and basic blocks, and lowers `log` to WASI: it reads
+diagnostics. String literals become string constants. P9 creates typed MIR
+values, including GC references for supported data constructors, string
+constants, and basic blocks, and lowers `log` to WASI: it reads
 the string's length from its length-prefixed buffer and calls
 `wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`
 diamonds into the thin Wasm encoding, whose leaf opcodes are

@@ -71,8 +71,9 @@ a revision of this profile and stays behind the WASI boundary, so it does not
 reach the frontend.
 
 Target representations per [D-02](D-02-wasm-lowering.md): a data type whose
-constructors are all nullary uses immediate integer tags; a data type with
-fields uses a `rec` group of GC `struct` types under an abstract supertype;
+constructors are all nullary uses immediate integer tags; a supported
+non-parameterized data type with fields uses one immutable GC `struct` per
+constructor;
 closures are GC `struct` values holding a `funcref` and their captures; records
 and arrays use GC `struct`/`array`. Linear memory is reserved for the
 byte-oriented WASI boundary.

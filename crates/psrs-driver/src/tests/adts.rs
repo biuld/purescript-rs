@@ -51,22 +51,57 @@ fn lowers_enum_case_to_tag_comparisons() {
 }
 
 #[test]
-fn reports_field_constructor_patterns_as_a_limitation() {
+fn compiles_a_non_parameterized_field_constructor_case() {
     let source = "\
 module Main where
-data Maybe a = Nothing | Just a
-f :: Maybe Int -> Int
-f m = case m of
-  Nothing -> 0
-  Just x -> x
+data Pair = Pair Int Int | Empty
+sum p = case p of
+  Pair x y -> x + y
+  Empty -> 0
+main = sum (Pair 20 22)
 ";
-    let errors = compile_source("Main.purs", source).unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("constructor patterns with fields")),
-        "{errors:?}"
-    );
+    let artifact = compile_source("Main.purs", source).expect("lowering a GC constructor");
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_the_nullary_fallback_of_a_gc_constructor_case() {
+    let source = "\
+module Main where
+data Pair = Pair Int Int | Empty
+sum p = case p of
+  Pair x y -> x + y
+  Empty -> 0
+main = sum Empty
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn runs_nested_non_parameterized_gc_aggregates() {
+    let source = "\
+module Main where
+data Inner = Inner Int
+data Outer = Outer Inner
+unwrap value = case value of
+  Outer inner -> case inner of
+    Inner number -> number
+main = unwrap (Outer (Inner 42))
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
 }
 
 #[test]

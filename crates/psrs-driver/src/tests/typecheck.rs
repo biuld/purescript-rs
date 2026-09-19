@@ -94,20 +94,14 @@ g m = case m of
 }
 
 #[test]
-fn reports_field_constructor_patterns_as_a_limitation() {
+fn compiles_a_non_parameterized_field_constructor_case() {
     let source = "\
 module Main where
-data Maybe a = Nothing | Just a
-f :: Maybe Int -> Int
-f m = case m of
-  Nothing -> 0
-  Just x -> x
+data Pair = Pair Int Int | Empty
+sum p = case p of
+  Pair x y -> x + y
+  Empty -> 0
+main = sum (Pair 20 22)
 ";
-    let errors = compile_source("Main.purs", source).unwrap_err();
-    assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("constructor patterns with fields are not supported")),
-        "{errors:?}"
-    );
+    assert!(compile_source("Main.purs", source).is_ok());
 }

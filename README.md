@@ -56,15 +56,16 @@ application, and expands type synonyms, so signatures over `Array`, user types,
 and synonyms elaborate and unify. Data and newtype constructors are typed as
 polymorphic values, so constructor applications type-check, and single-scrutinee
 `case` expressions with constructor, variable, and wildcard patterns type-check.
-A first runtime slice lowers a non-parameterized data type's nullary
-constructors to integer tags and `case` over it to tag comparisons, so
-enum-style programs run under WASI. Type-class constraints, constructors with
-fields, heap layouts, and rows are not implemented yet. `build <file.purs>...`
+A first runtime slice lowers non-parameterized data types: nullary-only types
+use integer tags, while field constructors use Wasm GC structs and `case`
+uses runtime type tests and field loads. Type-class constraints, closures,
+records, arrays, and rows are not implemented yet. `build <file.purs>...`
 writes a validated WASI 0.2 Component Model artifact exporting
 `wasi:cli/run@0.2.12` and links all listed modules with the embedded `Prelude`;
-`wat <file.purs>...` renders the corresponding text form. General PureScript compatibility,
-type classes, closures, and aggregate values with fields are not implemented
-yet. Cross-module compilation is supported for the direct-call subset.
+`wat <file.purs>...` renders the corresponding text form. General PureScript
+compatibility, type classes, closures, records, and arrays are not implemented
+yet. Cross-module compilation is supported for the direct-call and non-parameterized
+ADT subset.
 
 ## Workspace
 
