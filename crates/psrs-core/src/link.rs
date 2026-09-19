@@ -1,6 +1,7 @@
-use crate::{Binding, CaseBranch, Declaration, Expr, ExprKind, Module, Type, TypeId};
-use psrs_hir::ModuleId;
+use crate::{Binding, CaseBranch, Declaration, Expr, ExprKind, Module, PatternKind, Type, TypeId};
+use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
+use std::collections::HashSet;
 
 /// Links lowered modules into one module: type IDs are renumbered into a single
 /// type table, while declarations, constructors, and externals are concatenated.
@@ -155,5 +156,71 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 })
                 .collect(),
         },
+    }
+}
+
+/// Removes declarations not reachable from `root` through global and
+/// constructor references. Used after linking so a program only carries the
+/// library declarations it reaches.
+pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
+    let mut reachable = HashSet::new();
+    let mut work = vec![root];
+    while let Some(symbol) = work.pop() {
+        if !reachable.insert(symbol) {
+            continue;
+        }
+        if let Some(declaration) = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.symbol == symbol)
+        {
+            collect_references(&declaration.value, &mut work);
+        }
+    }
+    module
+        .declarations
+        .retain(|declaration| reachable.contains(&declaration.symbol));
+}
+
+fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
+    match &expression.kind {
+        ExprKind::Global(symbol) | ExprKind::Constructor(symbol) => out.push(*symbol),
+        ExprKind::Local(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) | ExprKind::String(_) => {}
+        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+            collect_references(left, out);
+            collect_references(right, out);
+        }
+        ExprKind::Lambda { body, .. } => collect_references(body, out),
+        ExprKind::Let { bindings, body } => {
+            for binding in bindings {
+                collect_references(&binding.value, out);
+            }
+            collect_references(body, out);
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_references(condition, out);
+            collect_references(then_branch, out);
+            collect_references(else_branch, out);
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            collect_references(scrutinee, out);
+            for branch in branches {
+                collect_pattern(&branch.pattern, out);
+                collect_references(&branch.value, out);
+            }
+        }
+    }
+}
+
+fn collect_pattern(pattern: &crate::Pattern, out: &mut Vec<SymbolId>) {
+    if let PatternKind::Constructor(symbol) = &pattern.kind {
+        out.push(*symbol);
     }
 }

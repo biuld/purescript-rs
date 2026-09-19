@@ -1,7 +1,7 @@
 mod link;
 mod lower;
 
-pub use link::link;
+pub use link::{link, prune_unreachable};
 
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,

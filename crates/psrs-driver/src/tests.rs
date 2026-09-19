@@ -111,7 +111,7 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
 
 #[test]
 fn lowers_string_log_to_wasi_stdout() {
-    let source = "module Main where\nmain = log \"hello world\"\n";
+    let source = "module Main where\nimport Prelude\nmain = log \"hello world\"\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
@@ -139,7 +139,9 @@ fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
 
 #[test]
 fn prints_hello_world_when_wasmtime_is_available() {
-    let Some(output) = run_with_wasmtime("module Main where\nmain = log \"hello world\"\n") else {
+    let Some(output) =
+        run_with_wasmtime("module Main where\nimport Prelude\nmain = log \"hello world\"\n")
+    else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
@@ -149,7 +151,8 @@ fn prints_hello_world_when_wasmtime_is_available() {
 
 #[test]
 fn reads_the_monotonic_clock_when_wasmtime_is_available() {
-    let Some(output) = run_with_wasmtime("module Main where\nmain = now * 0\n") else {
+    let Some(output) = run_with_wasmtime("module Main where\nimport Prelude\nmain = now * 0\n")
+    else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
@@ -158,8 +161,9 @@ fn reads_the_monotonic_clock_when_wasmtime_is_available() {
 
 #[test]
 fn writes_to_stderr_when_wasmtime_is_available() {
-    let Some(output) = run_with_wasmtime("module Main where\nmain = let x = error \"oops\" in 7\n")
-    else {
+    let Some(output) = run_with_wasmtime(
+        "module Main where\nimport Prelude\nmain = let x = error \"oops\" in 7\n",
+    ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };

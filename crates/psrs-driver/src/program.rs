@@ -26,7 +26,7 @@ pub fn compile_program_sources(
     })
 }
 
-fn lower_program_to_core(
+pub(crate) fn lower_program_to_core(
     sources: &[(&str, &str)],
 ) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
     let typed = typecheck_program_sources(sources)?;
@@ -45,7 +45,15 @@ fn lower_program_to_core(
             }
         }
     }
-    let linked = psrs_core::link(modules);
+    let mut linked = psrs_core::link(modules);
+    if let Some(main) = linked
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .map(|declaration| declaration.symbol)
+    {
+        psrs_core::prune_unreachable(&mut linked, main);
+    }
     if let Err(errors) = linked.verify() {
         return Err(errors
             .into_iter()

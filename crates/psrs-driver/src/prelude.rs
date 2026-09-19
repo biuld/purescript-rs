@@ -1,19 +1,24 @@
 //! The standard library, embedded as source.
 //!
-//! The bootstrap compiler has no module loader or linker, so the library is
-//! parsed and merged into the program module before resolution. Every value it
-//! provides is ordinary library code over `foreign import` declarations that
-//! bind to WIT. This is a bootstrap mechanism, not the long-term module
-//! system; see `docs/design/D-07-wit-imports-and-std.md`.
+//! The library is a real module: it is linked into the program with every other
+//! module, and a program reaches its values through an ordinary import. The
+//! compiler has no module loader yet, so the source is embedded and provided to
+//! the pipeline. See `docs/design/D-07-wit-imports-and-std.md`.
 
-/// The standard library source merged into every compiled module.
+/// The name of the standard-library module.
+pub const NAME: &str = "Prelude";
+
+/// The standard library source, linked into every compiled program.
 pub const SOURCE: &str = r#"
 module Prelude where
 
 foreign import "wasi:cli/stdout#get-stdout" getStdout :: Int
 foreign import "wasi:cli/stderr#get-stderr" getStderr :: Int
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush" writeStdout :: Int -> String -> Unit
-foreign import "wasi:clocks/monotonic-clock#now" now :: Int
+foreign import "wasi:clocks/monotonic-clock#now" monotonicNow :: Int
+
+now :: Int
+now = monotonicNow
 
 log :: String -> Unit
 log s = let a = writeStdout getStdout s in writeStdout getStdout "\n"

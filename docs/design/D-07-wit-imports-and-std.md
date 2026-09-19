@@ -74,33 +74,37 @@ The standard library is source code that declares its WIT imports and defines
 `filesystem` over them. No host function is implemented in the compiler; the
 backend only knows the generic WIT-import call.
 
-Because the bootstrap compiler has no module loader or linker, the library
-source is embedded in the driver and its declarations are appended to the
-program module before resolution. It declares `getStdout`, `getStderr`,
-`writeStdout`, and `now` with WIT bindings, and defines:
+The library is a real module. It is embedded in the driver because there is no
+filesystem module loader yet, but it is resolved, type checked, and linked like
+any other module; a program reaches its values with `import Prelude`. It
+declares `getStdout`, `getStderr`, `writeStdout`, and `monotonicNow` with WIT
+bindings, exposes `now`, and defines:
 
 ```purescript
 log s = let a = writeStdout getStdout s in writeStdout getStdout "\n"
 ```
 
 There is no `Write` composition left in the compiler: the newline is an ordinary
-string literal and becomes a data segment.
+string literal and becomes a data segment. After linking, declarations the
+program does not reach from `main` are pruned, so a program that does not use
+`log` or `error` does not import the output streams.
 
 ## Consequences
 
 - Adding a WIT import is a `foreign import` declaration, not backend code.
 - The compiler still owns the string representation (length-prefixed buffer in
   linear memory); a library sees strings, and the generic lowering adapts them.
-- The embedded, merged library is a bootstrap stand-in for a real module system.
-  A program cannot yet select which library modules it uses, and a declaration
-  that collides with a library name is a duplicate-declaration error.
+- Modules are linked at the Core level: type IDs are renumbered into one table
+  and unreachable declarations are pruned. A module's values are exported by
+  their declared types, so an unannotated declaration is not visible to other
+  modules yet.
 - Imports that return a `list`/`string` need an allocator, so the module exports
   `cabi_realloc`. Other returned aggregates (`list<string>`,
   `list<tuple<...>>`) additionally need aggregate values in the backend.
 
 ## Open items
 
-- Standard-library module loading and linking: replace the embedded, merged
-  source with real modules the program imports.
+- A filesystem module loader, so user modules and libraries are discovered and
+  selected instead of the driver providing the standard library source.
 - Aggregate values in the backend, so imports like `get-arguments` and
   `get-environment` can be exposed, and a real allocator with reclamation.
