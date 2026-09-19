@@ -91,9 +91,11 @@ one Wasm GC struct per constructor; construction uses `struct.new`, and field
 patterns use `ref.test`, `ref.cast`, and `struct.get`; nested constructor
 patterns test the nested constructor before projecting its matching GC object. Top-level lambdas become
 direct parameters. The `log` runtime function writes a `String` to standard
-output and returns `Unit`. Record updates and open rows are rejected with
-source diagnostics. Closed concrete record literals lower to Wasm GC
-structs, and field reads lower to `struct.get`. Concrete scalar array literals
+output and returns `Unit`. Closed concrete record literals and record updates
+lower to Wasm GC structs: an update evaluates its base once, evaluates update
+values in source order, reads unchanged fields with `struct.get`, and rebuilds
+the value with `struct.new`. Open rows remain rejected with source diagnostics.
+Field reads lower to `struct.get`. Concrete scalar array literals
 lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
 to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
 the concrete `arrayUpdate` intrinsic lowers to `array.set`.
@@ -250,7 +252,7 @@ explicit, target-aware ABI and are not mixed into Typed Core.
 | M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
 | M4 | Implemented Typed Core lowering and verifier; optimization is pending |
 | M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
-| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, constructor argument patterns, a first erased concrete parameterized-ADT slice, concrete scalar array literals plus length, indexing, and updates, and closed concrete record literals plus field reads lower and run through Wasm GC; fully polymorphic ADTs, open rows, and record updates pending |
+| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, constructor argument patterns, a first erased concrete parameterized-ADT slice, concrete scalar array literals plus length, indexing, and updates, and closed concrete record literals, field reads, and updates lower and run through Wasm GC; fully polymorphic ADTs and open rows remain pending |
 | M7 | ANF, closure conversion, and higher-order functions |
 | M8–M9 | Type classes, records, rows, and broader PureScript semantics |
 | M10 | WASI runtime and PureScript-facing base libraries |

@@ -50,6 +50,13 @@ fn desugar_expr(expression: Expr) -> Expr {
                 .map(|(label, value)| (label, desugar_expr(value)))
                 .collect(),
         ),
+        ExprKind::RecordUpdate { expression, fields } => ExprKind::RecordUpdate {
+            expression: Box::new(desugar_expr(*expression)),
+            fields: fields
+                .into_iter()
+                .map(|(label, value)| (label, desugar_expr(value)))
+                .collect(),
+        },
         ExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
             expression: Box::new(desugar_expr(*expression)),
             field,

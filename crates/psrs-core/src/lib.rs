@@ -21,8 +21,7 @@ pub enum TypeConstructor {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
-    /// A generalized type variable. See [`Declaration::quantified`] and
-    /// [`Binding::quantified`] for the variables bound at each site.
+    /// A generalized type variable; quantifiers are stored at each binding site.
     Variable(TypeVariableId),
     I32,
     Boolean,
@@ -141,8 +140,7 @@ impl Primitive {
 pub enum ExprKind {
     Local(LocalId),
     Global(SymbolId),
-    /// A data constructor application. Nullary constructors have no
-    /// arguments; aggregate constructors carry their field expressions.
+    /// A data constructor application; aggregate constructors carry field expressions.
     Constructor {
         symbol: SymbolId,
         arguments: Vec<Expr>,
@@ -154,6 +152,10 @@ pub enum ExprKind {
         elements: Vec<Expr>,
     },
     Record {
+        fields: Vec<(String, Expr)>,
+    },
+    RecordUpdate {
+        record: Box<Expr>,
         fields: Vec<(String, Expr)>,
     },
     FieldAccess {
@@ -224,9 +226,7 @@ pub enum PatternKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
-    /// The source module that owns the declaration being verified. Linked Core
-    /// keeps declaration symbols stable, so diagnostics can be mapped back to
-    /// the original program input instead of defaulting to source zero.
+    /// The source module owning the declaration; linked Core maps diagnostics back to it.
     pub module: ModuleId,
     pub span: TextRange,
     pub message: &'static str,
@@ -345,6 +345,12 @@ fn verify_expr(
             }
         }
         ExprKind::Record { fields } => {
+            for (_, value) in fields {
+                verify_expr(value, module, owner, globals, locals, errors);
+            }
+        }
+        ExprKind::RecordUpdate { record, fields } => {
+            verify_expr(record, module, owner, globals, locals, errors);
             for (_, value) in fields {
                 verify_expr(value, module, owner, globals, locals, errors);
             }

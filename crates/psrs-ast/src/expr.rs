@@ -1,5 +1,5 @@
 use crate::{LowerError, Name, Type};
-use psrs_cst::RecordField;
+use psrs_cst::{RecordField, RecordUpdateField};
 use psrs_span::TextRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +30,10 @@ pub enum ExprKind {
     Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    RecordUpdate {
+        expression: Box<Expr>,
+        fields: Vec<(String, Expr)>,
+    },
     FieldAccess {
         expression: Box<Expr>,
         field: String,
@@ -100,6 +104,19 @@ pub(super) fn lower_record(
             .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
             .collect::<Result<Vec<_>, LowerError>>()?,
     ))
+}
+
+pub(super) fn lower_record_update(
+    expression: psrs_cst::Expr,
+    fields: Vec<RecordUpdateField>,
+) -> Result<ExprKind, LowerError> {
+    Ok(ExprKind::RecordUpdate {
+        expression: Box::new(super::lower_expr(expression)?),
+        fields: fields
+            .into_iter()
+            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
+            .collect::<Result<Vec<_>, LowerError>>()?,
+    })
 }
 
 pub(super) fn lower_pattern_lambda(

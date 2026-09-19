@@ -300,6 +300,10 @@ enum InferredExprKind {
     String(String),
     Array(Vec<InferredExpr>),
     Record(Vec<(String, InferredExpr)>),
+    RecordUpdate {
+        expression: Box<InferredExpr>,
+        fields: Vec<(String, InferredExpr)>,
+    },
     FieldAccess {
         expression: Box<InferredExpr>,
         field: String,

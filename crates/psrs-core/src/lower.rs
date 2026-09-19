@@ -167,6 +167,13 @@ fn lower_expr(
                 .map(|(label, value)| Ok((label, lower_expr(value, externals, constructors)?)))
                 .collect::<Result<Vec<_>, LowerError>>()?,
         },
+        TypedExprKind::RecordUpdate { expression, fields } => ExprKind::RecordUpdate {
+            record: Box::new(lower_expr(*expression, externals, constructors)?),
+            fields: fields
+                .into_iter()
+                .map(|(label, value)| Ok((label, lower_expr(value, externals, constructors)?)))
+                .collect::<Result<Vec<_>, LowerError>>()?,
+        },
         TypedExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
             record: Box::new(lower_expr(*expression, externals, constructors)?),
             field,

@@ -103,6 +103,10 @@ pub enum ExprKind {
     String(String),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    RecordUpdate {
+        expression: Box<Expr>,
+        fields: Vec<(String, Expr)>,
+    },
     FieldAccess {
         expression: Box<Expr>,
         field: String,
@@ -207,6 +211,12 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
             }
         }
         ExprKind::Record(fields) => {
+            for (_, value) in fields {
+                verify_expr(value, type_count, errors);
+            }
+        }
+        ExprKind::RecordUpdate { expression, fields } => {
+            verify_expr(expression, type_count, errors);
             for (_, value) in fields {
                 verify_expr(value, type_count, errors);
             }

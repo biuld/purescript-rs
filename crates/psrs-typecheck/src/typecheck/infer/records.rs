@@ -61,4 +61,53 @@ impl Checker {
             field_ty.clone(),
         ))
     }
+
+    pub(super) fn infer_record_update(
+        &mut self,
+        expression: &hir::Expr,
+        fields: &[(String, hir::Expr)],
+        span: TextRange,
+    ) -> Option<(InferredExprKind, InferType)> {
+        let expression = self.infer_expr(expression)?;
+        let record_ty = self.resolve_type(expression.ty.clone());
+        let InferType::Record(record_fields) = record_ty.clone() else {
+            self.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::UnsupportedExpression,
+                span,
+                "record update requires a concrete record type",
+            ));
+            return None;
+        };
+
+        let mut inferred = Vec::with_capacity(fields.len());
+        let mut labels = HashSet::new();
+        for (label, value) in fields {
+            if !labels.insert(label) {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::TypeMismatch,
+                    span,
+                    format!("record label `{label}` occurs more than once"),
+                ));
+                continue;
+            }
+            let Some((_, field_ty)) = record_fields.iter().find(|(name, _)| name == label) else {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::TypeMismatch,
+                    span,
+                    format!("record has no field `{label}`"),
+                ));
+                continue;
+            };
+            let value = self.infer_expr(value)?;
+            self.unify(field_ty.clone(), value.ty.clone(), value.span);
+            inferred.push((label.clone(), value));
+        }
+        Some((
+            InferredExprKind::RecordUpdate {
+                expression: Box::new(expression),
+                fields: inferred,
+            },
+            record_ty,
+        ))
+    }
 }

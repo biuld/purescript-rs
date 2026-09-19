@@ -56,12 +56,12 @@ tags, non-parameterized data constructors with scalar or nested aggregate
 fields, single-field `newtype` values, constructor patterns in `case` and
 function parameters, including nested constructor patterns,
 a restricted parameterized ADT slice with erased scalar
-fields, concrete scalar array literals and indexing, closed concrete records
-and field reads, function values including scalar-capturing closures,
+fields, concrete scalar array literals and indexing, closed concrete records,
+field reads, and closed concrete record updates, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented WASI console, clock, and random capabilities. The selected entry
 must be a zero-argument integer `main` function. Fully polymorphic
-declarations, open rows, and unsupported WIT shapes receive source-oriented
+fully polymorphic declarations, open rows, and unsupported WIT shapes receive source-oriented
 diagnostics.
 
 ## Acceptance criteria

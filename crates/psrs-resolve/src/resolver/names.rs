@@ -157,6 +157,9 @@ impl Resolver {
                     .map(|(label, value)| Some((label, self.resolve_expr(value)?)))
                     .collect::<Option<Vec<_>>>()?,
             ),
+            AstExprKind::RecordUpdate { expression, fields } => {
+                self.resolve_record_update(*expression, fields, span)?
+            }
             AstExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
                 expression: Box::new(self.resolve_expr(*expression)?),
                 field,
@@ -233,6 +236,79 @@ impl Resolver {
             }
         };
         Some(Expr { kind, span })
+    }
+
+    fn resolve_record_update(
+        &mut self,
+        expression: ast::Expr,
+        fields: Vec<(String, ast::Expr)>,
+        span: TextRange,
+    ) -> Option<ExprKind> {
+        let record = self.resolve_expr(expression)?;
+        let binder = self.new_local("__psrs_record_update_base".to_owned(), record.span);
+        let base = Expr {
+            kind: ExprKind::Local(binder.id),
+            span: record.span,
+        };
+        let fields = self.resolve_record_update_fields(&base, fields)?;
+        let body = Expr {
+            kind: ExprKind::RecordUpdate {
+                expression: Box::new(base),
+                fields,
+            },
+            span,
+        };
+        Some(ExprKind::Let {
+            bindings: vec![LocalBinding {
+                binder,
+                value: record,
+                span,
+            }],
+            body: Box::new(body),
+        })
+    }
+
+    fn resolve_record_update_fields(
+        &mut self,
+        base: &Expr,
+        fields: Vec<(String, ast::Expr)>,
+    ) -> Option<Vec<(String, Expr)>> {
+        fields
+            .into_iter()
+            .map(|(label, value)| {
+                let value_span = value.span;
+                let value = match value.kind {
+                    AstExprKind::RecordUpdate { expression, fields }
+                        if matches!(
+                            expression.kind,
+                            AstExprKind::Name(ref name) if name.text == label
+                        ) =>
+                    {
+                        let nested_record = Expr {
+                            kind: ExprKind::FieldAccess {
+                                expression: Box::new(base.clone()),
+                                field: label.clone(),
+                            },
+                            span: value_span,
+                        };
+                        let nested_fields =
+                            self.resolve_record_update_fields(&nested_record, fields)?;
+                        Expr {
+                            kind: ExprKind::RecordUpdate {
+                                expression: Box::new(nested_record),
+                                fields: nested_fields,
+                            },
+                            span: value_span,
+                        }
+                    }
+                    kind => self.resolve_expr(ast::Expr {
+                        kind,
+                        span: value_span,
+                    })?,
+                };
+                Some((label, value))
+            })
+            .collect()
     }
 
     fn resolve_pattern(

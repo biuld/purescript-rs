@@ -261,6 +261,12 @@ fn collect_captures(expression: &Expr, bound: &mut HashSet<LocalId>, captures: &
                 collect_captures(value, bound, captures);
             }
         }
+        ExprKind::RecordUpdate { record, fields } => {
+            collect_captures(record, bound, captures);
+            for (_, value) in fields {
+                collect_captures(value, bound, captures);
+            }
+        }
         ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
             collect_captures(record, bound, captures)
         }

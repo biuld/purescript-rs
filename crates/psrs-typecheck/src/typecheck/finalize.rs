@@ -28,6 +28,15 @@ impl Checker {
                     })
                     .collect::<Option<Vec<_>>>()?,
             ),
+            InferredExprKind::RecordUpdate { expression, fields } => thir::ExprKind::RecordUpdate {
+                expression: Box::new(self.finalize_expr(*expression, interner, generics)?),
+                fields: fields
+                    .into_iter()
+                    .map(|(label, value)| {
+                        Some((label, self.finalize_expr(value, interner, generics)?))
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            },
             InferredExprKind::FieldAccess { expression, field } => thir::ExprKind::FieldAccess {
                 expression: Box::new(self.finalize_expr(*expression, interner, generics)?),
                 field,

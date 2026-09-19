@@ -225,6 +225,9 @@ impl Checker {
                 )
             }
             hir::ExprKind::Record(fields) => self.infer_record(fields, span)?,
+            hir::ExprKind::RecordUpdate { expression, fields } => {
+                self.infer_record_update(expression, fields, span)?
+            }
             hir::ExprKind::FieldAccess { expression, field } => {
                 self.infer_field_access(expression, field, span)?
             }

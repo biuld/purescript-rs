@@ -188,6 +188,12 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
         ExprKind::Record { fields } => fields
             .iter()
             .any(|(_, value)| contains_function_value(value, module)),
+        ExprKind::RecordUpdate { record, fields } => {
+            contains_function_value(record, module)
+                || fields
+                    .iter()
+                    .any(|(_, value)| contains_function_value(value, module))
+        }
         ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
             contains_function_value(record, module)
         }

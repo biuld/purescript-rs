@@ -149,6 +149,13 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 .map(|(label, value)| (label, shift_expr(value, offset)))
                 .collect(),
         },
+        ExprKind::RecordUpdate { record, fields } => ExprKind::RecordUpdate {
+            record: Box::new(shift_expr(*record, offset)),
+            fields: fields
+                .into_iter()
+                .map(|(label, value)| (label, shift_expr(value, offset)))
+                .collect(),
+        },
         ExprKind::FieldAccess { record, field } => ExprKind::FieldAccess {
             record: Box::new(shift_expr(*record, offset)),
             field,
@@ -278,6 +285,12 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
             }
         }
         ExprKind::Record { fields } => {
+            for (_, value) in fields {
+                collect_references(value, out);
+            }
+        }
+        ExprKind::RecordUpdate { record, fields } => {
+            collect_references(record, out);
             for (_, value) in fields {
                 collect_references(value, out);
             }

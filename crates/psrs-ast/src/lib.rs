@@ -292,6 +292,9 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         CstExprKind::Record { fields, tail, .. } => expr::lower_record(fields, tail, span)?,
+        CstExprKind::RecordUpdate {
+            expression, fields, ..
+        } => expr::lower_record_update(*expression, fields)?,
         CstExprKind::FieldAccess {
             expression, field, ..
         } => ExprKind::FieldAccess {
@@ -400,7 +403,6 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         }
         CstExprKind::Hole(_)
         | CstExprKind::Number(_)
-        | CstExprKind::RecordUpdate { .. }
         | CstExprKind::Negate { .. }
         | CstExprKind::Do { .. }
         | CstExprKind::Tuple { .. }

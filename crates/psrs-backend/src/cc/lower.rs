@@ -186,6 +186,9 @@ impl FunctionLowerer<'_> {
                 self.lower_array(expression, elements, ty, assignments)
             }
             ExprKind::Record { fields } => self.lower_record(expression, fields, ty, assignments),
+            ExprKind::RecordUpdate { record, fields } => {
+                self.lower_record_update(expression, record, fields, ty, assignments)
+            }
             ExprKind::FieldAccess { record, field } => {
                 self.lower_field_access(expression, record, field, ty, assignments)
             }

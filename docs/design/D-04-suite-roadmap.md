@@ -240,10 +240,10 @@ constructor patterns are lowered against that erased field. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
 as demonstrated by `Maybe Int`. Concrete scalar array literals, length, and
-indexing and updates now also lower to Wasm GC arrays. Closed concrete record literals and
-field reads lower to Wasm GC structs. Fully polymorphic declarations, open
-rows, record updates, array updates, and richer heap or tagged aggregate
-layouts are still open, and
+indexing and updates now also lower to Wasm GC arrays. Closed concrete record
+literals, field reads, and updates lower to Wasm GC structs. Fully polymorphic
+declarations, open rows, and richer heap or tagged aggregate layouts are still
+open, and
 the backend reports them as named limitations. The parameterized ADT representation is
 fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).

@@ -55,6 +55,81 @@ impl FunctionLowerer<'_> {
         Ok(destination)
     }
 
+    pub(super) fn lower_record_update(
+        &mut self,
+        expression: &Expr,
+        record: &Expr,
+        fields: &[(String, Expr)],
+        ty: ValueType,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(type_index) = self.record_types.get(&record.ty).copied() else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "record update has no concrete GC struct layout",
+            )]);
+        };
+        let labels = match self.module.types.get(record.ty.0 as usize) {
+            Some(Type::Record(fields)) => fields.clone(),
+            _ => {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    expression.span,
+                    "record update has no record type",
+                )]);
+            }
+        };
+        let base = self.lower_value(record, assignments)?;
+        let mut updates = Vec::with_capacity(fields.len());
+        for (label, value) in fields {
+            let value = self.lower_value(value, assignments)?;
+            updates.push((label, value));
+        }
+
+        let mut arguments = Vec::with_capacity(labels.len());
+        for (field_index, (label, field_ty)) in labels.iter().enumerate() {
+            if let Some((_, value)) = updates.iter().find(|(name, _)| *name == label) {
+                arguments.push(*value);
+                continue;
+            }
+            let value_ty = super::super::layout::scalar_type(
+                self.module,
+                *field_ty,
+                expression.span,
+                self.enum_types,
+                self.aggregate_types,
+                self.newtype_ids,
+                self.array_types,
+                self.record_types,
+                self.function_types,
+            )?;
+            let value = self.fresh(value_ty);
+            assignments.push(Assignment {
+                destination: value,
+                kind: AssignmentKind::StructGet {
+                    destination: value,
+                    type_index,
+                    field: field_index as u32,
+                    value: base,
+                },
+                span: expression.span,
+            });
+            arguments.push(value);
+        }
+        let destination = self.fresh(ty);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::StructNew {
+                destination,
+                type_index,
+                arguments,
+            },
+            span: expression.span,
+        });
+        Ok(destination)
+    }
+
     pub(super) fn lower_field_access(
         &mut self,
         expression: &Expr,

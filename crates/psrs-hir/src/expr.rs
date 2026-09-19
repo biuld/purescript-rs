@@ -40,6 +40,10 @@ pub enum ExprKind {
     Char(char),
     Array(Vec<Expr>),
     Record(Vec<(String, Expr)>),
+    RecordUpdate {
+        expression: Box<Expr>,
+        fields: Vec<(String, Expr)>,
+    },
     FieldAccess {
         expression: Box<Expr>,
         field: String,
