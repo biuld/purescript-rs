@@ -421,6 +421,15 @@ impl Structurer<'_> {
                     self.load(body, *value, *span)?;
                     body.push(Op::Leaf(Instruction::I32Store(memory(*offset))));
                 }
+                MirInstruction::WrapI64 {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I32WrapI64));
+                    self.store(body, *destination, *span)?;
+                }
                 MirInstruction::CallVoid {
                     function,
                     arguments,

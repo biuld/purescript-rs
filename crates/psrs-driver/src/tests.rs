@@ -77,6 +77,26 @@ fn prints_hello_world_when_wasmtime_is_available() {
     assert_eq!(output.stdout, b"hello world\n");
 }
 
+#[test]
+fn reads_the_monotonic_clock_when_wasmtime_is_available() {
+    let Some(output) = run_with_wasmtime("module Main where\nmain = now * 0\n") else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
+fn writes_to_stderr_when_wasmtime_is_available() {
+    let Some(output) = run_with_wasmtime("module Main where\nmain = let x = error \"oops\" in 7\n")
+    else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(7));
+    assert_eq!(output.stderr, b"oops\n");
+}
+
 fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

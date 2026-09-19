@@ -10,9 +10,9 @@ replacement for the official PureScript compiler.
 The compiler now builds a small, single-module PureScript subset through the
 backend IRs and emits a validated WASI 0.2 **Component Model** artifact plus
 WAT. The component exports `wasi:cli/run@0.2.12`; `main`'s result becomes the
-process exit code through `wasi:cli/exit`, and `log` writes through
-`wasi:cli/stdout`. Try the inspection and build commands with the included
-examples:
+process exit code through `wasi:cli/exit`, and `log`/`error` write through
+`wasi:cli/stdout`/`wasi:cli/stderr` while `now` reads the monotonic clock. Try
+the inspection and build commands with the included examples:
 
 ```sh
 cargo run -- lex examples/basic.purs

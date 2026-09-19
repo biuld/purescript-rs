@@ -182,9 +182,10 @@ PureScript-facing standard library -> WASI interfaces -> host
 MIR declares the WASI imports a program uses in an import table with their
 canonical signatures; the backend emits calls to those imports and
 `wit-component` lifts the core module into a component. A component imports only
-the WASI capabilities the program uses. The console and exit capabilities are
-implemented: `log` writes through `wasi:cli/stdout`, and `main`'s result exits
-through `wasi:cli/exit`.
+the WASI capabilities the program uses. The console, clock, and exit
+capabilities are implemented: `log` writes to `wasi:cli/stdout`, `error` to
+`wasi:cli/stderr`, `now` reads `wasi:clocks/monotonic-clock`, and `main`'s
+result exits through `wasi:cli/exit`.
 
 Initial library capabilities grow as testable modules for console, arguments,
 environment, files, clock, and randomness. Networking and HTTP are later

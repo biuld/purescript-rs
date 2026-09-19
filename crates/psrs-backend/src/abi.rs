@@ -23,11 +23,15 @@ pub const NEWLINE_ADDR: u32 = 12;
 /// The WASI interfaces and functions the standard library uses.
 pub mod names {
     pub const STDOUT: &str = "wasi:cli/stdout";
+    pub const STDERR: &str = "wasi:cli/stderr";
     pub const STREAMS: &str = "wasi:io/streams";
     pub const EXIT: &str = "wasi:cli/exit";
+    pub const MONOTONIC_CLOCK: &str = "wasi:clocks/monotonic-clock";
     pub const GET_STDOUT: &str = "get-stdout";
+    pub const GET_STDERR: &str = "get-stderr";
     pub const WRITE_STDOUT: &str = "[method]output-stream.blocking-write-and-flush";
     pub const EXIT_WITH_CODE: &str = "exit-with-code";
+    pub const NOW: &str = "now";
 }
 
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature

@@ -44,11 +44,23 @@ impl HostFunction {
 
 /// The host functions available to every bootstrap module.
 pub fn host_functions() -> Vec<HostFunction> {
-    vec![HostFunction {
-        name: "log",
-        symbol: SymbolId::new(ModuleId::INTRINSICS, SYMBOL_BASE),
-        ty: string_to_unit(),
-    }]
+    vec![
+        HostFunction {
+            name: "log",
+            symbol: SymbolId::new(ModuleId::INTRINSICS, SYMBOL_BASE),
+            ty: string_to_unit(),
+        },
+        HostFunction {
+            name: "error",
+            symbol: SymbolId::new(ModuleId::INTRINSICS, SYMBOL_BASE + 1),
+            ty: string_to_unit(),
+        },
+        HostFunction {
+            name: "now",
+            symbol: SymbolId::new(ModuleId::INTRINSICS, SYMBOL_BASE + 2),
+            ty: int(),
+        },
+    ]
 }
 
 /// Looks up a host function by the symbol the resolver assigned.
@@ -66,10 +78,6 @@ pub fn host_function(name: &str) -> Option<HostFunction> {
 }
 
 fn string_to_unit() -> Type {
-    let constructor = |builtin| Type {
-        kind: TypeKind::Constructor(builtin),
-        span: TextRange::new(0, 0),
-    };
     Type {
         kind: TypeKind::Function {
             parameter: Box::new(constructor(BuiltinType::String)),
@@ -77,4 +85,15 @@ fn string_to_unit() -> Type {
         },
         span: TextRange::new(0, 0),
     }
+}
+
+fn constructor(builtin: BuiltinType) -> Type {
+    Type {
+        kind: TypeKind::Constructor(builtin),
+        span: TextRange::new(0, 0),
+    }
+}
+
+fn int() -> Type {
+    constructor(BuiltinType::Int)
 }

@@ -80,9 +80,10 @@ byte-oriented WASI boundary.
 ## Runtime interface
 
 - **Current artifact:** a WASI 0.2 component that exports `wasi:cli/run@0.2.12`
-  and imports `wasi:cli/stdout`, `wasi:io/streams`, and `wasi:cli/exit`. The
-  core module is lifted into the component with `wit-component` and runs under
-  `wasmtime`.
+  and imports only the WASI interfaces the program uses (console via
+  `wasi:cli/stdout` and `wasi:cli/stderr`, the monotonic clock via
+  `wasi:clocks/monotonic-clock`, and `wasi:cli/exit`). The core module is lifted
+  into the component with `wit-component` and runs under `wasmtime`.
 - **Platform target:** a WASI 0.2 component with a `wasi:cli/command` entry.
   WASI is the runtime ABI ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)):
   the PureScript-facing standard library is built on WASI interfaces, and the

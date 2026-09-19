@@ -130,6 +130,12 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// `i32.wrap_i64`, used to narrow a 64-bit WASI result to `Int`.
+    WrapI64 {
+        destination: ValueId,
+        value: ValueId,
+        span: TextRange,
+    },
 }
 
 impl Instruction {
@@ -152,7 +158,8 @@ impl Instruction {
             | Self::ArrayNew { destination, .. }
             | Self::ArrayGet { destination, .. }
             | Self::ArrayLen { destination, .. }
-            | Self::Load { destination, .. } => Some(*destination),
+            | Self::Load { destination, .. }
+            | Self::WrapI64 { destination, .. } => Some(*destination),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -193,6 +200,7 @@ impl Instruction {
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
+            Self::WrapI64 { value, .. } => vec![*value],
         }
     }
 
@@ -218,7 +226,8 @@ impl Instruction {
             | Self::ArraySet { span, .. }
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
-            | Self::Store { span, .. } => *span,
+            | Self::Store { span, .. }
+            | Self::WrapI64 { span, .. } => *span,
         }
     }
 }

@@ -87,8 +87,8 @@ vendored WASI WIT) and calls them like any other function, including a void
 call for imports with no result. Adapting a value to the canonical ABI (for
 example a string to a `(ptr, len)` pair) is emitted as ordinary MIR
 instructions using the declared linear-memory load/store. The PureScript-facing
-standard library (`print`, program exit, and later files/random) is built on
-these WASI imports.
+standard library (`print`/`error`, `now`, program exit, and later files/random)
+is built on these WASI imports.
 
 ## Layout ownership
 

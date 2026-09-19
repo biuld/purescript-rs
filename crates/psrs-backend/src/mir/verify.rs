@@ -333,6 +333,20 @@ fn verify_function(
                 | Instruction::ArrayLen { .. }
                 | Instruction::Load { .. }
                 | Instruction::Store { .. } => {}
+                Instruction::WrapI64 {
+                    destination,
+                    value,
+                    span,
+                } => {
+                    if require_value(&definitions, *value, *span)? != ValueType::I64
+                        || value_type(function, *destination) != Some(ValueType::I32)
+                    {
+                        return Err(mir_error(
+                            *span,
+                            "MIR i32.wrap_i64 operand or result type is invalid",
+                        ));
+                    }
+                }
             }
         }
         let terminator = block.terminator.as_ref().expect("checked above");
