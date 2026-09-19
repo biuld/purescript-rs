@@ -1,11 +1,20 @@
 mod lower;
 
-use psrs_hir::{ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeVariableId};
+use psrs_hir::{
+    ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
+};
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
+
+/// A type constructor reference, mirrored from THIR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeConstructor {
+    Array,
+    User(HirTypeId),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -16,6 +25,8 @@ pub enum Type {
     Boolean,
     String,
     Unit,
+    Constructor(TypeConstructor),
+    Application(TypeId, TypeId),
     Function {
         parameter: TypeId,
         result: TypeId,
@@ -153,6 +164,13 @@ impl Module {
             .chain(self.externals.iter().map(|external| external.symbol))
             .collect::<HashSet<_>>();
         let mut errors = Vec::new();
+        for ty in &self.types {
+            if let Type::Function { parameter, result } | Type::Application(parameter, result) = ty
+            {
+                verify_type(*parameter, self, self.span, &mut errors);
+                verify_type(*result, self, self.span, &mut errors);
+            }
+        }
         for declaration in &self.declarations {
             verify_type(declaration.ty, self, declaration.name_span, &mut errors);
             let mut locals = HashSet::new();

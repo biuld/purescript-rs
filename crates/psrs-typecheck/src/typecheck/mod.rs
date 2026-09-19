@@ -178,7 +178,18 @@ enum InferType {
     Boolean,
     String,
     Unit,
+    Constructor(TypeConstructor),
+    Application(Box<InferType>, Box<InferType>),
     Function(Box<InferType>, Box<InferType>),
+}
+
+/// A type constructor during inference. `Array` is the only built-in the
+/// current front end elaborates; user constructors keep their resolved HIR ID so
+/// distinct declarations never unify by accident.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum TypeConstructor {
+    Array,
+    User(hir::TypeId),
 }
 
 /// A type with a set of universally quantified variables.
@@ -254,6 +265,7 @@ struct Checker {
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
     locals: HashMap<LocalId, Scheme>,
+    type_names: HashMap<hir::TypeId, String>,
     substitutions: HashMap<u32, InferType>,
     levels: HashMap<u32, u32>,
     generic_variables: HashSet<u32>,
@@ -284,23 +296,14 @@ impl TypeInterner {
 fn occurs(variable: u32, ty: &InferType) -> bool {
     match ty {
         InferType::Variable(other) => variable == *other,
-        InferType::Function(parameter, result) => {
-            occurs(variable, parameter) || occurs(variable, result)
+        InferType::Application(function, argument) | InferType::Function(function, argument) => {
+            occurs(variable, function) || occurs(variable, argument)
         }
-        InferType::I32 | InferType::Boolean | InferType::String | InferType::Unit => false,
-    }
-}
-
-impl std::fmt::Display for InferType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Variable(variable) => write!(f, "_T{variable}"),
-            Self::I32 => f.write_str("Int"),
-            Self::Boolean => f.write_str("Boolean"),
-            Self::String => f.write_str("String"),
-            Self::Unit => f.write_str("Unit"),
-            Self::Function(parameter, result) => write!(f, "({parameter} -> {result})"),
-        }
+        InferType::I32
+        | InferType::Boolean
+        | InferType::String
+        | InferType::Unit
+        | InferType::Constructor(_) => false,
     }
 }
 

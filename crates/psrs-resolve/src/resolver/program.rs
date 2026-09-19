@@ -35,6 +35,24 @@ pub fn resolve_program_with_options(
     modules: Vec<ast::Module>,
     options: ResolveOptions,
 ) -> Result<Vec<hir::Module>, Vec<ProgramError>> {
+    let (resolved, errors) = resolve_program_partial(modules, options);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(resolved
+        .into_iter()
+        .map(|module| module.expect("every module in the order was resolved"))
+        .collect())
+}
+
+/// Resolves as much of a program as possible. Every module that resolves
+/// successfully is returned in input order; modules that fail are `None`.
+/// Diagnostics for all failures, including tolerated missing modules, are
+/// returned so a caller can report them or continue with the resolved subset.
+pub fn resolve_program_partial(
+    modules: Vec<ast::Module>,
+    options: ResolveOptions,
+) -> (Vec<Option<hir::Module>>, Vec<ProgramError>) {
     let names: Vec<String> = modules
         .iter()
         .map(|module| module.name.text.clone())
@@ -55,17 +73,17 @@ pub fn resolve_program_with_options(
         }
     }
     if !errors.is_empty() {
-        return Err(errors);
+        return ((0..modules.len()).map(|_| None).collect(), errors);
     }
 
     let edges = build_edges(&modules, &registry, &mut errors);
     if !options.tolerate_missing_modules && !errors.is_empty() {
-        return Err(errors);
+        return ((0..modules.len()).map(|_| None).collect(), errors);
     }
 
     let order = topological_order(&edges, &names, &mut errors);
     if !options.tolerate_missing_modules && !errors.is_empty() {
-        return Err(errors);
+        return ((0..modules.len()).map(|_| None).collect(), errors);
     }
 
     let mut ast_modules: Vec<Option<ast::Module>> = modules.into_iter().map(Some).collect();
@@ -98,13 +116,7 @@ pub fn resolve_program_with_options(
         }
     }
 
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-    Ok(resolved
-        .into_iter()
-        .map(|module| module.expect("every module in the order was resolved"))
-        .collect())
+    (resolved, errors)
 }
 
 fn build_edges(

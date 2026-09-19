@@ -10,6 +10,7 @@ psrs-backend.workspace = true
 psrs-core.workspace = true
 psrs-desugar.workspace = true
 psrs-hir.workspace = true
+psrs-kind.workspace = true
 psrs-resolve.workspace = true
 psrs-span.workspace = true
 psrs-syntax.workspace = true

@@ -24,7 +24,14 @@ fn run() -> Result<(), String> {
         if paths.is_empty() {
             return Err(usage());
         }
-        return check_program(&paths);
+        return check_program(&paths, false);
+    }
+    if command == "check-program-kinds" {
+        let paths: Vec<String> = args.collect();
+        if paths.is_empty() {
+            return Err(usage());
+        }
+        return check_program(&paths, true);
     }
     if command == "dump" {
         let Some(stage) = args.next() else {
@@ -190,10 +197,10 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs> [-o output.wasm]\n       psrs wat <file.purs> [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
 }
 
-fn check_program(paths: &[String]) -> Result<(), String> {
+fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {
     let mut sources = Vec::with_capacity(paths.len());
     for path in paths {
         let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
@@ -203,7 +210,12 @@ fn check_program(paths: &[String]) -> Result<(), String> {
         .iter()
         .map(|(path, text)| (path.as_str(), text.as_str()))
         .collect();
-    match psrs_driver::check_program(&inputs) {
+    let result = if kinds {
+        psrs_driver::check_program_kinds_lenient(&inputs)
+    } else {
+        psrs_driver::check_program(&inputs)
+    };
+    match result {
         Ok(()) => Ok(()),
         Err(errors) => {
             for error in errors {

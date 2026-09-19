@@ -1,8 +1,17 @@
-use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeVariableId};
+use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 use psrs_span::TextRange;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
+
+/// A type constructor reference. `Array` is the only built-in constructor the
+/// current type system elaborates; user constructors are identified by their
+/// resolved HIR declaration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeConstructor {
+    Array,
+    User(HirTypeId),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -13,6 +22,8 @@ pub enum Type {
     Boolean,
     String,
     Unit,
+    Constructor(TypeConstructor),
+    Application(TypeId, TypeId),
     Function {
         parameter: TypeId,
         result: TypeId,
@@ -96,9 +107,12 @@ impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
         let mut errors = Vec::new();
         for ty in &self.types {
-            if let Type::Function { parameter, result } = ty {
-                verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
-                verify_type_id(*result, self.types.len(), self.span, &mut errors);
+            match ty {
+                Type::Function { parameter, result } | Type::Application(parameter, result) => {
+                    verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
+                    verify_type_id(*result, self.types.len(), self.span, &mut errors);
+                }
+                _ => {}
             }
         }
         for declaration in &self.declarations {

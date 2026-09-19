@@ -1,7 +1,7 @@
 # D-03 — Type System: PureScript-Faithful Roadmap
 
 **Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress — Phase 0 and Phase 1 implemented
+**Status:** In progress — Phase 0 and Phase 1 implemented, Phase 2 started
 
 ## Purpose
 
@@ -68,9 +68,25 @@ The backend does not yet erase types or pass dictionaries, so it rejects
 declarations whose checked type contains quantified variables, with a
 source-spanned diagnostic.
 
-Phase 2 and later are not implemented: no kinds, type constructors,
-type-level application, algebraic data types, class constraints, rows, or
-rank-N types. There is still no place to express `Effect a` or `f a`.
+Phase 2 has started. A dedicated `psrs-kind` pass consumes resolved HIR and
+infers and checks kinds for `data`, `newtype`, `type`, and `class`
+declarations, including higher-kinded parameters, standalone kind signatures,
+kind annotations, records and rows, and kind-polymorphic `forall` binders. It
+unifies kinds with an occurs check and reports the official
+`KindsDoNotUnify`, `InfiniteKind`, `PartiallyAppliedSynonym`,
+`CycleInTypeSynonym`, `CycleInKindDeclaration`, and `UndefinedTypeVariable`
+codes.
+
+Steps 2.3 and 2.5 are implemented. `InferType`, THIR, and Typed Core carry type
+constructors and application; signature elaboration maps `Array` and user type
+names to constructors, and unification decomposes applications and compares
+constructors by identity. A signature such as `Maybe Int -> Maybe Int` or
+`Array a -> Array a` now elaborates and checks. Type synonyms are still opaque
+to inference, and the backend rejects aggregate and user-defined types with a
+named limitation rather than lowering them.
+
+Step 2.6 and later are not implemented: no synonym expansion during inference,
+no algebraic data types, class constraints, or rank-N types.
 
 ## Roadmap overview
 

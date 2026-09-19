@@ -358,3 +358,5 @@ fn rejects_integer_literals_outside_i32() {
     let errors = typecheck_module(resolved).unwrap_err();
     assert_eq!(errors[0].kind, TypeCheckErrorKind::IntegerOutOfRange);
 }
+
+mod user_types;

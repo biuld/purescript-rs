@@ -1,0 +1,15 @@
+[package]
+name = "psrs-kind"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+psrs-hir.workspace = true
+psrs-span.workspace = true
+
+[dev-dependencies]
+psrs-ast.workspace = true
+psrs-cst.workspace = true
+psrs-resolve.workspace = true
+psrs-syntax.workspace = true

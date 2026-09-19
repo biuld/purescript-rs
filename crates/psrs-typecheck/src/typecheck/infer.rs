@@ -10,6 +10,11 @@ impl Checker {
                 .map(|external| (external.symbol, external.kind))
                 .collect(),
             locals: HashMap::new(),
+            type_names: module
+                .types
+                .iter()
+                .map(|declaration| (declaration.id, declaration.name.clone()))
+                .collect(),
             substitutions: HashMap::new(),
             levels: HashMap::new(),
             generic_variables: HashSet::new(),

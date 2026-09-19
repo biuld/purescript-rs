@@ -33,6 +33,13 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
                 psrs_thir::Type::Boolean => Type::Boolean,
                 psrs_thir::Type::String => Type::String,
                 psrs_thir::Type::Unit => Type::Unit,
+                psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
+                    psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
+                    psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
+                }),
+                psrs_thir::Type::Application(function, argument) => {
+                    Type::Application(TypeId(function.0), TypeId(argument.0))
+                }
                 psrs_thir::Type::Function { parameter, result } => Type::Function {
                     parameter: TypeId(parameter.0),
                     result: TypeId(result.0),

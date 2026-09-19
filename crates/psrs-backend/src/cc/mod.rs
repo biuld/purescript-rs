@@ -170,6 +170,11 @@ fn declaration_shape(
             declaration.span,
             "the first backend slice cannot return a function value",
         )]),
+        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.span,
+            "the first backend slice cannot represent aggregate or user-defined types",
+        )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -438,6 +443,11 @@ fn scalar_type(
             "P8 closure conversion",
             span,
             "function values are supported only as top-level direct-call targets",
+        )]),
+        Some(Type::Constructor(_) | Type::Application(_, _)) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "aggregate and user-defined types are not supported by the first backend slice",
         )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",

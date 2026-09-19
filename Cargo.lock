@@ -241,6 +241,7 @@ dependencies = [
  "psrs-core",
  "psrs-desugar",
  "psrs-hir",
+ "psrs-kind",
  "psrs-resolve",
  "psrs-span",
  "psrs-syntax",
@@ -253,6 +254,18 @@ name = "psrs-hir"
 version = "0.1.0"
 dependencies = [
  "psrs-span",
+]
+
+[[package]]
+name = "psrs-kind"
+version = "0.1.0"
+dependencies = [
+ "psrs-ast",
+ "psrs-cst",
+ "psrs-hir",
+ "psrs-resolve",
+ "psrs-span",
+ "psrs-syntax",
 ]
 
 [[package]]

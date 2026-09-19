@@ -1,4 +1,4 @@
-use super::{SymbolId, Type, TypeId};
+use super::{SymbolId, Type, TypeId, TypeParameter};
 use psrs_span::TextRange;
 
 /// The declaration form a named type-level entity comes from.
@@ -18,13 +18,15 @@ pub struct TypeDeclaration {
     pub name: String,
     pub name_span: TextRange,
     pub kind: TypeDeclarationKind,
-    pub parameters: Vec<String>,
+    pub parameters: Vec<TypeParameter>,
     pub constructors: Vec<Constructor>,
     pub members: Vec<ClassMember>,
     /// The body of a type synonym, when `kind` is `TypeSynonym`.
     pub body: Option<Type>,
     /// The superclass constraints of a class, when `kind` is `Class`.
     pub superclasses: Vec<Type>,
+    /// The kind declared by a standalone `data T :: K` signature, when present.
+    pub declared_kind: Option<Type>,
     pub span: TextRange,
 }
 

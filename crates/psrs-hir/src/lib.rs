@@ -2,9 +2,11 @@ use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod module;
+mod ty;
 mod types;
 
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
+pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{ClassMember, Constructor, TypeDeclaration, TypeDeclarationKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -107,36 +109,6 @@ pub struct LocalId(pub u32);
 /// flat type table can keep them distinct without per-scheme scoping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeVariableId(pub u32);
-
-/// A resolved type signature. Type names have been resolved to built-in
-/// constructors or type variables; the source span is retained for diagnostics.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Type {
-    pub kind: TypeKind,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TypeKind {
-    Variable(String),
-    Constructor(BuiltinType),
-    /// A user-defined type constructor, synonym, or class identified by ID.
-    Named(TypeId),
-    Application(Box<Type>, Box<Type>),
-    Function {
-        parameter: Box<Type>,
-        result: Box<Type>,
-    },
-}
-
-/// A built-in type constructor known to the compiler.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BuiltinType {
-    Int,
-    Boolean,
-    String,
-    Unit,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {

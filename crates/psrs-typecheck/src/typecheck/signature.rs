@@ -33,12 +33,36 @@ impl Checker {
                 hir::BuiltinType::Boolean => InferType::Boolean,
                 hir::BuiltinType::String => InferType::String,
                 hir::BuiltinType::Unit => InferType::Unit,
+                hir::BuiltinType::Array => InferType::Constructor(TypeConstructor::Array),
+                hir::BuiltinType::Type
+                | hir::BuiltinType::Constraint
+                | hir::BuiltinType::Symbol
+                | hir::BuiltinType::Function
+                | hir::BuiltinType::Row
+                | hir::BuiltinType::Record => {
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::UnsupportedType,
+                        ty.span,
+                        "this type is not supported yet",
+                    ));
+                    self.fresh()
+                }
             },
+            hir::TypeKind::Named(id) => InferType::Constructor(TypeConstructor::User(*id)),
+            hir::TypeKind::Application(function, argument) => InferType::Application(
+                Box::new(self.elaborate_type(function, variables)),
+                Box::new(self.elaborate_type(argument, variables)),
+            ),
             hir::TypeKind::Function { parameter, result } => InferType::Function(
                 Box::new(self.elaborate_type(parameter, variables)),
                 Box::new(self.elaborate_type(result, variables)),
             ),
-            hir::TypeKind::Named(_) | hir::TypeKind::Application(_, _) => {
+            hir::TypeKind::Forall { body, .. } => self.elaborate_type(body, variables),
+            hir::TypeKind::Constrained { body, .. } => self.elaborate_type(body, variables),
+            hir::TypeKind::Row { .. }
+            | hir::TypeKind::Record { .. }
+            | hir::TypeKind::Integer(_)
+            | hir::TypeKind::String(_) => {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedType,
                     ty.span,

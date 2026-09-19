@@ -366,6 +366,29 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
             collect_named_types(parameter, out);
             collect_named_types(result, out);
         }
-        hir::TypeKind::Variable(_) | hir::TypeKind::Constructor(_) => {}
+        hir::TypeKind::Forall { variables, body } => {
+            for variable in variables {
+                if let Some(kind) = &variable.kind {
+                    collect_named_types(kind, out);
+                }
+            }
+            collect_named_types(body, out);
+        }
+        hir::TypeKind::Constrained { constraint, body } => {
+            collect_named_types(constraint, out);
+            collect_named_types(body, out);
+        }
+        hir::TypeKind::Row { fields, tail } | hir::TypeKind::Record { fields, tail } => {
+            for field in fields {
+                collect_named_types(&field.ty, out);
+            }
+            if let Some(tail) = tail {
+                collect_named_types(tail, out);
+            }
+        }
+        hir::TypeKind::Variable(_)
+        | hir::TypeKind::Constructor(_)
+        | hir::TypeKind::Integer(_)
+        | hir::TypeKind::String(_) => {}
     }
 }

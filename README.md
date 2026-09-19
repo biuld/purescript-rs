@@ -22,6 +22,7 @@ cargo run -- parse examples/basic.purs
 cargo run -- ast examples/basic.purs
 cargo run -- hir examples/resolved.purs
 cargo run -- check examples/basic.purs
+cargo run -- check-program-kinds examples/basic.purs
 cargo run -- build examples/basic.purs -o /tmp/basic.wasm
 cargo run -- wat examples/basic.purs -o /tmp/basic.wat
 cargo run -- dump mir examples/basic.purs
@@ -47,10 +48,16 @@ scalar `let`, and value-producing `if`. Type inference adds rank-1
 polymorphism: local `let` groups and top-level strongly connected components are
 generalized and schemes are instantiated at use sites. The backend rejects
 polymorphic declarations until type erasure and dictionary passing exist;
-`identity` therefore reports a backend diagnostic. `build` writes a validated
-core Wasm WASI command exporting zero-argument `main` and `_start`; `wat`
-renders the corresponding text form. General PureScript compatibility, type
-classes, higher-kinded types, cross-module compilation to Wasm, closures,
+`identity` therefore reports a backend diagnostic. A `psrs-kind` pass infers and
+unifies kinds for `data`, `newtype`, `type`, and `class` declarations and
+reports the official `KindsDoNotUnify`, `PartiallyAppliedSynonym`,
+`CycleInTypeSynonym`, `CycleInKindDeclaration`, `UndefinedTypeVariable`, and
+`InfiniteKind` codes. Inference now carries type constructors and type-level
+application, so signatures over `Array` and user types elaborate and unify;
+type-class constraints and rows are not implemented yet. `build` writes a
+validated core Wasm WASI command exporting zero-argument `main` and `_start`;
+`wat` renders the corresponding text form. General PureScript compatibility,
+type classes, algebraic data types, cross-module compilation to Wasm, closures,
 aggregate values, and the Component Model layer are not implemented yet.
 
 ## Workspace
@@ -65,6 +72,8 @@ aggregate values, and the Component Model layer are not implemented yet.
 - `psrs-syntax` implements lexing, layout insertion, and parsing.
 - `psrs-thir` and `psrs-typecheck` own typed expressions and rank-1
   polymorphic type inference.
+- `psrs-kind` infers and unifies kinds over resolved declarations and reports
+  official kind diagnostics.
 - `psrs-desugar` lowers resolved operator syntax while preserving HIR.
 - `psrs-core` owns Typed Core and its HIR lowering pass.
 - `psrs-backend` owns direct-call CC IR, MIR/CFG, the structured Wasm

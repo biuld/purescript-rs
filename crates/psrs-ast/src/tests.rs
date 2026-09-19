@@ -164,7 +164,9 @@ fn lowers_forall_types_and_removes_parentheses() {
     let TypeKind::Forall { variables, body } = &annotation.kind else {
         panic!("expected a lowered forall");
     };
-    assert_eq!(variables, &["a".to_owned()]);
+    assert_eq!(variables.len(), 1);
+    assert_eq!(variables[0].name.text, "a");
+    assert!(variables[0].kind.is_none());
     assert!(matches!(&body.kind, TypeKind::Name(name) if name.text == "a"));
     assert_eq!(body.span, TextRange::new(10, 13));
 }

@@ -37,24 +37,34 @@ impl Checker {
             | (InferType::Boolean, InferType::Boolean)
             | (InferType::String, InferType::String)
             | (InferType::Unit, InferType::Unit) => {}
+            (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
+                self.unify(*f1, *f2, span);
+                self.unify(*a1, *a2, span);
+            }
             (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
                 self.unify(*a1, *a2, span);
                 self.unify(*r1, *r2, span);
             }
-            (expected, actual) => self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::TypeMismatch,
-                span,
-                format!("type mismatch: expected {expected}, found {actual}"),
-            )),
+            (expected, actual) => {
+                let expected = self.display_type(&expected);
+                let actual = self.display_type(&actual);
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::TypeMismatch,
+                    span,
+                    format!("type mismatch: expected {expected}, found {actual}"),
+                ));
+            }
         }
     }
 
     fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) {
         if occurs(variable, &ty) {
+            let displayed = self.display_type(&ty);
             self.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OccursCheck,
                 span,
-                format!("infinite type: _T{variable} occurs in {ty}"),
+                format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
         } else {
             let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
@@ -64,11 +74,42 @@ impl Checker {
     }
 
     fn signature_mismatch(&mut self, expected: InferType, found: InferType, span: TextRange) {
+        let expected_display = self.display_type(&expected);
+        let found_display = self.display_type(&found);
         self.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::TypeMismatch,
             span,
-            format!("signature mismatch: expected {expected}, found {found}"),
+            format!("signature mismatch: expected {expected_display}, found {found_display}"),
         ));
+    }
+
+    /// Renders an inference type for diagnostics, using declared type names.
+    pub(super) fn display_type(&self, ty: &InferType) -> String {
+        match self.resolve_type(ty.clone()) {
+            InferType::Variable(variable) => format!("_T{variable}"),
+            InferType::I32 => "Int".into(),
+            InferType::Boolean => "Boolean".into(),
+            InferType::String => "String".into(),
+            InferType::Unit => "Unit".into(),
+            InferType::Constructor(TypeConstructor::Array) => "Array".into(),
+            InferType::Constructor(TypeConstructor::User(id)) => self
+                .type_names
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
+            InferType::Application(function, argument) => {
+                format!(
+                    "({} {})",
+                    self.display_type(&function),
+                    self.display_type(&argument)
+                )
+            }
+            InferType::Function(parameter, result) => format!(
+                "({} -> {})",
+                self.display_type(&parameter),
+                self.display_type(&result)
+            ),
+        }
     }
 
     pub(super) fn resolve_type(&self, ty: InferType) -> InferType {
@@ -78,6 +119,10 @@ impl Checker {
                 .get(&variable)
                 .map(|ty| self.resolve_type(ty.clone()))
                 .unwrap_or(InferType::Variable(variable)),
+            InferType::Application(function, argument) => InferType::Application(
+                Box::new(self.resolve_type(*function)),
+                Box::new(self.resolve_type(*argument)),
+            ),
             InferType::Function(parameter, result) => InferType::Function(
                 Box::new(self.resolve_type(*parameter)),
                 Box::new(self.resolve_type(*result)),
@@ -95,11 +140,16 @@ impl Checker {
                     *level = max_level;
                 }
             }
-            InferType::Function(parameter, result) => {
-                self.adjust_levels(parameter, max_level);
-                self.adjust_levels(result, max_level);
+            InferType::Application(function, argument)
+            | InferType::Function(function, argument) => {
+                self.adjust_levels(function, max_level);
+                self.adjust_levels(argument, max_level);
             }
-            InferType::I32 | InferType::Boolean | InferType::String | InferType::Unit => {}
+            InferType::I32
+            | InferType::Boolean
+            | InferType::String
+            | InferType::Unit
+            | InferType::Constructor(_) => {}
         }
     }
 
@@ -136,11 +186,16 @@ impl Checker {
                     out.push(*variable);
                 }
             }
-            InferType::Function(parameter, result) => {
-                self.collect_generalizable(parameter, outer_level, out);
-                self.collect_generalizable(result, outer_level, out);
+            InferType::Application(function, argument)
+            | InferType::Function(function, argument) => {
+                self.collect_generalizable(function, outer_level, out);
+                self.collect_generalizable(argument, outer_level, out);
             }
-            InferType::I32 | InferType::Boolean | InferType::String | InferType::Unit => {}
+            InferType::I32
+            | InferType::Boolean
+            | InferType::String
+            | InferType::Unit
+            | InferType::Constructor(_) => {}
         }
     }
 
@@ -167,6 +222,17 @@ impl Checker {
             InferType::Boolean => Some(interner.intern(Type::Boolean)),
             InferType::String => Some(interner.intern(Type::String)),
             InferType::Unit => Some(interner.intern(Type::Unit)),
+            InferType::Constructor(TypeConstructor::Array) => {
+                Some(interner.intern(Type::Constructor(thir::TypeConstructor::Array)))
+            }
+            InferType::Constructor(TypeConstructor::User(id)) => {
+                Some(interner.intern(Type::Constructor(thir::TypeConstructor::User(id))))
+            }
+            InferType::Application(function, argument) => {
+                let function = self.finalize_type(&function, span, interner, generics);
+                let argument = self.finalize_type(&argument, span, interner, generics);
+                Some(interner.intern(Type::Application(function?, argument?)))
+            }
             InferType::Function(parameter, result) => {
                 let parameter = self.finalize_type(&parameter, span, interner, generics);
                 let result = self.finalize_type(&result, span, interner, generics);
@@ -185,6 +251,10 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
             .get(variable)
             .cloned()
             .unwrap_or(InferType::Variable(*variable)),
+        InferType::Application(function, argument) => InferType::Application(
+            Box::new(substitute(function, mapping)),
+            Box::new(substitute(argument, mapping)),
+        ),
         InferType::Function(parameter, result) => InferType::Function(
             Box::new(substitute(parameter, mapping)),
             Box::new(substitute(result, mapping)),

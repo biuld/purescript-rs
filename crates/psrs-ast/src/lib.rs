@@ -4,10 +4,12 @@ use std::collections::HashSet;
 
 mod export;
 mod import;
+mod ty;
 mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use import::{Import, ImportList, ImportRef};
+pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
     ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, NewtypeDeclaration,
     TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
@@ -41,26 +43,6 @@ pub struct Declaration {
     pub value: Expr,
     pub span: TextRange,
     pub annotation: Option<Type>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Type {
-    pub kind: TypeKind,
-    pub span: TextRange,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TypeKind {
-    Name(Name),
-    Application(Box<Type>, Box<Type>),
-    Function {
-        parameter: Box<Type>,
-        result: Box<Type>,
-    },
-    Forall {
-        variables: Vec<String>,
-        body: Box<Type>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -316,26 +298,61 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
         } => TypeKind::Forall {
             variables: variables
                 .into_iter()
-                .map(|variable| variable.name.text)
-                .collect(),
+                .map(lower_type_parameter)
+                .collect::<Result<_, _>>()?,
             body: Box::new(lower_type(*body)?),
         },
+        CstTypeExprKind::Constrained {
+            constraint, body, ..
+        } => TypeKind::Constrained {
+            constraint: Box::new(lower_type(*constraint)?),
+            body: Box::new(lower_type(*body)?),
+        },
+        CstTypeExprKind::Row { fields, tail, .. } => TypeKind::Row {
+            fields: fields
+                .into_iter()
+                .map(lower_type_field)
+                .collect::<Result<_, _>>()?,
+            tail: tail
+                .map(|tail| lower_type(*tail))
+                .transpose()?
+                .map(Box::new),
+        },
+        CstTypeExprKind::Record { fields, tail, .. } => TypeKind::Record {
+            fields: fields
+                .into_iter()
+                .map(lower_type_field)
+                .collect::<Result<_, _>>()?,
+            tail: tail
+                .map(|tail| lower_type(*tail))
+                .transpose()?
+                .map(Box::new),
+        },
+        CstTypeExprKind::Integer(value) => TypeKind::Integer(value),
+        CstTypeExprKind::String(value) => TypeKind::String(value),
         CstTypeExprKind::Parens { expression, .. } => {
             let mut expression = lower_type(*expression)?;
             expression.span = span;
             return Ok(expression);
         }
+        CstTypeExprKind::KindAnnotation { expression, .. } => {
+            let mut expression = lower_type(*expression)?;
+            expression.span = span;
+            return Ok(expression);
+        }
+        CstTypeExprKind::Operator {
+            operator,
+            left,
+            right,
+        } if operator.text == "~>" => TypeKind::Function {
+            parameter: Box::new(lower_type(*left)?),
+            result: Box::new(lower_type(*right)?),
+        },
         CstTypeExprKind::Wildcard(_)
         | CstTypeExprKind::Hole(_)
-        | CstTypeExprKind::Integer(_)
-        | CstTypeExprKind::String(_)
-        | CstTypeExprKind::Constrained { .. }
         | CstTypeExprKind::Operator { .. }
         | CstTypeExprKind::PrefixOperator { .. }
-        | CstTypeExprKind::Tuple { .. }
-        | CstTypeExprKind::Row { .. }
-        | CstTypeExprKind::Record { .. }
-        | CstTypeExprKind::KindAnnotation { .. } => {
+        | CstTypeExprKind::Tuple { .. } => {
             return Err(LowerError::new(
                 span,
                 "this type syntax is not supported yet",
@@ -343,6 +360,22 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
         }
     };
     Ok(Type { kind, span })
+}
+
+fn lower_type_parameter(parameter: cst::TypeVarBinder) -> Result<TypeParameter, LowerError> {
+    Ok(TypeParameter {
+        name: lower_name(parameter.name),
+        kind: parameter.kind.map(lower_type).transpose()?,
+        span: parameter.span,
+    })
+}
+
+fn lower_type_field(field: cst::TypeField) -> Result<TypeField, LowerError> {
+    Ok(TypeField {
+        label: lower_name(field.label),
+        ty: lower_type(field.type_expr)?,
+        span: field.span,
+    })
 }
 
 fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {

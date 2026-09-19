@@ -162,6 +162,7 @@ traps; they do not need to copy a full source span to every low-level value.
 | `psrs-desugar` | HIR-preserving operator lowering | `psrs-hir` |
 | `psrs-thir` | Typed high-level IR nodes and verifier | `psrs-hir`, `psrs-span` |
 | `psrs-typecheck` | Monomorphic inference, unification, and THIR construction | `psrs-hir`, `psrs-span`, `psrs-thir` |
+| `psrs-kind` | Kind inference and unification over resolved HIR, and kind diagnostics | `psrs-hir`, `psrs-span` |
 | `psrs-core` | Typed Core nodes, verifier, and THIR-to-Core lowering | `psrs-hir`, `psrs-span`, `psrs-thir` |
 | `psrs-backend` | Direct-call CC/ANF, CFG MIR, string data segments, runtime ABI (`_start`, `ps_rt_log`), structured Wasm encoding, binary emission, validation, and WAT printing | `psrs-core`, `psrs-hir`, `psrs-span`, `wasm-encoder`, `wasmparser`, `wasmprinter` |
 | `psrs-driver` | End-to-end pass orchestration and source diagnostics | Frontend, type, Core, and backend pass crates |
@@ -238,12 +239,16 @@ and instantiates schemes at use sites. THIR and Typed Core types carry generic
 variables and quantified declaration and `let` bindings. Declarations may carry
 a `name :: Type` signature, resolved in HIR to built-in type constructors and
 type variables, then checked against the inferred type with rigid variables.
-The backend rejects polymorphic declarations until type erasure and dictionary
-passing exist. Type classes, higher-kinded types, and algebraic data types are
-not implemented. P4 currently lowers resolved
-operators to applications. P6 turns saturated integer intrinsics into Core
-primitive operations and keeps runtime functions, such as `log`, as direct
-calls. P7 Core optimization has no implementation yet.
+A `psrs-kind` pass (P5) infers and unifies kinds over resolved declarations and
+reports the official kind codes. `InferType`, THIR, and Core now carry type
+constructors and type-level application, so signatures over `Array` and user
+types elaborate and unify; type-class constraints and rows are not implemented
+yet. The backend rejects polymorphic declarations until type erasure and
+dictionary passing exist, and rejects aggregate and user-defined types with a
+named limitation. Type classes and algebraic data types are not implemented. P4
+currently lowers resolved operators to applications. P6 turns saturated integer
+intrinsics into Core primitive operations and keeps runtime functions, such as
+`log`, as direct calls. P7 Core optimization has no implementation yet.
 
 P8 flattens top-level lambdas and emits ANF assignments and direct calls.
 Captured closures, nested function values, and higher-order calls produce

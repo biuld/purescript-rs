@@ -35,9 +35,63 @@ impl Resolver {
                 parameter: Box::new(self.resolve_type(*parameter)?),
                 result: Box::new(self.resolve_type(*result)?),
             },
-            ast::TypeKind::Forall { body, .. } => self.resolve_type(*body)?.kind,
+            ast::TypeKind::Forall { variables, body } => HirTypeKind::Forall {
+                variables: variables
+                    .into_iter()
+                    .map(|variable| self.resolve_type_parameter(variable))
+                    .collect::<Option<Vec<_>>>()?,
+                body: Box::new(self.resolve_type(*body)?),
+            },
+            ast::TypeKind::Constrained { constraint, body } => HirTypeKind::Constrained {
+                constraint: Box::new(self.resolve_type(*constraint)?),
+                body: Box::new(self.resolve_type(*body)?),
+            },
+            ast::TypeKind::Row { fields, tail } => HirTypeKind::Row {
+                fields: self.resolve_type_fields(fields)?,
+                tail: match tail {
+                    Some(tail) => Some(Box::new(self.resolve_type(*tail)?)),
+                    None => None,
+                },
+            },
+            ast::TypeKind::Record { fields, tail } => HirTypeKind::Record {
+                fields: self.resolve_type_fields(fields)?,
+                tail: match tail {
+                    Some(tail) => Some(Box::new(self.resolve_type(*tail)?)),
+                    None => None,
+                },
+            },
+            ast::TypeKind::Integer(value) => HirTypeKind::Integer(value),
+            ast::TypeKind::String(value) => HirTypeKind::String(value),
         };
         Some(HirType { kind, span })
+    }
+
+    fn resolve_type_parameter(
+        &mut self,
+        parameter: ast::TypeParameter,
+    ) -> Option<hir::TypeParameter> {
+        Some(hir::TypeParameter {
+            name: parameter.name.text,
+            name_span: parameter.name.span,
+            kind: match parameter.kind {
+                Some(kind) => Some(self.resolve_type(kind)?),
+                None => None,
+            },
+        })
+    }
+
+    fn resolve_type_fields(&mut self, fields: Vec<ast::TypeField>) -> Option<Vec<hir::TypeField>> {
+        fields
+            .into_iter()
+            .map(|field| {
+                Some(hir::TypeField {
+                    label: field.label.text,
+                    label_span: field.label.span,
+                    ty: self.resolve_type(field.ty)?,
+                    span: field.span,
+                })
+            })
+            .collect()
     }
 
     fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeId> {
@@ -116,7 +170,7 @@ impl Resolver {
                         })
                     })
                     .collect();
-                Some(self.type_declaration(
+                self.type_declaration(
                     plan.id,
                     declaration.name,
                     TypeDeclarationKind::Data,
@@ -125,8 +179,9 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    declaration.kind_signature,
                     declaration.span,
-                ))
+                )
             }
             ast::TypeDeclaration::Newtype(declaration) => {
                 let constructors = declaration
@@ -147,7 +202,7 @@ impl Resolver {
                         })
                     })
                     .collect();
-                Some(self.type_declaration(
+                self.type_declaration(
                     plan.id,
                     declaration.name,
                     TypeDeclarationKind::Newtype,
@@ -156,12 +211,13 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    declaration.kind_signature,
                     declaration.span,
-                ))
+                )
             }
             ast::TypeDeclaration::TypeSynonym(declaration) => {
                 let body = self.resolve_type(declaration.body)?;
-                Some(self.type_declaration(
+                self.type_declaration(
                     plan.id,
                     declaration.name,
                     TypeDeclarationKind::TypeSynonym,
@@ -170,8 +226,9 @@ impl Resolver {
                     Vec::new(),
                     Some(body),
                     Vec::new(),
+                    declaration.kind_signature,
                     declaration.span,
-                ))
+                )
             }
             ast::TypeDeclaration::Class(declaration) => {
                 let mut superclasses = Vec::new();
@@ -196,7 +253,7 @@ impl Resolver {
                         })
                     })
                     .collect();
-                Some(self.type_declaration(
+                self.type_declaration(
                     plan.id,
                     declaration.name,
                     TypeDeclarationKind::Class,
@@ -205,15 +262,16 @@ impl Resolver {
                     members,
                     None,
                     superclasses,
+                    declaration.kind_signature,
                     declaration.span,
-                ))
+                )
             }
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     fn type_declaration(
-        &self,
+        &mut self,
         id: TypeId,
         name: ast::Name,
         kind: TypeDeclarationKind,
@@ -222,22 +280,29 @@ impl Resolver {
         members: Vec<hir::ClassMember>,
         body: Option<HirType>,
         superclasses: Vec<HirType>,
+        kind_signature: Option<ast::Type>,
         span: TextRange,
-    ) -> hir::TypeDeclaration {
-        hir::TypeDeclaration {
+    ) -> Option<hir::TypeDeclaration> {
+        let parameters = parameters
+            .into_iter()
+            .map(|parameter| self.resolve_type_parameter(parameter))
+            .collect::<Option<Vec<_>>>()?;
+        let declared_kind = match kind_signature {
+            Some(kind) => Some(self.resolve_type(kind)?),
+            None => None,
+        };
+        Some(hir::TypeDeclaration {
             id,
             name: name.text,
             name_span: name.span,
             kind,
-            parameters: parameters
-                .into_iter()
-                .map(|parameter| parameter.name.text)
-                .collect(),
+            parameters,
             constructors,
             members,
             body,
             superclasses,
+            declared_kind,
             span,
-        }
+        })
     }
 }

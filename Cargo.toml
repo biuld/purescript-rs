@@ -7,6 +7,7 @@ members = [
     "crates/psrs-resolve",
     "crates/psrs-thir",
     "crates/psrs-typecheck",
+    "crates/psrs-kind",
     "crates/psrs-desugar",
     "crates/psrs-core",
     "crates/psrs-backend",
@@ -30,6 +31,7 @@ psrs-hir = { path = "crates/psrs-hir" }
 psrs-resolve = { path = "crates/psrs-resolve" }
 psrs-thir = { path = "crates/psrs-thir" }
 psrs-typecheck = { path = "crates/psrs-typecheck" }
+psrs-kind = { path = "crates/psrs-kind" }
 psrs-desugar = { path = "crates/psrs-desugar" }
 psrs-core = { path = "crates/psrs-core" }
 psrs-backend = { path = "crates/psrs-backend" }

@@ -319,6 +319,13 @@ pub(super) fn builtin_type(name: &str) -> Option<BuiltinType> {
         "Boolean" => BuiltinType::Boolean,
         "String" => BuiltinType::String,
         "Unit" => BuiltinType::Unit,
+        "Type" => BuiltinType::Type,
+        "Constraint" => BuiltinType::Constraint,
+        "Symbol" => BuiltinType::Symbol,
+        "Row" => BuiltinType::Row,
+        "Record" => BuiltinType::Record,
+        "Array" => BuiltinType::Array,
+        "Function" | "->" | "~>" => BuiltinType::Function,
         _ => return None,
     })
 }

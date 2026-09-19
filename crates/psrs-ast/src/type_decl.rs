@@ -30,11 +30,15 @@ impl TypeDeclaration {
     }
 
     pub fn has_kind_signature(&self) -> bool {
+        self.kind_signature().is_some()
+    }
+
+    pub fn kind_signature(&self) -> Option<&Type> {
         match self {
-            Self::Data(declaration) => declaration.has_kind_signature,
-            Self::Newtype(declaration) => declaration.has_kind_signature,
-            Self::TypeSynonym(declaration) => declaration.has_kind_signature,
-            Self::Class(declaration) => declaration.has_kind_signature,
+            Self::Data(declaration) => declaration.kind_signature.as_ref(),
+            Self::Newtype(declaration) => declaration.kind_signature.as_ref(),
+            Self::TypeSynonym(declaration) => declaration.kind_signature.as_ref(),
+            Self::Class(declaration) => declaration.kind_signature.as_ref(),
         }
     }
 }
@@ -51,7 +55,7 @@ pub struct DataDeclaration {
     pub name: Name,
     pub parameters: Vec<TypeParameter>,
     pub constructors: Vec<DataConstructor>,
-    pub has_kind_signature: bool,
+    pub kind_signature: Option<Type>,
     pub span: TextRange,
 }
 
@@ -60,7 +64,7 @@ pub struct NewtypeDeclaration {
     pub name: Name,
     pub parameters: Vec<TypeParameter>,
     pub constructor: Option<DataConstructor>,
-    pub has_kind_signature: bool,
+    pub kind_signature: Option<Type>,
     pub span: TextRange,
 }
 
@@ -69,7 +73,7 @@ pub struct TypeSynonymDeclaration {
     pub name: Name,
     pub parameters: Vec<TypeParameter>,
     pub body: Type,
-    pub has_kind_signature: bool,
+    pub kind_signature: Option<Type>,
     pub span: TextRange,
 }
 
@@ -79,7 +83,7 @@ pub struct ClassDeclaration {
     pub parameters: Vec<TypeParameter>,
     pub superclasses: Vec<Type>,
     pub members: Vec<ClassMember>,
-    pub has_kind_signature: bool,
+    pub kind_signature: Option<Type>,
     pub span: TextRange,
 }
 
@@ -103,7 +107,9 @@ pub(crate) fn lower_type_declaration(
     kind_signature: Option<cst::KindSignature>,
     declaration: cst::Declaration,
 ) -> Result<TypeDeclaration, LowerError> {
-    let has_kind_signature = kind_signature.is_some();
+    let kind_signature = kind_signature
+        .map(|signature| lower_type(signature.kind))
+        .transpose()?;
     match declaration {
         cst::Declaration::Data(declaration) => Ok(TypeDeclaration::Data(DataDeclaration {
             name: lower_name(declaration.name),
@@ -113,7 +119,7 @@ pub(crate) fn lower_type_declaration(
                 .into_iter()
                 .map(lower_constructor)
                 .collect::<Result<_, _>>()?,
-            has_kind_signature,
+            kind_signature,
             span: declaration.span,
         })),
         cst::Declaration::Newtype(declaration) => {
@@ -121,7 +127,7 @@ pub(crate) fn lower_type_declaration(
                 name: lower_name(declaration.name),
                 parameters: lower_type_parameters(declaration.parameters)?,
                 constructor: declaration.constructor.map(lower_constructor).transpose()?,
-                has_kind_signature,
+                kind_signature,
                 span: declaration.span,
             }))
         }
@@ -130,13 +136,13 @@ pub(crate) fn lower_type_declaration(
                 name: lower_name(declaration.name),
                 parameters: lower_type_parameters(declaration.parameters)?,
                 body: lower_type(declaration.body)?,
-                has_kind_signature,
+                kind_signature,
                 span: declaration.span,
             }))
         }
         cst::Declaration::Class(declaration) => Ok(TypeDeclaration::Class(ClassDeclaration {
             name: lower_name(declaration.name),
-            parameters: lower_class_parameters(&declaration.head),
+            parameters: lower_class_parameters(&declaration.head)?,
             superclasses: match declaration.superclasses {
                 Some(superclasses) => vec![lower_type(*superclasses)?],
                 None => Vec::new(),
@@ -146,7 +152,7 @@ pub(crate) fn lower_type_declaration(
                 .map(|block| lower_class_members(block.declarations))
                 .transpose()?
                 .unwrap_or_default(),
-            has_kind_signature,
+            kind_signature,
             span: declaration.span,
         })),
         other => Err(LowerError::new(
@@ -183,26 +189,54 @@ fn lower_constructor(constructor: cst::DataConstructor) -> Result<DataConstructo
     })
 }
 
-fn lower_class_parameters(head: &cst::TypeExpr) -> Vec<TypeParameter> {
+fn lower_class_parameters(head: &cst::TypeExpr) -> Result<Vec<TypeParameter>, LowerError> {
     let mut parameters = Vec::new();
-    collect_parameters(head, &mut parameters);
-    parameters
+    collect_parameters(head, &mut parameters)?;
+    Ok(parameters)
 }
 
-fn collect_parameters(expression: &cst::TypeExpr, out: &mut Vec<TypeParameter>) {
+fn collect_parameters(
+    expression: &cst::TypeExpr,
+    out: &mut Vec<TypeParameter>,
+) -> Result<(), LowerError> {
     if let cst::TypeExprKind::Application(function, arguments) = &expression.kind {
-        collect_parameters(function, out);
+        collect_parameters(function, out)?;
         for argument in arguments {
-            if let cst::TypeExprKind::Name(name) = &argument.kind
-                && is_type_variable(&name.text)
-            {
-                out.push(TypeParameter {
-                    name: lower_name(name.clone()),
-                    kind: None,
-                    span: name.span,
-                });
+            match &strip_parens(argument).kind {
+                cst::TypeExprKind::Name(name) if is_type_variable(&name.text) => {
+                    out.push(TypeParameter {
+                        name: lower_name(name.clone()),
+                        kind: None,
+                        span: name.span,
+                    });
+                }
+                cst::TypeExprKind::KindAnnotation {
+                    expression: value,
+                    kind,
+                    ..
+                } => {
+                    let value = strip_parens(value);
+                    if let cst::TypeExprKind::Name(name) = &value.kind
+                        && is_type_variable(&name.text)
+                    {
+                        out.push(TypeParameter {
+                            name: lower_name(name.clone()),
+                            kind: Some(lower_type(kind.as_ref().clone())?),
+                            span: value.span,
+                        });
+                    }
+                }
+                _ => {}
             }
         }
+    }
+    Ok(())
+}
+
+fn strip_parens(expression: &cst::TypeExpr) -> &cst::TypeExpr {
+    match &expression.kind {
+        cst::TypeExprKind::Parens { expression, .. } => strip_parens(expression),
+        _ => expression,
     }
 }
 

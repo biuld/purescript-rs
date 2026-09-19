@@ -154,7 +154,7 @@ transitive exports are still open.
 
 **Measured baseline (annotations oracle):** the scoreboard also loads a case's
 support modules from its sibling directory, matching the corpus layout. M2
-failing agreement is 42/70 and 31/413 `passing` modules resolve, including all
+failing agreement is 44/70 and 32/413 `passing` modules resolve, including all
 11 `DeclConflict` cases, `ExportConflict` 5/7, `ScopeConflict` 5/6,
 `UnknownImport`, `UnknownImportDataConstructor`, `UnknownExportDataConstructor`,
 `TransitiveDctorExportError`, and the self-contained `TransitiveExportError`
@@ -171,6 +171,24 @@ subsets. The remaining failures need expression forms (records, `do`, guards,
   and kind checking.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M2.
+
+**Progress (implemented slice):** kinds are checked as a dedicated pass
+(`psrs-kind`, P5) over resolved HIR. HIR and AST now carry kinded `forall`
+binders, standalone kind signatures, kind annotations on type parameters,
+records/rows, constraints, and type-level literals. The checker infers kinds for
+`data`, `newtype`, `type`, and `class` declarations, unifies them with an occurs
+check, and reports `KindsDoNotUnify`, `InfiniteKind`, `PartiallyAppliedSynonym`,
+`CycleInTypeSynonym`, `CycleInKindDeclaration`, and `UndefinedTypeVariable`.
+The driver exposes a lenient kind check and the `l3` scoreboard; the scoreboard
+also runs against the vendored corpus without `purs`.
+
+**Measured baseline (annotations oracle):** M3 failing agreement is 28/48.
+Per code: `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2,
+`CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
+`PartiallyAppliedSynonym` 8/12, `KindsDoNotUnify` 10/24. The remaining cases
+need features outside the kind core: instances and `derive`, `foreign import
+data`, rows in kinds, polymorphic expression annotations, and shared
+cross-module kind environments.
 
 ### M4 — Core type checking
 
