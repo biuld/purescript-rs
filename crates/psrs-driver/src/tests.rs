@@ -671,3 +671,5 @@ fn accepts_well_kinded_higher_kinded_declarations() {
 mod typecheck;
 
 mod adts;
+
+mod arrays;

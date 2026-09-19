@@ -297,6 +297,7 @@ enum InferredExprKind {
     Integer(i32),
     Boolean(bool),
     String(String),
+    Array(Vec<InferredExpr>),
     Application(Box<InferredExpr>, Box<InferredExpr>),
     Lambda {
         binder: InferredBinder,

@@ -321,6 +321,12 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         CstExprKind::Integer(value) => ExprKind::Integer(value),
         CstExprKind::String(value) => ExprKind::String(value),
         CstExprKind::Char(value) => ExprKind::Char(value),
+        CstExprKind::Array { elements, .. } => ExprKind::Array(
+            elements
+                .into_iter()
+                .map(lower_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         CstExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(lower_expr(*function)?),
             Box::new(lower_expr(*argument)?),
@@ -423,7 +429,6 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         }
         CstExprKind::Hole(_)
         | CstExprKind::Number(_)
-        | CstExprKind::Array { .. }
         | CstExprKind::Record { .. }
         | CstExprKind::RecordUpdate { .. }
         | CstExprKind::FieldAccess { .. }

@@ -236,9 +236,10 @@ run under WASI. A valid single-field `newtype` is now erased in CC: construction
 and matching pass through the field value, with no GC allocation. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
-as demonstrated by `Maybe Int`. Fully polymorphic declarations, records, rows,
-and richer heap or tagged aggregate layouts are still open, and the backend
-reports them as named limitations. The parameterized ADT representation is
+as demonstrated by `Maybe Int`. Concrete scalar array literals now also lower
+to Wasm GC arrays. Fully polymorphic declarations, records, rows, array
+operations, and richer heap or tagged aggregate layouts are still open, and
+the backend reports them as named limitations. The parameterized ADT representation is
 fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by

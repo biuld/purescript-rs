@@ -191,6 +191,35 @@ impl Checker {
             hir::ExprKind::String(value) => {
                 (InferredExprKind::String(value.clone()), InferType::String)
             }
+            hir::ExprKind::Array(elements) => {
+                if elements.is_empty() {
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::UnsupportedExpression,
+                        span,
+                        "empty array literals are not supported yet",
+                    ));
+                    return None;
+                }
+                let mut inferred = Vec::with_capacity(elements.len());
+                let mut element_ty: Option<InferType> = None;
+                for element in elements {
+                    let element = self.infer_expr(element)?;
+                    if let Some(expected) = &element_ty {
+                        self.unify(expected.clone(), element.ty.clone(), element.span);
+                    } else {
+                        element_ty = Some(element.ty.clone());
+                    }
+                    inferred.push(element);
+                }
+                let element_ty = element_ty?;
+                (
+                    InferredExprKind::Array(inferred),
+                    InferType::Application(
+                        Box::new(InferType::Constructor(TypeConstructor::Array)),
+                        Box::new(element_ty),
+                    ),
+                )
+            }
             hir::ExprKind::Char(_) => {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedExpression,

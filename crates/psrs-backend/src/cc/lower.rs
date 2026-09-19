@@ -5,6 +5,9 @@ use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::{LocalId, SymbolId, TypeId as HirTypeId};
 use std::collections::{HashMap, HashSet};
 
+mod array;
+mod erased;
+
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
@@ -12,6 +15,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_i32_type: Option<u32>,
+    pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -32,6 +36,7 @@ pub(super) fn lower_function(
         aggregate_types: context.aggregate_types,
         newtype_ids: context.newtype_ids,
         boxed_i32_type: context.boxed_i32_type,
+        array_types: context.array_types,
         constructor_tags: context.constructor_tags,
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
@@ -46,6 +51,7 @@ pub(super) fn lower_function(
             context.enum_types,
             context.aggregate_types,
             context.newtype_ids,
+            context.array_types,
         )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
@@ -61,6 +67,7 @@ pub(super) fn lower_function(
         context.enum_types,
         context.aggregate_types,
         context.newtype_ids,
+        context.array_types,
     )?;
     let function = Function {
         symbol: declaration.symbol,
@@ -86,6 +93,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
     pub(super) boxed_i32_type: Option<u32>,
+    pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
     pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
@@ -111,6 +119,7 @@ impl FunctionLowerer<'_> {
             self.enum_types,
             self.aggregate_types,
             self.newtype_ids,
+            self.array_types,
         )?;
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
@@ -170,6 +179,9 @@ impl FunctionLowerer<'_> {
                     span: expression.span,
                 });
                 Ok(destination)
+            }
+            ExprKind::Array { elements } => {
+                self.lower_array(expression, elements, ty, assignments)
             }
             ExprKind::Constructor { symbol, arguments } => {
                 let constructor = self
@@ -379,112 +391,6 @@ impl FunctionLowerer<'_> {
                 "capturing or nested lambdas require closure conversion and are not in the first slice",
             )]),
         }
-    }
-
-    fn box_erased_value(
-        &mut self,
-        value: ValueId,
-        span: psrs_span::TextRange,
-        assignments: &mut Vec<Assignment>,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(boxed_type) = self.boxed_i32_type else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "parameterized constructor has no erased value box layout",
-            )]);
-        };
-        let value_type = self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == value)
-            .map(|declaration| declaration.ty)
-            .ok_or_else(|| {
-                vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "erased constructor field uses an unknown value",
-                )]
-            })?;
-        let erased = match value_type {
-            ValueType::I32 | ValueType::Boolean => {
-                let boxed = self.fresh(ValueType::Ref(crate::types::RefType {
-                    nullable: false,
-                    heap: crate::types::HeapType::Index(boxed_type),
-                }));
-                assignments.push(Assignment {
-                    destination: boxed,
-                    kind: AssignmentKind::StructNew {
-                        destination: boxed,
-                        type_index: boxed_type,
-                        arguments: vec![value],
-                    },
-                    span,
-                });
-                boxed
-            }
-            ValueType::Ref(crate::types::RefType {
-                nullable: false,
-                heap: crate::types::HeapType::Eq,
-            }) => value,
-            ValueType::Ref(_) => {
-                let cast = self.fresh(ValueType::Ref(crate::types::RefType {
-                    nullable: false,
-                    heap: crate::types::HeapType::Eq,
-                }));
-                assignments.push(Assignment {
-                    destination: cast,
-                    kind: AssignmentKind::RefCast {
-                        destination: cast,
-                        value,
-                        reference: crate::types::RefType {
-                            nullable: false,
-                            heap: crate::types::HeapType::Eq,
-                        },
-                    },
-                    span,
-                });
-                cast
-            }
-            _ => {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "parameterized constructor field cannot be erased yet",
-                )]);
-            }
-        };
-        let erased_type = self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == erased)
-            .map(|declaration| declaration.ty)
-            .expect("erased value was just allocated or already exists");
-        if erased_type
-            != ValueType::Ref(crate::types::RefType {
-                nullable: false,
-                heap: crate::types::HeapType::Eq,
-            })
-        {
-            let cast = self.fresh(ValueType::Ref(crate::types::RefType {
-                nullable: false,
-                heap: crate::types::HeapType::Eq,
-            }));
-            assignments.push(Assignment {
-                destination: cast,
-                kind: AssignmentKind::RefCast {
-                    destination: cast,
-                    value: erased,
-                    reference: crate::types::RefType {
-                        nullable: false,
-                        heap: crate::types::HeapType::Eq,
-                    },
-                },
-                span,
-            });
-            return Ok(cast);
-        }
-        Ok(erased)
     }
 }
 

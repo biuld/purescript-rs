@@ -27,6 +27,7 @@ pub enum ExprKind {
     Integer(String),
     String(String),
     Char(char),
+    Array(Vec<Expr>),
     Application(Box<Expr>, Box<Expr>),
     Operator {
         operator: Name,

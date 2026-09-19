@@ -145,6 +145,12 @@ impl Resolver {
             AstExprKind::Integer(value) => ExprKind::Integer(value),
             AstExprKind::String(value) => ExprKind::String(value),
             AstExprKind::Char(value) => ExprKind::Char(value),
+            AstExprKind::Array(elements) => ExprKind::Array(
+                elements
+                    .into_iter()
+                    .map(|element| self.resolve_expr(element))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             AstExprKind::Application(function, argument) => {
                 let function = self.resolve_expr(*function);
                 let argument = self.resolve_expr(*argument);

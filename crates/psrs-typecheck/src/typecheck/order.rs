@@ -31,6 +31,11 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
         | hir::ExprKind::Integer(_)
         | hir::ExprKind::String(_)
         | hir::ExprKind::Char(_) => {}
+        hir::ExprKind::Array(elements) => {
+            for element in elements {
+                collect_globals(element, out);
+            }
+        }
         hir::ExprKind::Global(symbol) => out.push(*symbol),
         hir::ExprKind::Operator {
             operator,

@@ -93,6 +93,11 @@ pub enum AssignmentKind {
         field: u32,
         value: ValueId,
     },
+    ArrayNew {
+        destination: ValueId,
+        type_index: u32,
+        elements: Vec<ValueId>,
+    },
     If {
         condition: ValueId,
         then_assignments: Vec<Assignment>,
@@ -133,6 +138,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
             &enum_types,
             &aggregate_types,
             &newtype_ids,
+            &layout.array_types,
         )
         .map_err(|errors| {
             errors
@@ -177,6 +183,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
         boxed_i32_type: layout.boxed_i32_type,
+        array_types: &layout.array_types,
         constructor_tags: &constructor_tags,
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,

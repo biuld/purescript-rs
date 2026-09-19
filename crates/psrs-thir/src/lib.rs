@@ -100,6 +100,7 @@ pub enum ExprKind {
     Integer(i32),
     Boolean(bool),
     String(String),
+    Array(Vec<Expr>),
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -189,6 +190,11 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
         | ExprKind::Integer(_)
         | ExprKind::Boolean(_)
         | ExprKind::String(_) => {}
+        ExprKind::Array(elements) => {
+            for element in elements {
+                verify_expr(element, type_count, errors);
+            }
+        }
         ExprKind::Application(function, argument) => {
             verify_expr(function, type_count, errors);
             verify_expr(argument, type_count, errors);

@@ -37,6 +37,7 @@ impl FunctionLowerer<'_> {
             self.enum_types,
             self.aggregate_types,
             self.newtype_ids,
+            self.array_types,
         )?;
         match expected {
             ValueType::I32 | ValueType::Boolean => {

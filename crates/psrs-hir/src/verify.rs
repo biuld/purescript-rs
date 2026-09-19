@@ -29,6 +29,11 @@ pub(crate) fn verify_expr(
         | ExprKind::Integer(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+        ExprKind::Array(elements) => {
+            for element in elements {
+                verify_expr(element, globals, visible_locals, declared_locals, errors);
+            }
+        }
         ExprKind::Application(function, argument) => {
             verify_expr(function, globals, visible_locals, declared_locals, errors);
             verify_expr(argument, globals, visible_locals, declared_locals, errors);

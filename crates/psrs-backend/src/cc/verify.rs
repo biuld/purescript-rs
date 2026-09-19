@@ -81,6 +81,7 @@ fn verify_assignments(
             | AssignmentKind::RefCast { value, .. }
             | AssignmentKind::StructGet { value, .. } => uses.push(*value),
             AssignmentKind::StructNew { arguments, .. } => uses.extend(arguments.iter().copied()),
+            AssignmentKind::ArrayNew { elements, .. } => uses.extend(elements.iter().copied()),
             AssignmentKind::DirectCall {
                 function,
                 arguments,

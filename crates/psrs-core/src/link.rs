@@ -131,6 +131,12 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
         ExprKind::Integer(value) => ExprKind::Integer(value),
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
+        ExprKind::Array { elements } => ExprKind::Array {
+            elements: elements
+                .into_iter()
+                .map(|element| shift_expr(element, offset))
+                .collect(),
+        },
         ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
             op,
             left: Box::new(shift_expr(*left, offset)),
@@ -236,6 +242,11 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
             }
         }
         ExprKind::Local(_) | ExprKind::Integer(_) | ExprKind::Boolean(_) | ExprKind::String(_) => {}
+        ExprKind::Array { elements } => {
+            for element in elements {
+                collect_references(element, out);
+            }
+        }
         ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
             collect_references(left, out);
             collect_references(right, out);

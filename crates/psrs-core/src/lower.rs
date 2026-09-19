@@ -149,6 +149,12 @@ fn lower_expr(
         TypedExprKind::Integer(value) => ExprKind::Integer(value),
         TypedExprKind::Boolean(value) => ExprKind::Boolean(value),
         TypedExprKind::String(value) => ExprKind::String(value),
+        TypedExprKind::Array(elements) => ExprKind::Array {
+            elements: elements
+                .into_iter()
+                .map(|element| lower_expr(element, externals, constructors))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors)?;
             let argument = lower_expr(*argument, externals, constructors)?;

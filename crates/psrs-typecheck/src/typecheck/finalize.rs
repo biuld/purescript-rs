@@ -14,6 +14,12 @@ impl Checker {
             InferredExprKind::Integer(value) => thir::ExprKind::Integer(value),
             InferredExprKind::Boolean(value) => thir::ExprKind::Boolean(value),
             InferredExprKind::String(value) => thir::ExprKind::String(value),
+            InferredExprKind::Array(elements) => thir::ExprKind::Array(
+                elements
+                    .into_iter()
+                    .map(|element| self.finalize_expr(element, interner, generics))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             InferredExprKind::Application(function, argument) => {
                 let function = self.finalize_expr(*function, interner, generics);
                 let argument = self.finalize_expr(*argument, interner, generics);
