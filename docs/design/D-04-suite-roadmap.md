@@ -5,11 +5,12 @@
 
 ## Purpose
 
-Turn the official PureScript test suite into a multi-stage roadmap by hand
-classifying its corpus into coverage milestones. [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md)
-fixes the strategy: the suite is the compatibility target and the `purs`
-compiler is the oracle. This document defines the milestones, the suite subset
-each one is accountable for, and their acceptance criteria.
+Turn the official PureScript test suite into an operational scoreboard for the
+frontend and backend feature matrices in [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md).
+DEC-04 fixes the strategy: the feature matrices define the implementation
+inventory, while the suite and the `purs` compiler provide the acceptance
+oracle. This document defines the corpus classification, coverage milestones,
+and acceptance criteria used to measure those matrices.
 
 The milestones are ordered by dependency, not by suite size. Each milestone is
 independently measurable as per-file agreement with `purs`, and each later

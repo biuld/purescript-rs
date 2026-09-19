@@ -1,99 +1,195 @@
-# DEC-04 — Official Test Suite Is the Compatibility Roadmap
+# DEC-04 — Frontend and Backend Feature Matrices
 
 **Status:** Accepted  
 **Date:** 2026-09-19
 
 ## Context
 
-[D-03](../design/D-03-type-system.md) lays out a self-defined type-system
-roadmap (phases T1–T6). The official PureScript checkout provides a large,
-maintained corpus under `tests/purs`:
+The official PureScript test suite is a useful compatibility oracle, but a
+single error-code ladder is not a sufficient implementation roadmap. It mixes
+two different kinds of work:
 
-- `passing`: 440 `.purs` files that must compile and run.
-- `failing`: 448 `.purs` files with `-- @shouldFailWith <ErrorCode>` directives
-  and `.out` golden diagnostics.
-- `warning`: 68 files with expected warnings.
-- `optimize`: 10 files with expected CoreFn output.
-- `layout`: 15 self-contained lexer/layout goldens with `.out` files.
+- **Frontend compatibility:** PureScript source syntax, modules, name
+  resolution, kinds, type checking, type classes, and diagnostics.
+- **Backend capability:** CC and MIR lowering, runtime representation, Wasm
+  emission, WIT bindings, WASI integration, and execution.
 
-The official `purs` compiler is available and `purs compile --json-errors`
-emits a machine-readable `errorCode` per diagnostic (for example
-`TypesDoNotUnify`, `ErrorParsingModule`, `NoInstanceFound`). The corpus and the
-oracle together describe exactly what the compiler must accept, reject, and
-report.
+The current roadmap also makes a parser-only feature look implemented and can
+make a backend feature look complete when it only works for one scalar slice.
+The project needs a feature inventory that answers both questions separately:
+what does PureScript mean, and can the resulting program run on the selected
+platform?
 
-[F-02](../feature/F-02-portable-programs.md) currently avoids promising broad
-compatibility: language support grows in documented increments. Adopting the
-official suite changes the project's scope and the meaning of "done", so it
-needs an explicit decision.
+The official suite remains pinned to the PureScript `v0.15.16` corpus. Its
+passing, failing, warning, optimize, and layout cases are the acceptance
+oracle, but the feature matrices below are the primary planning artifact.
 
 ## Decision
 
-Use the official PureScript test suite as the compiler's compatibility target
-and coverage oracle. Self-defined feature roadmaps are subordinate to suite
-coverage.
+Maintain two feature matrices and update them whenever a feature moves through
+the compiler:
 
-- **Coverage is measured as per-file agreement with `purs`.** For every corpus
-  file, compare our outcome against the oracle: accept vs reject, and, for
-  rejects, the diagnostic `errorCode`. Progress is a burndown of
-  disagreements.
-- **The corpus is classified into layers by `purs` error code**, not by
-  hand-picked feature lists:
-  - L0 layout: `tests/purs/layout` goldens.
-  - L1 parse: files the oracle reports as `ErrorParsingModule` must fail to
-    parse; all other files must parse.
-  - L2 resolve/name: `UnknownName`, `DeclConflict`, `TransitiveExportError`,
-    export/import errors.
-  - L3 kinds: `KindsDoNotUnify`, `PartiallyAppliedSynonym`, kind errors.
-  - L4 types: `TypesDoNotUnify`, `InfiniteType`, `IntOutOfRange`, and related.
-  - L5 classes: `NoInstanceFound`, `OverlappingInstances`, `OrphanInstance`.
-  - L6 runtime: `passing` files produce the expected observable result.
-- **Dependency order is retained.** Parse precedes resolve, resolve precedes
-  kinds, kinds precede types, types precede classes, and classes precede
-  runtime. The suite defines *what* to cover, not the order of construction.
-- **Runtime is the last layer, not the first.** Almost all `passing` files
-  import Prelude and platform libraries, so reaching L6 requires module
-  loading, imports, the standard library, and the runtime. Parser and
-  resolution coverage come first, with runtime vertical slices kept alive in
-  parallel where practical.
-- **Alignment is by `errorCode` and span, not message text.** Golden `.out`
-  files contain formatting and ANSI color and must not be matched literally.
-- **JavaScript and Node.js FFI are out of scope.** Suite files that declare
-  `foreign import`, ship a `.js` FFI implementation, or expect an FFI-specific
-  `errorCode` are excluded from milestone acceptance and are neither agreement
-  nor gaps. Programs that use the project's PureScript-facing WASI libraries
-  remain in scope; those libraries are implemented by the runtime.
-- **The suite must not block the default workspace tests.** Tests that require
-  `purs` or a PureScript checkout skip or are opt-in, so
-  `cargo test --workspace` stays self-contained.
+1. The **frontend matrix** tracks source-language support through Typed Core.
+2. The **backend matrix** tracks Typed Core through CC/MIR, Wasm, WIT, and
+   WASI execution.
 
-[D-03](../design/D-03-type-system.md) remains the source of truth for type
-representations and internal sequencing; its phases map onto L3–L5.
+A feature is not marked `Implemented` merely because its syntax parses, a type
+exists in an IR, or a Wasm opcode can be emitted. `Implemented` means that the
+feature works end to end at the boundary named in its row and has a regression
+test. `Partial` is used for parser-only work, a restricted type/runtime slice,
+or a feature whose representation exists but is not yet connected through the
+whole pipeline.
 
-## Alternatives considered
+### Status legend
 
-- **Keep the self-defined T1–T6 roadmap as primary (rejected).** It gives no
-  objective coverage signal and risks building features the suite does not
-  exercise while missing ones it does.
-- **Read `@shouldFailWith` directives instead of running `purs` (rejected as
-  primary).** The directives are useful metadata but the oracle is authoritative
-  and also classifies files that fail for module-resolution reasons.
-- **Vendor the corpus into this repository (rejected for now).** The suite is
-  large and the support libraries are fetched, not vendored. Reference a local
-  checkout via `PURESCRIPT_REPO` and keep the harness out of the default test
-  path.
+| Status | Meaning |
+| --- | --- |
+| Implemented | Supported at the stated boundary and covered by tests. |
+| Partial | A restricted slice or an earlier compiler stage is implemented. |
+| Planned | No supported implementation yet; the feature remains on the roadmap. |
+| Excluded | Deliberately outside the current compatibility target. |
+
+## Frontend feature matrix
+
+The frontend boundary is Typed Core. Rows are intentionally phrased as
+PureScript language features rather than crate or pass names. A syntax feature
+that is currently accepted only by CST/AST is therefore `Partial` until it is
+resolved, type checked, and represented in Typed Core as required.
+
+| ID | Feature | Current support | Status | Next landing |
+| --- | --- | --- | --- | --- |
+| FE-01 | Lexing, Unicode tokens, comments, literals, and layout | Lexer and layout processor work; the official layout goldens still have open cases. | Partial | Close the remaining layout goldens and lock token behavior. |
+| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, aliases, and cycles work in a subset. | Partial | Complete operator/fixity aliases and all transitive export rules. |
+| FE-03 | Value declarations, signatures, recursive groups, pattern bindings, and `where` | Named declarations, signatures, recursive local groups, and top-level SCC inference work; pattern declarations and `where` are not end-to-end. | Partial | Lower pattern declarations and local `where` blocks. |
+| FE-04 | Declaration forms: `data`, `newtype`, `type`, `class`, `instance`, `derive`, `foreign`, roles, fixities, and kind signatures | Most forms parse and several enter AST/HIR; only data, newtype, type, and part of class/kind handling are connected to checking. | Partial | Add semantic checking and resolution for each declaration form. |
+| FE-05 | Expressions: application, operators, lambdas, `if`, `let`, `case`, records, arrays, literals, sections, `do`, and `ado` | Application, operators in the bootstrap subset, lambdas, `if`, `let`, `case`, scalar arrays, records, and selected literals work; sections, `do`/`ado`, and several literal forms remain open. | Partial | Land desugaring and typing for `do`/`ado`, sections, and the remaining literals. |
+| FE-06 | Patterns: variables, wildcards, constructors, records, literals, tuples, arrays, guards, and binders | Variable, wildcard, constructor, and restricted closed-record patterns work; guards, multiple scrutinees, literal/tuple/array patterns, exhaustiveness, and redundancy checks remain open. | Partial | Complete pattern typing, coverage checking, and lowering. |
+| FE-07 | Operators, sections, fixity declarations, and type/value operators | Operator syntax and the current intrinsic operators work; complete fixity resolution, aliases, sections, and type operators are pending. | Partial | Implement one shared fixity and operator-resolution pass. |
+| FE-08 | Primitive types and monomorphic inference | `Int`, `Boolean`, `String`, `Unit`, function types, unification, occurs check, and source-spanned primitive errors work. | Implemented | Extend the primitive set with `Number`, `Char`, and the remaining literal semantics. |
+| FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, and outermost `forall` work through THIR/Core. | Implemented | Connect polymorphic Core to dictionary passing and runtime erasure. |
+| FE-10 | Type constructors, type application, type synonyms, and saturation | Constructor/application types, built-in and user constructors, and synonym substitution work in a restricted set. | Partial | Complete constructor environments, arity rules, recursive synonyms, and backend-independent acceptance. |
+| FE-11 | Kinds, kind signatures, higher-kinded types, kind annotations, and kind variables | Dedicated kind inference/checking covers several declarations, annotations, records/rows, and official kind errors. | Partial | Complete cross-module environments, rows in kinds, and expression-level cases. |
+| FE-12 | Algebraic data types, constructors, newtypes, and constructor typing | Data/newtype declarations, constructor schemes, constructor application, and basic case typing work. | Partial | Add full recursive/parameterized checking, exhaustiveness, and all pattern forms. |
+| FE-13 | Records, row types, row polymorphism, and variants | Closed concrete records, field access/update, and restricted record patterns work; open rows and row-polymorphic inference do not. | Partial | Implement row unification, open records, and variants. |
+| FE-14 | Constraints, type classes, superclasses, class members, and instances | Class and instance syntax is represented, but constraint solving and dictionary evidence are not implemented. | Planned | Add class environments, constraint schemes, and instance resolution. |
+| FE-15 | Functional dependencies | Functional-dependency syntax is represented; improvement and consistency checking are not implemented. | Partial | Add dependency improvement and the associated diagnostics. |
+| FE-16 | Deriving, roles, `Coercible`, and newtype-based derivation | Syntax is partially represented; deriving, role checking, coercions, and generated evidence are not supported. | Partial | Implement roles/coercions first, then deriving and generated instances. |
+| FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Some type syntax and kinded binders parse; visible application, holes, and full annotation checking remain incomplete. | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
+| FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Not implemented; the current checker is rank-1. | Planned | Add a separate higher-rank checking phase after classes and rows. |
+| FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path; JavaScript FFI and foreign data are not general frontend targets. | Partial | Define the complete target-aware foreign declaration rules. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans and several error-code mappings exist; warning coverage and complete diagnostic agreement do not. | Partial | Track warning-code agreement separately from acceptance errors. |
+| FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
+
+The frontend landing order is:
+
+```text
+FE-01 -> FE-02..FE-07 -> FE-08..FE-13 -> FE-14..FE-17 -> FE-18..FE-21
+```
+
+This is a dependency guide, not a requirement to finish every row in a block
+before starting the next one. Each row must move from syntax/representation to
+typed, source-spanned behavior before it is considered landed.
+
+## Backend feature matrix
+
+The backend starts from Typed Core. CC and MIR are the backend IR family;
+Wasm is the target encoding, and WIT/WASI are the platform integration layers.
+
+| ID | Feature | Current support | Status | Next landing |
+| --- | --- | --- | --- | --- |
+| BE-01 | ANF and explicit evaluation order | Direct-style CC/ANF lowering is implemented and tested for the bootstrap expression set. | Implemented | Extend the lowering to every frontend expression form. |
+| BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, scalar captures, closure structs, and `call_ref` work. | Partial | Support aggregate/polymorphic captures after frontend type-class and representation work. |
+| BE-03 | MIR/CFG, block parameters, terminators, and verification | Typed basic blocks, explicit instructions/terminators, runtime layouts, and MIR verification work. | Implemented | Grow the instruction set with the remaining language/runtime constructs. |
+| BE-04 | Primitive runtime representation and calling conventions | `Int`, `Boolean`, `String`, `Unit`, direct calls, and the current closure ABI work. | Partial | Add `Number`, `Char`, richer values, and stable ABI tests. |
+| BE-05 | Nullary ADT tags and case lowering | Nullary constructors lower to integer tags and execute under WASI. | Implemented | Integrate with the complete pattern and exhaustiveness model. |
+| BE-06 | Field-bearing ADTs and constructor-pattern lowering | Non-parameterized constructors use Wasm GC structs; nested constructor patterns work in a restricted form. | Partial | Complete recursive, polymorphic, and mixed-field layouts. |
+| BE-07 | Newtype erasure | Single-field newtype construction and matching erase without allocation. | Implemented | Connect erasure to coercions, roles, and derived instances. |
+| BE-08 | Parameterized ADT representation and erasure | A first concrete slice boxes parameter-dependent fields as `eqref`; fully polymorphic declarations remain rejected. | Partial | Generalize the erased layout and verify all instantiations. |
+| BE-09 | Records and row values | Closed concrete records, field reads, updates, and restricted patterns use GC structs. | Partial | Add open rows, polymorphic records, variants, and generic field operations. |
+| BE-10 | Arrays and aggregate values | Concrete scalar arrays support literals, length, indexing, and updates through Wasm GC arrays. | Partial | Support polymorphic and aggregate element representations. |
+| BE-11 | Strings, linear memory, data segments, and allocation | String literals use length-prefixed UTF-8 data; a bump `cabi_realloc` supports returned byte lists/strings. | Partial | Stabilize allocator ownership and returned aggregate handling. |
+| BE-12 | Core optimization and MIR optimization | Optimization is not yet a compatibility target. | Planned | Add semantics-preserving passes after the unoptimized path is complete. |
+| BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`. | Implemented | Cover the remaining MIR instruction and control-flow forms. |
+| BE-14 | Wasm validation and WAT output | Generated core modules are validated with `wasmparser` and printed with `wasmprinter`. | Implemented | Make feature-profile validation part of every backend acceptance test. |
+| BE-15 | Wasm GC, reference types, typed function references, and `call_ref` | The selected `wasmtime` profile and the GC/reference subset used by the backend are integrated. | Partial | Add profile tests for every feature the backend starts to rely on. |
+| BE-16 | Wasm feature profile and pinned runtime | The profile is documented for the pinned `wasmtime` baseline; tail calls, exceptions, SIMD, threads, and multi-memory are allowed but not used. | Partial | Keep the profile and execution tests synchronized with runtime upgrades. |
+| BE-17 | WIT vendoring, parsing, name resolution, and canonical signatures | Vendored WASI WIT is loaded into a registry and resolves interfaces, functions, resources, lists, and results. | Implemented | Expand the accepted source and result type mapping. |
+| BE-18 | Generic source-declared WIT imports | Compatible scalar, handle, and byte-list/string imports lower through the canonical ABI with signature validation. | Partial | Add aggregate WIT values, richer results, and user-library loading. |
+| BE-19 | WIT aggregate values and resources | Resource handles and byte lists have a bootstrap path; lists of strings, tuples, and general aggregates are rejected. | Partial | Add aggregate layouts and ownership/lifetime rules. |
+| BE-20 | Component Model packaging and capability-based imports | `wit-component` lifts the core module to a WASI 0.2 component and prunes unused imports. | Implemented | Add component import/export regression cases beyond the CLI path. |
+| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. | Implemented | Exercise the interfaces through source standard-library modules. |
+| BE-22 | WASI clocks and randomness | Monotonic time and random bytes are wired through WASI and tested. | Implemented | Expose the remaining clock/random library surface. |
+| BE-23 | WASI arguments, environment, and filesystem | WIT descriptions are vendored, but the source library and aggregate lowering are not complete. | Planned | Add module loading and aggregate/list support, then expose these services. |
+| BE-24 | WASI sockets and HTTP | Not part of the current synchronous portable-program target. | Excluded | Revisit as a separate platform scope after the core target is stable. |
+| BE-25 | WASI 0.3 async streams and futures | The current compiler targets synchronous WASI 0.2. | Planned | Revisit only with an explicit platform decision and async language/library plan. |
+| BE-26 | Embedded standard library and user module loading | The PureScript-facing library is embedded and linked like source modules; a filesystem module loader is missing. | Partial | Replace embedding with discoverable library/module loading. |
+| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice; full official passing-suite execution is not complete. | Partial | Track per-feature runtime cases and then expand the passing-suite scoreboard. |
+| BE-28 | JavaScript/Node.js FFI compatibility | Not emitted or executed by this backend. | Excluded | No work planned under this decision. |
+
+The backend landing order is:
+
+```text
+BE-01..BE-04 -> BE-05..BE-11 -> BE-13..BE-16 -> BE-17..BE-23 -> BE-12, BE-25..BE-27
+```
+
+The frontend and backend are developed in parallel, but a runtime feature is
+not counted as an official passing case until the frontend can produce the
+required Typed Core and the backend can validate and execute the resulting
+artifact.
+
+## Official suite and scoreboard
+
+The suite is the acceptance oracle, not the feature inventory. The scoreboard
+reports frontend and backend progress separately:
+
+| Track | Measures | Primary evidence |
+| --- | --- | --- |
+| Frontend | Layout, parse, resolve, kinds, type, class, warning, and diagnostic agreement with `purs`. | `layout`, `passing`, `failing`, and `warning` cases classified by official `errorCode`. |
+| Backend | CC/MIR verifier results, Wasm validation, WIT signature agreement, component construction, and observable execution. | Backend unit tests, WAT/validation tests, WIT ABI tests, WASI runtime tests, and the executable subset of `passing`. |
+| End to end | A source feature plus its runtime representation behaves like the oracle. | Per-file compile/run agreement for supported non-FFI cases. |
+
+The existing error-code layers remain useful as scoreboard dimensions:
+
+```text
+L0 layout -> L1 parse -> L2 resolve -> L3 kinds -> L4 types -> L5 classes -> L6 runtime
+```
+
+They no longer define the implementation roadmap by themselves. A feature row
+in the matrices links to the relevant suite cases and may contribute to more
+than one layer.
+
+The pinned corpus currently contains layout goldens, passing programs, failing
+programs with expected `errorCode`s, warning cases, and optimize cases. Exact
+counts and harness behavior belong in [D-04](../design/D-04-suite-roadmap.md),
+which is the operational design for classification and scoreboards.
+
+### Exclusions
+
+JavaScript and Node.js FFI are outside the current target. Suite files that
+declare JavaScript `foreign import`s, ship a JavaScript FFI implementation, or
+expect an FFI-specific diagnostic are reported separately and count as neither
+agreement nor gaps. A compatible source-declared WIT import and programs using
+the project's PureScript-facing WASI libraries remain in scope.
+
+The default workspace test suite must remain self-contained. Tests requiring
+`purs`, a PureScript checkout, or a WASI runtime are opt-in or skip when the
+external dependency is unavailable.
 
 ## Consequences
 
-- The project makes a compatibility commitment that F-02 must restate: the
-  official suite, by layer, defines done.
-- Modules, imports, and eventually a standard library move earlier, because L2
-  and L6 require them.
-- The parser becomes a first-class large workstream with an automated
-  agreement metric rather than an ad-hoc grammar.
-- Every new diagnostic should align to an official `errorCode`; the
-  `TypeCheckErrorKind` and resolver kinds gain a documented mapping.
-- Risk: over-fitting to error codes or to individual files. Mitigation is to
-  derive rules from language semantics, with the suite as regression coverage.
-- Follow-up: build the classifier and scoreboard harness, add `parse_source`
-  for an L1-only entry point, and update F-02 and D-03 to reference the layers.
+- Frontend work is planned like a language-compatibility project: each syntax,
+  type-system, and diagnostic feature is landed and tracked independently.
+- Backend work is planned like a target-integration project: CC/MIR invariants,
+  Wasm capabilities, WIT canonical ABI, and WASI services have separate
+  acceptance evidence.
+- The same PureScript feature can appear in both matrices. For example,
+  parameterized ADTs need frontend type checking and backend erased layouts;
+  neither side can claim the feature alone is complete.
+- D-03 remains the source of truth for type representations and type-system
+  sequencing. D-02, D-05, D-06, and D-07 remain the source of truth for backend,
+  Wasm, WIT, and WASI implementation details.
+- Official `errorCode` agreement remains mandatory for frontend diagnostics,
+  but message text and golden `.out` formatting are not compatibility criteria.
+- The matrices make partial support explicit and prevent a parser-only feature,
+  a single backend vertical slice, or a runtime-only test from being mistaken
+  for full language support.

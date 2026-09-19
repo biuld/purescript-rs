@@ -36,11 +36,12 @@ same feature set rather than against the minimal core specification.
 
 Compatibility is measured against the official PureScript test suite, layer by
 layer, as decided in [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md):
-layout, parse, name resolution, kinds, types, classes, then runtime. Coverage
-is per-file agreement with the official compiler on accept/reject and
-diagnostic code, and the suite defines the minimum target rather than a
-separate feature list. Suite files that require JavaScript or Node.js FFI are
-excluded from the target and count as neither coverage nor gaps.
+layout, parse, name resolution, kinds, types, classes, then runtime. The
+frontend and backend feature matrices define the scope and current support
+state; the suite is the acceptance oracle. Coverage is per-file agreement with
+the official compiler on accept/reject and diagnostic code. Suite files that
+require JavaScript or Node.js FFI are excluded from the target and count as
+neither coverage nor gaps.
 
 The current compiler can build a restricted program, including linked source
 modules, to a validated WASI component and print its WAT form:
