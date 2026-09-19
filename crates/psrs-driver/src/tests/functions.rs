@@ -50,3 +50,20 @@ main = let x = 40 in apply (\y -> x + y) 2
     };
     assert_eq!(output.status.code(), Some(42));
 }
+
+#[test]
+fn runs_a_record_capturing_lambda_through_a_closure() {
+    let source = r#"module Main where
+apply :: (Int -> Int) -> Int -> Int
+apply f x = f x
+main = let r = { answer: 40 } in apply (\ignored -> case r of { answer: value } -> value + 2) 0
+"#;
+    let artifact = compile_source("Main.purs", source).expect("lowering a record capture");
+    assert!(artifact.wat.contains("array.new_fixed"));
+    assert!(artifact.wat.contains("struct.get"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}

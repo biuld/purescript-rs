@@ -240,9 +240,11 @@ and matching pass through the field value, with no GC allocation; nested
 constructor patterns are lowered against that erased field. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
-as demonstrated by `Maybe Int`. Concrete scalar array literals, length, and
-indexing and updates now also lower to Wasm GC arrays. Closed concrete record
-literals, field reads, updates, and record patterns lower to Wasm GC structs.
+as demonstrated by `Maybe Int`. Concrete scalar and aggregate array literals,
+length, indexing, and updates now also lower to Wasm GC arrays, including
+nested arrays, records, field-bearing data values, and `Number`. Closed
+concrete record literals, field reads, updates, and record patterns lower to
+Wasm GC structs.
 Nested constructor and record field patterns use conditional matching. These
 patterns are currently limited to concrete record types with no open row tail.
 Fully polymorphic
@@ -253,6 +255,10 @@ fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by
 [DEC-05](../decision/DEC-05-wasmtime-feature-set.md).
+
+Array and record GC type indices are reserved before either family is laid out,
+so concrete arrays and records can refer to each other without depending on
+type-table declaration order.
 
 The first M7 closure slice is now executable: top-level functions and local
 lambdas, including scalar-capturing lambdas, can be passed as values, local

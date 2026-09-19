@@ -98,3 +98,56 @@ fn runs_number_array_update_through_the_gc_array() {
     };
     assert_eq!(output.status.code(), Some(42));
 }
+
+#[test]
+fn runs_an_array_of_records_through_the_gc_array() {
+    let source = "module Main where\nmain = case arrayIndex [{ answer: 42 }] 0 of\n  { answer: result } -> result\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering an array of records");
+    assert!(artifact.wat.contains("array.new_fixed"));
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_an_array_of_data_values_through_the_gc_array() {
+    let source = "module Main where\ndata Box = Box Int\nmain = case arrayIndex [Box 42] 0 of\n  Box result -> result\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering an array of data values");
+    assert!(artifact.wat.contains("array.new_fixed"));
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_record_containing_an_array() {
+    let source = "module Main where\nmain = case { values: [40, 42] } of\n  { values: values } -> arrayIndex values 1\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("lowering a record containing an array");
+    assert!(artifact.wat.contains("array.new_fixed"));
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_nested_array_through_the_gc_arrays() {
+    let source = "module Main where\nmain = arrayIndex (arrayIndex [[40, 42]] 0) 1\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering nested arrays");
+    assert!(artifact.wat.contains("array.new_fixed"));
+    assert!(artifact.wat.contains("array.get"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}

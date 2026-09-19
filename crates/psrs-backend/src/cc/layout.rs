@@ -176,25 +176,50 @@ pub(super) fn type_layout(
     } else {
         None
     };
+    // Reserve all array and record indices before constructing either kind.
+    // Their storage types may refer to each other (for example, an array of
+    // records or a record containing an array), so assigning indices while
+    // walking one family would make the result depend on declaration order.
+    let array_ids = module
+        .types
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _)| {
+            let id = TypeId(index as u32);
+            array_element_type(module, id).map(|_| id)
+        })
+        .collect::<Vec<_>>();
     let mut array_types = HashMap::new();
-    for (index, _) in module.types.iter().enumerate() {
-        let id = TypeId(index as u32);
-        let Some(element) = array_element_type(module, id) else {
+    let array_base = definitions.len() as u32;
+    for (offset, id) in array_ids.iter().enumerate() {
+        array_types.insert(*id, array_base + offset as u32);
+    }
+
+    let record_ids = module
+        .types
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ty)| matches!(ty, Type::Record(_)).then_some(TypeId(index as u32)))
+        .collect::<Vec<_>>();
+    let record_base = array_base + array_ids.len() as u32;
+    let mut record_types = HashMap::new();
+    for (offset, id) in record_ids.iter().enumerate() {
+        record_types.insert(*id, record_base + offset as u32);
+    }
+
+    for id in &array_ids {
+        let Some(element) = array_element_type(module, *id) else {
             continue;
         };
-        let Ok(storage) = storage_type(
+        let storage = storage_type(
             module,
             element,
             aggregate_types,
             newtype_ids,
             &array_types,
-            &HashMap::new(),
+            &record_types,
             module.span,
-        ) else {
-            continue;
-        };
-        let type_index = definitions.len() as u32;
-        array_types.insert(id, type_index);
+        )?;
         definitions.push(DefinedType {
             final_type: true,
             supertype: None,
@@ -204,9 +229,8 @@ pub(super) fn type_layout(
             }),
         });
     }
-    let mut record_types = HashMap::new();
-    for (index, ty) in module.types.iter().enumerate() {
-        let Type::Record(fields) = ty else {
+    for id in &record_ids {
+        let Type::Record(fields) = &module.types[id.0 as usize] else {
             continue;
         };
         let mut layout_fields = Vec::with_capacity(fields.len());
@@ -224,8 +248,6 @@ pub(super) fn type_layout(
                 mutable: false,
             });
         }
-        let type_index = definitions.len() as u32;
-        record_types.insert(TypeId(index as u32), type_index);
         definitions.push(DefinedType {
             final_type: true,
             supertype: None,
