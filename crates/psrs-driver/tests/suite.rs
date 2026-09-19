@@ -8,6 +8,7 @@ struct Mismatch {
     relative_path: String,
     oracle_parse_error: bool,
     ours_ok: bool,
+    detail: Option<String>,
 }
 
 fn corpus_root() -> Option<PathBuf> {
@@ -35,6 +36,26 @@ fn suite_limit() -> Option<usize> {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|limit| *limit != 0)
+}
+
+fn suite_filter() -> Option<String> {
+    std::env::var("PSRS_SUITE_FILTER")
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+/// When set, `failing` files are classified by their `@shouldFailWith`
+/// annotation instead of invoking `purs`. The annotation is the corpus's own
+/// ground truth and does not depend on support libraries being installed or on
+/// the installed `purs` matching the checkout.
+fn use_annotation_oracle() -> bool {
+    std::env::var("PSRS_ORACLE").is_ok_and(|value| value == "annotations")
+}
+
+fn annotation_parse_error(text: &str) -> bool {
+    text.lines()
+        .take_while(|line| line.trim_start().starts_with("--"))
+        .any(|line| line.contains("@shouldFailWith") && line.contains("ErrorParsingModule"))
 }
 
 fn collected_files(category_dir: &Path, limit: Option<usize>) -> Vec<PathBuf> {
@@ -95,6 +116,7 @@ fn l1_parse_scoreboard_against_purs() {
     }
 
     let limit = suite_limit();
+    let filter = suite_filter();
     let mut mismatches = Vec::new();
     let mut grand_agree = 0usize;
     let mut grand_total = 0usize;
@@ -109,6 +131,7 @@ fn l1_parse_scoreboard_against_purs() {
         let files = collected_files(&category_dir, limit);
         let mut agree = 0usize;
         let mut excluded = 0usize;
+        let mut considered = 0usize;
 
         for path in &files {
             let Ok(text) = std::fs::read_to_string(path) else {
@@ -123,40 +146,64 @@ fn l1_parse_scoreboard_against_purs() {
                 .unwrap_or(path)
                 .to_string_lossy()
                 .into_owned();
-            let oracle_parse_error = oracle_parse_error(path);
-            let ours_ok = psrs_driver::parse_source(&path.to_string_lossy(), &text).is_ok();
+            if let Some(filter) = filter.as_deref()
+                && !relative_path.contains(filter)
+            {
+                continue;
+            }
+            considered += 1;
+            let oracle_parse_error = if use_annotation_oracle() && category == "failing" {
+                annotation_parse_error(&text)
+            } else {
+                oracle_parse_error(path)
+            };
+            let result = psrs_driver::parse_source(&path.to_string_lossy(), &text);
+            let ours_ok = result.is_ok();
             let expected_ok = !oracle_parse_error;
             if ours_ok == expected_ok {
                 agree += 1;
             } else {
+                let detail = result.err().map(|errors| {
+                    errors
+                        .first()
+                        .map(|error| {
+                            let offset = error.span.start as usize;
+                            let line = text[..offset.min(text.len())].matches('\n').count() + 1;
+                            format!("{}:{}: {}", line, offset, error.message)
+                        })
+                        .unwrap_or_default()
+                });
                 mismatches.push(Mismatch {
                     relative_path,
                     oracle_parse_error,
                     ours_ok,
+                    detail,
                 });
             }
         }
 
         grand_agree += agree;
-        grand_total += files.len() - excluded;
+        grand_total += considered;
         grand_excluded += excluded;
-        println!(
-            "{category}: {agree}/{} parse agreement, {excluded} excluded",
-            files.len() - excluded
-        );
+        println!("{category}: {agree}/{considered} parse agreement, {excluded} excluded");
     }
 
     println!("total: {grand_agree}/{grand_total} parse agreement, {grand_excluded} excluded");
     if !mismatches.is_empty() {
-        println!("mismatches (up to 25):");
-        for mismatch in mismatches.iter().take(25) {
+        println!("mismatches ({}):", mismatches.len());
+        for mismatch in &mismatches {
             let reason = if mismatch.oracle_parse_error {
                 "oracle said parse error, ours parsed"
             } else {
                 "oracle parsed, ours failed"
             };
+            let detail = mismatch
+                .detail
+                .as_deref()
+                .map(|detail| format!(" ({detail})"))
+                .unwrap_or_default();
             println!(
-                "  {}: {reason} (ours_ok={})",
+                "  {}: {reason} (ours_ok={}){detail}",
                 mismatch.relative_path, mismatch.ours_ok
             );
         }

@@ -6,24 +6,24 @@ use super::super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
-        let pattern = self.parse_pattern_atom()?;
-        let start = pattern.span.start;
-        let mut pattern = pattern;
-        if let PatternKind::Constructor {
-            name,
-            mut arguments,
-        } = pattern.kind
-        {
-            while self.starts_pattern_atom() {
-                arguments.push(self.parse_pattern_atom()?);
-            }
-            let end = arguments
-                .last()
-                .map(|argument| argument.span.end)
-                .unwrap_or(start);
+        let mut pattern = self.parse_pattern_prefix()?;
+        loop {
+            let operator = match &self.current().kind {
+                LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator != "@" => {
+                    operator.clone()
+                }
+                LayoutTokenKind::Raw(RawTokenKind::Colon) => ":".to_owned(),
+                _ => break,
+            };
+            let operator_span = self.bump().span;
+            let right = self.parse_pattern_prefix()?;
+            let span = TextRange::new(pattern.span.start, right.span.end);
             pattern = Pattern {
-                kind: PatternKind::Constructor { name, arguments },
-                span: TextRange::new(start, end),
+                kind: PatternKind::Constructor {
+                    name: CstName::new(operator, operator_span),
+                    arguments: vec![pattern, right],
+                },
+                span,
             };
         }
         if let PatternKind::Var(name) = &pattern.kind
@@ -57,6 +57,30 @@ impl<'a> Parser<'a> {
         Ok(pattern)
     }
 
+    fn parse_pattern_prefix(&mut self) -> Result<Pattern, ParseError> {
+        let pattern = self.parse_pattern_atom()?;
+        let start = pattern.span.start;
+        let mut pattern = pattern;
+        if let PatternKind::Constructor {
+            name,
+            mut arguments,
+        } = pattern.kind
+        {
+            while self.starts_pattern_atom() {
+                arguments.push(self.parse_pattern_atom()?);
+            }
+            let end = arguments
+                .last()
+                .map(|argument| argument.span.end)
+                .unwrap_or(start);
+            pattern = Pattern {
+                kind: PatternKind::Constructor { name, arguments },
+                span: TextRange::new(start, end),
+            };
+        }
+        Ok(pattern)
+    }
+
     fn at_operator_text(&self, text: &str) -> bool {
         matches!(&self.current().kind, LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator == text)
     }
@@ -68,11 +92,15 @@ impl<'a> Parser<'a> {
                 RawTokenKind::LowerIdent(_)
                     | RawTokenKind::UpperIdent(_)
                     | RawTokenKind::Integer(_)
+                    | RawTokenKind::Number(_)
                     | RawTokenKind::String(_)
                     | RawTokenKind::Char(_)
                     | RawTokenKind::LParen
                     | RawTokenKind::LBracket
                     | RawTokenKind::LBrace
+                    | RawTokenKind::As
+                    | RawTokenKind::Hiding
+                    | RawTokenKind::Role
             )
         )
     }
@@ -94,9 +122,54 @@ impl<'a> Parser<'a> {
                         span: token.span,
                     });
                 }
-                Ok(Pattern {
+                let pattern = Pattern {
                     kind: PatternKind::Var(CstName::new(name, token.span)),
                     span: token.span,
+                };
+                if self.at_operator_text("@") {
+                    let at_span = self.bump().span;
+                    let inner = self.parse_pattern_atom()?;
+                    let span = TextRange::new(pattern.span.start, inner.span.end);
+                    let PatternKind::Var(name) = pattern.kind else {
+                        unreachable!("just constructed a variable pattern")
+                    };
+                    return Ok(Pattern {
+                        kind: PatternKind::Named {
+                            name,
+                            at_span,
+                            pattern: Box::new(inner),
+                        },
+                        span,
+                    });
+                }
+                Ok(pattern)
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Number(value)) => {
+                self.bump();
+                Ok(Pattern {
+                    kind: PatternKind::Number(value),
+                    span: token.span,
+                })
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Operator(operator))
+                if operator == "-"
+                    && matches!(
+                        self.peek(1).kind,
+                        LayoutTokenKind::Raw(RawTokenKind::Integer(_) | RawTokenKind::Number(_))
+                    ) =>
+            {
+                let minus_span = self.bump().span;
+                let value_token = self.current().clone();
+                let value = match value_token.kind {
+                    LayoutTokenKind::Raw(RawTokenKind::Integer(value))
+                    | LayoutTokenKind::Raw(RawTokenKind::Number(value)) => value,
+                    _ => unreachable!("checked for a numeric token"),
+                };
+                self.bump();
+                let span = TextRange::new(minus_span.start, value_token.span.end);
+                Ok(Pattern {
+                    kind: PatternKind::Number(format!("-{value}")),
+                    span,
                 })
             }
             LayoutTokenKind::Raw(RawTokenKind::UpperIdent(_)) => {
@@ -128,6 +201,20 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Pattern {
                     kind: PatternKind::Char(value),
+                    span: token.span,
+                })
+            }
+            LayoutTokenKind::Raw(
+                kind @ (RawTokenKind::As | RawTokenKind::Hiding | RawTokenKind::Role),
+            ) => {
+                self.bump();
+                let text = match kind {
+                    RawTokenKind::As => "as",
+                    RawTokenKind::Hiding => "hiding",
+                    _ => "role",
+                };
+                Ok(Pattern {
+                    kind: PatternKind::Var(CstName::new(text, token.span)),
                     span: token.span,
                 })
             }
@@ -238,7 +325,7 @@ impl<'a> Parser<'a> {
         let mut tail = None;
         if !self.at_raw(&RawTokenKind::RBrace) {
             loop {
-                let label = self.consume_lower_name("record label")?;
+                let label = self.parse_label("record label")?;
                 let value = if self.at_raw(&RawTokenKind::Colon) {
                     let colon_span = self.bump().span;
                     let pattern = self.parse_pattern()?;

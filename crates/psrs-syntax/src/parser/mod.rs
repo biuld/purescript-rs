@@ -157,7 +157,7 @@ impl<'a> Parser<'a> {
                 if self.at_raw(&RawTokenKind::Import) {
                     imports.push(self.parse_import()?);
                 } else {
-                    declarations.push(self.parse_module_item(true)?);
+                    declarations.push(self.parse_module_item(true, false)?);
                 }
                 match self.current().kind {
                     LayoutTokenKind::LayoutSep => {
@@ -165,6 +165,7 @@ impl<'a> Parser<'a> {
                     }
                     LayoutTokenKind::LayoutEnd => {}
                     _ if self.at_eof() => {}
+                    _ if self.at_raw(&RawTokenKind::Else) => {}
                     _ => return Err(self.error("expected a declaration separator".into())),
                 }
             }
@@ -199,6 +200,9 @@ impl<'a> Parser<'a> {
         else {
             return Err(self.error(format!("expected module name, found {}", self.found())));
         };
+        if first_name.contains('_') || first_name.contains('\'') {
+            return Err(self.error_at(first.span, "invalid module name".into()));
+        }
         self.bump();
         let mut name = first_name;
         let mut end = first.span.end;
@@ -206,6 +210,9 @@ impl<'a> Parser<'a> {
             self.bump();
             let token = self.current().clone();
             if let LayoutTokenKind::Raw(RawTokenKind::UpperIdent(part)) = token.kind {
+                if part.contains('_') || part.contains('\'') {
+                    return Err(self.error_at(token.span, "invalid module name".into()));
+                }
                 self.bump();
                 name.push('.');
                 name.push_str(&part);
@@ -220,16 +227,11 @@ impl<'a> Parser<'a> {
     fn parse_declaration_block(&mut self) -> Result<DeclarationBlock, ParseError> {
         let where_keyword_span = self.consume_raw(RawTokenKind::Where)?.span;
         if self.current().kind != LayoutTokenKind::LayoutStart {
-            return Ok(DeclarationBlock {
-                where_keyword_span,
-                layout_start_span: where_keyword_span,
-                declarations: Vec::new(),
-                layout_end_span: where_keyword_span,
-                span: where_keyword_span,
-            });
+            return Err(self.error("expected an indented `where` block".into()));
         }
         let layout_start_span = self.consume_layout(LayoutTokenKind::LayoutStart)?.span;
-        let declarations = self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true)?;
+        let declarations =
+            self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true, true)?;
         let layout_end_span = self.consume_layout(LayoutTokenKind::LayoutEnd)?.span;
         let span = TextRange::new(where_keyword_span.start, layout_end_span.end);
         Ok(DeclarationBlock {
@@ -245,6 +247,7 @@ impl<'a> Parser<'a> {
         &mut self,
         terminators: &[LayoutTokenKind],
         allow_signatures: bool,
+        allow_pattern: bool,
     ) -> Result<Vec<Declaration>, ParseError> {
         let mut declarations = Vec::new();
         loop {
@@ -254,30 +257,36 @@ impl<'a> Parser<'a> {
             if terminators.contains(&self.current().kind) || self.at_eof() {
                 break;
             }
-            declarations.push(self.parse_module_item(allow_signatures)?);
+            declarations.push(self.parse_module_item(allow_signatures, allow_pattern)?);
             match self.current().kind {
                 LayoutTokenKind::LayoutSep => {
                     self.bump();
                 }
                 _ if terminators.contains(&self.current().kind) => {}
                 _ if self.at_eof() => {}
+                _ if self.at_raw(&RawTokenKind::Else) => {}
                 _ => return Err(self.error("expected a declaration separator".into())),
             }
         }
         Ok(declarations)
     }
 
-    fn parse_module_item(&mut self, allow_signatures: bool) -> Result<Declaration, ParseError> {
+    fn parse_module_item(
+        &mut self,
+        allow_signatures: bool,
+        allow_pattern: bool,
+    ) -> Result<Declaration, ParseError> {
         match &self.current().kind {
             LayoutTokenKind::Raw(RawTokenKind::Data) => self.parse_data_declaration(),
             LayoutTokenKind::Raw(RawTokenKind::Newtype) => self.parse_newtype_declaration(),
             LayoutTokenKind::Raw(RawTokenKind::Type) => self.parse_type_declaration(),
             LayoutTokenKind::Raw(RawTokenKind::Class) => self.parse_class_declaration(),
             LayoutTokenKind::Raw(RawTokenKind::Instance) => self.parse_instance_declaration(None),
-            LayoutTokenKind::Raw(RawTokenKind::Else)
-                if self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::Instance) =>
-            {
+            LayoutTokenKind::Raw(RawTokenKind::Else) => {
                 let else_span = self.bump().span;
+                while self.current().kind == LayoutTokenKind::LayoutSep {
+                    self.bump();
+                }
                 self.parse_instance_declaration(Some(else_span))
             }
             LayoutTokenKind::Raw(RawTokenKind::Derive) => self.parse_derive_declaration(),
@@ -285,7 +294,7 @@ impl<'a> Parser<'a> {
             LayoutTokenKind::Raw(
                 RawTokenKind::Infix | RawTokenKind::Infixl | RawTokenKind::Infixr,
             ) => self.parse_fixity_declaration(),
-            _ => self.parse_value_like_declaration(allow_signatures),
+            _ => self.parse_value_like_declaration(allow_signatures, allow_pattern),
         }
     }
 }

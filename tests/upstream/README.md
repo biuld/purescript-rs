@@ -6,7 +6,8 @@ sources are vendored; golden `.out` files and `.js` FFI implementations are
 not, because diagnostics are aligned by `errorCode` (not message text) and
 JavaScript FFI is out of scope.
 
-- Source: the PureScript compiler repository, `tests/purs/{passing,failing,warning,layout}`.
+- Source: the PureScript compiler repository at tag `v0.15.16`,
+  `tests/purs/{passing,failing,warning,layout}`.
 - The vendored files retain their original license; see the upstream repository.
 - Layout: the directory structure is preserved, including multi-file tests in
   subdirectories.
@@ -40,3 +41,20 @@ PURESCRIPT_REPO=/path/to/purescript \
 
 `PURESCRIPT_REPO` overrides the vendored corpus with a live checkout's
 `tests/purs` when set. The suite test requires `purs` and skips otherwise.
+
+## Oracle modes
+
+By default the harness classifies parse errors with `purs --json-errors`. When a
+`failing` module imports a support library that is not installed, `purs` reports
+`ModuleNotFound` after parsing only the header, so the body is never checked.
+Set `PSRS_ORACLE=annotations` to classify `failing` files by their
+`@shouldFailWith` annotation instead; `layout` files are still checked with
+`purs`.
+
+```sh
+PSRS_ORACLE=annotations \
+  cargo test -p psrs-driver --test suite -- --ignored --nocapture
+```
+
+`PSRS_SUITE_FILTER=<substring>` and `PSRS_SUITE_LIMIT=<n>` narrow the run for
+focused iteration.

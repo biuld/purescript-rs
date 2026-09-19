@@ -13,10 +13,14 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_value_like_declaration(
         &mut self,
         allow_signatures: bool,
+        allow_pattern: bool,
     ) -> Result<Declaration, ParseError> {
         let is_named = matches!(
             &self.current().kind,
             LayoutTokenKind::Raw(RawTokenKind::LowerIdent(name)) if name != "_"
+        ) && !matches!(
+            &self.peek(1).kind,
+            LayoutTokenKind::Raw(RawTokenKind::Operator(_) | RawTokenKind::Colon)
         );
         if is_named {
             if allow_signatures
@@ -25,6 +29,9 @@ impl<'a> Parser<'a> {
                 return self.parse_signature();
             }
             return self.parse_value_declaration().map(Declaration::Value);
+        }
+        if !allow_pattern {
+            return Err(self.error("expected a value declaration".into()));
         }
         let pattern = self.parse_pattern()?;
         let equals_span = self.consume_raw(RawTokenKind::Equals)?.span;
@@ -141,7 +148,7 @@ impl<'a> Parser<'a> {
             let let_keyword_span = self.bump().span;
             let layout_start_span = self.consume_layout(LayoutTokenKind::LayoutStart)?.span;
             let declarations =
-                self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true)?;
+                self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true, true)?;
             let layout_end_span = self.consume_layout(LayoutTokenKind::LayoutEnd)?.span;
             return Ok(Guard::Let {
                 let_keyword_span,

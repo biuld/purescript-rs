@@ -10,9 +10,17 @@ use super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_expression(&mut self, min_precedence: u8) -> Result<Expr, ParseError> {
+        self.parse_expression_impl(min_precedence, true)
+    }
+
+    fn parse_expression_impl(
+        &mut self,
+        min_precedence: u8,
+        allow_backtick: bool,
+    ) -> Result<Expr, ParseError> {
         let mut left = self.parse_application()?;
         loop {
-            if self.at_raw(&RawTokenKind::Backtick) {
+            if allow_backtick && self.at_raw(&RawTokenKind::Backtick) {
                 let precedence = 4;
                 if precedence < min_precedence {
                     break;
@@ -30,7 +38,7 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let operator = self.parse_backticked_operator()?;
                     self.consume_raw(RawTokenKind::Backtick)?;
-                    let right = self.parse_expression(precedence + 1)?;
+                    let right = self.parse_expression_impl(precedence + 1, true)?;
                     let span = TextRange::new(left.span.start, right.span.end);
                     left = Expr {
                         kind: ExprKind::Operator {
@@ -48,7 +56,7 @@ impl<'a> Parser<'a> {
                 // tighten it if the corpus flags such a case.
                 let left_start = left.span.start;
                 self.bump();
-                let content = self.parse_expression(0)?;
+                let content = self.parse_expression_impl(0, false)?;
                 self.consume_raw(RawTokenKind::Backtick)?;
                 let content_end = content.span.end;
                 let mut combined = Expr {
@@ -66,20 +74,29 @@ impl<'a> Parser<'a> {
                 left = combined;
                 continue;
             }
-            let operator = match &self.current().kind {
-                LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) => operator.clone(),
+            let (operator, operator_span) = match &self.current().kind {
+                LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator != "@" => {
+                    (operator.clone(), self.current().span)
+                }
+                LayoutTokenKind::Raw(RawTokenKind::Colon) => (":".to_owned(), self.current().span),
+                LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                    ("..".to_owned(), self.current().span)
+                }
+                LayoutTokenKind::Raw(RawTokenKind::Backslash) => {
+                    ("\\".to_owned(), self.current().span)
+                }
                 _ => break,
             };
             let precedence = precedence(&operator);
             if precedence < min_precedence {
                 break;
             }
-            let operator_token = self.bump();
-            let right = self.parse_expression(precedence + 1)?;
+            self.bump();
+            let right = self.parse_expression_impl(precedence + 1, allow_backtick)?;
             let span = TextRange::new(left.span.start, right.span.end);
             left = Expr {
                 kind: ExprKind::Operator {
-                    operator: CstName::new(operator, operator_token.span),
+                    operator: CstName::new(operator, operator_span),
                     left: Box::new(left),
                     right: Box::new(right),
                 },
@@ -113,6 +130,10 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(CstName::new(name, token.span))
             }
+            LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                self.bump();
+                Ok(CstName::new(":", token.span))
+            }
             _ => Err(self.error(format!("expected an operator, found {}", self.found()))),
         }
     }
@@ -120,11 +141,13 @@ impl<'a> Parser<'a> {
 
 fn precedence(operator: &str) -> u8 {
     match operator {
+        ".." => 9,
         "||" => 1,
         "&&" => 2,
         "==" | "/=" | "<" | ">" | "<=" | ">=" => 3,
         "+" | "-" | "<>" => 4,
         "*" | "/" | "%" => 5,
+        ":" => 6,
         _ => 4,
     }
 }

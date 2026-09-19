@@ -208,8 +208,10 @@ fn parses_data_newtype_and_type_declarations() {
 #[test]
 fn parses_class_and_instance_heads() {
     let module =
-        parse("module Main where\nclass Eq a <= Ord a where\ninstance ordInt :: Ord Int where\n")
-            .unwrap();
+        parse(
+            "module Main where\nclass Eq a <= Ord a where\n  compare :: a -> a -> Int\ninstance ordInt :: Ord Int where\n  compare x y = x\n",
+        )
+        .unwrap();
     assert!(matches!(module.declarations[0], Declaration::Class(_)));
     assert!(matches!(module.declarations[1], Declaration::Instance(_)));
 }

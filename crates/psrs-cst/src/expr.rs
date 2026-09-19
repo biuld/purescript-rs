@@ -38,6 +38,11 @@ pub enum ExprKind {
         double_colon_span: TextRange,
         type_expr: TypeExpr,
     },
+    TypeApplication {
+        expression: Box<Expr>,
+        at_span: TextRange,
+        type_expr: TypeExpr,
+    },
     FieldAccess {
         expression: Box<Expr>,
         dot_span: TextRange,
@@ -176,6 +181,7 @@ pub enum PatternKind {
         arguments: Vec<Pattern>,
     },
     Integer(String),
+    Number(String),
     String(String),
     Char(char),
     Boolean(bool),

@@ -17,20 +17,29 @@ milestone reuses the earlier ones.
 
 ## Corpus
 
-Counts are from a PureScript checkout at `$PURESCRIPT_REPO` and include files in
-subdirectories:
+The vendored corpus is pinned to the PureScript `v0.15.16` release so that the
+installed `purs` binary and the sources agree. Counts below are from that
+revision and include files in subdirectories:
 
 | Directory | Files | Role |
 | --- | --- | --- |
 | `tests/purs/layout` | 15 | Lexer/layout goldens with `.out` |
-| `tests/purs/passing` | 440 | Must compile and run |
-| `tests/purs/failing` | 448 | Must fail with a listed `errorCode` |
+| `tests/purs/passing` | 439 | Must compile and run |
+| `tests/purs/failing` | 444 | Must fail with a listed `errorCode` |
 | `tests/purs/warning` | 68 | Must compile with listed warnings |
 | `tests/purs/optimize` | 10 | Expected CoreFn output |
 
 `purs --json-errors` reports a machine-readable `errorCode` per diagnostic.
 Parsing occurs before module resolution, so `ErrorParsingModule` classifies
 parse behavior even when the support libraries are not installed.
+
+One caveat applies when using a single-file `purs compile` invocation without
+the support libraries: for a module whose imports cannot be found, the compiler
+reports `ModuleNotFound` from the partially-parsed header without parsing the
+rest of the body. The harness therefore also supports classifying `failing`
+files by their `@shouldFailWith` annotation (`PSRS_ORACLE=annotations`), which
+is the corpus's own ground truth and does not depend on the installed
+libraries or compiler revision.
 
 ## Exclusions
 
@@ -94,6 +103,14 @@ FFI.
 - **Acceptance:** L1 parse agreement reaches 100% over all four directories,
   enforced by the suite scoreboard.
 - **Prerequisite:** M0.
+
+**Progress (measured against the vendored `v0.15.16` corpus):** 906/908 parse
+agreement (99.8%): `passing` 413/413, `failing` 413/413, `warning` 67/67, and
+`layout` 13/15. The two remaining `layout` files exercise `case`/guard/backtick
+layout combinations and are the only open M1 items. The numbers above use
+`PSRS_ORACLE=annotations`; the default `purs` oracle additionally disagrees on
+files whose imports prevent the installed compiler from parsing the body (see
+the Corpus caveat).
 
 ### M2 — Modules, imports, exports, and names
 

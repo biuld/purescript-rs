@@ -8,6 +8,37 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_application(&mut self) -> Result<Expr, ParseError> {
         let mut function = self.parse_atom()?;
         loop {
+            if self.at_raw(&RawTokenKind::Dot) && self.starts_label_at(1) {
+                let dot_span = self.bump().span;
+                let field = self.parse_label("record field")?;
+                let span = TextRange::new(function.span.start, field.span.end);
+                function = Expr {
+                    kind: ExprKind::FieldAccess {
+                        expression: Box::new(function),
+                        dot_span,
+                        field,
+                    },
+                    span,
+                };
+                continue;
+            }
+            if let LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) = &self.current().kind
+                && operator == "@"
+                && self.starts_type_atom_at(1)
+            {
+                let at_span = self.bump().span;
+                let type_expr = self.parse_type_atom()?;
+                let span = TextRange::new(function.span.start, type_expr.span.end);
+                function = Expr {
+                    kind: ExprKind::TypeApplication {
+                        expression: Box::new(function),
+                        at_span,
+                        type_expr,
+                    },
+                    span,
+                };
+                continue;
+            }
             if self.current().kind == LayoutTokenKind::Raw(RawTokenKind::LBrace) {
                 let checkpoint = self.cursor;
                 match self.parse_record_update(function.clone()) {
@@ -33,6 +64,46 @@ impl<'a> Parser<'a> {
         Ok(function)
     }
 
+    fn starts_type_atom_at(&self, offset: usize) -> bool {
+        matches!(
+            &self.peek(offset).kind,
+            LayoutTokenKind::Raw(
+                RawTokenKind::LowerIdent(_)
+                    | RawTokenKind::UpperIdent(_)
+                    | RawTokenKind::Integer(_)
+                    | RawTokenKind::String(_)
+                    | RawTokenKind::LParen
+                    | RawTokenKind::LBrace
+            )
+        )
+    }
+
+    pub(crate) fn starts_label_at(&self, offset: usize) -> bool {
+        match &self.peek(offset).kind {
+            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_) | RawTokenKind::String(_)) => true,
+            LayoutTokenKind::Raw(kind) => label_keyword(kind).is_some(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn parse_label(&mut self, what: &str) -> Result<CstName, ParseError> {
+        let token = self.current().clone();
+        let text = match &token.kind {
+            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(name) | RawTokenKind::String(name)) => {
+                name.clone()
+            }
+            LayoutTokenKind::Raw(kind) => match label_keyword(kind) {
+                Some(text) => text.to_owned(),
+                None => {
+                    return Err(self.error(format!("expected {what}, found {}", self.found())));
+                }
+            },
+            _ => return Err(self.error(format!("expected {what}, found {}", self.found()))),
+        };
+        self.bump();
+        Ok(CstName::new(text, token.span))
+    }
+
     pub(super) fn starts_atom(&self) -> bool {
         matches!(
             self.current().kind,
@@ -40,8 +111,12 @@ impl<'a> Parser<'a> {
                 RawTokenKind::LowerIdent(_)
                     | RawTokenKind::UpperIdent(_)
                     | RawTokenKind::Integer(_)
+                    | RawTokenKind::Number(_)
                     | RawTokenKind::String(_)
                     | RawTokenKind::Char(_)
+                    | RawTokenKind::As
+                    | RawTokenKind::Hiding
+                    | RawTokenKind::Role
                     | RawTokenKind::Hole(_)
                     | RawTokenKind::LParen
                     | RawTokenKind::LBracket
@@ -61,6 +136,29 @@ impl<'a> Parser<'a> {
         match token.kind {
             LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_)) => {
                 let name = self.parse_qualified_value_name()?;
+                if self.at_raw(&RawTokenKind::Dot) {
+                    let dot = self.current();
+                    if dot.span.start == name.span.end {
+                        match self.peek(1).kind {
+                            LayoutTokenKind::Raw(RawTokenKind::Do) => {
+                                self.bump();
+                                return self.parse_do(false);
+                            }
+                            LayoutTokenKind::Raw(RawTokenKind::Ado) => {
+                                self.bump();
+                                return self.parse_do(true);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Ok(Expr {
+                    kind: ExprKind::Name(name.clone()),
+                    span: name.span,
+                })
+            }
+            LayoutTokenKind::Raw(RawTokenKind::As | RawTokenKind::Hiding | RawTokenKind::Role) => {
+                let name = self.parse_qualified_value_name()?;
                 Ok(Expr {
                     kind: ExprKind::Name(name.clone()),
                     span: name.span,
@@ -68,6 +166,22 @@ impl<'a> Parser<'a> {
             }
             LayoutTokenKind::Raw(RawTokenKind::UpperIdent(_)) => {
                 let name = self.parse_qualified_value_name()?;
+                if self.at_raw(&RawTokenKind::Dot) {
+                    let dot = self.current();
+                    if dot.span.start == name.span.end {
+                        match self.peek(1).kind {
+                            LayoutTokenKind::Raw(RawTokenKind::Do) => {
+                                self.bump();
+                                return self.parse_do(false);
+                            }
+                            LayoutTokenKind::Raw(RawTokenKind::Ado) => {
+                                self.bump();
+                                return self.parse_do(true);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 Ok(Expr {
                     kind: ExprKind::Name(name.clone()),
                     span: name.span,
@@ -80,6 +194,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Expr {
                     kind: ExprKind::Integer(value),
+                    span: token.span,
+                })
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Number(value)) => {
+                self.bump();
+                Ok(Expr {
+                    kind: ExprKind::Number(value),
                     span: token.span,
                 })
             }
@@ -163,9 +284,12 @@ impl<'a> Parser<'a> {
 
     fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
         let token = self.current().clone();
-        let (text, _) = match token.kind {
+        let (text, _) = match &token.kind {
             LayoutTokenKind::Raw(RawTokenKind::LowerIdent(text))
-            | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => (text, token.span),
+            | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => (text.clone(), token.span),
+            LayoutTokenKind::Raw(RawTokenKind::As) => ("as".to_owned(), token.span),
+            LayoutTokenKind::Raw(RawTokenKind::Hiding) => ("hiding".to_owned(), token.span),
+            LayoutTokenKind::Raw(RawTokenKind::Role) => ("role".to_owned(), token.span),
             _ => return Err(self.error(format!("expected name, found {}", self.found()))),
         };
         self.bump();
@@ -304,7 +428,14 @@ impl<'a> Parser<'a> {
         let mut tail = None;
         if !self.at_raw(&RawTokenKind::RBrace) {
             loop {
-                let label = self.consume_lower_name("record label")?;
+                if matches!(
+                    self.current().kind,
+                    LayoutTokenKind::Raw(RawTokenKind::String(_))
+                ) && self.peek(1).kind != LayoutTokenKind::Raw(RawTokenKind::Colon)
+                {
+                    return Err(self.error("string record labels require a value".into()));
+                }
+                let label = self.parse_label("record label")?;
                 if self.at_raw(&RawTokenKind::Colon) {
                     let colon_span = self.bump().span;
                     let value = self.parse_expression(0)?;
@@ -356,9 +487,18 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         if !self.at_raw(&RawTokenKind::RBrace) {
             loop {
-                let label = self.consume_lower_name("record label")?;
-                let equals_span = self.consume_raw(RawTokenKind::Equals)?.span;
-                let value = self.parse_expression(0)?;
+                let label = self.parse_label("record label")?;
+                let (equals_span, value) = if self.at_raw(&RawTokenKind::LBrace) {
+                    let base = Expr {
+                        kind: ExprKind::Name(label.clone()),
+                        span: label.span,
+                    };
+                    let nested = self.parse_record_update(base)?;
+                    (label.span, nested)
+                } else {
+                    let equals_span = self.consume_raw(RawTokenKind::Equals)?.span;
+                    (equals_span, self.parse_expression(0)?)
+                };
                 let span = TextRange::new(label.span.start, value.span.end);
                 fields.push(RecordUpdateField {
                     label,
@@ -385,4 +525,36 @@ impl<'a> Parser<'a> {
             span,
         })
     }
+}
+
+fn label_keyword(kind: &RawTokenKind) -> Option<&'static str> {
+    Some(match kind {
+        RawTokenKind::Ado => "ado",
+        RawTokenKind::As => "as",
+        RawTokenKind::Case => "case",
+        RawTokenKind::Class => "class",
+        RawTokenKind::Data => "data",
+        RawTokenKind::Derive => "derive",
+        RawTokenKind::Do => "do",
+        RawTokenKind::Else => "else",
+        RawTokenKind::Forall => "forall",
+        RawTokenKind::Foreign => "foreign",
+        RawTokenKind::Hiding => "hiding",
+        RawTokenKind::If => "if",
+        RawTokenKind::Import => "import",
+        RawTokenKind::In => "in",
+        RawTokenKind::Infix => "infix",
+        RawTokenKind::Infixl => "infixl",
+        RawTokenKind::Infixr => "infixr",
+        RawTokenKind::Instance => "instance",
+        RawTokenKind::Let => "let",
+        RawTokenKind::Module => "module",
+        RawTokenKind::Newtype => "newtype",
+        RawTokenKind::Of => "of",
+        RawTokenKind::Role => "role",
+        RawTokenKind::Then => "then",
+        RawTokenKind::Type => "type",
+        RawTokenKind::Where => "where",
+        _ => return None,
+    })
 }

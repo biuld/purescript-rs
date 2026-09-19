@@ -126,6 +126,7 @@ pub struct NewtypeDeclaration {
     pub kind: Option<TypeExpr>,
     pub equals_span: Option<TextRange>,
     pub constructor: Option<DataConstructor>,
+    pub derives: Vec<DerivingClause>,
     pub span: TextRange,
 }
 

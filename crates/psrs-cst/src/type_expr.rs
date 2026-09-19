@@ -11,6 +11,7 @@ pub struct TypeExpr {
 pub enum TypeExprKind {
     Name(CstName),
     Wildcard(TextRange),
+    Hole(String),
     Integer(String),
     String(String),
     Function {

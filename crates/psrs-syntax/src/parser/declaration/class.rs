@@ -46,6 +46,9 @@ impl<'a> Parser<'a> {
         let parameters = self.parse_type_var_binders()?;
         let equals_span = self.consume_raw(RawTokenKind::Equals)?.span;
         let body = self.parse_type()?;
+        if super::super::type_expr::type_contains_wildcard(&body) {
+            return Err(self.error_at(body.span, "wildcards are not allowed here".into()));
+        }
         let span = TextRange::new(keyword_span.start, body.span.end);
         Ok(Declaration::TypeSynonym(TypeSynonymDeclaration {
             keyword_span,
@@ -83,9 +86,21 @@ impl<'a> Parser<'a> {
                 operator,
                 left,
                 right,
-            } if operator.text == "<=" => (Some(left), Some(operator.span), *right),
+            } if operator.text == "<=" || operator.text == "⇐" => {
+                (Some(left), Some(operator.span), *right)
+            }
             _ => (None, None, head),
         };
+        if let Some(superclasses) = &superclasses {
+            let invalid = super::super::type_expr::type_contains_wildcard(superclasses)
+                || super::super::type_expr::type_contains_forall(superclasses);
+            if invalid {
+                return Err(self.error_at(
+                    superclasses.span,
+                    "superclasses cannot contain wildcards or foralls".into(),
+                ));
+            }
+        }
         let name = match &class_head.kind {
             psrs_cst::TypeExprKind::Name(name) => name.clone(),
             psrs_cst::TypeExprKind::Application(function, _) => match &function.kind {
@@ -179,6 +194,13 @@ impl<'a> Parser<'a> {
         else_keyword_span: Option<TextRange>,
     ) -> Result<Declaration, ParseError> {
         let keyword_span = self.consume_raw(RawTokenKind::Instance)?.span;
+        if matches!(
+            self.current().kind,
+            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
+        ) && self.peek(1).kind != LayoutTokenKind::Raw(RawTokenKind::DoubleColon)
+        {
+            return Err(self.error("expected `::` after the instance name".into()));
+        }
         let name = if matches!(
             self.current().kind,
             LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
@@ -192,6 +214,16 @@ impl<'a> Parser<'a> {
         };
         let head = self.parse_type()?;
         let (constraints, constraint_arrow_span, instance_head) = split_constraint(head);
+        if let Some(constraints) = &constraints {
+            let invalid = super::super::type_expr::type_contains_wildcard(constraints)
+                || super::super::type_expr::type_contains_forall(constraints);
+            if invalid {
+                return Err(self.error_at(
+                    constraints.span,
+                    "constraints cannot contain wildcards or foralls".into(),
+                ));
+            }
+        }
         let where_block = if self.at_raw(&RawTokenKind::Where) {
             Some(self.parse_declaration_block()?)
         } else {
@@ -296,7 +328,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let operator = self.parse_operator_name("operator name")?;
+        let operator = self.parse_fixity_target()?;
         let alias = if self.at_raw(&RawTokenKind::As) {
             self.bump();
             Some(self.parse_operator_name("operator alias")?)
@@ -319,6 +351,58 @@ impl<'a> Parser<'a> {
         }))
     }
 
+    fn parse_fixity_target(&mut self) -> Result<CstName, ParseError> {
+        let token = self.current().clone();
+        let name = match &token.kind {
+            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(name))
+            | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(name)) => name.clone(),
+            LayoutTokenKind::Raw(RawTokenKind::Operator(name)) => {
+                if name == "@" {
+                    return Err(self.error("`@` cannot be used as an operator name".into()));
+                }
+                self.bump();
+                return Ok(CstName::new(name.clone(), token.span));
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                self.bump();
+                return Ok(CstName::new(":", token.span));
+            }
+            LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                self.bump();
+                return Ok(CstName::new("..", token.span));
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Backslash) => {
+                self.bump();
+                return Ok(CstName::new("\\", token.span));
+            }
+            _ => return Err(self.error("expected an operator name".into())),
+        };
+        self.bump();
+        let mut result = CstName::new(name, token.span);
+        while self.at_raw(&RawTokenKind::Dot) {
+            let dot_span = self.current().span;
+            if dot_span.start != result.span.end {
+                break;
+            }
+            let part = self.peek(1).clone();
+            let (text, span) = match &part.kind {
+                LayoutTokenKind::Raw(RawTokenKind::LowerIdent(text))
+                | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => (text.clone(), part.span),
+                _ => break,
+            };
+            if span.start != dot_span.end {
+                break;
+            }
+            self.bump();
+            self.bump();
+            result = CstName::new(
+                format!("{}.{}", result.text, text),
+                TextRange::new(result.span.start, span.end),
+            );
+        }
+        Ok(result)
+    }
+
     fn parse_operator_name(&mut self, what: &str) -> Result<CstName, ParseError> {
         let token = self.current().clone();
         match token.kind {
@@ -327,8 +411,23 @@ impl<'a> Parser<'a> {
                 | RawTokenKind::UpperIdent(name)
                 | RawTokenKind::Operator(name),
             ) => {
+                if name == "@" {
+                    return Err(self.error(format!("`@` cannot be used as {what}")));
+                }
                 self.bump();
                 Ok(CstName::new(name, token.span))
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                self.bump();
+                Ok(CstName::new(":", token.span))
+            }
+            LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                self.bump();
+                Ok(CstName::new("..", token.span))
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Backslash) => {
+                self.bump();
+                Ok(CstName::new("\\", token.span))
             }
             _ => Err(self.error(format!("expected {what}, found {}", self.found()))),
         }

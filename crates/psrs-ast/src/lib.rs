@@ -182,6 +182,7 @@ fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> {
             return Ok(expression);
         }
         CstTypeExprKind::Wildcard(_)
+        | CstTypeExprKind::Hole(_)
         | CstTypeExprKind::Integer(_)
         | CstTypeExprKind::String(_)
         | CstTypeExprKind::Constrained { .. }
@@ -270,7 +271,8 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         | CstExprKind::Case { .. }
         | CstExprKind::Do { .. }
         | CstExprKind::Tuple { .. }
-        | CstExprKind::Typed { .. } => {
+        | CstExprKind::Typed { .. }
+        | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError {
                 span,
                 message: "this expression syntax is not supported yet",

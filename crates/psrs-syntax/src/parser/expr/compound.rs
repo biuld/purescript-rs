@@ -72,7 +72,8 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_let(&mut self) -> Result<Expr, ParseError> {
         let let_keyword_span = self.consume_raw(RawTokenKind::Let)?.span;
         let layout_start_span = self.consume_layout(LayoutTokenKind::LayoutStart)?.span;
-        let declarations = self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true)?;
+        let declarations =
+            self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true, true)?;
         let layout_end_span = self.consume_layout(LayoutTokenKind::LayoutEnd)?.span;
         let in_keyword_span = self.consume_raw(RawTokenKind::In)?.span;
         let body = self.parse_expression(0)?;
@@ -117,6 +118,46 @@ impl<'a> Parser<'a> {
         &mut self,
     ) -> Result<(Vec<CaseAlternative>, TextRange, TextRange), ParseError> {
         let layout_start_span = self.consume_layout(LayoutTokenKind::LayoutStart)?.span;
+        // Deprecated offside singleton case:
+        //     case x of
+        //       Foo i ->
+        //     i
+        // The right-hand side dedents below the `of` block, so the block is
+        // closed before the body and the body lives at any indentation.
+        let checkpoint = self.cursor;
+        if let Ok(patterns) = self.parse_case_patterns()
+            && self.at_raw(&RawTokenKind::Arrow)
+        {
+            let arrow_span = self.bump().span;
+            if self.current().kind == LayoutTokenKind::LayoutEnd {
+                let layout_end_span = self.bump().span;
+                let value = self.parse_expression(0)?;
+                let where_block = if self.at_raw(&RawTokenKind::Where) {
+                    Some(self.parse_declaration_block()?)
+                } else {
+                    None
+                };
+                let end = where_block
+                    .as_ref()
+                    .map(|block| block.span.end)
+                    .unwrap_or(value.span.end);
+                let start = patterns
+                    .first()
+                    .map(|pattern| pattern.span.start)
+                    .unwrap_or(arrow_span.start);
+                let alternative = CaseAlternative {
+                    patterns,
+                    rhs: CaseRhs::Plain {
+                        arrow_span,
+                        value,
+                        where_block,
+                    },
+                    span: TextRange::new(start, end),
+                };
+                return Ok((vec![alternative], layout_start_span, layout_end_span));
+            }
+        }
+        self.cursor = checkpoint;
         let mut alternatives: Vec<CaseAlternative> = Vec::new();
         loop {
             while self.current().kind == LayoutTokenKind::LayoutSep {
@@ -177,12 +218,17 @@ impl<'a> Parser<'a> {
         Ok((alternatives, layout_start_span, layout_end_span))
     }
 
-    fn parse_case_alternative(&mut self) -> Result<CaseAlternative, ParseError> {
+    fn parse_case_patterns(&mut self) -> Result<Vec<psrs_cst::Pattern>, ParseError> {
         let mut patterns = vec![self.parse_pattern()?];
         while self.at_raw(&RawTokenKind::Comma) {
             self.bump();
             patterns.push(self.parse_pattern()?);
         }
+        Ok(patterns)
+    }
+
+    fn parse_case_alternative(&mut self) -> Result<CaseAlternative, ParseError> {
+        let patterns = self.parse_case_patterns()?;
         let rhs = if self.at_raw(&RawTokenKind::Arrow) {
             let arrow_span = self.bump().span;
             let value = self.parse_expression(0)?;
@@ -264,7 +310,7 @@ impl<'a> Parser<'a> {
                 let let_keyword_span = self.bump().span;
                 let inner_start_span = self.consume_layout(LayoutTokenKind::LayoutStart)?.span;
                 let declarations =
-                    self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true)?;
+                    self.parse_declarations_until(&[LayoutTokenKind::LayoutEnd], true, true)?;
                 let inner_end_span = self.consume_layout(LayoutTokenKind::LayoutEnd)?.span;
                 statements.push(DoStatement::Let {
                     let_keyword_span,
@@ -307,6 +353,8 @@ impl<'a> Parser<'a> {
             let in_keyword_span = self.bump().span;
             let result = self.parse_expression(0)?;
             (Some(in_keyword_span), Some(Box::new(result)))
+        } else if is_ado {
+            return Err(self.error("expected `in` after an `ado` block".into()));
         } else {
             (None, None)
         };

@@ -101,6 +101,18 @@ impl<'a> Parser<'a> {
                 self.bump();
                 psrs_cst::CstName::new(text, token.span)
             }
+            LayoutTokenKind::Raw(RawTokenKind::Colon) => {
+                self.bump();
+                psrs_cst::CstName::new(":", token.span)
+            }
+            LayoutTokenKind::Raw(RawTokenKind::DotDot) => {
+                self.bump();
+                psrs_cst::CstName::new("..", token.span)
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Backslash) => {
+                self.bump();
+                psrs_cst::CstName::new("\\", token.span)
+            }
             _ => {
                 return Err(self.error(format!(
                     "expected an operator in parentheses after position {}",
@@ -173,10 +185,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_import_ref(&mut self) -> Result<ImportRef, ParseError> {
-        if self.at_raw(&RawTokenKind::Module) {
-            self.bump();
-            return Ok(ImportRef::Module(self.parse_module_name()?));
-        }
         if self.at_raw(&RawTokenKind::Class) {
             self.bump();
             return Ok(ImportRef::Class(

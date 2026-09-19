@@ -39,6 +39,9 @@ impl<'a> Parser<'a> {
             if self.at_raw(&RawTokenKind::LParen) {
                 let checkpoint = self.cursor;
                 self.bump();
+                if self.at_raw(&RawTokenKind::Operator("@".into())) {
+                    self.bump();
+                }
                 let is_binder = matches!(
                     &self.current().kind,
                     LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
@@ -56,6 +59,20 @@ impl<'a> Parser<'a> {
                 binders.push(TypeVarBinder {
                     name,
                     kind: Some(kind),
+                    span,
+                });
+            } else if self.at_raw(&RawTokenKind::Operator("@".into()))
+                && matches!(
+                    self.peek(1).kind,
+                    LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
+                )
+            {
+                self.bump();
+                let name = self.consume_lower_name("type variable")?;
+                let span = name.span;
+                binders.push(TypeVarBinder {
+                    name,
+                    kind: None,
                     span,
                 });
             } else if let LayoutTokenKind::Raw(RawTokenKind::LowerIdent(name)) =
@@ -196,6 +213,7 @@ impl<'a> Parser<'a> {
                     | RawTokenKind::UpperIdent(_)
                     | RawTokenKind::Integer(_)
                     | RawTokenKind::String(_)
+                    | RawTokenKind::Hole(_)
                     | RawTokenKind::LParen
                     | RawTokenKind::LBrace
             )
@@ -236,6 +254,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(TypeExpr {
                     kind: TypeExprKind::String(value),
+                    span: token.span,
+                })
+            }
+            LayoutTokenKind::Raw(RawTokenKind::Hole(name)) => {
+                self.bump();
+                Ok(TypeExpr {
+                    kind: TypeExprKind::Hole(name),
                     span: token.span,
                 })
             }
@@ -290,6 +315,17 @@ impl<'a> Parser<'a> {
                 span,
             });
         }
+        if let Some(text) = operator_name_text(&self.current().kind)
+            && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::RParen)
+        {
+            self.bump();
+            let close_paren_span = self.bump().span;
+            let span = TextRange::new(open_paren_span.start, close_paren_span.end);
+            return Ok(TypeExpr {
+                kind: TypeExprKind::Name(CstName::new(text, span)),
+                span,
+            });
+        }
         if self.is_row_start() {
             let row = self.parse_row_contents(open_paren_span, RawTokenKind::RParen)?;
             return Ok(row);
@@ -325,10 +361,9 @@ impl<'a> Parser<'a> {
     }
 
     fn is_row_start(&self) -> bool {
-        matches!(
-            &self.current().kind,
-            LayoutTokenKind::Raw(RawTokenKind::LowerIdent(_))
-        ) && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::DoubleColon)
+        self.at_raw(&RawTokenKind::Pipe)
+            || (self.starts_label_at(0)
+                && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::DoubleColon))
     }
 
     fn parse_row_contents(
@@ -338,21 +373,23 @@ impl<'a> Parser<'a> {
     ) -> Result<TypeExpr, ParseError> {
         let is_brace = close == RawTokenKind::RBrace;
         let mut fields = Vec::new();
-        loop {
-            let label = self.consume_lower_name("row label")?;
-            let double_colon_span = self.consume_raw(RawTokenKind::DoubleColon)?.span;
-            let type_expr = self.parse_type()?;
-            let span = TextRange::new(label.span.start, type_expr.span.end);
-            fields.push(TypeField {
-                label,
-                double_colon_span,
-                type_expr,
-                span,
-            });
-            if self.at_raw(&RawTokenKind::Comma) {
-                self.bump();
-            } else {
-                break;
+        if !self.at_raw(&RawTokenKind::Pipe) && !self.at_raw(&close) {
+            loop {
+                let label = self.parse_label("row label")?;
+                let double_colon_span = self.consume_raw(RawTokenKind::DoubleColon)?.span;
+                let type_expr = self.parse_type()?;
+                let span = TextRange::new(label.span.start, type_expr.span.end);
+                fields.push(TypeField {
+                    label,
+                    double_colon_span,
+                    type_expr,
+                    span,
+                });
+                if self.at_raw(&RawTokenKind::Comma) {
+                    self.bump();
+                } else {
+                    break;
+                }
             }
         }
         let tail = if self.at_raw(&RawTokenKind::Pipe) {
@@ -409,5 +446,86 @@ fn type_operator_precedence(operator: &str) -> u8 {
     match operator {
         "<=" => 1,
         _ => 2,
+    }
+}
+
+fn operator_name_text(kind: &LayoutTokenKind) -> Option<String> {
+    let LayoutTokenKind::Raw(inner) = kind else {
+        return None;
+    };
+    let text = match inner {
+        RawTokenKind::Operator(text) => text.clone(),
+        RawTokenKind::Colon => ":".to_owned(),
+        RawTokenKind::DotDot => "..".to_owned(),
+        RawTokenKind::Pipe => "|".to_owned(),
+        RawTokenKind::Backslash => "\\".to_owned(),
+        RawTokenKind::Arrow => "->".to_owned(),
+        RawTokenKind::FatArrow => "=>".to_owned(),
+        RawTokenKind::LeftArrow => "<-".to_owned(),
+        _ => return None,
+    };
+    Some(text)
+}
+
+pub(crate) fn type_contains_wildcard(expression: &TypeExpr) -> bool {
+    match &expression.kind {
+        TypeExprKind::Wildcard(_) => true,
+        TypeExprKind::Function { left, right, .. } => {
+            type_contains_wildcard(left) || type_contains_wildcard(right)
+        }
+        TypeExprKind::Forall { body, .. } => type_contains_wildcard(body),
+        TypeExprKind::Constrained {
+            constraint, body, ..
+        } => type_contains_wildcard(constraint) || type_contains_wildcard(body),
+        TypeExprKind::Application(function, arguments) => {
+            type_contains_wildcard(function) || arguments.iter().any(type_contains_wildcard)
+        }
+        TypeExprKind::Operator { left, right, .. } => {
+            type_contains_wildcard(left) || type_contains_wildcard(right)
+        }
+        TypeExprKind::PrefixOperator { operand, .. } => type_contains_wildcard(operand),
+        TypeExprKind::Parens { expression, .. } => type_contains_wildcard(expression),
+        TypeExprKind::Tuple { items, .. } => items.iter().any(type_contains_wildcard),
+        TypeExprKind::Row { fields, tail, .. } | TypeExprKind::Record { fields, tail, .. } => {
+            fields
+                .iter()
+                .any(|field| type_contains_wildcard(&field.type_expr))
+                || tail.as_deref().is_some_and(type_contains_wildcard)
+        }
+        TypeExprKind::KindAnnotation {
+            expression, kind, ..
+        } => type_contains_wildcard(expression) || type_contains_wildcard(kind),
+        _ => false,
+    }
+}
+
+pub(crate) fn type_contains_forall(expression: &TypeExpr) -> bool {
+    match &expression.kind {
+        TypeExprKind::Forall { .. } => true,
+        TypeExprKind::Function { left, right, .. } => {
+            type_contains_forall(left) || type_contains_forall(right)
+        }
+        TypeExprKind::Constrained {
+            constraint, body, ..
+        } => type_contains_forall(constraint) || type_contains_forall(body),
+        TypeExprKind::Application(function, arguments) => {
+            type_contains_forall(function) || arguments.iter().any(type_contains_forall)
+        }
+        TypeExprKind::Operator { left, right, .. } => {
+            type_contains_forall(left) || type_contains_forall(right)
+        }
+        TypeExprKind::PrefixOperator { operand, .. } => type_contains_forall(operand),
+        TypeExprKind::Parens { expression, .. } => type_contains_forall(expression),
+        TypeExprKind::Tuple { items, .. } => items.iter().any(type_contains_forall),
+        TypeExprKind::Row { fields, tail, .. } | TypeExprKind::Record { fields, tail, .. } => {
+            fields
+                .iter()
+                .any(|field| type_contains_forall(&field.type_expr))
+                || tail.as_deref().is_some_and(type_contains_forall)
+        }
+        TypeExprKind::KindAnnotation {
+            expression, kind, ..
+        } => type_contains_forall(expression) || type_contains_forall(kind),
+        _ => false,
     }
 }

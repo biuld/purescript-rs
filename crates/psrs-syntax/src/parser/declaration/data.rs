@@ -55,7 +55,11 @@ impl<'a> Parser<'a> {
             let name = self.consume_upper_name("data constructor name")?;
             let mut fields = Vec::new();
             while self.starts_type_atom() {
-                fields.push(self.parse_type_atom()?);
+                let field = self.parse_type_atom()?;
+                if super::super::type_expr::type_contains_wildcard(&field) {
+                    return Err(self.error_at(field.span, "wildcards are not allowed here".into()));
+                }
+                fields.push(field);
             }
             let end = fields
                 .last()
@@ -130,7 +134,10 @@ impl<'a> Parser<'a> {
         if self.at_raw(&RawTokenKind::Equals) {
             equals_span = Some(self.bump().span);
             let ctor_name = self.consume_upper_name("newtype constructor name")?;
-            let field = self.parse_type()?;
+            let field = self.parse_type_atom()?;
+            if self.starts_type_atom() {
+                return Err(self.error("a newtype constructor takes exactly one field".into()));
+            }
             let span = TextRange::new(ctor_name.span.start, field.span.end);
             constructor = Some(DataConstructor {
                 name: ctor_name,
@@ -138,9 +145,11 @@ impl<'a> Parser<'a> {
                 span,
             });
         }
-        let end = constructor
-            .as_ref()
-            .map(|ctor| ctor.span.end)
+        let derives = self.parse_deriving_clauses()?;
+        let end = derives
+            .last()
+            .map(|clause| clause.span.end)
+            .or_else(|| constructor.as_ref().map(|ctor| ctor.span.end))
             .or_else(|| parameters.last().map(|parameter| parameter.span.end))
             .unwrap_or(name.span.end);
         Ok(Declaration::Newtype(NewtypeDeclaration {
@@ -150,6 +159,7 @@ impl<'a> Parser<'a> {
             kind: None,
             equals_span,
             constructor,
+            derives,
             span: TextRange::new(keyword_span.start, end.max(name.span.end)),
         }))
     }
