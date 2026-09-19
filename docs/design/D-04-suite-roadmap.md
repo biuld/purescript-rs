@@ -235,7 +235,8 @@ constructors of a non-parameterized data type to immediate integer tags and
 run under WASI. Nested constructor patterns in aggregate fields now test the
 nested constructor before destructuring the corresponding GC object. A valid
 single-field `newtype` is now erased in CC: construction
-and matching pass through the field value, with no GC allocation. A first
+and matching pass through the field value, with no GC allocation; nested
+constructor patterns are lowered against that erased field. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
 as demonstrated by `Maybe Int`. Concrete scalar array literals, length, and

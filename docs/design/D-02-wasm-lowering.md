@@ -184,7 +184,8 @@ Establish a small ABI before adding services:
   scalar. Constructor application allocates with `struct.new`, and pattern
   matching uses `br_on_cast`/`ref.test`.
 - A valid single-field `newtype` is represented by its field. Its constructor
-  and pattern are semantic Core operations but do not allocate a GC wrapper.
+  and pattern are semantic Core operations but do not allocate a GC wrapper;
+  nested constructor patterns are matched against the erased field value.
 - Parameterized ADTs use the runtime-erasure policy in
   [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md):
   parameter-dependent fields use boxed erased references, while independent

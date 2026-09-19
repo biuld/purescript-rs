@@ -184,6 +184,24 @@ main = unAge (Age 42)
 }
 
 #[test]
+fn selects_nested_patterns_through_an_erased_newtype() {
+    let source = r#"
+module Main where
+data Inner = Left Int | Right Int
+newtype Box = Box Inner
+unwrap value = case value of
+  Box (Left number) -> number
+  Box (Right number) -> number + 1
+main = unwrap (Box (Right 41))
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_a_constructor_pattern_in_a_function_argument() {
     let source = "\
 module Main where
