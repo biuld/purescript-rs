@@ -3,10 +3,12 @@ use crate::BackendError;
 use crate::mir::{
     self, BlockId, Function as MirFunction, Instruction as MirInstruction, Terminator,
 };
-use crate::types::{RefType, ValueId};
+use crate::types::ValueId;
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
-use psrs_core::Primitive;
+use ops::{memory, primitive, ref_cast, ref_test};
+
+mod ops;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -399,6 +401,43 @@ impl Structurer<'_> {
                     body.push(Op::Leaf(Instruction::ArrayLen));
                     self.store(body, *destination, *span)?;
                 }
+                MirInstruction::Load {
+                    destination,
+                    address,
+                    offset,
+                    span,
+                } => {
+                    self.load(body, *address, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Load(memory(*offset))));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::Store {
+                    address,
+                    value,
+                    offset,
+                    span,
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Store(memory(*offset))));
+                }
+                MirInstruction::CallVoid {
+                    function,
+                    arguments,
+                    span,
+                } => {
+                    for argument in arguments {
+                        self.load(body, *argument, *span)?;
+                    }
+                    let index = self
+                        .function_indices
+                        .get(function)
+                        .copied()
+                        .ok_or_else(|| {
+                            wasm_error(*span, "MIR call target has no Wasm function index")
+                        })?;
+                    body.push(Op::Leaf(Instruction::Call(index)));
+                }
             }
         }
         Ok(())
@@ -430,37 +469,5 @@ impl Structurer<'_> {
             span,
         )?)));
         Ok(())
-    }
-}
-
-fn ref_test(reference: RefType) -> Instruction<'static> {
-    if reference.nullable {
-        Instruction::RefTestNullable(heap_type(reference.heap))
-    } else {
-        Instruction::RefTestNonNull(heap_type(reference.heap))
-    }
-}
-
-fn ref_cast(reference: RefType) -> Instruction<'static> {
-    if reference.nullable {
-        Instruction::RefCastNullable(heap_type(reference.heap))
-    } else {
-        Instruction::RefCastNonNull(heap_type(reference.heap))
-    }
-}
-
-fn primitive(op: Primitive) -> Instruction<'static> {
-    match op {
-        Primitive::Add => Instruction::I32Add,
-        Primitive::Sub => Instruction::I32Sub,
-        Primitive::Mul => Instruction::I32Mul,
-        Primitive::DivS => Instruction::I32DivS,
-        Primitive::RemS => Instruction::I32RemS,
-        Primitive::Eq => Instruction::I32Eq,
-        Primitive::Ne => Instruction::I32Ne,
-        Primitive::LtS => Instruction::I32LtS,
-        Primitive::LeS => Instruction::I32LeS,
-        Primitive::GtS => Instruction::I32GtS,
-        Primitive::GeS => Instruction::I32GeS,
     }
 }

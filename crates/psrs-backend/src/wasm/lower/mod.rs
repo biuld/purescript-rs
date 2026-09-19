@@ -102,6 +102,27 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
     let import_count = imports.len() as u32;
     let runtime_count = u32::from(log_used);
 
+    // Runtime ABI imports declared by MIR, appended after the WASI imports so
+    // the synthesized entry's `proc_exit` index stays stable.
+    let mut mir_import_indices = HashMap::new();
+    for import in &module.imports {
+        let type_index = defined + types.len() as u32;
+        types.push(FuncType {
+            parameters: import.parameters.iter().map(|ty| val_type(*ty)).collect(),
+            results: import
+                .result
+                .map(|ty| vec![val_type(ty)])
+                .unwrap_or_default(),
+        });
+        mir_import_indices.insert(import.symbol, imports.len() as u32);
+        imports.push(Import {
+            module: import.module.clone(),
+            name: import.name.clone(),
+            type_index,
+        });
+    }
+    let import_count = import_count + mir_import_indices.len() as u32;
+
     let entry_type = defined + types.len() as u32;
     types.push(FuncType {
         parameters: Vec::new(),
@@ -116,6 +137,9 @@ pub fn lower_module(module: &mir::Module) -> Result<Module, Vec<BackendError>> {
         .collect::<HashMap<_, _>>();
     if let Some(index) = log_used.then_some(import_count + module.functions.len() as u32) {
         function_indices.insert(log_symbol.expect("log is an external symbol"), index);
+    }
+    for (symbol, index) in &mir_import_indices {
+        function_indices.insert(*symbol, *index);
     }
 
     let mut functions = Vec::with_capacity(module.functions.len());

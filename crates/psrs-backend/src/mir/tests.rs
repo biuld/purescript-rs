@@ -1,4 +1,4 @@
-use super::{BasicBlock, BlockId, Function, Instruction, Module, Terminator};
+use super::{BasicBlock, BlockId, Function, Import, Instruction, Module, Terminator};
 use crate::types::{
     CompositeType, DefinedType, FieldType, HeapType, RecGroup, RefType, StorageType, ValueDecl,
     ValueId, ValueType,
@@ -26,6 +26,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
                 mutable: false,
             }]),
         }])],
+        imports: Vec::new(),
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
@@ -90,6 +91,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         name: "MirGc".into(),
         externals: Vec::new(),
         types: vec![RecGroup(vec![struct_type])],
+        imports: Vec::new(),
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
@@ -198,4 +200,111 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         .unwrap();
     let _ = std::fs::remove_file(&path);
     assert_eq!(output.status.code(), Some(7), "wasmtime output: {output:?}");
+}
+
+/// A MIR module that calls the WIT-derived runtime import through the canonical
+/// ABI: read a string's length from its length-prefixed buffer, pass the data
+/// pointer and length, and call the void `log` import.
+#[test]
+fn lowers_a_runtime_abi_import_call() {
+    let log = psrs_hir::RuntimeFunction::ConsoleLog.symbol();
+    let mir = Module {
+        name: "MirImport".into(),
+        externals: Vec::new(),
+        types: Vec::new(),
+        imports: vec![Import {
+            symbol: log,
+            module: "psrs:runtime/runtime".into(),
+            name: "log".into(),
+            parameters: vec![ValueType::I32, ValueType::I32],
+            result: None,
+        }],
+        functions: vec![Function {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![
+                ValueDecl {
+                    id: ValueId(0),
+                    ty: ValueType::I32,
+                },
+                ValueDecl {
+                    id: ValueId(1),
+                    ty: ValueType::I32,
+                },
+                ValueDecl {
+                    id: ValueId(2),
+                    ty: ValueType::I32,
+                },
+                ValueDecl {
+                    id: ValueId(3),
+                    ty: ValueType::I32,
+                },
+                ValueDecl {
+                    id: ValueId(4),
+                    ty: ValueType::I32,
+                },
+            ],
+            entry: BlockId(0),
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: vec![
+                    Instruction::StringConstant {
+                        destination: ValueId(1),
+                        bytes: "hi".into(),
+                        span: span(),
+                    },
+                    Instruction::Constant {
+                        destination: ValueId(4),
+                        value: 4,
+                        span: span(),
+                    },
+                    Instruction::Load {
+                        destination: ValueId(2),
+                        address: ValueId(1),
+                        offset: 0,
+                        span: span(),
+                    },
+                    Instruction::Primitive {
+                        destination: ValueId(3),
+                        op: Primitive::Add,
+                        left: ValueId(1),
+                        right: ValueId(4),
+                        span: span(),
+                    },
+                    Instruction::CallVoid {
+                        function: log,
+                        arguments: vec![ValueId(3), ValueId(2)],
+                        span: span(),
+                    },
+                    Instruction::Constant {
+                        destination: ValueId(0),
+                        value: 0,
+                        span: span(),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: ValueId(0),
+                    span: span(),
+                }),
+            }],
+            result: ValueId(0),
+            result_type: ValueType::I32,
+            span: span(),
+        }],
+        span: span(),
+    };
+
+    let wasm = crate::wasm::lower_module(&mir).expect("lowering to Wasm");
+    let log_import = wasm
+        .imports
+        .iter()
+        .find(|import| import.name == "log")
+        .expect("the runtime import should be declared");
+    assert_eq!(log_import.module, "psrs:runtime/runtime");
+    let binary = crate::wasm::encode_module(&wasm).expect("encoding");
+    wasmparser::Validator::new()
+        .validate_all(&binary)
+        .expect("the encoded module should validate");
 }

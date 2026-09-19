@@ -119,8 +119,9 @@ specified in
 [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md); the corresponding decisions are
 [DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md),
-[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md), and
-[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md).
+[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md),
+[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md), and
+[DEC-06](docs/decision/DEC-06-runtime-interface-via-wit.md).
 
 ## Development checks
 

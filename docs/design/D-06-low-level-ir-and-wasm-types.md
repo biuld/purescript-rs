@@ -80,8 +80,14 @@ follow-up work rather than a permanent limitation.
 Direct calls and indirect (`call_ref`) calls are distinct. Closures are GC
 `struct` values holding a `funcref` and their captures, per
 [D-02](D-02-wasm-lowering.md). Host services cross the runtime ABI described in
-D-02 and D-05; the low-level IR sees only calls and imported functions, never
-WASI interfaces.
+D-02, D-05, and [DEC-06](../decision/DEC-06-runtime-interface-via-wit.md): the
+runtime ABI is defined in WIT, and the low-level IR sees only calls and imported
+functions, never WASI interfaces. MIR declares runtime imports in an import
+table with their canonical ABI signature (derived from the WIT package) and
+calls them like any other function, including a void call for imports with no
+result. Adapting a value to the canonical ABI (for example a string to a
+`(ptr, len)` pair) is emitted as ordinary MIR instructions using the declared
+linear-memory load/store.
 
 ## Layout ownership
 
@@ -122,6 +128,11 @@ and OCaml's Wasm backend.
    closures and the structurer work.)*
 4. Lower data types, records, and closures into the model in P9.
 5. Generalize structured control flow beyond `if` diamonds.
+
+The runtime ABI is a separate track: MIR has an import table, void calls, and
+linear-memory load/store, and the runtime ABI is parsed from WIT into canonical
+import signatures ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)).
+Componentization with `wit-component` and the runtime adapter is the next step.
 
 ## Open items
 

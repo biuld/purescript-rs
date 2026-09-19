@@ -11,3 +11,4 @@ psrs-span.workspace = true
 wasm-encoder.workspace = true
 wasmparser.workspace = true
 wasmprinter.workspace = true
+wit-parser = "=0.245.1"

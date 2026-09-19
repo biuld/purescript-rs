@@ -169,20 +169,24 @@ AST, HIR, THIR, or Typed Core.
 ## WASI platform model
 
 The platform target is a WASI 0.2 Component Model release; the choice and its
-rationale are in [D-05](D-05-backend-capability.md). Until the component
-emitter and canonical ABI exist, the bootstrap emits a core module that uses
-WASI Preview 1 imports for console and exit only. The PureScript-facing library
-calls a stable compiler runtime ABI; the runtime adapter maps that ABI to WASI
-interfaces. Keep the three layers separate:
+rationale are in [D-05](D-05-backend-capability.md). The runtime interface is
+defined in WIT and lowered to the canonical ABI, and the emitter reads a runtime
+ABI registry instead of hard-coding a host ABI
+([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)). The PureScript-facing
+library calls that runtime ABI; an adapter maps it to WASI interfaces. Keep the
+three layers separate:
 
 ```text
-PureScript WASI library -> compiler runtime ABI -> WASI host interface
+PureScript WASI library -> compiler runtime ABI (WIT) -> WASI host interface
 ```
 
-The bootstrap exposes the runtime ABI directly: the `log` value maps to
-`ps_rt_log`, which the backend implements with `wasi_snapshot_preview1.fd_write`.
-Once modules and foreign declarations exist, `WASI.Console.log` is expected to
-wrap this entry so the frontend no longer needs a source-visible runtime name.
+MIR declares the runtime ABI imports in an import table with their canonical
+signatures; the backend emits calls to those imports and `wit-component` lifts
+the core module into a component. Until that path replaces it, the bootstrap
+emits a core module that uses WASI Preview 1 imports for console and exit only,
+where the `log` value maps to a synthesized `ps_rt_log` over
+`wasi_snapshot_preview1.fd_write`. That Preview 1 emitter is bootstrap-only and
+is removed once the component path lands.
 
 Initial library capabilities grow as testable modules for console, arguments,
 environment, files, clock, and randomness. Networking and HTTP are later

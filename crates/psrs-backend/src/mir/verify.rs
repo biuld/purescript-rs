@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone)]
 struct Signature {
     parameters: Vec<ValueType>,
-    result: ValueType,
+    result: Option<ValueType>,
 }
 
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
@@ -28,7 +28,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 function.symbol,
                 types.map(|parameters| Signature {
                     parameters,
-                    result: function.result_type,
+                    result: Some(function.result_type),
                 }),
             )
         })
@@ -39,10 +39,29 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 external.symbol,
                 Some(Signature {
                     parameters: vec![ValueType::I32],
-                    result: ValueType::I32,
+                    result: Some(ValueType::I32),
                 }),
             );
         }
+    }
+    let mut import_symbols = HashSet::new();
+    for import in &module.imports {
+        if !import_symbols.insert(import.symbol) {
+            errors.extend(mir_error(module.span, "MIR import symbols are duplicated"));
+        }
+        if import.module.is_empty() || import.name.is_empty() {
+            errors.extend(mir_error(
+                module.span,
+                "MIR import has an empty module or field name",
+            ));
+        }
+        signatures.insert(
+            import.symbol,
+            Some(Signature {
+                parameters: import.parameters.clone(),
+                result: import.result,
+            }),
+        );
     }
     let defined_types = defined_type_count(module);
     for function in &module.functions {
@@ -233,8 +252,40 @@ fn verify_function(
                             return Err(mir_error(*span, "MIR call argument has the wrong type"));
                         }
                     }
-                    if value_type(function, *destination) != Some(signature.result) {
+                    let Some(expected) = signature.result else {
+                        return Err(mir_error(
+                            *span,
+                            "MIR call to a void import has a destination",
+                        ));
+                    };
+                    if value_type(function, *destination) != Some(expected) {
                         return Err(mir_error(*span, "MIR call result has the wrong type"));
+                    }
+                }
+                Instruction::CallVoid {
+                    function: callee,
+                    arguments,
+                    span,
+                } => {
+                    let Some(Some(signature)) = signatures.get(callee) else {
+                        return Err(mir_error(*span, "MIR call target has no valid signature"));
+                    };
+                    if signature.result.is_some() {
+                        return Err(mir_error(
+                            *span,
+                            "MIR void call targets a function that returns a value",
+                        ));
+                    }
+                    if arguments.len() != signature.parameters.len() {
+                        return Err(mir_error(
+                            *span,
+                            "MIR call has the wrong number of arguments",
+                        ));
+                    }
+                    for (argument, expected) in arguments.iter().zip(&signature.parameters) {
+                        if require_value(&definitions, *argument, *span)? != *expected {
+                            return Err(mir_error(*span, "MIR call argument has the wrong type"));
+                        }
                     }
                 }
                 Instruction::RefNull { heap, span, .. } => {
@@ -273,7 +324,9 @@ fn verify_function(
                 Instruction::RefIsNull { .. }
                 | Instruction::I31New { .. }
                 | Instruction::I31GetS { .. }
-                | Instruction::ArrayLen { .. } => {}
+                | Instruction::ArrayLen { .. }
+                | Instruction::Load { .. }
+                | Instruction::Store { .. } => {}
             }
         }
         let terminator = block.terminator.as_ref().expect("checked above");
