@@ -9,8 +9,3 @@ interface runtime {
     /// Writes a line to standard output.
     log: func(msg: string);
 }
-
-/// The world the backend targets before WASI imports are linked in.
-world runtime-abi {
-    import runtime;
-}
