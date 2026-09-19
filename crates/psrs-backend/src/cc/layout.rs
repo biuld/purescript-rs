@@ -162,6 +162,20 @@ pub(super) fn type_layout(
     } else {
         None
     };
+    let boxed_f64_type = if module.types.iter().any(|ty| matches!(ty, Type::F64)) {
+        let type_index = definitions.len() as u32;
+        definitions.push(DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Struct(vec![FieldType {
+                storage: StorageType::F64,
+                mutable: false,
+            }]),
+        });
+        Some(type_index)
+    } else {
+        None
+    };
     let mut array_types = HashMap::new();
     for (index, _) in module.types.iter().enumerate() {
         let id = TypeId(index as u32);
@@ -275,6 +289,7 @@ pub(super) fn type_layout(
         record_types,
         constructor_types,
         boxed_i32_type,
+        boxed_f64_type,
         function_types: function_layout.function_types,
         capture_array_type: function_layout.capture_array_type,
         closure_type: function_layout.closure_type,
@@ -287,6 +302,7 @@ pub(super) struct TypeLayout {
     pub(super) record_types: HashMap<TypeId, u32>,
     pub(super) constructor_types: HashMap<SymbolId, u32>,
     pub(super) boxed_i32_type: Option<u32>,
+    pub(super) boxed_f64_type: Option<u32>,
     pub(super) function_types: HashMap<TypeId, u32>,
     pub(super) capture_array_type: Option<u32>,
     pub(super) closure_type: Option<u32>,

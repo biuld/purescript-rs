@@ -83,12 +83,14 @@ impl FunctionLowerer<'_> {
                 type_index,
                 closure_type,
                 capture_array_type,
+                boxed_f64_type,
                 captures,
             } => AssignmentKind::FunctionRef {
                 function: *function,
                 type_index: *type_index,
                 closure_type: *closure_type,
                 capture_array_type: *capture_array_type,
+                boxed_f64_type: *boxed_f64_type,
                 captures: captures
                     .iter()
                     .map(|value| remap(*value, mapping))
@@ -114,11 +116,13 @@ impl FunctionLowerer<'_> {
                 closure,
                 closure_type,
                 capture_array_type,
+                boxed_f64_type,
                 index,
             } => AssignmentKind::ClosureGetCapture {
                 closure: remap(*closure, mapping),
                 closure_type: *closure_type,
                 capture_array_type: *capture_array_type,
+                boxed_f64_type: *boxed_f64_type,
                 index: *index,
             },
             AssignmentKind::RefTest {

@@ -37,6 +37,7 @@ impl ClosureOps for Structurer<'_> {
             function,
             closure_type,
             capture_array_type,
+            boxed_f64_type,
             captures,
             span,
             ..
@@ -55,6 +56,15 @@ impl ClosureOps for Structurer<'_> {
             match value_type(self.function, *capture) {
                 Some(ValueType::I32 | ValueType::Boolean) => {
                     body.push(Op::Leaf(Instruction::RefI31));
+                }
+                Some(ValueType::F64) => {
+                    let Some(boxed_f64_type) = boxed_f64_type else {
+                        return Err(wasm_error(
+                            *span,
+                            "MIR closure has no F64 capture box layout",
+                        ));
+                    };
+                    body.push(Op::Leaf(Instruction::StructNew(*boxed_f64_type)));
                 }
                 Some(ValueType::Ref(_)) => {}
                 _ => {
@@ -121,6 +131,7 @@ impl ClosureOps for Structurer<'_> {
             closure,
             closure_type,
             capture_array_type,
+            boxed_f64_type,
             index,
             span,
         } = instruction
@@ -145,6 +156,22 @@ impl ClosureOps for Structurer<'_> {
                     heap: HeapType::I31,
                 })));
                 body.push(Op::Leaf(Instruction::I31GetS));
+            }
+            Some(ValueType::F64) => {
+                let Some(boxed_f64_type) = boxed_f64_type else {
+                    return Err(wasm_error(
+                        *span,
+                        "MIR closure has no F64 capture box layout",
+                    ));
+                };
+                body.push(Op::Leaf(ref_cast(RefType {
+                    nullable: false,
+                    heap: HeapType::Index(*boxed_f64_type),
+                })));
+                body.push(Op::Leaf(Instruction::StructGet {
+                    struct_type_index: *boxed_f64_type,
+                    field_index: 0,
+                }));
             }
             Some(ValueType::Ref(reference)) => {
                 body.push(Op::Leaf(ref_cast(reference)));

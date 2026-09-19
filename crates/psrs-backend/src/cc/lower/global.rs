@@ -66,6 +66,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     type_index,
                     closure_type,
                     capture_array_type,
+                    boxed_f64_type: self.boxed_f64_type,
                     captures: Vec::new(),
                 },
                 span: expression.span,

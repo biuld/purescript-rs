@@ -24,6 +24,24 @@ fn compiles_number_literals_as_f64_scalars() {
 }
 
 #[test]
+fn captures_number_values_in_closures() {
+    let source = "module Main where\n\
+        use :: Number -> Int\n\
+        use x = 42\n\
+        make :: Number -> Number -> Int\n\
+        make x y = (\\z -> use x) y\n\
+        main = make 1.5 2.0\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("struct.new"));
+    assert!(artifact.wat.contains("f64.const"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn compiles_if_expression_through_cfg_to_structured_wasm() {
     let source = "module Main where\nmain = if true then 9 else 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();

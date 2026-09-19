@@ -261,6 +261,7 @@ impl FunctionLowerer<'_> {
                     type_index,
                     closure_type,
                     capture_array_type,
+                    boxed_f64_type,
                     captures,
                 } => self.append_instruction(
                     current,
@@ -270,6 +271,7 @@ impl FunctionLowerer<'_> {
                         type_index: *type_index,
                         closure_type: *closure_type,
                         capture_array_type: *capture_array_type,
+                        boxed_f64_type: *boxed_f64_type,
                         captures: captures.clone(),
                         span: assignment.span,
                     },
@@ -298,6 +300,7 @@ impl FunctionLowerer<'_> {
                     closure,
                     closure_type,
                     capture_array_type,
+                    boxed_f64_type,
                     index,
                 } => self.append_instruction(
                     current,
@@ -306,6 +309,7 @@ impl FunctionLowerer<'_> {
                         closure: *closure,
                         closure_type: *closure_type,
                         capture_array_type: *capture_array_type,
+                        boxed_f64_type: *boxed_f64_type,
                         index: *index,
                         span: assignment.span,
                     },

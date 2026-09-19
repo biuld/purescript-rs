@@ -78,6 +78,7 @@ pub enum AssignmentKind {
         type_index: u32,
         closure_type: u32,
         capture_array_type: u32,
+        boxed_f64_type: Option<u32>,
         captures: Vec<ValueId>,
     },
     IndirectCall {
@@ -91,6 +92,7 @@ pub enum AssignmentKind {
         closure: ValueId,
         closure_type: u32,
         capture_array_type: u32,
+        boxed_f64_type: Option<u32>,
         index: u32,
     },
     RefTest {
@@ -230,6 +232,7 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
         boxed_i32_type: layout.boxed_i32_type,
+        boxed_f64_type: layout.boxed_f64_type,
         array_types: &layout.array_types,
         record_types: &layout.record_types,
         constructor_tags: &constructor_tags,

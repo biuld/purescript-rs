@@ -100,6 +100,7 @@ pub(super) fn verify_closure_new(
         type_index,
         closure_type,
         capture_array_type,
+        boxed_f64_type,
         captures,
         span,
     } = instruction
@@ -135,6 +136,10 @@ pub(super) fn verify_closure_new(
             capture_type,
             ValueType::I32 | ValueType::Boolean | ValueType::Ref(_)
         ) {
+            if capture_type == ValueType::F64 {
+                verify_f64_box(*boxed_f64_type, defined, *span)?;
+                continue;
+            }
             return Err(mir_error(
                 *span,
                 "closure capture type is not representable in an eqref array",
@@ -203,6 +208,7 @@ pub(super) fn verify_closure_get_capture(
         closure,
         closure_type,
         capture_array_type,
+        boxed_f64_type,
         index: _,
         span,
     } = instruction
@@ -228,8 +234,31 @@ pub(super) fn verify_closure_get_capture(
             "closure capture array is not representable",
         ));
     }
-    if value_type(function, *destination).is_none() {
+    let Some(destination_type) = value_type(function, *destination) else {
         return Err(mir_error(*span, "closure capture result has no value type"));
+    };
+    if destination_type == ValueType::F64 {
+        verify_f64_box(*boxed_f64_type, defined, *span)?;
+    }
+    Ok(())
+}
+
+fn verify_f64_box(
+    boxed_f64_type: Option<u32>,
+    defined: &[&DefinedType],
+    span: psrs_span::TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let Some(index) = boxed_f64_type else {
+        return Err(mir_error(span, "F64 closure capture has no box layout"));
+    };
+    let Some(CompositeType::Struct(fields)) = composite_at(defined, index) else {
+        return Err(mir_error(span, "F64 closure capture box is not a struct"));
+    };
+    if fields.len() != 1 || storage_value_type(&fields[0].storage) != Some(ValueType::F64) {
+        return Err(mir_error(
+            span,
+            "F64 closure capture box has the wrong layout",
+        ));
     }
     Ok(())
 }

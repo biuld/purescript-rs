@@ -105,10 +105,10 @@ FFI.
   enforced by the suite scoreboard.
 - **Prerequisite:** M0.
 
-**Progress (measured against the vendored `v0.15.16` corpus):** 906/908 parse
-agreement (99.8%): `passing` 413/413, `failing` 413/413, `warning` 67/67, and
-`layout` 13/15. The two remaining `layout` files exercise `case`/guard/backtick
-layout combinations and are the only open M1 items. The numbers above use
+**Progress (measured against the vendored `v0.15.16` corpus):** 905/907 parse
+agreement (99.8%): `passing` 413/413, `failing` 413/413, `warning` 66/66, and
+`layout` 13/15. The two remaining `layout` files are `CaseGuards.purs` and
+`Commas.purs`. The numbers above use
 `PSRS_ORACLE=annotations`; the default `purs` oracle additionally disagrees on
 files whose imports prevent the installed compiler from parsing the body (see
 the Corpus caveat).
@@ -155,7 +155,7 @@ transitive exports are still open.
 
 **Measured baseline (annotations oracle):** the scoreboard also loads a case's
 support modules from its sibling directory, matching the corpus layout. M2
-failing agreement is 44/70 and 32/413 `passing` modules resolve, including all
+failing agreement is 46/70 and 35/413 `passing` modules resolve, including all
 11 `DeclConflict` cases, `ExportConflict` 5/7, `ScopeConflict` 5/6,
 `UnknownImport`, `UnknownImportDataConstructor`, `UnknownExportDataConstructor`,
 `TransitiveDctorExportError`, and the self-contained `TransitiveExportError`
@@ -183,7 +183,7 @@ check, and reports `KindsDoNotUnify`, `InfiniteKind`, `PartiallyAppliedSynonym`,
 The driver exposes a lenient kind check and the `l3` scoreboard; the scoreboard
 also runs against the vendored corpus without `purs`.
 
-**Measured baseline (annotations oracle):** M3 failing agreement is 28/48.
+**Measured baseline (annotations oracle):** M3 failing agreement is 27/48.
 Per code: `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2,
 `CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
 `PartiallyAppliedSynonym` 8/12, `KindsDoNotUnify` 10/24. The remaining cases

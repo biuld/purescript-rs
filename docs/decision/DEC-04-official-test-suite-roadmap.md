@@ -68,9 +68,9 @@ for matrix status.
 | Gate | Official-suite scope | Current progress | `Implemented` threshold |
 | --- | --- | --- | --- |
 | L0 | Layout goldens | 13/15 agreement | 15/15, with all remaining layout cases covered by regression tests. |
-| L1 | Non-excluded parse behavior | 906/908 agreement using the annotations oracle | 100% agreement for the tracked corpus. |
-| L2 | Module, import, export, and name resolution | 44/70 failing cases; 32/413 passing modules resolve | The mapped resolution cases and all required passing-module cases agree. |
-| L3 | Kinds and higher-kinded types | 28/48 failing cases | 100% agreement for the mapped kind cases. |
+| L1 | Non-excluded parse behavior | 905/907 agreement using the annotations oracle; `passing` 413/413, `failing` 413/413, `warning` 66/66, `layout` 13/15 | 100% agreement for the tracked corpus. |
+| L2 | Module, import, export, and name resolution | 46/70 failing cases; 35/413 passing modules resolve | The mapped resolution cases and all required passing-module cases agree. |
+| L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | The type gate is not complete | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | The class gate is not complete | 100% agreement for the mapped class cases. |
 | L6/M7 | Runtime and standard library | 414 non-FFI passing files are in scope; full compile/run coverage is not complete | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
@@ -150,7 +150,7 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
 | BE-01 | ANF and explicit evaluation order | Direct-style CC/ANF lowering is implemented and tested for the bootstrap expression set. | Partial | Extend the lowering to every frontend expression form and pass the L6/M7 gate. |
-| BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, scalar captures, closure structs, and `call_ref` work. | Partial | Support aggregate/polymorphic captures after frontend type-class and representation work. |
+| BE-02 | Closure conversion, captures, direct calls, and closure calls | Top-level functions, local lambdas, `Int`/`Boolean`/`Number` scalar captures, closure structs, and `call_ref` work. | Partial | Support aggregate/polymorphic captures after frontend type-class and representation work. |
 | BE-03 | MIR/CFG, block parameters, terminators, and verification | Typed basic blocks, explicit instructions/terminators, runtime layouts, and MIR verification work. | Partial | Grow the instruction set with the remaining language/runtime constructs and pass the L6/M7 gate. |
 | BE-04 | Primitive runtime representation and calling conventions | `Int`, `Number` as Wasm `f64`, `Boolean`, `Char` as an integer-valued scalar, `String`, `Unit`, direct calls, and the current closure ABI work in compiler/runtime tests. | Partial | Add official-suite evidence, richer values, and stable ABI coverage before changing the status. |
 | BE-05 | Nullary ADT tags and case lowering | Nullary constructors lower to integer tags and execute under WASI. | Partial | Integrate with the complete pattern and exhaustiveness model and pass the L6/M7 gate. |
