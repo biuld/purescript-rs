@@ -1,6 +1,6 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
-use super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use crate::BackendError;
 use psrs_core::{CaseBranch, PatternKind, Primitive};
 use psrs_hir::SymbolId;
@@ -27,7 +27,7 @@ impl FunctionLowerer<'_> {
         scrutinee_type: psrs_core::TypeId,
         scrutinee: ValueId,
         branches: &[CaseBranch],
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
@@ -82,7 +82,7 @@ impl FunctionLowerer<'_> {
                     if !arguments.is_empty() {
                         return Err(case_error(
                             span,
-                            "field constructor patterns require GC aggregate lowering",
+                            "field constructor patterns require aggregate lowering",
                         ));
                     }
                     let Some((_, tag)) = constructors.iter().find(|(known, _)| known == symbol)
@@ -140,7 +140,7 @@ impl FunctionLowerer<'_> {
         type_id: psrs_hir::TypeId,
         scrutinee: ValueId,
         branches: &[CaseBranch],
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
@@ -214,7 +214,7 @@ impl FunctionLowerer<'_> {
         scrutinee: ValueId,
         constructor_branches: &[(&CaseBranch, u32)],
         fallback: (Vec<Assignment>, ValueId),
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
         let Some((branch, tag)) = constructor_branches.last() else {
@@ -225,13 +225,13 @@ impl FunctionLowerer<'_> {
             self.build_case(scrutinee, rest, fallback, result_type, span)?;
 
         let mut prefix = Vec::new();
-        let tag_value = self.fresh(ValueType::I32);
+        let tag_value = self.fresh(ValueShape::Integer);
         prefix.push(Assignment {
             destination: tag_value,
             kind: AssignmentKind::Constant(*tag as i32),
             span,
         });
-        let condition = self.fresh(ValueType::Boolean);
+        let condition = self.fresh(ValueShape::Boolean);
         prefix.push(Assignment {
             destination: condition,
             kind: AssignmentKind::Primitive {

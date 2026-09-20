@@ -1,10 +1,9 @@
 use super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
 use super::super::lower::FunctionLowerer;
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ReprId, ValueId, ValueShape};
 use super::clone::AssignmentCloning;
 use super::{PatternState, case_error};
 use crate::BackendError;
-use crate::types::{HeapType, RefType};
 use psrs_core::{CaseBranch, PatternKind, Primitive};
 use psrs_span::TextRange;
 use std::collections::HashSet;
@@ -15,7 +14,7 @@ impl FunctionLowerer<'_> {
         type_id: psrs_hir::TypeId,
         scrutinee: ValueId,
         branches: &[CaseBranch],
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
@@ -35,11 +34,11 @@ impl FunctionLowerer<'_> {
                             "case pattern constructor does not belong to the scrutinee type",
                         ));
                     };
-                    let Some(type_index) = self.constructor_types.get(symbol).copied() else {
-                        return Err(case_error(span, "case constructor has no GC type layout"));
+                    let Some(representation) = self.constructor_types.get(symbol).copied() else {
+                        return Err(case_error(span, "case constructor has no representation"));
                     };
                     covered.insert(*symbol);
-                    constructor_branches.push((branch, *tag, type_index));
+                    constructor_branches.push((branch, *tag, representation));
                 }
                 PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
                 PatternKind::Record { .. } => {
@@ -61,14 +60,14 @@ impl FunctionLowerer<'_> {
                     "non-exhaustive case requires a wildcard alternative",
                 ));
             }
-            let (branch, _, type_index) = constructor_branches
+            let (branch, _, representation) = constructor_branches
                 .pop()
                 .expect("a fully covered aggregate case has a constructor branch");
             let mut fallback_assignments = Vec::new();
             let (value, _) = self.lower_constructor_branch(
                 branch,
                 scrutinee,
-                type_index,
+                representation,
                 false,
                 &mut fallback_assignments,
             )?;
@@ -88,26 +87,26 @@ impl FunctionLowerer<'_> {
     pub(super) fn build_aggregate_case(
         &mut self,
         scrutinee: ValueId,
-        branches: &[(&CaseBranch, u32, u32)],
+        branches: &[(&CaseBranch, u32, ReprId)],
         fallback: (Vec<Assignment>, ValueId),
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let Some((branch, _, type_index)) = branches.last() else {
+        let Some((branch, _, representation)) = branches.last() else {
             return Ok(fallback);
         };
         let rest = &branches[..branches.len() - 1];
         let (else_assignments, else_value) =
             self.build_aggregate_case(scrutinee, rest, fallback, result_type, span)?;
-        let condition = self.fresh(ValueType::Boolean);
+        let condition = self.fresh(ValueShape::Boolean);
         let mut prefix = vec![Assignment {
             destination: condition,
-            kind: AssignmentKind::RefTest {
+            kind: AssignmentKind::RepresentationTest {
                 destination: condition,
                 value: scrutinee,
-                reference: RefType {
+                reference: Reference {
                     nullable: false,
-                    heap: HeapType::Index(*type_index),
+                    heap: RefShape::Repr(*representation),
                 },
             },
             span,
@@ -116,7 +115,7 @@ impl FunctionLowerer<'_> {
         let (then_value, conditions) = self.lower_constructor_branch(
             branch,
             scrutinee,
-            *type_index,
+            *representation,
             true,
             &mut then_assignments,
         )?;
@@ -184,7 +183,7 @@ impl FunctionLowerer<'_> {
         &mut self,
         branch: &CaseBranch,
         scrutinee: ValueId,
-        type_index: u32,
+        representation: ReprId,
         check_nested: bool,
         assignments: &mut Vec<Assignment>,
     ) -> Result<(ValueId, Vec<ValueId>), Vec<BackendError>> {
@@ -193,18 +192,18 @@ impl FunctionLowerer<'_> {
                 .lower_branch(branch, scrutinee, assignments)
                 .map(|value| (value, Vec::new()));
         };
-        let cast = self.fresh(crate::types::ValueType::Ref(RefType {
+        let cast = self.fresh(ValueShape::Reference(Reference {
             nullable: false,
-            heap: HeapType::Index(type_index),
+            heap: RefShape::Repr(representation),
         }));
         assignments.push(Assignment {
             destination: cast,
-            kind: AssignmentKind::RefCast {
+            kind: AssignmentKind::RepresentationCast {
                 destination: cast,
                 value: scrutinee,
-                reference: RefType {
+                reference: Reference {
                     nullable: false,
-                    heap: HeapType::Index(type_index),
+                    heap: RefShape::Repr(representation),
                 },
             },
             span: branch.span,
@@ -237,7 +236,7 @@ impl FunctionLowerer<'_> {
                 self.lower_erased_field(
                     pattern.ty,
                     cast,
-                    type_index,
+                    representation,
                     field as u32 + 1,
                     pattern.span,
                     assignments,
@@ -257,9 +256,9 @@ impl FunctionLowerer<'_> {
                 let value = self.fresh(field_type);
                 assignments.push(Assignment {
                     destination: value,
-                    kind: AssignmentKind::StructGet {
+                    kind: AssignmentKind::ProductGet {
                         destination: value,
-                        type_index,
+                        representation,
                         field: field as u32 + 1,
                         value: cast,
                     },
@@ -361,13 +360,13 @@ impl FunctionLowerer<'_> {
                                 "nested enum constructor has no tag",
                             ));
                         };
-                        let expected = self.fresh(ValueType::I32);
+                        let expected = self.fresh(ValueShape::Integer);
                         state.assignments.push(Assignment {
                             destination: expected,
                             kind: AssignmentKind::Constant(tag as i32),
                             span: pattern.span,
                         });
-                        let condition = self.fresh(ValueType::Boolean);
+                        let condition = self.fresh(ValueShape::Boolean);
                         state.assignments.push(Assignment {
                             destination: condition,
                             kind: AssignmentKind::Primitive {
@@ -381,40 +380,40 @@ impl FunctionLowerer<'_> {
                     }
                     return Ok(());
                 }
-                let Some(type_index) = self.constructor_types.get(symbol).copied() else {
+                let Some(representation) = self.constructor_types.get(symbol).copied() else {
                     return Err(case_error(
                         pattern.span,
-                        "nested constructor has no GC layout",
+                        "nested constructor has no representation",
                     ));
                 };
                 if !single_constructor && state.check_nested {
-                    let condition = self.fresh(ValueType::Boolean);
+                    let condition = self.fresh(ValueShape::Boolean);
                     state.assignments.push(Assignment {
                         destination: condition,
-                        kind: AssignmentKind::RefTest {
+                        kind: AssignmentKind::RepresentationTest {
                             destination: condition,
                             value,
-                            reference: RefType {
+                            reference: Reference {
                                 nullable: false,
-                                heap: HeapType::Index(type_index),
+                                heap: RefShape::Repr(representation),
                             },
                         },
                         span: pattern.span,
                     });
                     state.conditions.push(condition);
                 }
-                let cast = self.fresh(ValueType::Ref(RefType {
+                let cast = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: HeapType::Index(type_index),
+                    heap: RefShape::Repr(representation),
                 }));
                 state.assignments.push(Assignment {
                     destination: cast,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: cast,
                         value,
-                        reference: RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: HeapType::Index(type_index),
+                            heap: RefShape::Repr(representation),
                         },
                     },
                     span: pattern.span,
@@ -427,7 +426,7 @@ impl FunctionLowerer<'_> {
                         let child_value = self.lower_erased_field(
                             child.ty,
                             cast,
-                            type_index,
+                            representation,
                             field as u32 + 1,
                             child.span,
                             state.assignments,
@@ -454,9 +453,9 @@ impl FunctionLowerer<'_> {
                     let child_value = self.fresh(child_type);
                     state.assignments.push(Assignment {
                         destination: child_value,
-                        kind: AssignmentKind::StructGet {
+                        kind: AssignmentKind::ProductGet {
                             destination: child_value,
-                            type_index,
+                            representation,
                             field: field as u32 + 1,
                             value: cast,
                         },

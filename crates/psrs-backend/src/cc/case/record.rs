@@ -1,6 +1,6 @@
 use super::super::layout::scalar_type;
 use super::super::lower::FunctionLowerer;
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use super::PatternState;
 use super::case_error;
 use super::clone::AssignmentCloning;
@@ -14,7 +14,7 @@ impl FunctionLowerer<'_> {
         scrutinee_type: psrs_core::TypeId,
         scrutinee: ValueId,
         branches: &[CaseBranch],
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
@@ -95,7 +95,7 @@ impl FunctionLowerer<'_> {
         branch_value: ValueId,
         conditions: Vec<ValueId>,
         fallback: (Vec<Assignment>, ValueId),
-        result_type: ValueType,
+        result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
         let positions = conditions
@@ -146,12 +146,12 @@ impl FunctionLowerer<'_> {
         source_type: psrs_core::TypeId,
         state: &mut PatternState<'_>,
     ) -> Result<(), Vec<BackendError>> {
-        let Some(type_index) = self.record_types.get(&source_type).copied() else {
+        let Some(representation) = self.record_types.get(&source_type).copied() else {
             return Err(case_error(
                 fields
                     .first()
                     .map_or(TextRange::default(), |(_, field)| field.span),
-                "record pattern has no concrete GC struct layout",
+                "record pattern has no representation requirement",
             ));
         };
         let Some(Type::Record(record_fields)) = self.module.types.get(source_type.0 as usize)
@@ -191,9 +191,9 @@ impl FunctionLowerer<'_> {
             let field_value = self.fresh(value_type);
             state.assignments.push(Assignment {
                 destination: field_value,
-                kind: AssignmentKind::StructGet {
+                kind: AssignmentKind::ProductGet {
                     destination: field_value,
-                    type_index,
+                    representation,
                     field: field_index as u32,
                     value,
                 },

@@ -125,19 +125,13 @@ considered covered merely because a Wasm opcode or a low-level type exists.
 | Linear memory | Strings and WIT byte-list boundaries select the pointer representation. | Loads/stores are fixed to wasm32 `i32` addresses and values. | Partial; pointer width, load/store variants, memory selection, and allocation ownership are not abstracted. |
 | Multi-value | No multi-result CC operation. | Function/import signatures and calls have one result; the verifier rejects multi-result `call_ref`. | Correctly marked Partial; do not enable it as an implementation claim. |
 | Bulk memory, tables, globals, SIMD, tail calls, exceptions, threads | No CC operation or representation. | No MIR operation or module resource for these families. | Profile flags are policy inputs only; they are not lowering coverage. |
-| Reference types and GC | CC currently selects concrete GC layouts, reference types, closure shapes, and Wasm type indices. | MIR carries and verifies GC types, reference operations, closures, and `call_ref`. | The implemented slice is useful, but the CC boundary is too target-specific and must be refactored before alternative representations are added. |
-| Component Model and WASI | CC preserves source WIT binding names and reduced source signatures. | MIR resolves canonical imports and emits scalar/handle/byte-list adapters. | Partial; WIT names should be moved out of the long-lived CC representation so the lowest ABI lowering owns them. |
+| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, and logical fields; it has no Wasm type indices. | MIR plans the current GC layout, owns `RecGroup` and concrete reference types, and verifies the resulting operations. | Partial; alternative planners and complete CC operation verification remain. |
+| Component Model and WASI | CC keeps only an external `SymbolId` and abstract signature. `BackendInput::externals` carries WIT names and source signatures beside CC. | MIR resolves bindings through the WIT ABI registry, emits adapters for referenced calls, and retains only used runtime imports. | Partial; broader canonical ABI forms and ownership rules remain. |
 
-Two structural issues are deliberately called out here. First, CC currently
-stores `RecGroup`, `RefType`, and numeric Wasm type indices, while MIR copies
-that type table instead of constructing it from a target-neutral CC value. This
-contradicts the intended rule that MIR owns runtime layouts and prevents a
-future table/linear-memory fallback from reusing CC. The next representation
-change should replace those fields with symbolic CC representation/layout
-handles and make P9 create the concrete MIR type table and instruction indices.
-
-Second, the CC verifier currently checks SSA availability and call arity but
-does not yet type-check every CC operation. MIR verification is the safety net
+Two residual structural issues are deliberately called out here. First, the
+current P9 planner is GC-oriented; table-closure and linear-memory planners
+have not yet consumed the same CC module. Second, the CC verifier still does
+not type-check every abstract operation. MIR verification is the safety net
 for the current vertical slice, not a substitute for a complete CC invariant.
 Any new CC operation must add an operation-level verifier before it is used as
 evidence for a capability row.

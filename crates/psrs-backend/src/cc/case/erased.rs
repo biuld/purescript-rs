@@ -1,9 +1,8 @@
 use super::super::layout::scalar_type;
 use super::super::lower::FunctionLowerer;
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ReprId, ValueId, ValueShape};
 use super::case_error;
 use crate::BackendError;
-use crate::types::{HeapType, RefType};
 use psrs_span::TextRange;
 
 impl FunctionLowerer<'_> {
@@ -11,20 +10,20 @@ impl FunctionLowerer<'_> {
         &mut self,
         expected_type: psrs_core::TypeId,
         constructor: ValueId,
-        constructor_type: u32,
+        constructor_type: ReprId,
         field: u32,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let boxed_value = self.fresh(ValueType::Ref(RefType {
+        let boxed_value = self.fresh(ValueShape::Reference(Reference {
             nullable: false,
-            heap: HeapType::Eq,
+            heap: RefShape::Erased,
         }));
         assignments.push(Assignment {
             destination: boxed_value,
-            kind: AssignmentKind::StructGet {
+            kind: AssignmentKind::ProductGet {
                 destination: boxed_value,
-                type_index: constructor_type,
+                representation: constructor_type,
                 field,
                 value: constructor,
             },
@@ -42,22 +41,22 @@ impl FunctionLowerer<'_> {
             self.function_types,
         )?;
         match expected {
-            ValueType::I32 | ValueType::Boolean => {
-                let Some(boxed_type) = self.boxed_i32_type else {
+            ValueShape::Integer | ValueShape::Boolean => {
+                let Some(boxed_type) = self.boxed_integer_type else {
                     return Err(case_error(span, "erased value box layout is missing"));
                 };
-                let concrete_box = self.fresh(ValueType::Ref(RefType {
+                let concrete_box = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: concrete_box,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
                         value: boxed_value,
-                        reference: RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: HeapType::Index(boxed_type),
+                            heap: RefShape::Repr(boxed_type),
                         },
                     },
                     span,
@@ -65,9 +64,9 @@ impl FunctionLowerer<'_> {
                 let value = self.fresh(expected);
                 assignments.push(Assignment {
                     destination: value,
-                    kind: AssignmentKind::StructGet {
+                    kind: AssignmentKind::ProductGet {
                         destination: value,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         field: 0,
                         value: concrete_box,
                     },
@@ -75,22 +74,25 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(value)
             }
-            ValueType::F64 => {
-                let Some(boxed_type) = self.boxed_f64_type else {
-                    return Err(case_error(span, "erased f64 value box layout is missing"));
+            ValueShape::Number => {
+                let Some(boxed_type) = self.boxed_number_type else {
+                    return Err(case_error(
+                        span,
+                        "erased number box representation is missing",
+                    ));
                 };
-                let concrete_box = self.fresh(ValueType::Ref(RefType {
+                let concrete_box = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: concrete_box,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
                         value: boxed_value,
-                        reference: RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: HeapType::Index(boxed_type),
+                            heap: RefShape::Repr(boxed_type),
                         },
                     },
                     span,
@@ -98,9 +100,9 @@ impl FunctionLowerer<'_> {
                 let value = self.fresh(expected);
                 assignments.push(Assignment {
                     destination: value,
-                    kind: AssignmentKind::StructGet {
+                    kind: AssignmentKind::ProductGet {
                         destination: value,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         field: 0,
                         value: concrete_box,
                     },
@@ -108,15 +110,15 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(value)
             }
-            ValueType::Ref(RefType {
+            ValueShape::Reference(Reference {
                 nullable: false,
-                heap: HeapType::Eq,
+                heap: RefShape::Erased,
             }) => Ok(boxed_value),
-            ValueType::Ref(reference) => {
-                let value = self.fresh(ValueType::Ref(reference));
+            ValueShape::Reference(reference) => {
+                let value = self.fresh(ValueShape::Reference(reference));
                 assignments.push(Assignment {
                     destination: value,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: value,
                         value: boxed_value,
                         reference,
@@ -125,10 +127,6 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(value)
             }
-            _ => Err(case_error(
-                span,
-                "erased field cannot be unboxed to this runtime type yet",
-            )),
         }
     }
 }

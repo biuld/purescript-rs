@@ -169,8 +169,8 @@ main = unAge (Age 42)
         psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", source).unwrap())
             .unwrap();
     assert!(
-        stages.cc.types.is_empty(),
-        "newtypes must not allocate GC types"
+        stages.cc.representations.representations.is_empty(),
+        "newtypes must not allocate target representations"
     );
     assert!(
         !stages.artifact.wat.contains("struct.new"),

@@ -1,5 +1,4 @@
-use super::super::layout::scalar_type;
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
 use super::call::is_generic_function_type;
 use crate::BackendError;
@@ -11,7 +10,7 @@ pub(super) trait GlobalLowering {
         &mut self,
         expression: &Expr,
         function: SymbolId,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>>;
 }
@@ -21,7 +20,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
         &mut self,
         expression: &Expr,
         function: SymbolId,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let Some(signature) = self.signatures.get(&function) else {
@@ -46,13 +45,13 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "global function has no source declaration type",
                 ));
             };
-            let Some(type_index) = self.function_types.get(&source_type).copied() else {
+            let Some(signature_id) = self.function_types.get(&source_type).copied() else {
                 return Err(global_error(
                     expression,
                     "function value has no runtime function type",
                 ));
             };
-            if !matches!(result_type, ValueType::Ref(_)) {
+            if !matches!(result_type, ValueShape::Reference(_)) {
                 return Err(global_error(
                     expression,
                     "global function reference has the wrong runtime type",
@@ -64,44 +63,45 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "global function value has no closure wrapper",
                 ));
             };
-            let (Some(closure_type), Some(capture_array_type)) =
-                (self.closure_type, self.capture_array_type)
-            else {
-                return Err(global_error(
-                    expression,
-                    "function value has no closure layout",
-                ));
-            };
-            let source_value_type = scalar_type(
-                self.module,
-                source_type,
-                expression.span,
-                self.enum_types,
-                self.aggregate_types,
-                self.newtype_ids,
-                self.array_types,
-                self.record_types,
-                self.function_types,
-            )?;
-            let destination = self.fresh(source_value_type);
+            // A closure allocation produces the target-neutral closure
+            // representation identified by its call signature. Generic
+            // function values are then widened to the erased reference type.
+            let destination = self.fresh(ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Closure(signature_id),
+            }));
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::FunctionRef {
                     function: wrapper,
-                    type_index,
-                    closure_type,
-                    capture_array_type,
-                    boxed_f64_type: self.boxed_f64_type,
+                    signature: signature_id,
                     captures: Vec::new(),
                 },
                 span: expression.span,
             });
             if source_type == expression.ty {
                 if is_generic_function_type(self.module, expression.ty) {
-                    self.erased_function_types
-                        .insert(destination, expression.ty);
+                    let erased = self.fresh(ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: RefShape::Erased,
+                    }));
+                    assignments.push(Assignment {
+                        destination: erased,
+                        kind: AssignmentKind::RepresentationCast {
+                            destination: erased,
+                            value: destination,
+                            reference: Reference {
+                                nullable: false,
+                                heap: RefShape::Erased,
+                            },
+                        },
+                        span: expression.span,
+                    });
+                    self.erased_function_types.insert(erased, expression.ty);
+                    Ok(erased)
+                } else {
+                    Ok(destination)
                 }
-                Ok(destination)
             } else {
                 let adapted = self.adapt_erased_function_value(
                     destination,

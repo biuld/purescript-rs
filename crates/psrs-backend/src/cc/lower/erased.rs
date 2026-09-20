@@ -1,9 +1,11 @@
+use super::super::layout::depends_on_type_variable;
 use super::super::layout::function_signature;
-use super::super::{Assignment, AssignmentKind, Function, ValueId, ValueType};
+use super::super::{
+    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
+};
 use super::call::is_erased_value_type;
 use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
-use crate::types::{HeapType, RefType};
 use psrs_core::{Type, TypeId};
 use psrs_hir::SymbolId;
 
@@ -16,7 +18,7 @@ impl FunctionLowerer<'_> {
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let source_signature = function_signature(
+        let source_shape = function_signature(
             self.module,
             source_type,
             self.enum_types,
@@ -26,7 +28,7 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        let target_signature = function_signature(
+        let target_shape = function_signature(
             self.module,
             target_type,
             self.enum_types,
@@ -38,7 +40,7 @@ impl FunctionLowerer<'_> {
         )?;
         let source_parameters = function_parameter_types(self.module, source_type);
         let target_parameters = function_parameter_types(self.module, target_type);
-        if source_signature.parameters.len() != target_signature.parameters.len()
+        if source_shape.parameters.len() != target_shape.parameters.len()
             || source_parameters.len() != target_parameters.len()
         {
             return Err(vec![BackendError::new(
@@ -47,23 +49,14 @@ impl FunctionLowerer<'_> {
                 "generic function adapter has incompatible arity",
             )]);
         }
-        let (Some(closure_type), Some(capture_array_type)) =
-            (self.closure_type, self.capture_array_type)
-        else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "generic function adapter has no closure layout",
-            )]);
-        };
-        let Some(&source_type_index) = self.function_types.get(&source_type) else {
+        let Some(&source_signature_id) = self.function_types.get(&source_type) else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 span,
                 "concrete function adapter has no source function type",
             )]);
         };
-        let Some(&target_type_index) = self.function_types.get(&target_type) else {
+        let Some(&target_signature_id) = self.function_types.get(&target_type) else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 span,
@@ -75,7 +68,7 @@ impl FunctionLowerer<'_> {
         let adapter_closure = adapter.fresh(closure_value_type());
         let mut adapter_parameters = vec![adapter_closure];
         let mut adapter_arguments = Vec::with_capacity(target_parameters.len());
-        for target_parameter in &target_signature.parameters {
+        for target_parameter in &target_shape.parameters {
             let parameter = adapter.fresh(*target_parameter);
             adapter_parameters.push(parameter);
             adapter_arguments.push(parameter);
@@ -86,30 +79,27 @@ impl FunctionLowerer<'_> {
             destination: captured_function,
             kind: AssignmentKind::ClosureGetCapture {
                 closure: adapter_closure,
-                closure_type,
-                capture_array_type,
-                boxed_f64_type: self.boxed_f64_type,
                 index: 0,
             },
             span,
         });
-        let concrete_function = adapter.fresh(closure_value_type());
+        let concrete_function = adapter.fresh(closure_value_type_for(source_signature_id));
         adapter_assignments.push(Assignment {
             destination: concrete_function,
-            kind: AssignmentKind::RefCast {
+            kind: AssignmentKind::RepresentationCast {
                 destination: concrete_function,
                 value: captured_function,
-                reference: RefType {
+                reference: Reference {
                     nullable: false,
-                    heap: HeapType::Struct,
+                    heap: RefShape::Closure(source_signature_id),
                 },
             },
             span,
         });
         let mut concrete_arguments = Vec::with_capacity(adapter_arguments.len());
         for (index, argument) in adapter_arguments.into_iter().enumerate() {
-            let source_parameter = source_signature.parameters[index];
-            let target_parameter = target_signature.parameters[index];
+            let source_parameter = source_shape.parameters[index];
+            let target_parameter = target_shape.parameters[index];
             let argument = if is_erased_value_type(source_parameter)
                 && !is_erased_value_type(target_parameter)
             {
@@ -128,29 +118,27 @@ impl FunctionLowerer<'_> {
             };
             concrete_arguments.push(argument);
         }
-        let concrete_result = adapter.fresh(source_signature.result);
+        let concrete_result = adapter.fresh(source_shape.result);
         adapter_assignments.push(Assignment {
             destination: concrete_result,
             kind: AssignmentKind::IndirectCall {
                 function: concrete_function,
-                type_index: source_type_index,
-                closure_type,
-                capture_array_type,
+                signature: source_signature_id,
                 arguments: concrete_arguments,
             },
             span,
         });
-        let result = if is_erased_value_type(source_signature.result)
-            && !is_erased_value_type(target_signature.result)
+        let result = if is_erased_value_type(source_shape.result)
+            && !is_erased_value_type(target_shape.result)
         {
             adapter.unbox_erased_value(
                 concrete_result,
-                target_signature.result,
+                target_shape.result,
                 span,
                 &mut adapter_assignments,
             )?
-        } else if !is_erased_value_type(source_signature.result)
-            && is_erased_value_type(target_signature.result)
+        } else if !is_erased_value_type(source_shape.result)
+            && is_erased_value_type(target_shape.result)
         {
             adapter.box_erased_value(concrete_result, span, &mut adapter_assignments)?
         } else {
@@ -167,60 +155,74 @@ impl FunctionLowerer<'_> {
             values: adapter.values,
             assignments: adapter_assignments,
             result,
-            result_type: target_signature.result,
+            result_type: target_shape.result,
             span,
         };
         super::super::verify::verify_function(&adapter_function, self.signatures)?;
         self.generated.extend(adapter.generated);
         self.generated.push(adapter_function);
-        let result = self.fresh(closure_value_type());
+        let closure_result = self.fresh(closure_value_type_for(target_signature_id));
         assignments.push(Assignment {
-            destination: result,
+            destination: closure_result,
             kind: AssignmentKind::FunctionRef {
                 function: symbol,
-                type_index: target_type_index,
-                closure_type,
-                capture_array_type,
-                boxed_f64_type: self.boxed_f64_type,
+                signature: target_signature_id,
                 captures: vec![value],
             },
             span,
         });
-        Ok(result)
+        if depends_on_type_variable(self.module, target_type) {
+            let result = self.fresh(erased_reference_type());
+            assignments.push(Assignment {
+                destination: result,
+                kind: AssignmentKind::RepresentationCast {
+                    destination: result,
+                    value: closure_result,
+                    reference: Reference {
+                        nullable: false,
+                        heap: RefShape::Erased,
+                    },
+                },
+                span,
+            });
+            Ok(result)
+        } else {
+            Ok(closure_result)
+        }
     }
 
     pub(super) fn unbox_erased_value(
         &mut self,
         value: ValueId,
-        expected: ValueType,
+        expected: ValueShape,
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         match expected {
-            ValueType::Ref(crate::types::RefType {
+            ValueShape::Reference(Reference {
                 nullable: false,
-                heap: crate::types::HeapType::Eq,
+                heap: RefShape::Erased,
             }) => Ok(value),
-            ValueType::I32 | ValueType::Boolean => {
-                let Some(boxed_type) = self.boxed_i32_type else {
+            ValueShape::Integer | ValueShape::Boolean => {
+                let Some(boxed_type) = self.boxed_integer_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",
                         span,
-                        "polymorphic result has no i32 erased value box layout",
+                        "polymorphic result has no integer box representation",
                     )]);
                 };
-                let concrete_box = self.fresh(ValueType::Ref(crate::types::RefType {
+                let concrete_box = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: concrete_box,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
                         value,
-                        reference: crate::types::RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: crate::types::HeapType::Index(boxed_type),
+                            heap: RefShape::Repr(boxed_type),
                         },
                     },
                     span,
@@ -228,9 +230,9 @@ impl FunctionLowerer<'_> {
                 let result = self.fresh(expected);
                 assignments.push(Assignment {
                     destination: result,
-                    kind: AssignmentKind::StructGet {
+                    kind: AssignmentKind::ProductGet {
                         destination: result,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         field: 0,
                         value: concrete_box,
                     },
@@ -238,36 +240,36 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(result)
             }
-            ValueType::F64 => {
-                let Some(boxed_type) = self.boxed_f64_type else {
+            ValueShape::Number => {
+                let Some(boxed_type) = self.boxed_number_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",
                         span,
-                        "polymorphic result has no f64 erased value box layout",
+                        "polymorphic result has no number box representation",
                     )]);
                 };
-                let concrete_box = self.fresh(ValueType::Ref(crate::types::RefType {
+                let concrete_box = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: concrete_box,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
                         value,
-                        reference: crate::types::RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: crate::types::HeapType::Index(boxed_type),
+                            heap: RefShape::Repr(boxed_type),
                         },
                     },
                     span,
                 });
-                let result = self.fresh(ValueType::F64);
+                let result = self.fresh(ValueShape::Number);
                 assignments.push(Assignment {
                     destination: result,
-                    kind: AssignmentKind::StructGet {
+                    kind: AssignmentKind::ProductGet {
                         destination: result,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         field: 0,
                         value: concrete_box,
                     },
@@ -275,11 +277,11 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(result)
             }
-            ValueType::Ref(reference) => {
-                let result = self.fresh(ValueType::Ref(reference));
+            ValueShape::Reference(reference) => {
+                let result = self.fresh(ValueShape::Reference(reference));
                 assignments.push(Assignment {
                     destination: result,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: result,
                         value,
                         reference,
@@ -288,11 +290,6 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(result)
             }
-            _ => Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "polymorphic result cannot be unboxed to this runtime type yet",
-            )]),
         }
     }
 
@@ -315,81 +312,74 @@ impl FunctionLowerer<'_> {
                 )]
             })?;
         let erased = match value_type {
-            ValueType::I32 | ValueType::Boolean => {
-                let Some(boxed_type) = self.boxed_i32_type else {
+            ValueShape::Integer | ValueShape::Boolean => {
+                let Some(boxed_type) = self.boxed_integer_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",
                         span,
-                        "parameterized constructor has no i32 erased value box layout",
+                        "parameterized constructor has no integer box representation",
                     )]);
                 };
-                let boxed = self.fresh(ValueType::Ref(crate::types::RefType {
+                let boxed = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: boxed,
-                    kind: AssignmentKind::StructNew {
+                    kind: AssignmentKind::ProductNew {
                         destination: boxed,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         arguments: vec![value],
                     },
                     span,
                 });
                 boxed
             }
-            ValueType::F64 => {
-                let Some(boxed_type) = self.boxed_f64_type else {
+            ValueShape::Number => {
+                let Some(boxed_type) = self.boxed_number_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",
                         span,
-                        "parameterized constructor has no f64 erased value box layout",
+                        "parameterized constructor has no number box representation",
                     )]);
                 };
-                let boxed = self.fresh(ValueType::Ref(crate::types::RefType {
+                let boxed = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Index(boxed_type),
+                    heap: RefShape::Repr(boxed_type),
                 }));
                 assignments.push(Assignment {
                     destination: boxed,
-                    kind: AssignmentKind::StructNew {
+                    kind: AssignmentKind::ProductNew {
                         destination: boxed,
-                        type_index: boxed_type,
+                        representation: boxed_type,
                         arguments: vec![value],
                     },
                     span,
                 });
                 boxed
             }
-            ValueType::Ref(crate::types::RefType {
+            ValueShape::Reference(Reference {
                 nullable: false,
-                heap: crate::types::HeapType::Eq,
+                heap: RefShape::Erased,
             }) => value,
-            ValueType::Ref(_) => {
-                let cast = self.fresh(ValueType::Ref(crate::types::RefType {
+            ValueShape::Reference(_) => {
+                let cast = self.fresh(ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Eq,
+                    heap: RefShape::Erased,
                 }));
                 assignments.push(Assignment {
                     destination: cast,
-                    kind: AssignmentKind::RefCast {
+                    kind: AssignmentKind::RepresentationCast {
                         destination: cast,
                         value,
-                        reference: crate::types::RefType {
+                        reference: Reference {
                             nullable: false,
-                            heap: crate::types::HeapType::Eq,
+                            heap: RefShape::Erased,
                         },
                     },
                     span,
                 });
                 cast
-            }
-            _ => {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "parameterized constructor field cannot be erased yet",
-                )]);
             }
         };
         let erased_type = self
@@ -399,23 +389,23 @@ impl FunctionLowerer<'_> {
             .map(|declaration| declaration.ty)
             .expect("erased value was just allocated or already exists");
         if erased_type
-            != ValueType::Ref(crate::types::RefType {
+            != ValueShape::Reference(Reference {
                 nullable: false,
-                heap: crate::types::HeapType::Eq,
+                heap: RefShape::Erased,
             })
         {
-            let cast = self.fresh(ValueType::Ref(crate::types::RefType {
+            let cast = self.fresh(ValueShape::Reference(Reference {
                 nullable: false,
-                heap: crate::types::HeapType::Eq,
+                heap: RefShape::Erased,
             }));
             assignments.push(Assignment {
                 destination: cast,
-                kind: AssignmentKind::RefCast {
+                kind: AssignmentKind::RepresentationCast {
                     destination: cast,
                     value: erased,
-                    reference: crate::types::RefType {
+                    reference: Reference {
                         nullable: false,
-                        heap: crate::types::HeapType::Eq,
+                        heap: RefShape::Erased,
                     },
                 },
                 span,
@@ -435,16 +425,23 @@ fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> 
     parameters
 }
 
-fn erased_reference_type() -> ValueType {
-    ValueType::Ref(RefType {
+fn erased_reference_type() -> ValueShape {
+    ValueShape::Reference(Reference {
         nullable: false,
-        heap: HeapType::Eq,
+        heap: RefShape::Erased,
     })
 }
 
-fn closure_value_type() -> ValueType {
-    ValueType::Ref(RefType {
+fn closure_value_type() -> ValueShape {
+    ValueShape::Reference(Reference {
         nullable: false,
-        heap: HeapType::Struct,
+        heap: RefShape::Aggregate,
+    })
+}
+
+fn closure_value_type_for(signature: SignatureId) -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Closure(signature),
     })
 }

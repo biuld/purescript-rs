@@ -1,6 +1,11 @@
-use super::*;
-use crate::types::FunctionSignature;
+use super::{depends_on_type_variable, layout_error, newtype_field_type, user_type_id};
+use crate::BackendError;
+use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
 use psrs_core::ExprKind;
+use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
+use psrs_hir::TypeId as HirTypeId;
+use psrs_span::TextRange;
+use std::collections::{HashMap, HashSet};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn declaration_shape(
@@ -9,10 +14,10 @@ pub(crate) fn declaration_shape(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, u32>,
-    record_types: &HashMap<TypeId, u32>,
-    function_types: &HashMap<TypeId, u32>,
-) -> Result<FunctionSignature, Vec<BackendError>> {
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    function_types: &HashMap<TypeId, SignatureId>,
+) -> Result<Signature, Vec<BackendError>> {
     let mut ty = declaration.ty;
     let mut parameters = Vec::new();
     let mut value = &declaration.value;
@@ -46,26 +51,26 @@ pub(crate) fn declaration_shape(
         value = body;
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(FunctionSignature {
+        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(Signature {
             parameters,
-            result: ValueType::I32,
+            result: ValueShape::Integer,
         }),
-        Some(Type::F64) => Ok(FunctionSignature {
+        Some(Type::F64) => Ok(Signature {
             parameters,
-            result: ValueType::F64,
+            result: ValueShape::Number,
         }),
-        Some(Type::Boolean) => Ok(FunctionSignature {
+        Some(Type::Boolean) => Ok(Signature {
             parameters,
-            result: ValueType::Boolean,
+            result: ValueShape::Boolean,
         }),
-        Some(Type::Variable(_)) => Ok(FunctionSignature {
+        Some(Type::Variable(_)) => Ok(Signature {
             parameters,
-            result: ValueType::Ref(RefType {
+            result: ValueShape::Reference(Reference {
                 nullable: false,
-                heap: HeapType::Eq,
+                heap: RefShape::Erased,
             }),
         }),
-        Some(Type::Function { .. }) => Ok(FunctionSignature {
+        Some(Type::Function { .. }) => Ok(Signature {
             parameters,
             result: scalar_type(
                 module,
@@ -80,28 +85,31 @@ pub(crate) fn declaration_shape(
             )?,
         }),
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
-            Ok(FunctionSignature {
+            Ok(Signature {
                 parameters,
-                result: ValueType::I32,
+                result: ValueShape::Integer,
             })
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
-            Ok(FunctionSignature {
+            Ok(Signature {
                 parameters,
                 result: aggregate_value_type(),
             })
         }
-        Some(Type::Record(_)) if record_types.contains_key(&ty) => Ok(FunctionSignature {
+        Some(Type::Record(_)) if record_types.contains_key(&ty) => Ok(Signature {
             parameters,
-            result: aggregate_value_type_for(record_types[&ty]),
+            result: ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(record_types[&ty]),
+            }),
         }),
         Some(Type::Application(_, _)) => {
-            if let Some(type_index) = array_types.get(&ty) {
-                return Ok(FunctionSignature {
+            if let Some(array_repr) = array_types.get(&ty) {
+                return Ok(Signature {
                     parameters,
-                    result: ValueType::Ref(RefType {
+                    result: ValueShape::Reference(Reference {
                         nullable: false,
-                        heap: HeapType::Index(*type_index),
+                        heap: RefShape::Repr(*array_repr),
                     }),
                 });
             }
@@ -113,12 +121,12 @@ pub(crate) fn declaration_shape(
                 )]);
             };
             if enum_types.contains(&type_id) {
-                Ok(FunctionSignature {
+                Ok(Signature {
                     parameters,
-                    result: ValueType::I32,
+                    result: ValueShape::Integer,
                 })
             } else if aggregate_types.contains(&type_id) {
-                Ok(FunctionSignature {
+                Ok(Signature {
                     parameters,
                     result: aggregate_value_type(),
                 })
@@ -133,7 +141,7 @@ pub(crate) fn declaration_shape(
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
-            Ok(FunctionSignature {
+            Ok(Signature {
                 parameters,
                 result: scalar_type(
                     module,
@@ -156,7 +164,7 @@ pub(crate) fn declaration_shape(
         Some(Type::Record(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
-            "record type has no concrete GC struct layout",
+            "record type has no representation requirement",
         )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -174,38 +182,48 @@ pub(crate) fn scalar_type(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, u32>,
-    record_types: &HashMap<TypeId, u32>,
-    function_types: &HashMap<TypeId, u32>,
-) -> Result<ValueType, Vec<BackendError>> {
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    function_types: &HashMap<TypeId, SignatureId>,
+) -> Result<ValueShape, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(ValueType::I32),
-        Some(Type::F64) => Ok(ValueType::F64),
-        Some(Type::Boolean) => Ok(ValueType::Boolean),
-        Some(Type::Variable(_)) => Ok(ValueType::Ref(RefType {
+        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(ValueShape::Integer),
+        Some(Type::F64) => Ok(ValueShape::Number),
+        Some(Type::Boolean) => Ok(ValueShape::Boolean),
+        Some(Type::Variable(_)) => Ok(ValueShape::Reference(Reference {
             nullable: false,
-            heap: HeapType::Eq,
+            heap: RefShape::Erased,
         })),
         Some(Type::Function { .. }) => {
             if !function_types.contains_key(&id) {
                 return Err(layout_error(span, "function type has no runtime layout"));
             }
-            Ok(aggregate_value_type())
+            if depends_on_type_variable(module, id) {
+                Ok(ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Erased,
+                }))
+            } else {
+                Ok(closure_value_type_for(function_types[&id]))
+            }
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
-            Ok(ValueType::I32)
+            Ok(ValueShape::Integer)
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok(aggregate_value_type())
         }
         Some(Type::Application(_, _)) if array_types.contains_key(&id) => {
-            Ok(ValueType::Ref(RefType {
+            Ok(ValueShape::Reference(Reference {
                 nullable: false,
-                heap: HeapType::Index(array_types[&id]),
+                heap: RefShape::Repr(array_types[&id]),
             }))
         }
         Some(Type::Record(_)) if record_types.contains_key(&id) => {
-            Ok(aggregate_value_type_for(record_types[&id]))
+            Ok(ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(record_types[&id]),
+            }))
         }
         Some(Type::Application(_, _)) => {
             let Some(type_id) = user_type_id(module, id) else {
@@ -216,7 +234,7 @@ pub(crate) fn scalar_type(
                 )]);
             };
             if enum_types.contains(&type_id) {
-                Ok(ValueType::I32)
+                Ok(ValueShape::Integer)
             } else if aggregate_types.contains(&type_id) {
                 Ok(aggregate_value_type())
             } else {
@@ -253,7 +271,7 @@ pub(crate) fn scalar_type(
         Some(Type::Record(_)) => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,
-            "record type has no concrete GC struct layout",
+            "record type has no representation requirement",
         )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -263,16 +281,16 @@ pub(crate) fn scalar_type(
     }
 }
 
-fn aggregate_value_type() -> ValueType {
-    ValueType::Ref(RefType {
+fn aggregate_value_type() -> ValueShape {
+    ValueShape::Reference(Reference {
         nullable: false,
-        heap: HeapType::Struct,
+        heap: RefShape::Aggregate,
     })
 }
 
-fn aggregate_value_type_for(type_index: u32) -> ValueType {
-    ValueType::Ref(RefType {
+fn closure_value_type_for(signature: SignatureId) -> ValueShape {
+    ValueShape::Reference(Reference {
         nullable: false,
-        heap: HeapType::Index(type_index),
+        heap: RefShape::Closure(signature),
     })
 }

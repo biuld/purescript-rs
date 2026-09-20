@@ -1,4 +1,4 @@
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::{Expr, Type};
@@ -8,14 +8,14 @@ impl FunctionLowerer<'_> {
         &mut self,
         expression: &Expr,
         fields: &[(String, Expr)],
-        ty: ValueType,
+        ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(type_index) = self.record_types.get(&expression.ty).copied() else {
+        let Some(representation) = self.record_types.get(&expression.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                "record expression has no concrete GC struct layout",
+                "record expression has no representation requirement",
             )]);
         };
         let labels = match self.module.types.get(expression.ty.0 as usize) {
@@ -45,9 +45,9 @@ impl FunctionLowerer<'_> {
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
-            kind: AssignmentKind::StructNew {
+            kind: AssignmentKind::ProductNew {
                 destination,
-                type_index,
+                representation,
                 arguments,
             },
             span: expression.span,
@@ -60,14 +60,14 @@ impl FunctionLowerer<'_> {
         expression: &Expr,
         record: &Expr,
         fields: &[(String, Expr)],
-        ty: ValueType,
+        ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(type_index) = self.record_types.get(&record.ty).copied() else {
+        let Some(representation) = self.record_types.get(&record.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                "record update has no concrete GC struct layout",
+                "record update has no representation requirement",
             )]);
         };
         let labels = match self.module.types.get(record.ty.0 as usize) {
@@ -107,9 +107,9 @@ impl FunctionLowerer<'_> {
             let value = self.fresh(value_ty);
             assignments.push(Assignment {
                 destination: value,
-                kind: AssignmentKind::StructGet {
+                kind: AssignmentKind::ProductGet {
                     destination: value,
-                    type_index,
+                    representation,
                     field: field_index as u32,
                     value: base,
                 },
@@ -120,9 +120,9 @@ impl FunctionLowerer<'_> {
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
-            kind: AssignmentKind::StructNew {
+            kind: AssignmentKind::ProductNew {
                 destination,
-                type_index,
+                representation,
                 arguments,
             },
             span: expression.span,
@@ -135,14 +135,14 @@ impl FunctionLowerer<'_> {
         expression: &Expr,
         record: &Expr,
         field: &str,
-        ty: ValueType,
+        ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(type_index) = self.record_types.get(&record.ty).copied() else {
+        let Some(representation) = self.record_types.get(&record.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                "record field access has no concrete GC struct layout",
+                "record field access has no representation requirement",
             )]);
         };
         let Some(field_index) =
@@ -164,9 +164,9 @@ impl FunctionLowerer<'_> {
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
-            kind: AssignmentKind::StructGet {
+            kind: AssignmentKind::ProductGet {
                 destination,
-                type_index,
+                representation,
                 field: field_index as u32,
                 value: record,
             },

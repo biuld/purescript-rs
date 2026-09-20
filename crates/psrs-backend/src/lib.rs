@@ -1,10 +1,13 @@
 pub mod abi;
+mod bindings;
 pub mod capability;
 pub mod cc;
 pub mod component;
 pub mod mir;
 pub mod types;
 pub mod wasm;
+
+pub use bindings::{BackendInput, ExternalBinding, ExternalBindings};
 
 pub use capability::TargetCapabilities;
 
@@ -94,8 +97,11 @@ pub fn compile_with_target(
     module: psrs_core::Module,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
-    let cc = cc::lower_module(module)?;
-    let (mir, mut wasi) = mir::lower_module_with_capabilities(cc.clone(), target)?;
+    let external_bindings = ExternalBindings::from_core(&module);
+    let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
+    let cc = lowered_cc.cc;
+    let (mir, mut wasi) =
+        mir::lower_module_with_bindings(cc.clone(), lowered_cc.externals, target)?;
     let owner = mir.entry.map(|entry| entry.module);
     if !target.component_model
         || !target.wasi_p2

@@ -1,5 +1,8 @@
-use super::layout::{Signature, depends_on_type_variable, scalar_type};
-use super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueType};
+use super::layout::{depends_on_type_variable, scalar_type};
+use super::{
+    Assignment, AssignmentKind, Function, ReprId, Signature, SignatureId, ValueDecl, ValueId,
+    ValueShape,
+};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::{LocalId, SymbolId, TypeId as HirTypeId};
@@ -21,16 +24,14 @@ pub(super) struct LoweringContext<'a> {
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
-    pub(super) boxed_i32_type: Option<u32>,
-    pub(super) boxed_f64_type: Option<u32>,
-    pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
-    pub(super) record_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) boxed_integer_type: Option<ReprId>,
+    pub(super) boxed_number_type: Option<ReprId>,
+    pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
+    pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
-    pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
-    pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
-    pub(super) capture_array_type: Option<u32>,
-    pub(super) closure_type: Option<u32>,
+    pub(super) constructor_types: &'a HashMap<SymbolId, ReprId>,
+    pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
 }
 
@@ -48,16 +49,14 @@ pub(super) fn lower_function(
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: context.newtype_ids,
-        boxed_i32_type: context.boxed_i32_type,
-        boxed_f64_type: context.boxed_f64_type,
+        boxed_integer_type: context.boxed_integer_type,
+        boxed_number_type: context.boxed_number_type,
         array_types: context.array_types,
         record_types: context.record_types,
         constructor_tags: context.constructor_tags,
         constructors_by_type: context.constructors_by_type,
         constructor_types: context.constructor_types,
         function_types: context.function_types,
-        capture_array_type: context.capture_array_type,
-        closure_type: context.closure_type,
         function_wrappers: context.function_wrappers,
         erased_function_types: HashMap::new(),
         generated: Vec::new(),
@@ -119,23 +118,21 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
-    pub(super) boxed_i32_type: Option<u32>,
-    pub(super) boxed_f64_type: Option<u32>,
-    pub(super) array_types: &'a HashMap<psrs_core::TypeId, u32>,
-    pub(super) record_types: &'a HashMap<psrs_core::TypeId, u32>,
+    pub(super) boxed_integer_type: Option<ReprId>,
+    pub(super) boxed_number_type: Option<ReprId>,
+    pub(super) array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
+    pub(super) record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
     pub(super) constructor_tags: &'a HashMap<SymbolId, u32>,
     pub(super) constructors_by_type: &'a HashMap<HirTypeId, Vec<(SymbolId, u32)>>,
-    pub(super) constructor_types: &'a HashMap<SymbolId, u32>,
-    pub(super) function_types: &'a HashMap<psrs_core::TypeId, u32>,
-    pub(super) capture_array_type: Option<u32>,
-    pub(super) closure_type: Option<u32>,
+    pub(super) constructor_types: &'a HashMap<SymbolId, ReprId>,
+    pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }
 
 impl FunctionLowerer<'_> {
-    pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
+    pub(super) fn fresh(&mut self, ty: ValueShape) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;
         self.values.push(ValueDecl { id, ty });
@@ -216,11 +213,11 @@ impl FunctionLowerer<'_> {
                 self.lower_field_access(expression, record, field, ty, assignments)
             }
             ExprKind::ArrayIndex { array, index } => {
-                let Some(type_index) = self.array_types.get(&array.ty).copied() else {
+                let Some(representation) = self.array_types.get(&array.ty).copied() else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",
                         expression.span,
-                        "array expression has no concrete GC array layout",
+                        "array expression has no representation requirement",
                     )]);
                 };
                 let array = self.lower_value(array, assignments)?;
@@ -230,7 +227,7 @@ impl FunctionLowerer<'_> {
                     destination,
                     kind: AssignmentKind::ArrayGet {
                         destination,
-                        type_index,
+                        representation,
                         value: array,
                         index,
                     },
@@ -293,7 +290,7 @@ impl FunctionLowerer<'_> {
                 let destination = self.fresh(ty);
                 if self.aggregate_types.contains(&constructor.type_id) {
                     let mut values = Vec::with_capacity(arguments.len() + 1);
-                    let tag_value = self.fresh(ValueType::I32);
+                    let tag_value = self.fresh(ValueShape::Integer);
                     assignments.push(Assignment {
                         destination: tag_value,
                         kind: AssignmentKind::Constant(tag as i32),
@@ -311,18 +308,18 @@ impl FunctionLowerer<'_> {
                             values.push(value);
                         }
                     }
-                    let Some(type_index) = self.constructor_types.get(symbol).copied() else {
+                    let Some(representation) = self.constructor_types.get(symbol).copied() else {
                         return Err(vec![BackendError::new(
                             "P8 closure conversion",
                             expression.span,
-                            "aggregate constructor has no GC type layout",
+                            "aggregate constructor has no representation requirement",
                         )]);
                     };
                     assignments.push(Assignment {
                         destination,
-                        kind: AssignmentKind::StructNew {
+                        kind: AssignmentKind::ProductNew {
                             destination,
-                            type_index,
+                            representation,
                             arguments: values,
                         },
                         span: expression.span,

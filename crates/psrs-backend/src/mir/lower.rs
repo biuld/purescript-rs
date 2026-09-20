@@ -1,3 +1,4 @@
+use super::layout::{LayoutError, PlannedLayout};
 use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
@@ -9,9 +10,18 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
+fn layout_error(span: TextRange, error: LayoutError) -> Vec<BackendError> {
+    vec![BackendError::new(
+        "P9 MIR lowering",
+        span,
+        format!("invalid concrete layout request: {error:?}"),
+    )]
+}
+
 pub(super) fn lower_function(
     source: &cc::Function,
     wit_imports: &HashMap<SymbolId, WasiImport>,
+    layout: &PlannedLayout,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
@@ -22,7 +32,18 @@ pub(super) fn lower_function(
             instructions: Vec::new(),
             terminator: None,
         }],
-        values: source.values.clone(),
+        values: source
+            .values
+            .iter()
+            .map(|value| {
+                Ok(ValueDecl {
+                    id: value.id,
+                    ty: layout
+                        .value_type(&value.ty)
+                        .map_err(|error| layout_error(source.span, error))?,
+                })
+            })
+            .collect::<Result<Vec<_>, Vec<BackendError>>>()?,
         next_value: source
             .values
             .iter()
@@ -30,6 +51,7 @@ pub(super) fn lower_function(
             .max()
             .map_or(0, |max| max + 1),
         wit_imports,
+        layout,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -48,19 +70,19 @@ pub(super) fn lower_function(
         entry,
         blocks: lowerer.blocks,
         result: source.result,
-        result_type: source.result_type,
+        result_type: layout
+            .value_type(&source.result_type)
+            .map_err(|error| layout_error(source.span, error))?,
         span: source.span,
     })
 }
-
 pub(super) struct FunctionLowerer<'a> {
     next_block: u32,
     blocks: Vec<BasicBlock>,
     values: Vec<ValueDecl>,
     next_value: u32,
-    /// Canonical ABI descriptors for the module's source-declared WIT imports,
-    /// keyed by the external symbol a call targets.
     wit_imports: &'a HashMap<SymbolId, WasiImport>,
+    layout: &'a PlannedLayout,
 }
 
 impl FunctionLowerer<'_> {
@@ -70,7 +92,6 @@ impl FunctionLowerer<'_> {
         self.values.push(ValueDecl { id, ty });
         id
     }
-
     fn lower_assignments(
         &mut self,
         assignments: &[cc::Assignment],
@@ -116,7 +137,7 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
-                AssignmentKind::RefTest {
+                AssignmentKind::RepresentationTest {
                     destination,
                     value,
                     reference,
@@ -125,12 +146,15 @@ impl FunctionLowerer<'_> {
                     Instruction::RefTest {
                         destination: *destination,
                         value: *value,
-                        reference: *reference,
+                        reference: self
+                            .layout
+                            .reference(reference)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         span: assignment.span,
                     },
                     assignment.span,
                 )?,
-                AssignmentKind::RefCast {
+                AssignmentKind::RepresentationCast {
                     destination,
                     value,
                     reference,
@@ -139,35 +163,44 @@ impl FunctionLowerer<'_> {
                     Instruction::RefCast {
                         destination: *destination,
                         value: *value,
-                        reference: *reference,
+                        reference: self
+                            .layout
+                            .reference(reference)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         span: assignment.span,
                     },
                     assignment.span,
                 )?,
-                AssignmentKind::StructNew {
+                AssignmentKind::ProductNew {
                     destination,
-                    type_index,
+                    representation,
                     arguments,
                 } => self.append_instruction(
                     current,
                     Instruction::StructNew {
                         destination: *destination,
-                        type_index: *type_index,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         arguments: arguments.clone(),
                         span: assignment.span,
                     },
                     assignment.span,
                 )?,
-                AssignmentKind::StructGet {
+                AssignmentKind::ProductGet {
                     destination,
-                    type_index,
+                    representation,
                     field,
                     value,
                 } => self.append_instruction(
                     current,
                     Instruction::StructGet {
                         destination: *destination,
-                        type_index: *type_index,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         field: *field,
                         value: *value,
                         span: assignment.span,
@@ -176,13 +209,16 @@ impl FunctionLowerer<'_> {
                 )?,
                 AssignmentKind::ArrayNew {
                     destination,
-                    type_index,
+                    representation,
                     elements,
                 } => self.append_instruction(
                     current,
                     Instruction::ArrayNew {
                         destination: *destination,
-                        type_index: *type_index,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         elements: elements.clone(),
                         span: assignment.span,
                     },
@@ -199,14 +235,17 @@ impl FunctionLowerer<'_> {
                 )?,
                 AssignmentKind::ArrayGet {
                     destination,
-                    type_index,
+                    representation,
                     value,
                     index,
                 } => self.append_instruction(
                     current,
                     Instruction::ArrayGet {
                         destination: *destination,
-                        type_index: *type_index,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         value: *value,
                         index: *index,
                         span: assignment.span,
@@ -214,7 +253,7 @@ impl FunctionLowerer<'_> {
                     assignment.span,
                 )?,
                 AssignmentKind::ArraySet {
-                    type_index,
+                    representation,
                     value,
                     index,
                     new_value,
@@ -222,7 +261,10 @@ impl FunctionLowerer<'_> {
                 } => self.append_instruction(
                     current,
                     Instruction::ArraySet {
-                        type_index: *type_index,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
                         value: *value,
                         index: *index,
                         new_value: *new_value,
@@ -258,63 +300,76 @@ impl FunctionLowerer<'_> {
                 }
                 AssignmentKind::FunctionRef {
                     function,
-                    type_index,
-                    closure_type,
-                    capture_array_type,
-                    boxed_f64_type,
+                    signature,
                     captures,
-                } => self.append_instruction(
-                    current,
-                    Instruction::ClosureNew {
-                        destination: assignment.destination,
-                        function: *function,
-                        type_index: *type_index,
-                        closure_type: *closure_type,
-                        capture_array_type: *capture_array_type,
-                        boxed_f64_type: *boxed_f64_type,
-                        captures: captures.clone(),
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
+                } => {
+                    let (closure_type, capture_array_type) = self
+                        .layout
+                        .closure_layout()
+                        .map_err(|error| layout_error(assignment.span, error))?;
+                    self.append_instruction(
+                        current,
+                        Instruction::ClosureNew {
+                            destination: assignment.destination,
+                            function: *function,
+                            type_index: self
+                                .layout
+                                .signature_index(*signature)
+                                .map_err(|error| layout_error(assignment.span, error))?,
+                            closure_type,
+                            capture_array_type,
+                            boxed_f64_type: self.layout.boxed_number_index(),
+                            captures: captures.clone(),
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?
+                }
                 AssignmentKind::IndirectCall {
                     function,
-                    type_index,
-                    closure_type,
-                    capture_array_type,
+                    signature,
                     arguments,
-                } => self.append_instruction(
-                    current,
-                    Instruction::ClosureCall {
-                        destination: assignment.destination,
-                        function: *function,
-                        type_index: *type_index,
-                        closure_type: *closure_type,
-                        capture_array_type: *capture_array_type,
-                        arguments: arguments.clone(),
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
-                AssignmentKind::ClosureGetCapture {
-                    closure,
-                    closure_type,
-                    capture_array_type,
-                    boxed_f64_type,
-                    index,
-                } => self.append_instruction(
-                    current,
-                    Instruction::ClosureGetCapture {
-                        destination: assignment.destination,
-                        closure: *closure,
-                        closure_type: *closure_type,
-                        capture_array_type: *capture_array_type,
-                        boxed_f64_type: *boxed_f64_type,
-                        index: *index,
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
+                } => {
+                    let (closure_type, capture_array_type) = self
+                        .layout
+                        .closure_layout()
+                        .map_err(|error| layout_error(assignment.span, error))?;
+                    self.append_instruction(
+                        current,
+                        Instruction::ClosureCall {
+                            destination: assignment.destination,
+                            function: *function,
+                            type_index: self
+                                .layout
+                                .signature_index(*signature)
+                                .map_err(|error| layout_error(assignment.span, error))?,
+                            closure_type,
+                            capture_array_type,
+                            arguments: arguments.clone(),
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?
+                }
+                AssignmentKind::ClosureGetCapture { closure, index } => {
+                    let (closure_type, capture_array_type) = self
+                        .layout
+                        .closure_layout()
+                        .map_err(|error| layout_error(assignment.span, error))?;
+                    self.append_instruction(
+                        current,
+                        Instruction::ClosureGetCapture {
+                            destination: assignment.destination,
+                            closure: *closure,
+                            closure_type,
+                            capture_array_type,
+                            boxed_f64_type: self.layout.boxed_number_index(),
+                            index: *index,
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?
+                }
                 AssignmentKind::If {
                     condition,
                     then_assignments,
@@ -362,7 +417,6 @@ impl FunctionLowerer<'_> {
         }
         Ok(current)
     }
-
     fn new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
         let id = BlockId(self.next_block);
         self.next_block += 1;

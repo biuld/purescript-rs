@@ -1,28 +1,32 @@
-use crate::abi::{self, SourceSignature, SourceType};
-use crate::types::{RecGroup, RefType};
-use crate::{BackendError, annotate_errors};
+use crate::abi::{SourceSignature, SourceType};
+use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
 use psrs_core::{Module as CoreModule, Primitive};
-use psrs_hir::{ExternalKind, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod case;
 mod layout;
 mod lower;
+mod representation;
 mod verify;
 
-use layout::{
-    Signature, aggregate_type_ids, declaration_shape, enum_type_ids, runtime_signature, type_layout,
-};
+use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
 use lower::{LoweringContext, lower_function};
 
-pub use crate::types::{ValueDecl, ValueId, ValueType};
+pub use crate::types::ValueId;
+pub use representation::{
+    RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
+    ValueDecl, ValueShape,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
     pub externals: Vec<External>,
-    pub types: Vec<RecGroup>,
+    /// Target-neutral representation requirements. P9 owns their concrete
+    /// layout and the Wasm type table.
+    pub representations: RepresentationTable,
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver. A stable symbol
     /// rather than a source name, per `docs/design/D-02-wasm-lowering.md`.
@@ -30,14 +34,12 @@ pub struct Module {
     pub span: TextRange,
 }
 
-/// A source WIT binding after its HIR type has been reduced to the ABI
-/// vocabulary. MIR resolves the binding and stores only canonical imports.
+/// A target-neutral external declaration. Platform binding metadata is kept in
+/// [`ExternalBindings`] and is not part of CC identity or equality.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct External {
     pub symbol: SymbolId,
-    pub interface: String,
-    pub function: String,
-    pub signature: Option<SourceSignature>,
+    pub signature: Option<Signature>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +50,7 @@ pub struct Function {
     pub values: Vec<ValueDecl>,
     pub assignments: Vec<Assignment>,
     pub result: ValueId,
-    pub result_type: ValueType,
+    pub result_type: ValueShape,
     pub span: TextRange,
 }
 
@@ -75,50 +77,42 @@ pub enum AssignmentKind {
     },
     FunctionRef {
         function: SymbolId,
-        type_index: u32,
-        closure_type: u32,
-        capture_array_type: u32,
-        boxed_f64_type: Option<u32>,
+        signature: SignatureId,
         captures: Vec<ValueId>,
     },
     IndirectCall {
         function: ValueId,
-        type_index: u32,
-        closure_type: u32,
-        capture_array_type: u32,
+        signature: SignatureId,
         arguments: Vec<ValueId>,
     },
     ClosureGetCapture {
         closure: ValueId,
-        closure_type: u32,
-        capture_array_type: u32,
-        boxed_f64_type: Option<u32>,
         index: u32,
     },
-    RefTest {
+    RepresentationTest {
         destination: ValueId,
         value: ValueId,
-        reference: RefType,
+        reference: Reference,
     },
-    RefCast {
+    RepresentationCast {
         destination: ValueId,
         value: ValueId,
-        reference: RefType,
+        reference: Reference,
     },
-    StructNew {
+    ProductNew {
         destination: ValueId,
-        type_index: u32,
+        representation: ReprId,
         arguments: Vec<ValueId>,
     },
-    StructGet {
+    ProductGet {
         destination: ValueId,
-        type_index: u32,
+        representation: ReprId,
         field: u32,
         value: ValueId,
     },
     ArrayNew {
         destination: ValueId,
-        type_index: u32,
+        representation: ReprId,
         elements: Vec<ValueId>,
     },
     ArrayLen {
@@ -127,13 +121,13 @@ pub enum AssignmentKind {
     },
     ArrayGet {
         destination: ValueId,
-        type_index: u32,
+        representation: ReprId,
         value: ValueId,
         index: ValueId,
     },
     ArraySet {
         destination: ValueId,
-        type_index: u32,
+        representation: ReprId,
         value: ValueId,
         index: ValueId,
         new_value: ValueId,
@@ -147,7 +141,19 @@ pub enum AssignmentKind {
     },
 }
 
-pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
+/// Lowers Core with the default backend-side external binding extraction.
+/// Prefer [`lower_module_with_bindings`] when the caller already owns the
+/// backend input boundary.
+pub fn lower_module(module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
+    let bindings = ExternalBindings::from_core(&module);
+    lower_module_with_bindings(module, bindings)
+}
+
+/// Lowers Core into target-neutral CC using bindings supplied beside CC.
+pub fn lower_module_with_bindings(
+    module: CoreModule,
+    bindings: ExternalBindings,
+) -> Result<BackendInput, Vec<BackendError>> {
     if let Err(errors) = module.verify() {
         return Err(annotate_errors(
             errors
@@ -191,25 +197,15 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         signatures.insert(declaration.symbol, signature);
     }
     let mut externals = Vec::new();
-    for external in &module.externals {
-        if let ExternalKind::Wit {
-            interface,
-            function,
-        } = &external.kind
-        {
-            let source_signature = external.signature.as_ref().and_then(abi::source_signature);
-            if let Some(signature) = source_signature.as_ref().and_then(cc_signature) {
-                signatures.insert(external.symbol, signature);
-            }
-            externals.push(External {
-                symbol: external.symbol,
-                interface: interface.clone(),
-                function: function.clone(),
-                signature: source_signature,
-            });
-        } else if let Some(signature) = runtime_signature(external) {
-            signatures.insert(external.symbol, signature);
+    for binding in &bindings.imports {
+        let signature = binding.signature.as_ref().and_then(cc_signature);
+        if let Some(signature) = &signature {
+            signatures.insert(binding.symbol, signature.clone());
         }
+        externals.push(External {
+            symbol: binding.symbol,
+            signature,
+        });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
     let function_wrappers = module
@@ -231,16 +227,14 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,
-        boxed_i32_type: layout.boxed_i32_type,
-        boxed_f64_type: layout.boxed_f64_type,
+        boxed_integer_type: layout.boxed_integer_type,
+        boxed_number_type: layout.boxed_number_type,
         array_types: &layout.array_types,
         record_types: &layout.record_types,
         constructor_tags: &constructor_tags,
         constructors_by_type: &constructors_by_type,
         constructor_types: &layout.constructor_types,
         function_types: &layout.function_types,
-        capture_array_type: layout.capture_array_type,
-        closure_type: layout.closure_type,
         function_wrappers: &function_wrappers,
     };
     for declaration in &module.declarations {
@@ -256,13 +250,16 @@ pub fn lower_module(module: CoreModule) -> Result<Module, Vec<BackendError>> {
     let cc = Module {
         name: module.name,
         externals,
-        types: layout.types,
+        representations: layout.representations,
         functions,
         entry: module.entry,
         span: module.span,
     };
     verify::verify_module(&cc)?;
-    Ok(cc)
+    Ok(BackendInput {
+        cc,
+        externals: bindings,
+    })
 }
 
 fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
@@ -277,10 +274,10 @@ fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
     })
 }
 
-fn scalar_source_type(ty: SourceType) -> Option<ValueType> {
+fn scalar_source_type(ty: SourceType) -> Option<ValueShape> {
     Some(match ty {
-        SourceType::Int | SourceType::String | SourceType::Unit => ValueType::I32,
-        SourceType::Boolean => ValueType::Boolean,
-        SourceType::Number => ValueType::F64,
+        SourceType::Int | SourceType::String | SourceType::Unit => ValueShape::Integer,
+        SourceType::Boolean => ValueShape::Boolean,
+        SourceType::Number => ValueShape::Number,
     })
 }

@@ -80,17 +80,11 @@ impl FunctionLowerer<'_> {
             },
             AssignmentKind::FunctionRef {
                 function,
-                type_index,
-                closure_type,
-                capture_array_type,
-                boxed_f64_type,
+                signature,
                 captures,
             } => AssignmentKind::FunctionRef {
                 function: *function,
-                type_index: *type_index,
-                closure_type: *closure_type,
-                capture_array_type: *capture_array_type,
-                boxed_f64_type: *boxed_f64_type,
+                signature: *signature,
                 captures: captures
                     .iter()
                     .map(|value| remap(*value, mapping))
@@ -98,81 +92,70 @@ impl FunctionLowerer<'_> {
             },
             AssignmentKind::IndirectCall {
                 function,
-                type_index,
-                closure_type,
-                capture_array_type,
+                signature,
                 arguments,
             } => AssignmentKind::IndirectCall {
                 function: remap(*function, mapping),
-                type_index: *type_index,
-                closure_type: *closure_type,
-                capture_array_type: *capture_array_type,
+                signature: *signature,
                 arguments: arguments
                     .iter()
                     .map(|value| remap(*value, mapping))
                     .collect(),
             },
-            AssignmentKind::ClosureGetCapture {
-                closure,
-                closure_type,
-                capture_array_type,
-                boxed_f64_type,
-                index,
-            } => AssignmentKind::ClosureGetCapture {
-                closure: remap(*closure, mapping),
-                closure_type: *closure_type,
-                capture_array_type: *capture_array_type,
-                boxed_f64_type: *boxed_f64_type,
-                index: *index,
-            },
-            AssignmentKind::RefTest {
+            AssignmentKind::ClosureGetCapture { closure, index } => {
+                AssignmentKind::ClosureGetCapture {
+                    closure: remap(*closure, mapping),
+                    index: *index,
+                }
+            }
+            AssignmentKind::RepresentationTest {
                 destination,
                 value,
                 reference,
-            } => AssignmentKind::RefTest {
+            } => AssignmentKind::RepresentationTest {
                 destination: remap(*destination, mapping),
                 value: remap(*value, mapping),
                 reference: *reference,
             },
-            AssignmentKind::RefCast {
+            AssignmentKind::RepresentationCast {
                 destination,
                 value,
                 reference,
-            } => AssignmentKind::RefCast {
+            } => AssignmentKind::RepresentationCast {
                 destination: remap(*destination, mapping),
                 value: remap(*value, mapping),
                 reference: *reference,
             },
-            AssignmentKind::StructNew {
+            AssignmentKind::ProductNew {
                 destination,
-                type_index,
+                representation,
                 arguments,
-            } => AssignmentKind::StructNew {
+            } => AssignmentKind::ProductNew {
                 destination: remap(*destination, mapping),
-                type_index: *type_index,
+                representation: *representation,
                 arguments: arguments
                     .iter()
                     .map(|value| remap(*value, mapping))
                     .collect(),
             },
-            AssignmentKind::StructGet {
+            AssignmentKind::ProductGet {
                 destination,
-                type_index,
+                representation,
                 field,
                 value,
-            } => AssignmentKind::StructGet {
+            } => AssignmentKind::ProductGet {
                 destination: remap(*destination, mapping),
-                type_index: *type_index,
+                representation: *representation,
                 field: *field,
                 value: remap(*value, mapping),
             },
             AssignmentKind::ArrayNew {
                 destination,
-                type_index,
+                representation,
                 elements,
             } => AssignmentKind::ArrayNew {
                 destination: remap(*destination, mapping),
-                type_index: *type_index,
+                representation: *representation,
                 elements: elements
                     .iter()
                     .map(|value| remap(*value, mapping))
@@ -184,24 +167,24 @@ impl FunctionLowerer<'_> {
             },
             AssignmentKind::ArrayGet {
                 destination,
-                type_index,
+                representation,
                 value,
                 index,
             } => AssignmentKind::ArrayGet {
                 destination: remap(*destination, mapping),
-                type_index: *type_index,
+                representation: *representation,
                 value: remap(*value, mapping),
                 index: remap(*index, mapping),
             },
             AssignmentKind::ArraySet {
                 destination,
-                type_index,
+                representation,
                 value,
                 index,
                 new_value,
             } => AssignmentKind::ArraySet {
                 destination: remap(*destination, mapping),
-                type_index: *type_index,
+                representation: *representation,
                 value: remap(*value, mapping),
                 index: remap(*index, mapping),
                 new_value: remap(*new_value, mapping),

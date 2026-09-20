@@ -1,4 +1,4 @@
-use super::super::{Assignment, AssignmentKind, ValueId, ValueType};
+use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::Expr;
@@ -8,14 +8,14 @@ impl FunctionLowerer<'_> {
         &mut self,
         expression: &Expr,
         elements: &[Expr],
-        ty: ValueType,
+        ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(type_index) = self.array_types.get(&expression.ty).copied() else {
+        let Some(representation) = self.array_types.get(&expression.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                "array expression has no concrete GC array layout",
+                "array expression has no representation requirement",
             )]);
         };
         let values = elements
@@ -27,7 +27,7 @@ impl FunctionLowerer<'_> {
             destination,
             kind: AssignmentKind::ArrayNew {
                 destination,
-                type_index,
+                representation,
                 elements: values,
             },
             span: expression.span,
@@ -43,11 +43,11 @@ impl FunctionLowerer<'_> {
         new_value: &Expr,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(type_index) = self.array_types.get(&array.ty).copied() else {
+        let Some(representation) = self.array_types.get(&array.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                "array update has no concrete GC array layout",
+                "array update has no representation requirement",
             )]);
         };
         let array = self.lower_value(array, assignments)?;
@@ -57,7 +57,7 @@ impl FunctionLowerer<'_> {
             destination: array,
             kind: AssignmentKind::ArraySet {
                 destination: array,
-                type_index,
+                representation,
                 value: array,
                 index,
                 new_value,

@@ -1,8 +1,9 @@
 use super::super::layout::scalar_type;
-use super::super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueType};
+use super::super::{
+    Assignment, AssignmentKind, Function, RefShape, Reference, ValueDecl, ValueId, ValueShape,
+};
 use super::{FunctionLowerer, LoweringContext};
 use crate::BackendError;
-use crate::types::{HeapType, RefType};
 use psrs_core::{Declaration, Expr, ExprKind, PatternKind};
 use psrs_hir::{LocalId, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -11,7 +12,7 @@ pub(super) trait LambdaLowering {
     fn lower_lambda(
         &mut self,
         expression: &Expr,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>>;
 
@@ -22,26 +23,17 @@ impl LambdaLowering for FunctionLowerer<'_> {
     fn lower_lambda(
         &mut self,
         expression: &Expr,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let ExprKind::Lambda { binder, body } = &expression.kind else {
             unreachable!("lambda lowering received another expression");
         };
-        let Some(type_index) = self.function_types.get(&expression.ty).copied() else {
+        let Some(signature) = self.function_types.get(&expression.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
                 "lambda has no runtime function type",
-            )]);
-        };
-        let (Some(closure_type), Some(capture_array_type)) =
-            (self.closure_type, self.capture_array_type)
-        else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                expression.span,
-                "lambda has no closure layout",
             )]);
         };
         let captures = lambda_captures(body, binder.id);
@@ -82,9 +74,6 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 destination,
                 kind: AssignmentKind::ClosureGetCapture {
                     closure: closure_parameter,
-                    closure_type,
-                    capture_array_type,
-                    boxed_f64_type: self.boxed_f64_type,
                     index: index as u32,
                 },
                 span: expression.span,
@@ -119,20 +108,42 @@ impl LambdaLowering for FunctionLowerer<'_> {
         super::super::verify::verify_function(&nested_function, self.signatures)?;
         self.generated.extend(nested.generated);
         self.generated.push(nested_function);
-        let destination = self.fresh(result_type);
+        let closure_result = self.fresh(ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Closure(signature),
+        }));
         assignments.push(Assignment {
-            destination,
+            destination: closure_result,
             kind: AssignmentKind::FunctionRef {
                 function: symbol,
-                type_index,
-                closure_type,
-                capture_array_type,
-                boxed_f64_type: self.boxed_f64_type,
+                signature,
                 captures: capture_values,
             },
             span: expression.span,
         });
-        Ok(destination)
+        if result_type
+            == ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Erased,
+            })
+        {
+            let destination = self.fresh(result_type);
+            assignments.push(Assignment {
+                destination,
+                kind: AssignmentKind::RepresentationCast {
+                    destination,
+                    value: closure_result,
+                    reference: Reference {
+                        nullable: false,
+                        heap: RefShape::Erased,
+                    },
+                },
+                span: expression.span,
+            });
+            Ok(destination)
+        } else {
+            Ok(closure_result)
+        }
     }
 
     fn child_lowerer(&self) -> FunctionLowerer<'_> {
@@ -145,16 +156,14 @@ impl LambdaLowering for FunctionLowerer<'_> {
             enum_types: self.enum_types,
             aggregate_types: self.aggregate_types,
             newtype_ids: self.newtype_ids,
-            boxed_i32_type: self.boxed_i32_type,
-            boxed_f64_type: self.boxed_f64_type,
+            boxed_integer_type: self.boxed_integer_type,
+            boxed_number_type: self.boxed_number_type,
             array_types: self.array_types,
             record_types: self.record_types,
             constructor_tags: self.constructor_tags,
             constructors_by_type: self.constructors_by_type,
             constructor_types: self.constructor_types,
             function_types: self.function_types,
-            capture_array_type: self.capture_array_type,
-            closure_type: self.closure_type,
             function_wrappers: self.function_wrappers,
             erased_function_types: HashMap::new(),
             generated: Vec::new(),
@@ -181,7 +190,7 @@ pub(super) fn make_wrapper(
             .values
             .iter()
             .find(|value| value.id == *parameter)
-            .map_or(ValueType::I32, |value| value.ty);
+            .map_or(ValueShape::Integer, |value| value.ty);
         values.push(ValueDecl { id, ty });
         parameters.push(id);
         arguments.push(id);
@@ -328,10 +337,10 @@ fn collect_pattern_locals(pattern: &PatternKind, bound: &mut HashSet<LocalId>) {
     }
 }
 
-fn closure_value_type() -> ValueType {
-    ValueType::Ref(RefType {
+fn closure_value_type() -> ValueShape {
+    ValueShape::Reference(Reference {
         nullable: false,
-        heap: HeapType::Struct,
+        heap: RefShape::Aggregate,
     })
 }
 

@@ -1,7 +1,7 @@
 use super::super::layout::depends_on_type_variable;
 use super::super::layout::function_signature;
-use super::super::{Assignment, AssignmentKind, ValueId};
-use super::{FunctionLowerer, Signature, ValueType};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId};
+use super::{FunctionLowerer, Signature, ValueShape};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Type};
 use psrs_hir::SymbolId;
@@ -12,7 +12,7 @@ pub(super) trait CallShape {
         &self,
         signature: &Signature,
         argument_count: usize,
-        result: ValueType,
+        result: ValueShape,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>>;
 }
@@ -21,7 +21,7 @@ pub(super) trait ApplicationLowering {
     fn lower_application(
         &mut self,
         expression: &Expr,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>>;
 }
@@ -30,7 +30,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
     fn lower_application(
         &mut self,
         expression: &Expr,
-        result_type: ValueType,
+        result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let (head, arguments) = collect_application(expression);
@@ -99,14 +99,15 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            if is_erased_value_type(signature.result) && result_type != signature.result {
-                let result = self.unbox_erased_value(
-                    call_result,
-                    result_type,
-                    expression.span,
-                    assignments,
-                )?;
-                if let Some(function_type) = returned_erased_function_type {
+            if is_erased_value_type(signature.result) {
+                let result = if result_type != signature.result {
+                    self.unbox_erased_value(call_result, result_type, expression.span, assignments)?
+                } else {
+                    call_result
+                };
+                if let Some(function_type) = returned_erased_function_type.or_else(|| {
+                    is_function_type(self.module, expression.ty).then_some(expression.ty)
+                }) {
                     self.erased_function_types.insert(result, function_type);
                 }
                 Ok(result)
@@ -125,6 +126,13 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 self.function_types,
             )?;
             self.check_call_shape(&signature, arguments.len(), result_type, expression.span)?;
+            let Some(signature_id) = self.function_types.get(&head.ty).copied() else {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    expression.span,
+                    "higher-order call has no runtime function type",
+                )]);
+            };
             let function = self.lower_value(head, assignments)?;
             let function = if let Some(source_type) =
                 self.erased_function_types.get(&function).copied()
@@ -140,37 +148,37 @@ impl ApplicationLowering for FunctionLowerer<'_> {
             } else {
                 function
             };
+            let function = if is_generic_function_type(self.module, head.ty) {
+                let cast = self.fresh(ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Closure(signature_id),
+                }));
+                assignments.push(Assignment {
+                    destination: cast,
+                    kind: AssignmentKind::RepresentationCast {
+                        destination: cast,
+                        value: function,
+                        reference: Reference {
+                            nullable: false,
+                            heap: RefShape::Closure(signature_id),
+                        },
+                    },
+                    span: expression.span,
+                });
+                cast
+            } else {
+                function
+            };
             let values = arguments
                 .into_iter()
                 .map(|argument| self.lower_value(argument, assignments))
                 .collect::<Result<Vec<_>, _>>()?;
-            let Some(type_index) = self.function_types.get(&head.ty).copied() else {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    expression.span,
-                    "higher-order call has no runtime function type",
-                )]);
-            };
             let destination = self.fresh(result_type);
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::IndirectCall {
                     function,
-                    type_index,
-                    closure_type: self.closure_type.ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "higher-order call has no closure layout",
-                        )]
-                    })?,
-                    capture_array_type: self.capture_array_type.ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "higher-order call has no capture array layout",
-                        )]
-                    })?,
+                    signature: signature_id,
                     arguments: values,
                 },
                 span: expression.span,
@@ -185,7 +193,7 @@ impl CallShape for FunctionLowerer<'_> {
         &self,
         signature: &Signature,
         argument_count: usize,
-        result: ValueType,
+        result: ValueShape,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         if signature.parameters.len() != argument_count {
@@ -202,9 +210,9 @@ impl CallShape for FunctionLowerer<'_> {
         if result != signature.result
             && !matches!(
                 signature.result,
-                ValueType::Ref(crate::types::RefType {
+                ValueShape::Reference(Reference {
                     nullable: false,
-                    heap: crate::types::HeapType::Eq,
+                    heap: RefShape::Erased,
                 })
             )
         {
@@ -229,12 +237,12 @@ pub(super) fn collect_application(expression: &Expr) -> (&Expr, Vec<&Expr>) {
     (head, arguments)
 }
 
-pub(super) fn is_erased_value_type(value_type: ValueType) -> bool {
+pub(super) fn is_erased_value_type(value_type: ValueShape) -> bool {
     matches!(
         value_type,
-        ValueType::Ref(crate::types::RefType {
+        ValueShape::Reference(Reference {
             nullable: false,
-            heap: crate::types::HeapType::Eq,
+            heap: RefShape::Erased,
         })
     )
 }

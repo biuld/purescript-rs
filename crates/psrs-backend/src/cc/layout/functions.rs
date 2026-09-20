@@ -1,8 +1,6 @@
 use super::{Signature, scalar_type};
 use crate::BackendError;
-use crate::types::{
-    CompositeType, DefinedType, FieldType, HeapType, RefType, StorageType, ValueType,
-};
+use crate::cc::{ReprId, RepresentationTable, SignatureId, ValueShape};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use std::collections::{HashMap, HashSet};
@@ -12,9 +10,9 @@ pub(super) fn append_function_types(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, u32>,
-    record_types: &HashMap<TypeId, u32>,
-    definitions: &mut Vec<DefinedType>,
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    representations: &mut RepresentationTable,
 ) -> Result<FunctionLayouts, Vec<BackendError>> {
     let needs_function_types = module.declarations.iter().any(|declaration| {
         let mut value = &declaration.value;
@@ -28,11 +26,9 @@ pub(super) fn append_function_types(
     if !needs_function_types {
         return Ok(FunctionLayouts {
             function_types: HashMap::new(),
-            capture_array_type: None,
-            closure_type: None,
         });
     }
-    let function_type_base = definitions.len() as u32;
+
     let function_ids = module
         .types
         .iter()
@@ -41,13 +37,18 @@ pub(super) fn append_function_types(
             matches!(ty, Type::Function { .. }).then_some(TypeId(index as u32))
         })
         .collect::<Vec<_>>();
-    let provisional_function_types = function_ids
-        .iter()
-        .enumerate()
-        .map(|(index, id)| (*id, function_type_base + index as u32))
-        .collect::<HashMap<_, _>>();
+    let mut provisional_function_types = HashMap::new();
+    for id in &function_ids {
+        let signature = SignatureId(representations.signatures.len() as u32);
+        representations.signatures.push(Signature {
+            parameters: Vec::new(),
+            result: ValueShape::Integer,
+        });
+        provisional_function_types.insert(*id, signature);
+    }
+
     let mut function_types = HashMap::new();
-    let mut definitions_by_signature = HashMap::new();
+    let mut signatures = HashMap::<Signature, SignatureId>::new();
     for id in function_ids {
         let signature = function_signature(
             module,
@@ -59,69 +60,22 @@ pub(super) fn append_function_types(
             record_types,
             &provisional_function_types,
         )?;
-        let type_index = if let Some(type_index) = definitions_by_signature.get(&signature) {
-            *type_index
+        let signature_id = if let Some(signature_id) = signatures.get(&signature) {
+            *signature_id
         } else {
-            let type_index = definitions.len() as u32;
-            definitions.push(DefinedType {
-                final_type: true,
-                supertype: None,
-                composite: CompositeType::Func {
-                    parameters: std::iter::once(closure_value_type())
-                        .chain(signature.parameters.clone())
-                        .collect(),
-                    results: vec![signature.result],
-                },
-            });
-            definitions_by_signature.insert(signature, type_index);
-            type_index
+            let signature_id = provisional_function_types[&id];
+            representations.signatures[signature_id.0 as usize] = signature.clone();
+            signatures.insert(signature, signature_id);
+            signature_id
         };
-        function_types.insert(id, type_index);
+        function_types.insert(id, signature_id);
     }
-    let capture_array_type = definitions.len() as u32;
-    definitions.push(DefinedType {
-        final_type: true,
-        supertype: None,
-        composite: CompositeType::Array(FieldType {
-            storage: StorageType::Ref(RefType {
-                nullable: true,
-                heap: HeapType::Eq,
-            }),
-            mutable: false,
-        }),
-    });
-    let closure_type = definitions.len() as u32;
-    definitions.push(DefinedType {
-        final_type: true,
-        supertype: None,
-        composite: CompositeType::Struct(vec![
-            FieldType {
-                storage: StorageType::Ref(RefType {
-                    nullable: false,
-                    heap: HeapType::Func,
-                }),
-                mutable: false,
-            },
-            FieldType {
-                storage: StorageType::Ref(RefType {
-                    nullable: false,
-                    heap: HeapType::Index(capture_array_type),
-                }),
-                mutable: false,
-            },
-        ]),
-    });
-    Ok(FunctionLayouts {
-        function_types,
-        capture_array_type: Some(capture_array_type),
-        closure_type: Some(closure_type),
-    })
+
+    Ok(FunctionLayouts { function_types })
 }
 
 pub(super) struct FunctionLayouts {
-    pub(super) function_types: HashMap<TypeId, u32>,
-    pub(super) capture_array_type: Option<u32>,
-    pub(super) closure_type: Option<u32>,
+    pub(super) function_types: HashMap<TypeId, SignatureId>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,9 +85,9 @@ pub(crate) fn function_signature(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, u32>,
-    record_types: &HashMap<TypeId, u32>,
-    function_types: &HashMap<TypeId, u32>,
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
     let mut parameters = Vec::new();
     loop {
@@ -244,11 +198,4 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
 
 fn is_function_type(module: &CoreModule, id: TypeId) -> bool {
     matches!(module.types.get(id.0 as usize), Some(Type::Function { .. }))
-}
-
-fn closure_value_type() -> ValueType {
-    ValueType::Ref(RefType {
-        nullable: false,
-        heap: HeapType::Struct,
-    })
 }

@@ -103,8 +103,8 @@ pub(super) fn verify_instruction(
                 ));
             }
             for (argument, expected) in arguments.iter().zip(&signature.parameters) {
-                if !call_value_types_match(require_value(definitions, *argument, *span)?, *expected)
-                {
+                let actual = require_value(definitions, *argument, *span)?;
+                if !call_value_types_match(actual, *expected) {
                     return Err(mir_error(*span, "MIR call argument has the wrong type"));
                 }
             }

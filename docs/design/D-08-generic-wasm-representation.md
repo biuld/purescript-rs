@@ -24,8 +24,9 @@ specialized whenever their source type is known.
 
 ### Value representation
 
-- A type variable in a generic value position is represented as a non-null
-  `eqref` in CC/MIR.
+- A type variable in a generic value position uses the erased representation
+  requirement in CC. The current Wasm GC planner realizes that requirement as
+  a non-null `eqref` in MIR.
 - Concrete `Int`/`Boolean` values are boxed in the existing i32 GC box;
   `Number` values are boxed in the f64 GC box; concrete GC references are cast
   to `eqref` without another allocation.
@@ -37,24 +38,30 @@ specialized whenever their source type is known.
 
 ### Function representation
 
-- A generic function uses an erased Wasm function type. For example,
-  `forall a. a -> a` lowers to a closure code signature equivalent to
-  `(ref closure, eqref) -> eqref`.
-- A concrete function keeps its concrete function type, such as
-  `(ref closure, i32) -> i32` or `(ref closure, f64) -> f64`.
+- A generic function uses an erased CC signature. For example,
+  `forall a. a -> a` requires an erased argument and result. Under the current
+  Wasm GC planner this becomes a code signature equivalent to
+  `(ref closure, eqref) -> eqref` in MIR.
+- A concrete function keeps a concrete CC representation requirement. The
+  current Wasm GC planner may realize it as `(ref closure, i32) -> i32` or
+  `(ref closure, f64) -> f64` in MIR.
 - When a concrete function value is passed to a parameter whose source type is
-  a polymorphic function type, CC creates an adapter closure. The adapter has
-  the erased function type, captures the original closure, unboxes its erased
-  argument, calls the concrete closure with its concrete `call_ref` type, and
-  boxes or casts the result back to `eqref`.
-- The reverse direction is handled at a concrete consumer: an erased function
-  result is adapted to the concrete closure type before a concrete `call_ref`.
-- Distinct Core function type IDs that erase to the same Wasm signature share a
-  canonical Wasm function type index; nominally different but structurally
-  equal source types must not create incompatible `ref.func`/`call_ref` pairs.
-- Every `call_ref` is verified against the code signature selected by the
-  closure value. No verifier relaxation may treat two different function
-  signatures as compatible merely because their values are references.
+  a polymorphic function type, CC creates a semantic adapter closure. The
+  adapter has the erased signature, captures the original closure, adapts its
+  erased argument, calls the concrete closure, and adapts the result back to
+  the erased representation. P9 selects the physical box, cast, and call
+  operations.
+- The reverse direction is recorded at a concrete consumer as a semantic
+  adaptation from an erased function result. P9 realizes it as the concrete
+  closure conversion and indirect call required by the selected planner.
+- Distinct Core function type IDs that have the same erased requirement share
+  a canonical CC `SignatureId`. P9 interns equal concrete Wasm signatures and
+  allocates their MIR type IDs; nominally different but structurally equal
+  source types must not create incompatible `ref.func`/`call_ref` pairs.
+- Every concrete indirect call is verified against the code signature selected
+  by the closure representation. No verifier relaxation may treat two
+  different function signatures as compatible merely because their values are
+  references.
 
 ### Type-class dictionaries
 
@@ -66,10 +73,11 @@ not encoded as a special Wasm type-system feature.
 ## Lowering responsibilities
 
 Typed Core retains source type IDs and instantiation results. CC is the first
-stage that chooses erased versus concrete representations and inserts box,
-unbox, cast, and function-adapter operations. MIR contains only concrete Wasm
-value types and exact function type indices. The Wasm emitter only emits those
-already-verified operations.
+stage that records erased versus concrete representation requirements and
+inserts semantic representation-adaptation and function-adapter operations. P9
+chooses whether those become boxes, unboxes, casts, or no-ops. MIR contains
+only concrete Wasm value types and typed references to its concrete function
+types. The Wasm emitter only emits those already-verified operations.
 
 The adapter boundary must preserve evaluation order: the original function
 value is evaluated once, then captured; each erased argument is unboxed only

@@ -7,10 +7,12 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod instruction;
+mod layout;
 mod lower;
 mod verify;
 mod wit;
 
+use layout::PlannedLayout;
 use lower::lower_function;
 
 pub use instruction::Instruction;
@@ -100,6 +102,15 @@ pub fn lower_module_with_capabilities(
     module: cc::Module,
     target: TargetCapabilities,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    lower_module_with_bindings(module, crate::ExternalBindings::default(), target)
+}
+
+/// Lowers CC to MIR with the external binding side table produced by P8.
+pub fn lower_module_with_bindings(
+    module: cc::Module,
+    bindings: crate::ExternalBindings,
+    target: TargetCapabilities,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
     let mut wasi = WasiRegistry::load_with_capabilities(target).map_err(|message| {
         annotate_errors(
             vec![BackendError::new("P9 MIR lowering", module.span, message)],
@@ -108,7 +119,7 @@ pub fn lower_module_with_capabilities(
     })?;
     // Resolve every source-declared WIT import to its canonical ABI descriptor.
     let mut wit_imports = HashMap::new();
-    for external in &module.externals {
+    for external in &bindings.imports {
         let interface = &external.interface;
         let function = &external.function;
         let import = wasi.import(interface, function).map_err(|message| {
@@ -149,14 +160,25 @@ pub fn lower_module_with_capabilities(
             })?;
         wit_imports.insert(external.symbol, import);
     }
+    let planned_layout = PlannedLayout::plan(&module.representations, target).map_err(|error| {
+        annotate_errors(
+            vec![BackendError::new(
+                "P9 MIR lowering",
+                module.span,
+                format!("invalid representation table: {error:?}"),
+            )],
+            module.entry.map(|entry| entry.module),
+        )
+    })?;
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
-        let lowered = lower_function(function, &wit_imports).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|error| error.with_module(function.symbol.module))
-                .collect::<Vec<_>>()
-        })?;
+        let lowered =
+            lower_function(function, &wit_imports, &planned_layout).map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|error| error.with_module(function.symbol.module))
+                    .collect::<Vec<_>>()
+            })?;
         functions.push(lowered);
     }
     // Keep only the imports a lowered call actually references, so a resolved but
@@ -174,7 +196,7 @@ pub fn lower_module_with_capabilities(
         .collect();
     let mir = Module {
         name: module.name,
-        types: module.types,
+        types: planned_layout.types.clone(),
         imports,
         functions,
         entry: module.entry,
