@@ -125,16 +125,14 @@ considered covered merely because a Wasm opcode or a low-level type exists.
 | Linear memory | Strings and WIT byte-list boundaries select the pointer representation. | Loads/stores are fixed to wasm32 `i32` addresses and values. | Partial; pointer width, load/store variants, memory selection, and allocation ownership are not abstracted. |
 | Multi-value | No multi-result CC operation. | Function/import signatures and calls have one result; the verifier rejects multi-result `call_ref`. | Correctly marked Partial; do not enable it as an implementation claim. |
 | Bulk memory, tables, globals, SIMD, tail calls, exceptions, threads | No CC operation or representation. | No MIR operation or module resource for these families. | Profile flags are policy inputs only; they are not lowering coverage. |
-| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, and logical fields; it has no Wasm type indices. | MIR plans the current GC layout, owns `RecGroup` and concrete reference types, and verifies the resulting operations. | Partial; alternative planners and complete CC operation verification remain. |
+| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, logical fields, and a complete verifier for the current operation set; it has no Wasm type indices. | MIR plans the current GC layout, owns `RecGroup` and concrete reference types, and verifies the resulting operations. | Partial; alternative planners and broader proposal coverage remain. |
 | Component Model and WASI | CC keeps only an external `SymbolId` and abstract signature. `BackendInput::externals` carries WIT names and source signatures beside CC. | MIR resolves bindings through the WIT ABI registry, emits adapters for referenced calls, and retains only used runtime imports. | Partial; broader canonical ABI forms and ownership rules remain. |
 
-Two residual structural issues are deliberately called out here. First, the
-current P9 planner is GC-oriented; table-closure and linear-memory planners
-have not yet consumed the same CC module. Second, the CC verifier still does
-not type-check every abstract operation. MIR verification is the safety net
-for the current vertical slice, not a substitute for a complete CC invariant.
-Any new CC operation must add an operation-level verifier before it is used as
-evidence for a capability row.
+The residual structural issue is deliberately called out here: the current P9
+planner is GC-oriented; table-closure and linear-memory planners have not yet
+consumed the same CC module. CC verification now type-checks every operation in
+the current abstract operation set. Any new CC operation must add an
+operation-level verifier before it is used as evidence for a capability row.
 
 ## Open items
 

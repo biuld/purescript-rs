@@ -158,7 +158,11 @@ impl FunctionLowerer<'_> {
             result_type: target_shape.result,
             span,
         };
-        super::super::verify::verify_function(&adapter_function, self.signatures)?;
+        super::super::verify::verify_function(
+            &adapter_function,
+            self.signatures,
+            self.representations,
+        )?;
         self.generated.extend(adapter.generated);
         self.generated.push(adapter_function);
         let closure_result = self.fresh(closure_value_type_for(target_signature_id));

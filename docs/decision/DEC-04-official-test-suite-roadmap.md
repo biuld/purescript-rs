@@ -214,14 +214,15 @@ to `Implemented`.
 
 | Stage | Owns today | Does not own yet | Gate for a capability claim |
 | --- | --- | --- | --- |
-| CC | Evaluation order, symbolic representation/signature handles, closure captures, direct versus indirect calls, current erased-value adapters, and expression-level `if`. | General control flow, multi-result values, and complete operation-level shape verification. | Every operation has a type/shape verifier and remains independent of the selected P9 planner. |
+| CC | Evaluation order, symbolic representation/signature handles, closure captures, direct versus indirect calls, current erased-value adapters, expression-level `if`, and complete verification for the current operation set. | General control flow and multi-result values. | Every represented operation has a type/shape verifier and remains independent of the selected P9 planner. |
 | MIR | Typed CFG, P9 concrete layout planning, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Loops/multi-way branches, multi-value signatures, tables/globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, aggregate reference compatibility, and the lowering has binary plus execution evidence. |
 | WIT/ABI lowering | WASI WIT lookup and the scalar/handle/byte-list canonical ABI subset. | General records, variants, options, results, resources, ownership, and version-polymorphic ABI. | Source signature validation, canonical lift/lower, component metadata, and runtime tests agree for the selected service family. |
 
 The former CC type-table pass-through has been removed: P9's layout planner
-constructs the concrete MIR `RecGroup` and resolves every abstract handle. The
-`BE-03`, `BE-15`, and `BC-07` rows remain `Partial` until CC verification is
-complete and a second representation planner consumes the same CC module.
+constructs the concrete MIR `RecGroup` and resolves every abstract handle. CC
+verification now covers the current operation set; the `BE-03`, `BE-15`, and
+`BC-07` rows remain `Partial` while a second representation planner and the
+remaining proposal/control-flow slices are still open.
 
 The capability landing order is:
 

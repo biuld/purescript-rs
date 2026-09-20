@@ -142,6 +142,11 @@ are:
 - array construction, length, read, and write; and
 - representation adaptation between concrete and erased requirements.
 
+The bootstrap `AssignmentKind` set currently exposes products, arrays, and
+representation adaptation directly; variant requirements are recorded in the
+abstract table while dedicated variant operations remain a later CC extension.
+The M1 verifier covers every operation currently present in that enum.
+
 An operation may refer to a `ReprId`, `SignatureId`, logical field, capture
 slot, or variant tag. It may not refer to a physical field offset or Wasm type
 index. This lets the same CC module lower to at least these representation
@@ -290,8 +295,8 @@ The CC verifier checks:
 - direct-call arguments and results exactly match the callee signature;
 - closure-call arguments and results exactly match its `SignatureId`;
 - capture count, order, and representations match the lifted function;
-- product fields, variant cases, and array elements match their abstract
-  representation;
+- product fields and array elements match their abstract representation, while
+  variant cases are validated in the representation table;
 - both branches of a value-producing conditional yield the declared
   representation; and
 - no target type, physical layout, numeric Wasm index, or platform name occurs
@@ -342,7 +347,7 @@ explicitly below:
 | Layout construction | `cc::layout` interns requirements; `mir::layout::PlannedLayout` realizes them. | **Implemented for the GC planner; alternative planners remain future work.** |
 | MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. | **Implemented for the current GC slice.** |
 | External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. | **Implemented:** WIT names and source ABI types are backend side-table data. |
-| CC verification | `cc::verify` checks declarations, definition order, constant shapes, and exact direct-call shapes. | It checks the complete abstract operation type/shape contract, including indirect calls, captures, products, arrays, and branches. |
+| CC verification | `cc::verify` checks declaration/definition order, table handles, value shapes, calls, captures, representation operations, products, arrays, and branches. | Extend the verifier when a new CC operation family is introduced; the current operation set is fully covered. |
 | MIR verification | MIR now checks SSA ordering/dominance and important concrete operation types. | Complete remaining CFG, subtype, memory, capability, and ABI checks. |
 
 The former CC-to-MIR type-table pass-through has been removed. The current P9
@@ -351,26 +356,27 @@ and concrete function types itself. It first walks the CC module's value shapes,
 operations, called external signatures, and recursively referenced handles, so
 unreachable representation requirements do not become MIR types. Backend
 coverage remains Partial because a second planner has not yet demonstrated that
-the abstract CC contract is sufficient, and CC operation verification is not
-yet complete.
+the abstract CC contract is sufficient; the current CC operation set is now
+verified independently of the GC planner.
 
 ## Migration plan
 
 The migration preserves the current executable slice while moving ownership
 one boundary at a time.
 
-### M1 — Introduce typed abstract handles (representation part implemented)
+### M1 — Complete the target-neutral CC operation contract (implemented)
 
 - Add distinct `ReprId` and `SignatureId` types and interned CC tables.
 - Give every CC value a target-neutral `ValueShape`; concrete object
   requirements are referenced through `ReprId`.
-- Add table checks and initial operation checks to the CC verifier; complete
-  operation coverage remains an explicit follow-up.
+- Add table checks and complete operation checks to the CC verifier, including
+  calls, closure captures, representation adaptation, products, boxes, arrays,
+  and value-producing branches.
 - Keep a temporary GC planner that reproduces current layouts exactly.
 
-Exit criterion for the representation portion: CC lowering and the current
-verifier operate without looking at `RecGroup`, `RefType`, or a numeric Wasm
-index. Full operation compatibility checking remains criterion 2 below.
+Exit criterion: CC lowering and verification operate without looking at
+`RecGroup`, `RefType`, or a numeric Wasm index, and every operation in the
+current CC operation set has an abstract operand/result and handle check.
 
 ### M2 — Move layout construction to P9 (implemented for GC)
 

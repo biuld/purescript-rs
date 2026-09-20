@@ -224,6 +224,7 @@ pub fn lower_module_with_bindings(
     let context = LoweringContext {
         module: &module,
         signatures: &signatures,
+        representations: &layout.representations,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,

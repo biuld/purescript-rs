@@ -1,7 +1,7 @@
 use super::layout::{depends_on_type_variable, scalar_type};
 use super::{
-    Assignment, AssignmentKind, Function, ReprId, Signature, SignatureId, ValueDecl, ValueId,
-    ValueShape,
+    Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
+    ValueDecl, ValueId, ValueShape,
 };
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
@@ -21,6 +21,7 @@ use lambda::LambdaLowering;
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
+    pub(super) representations: &'a RepresentationTable,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
@@ -45,6 +46,7 @@ pub(super) fn lower_function(
         values: Vec::new(),
         locals: HashMap::new(),
         signatures: context.signatures,
+        representations: context.representations,
         module,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
@@ -103,7 +105,7 @@ pub(super) fn lower_function(
         result_type,
         span: declaration.span,
     };
-    super::verify::verify_function(&function, context.signatures)?;
+    super::verify::verify_function(&function, context.signatures, context.representations)?;
     let mut generated = state.generated;
     generated.push(lambda::make_wrapper(&function, declaration, context));
     Ok((function, generated))
@@ -114,6 +116,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) values: Vec<ValueDecl>,
     pub(super) locals: HashMap<LocalId, ValueId>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
+    pub(super) representations: &'a RepresentationTable,
     pub(super) module: &'a CoreModule,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,

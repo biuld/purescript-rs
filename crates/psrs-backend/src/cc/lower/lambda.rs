@@ -105,7 +105,11 @@ impl LambdaLowering for FunctionLowerer<'_> {
             result_type: nested_result_type,
             span: expression.span,
         };
-        super::super::verify::verify_function(&nested_function, self.signatures)?;
+        super::super::verify::verify_function(
+            &nested_function,
+            self.signatures,
+            self.representations,
+        )?;
         self.generated.extend(nested.generated);
         self.generated.push(nested_function);
         let closure_result = self.fresh(ValueShape::Reference(Reference {
@@ -152,6 +156,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             values: Vec::new(),
             locals: HashMap::new(),
             signatures: self.signatures,
+            representations: self.representations,
             module: self.module,
             enum_types: self.enum_types,
             aggregate_types: self.aggregate_types,

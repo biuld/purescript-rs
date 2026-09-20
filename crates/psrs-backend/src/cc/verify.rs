@@ -1,11 +1,20 @@
-use super::{Assignment, AssignmentKind, Function, Module, Signature, ValueId, ValueShape};
+use super::{Function, Module, Signature};
 use crate::BackendError;
+use crate::cc::RepresentationTable;
 use psrs_hir::SymbolId;
-use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+#[path = "verify_helpers.rs"]
+mod verify_helpers;
+#[path = "verify_ops.rs"]
+mod verify_ops;
+use verify_helpers::{verify_capture_layout, verify_value_shape};
+use verify_ops::{verify_assignments, verify_table};
+
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
+    verify_table(&module.representations, module.span)?;
     let mut signatures = HashMap::new();
+    let mut functions_by_symbol = HashMap::new();
     for function in &module.functions {
         let parameters = function
             .parameters
@@ -47,25 +56,47 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 .with_module(function.symbol.module),
             ]);
         }
+        functions_by_symbol.insert(function.symbol, function);
     }
     for external in &module.externals {
-        if let Some(signature) = &external.signature
-            && signatures
+        if let Some(signature) = &external.signature {
+            for shape in signature
+                .parameters
+                .iter()
+                .chain(std::iter::once(&signature.result))
+            {
+                verify_value_shape(shape, &module.representations, module.span).map_err(
+                    |errors| {
+                        errors
+                            .into_iter()
+                            .map(|error| error.with_module(external.symbol.module))
+                            .collect::<Vec<_>>()
+                    },
+                )?;
+            }
+            if signatures
                 .insert(external.symbol, signature.clone())
                 .is_some()
-        {
-            return Err(vec![
-                BackendError::new(
-                    "P8 CC verification",
-                    module.span,
-                    "CC external symbol conflicts with another callable symbol",
-                )
-                .with_module(external.symbol.module),
-            ]);
+            {
+                return Err(vec![
+                    BackendError::new(
+                        "P8 CC verification",
+                        module.span,
+                        "CC external symbol conflicts with another callable symbol",
+                    )
+                    .with_module(external.symbol.module),
+                ]);
+            }
         }
     }
     for function in &module.functions {
-        verify_function(function, &signatures).map_err(|errors| {
+        verify_function_inner(
+            function,
+            &signatures,
+            &module.representations,
+            Some(&functions_by_symbol),
+        )
+        .map_err(|errors| {
             errors
                 .into_iter()
                 .map(|error| error.with_module(function.symbol.module))
@@ -75,12 +106,26 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     Ok(())
 }
 
+/// Verifies a function while it is being built by P8. Module-level checks add
+/// target-function and capture compatibility once all generated functions are
+/// available.
 pub(super) fn verify_function(
     function: &Function,
     signatures: &HashMap<SymbolId, Signature>,
+    representations: &RepresentationTable,
+) -> Result<(), Vec<BackendError>> {
+    verify_function_inner(function, signatures, representations, None)
+}
+
+fn verify_function_inner(
+    function: &Function,
+    signatures: &HashMap<SymbolId, Signature>,
+    representations: &RepresentationTable,
+    functions: Option<&HashMap<SymbolId, &Function>>,
 ) -> Result<(), Vec<BackendError>> {
     let mut declared = HashMap::new();
     for value in &function.values {
+        verify_value_shape(&value.ty, representations, function.span)?;
         if declared.insert(value.id, value.ty).is_some() {
             return Err(vec![BackendError::new(
                 "P8 CC verification",
@@ -106,12 +151,15 @@ pub(super) fn verify_function(
             )]);
         }
     }
+    verify_capture_layout(function)?;
     let mut available = function.parameters.iter().copied().collect::<HashSet<_>>();
     verify_assignments(
         &function.assignments,
         &mut available,
         &declared,
         signatures,
+        representations,
+        functions,
         function.span,
     )?;
     if !available.contains(&function.result) {
@@ -131,197 +179,19 @@ pub(super) fn verify_function(
     Ok(())
 }
 
-fn verify_assignments(
-    assignments: &[Assignment],
-    available: &mut HashSet<ValueId>,
-    declared: &HashMap<ValueId, ValueShape>,
-    signatures: &HashMap<SymbolId, Signature>,
-    function_span: TextRange,
-) -> Result<(), Vec<BackendError>> {
-    for assignment in assignments {
-        let mut uses = Vec::new();
-        match &assignment.kind {
-            AssignmentKind::Constant(_) => {
-                if !matches!(
-                    declared.get(&assignment.destination),
-                    Some(ValueShape::Integer | ValueShape::Boolean)
-                ) {
-                    return Err(assignment_error(
-                        assignment,
-                        "integer constant has an incompatible result shape",
-                    ));
-                }
-            }
-            AssignmentKind::NumberConstant(_) => {
-                if declared.get(&assignment.destination) != Some(&ValueShape::Number) {
-                    return Err(assignment_error(
-                        assignment,
-                        "number constant has an incompatible result shape",
-                    ));
-                }
-            }
-            AssignmentKind::StringConstant(_) => {
-                if declared.get(&assignment.destination) != Some(&ValueShape::Integer) {
-                    return Err(assignment_error(
-                        assignment,
-                        "string constant has an incompatible result shape",
-                    ));
-                }
-            }
-            AssignmentKind::FunctionRef { .. } => {}
-            AssignmentKind::ClosureGetCapture { closure, .. } => uses.push(*closure),
-            AssignmentKind::Primitive { left, right, .. } => uses.extend([*left, *right]),
-            AssignmentKind::RepresentationTest { value, .. }
-            | AssignmentKind::RepresentationCast { value, .. }
-            | AssignmentKind::ProductGet { value, .. } => uses.push(*value),
-            AssignmentKind::ProductNew { arguments, .. } => uses.extend(arguments.iter().copied()),
-            AssignmentKind::ArrayNew { elements, .. } => uses.extend(elements.iter().copied()),
-            AssignmentKind::ArrayLen { value, .. } => uses.push(*value),
-            AssignmentKind::ArrayGet { value, index, .. } => uses.extend([*value, *index]),
-            AssignmentKind::ArraySet {
-                value,
-                index,
-                new_value,
-                ..
-            } => uses.extend([*value, *index, *new_value]),
-            AssignmentKind::DirectCall {
-                function,
-                arguments,
-            } => {
-                let Some(signature) = signatures.get(function) else {
-                    return Err(vec![BackendError::new(
-                        "P8 CC verification",
-                        assignment.span,
-                        "direct call references an unknown function",
-                    )]);
-                };
-                if signature.parameters.len() != arguments.len() {
-                    return Err(vec![BackendError::new(
-                        "P8 CC verification",
-                        assignment.span,
-                        "direct call argument count does not match its signature",
-                    )]);
-                }
-                if arguments
-                    .iter()
-                    .zip(&signature.parameters)
-                    .any(|(argument, expected)| declared.get(argument) != Some(expected))
-                {
-                    return Err(assignment_error(
-                        assignment,
-                        "direct call argument shape does not match its signature",
-                    ));
-                }
-                if declared.get(&assignment.destination) != Some(&signature.result) {
-                    return Err(assignment_error(
-                        assignment,
-                        "direct call result shape does not match its signature",
-                    ));
-                }
-                uses.extend(arguments.iter().copied());
-            }
-            AssignmentKind::IndirectCall {
-                function,
-                arguments,
-                ..
-            } => {
-                uses.push(*function);
-                uses.extend(arguments.iter().copied());
-            }
-            AssignmentKind::If {
-                condition,
-                then_assignments,
-                then_value,
-                else_assignments,
-                else_value,
-            } => {
-                uses.push(*condition);
-                for value in &uses {
-                    if !available.contains(value) {
-                        return Err(undef_error(assignment.span, function_span));
-                    }
-                }
-                let mut then_available = available.clone();
-                verify_assignments(
-                    then_assignments,
-                    &mut then_available,
-                    declared,
-                    signatures,
-                    function_span,
-                )?;
-                if !then_available.contains(then_value) {
-                    return Err(undef_error(assignment.span, function_span));
-                }
-                let mut else_available = available.clone();
-                verify_assignments(
-                    else_assignments,
-                    &mut else_available,
-                    declared,
-                    signatures,
-                    function_span,
-                )?;
-                if !else_available.contains(else_value) {
-                    return Err(undef_error(assignment.span, function_span));
-                }
-            }
-        }
-        if uses.iter().any(|value| !available.contains(value)) {
-            return Err(undef_error(assignment.span, function_span));
-        }
-        if !declared.contains_key(&assignment.destination) {
-            return Err(vec![BackendError::new(
-                "P8 CC verification",
-                assignment.span,
-                "CC assignment destination has no value declaration",
-            )]);
-        }
-        let preserves_existing_value = matches!(
-            &assignment.kind,
-            AssignmentKind::ArraySet {
-                destination,
-                value,
-                ..
-            } if *destination == *value && *destination == assignment.destination
-        );
-        if !preserves_existing_value && !available.insert(assignment.destination) {
-            return Err(vec![BackendError::new(
-                "P8 CC verification",
-                assignment.span,
-                "CC assignment redefines a value",
-            )]);
-        }
-    }
-    Ok(())
-}
-
-fn undef_error(span: TextRange, fallback: TextRange) -> Vec<BackendError> {
-    vec![BackendError::new(
-        "P8 CC verification",
-        if span == TextRange::new(0, 0) {
-            fallback
-        } else {
-            span
-        },
-        "CC assignment uses a value before it is defined",
-    )]
-}
-
-fn assignment_error(assignment: &Assignment, message: &'static str) -> Vec<BackendError> {
-    vec![BackendError::new(
-        "P8 CC verification",
-        assignment.span,
-        message,
-    )]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cc::ValueDecl;
+    use crate::cc::{Assignment, AssignmentKind, Reference, ValueDecl, ValueShape};
     use psrs_hir::ModuleId;
+    use psrs_span::TextRange;
 
     fn symbol(index: u32) -> SymbolId {
         SymbolId::new(ModuleId(0), index)
+    }
+
+    fn table() -> RepresentationTable {
+        RepresentationTable::default()
     }
 
     #[test]
@@ -329,21 +199,21 @@ mod tests {
         let function = Function {
             symbol: symbol(0),
             name: "invalid".into(),
-            parameters: vec![ValueId(0)],
+            parameters: vec![super::super::ValueId(0)],
             values: Vec::new(),
             assignments: Vec::new(),
-            result: ValueId(0),
+            result: super::super::ValueId(0),
             result_type: ValueShape::Integer,
             span: TextRange::new(0, 1),
         };
 
-        assert!(verify_function(&function, &HashMap::new()).is_err());
+        assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
     }
 
     #[test]
     fn rejects_a_direct_call_with_the_wrong_result_shape() {
         let callee = symbol(1);
-        let destination = ValueId(0);
+        let destination = super::super::ValueId(0);
         let function = Function {
             symbol: symbol(0),
             name: "invalid".into(),
@@ -372,6 +242,232 @@ mod tests {
             },
         )]);
 
-        assert!(verify_function(&function, &signatures).is_err());
+        assert!(verify_function(&function, &signatures, &table()).is_err());
+    }
+
+    #[test]
+    fn rejects_a_non_boolean_if_condition() {
+        let condition = super::super::ValueId(0);
+        let result = super::super::ValueId(1);
+        let function = Function {
+            symbol: symbol(0),
+            name: "invalid".into(),
+            parameters: vec![condition],
+            values: vec![
+                ValueDecl {
+                    id: condition,
+                    ty: ValueShape::Integer,
+                },
+                ValueDecl {
+                    id: result,
+                    ty: ValueShape::Integer,
+                },
+            ],
+            assignments: vec![Assignment {
+                destination: result,
+                kind: AssignmentKind::If {
+                    condition,
+                    then_assignments: Vec::new(),
+                    then_value: condition,
+                    else_assignments: Vec::new(),
+                    else_value: condition,
+                },
+                span: TextRange::new(0, 1),
+            }],
+            result,
+            result_type: ValueShape::Integer,
+            span: TextRange::new(0, 1),
+        };
+
+        assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+    }
+
+    #[test]
+    fn rejects_an_array_operation_with_the_wrong_element_shape() {
+        let mut representations = table();
+        let array = representations.reserve();
+        representations.set(
+            array,
+            super::super::Representation::Array {
+                element: ValueShape::Integer,
+            },
+        );
+        let array_value = super::super::ValueId(0);
+        let element = super::super::ValueId(1);
+        let destination = super::super::ValueId(2);
+        let function = Function {
+            symbol: symbol(0),
+            name: "invalid".into(),
+            parameters: vec![array_value, element],
+            values: vec![
+                ValueDecl {
+                    id: array_value,
+                    ty: ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: super::super::RefShape::Repr(array),
+                    }),
+                },
+                ValueDecl {
+                    id: element,
+                    ty: ValueShape::Number,
+                },
+                ValueDecl {
+                    id: destination,
+                    ty: ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: super::super::RefShape::Repr(array),
+                    }),
+                },
+            ],
+            assignments: vec![Assignment {
+                destination,
+                kind: AssignmentKind::ArraySet {
+                    destination,
+                    representation: array,
+                    value: array_value,
+                    index: element,
+                    new_value: element,
+                },
+                span: TextRange::new(0, 1),
+            }],
+            result: destination,
+            result_type: ValueShape::Reference(Reference {
+                nullable: false,
+                heap: super::super::RefShape::Repr(array),
+            }),
+            span: TextRange::new(0, 1),
+        };
+
+        assert!(verify_function(&function, &HashMap::new(), &representations).is_err());
+    }
+
+    #[test]
+    fn rejects_a_function_reference_with_wrong_captures() {
+        let signature = super::super::SignatureId(0);
+        let closure = super::super::ValueId(0);
+        let target_result = super::super::ValueId(1);
+        let target = Function {
+            symbol: symbol(1),
+            name: "target".into(),
+            parameters: vec![closure],
+            values: vec![
+                ValueDecl {
+                    id: closure,
+                    ty: super::super::ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: super::super::RefShape::Aggregate,
+                    }),
+                },
+                ValueDecl {
+                    id: target_result,
+                    ty: ValueShape::Integer,
+                },
+            ],
+            assignments: vec![Assignment {
+                destination: target_result,
+                kind: AssignmentKind::Constant(1),
+                span: TextRange::new(0, 1),
+            }],
+            result: target_result,
+            result_type: ValueShape::Integer,
+            span: TextRange::new(0, 1),
+        };
+        let capture = super::super::ValueId(0);
+        let function_value = super::super::ValueId(1);
+        let caller = Function {
+            symbol: symbol(0),
+            name: "caller".into(),
+            parameters: vec![capture],
+            values: vec![
+                ValueDecl {
+                    id: capture,
+                    ty: ValueShape::Integer,
+                },
+                ValueDecl {
+                    id: function_value,
+                    ty: super::super::ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: super::super::RefShape::Closure(signature),
+                    }),
+                },
+            ],
+            assignments: vec![Assignment {
+                destination: function_value,
+                kind: AssignmentKind::FunctionRef {
+                    function: symbol(1),
+                    signature,
+                    captures: vec![capture],
+                },
+                span: TextRange::new(0, 1),
+            }],
+            result: function_value,
+            result_type: super::super::ValueShape::Reference(Reference {
+                nullable: false,
+                heap: super::super::RefShape::Closure(signature),
+            }),
+            span: TextRange::new(0, 1),
+        };
+        let mut representations = table();
+        representations.signatures.push(super::super::Signature {
+            parameters: Vec::new(),
+            result: ValueShape::Integer,
+        });
+        let module = Module {
+            name: "invalid".into(),
+            externals: Vec::new(),
+            representations,
+            functions: vec![caller, target],
+            entry: None,
+            span: TextRange::new(0, 1),
+        };
+
+        assert!(verify_module(&module).is_err());
+    }
+
+    #[test]
+    fn rejects_a_box_projection_with_the_wrong_result_shape() {
+        let mut representations = table();
+        let boxed = representations.reserve();
+        representations.set(
+            boxed,
+            super::super::Representation::Box {
+                value: ValueShape::Integer,
+            },
+        );
+        let value = super::super::ValueId(0);
+        let destination = super::super::ValueId(1);
+        let function = Function {
+            symbol: symbol(0),
+            name: "invalid".into(),
+            parameters: vec![value],
+            values: vec![
+                ValueDecl {
+                    id: value,
+                    ty: super::super::ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: super::super::RefShape::Repr(boxed),
+                    }),
+                },
+                ValueDecl {
+                    id: destination,
+                    ty: ValueShape::Number,
+                },
+            ],
+            assignments: vec![Assignment {
+                destination,
+                kind: AssignmentKind::ProductGet {
+                    destination,
+                    representation: boxed,
+                    field: 0,
+                    value,
+                },
+                span: TextRange::new(0, 1),
+            }],
+            result: destination,
+            result_type: ValueShape::Number,
+            span: TextRange::new(0, 1),
+        };
+
+        assert!(verify_function(&function, &HashMap::new(), &representations).is_err());
     }
 }
