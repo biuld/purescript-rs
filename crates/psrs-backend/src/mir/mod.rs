@@ -9,12 +9,13 @@ use std::collections::{HashMap, HashSet};
 mod instruction;
 mod layout;
 mod lower;
+mod planner;
 mod reachable;
 mod verify;
 mod wit;
 
-use layout::PlannedLayout;
 use lower::lower_function;
+use planner::{GcPlanner, LinearMemoryPlanner, RepresentationPlanner};
 
 pub use instruction::Instruction;
 pub use verify::verify_module;
@@ -161,16 +162,39 @@ pub fn lower_module_with_bindings(
             })?;
         wit_imports.insert(external.symbol, import);
     }
-    let planned_layout = PlannedLayout::plan_module(&module, target).map_err(|error| {
-        annotate_errors(
+    let planned_layout = if target.gc {
+        GcPlanner { target }.plan_module(&module).map_err(|error| {
+            annotate_errors(
+                vec![BackendError::new(
+                    "P9 MIR lowering",
+                    module.span,
+                    format!("invalid representation table: {error:?}"),
+                )],
+                module.entry.map(|entry| entry.module),
+            )
+        })?
+    } else {
+        // The second planner consumes the same CC requirements even though its
+        // table/allocator instruction selection is an M5 follow-up.
+        LinearMemoryPlanner.plan_module(&module).map_err(|error| {
+            annotate_errors(
+                vec![BackendError::new(
+                    "P9 MIR lowering",
+                    module.span,
+                    format!("invalid linear-memory layout request: {error:?}"),
+                )],
+                module.entry.map(|entry| entry.module),
+            )
+        })?;
+        return Err(annotate_errors(
             vec![BackendError::new(
                 "P9 MIR lowering",
                 module.span,
-                format!("invalid representation table: {error:?}"),
+                "linear-memory planner is available, but its MIR instruction selection is not implemented",
             )],
             module.entry.map(|entry| entry.module),
-        )
-    })?;
+        ));
+    };
     let mut functions = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
         let lowered =

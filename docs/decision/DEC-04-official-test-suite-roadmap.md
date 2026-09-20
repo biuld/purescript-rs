@@ -215,14 +215,15 @@ to `Implemented`.
 | Stage | Owns today | Does not own yet | Gate for a capability claim |
 | --- | --- | --- | --- |
 | CC | Evaluation order, symbolic representation/signature handles, closure captures, direct versus indirect calls, current erased-value adapters, expression-level `if`, and complete verification for the current operation set. | General control flow and multi-result values. | Every represented operation has a type/shape verifier and remains independent of the selected P9 planner. |
-| MIR | Typed CFG, P9 concrete layout planning, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Loops/multi-way branches, multi-value signatures, tables/globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, aggregate reference compatibility, and the lowering has binary plus execution evidence. |
+| MIR | Typed CFG, P9 GC layout planning, the linear-memory planner's abstract layout contract, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Linear-memory instruction selection/runtime lowering, loops/multi-way branches, multi-value signatures, tables/globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, aggregate reference compatibility, and each emitted planner path has binary plus execution evidence. |
 | WIT/ABI lowering | WASI WIT lookup and the scalar/handle/byte-list canonical ABI subset. | General records, variants, options, results, resources, ownership, and version-polymorphic ABI. | Source signature validation, canonical lift/lower, component metadata, and runtime tests agree for the selected service family. |
 
-The former CC type-table pass-through has been removed: P9's layout planner
-constructs the concrete MIR `RecGroup` and resolves every abstract handle. CC
-verification now covers the current operation set; the `BE-03`, `BE-15`, and
-`BC-07` rows remain `Partial` while a second representation planner and the
-remaining proposal/control-flow slices are still open.
+The former CC type-table pass-through has been removed: P9 planner
+implementations resolve reachable abstract handles, with the current GC
+planner constructing the concrete MIR `RecGroup`. CC verification now covers
+the current operation set; the `BE-03`, `BE-15`, and `BC-07` rows remain
+`Partial` while non-GC instruction selection/runtime evidence and the remaining
+proposal/control-flow slices are still open.
 
 The capability landing order is:
 
