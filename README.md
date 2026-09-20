@@ -1,20 +1,48 @@
 # purescript-rs
 
-`purescript-rs` is a learning compiler project that aims to compile PureScript
-programs to portable WebAssembly artifacts and run them through a WASI runtime.
-It is being built as a sequence of small, testable compiler stages; it is not a
-replacement for the official PureScript compiler.
+`purescript-rs` is a learning compiler that compiles a growing subset of
+PureScript to portable WebAssembly and runs it on a WASI 0.2 runtime. It is
+built as a sequence of small, testable stages and is not a replacement for the
+official PureScript compiler.
 
-## Current status
+## Status
 
-The compiler now builds a small PureScript subset, including linked source
-modules, through the backend IRs and emits a validated WASI 0.2 **Component
-Model** artifact plus WAT. The component exports `wasi:cli/run@0.2.12`; `main`'s result becomes the
-process exit code through `wasi:cli/exit`, and `log`/`error` write through
-`wasi:cli/stdout`/`wasi:cli/stderr` while `now` reads the monotonic clock. Try
-the inspection and build commands with the included examples:
+The compiler currently:
+
+- inspects source through every frontend stage: `lex`, `layout`, `parse`,
+  `ast`, `hir`, `check`, `check-program`, and `check-program-kinds`;
+- lowers the supported subset through Typed Core, closure-converted CC IR, and
+  a MIR/CFG to a validated **WASI 0.2 Component Model** artifact, and prints
+  the corresponding WAT;
+- exports `wasi:cli/run@0.2.12`, so `main`'s result becomes the process exit
+  code through `wasi:cli/exit`; `log` and `error` write to
+  `wasi:cli/stdout` and `wasi:cli/stderr`, and `now` reads the monotonic clock.
+
+The supported subset includes linked source modules, direct and higher-order
+functions with scalar-capturing closures, `Int`/`Boolean`/`Number`/`Char`/
+`String`/`Unit`, arithmetic and comparisons, scalar `let`, `if`, `case`,
+nullary and field data types, newtypes, closed concrete records and record
+updates, concrete scalar arrays, parameterized ADTs with the erased
+representation, and the console, clock, and random WASI capabilities.
+
+Still open:
+
+- type classes and dictionary passing, open rows, and generic aggregates;
+- the complete scalar and numeric operation set
+  ([D-09](docs/design/D-09-scalar-and-numeric-lowering.md));
+- the unified target-neutral variant representation and the linear-memory path
+  for every aggregate ([DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md),
+  [D-10](docs/design/D-10-linear-memory-representation.md));
+- the broader canonical ABI and ownership rules
+  ([D-07](docs/design/D-07-wit-imports-and-std.md)).
+
+General PureScript compatibility and the official runtime suite remain future
+work.
+
+## Quick start
 
 ```sh
+# Frontend inspection
 cargo run -- lex examples/basic.purs
 cargo run -- layout examples/basic.purs
 cargo run -- parse examples/basic.purs
@@ -22,86 +50,53 @@ cargo run -- ast examples/basic.purs
 cargo run -- hir examples/resolved.purs
 cargo run -- check examples/basic.purs
 cargo run -- check-program-kinds examples/basic.purs
-cargo run -- build examples/basic.purs -o /tmp/basic.wasm
-cargo run -- wat examples/basic.purs -o /tmp/basic.wat
 cargo run -- dump mir examples/basic.purs
-wasmtime run /tmp/basic.wasm; echo $?   # prints 42 for examples/basic.purs
+
+# Build, print, and run
+cargo run -- build examples/basic.purs -o /tmp/basic.wasm
+wasmtime run /tmp/basic.wasm; echo $?   # prints 42
+cargo run -- wat examples/basic.purs -o /tmp/basic.wat
 
 cargo run -- build examples/hello.purs -o /tmp/hello.wasm
 wasmtime run /tmp/hello.wasm            # prints "hello world"
 ```
 
-The parser handles a module with simple value declarations, `name :: Type`
-signatures (function arrows, `forall`, and parentheses), names,
-integer/string/character literals, application, infix operators, lambdas,
-`if`, and `let`. `parse` displays the concrete syntax tree; `ast` displays the
-normalized AST; `hir` displays resolved local and same-module value names.
-A module loader resolves a whole program: it assigns stable module IDs, builds
-the import graph, reports duplicate, missing, and cyclic modules, and resolves
-imported values through unqualified, qualified, and aliased names while
-respecting explicit and `hiding` import lists and explicit export lists.
-`check-program <file.purs>...` runs that resolution over a set of modules. The
-first executable slice supports monomorphic `Int`, `Boolean`, `String`,
-`Unit`, direct top-level calls, integer operators, string literals and `log`,
-scalar `let`, and value-producing `if`. Type inference adds rank-1
-polymorphism: local `let` groups and top-level strongly connected components are
-generalized and schemes are instantiated at use sites. The backend supports
-the current rank-1 erased scalar/closure slice; dictionary-passing classes and
-generic aggregate representations remain open. A `psrs-kind` pass infers and
-unifies kinds for `data`, `newtype`, `type`, and `class` declarations and
-reports the official `KindsDoNotUnify`, `PartiallyAppliedSynonym`,
-`CycleInTypeSynonym`, `CycleInKindDeclaration`, `UndefinedTypeVariable`, and
-`InfiniteKind` codes. Inference now carries type constructors and type-level
-application, and expands type synonyms, so signatures over `Array`, user types,
-and synonyms elaborate and unify. Data and newtype constructors are typed as
-polymorphic values, so constructor applications type-check, and single-scrutinee
-`case` expressions with constructor, variable, and wildcard patterns type-check.
-A first runtime slice lowers non-parameterized data types: nullary-only types
-use integer tags, while field constructors use Wasm GC structs and `case`
-uses runtime type tests and field loads. Closures, closed records, concrete
-arrays, parameterized ADTs, and selected WIT imports are implemented in
-restricted slices; type-class constraints, open rows, generic aggregates, and
-the remaining WIT shapes are not. `build <file.purs>...` writes a validated
-WASI 0.2 Component Model artifact exporting `wasi:cli/run@0.2.12` and links
-all listed modules with the embedded `Prelude`; `wat <file.purs>...` renders
-the corresponding text form. General PureScript compatibility and the
-official runtime suite remain future work. Cross-module compilation is
-supported for the current typed/runtime subset.
+`build <file.purs>...` resolves and links every listed module with the embedded
+`Prelude` and writes the artifact. `wat <file.purs>...` renders the text form.
+`dump <core|cc|mir> <file.purs>` prints an intermediate IR for debugging.
 
 ## Workspace
 
-- `psrs-span` contains source text, byte ranges, and line/column mapping.
-- `psrs-cst` owns concrete syntax tree types. Its current tree is a bootstrap
-  subset with source ranges for names, binders, and supported punctuation.
-- `psrs-ast` owns the normalized AST and the explicit CST-to-AST lowering pass.
-- `psrs-hir` owns resolved HIR nodes and stable declaration/local IDs.
-- `psrs-resolve` resolves locals, same-module value names, and whole-program
-  module graphs (imports, exports, and cross-module values) into HIR.
-- `psrs-syntax` implements lexing, layout insertion, and parsing.
-- `psrs-thir` and `psrs-typecheck` own typed expressions and rank-1
-  polymorphic type inference.
-- `psrs-kind` infers and unifies kinds over resolved declarations and reports
-  official kind diagnostics.
-- `psrs-desugar` lowers resolved operator syntax while preserving HIR.
-- `psrs-core` owns Typed Core and its HIR lowering pass.
-- `psrs-backend` owns direct-call CC IR, MIR/CFG, the structured Wasm
-  encoding, binary emission, validation, and WAT printing from the encoded
-  module.
-- `psrs-driver` wires the compiler passes together.
-- `psrs-cli` provides source inspection, `build`, and `wat` commands.
+| Crate | Responsibility |
+| --- | --- |
+| `psrs-span` | Source text, byte ranges, and line/column mapping. |
+| `psrs-syntax` | Lexing, layout insertion, and parsing. |
+| `psrs-cst` | Concrete syntax tree with source ranges. |
+| `psrs-ast` | Normalized AST and CST-to-AST lowering. |
+| `psrs-resolve` | Locals, same-module names, and whole-program module graphs into HIR. |
+| `psrs-hir` | Resolved HIR nodes and stable declaration/local IDs. |
+| `psrs-kind` | Kind inference and unification with official kind diagnostics. |
+| `psrs-thir` | Typed expressions. |
+| `psrs-typecheck` | Rank-1 polymorphic type inference. |
+| `psrs-desugar` | Operator desugaring while preserving HIR. |
+| `psrs-core` | Typed Core and its HIR lowering. |
+| `psrs-backend` | CC IR, MIR/CFG, structured Wasm encoding, validation, and WAT. |
+| `psrs-driver` | Wires the compiler passes together. |
+| `psrs-cli` | Source inspection, `build`, `wat`, and `dump` commands. |
 
-The compiler architecture defines twelve major passes across six long-lived
-IR families. The first Wasm slice is implemented, including WASI and Component
-Model componentization; broader language coverage remains future work. The
-executable baseline is a pinned `wasmtime` release, while the artifact
-contract is the explicit capability profile: Wasm GC/reference types and the
-synchronous WASI 0.2 Component Model path are enabled, and optional proposals
-such as SIMD, tail calls, exceptions, threads, memory64, and WASI 0.3 remain
-disabled until their lowerings and tests land. See
+The architecture defines twelve major passes across six long-lived IR families;
+see [D-01](docs/design/D-01-frontend-and-ir-boundaries.md).
+
+## Target and capability profile
+
+The artifact contract is an explicit capability profile for a pinned `wasmtime`
+release, not every feature a runtime happens to support. The stable profile
+enables Wasm GC, reference types, typed function references, and the synchronous
+WASI 0.2 Component Model path; SIMD, tail calls, exceptions, threads, memory64,
+and WASI 0.3 stay disabled until their lowerings and tests land. The backend also
+provides a core-MVP linear-memory planner that consumes the same CC IR. See
 [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) and
-[D-05](docs/design/D-05-backend-capability.md),
-[D-01](docs/design/D-01-frontend-and-ir-boundaries.md), and
-[D-02](docs/design/D-02-wasm-lowering.md).
+[D-05](docs/design/D-05-backend-capability.md).
 
 ## Project documents
 
@@ -112,21 +107,39 @@ disabled until their lowerings and tests land. See
 - [Repository instructions](AGENTS.md): documentation, code, and validation
   rules for contributors and coding agents.
 
-The main user-facing goals are described by [F-01](docs/feature/F-01-source-inspection.md)
-and [F-02](docs/feature/F-02-portable-programs.md). Their implementations are
-specified in [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
-[D-02](docs/design/D-02-wasm-lowering.md), with the WebAssembly and WASI target
-features fixed in
-[D-05](docs/design/D-05-backend-capability.md), the language-agnostic low-level
-IR defined in [D-06](docs/design/D-06-low-level-ir-and-wasm-types.md), and the
-WIT imports and standard library in
-[D-07](docs/design/D-07-wit-imports-and-std.md). The type system is specified in
-[D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
-[D-04](docs/design/D-04-suite-roadmap.md); the corresponding decisions are
-[DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md),
-[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md),
-[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md), and
-[DEC-06](docs/decision/DEC-06-runtime-interface-via-wit.md).
+The user-facing goals are [F-01](docs/feature/F-01-source-inspection.md) and
+[F-02](docs/feature/F-02-portable-programs.md). Their implementations are
+specified by [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
+[D-02](docs/design/D-02-wasm-lowering.md). The backend is split across
+[D-05](docs/design/D-05-backend-capability.md) (capability profile),
+[D-06](docs/design/D-06-low-level-ir-and-wasm-types.md) (IR boundaries and
+verification), [D-07](docs/design/D-07-wit-imports-and-std.md) (WIT imports and
+canonical ABI), [D-08](docs/design/D-08-generic-wasm-representation.md)
+(generic values), [D-09](docs/design/D-09-scalar-and-numeric-lowering.md)
+(scalar and numeric lowering), and
+[D-10](docs/design/D-10-linear-memory-representation.md) (linear-memory
+representation), with the concrete GC layouts and execution-evidence matrix in
+[D-11](docs/design/D-11-gc-representation-and-evidence.md). The type system is
+in [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
+[D-04](docs/design/D-04-suite-roadmap.md).
+
+Decision records:
+
+- [DEC-01](docs/decision/DEC-01-distinct-ir-boundaries.md) — distinct IR
+  boundaries
+- [DEC-02](docs/decision/DEC-02-thin-structured-wasm-encoding.md) — thin
+  structured Wasm encoding
+- [DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md) —
+  PureScript-faithful type system and effect encoding
+- [DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md) — frontend and
+  backend feature matrices
+- [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) — Wasmtime feature set
+- [DEC-06](docs/decision/DEC-06-runtime-interface-via-wit.md) — runtime
+  interface via WIT
+- [DEC-07](docs/decision/DEC-07-runtime-representation-for-parameterized-adts.md) —
+  parameterized-ADT representation
+- [DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md) —
+  target-neutral variant representation
 
 ## Development checks
 
@@ -137,8 +150,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 The optional upstream differential test checks the front end against the
-official `purs` compiler on a small manifest of cases. It skips when `purs` or
-a PureScript checkout is unavailable:
+official `purs` compiler on a small manifest of cases. It skips when `purs` or a
+PureScript checkout is unavailable:
 
 ```sh
 PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream

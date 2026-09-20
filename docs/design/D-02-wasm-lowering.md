@@ -176,9 +176,10 @@ lowering passes. Do not add type-system special cases to the Wasm emitter.
 ## Runtime and representation
 
 Keep target representation decisions in P9. Aggregates and closures use Wasm GC
-per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md); linear memory is
-reserved for the byte-oriented WASI boundary, not for the language heap.
-Establish a small ABI before adding services:
+per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md); the linear-memory
+planner is an alternative language-heap strategy with its own representation
+([D-10](D-10-linear-memory-representation.md)) and also serves the byte-oriented
+WASI boundary. Establish a small ABI before adding services:
 
 - `Int` uses signed 32-bit values; `Number` uses 64-bit floating point.
 - `Boolean` uses an integer zero/one representation and `Char` a Unicode scalar.
@@ -189,9 +190,10 @@ Establish a small ABI before adding services:
 - A data type whose constructors are all nullary uses immediate integer tags and
   allocates nothing.
 - A data type with fields uses a `rec` group of GC `struct` types: one subtype
-  per constructor under an abstract supertype, with each field a reference or a
-  scalar. Constructor application allocates with `struct.new`, and pattern
-  matching uses `br_on_cast`/`ref.test`.
+  per constructor under a tag-carrying abstract supertype, with each field a
+  reference or a scalar. Constructor application allocates with `struct.new`,
+  and pattern matching reads the shared tag and casts to the case subtype
+  ([DEC-08](../decision/DEC-08-target-neutral-variant-representation.md)).
 - A valid single-field `newtype` is represented by its field. Its constructor
   and pattern are semantic Core operations but do not allocate a GC wrapper;
   nested constructor patterns are matched against the erased field value.

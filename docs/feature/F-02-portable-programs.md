@@ -69,6 +69,14 @@ and the supported higher-order generic adapters are lowered; generic
 aggregates, open rows, and unsupported WIT shapes receive source-oriented
 diagnostics.
 
+Scalar operators cover the full `Int`, `Number`, `Boolean`, and `Char` sets the
+standard library exposes, including bitwise and shift operations, conversions,
+and Euclidean `Int` division and modulus. A data type with fields constructs and
+pattern matches on every target profile the compiler supports. Platform services
+grow as PureScript-facing WASI libraries: console, clock, and random are
+implemented, and arguments, environment, and files follow as their WIT forms are
+supported.
+
 ## Acceptance criteria
 
 - A supported source program produces a validated core Wasm module at the

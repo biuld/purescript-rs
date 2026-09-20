@@ -1,7 +1,7 @@
 # D-07 — WIT Imports and the Standard Library
 
 **Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** Implemented (bootstrap)
+**Status:** In progress (scalar, handle, and byte-list bootstrap implemented)
 
 ## Purpose
 
@@ -72,6 +72,85 @@ Returned byte lists are covered by execution tests that feed the recovered
 `String` to the ordinary `writeStdout` WIT import and exercise repeated
 allocator calls.
 
+### Canonical ABI coverage
+
+The bootstrap classifies only scalars, resource handles, and byte lists. The
+completed slice classifies the canonical ABI forms the WASI 0.2 surface uses and
+adapts them to the source value representation. Classification stays in the ABI
+layer; CC receives only an abstract signature and MIR receives only the
+resulting canonical parameters and adapter instructions.
+
+#### Classification
+
+Each WIT function is classified into a canonical signature plus a per-parameter
+and per-result **ABI shape** that records how the declared source value flattens
+or is read back:
+
+| WIT form | Flattened core form | Read back |
+| --- | --- | --- |
+| `bool`, `u8`/`s8`, `u16`/`s16`, `u32`/`s32`, `char` | one `i32` | direct |
+| `u64`/`s64` | one `i64` | direct |
+| `f32`/`f64` | one `f32`/`f64` | direct |
+| `enum`, `flags` | one or more `i32` | direct |
+| `record`, `tuple` | flattened concatenation of the fields | return pointer if the flattened result has more than one value |
+| `variant`, `option`, `result` | `i32` discriminant plus the flattened join of the case payloads | return pointer when it does not fit one value |
+| `list<T>`, `string` | `(pointer, length)` pair | return pointer, read as `(pointer, length)` |
+| `own<T>`, `borrow<T>`, resource | one `i32` handle | direct |
+
+When the flattened parameters exceed the canonical ABI limit, the import takes a
+single pointer to a memory record instead; when the flattened result exceeds one
+value, the import takes a trailing return pointer. Both cases are represented by
+the same `retptr` and ABI-shape data the bootstrap already carries.
+
+#### Memory layout
+
+The ABI layer computes the canonical memory layout (field offsets, alignment,
+padding, variant discriminant placement, and list/string length prefixes) for
+every aggregate form that is passed or returned indirectly. The layout is used
+only to emit MIR loads, stores, and pointer arithmetic; it is not stored in CC
+or MIR as metadata.
+
+#### Source mapping
+
+A source declaration is validated against the resolved WIT function by mapping
+its source type to a WIT form:
+
+- `Int` to `s32`, `Number` to `f64`, `Boolean` to `bool`, `Char` to `char`,
+  `String` to `string`, `Unit` to `unit`;
+- a closed record to a `record` with matching field names and types;
+- a data type with field constructors to a `variant` with matching case tags;
+- `Array a` to `list<...>` with a byte element for the current `String`
+  boundary, and to other element types once aggregate lists are supported; and
+- a tuple to `tuple`.
+
+A source type that does not match its WIT form is rejected with a
+source-associated diagnostic before CC lowering, as the bootstrap already does
+for scalars.
+
+#### Ownership and post-return
+
+- A returned `list`/`string` is owned by the guest after the call. When the
+  source value is consumed and no longer referenced, the adapter releases it
+  through the `cabi_realloc`-compatible allocator or a `post-return` action
+  once reclamation exists. Until then the allocator is a bump allocator and the
+  release is a no-op, which is sound but leaks.
+- An `own` handle returned to the guest must be dropped when the source value is
+  dropped; a `borrow` handle must not be dropped. The adapter inserts the
+  required drop calls for `own` handles once resource types are exposed.
+- A guest that passes a `borrow` handle must keep the resource alive across the
+  call; the lowering evaluates the argument before the call and does not drop it.
+
+#### Delivery order
+
+1. `enum`, `flags`, and direct scalar records and tuples.
+2. Indirect records and tuples through the return pointer.
+3. `option`/`result`/`variant` with an `i32` discriminant and payload join.
+4. Non-byte `list<T>` and `list<string>` with aggregate memory layout.
+5. `own`/`borrow` handles and their drop rules; resource types.
+
+Each step adds classification, adapter lowering, a validation test, and a
+Wasmtime execution test against a vendored WIT function.
+
 ### The standard library
 
 The standard library is source code that declares its WIT imports and defines
@@ -113,5 +192,7 @@ program does not reach from `main` are pruned, so a program that does not use
 
 - A filesystem module loader, so user modules and libraries are discovered and
   selected instead of the driver providing the standard library source.
-- Aggregate values in the backend, so imports like `get-arguments` and
-  `get-environment` can be exposed, and a real allocator with reclamation.
+- The canonical ABI coverage above, so imports like `get-arguments` and
+  `get-environment` can be exposed.
+- A reclaiming allocator, so returned lists and owned resources can be released
+  instead of leaked by the bump allocator.

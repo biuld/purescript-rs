@@ -52,7 +52,8 @@ the implementation must not infer these values from a Wasmtime release.
 | Mutable globals, sign extension, saturating float-to-int, multi-value, bulk memory, extended const | Enabled as target capability | Multi-value and bulk memory are reserved for later lowerings; their presence does not claim end-to-end support. |
 | Reference types, typed function references, and GC | Enabled and required when used | Required by current closures, aggregates, casts, and `call_ref`. |
 | SIMD and relaxed SIMD | Disabled | Optimization track only. |
-| Tail calls, exceptions, multi-memory, memory64, threads, wide arithmetic | Disabled | No lowering may emit them until a profile change and execution tests land. |
+| Tail calls, exceptions, multi-memory, threads, wide arithmetic | Disabled | No lowering may emit them until a profile change and execution tests land. |
+| Memory64 | Disabled | Deferred: the pinned component toolchain cannot lift a 64-bit-memory core module and the WASI host path is incomplete; see below. |
 | Component Model and WASI 0.2 | Enabled and required | Current artifact boundary; canonical ABI and WIT metadata are emitted. |
 | WASI Preview 1 and WASI 0.3 | Disabled | Separate compatibility tracks; neither is the current artifact ABI. |
 | Component async/map/implements and experimental proposals | Disabled | Not a stable compiler dependency. |
@@ -66,13 +67,31 @@ require async plumbing before the compiler has any async language features.
 a revision of this profile and stays behind the WASI boundary, so it does not
 reach the frontend.
 
-Target representations per [D-02](D-02-wasm-lowering.md): a data type whose
-constructors are all nullary uses immediate integer tags; a supported
+Memory64 stays disabled because enabling it would break the WASI artifact path
+that this profile defines:
+
+- the pinned `wit-component` hardcodes 32-bit memories when it links a core
+  module into a component, so a core module with a 64-bit memory cannot be
+  lifted into a component artifact; and
+- Wasmtime's WASI implementation does not yet support 64-bit memories, so the
+  artifact could not execute even if it were lifted.
+
+The linear-memory representation is written so a future memory64 profile can
+change the address type without changing CC
+([D-10](D-10-linear-memory-representation.md)); memory64 is revisited only when
+the component toolchain lifts 64-bit memories and the WASI host supports them,
+with its own lowering and execution tests.
+
+Target representations per [D-02](D-02-wasm-lowering.md) and
+[DEC-08](../decision/DEC-08-target-neutral-variant-representation.md): a data
+type whose constructors are all nullary uses immediate integer tags; a supported
 non-parameterized data type with fields uses one immutable GC `struct` per
-constructor;
-closures are GC `struct` values holding a `funcref` and their captures; records
-and arrays use GC `struct`/`array`. Linear memory is reserved for the
-byte-oriented WASI boundary.
+constructor under a tag-carrying abstract supertype; closures are GC `struct`
+values holding a `funcref` and their captures; records and arrays use GC
+`struct`/`array`. The same `Variant` requirement lowers to a linear-memory
+tag/payload record under the linear profile
+([D-10](../design/D-10-linear-memory-representation.md)), which is a language-heap
+strategy as well as the byte-oriented WASI boundary.
 
 ## Runtime interface
 
@@ -112,7 +131,8 @@ Every new checklist item needs four pieces of evidence before it becomes
 `Implemented`: a capability flag, lowering/validation coverage, a binary or
 WAT regression test, and a Wasmtime execution test where the feature is
 observable. Runtime support without these artifacts remains `Available`, not
-`Implemented`.
+`Implemented`. [D-11](D-11-gc-representation-and-evidence.md) tracks the
+execution-evidence matrix.
 
 ## CC/MIR capability audit
 
@@ -122,13 +142,13 @@ considered covered merely because a Wasm opcode or a low-level type exists.
 
 | Capability family | CC status | MIR status | Design assessment |
 | --- | --- | --- | --- |
-| MVP scalar values and calls | `i32`, `Boolean`, `f64`, direct calls, and the current closure ABI are lowered. | Typed calls, constants, scalar primitives, and the current `i32` memory boundary are verified. | Partial; `i64`/`f32` and full numeric operations are not a complete slice. |
-| Structured control | Expression-level `if` is explicit in ANF. | CFG has `if` diamonds, jumps, merge parameters, and returns. | Partial; `block`, `loop`, `br`, `br_if`, and `br_table` are not represented. |
-| Linear memory | Strings, aggregate handles, closures, and WIT byte-list boundaries select the pointer representation. | Product/box/array payloads lower to allocator plus typed wasm32 load/store operations; table-backed closures lower to environments plus `call_indirect`; the verifier checks pointer and scalar types. | Partial; pointer width, memory selection, and the broader allocation/ABI family are not complete. |
+| MVP scalar values and calls | `i32`, `Boolean`, `f64`, direct calls, and the current closure ABI are lowered. | Typed calls, constants, scalar primitives, and the current `i32` memory boundary are verified. | Partial; [D-09](../design/D-09-scalar-and-numeric-lowering.md) defines the complete scalar and numeric slice, including bitwise, shift, conversion, and Euclidean `IntDiv`/`IntMod` operations. |
+| Structured control | Expression-level `if` and `case` are explicit in ANF. | CFG has `if` diamonds, jumps, merge parameters, and returns. | Partial; the source language has no loops, so `loop`/`br_table` are added only when a language feature needs them. |
+| Linear memory | Strings, aggregate handles, closures, and WIT byte-list boundaries select the pointer representation. | Product/box/array/variant payloads lower to allocator plus typed wasm32 load/store operations; table-backed closures lower to environments plus `call_indirect`; the verifier checks pointer and scalar types. | Partial; [D-10](../design/D-10-linear-memory-representation.md) defines the completed address model, variant tag/payload, erased boxing, and aligned allocator. |
 | Multi-value | No multi-result CC operation. | Function/import signatures and calls have one result; the verifier rejects multi-result `call_ref`. | Correctly marked Partial; do not enable it as an implementation claim. |
 | Bulk memory, globals, SIMD, tail calls, exceptions, threads | No CC operation or representation. | The MIR/P10 function table supports the linear closure slice; bulk memory and the other proposal families have no operations or resources. | Profile flags are policy inputs only; they are not lowering coverage. |
-| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, logical fields, and a complete verifier for the current operation set; it has no Wasm type indices. | MIR plans the current GC layout and owns `RecGroup` and concrete reference types; the linear planner separately owns pointer payloads, table slots, and MVP function types. | Partial; dynamic representation operations and broader proposal coverage remain. |
-| Component Model and WASI | CC keeps only an external `SymbolId` and abstract signature. `BackendInput::externals` carries WIT names and source signatures beside CC. | MIR resolves bindings through the WIT ABI registry, emits adapters for referenced calls, and retains only used runtime imports. | Partial; broader canonical ABI forms and ownership rules remain. |
+| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, logical fields, and one `Variant` per sum type ([DEC-08](../decision/DEC-08-target-neutral-variant-representation.md)); it has no Wasm type indices. | MIR plans the current GC layout and owns `RecGroup` and concrete reference types; the GC planner realizes a variant as a tag-carrying abstract supertype plus case subtypes, and the linear planner separately owns pointer payloads, table slots, and MVP function types. | Partial; erased representation adaptation and broader proposal coverage remain. |
+| Component Model and WASI | CC keeps only an external `SymbolId` and abstract signature. `BackendInput::externals` carries WIT names and source signatures beside CC. | MIR resolves bindings through the WIT ABI registry, emits adapters for referenced calls, and retains only used runtime imports. | Partial; [D-07](../design/D-07-wit-imports-and-std.md) defines the record/variant/enum/flags/tuple/list/handle coverage and ownership rules that remain. |
 
 The residual structural issue is deliberately called out here: the linear-memory
 path is an explicit supported subset, not a claim that every GC operation or
@@ -144,5 +164,7 @@ row.
   PureScript-facing libraries and enabling their capability flags.
 - Whether a language feature needs tail calls, exceptions, or stack switching;
   each is added to the profile before use.
+- Revisiting memory64 once `wit-component` lifts 64-bit-memory modules into
+  components and the WASI host supports them; until then it stays disabled.
 - Tracking the `wasmtime` baseline: a new release is a deliberate revision of
   this profile and DEC-05.
