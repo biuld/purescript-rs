@@ -69,6 +69,63 @@ pub(super) fn is_ref_opt(ty: Option<ValueType>) -> bool {
     matches!(ty, Some(ValueType::Ref(_)))
 }
 
+/// Checks whether a reference can be used where a concrete struct type is
+/// required. Aggregate values may use the abstract `struct` heap type at a
+/// CC/MIR boundary; field operations name the concrete type index.
+pub(super) fn is_struct_reference(
+    ty: ValueType,
+    type_index: u32,
+    defined: &[&DefinedType],
+) -> bool {
+    is_reference_to_composite(ty, type_index, HeapType::Struct, defined, |composite| {
+        matches!(composite, CompositeType::Struct(_))
+    })
+}
+
+/// Checks whether a reference can be used where a concrete array type is
+/// required.
+pub(super) fn is_array_reference(ty: ValueType, type_index: u32, defined: &[&DefinedType]) -> bool {
+    is_reference_to_composite(ty, type_index, HeapType::Array, defined, |composite| {
+        matches!(composite, CompositeType::Array(_))
+    })
+}
+
+/// Checks whether a reference has any array heap type. This is used by
+/// `array.len`, which does not carry a redundant concrete type index.
+pub(super) fn is_any_array_reference(ty: ValueType, defined: &[&DefinedType]) -> bool {
+    let ValueType::Ref(reference) = ty else {
+        return false;
+    };
+    match reference.heap {
+        HeapType::Array => true,
+        HeapType::Index(index) => {
+            matches!(composite_at(defined, index), Some(CompositeType::Array(_)))
+        }
+        _ => false,
+    }
+}
+
+fn is_reference_to_composite(
+    ty: ValueType,
+    type_index: u32,
+    abstract_heap: HeapType,
+    defined: &[&DefinedType],
+    predicate: impl FnOnce(&CompositeType) -> bool,
+) -> bool {
+    let ValueType::Ref(reference) = ty else {
+        return false;
+    };
+    match reference.heap {
+        heap if heap == abstract_heap => {
+            matches!(composite_at(defined, type_index), Some(composite) if predicate(composite))
+        }
+        HeapType::Index(actual) if actual == type_index => {
+            matches!(composite_at(defined, type_index), Some(composite) if predicate(composite))
+        }
+        _ => false,
+    }
+}
+
 pub(super) fn mir_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P9 MIR verification", span, message)]
 }

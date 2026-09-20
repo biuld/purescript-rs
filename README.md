@@ -45,9 +45,9 @@ first executable slice supports monomorphic `Int`, `Boolean`, `String`,
 `Unit`, direct top-level calls, integer operators, string literals and `log`,
 scalar `let`, and value-producing `if`. Type inference adds rank-1
 polymorphism: local `let` groups and top-level strongly connected components are
-generalized and schemes are instantiated at use sites. The backend rejects
-polymorphic declarations until type erasure and dictionary passing exist;
-`identity` therefore reports a backend diagnostic. A `psrs-kind` pass infers and
+generalized and schemes are instantiated at use sites. The backend supports
+the current rank-1 erased scalar/closure slice; dictionary-passing classes and
+generic aggregate representations remain open. A `psrs-kind` pass infers and
 unifies kinds for `data`, `newtype`, `type`, and `class` declarations and
 reports the official `KindsDoNotUnify`, `PartiallyAppliedSynonym`,
 `CycleInTypeSynonym`, `CycleInKindDeclaration`, `UndefinedTypeVariable`, and
@@ -58,14 +58,15 @@ polymorphic values, so constructor applications type-check, and single-scrutinee
 `case` expressions with constructor, variable, and wildcard patterns type-check.
 A first runtime slice lowers non-parameterized data types: nullary-only types
 use integer tags, while field constructors use Wasm GC structs and `case`
-uses runtime type tests and field loads. Type-class constraints, closures,
-records, arrays, and rows are not implemented yet. `build <file.purs>...`
-writes a validated WASI 0.2 Component Model artifact exporting
-`wasi:cli/run@0.2.12` and links all listed modules with the embedded `Prelude`;
-`wat <file.purs>...` renders the corresponding text form. General PureScript
-compatibility, type classes, closures, records, and arrays are not implemented
-yet. Cross-module compilation is supported for the direct-call and non-parameterized
-ADT subset.
+uses runtime type tests and field loads. Closures, closed records, concrete
+arrays, parameterized ADTs, and selected WIT imports are implemented in
+restricted slices; type-class constraints, open rows, generic aggregates, and
+the remaining WIT shapes are not. `build <file.purs>...` writes a validated
+WASI 0.2 Component Model artifact exporting `wasi:cli/run@0.2.12` and links
+all listed modules with the embedded `Prelude`; `wat <file.purs>...` renders
+the corresponding text form. General PureScript compatibility and the
+official runtime suite remain future work. Cross-module compilation is
+supported for the current typed/runtime subset.
 
 ## Workspace
 
@@ -92,12 +93,14 @@ ADT subset.
 The compiler architecture defines twelve major passes across six long-lived
 IR families. The first Wasm slice is implemented, including WASI and Component
 Model componentization; broader language coverage remains future work. The
-executable baseline is a pinned
-`wasmtime` release and may use the standardized WebAssembly 3.0 features
-(garbage collection, function references, tail calls, and exception handling)
-as well as preview proposals, per
-[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md). See
-[D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
+executable baseline is a pinned `wasmtime` release, while the artifact
+contract is the explicit capability profile: Wasm GC/reference types and the
+synchronous WASI 0.2 Component Model path are enabled, and optional proposals
+such as SIMD, tail calls, exceptions, threads, memory64, and WASI 0.3 remain
+disabled until their lowerings and tests land. See
+[DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) and
+[D-05](docs/design/D-05-backend-capability.md),
+[D-01](docs/design/D-01-frontend-and-ir-boundaries.md), and
 [D-02](docs/design/D-02-wasm-lowering.md).
 
 ## Project documents

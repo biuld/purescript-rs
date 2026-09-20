@@ -28,11 +28,13 @@ The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
 Preview 1 module ABI is not part of the supported output contract.
 
 The executable baseline is a documented, pinned WebAssembly runtime
-(`wasmtime`). An artifact may require the WebAssembly features that baseline
-enables, from the standardized WebAssembly 3.0 set (garbage collection,
-function references, tail calls, and exception handling) to proposals still in
-the preview stage, so portability is defined against engines that implement the
-same feature set rather than against the minimal core specification.
+(`wasmtime`). An artifact requires only the features enabled by the selected
+backend capability profile. The stable profile uses Wasm GC/reference types,
+typed function references, and synchronous WASI 0.2 Component Model support;
+optional proposals such as SIMD, tail calls, exceptions, threads, memory64,
+and WASI 0.3 are separate target tracks. Portability is therefore defined by
+the selected profile rather than by every feature a runtime happens to
+support.
 
 Compatibility is measured against the official PureScript test suite, layer by
 layer, as decided in [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md):

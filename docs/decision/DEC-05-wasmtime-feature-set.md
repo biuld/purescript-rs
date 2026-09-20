@@ -22,16 +22,21 @@ that requirement is pinned and verified.
 
 ## Decision
 
-The compilation target is the WebAssembly feature set implemented by a pinned
-`wasmtime` release, not the minimal core specification. The current baseline is
-**wasmtime 48**, and the concrete, per-feature profile is defined by
-[D-05](../design/D-05-backend-capability.md).
+The execution oracle is a pinned **wasmtime 48** baseline, but the compilation
+target is an explicit, per-feature capability profile defined by
+[D-05](../design/D-05-backend-capability.md), not every proposal the runtime
+can execute. The default profile is
+`TargetCapabilities::wasmtime_wasi_0_2()`.
 
-- The backend may use any feature that the capability profile lists for the
-  baseline: the standardized WebAssembly 3.0 set (garbage collection, function
-  references, tail calls, exception handling, multiple memories, 64-bit memory,
-  relaxed SIMD) and, once adopted there, proposals still in preview such as
-  stack switching.
+- The backend may emit only features enabled in the selected profile. The
+  stable profile requires MVP Wasm plus the GC/reference/function-reference
+  subset used by the current runtime representation and the Component Model
+  with WASI 0.2. SIMD, tail calls, exceptions, threads, multi-memory,
+  memory64, wide arithmetic, async components, and WASI 0.3 remain disabled.
+- A proposal is not `Implemented` because Wasmtime accepts it. It needs a
+  lowering, profile validation, regression tests, and observable execution
+  evidence. A profile flag is an adoption gate, not a claim that the current
+  compiler already emits every instruction in that proposal.
 - Feature use is confined to the lowest representations. MIR and the structured
   Wasm encoding may carry target types and layouts; CST, AST, HIR, THIR, and
   Typed Core must not mention WebAssembly features, reference types, or offsets.
@@ -40,9 +45,10 @@ The compilation target is the WebAssembly feature set implemented by a pinned
   supertype, and closures use a `struct` holding a `funcref` and its captures.
   Linear memory remains only for the byte-oriented WASI boundary and is not the
   language heap.
-- The artifact assumes the documented baseline. Validation enables the same
-  features, and execution tests run under the pinned `wasmtime`. The artifact
-  may require these features to load.
+- The artifact assumes the selected profile. Validation is built from the same
+  flags, and execution tests run under the pinned `wasmtime`. If a lowering
+  needs a disabled capability, compilation fails with a backend diagnostic;
+  there is no implicit fallback ABI.
 
 ## Consequences
 

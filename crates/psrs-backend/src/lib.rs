@@ -1,9 +1,12 @@
 pub mod abi;
+pub mod capability;
 pub mod cc;
 pub mod component;
 pub mod mir;
 pub mod types;
 pub mod wasm;
+
+pub use capability::TargetCapabilities;
 
 use psrs_hir::ModuleId;
 use psrs_span::TextRange;
@@ -60,47 +63,18 @@ pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>>
     Ok(compile_with_stages(module)?.artifact)
 }
 
-/// The validator configured for the feature profile in
-/// `docs/design/D-05-backend-capability.md`. It starts from the `wasmparser`
-/// defaults (which currently match the pinned `wasmtime` baseline) and then
-/// pins the features the backend depends on and the opt-in preview proposals
-/// the profile excludes, so a change in defaults cannot silently disable GC or
-/// the component model.
+/// The default-profile validator, retained for backend unit tests.
+#[allow(dead_code)]
 pub(crate) fn validator() -> wasmparser::Validator {
-    use wasmparser::WasmFeatures;
-    let mut features = WasmFeatures::default();
-    for feature in [
-        WasmFeatures::REFERENCE_TYPES,
-        WasmFeatures::FUNCTION_REFERENCES,
-        WasmFeatures::GC,
-        WasmFeatures::GC_TYPES,
-        WasmFeatures::MULTI_VALUE,
-        WasmFeatures::TAIL_CALL,
-        WasmFeatures::EXCEPTIONS,
-        WasmFeatures::MULTI_MEMORY,
-        WasmFeatures::MEMORY64,
-        WasmFeatures::SIMD,
-        WasmFeatures::RELAXED_SIMD,
-        WasmFeatures::THREADS,
-        WasmFeatures::BULK_MEMORY,
-        WasmFeatures::EXTENDED_CONST,
-        WasmFeatures::COMPONENT_MODEL,
-    ] {
-        features.set(feature, true);
-    }
-    for feature in [
-        WasmFeatures::SHARED_EVERYTHING_THREADS,
-        WasmFeatures::MEMORY_CONTROL,
-        WasmFeatures::CUSTOM_PAGE_SIZES,
-        WasmFeatures::STACK_SWITCHING,
-        WasmFeatures::WIDE_ARITHMETIC,
-        WasmFeatures::LEGACY_EXCEPTIONS,
-        WasmFeatures::CUSTOM_DESCRIPTORS,
-        WasmFeatures::COMPACT_IMPORTS,
-    ] {
-        features.set(feature, false);
-    }
-    wasmparser::Validator::new_with_features(features)
+    validator_for(TargetCapabilities::default())
+}
+
+/// Creates a validator that accepts exactly the proposals declared by a
+/// target profile.  This deliberately starts from MVP instead of the
+/// dependency's defaults, so a library upgrade cannot silently broaden the
+/// artifact contract.
+pub(crate) fn validator_for(target: TargetCapabilities) -> wasmparser::Validator {
+    wasmparser::Validator::new_with_features(target.wasm_features())
 }
 
 #[derive(Clone, Debug)]
@@ -112,11 +86,35 @@ pub struct Stages {
 }
 
 pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<BackendError>> {
+    compile_with_target(module, TargetCapabilities::default())
+}
+
+/// Compiles a program using an explicit target capability profile.
+pub fn compile_with_target(
+    module: psrs_core::Module,
+    target: TargetCapabilities,
+) -> Result<Stages, Vec<BackendError>> {
     let cc = cc::lower_module(module)?;
-    let (mir, mut wasi) = mir::lower_module(cc.clone())?;
+    let (mir, mut wasi) = mir::lower_module_with_capabilities(cc.clone(), target)?;
     let owner = mir.entry.map(|entry| entry.module);
-    let wasm =
-        wasm::lower_module(&mir, &mut wasi).map_err(|errors| annotate_errors(errors, owner))?;
+    if !target.component_model
+        || !target.wasi_p2
+        || !target.wasi_cli
+        || !target.wasi_io
+        || !target.wasi_clocks
+        || !target.wasi_random
+    {
+        return Err(annotate_errors(
+            vec![BackendError::new(
+                "P11 target capabilities",
+                mir.span,
+                "the current artifact pipeline requires Component Model and WASI 0.2 capabilities",
+            )],
+            owner,
+        ));
+    }
+    let wasm = wasm::lower_module_with_capabilities(&mir, &mut wasi, target)
+        .map_err(|errors| annotate_errors(errors, owner))?;
     let core = wasm::encode_module(&wasm).map_err(|errors| annotate_errors(errors, owner))?;
     let (resolve, world) = component::command_world().map_err(|message| {
         annotate_errors(
@@ -130,16 +128,18 @@ pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<Back
             owner,
         )
     })?;
-    validator().validate_all(&binary).map_err(|error| {
-        annotate_errors(
-            vec![BackendError::new(
-                "P11 Wasm validation",
-                mir.span,
-                format!("generated WebAssembly failed validation: {error}"),
-            )],
-            owner,
-        )
-    })?;
+    validator_for(target)
+        .validate_all(&binary)
+        .map_err(|error| {
+            annotate_errors(
+                vec![BackendError::new(
+                    "P11 Wasm validation",
+                    mir.span,
+                    format!("generated WebAssembly failed validation: {error}"),
+                )],
+                owner,
+            )
+        })?;
     let text = wasmprinter::print_bytes(&binary).map_err(|error| {
         annotate_errors(
             vec![BackendError::new(

@@ -11,15 +11,15 @@ compatibility goal is PureScript language semantics plus the project's
 PureScript-facing WASI libraries; Node.js and JavaScript FFI compatibility are
 outside this target.
 
-The artifact targets the WebAssembly feature set of a pinned `wasmtime` release
-rather than the minimal core specification. It may use the standardized
-WebAssembly 3.0 features that release implements—including garbage collection,
-function references, tail calls, and exception handling—as well as proposals
-that are still in preview. The baseline and its consequences are fixed by
-[DEC-05](../decision/DEC-05-wasmtime-feature-set.md), and the concrete feature
-list, WASI surface, and verification are defined by
-[D-05](D-05-backend-capability.md). Target features are chosen in MIR and never
-leak into the frontend IRs.
+The artifact targets an explicit capability profile for a pinned `wasmtime`
+release rather than inheriting every feature the runtime happens to support.
+The stable profile uses Wasm GC, reference types, typed function references,
+and the synchronous WASI 0.2 Component Model path; SIMD, tail calls, threads,
+memory64, exceptions, async components, and WASI 0.3 are disabled. The policy
+is fixed by [DEC-05](../decision/DEC-05-wasmtime-feature-set.md), and the
+concrete feature list, WASI surface, and verification are defined by
+[D-05](D-05-backend-capability.md). Target features are selected below Typed
+Core and never leak into the frontend IRs.
 
 The backend starts from Typed Core, the stable frontend/backend boundary. Wasm
 is the primary backend. A native executable, if added, should embed or run the

@@ -3,8 +3,8 @@
 use super::Signature;
 use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
-    check_heap, composite_at, is_ref, is_ref_opt, mir_error, require_value, storage_value_type,
-    value_type,
+    check_heap, composite_at, is_any_array_reference, is_array_reference, is_ref, is_ref_opt,
+    is_struct_reference, mir_error, require_value, storage_value_type, value_type,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -12,6 +12,8 @@ use crate::types::{CompositeType, DefinedType, HeapType, RefType};
 use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
+
+mod memory;
 
 pub(super) fn verify_instruction(
     function: &Function,
@@ -21,9 +23,40 @@ pub(super) fn verify_instruction(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
-        Instruction::Constant { .. } => {}
-        Instruction::NumberConstant { .. } => {}
-        Instruction::StringConstant { .. } => {}
+        Instruction::Constant {
+            destination,
+            value,
+            span,
+        } => {
+            let Some(result) = value_type(function, *destination) else {
+                return Err(mir_error(*span, "MIR constant has no result type"));
+            };
+            if !matches!(result, ValueType::I32 | ValueType::Boolean)
+                || (result == ValueType::Boolean && !matches!(value, 0 | 1))
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR integer constant has the wrong result type",
+                ));
+            }
+        }
+        Instruction::NumberConstant {
+            destination, span, ..
+        } => {
+            if value_type(function, *destination) != Some(ValueType::F64) {
+                return Err(mir_error(*span, "MIR number constant must produce f64"));
+            }
+        }
+        Instruction::StringConstant {
+            destination, span, ..
+        } => {
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(
+                    *span,
+                    "MIR string constant must produce an i32 pointer",
+                ));
+            }
+        }
         Instruction::Primitive {
             destination,
             op,
@@ -255,7 +288,12 @@ pub(super) fn verify_instruction(
                     ));
                 }
             }
-            if !is_ref_opt(value_type(function, *destination)) {
+            if !is_struct_reference(
+                value_type(function, *destination)
+                    .ok_or_else(|| mir_error(*span, "MIR struct.new result has no value type"))?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(
                     *span,
                     "MIR struct.new result must be a reference",
@@ -275,7 +313,11 @@ pub(super) fn verify_instruction(
             let Some(field) = fields.get(*field as usize) else {
                 return Err(mir_error(*span, "MIR struct.get field is out of range"));
             };
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            if !is_struct_reference(
+                require_value(definitions, *value, *span)?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(
                     *span,
                     "MIR struct.get operand must be a reference",
@@ -306,7 +348,11 @@ pub(super) fn verify_instruction(
                     "MIR struct.set targets an immutable field",
                 ));
             }
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            if !is_struct_reference(
+                require_value(definitions, *value, *span)?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(
                     *span,
                     "MIR struct.set operand must be a reference",
@@ -335,7 +381,12 @@ pub(super) fn verify_instruction(
                     return Err(mir_error(*span, "MIR array.new element has the wrong type"));
                 }
             }
-            if !is_ref_opt(value_type(function, *destination)) {
+            if !is_array_reference(
+                value_type(function, *destination)
+                    .ok_or_else(|| mir_error(*span, "MIR array.new result has no value type"))?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(*span, "MIR array.new result must be a reference"));
             }
         }
@@ -349,7 +400,11 @@ pub(super) fn verify_instruction(
             let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
                 return Err(mir_error(*span, "MIR array.get type is not an array"));
             };
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            if !is_array_reference(
+                require_value(definitions, *value, *span)?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(
                     *span,
                     "MIR array.get operand must be a reference",
@@ -378,7 +433,11 @@ pub(super) fn verify_instruction(
             if !element.mutable {
                 return Err(mir_error(*span, "MIR array.set targets an immutable array"));
             }
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            if !is_array_reference(
+                require_value(definitions, *value, *span)?,
+                *type_index,
+                defined,
+            ) {
                 return Err(mir_error(
                     *span,
                     "MIR array.set operand must be a reference",
@@ -399,7 +458,7 @@ pub(super) fn verify_instruction(
             value,
             span,
         } => {
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            if !is_any_array_reference(require_value(definitions, *value, *span)?, defined) {
                 return Err(mir_error(
                     *span,
                     "MIR array.len operand must be a reference",
@@ -409,60 +468,11 @@ pub(super) fn verify_instruction(
                 return Err(mir_error(*span, "MIR array.len result must be i32"));
             }
         }
-        Instruction::Load {
-            destination,
-            address,
-            span,
-            ..
-        } => {
-            if require_value(definitions, *address, *span)? != ValueType::I32 {
-                return Err(mir_error(*span, "MIR load address must be i32"));
-            }
-            if value_type(function, *destination) != Some(ValueType::I32) {
-                return Err(mir_error(*span, "MIR load result must be i32"));
-            }
-        }
-        Instruction::Store {
-            address,
-            value,
-            span,
-            ..
-        } => {
-            if require_value(definitions, *address, *span)? != ValueType::I32 {
-                return Err(mir_error(*span, "MIR store address must be i32"));
-            }
-            if require_value(definitions, *value, *span)? != ValueType::I32 {
-                return Err(mir_error(*span, "MIR store value must be i32"));
-            }
-        }
-        Instruction::WrapI64 {
-            destination,
-            value,
-            span,
-        } => {
-            if require_value(definitions, *value, *span)? != ValueType::I64
-                || value_type(function, *destination) != Some(ValueType::I32)
-            {
-                return Err(mir_error(
-                    *span,
-                    "MIR i32.wrap_i64 operand or result type is invalid",
-                ));
-            }
-        }
-        Instruction::WidenI64 {
-            destination,
-            value,
-            span,
-            ..
-        } => {
-            if require_value(definitions, *value, *span)? != ValueType::I32
-                || value_type(function, *destination) != Some(ValueType::I64)
-            {
-                return Err(mir_error(
-                    *span,
-                    "MIR i64.extend_i32 operand or result type is invalid",
-                ));
-            }
+        Instruction::Load { .. }
+        | Instruction::Store { .. }
+        | Instruction::WrapI64 { .. }
+        | Instruction::WidenI64 { .. } => {
+            memory::verify_memory_instruction(function, instruction, definitions)?;
         }
     }
     Ok(())

@@ -13,6 +13,9 @@ mod function;
 mod instruction;
 mod util;
 
+#[cfg(test)]
+mod tests;
+
 use util::{mir_error, value_type};
 
 /// A callable signature used to check call sites. `None` marks a function whose

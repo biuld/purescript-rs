@@ -1,5 +1,7 @@
 use super::Signature;
-use super::util::{composite_at, is_ref, mir_error, require_value, storage_value_type, value_type};
+use super::util::{
+    composite_at, is_struct_reference, mir_error, require_value, storage_value_type, value_type,
+};
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueType};
 use crate::types::{CompositeType, DefinedType, HeapType, RefType};
@@ -21,14 +23,27 @@ pub(super) fn verify_ref_func(
     else {
         unreachable!("ref.func verifier received another instruction");
     };
-    if !signatures.contains_key(callee) {
-        return Err(mir_error(*span, "MIR ref.func target has no signature"));
-    }
-    if !matches!(
-        composite_at(defined, *type_index),
-        Some(CompositeType::Func { .. })
-    ) {
+    let Some(Some(signature)) = signatures.get(callee) else {
+        return Err(mir_error(
+            *span,
+            "MIR ref.func target has no valid signature",
+        ));
+    };
+    let Some(CompositeType::Func {
+        parameters,
+        results,
+    }) = composite_at(defined, *type_index)
+    else {
         return Err(mir_error(*span, "MIR ref.func type is not a function type"));
+    };
+    if signature.parameters != *parameters
+        || results.len() != 1
+        || signature.result != results.first().copied()
+    {
+        return Err(mir_error(
+            *span,
+            "MIR ref.func type does not match its target signature",
+        ));
     }
     if value_type(function, *destination)
         != Some(ValueType::Ref(RefType {
@@ -117,16 +132,21 @@ pub(super) fn verify_closure_new(
     let Some(Some(signature)) = signatures.get(callee) else {
         return Err(mir_error(*span, "closure code target has no signature"));
     };
-    if signature.parameters != *parameters || signature.result != results.first().copied() {
+    if signature.parameters != *parameters
+        || results.len() != 1
+        || signature.result != results.first().copied()
+    {
         return Err(mir_error(
             *span,
             "closure code signature does not match its target",
         ));
     }
     verify_closure_layout(*closure_type, *capture_array_type, defined, *span)?;
-    if !is_ref(
+    if !is_struct_reference(
         value_type(function, *destination)
             .ok_or_else(|| mir_error(*span, "closure.new result has no value type"))?,
+        *closure_type,
+        defined,
     ) {
         return Err(mir_error(*span, "closure.new result must be a reference"));
     }
@@ -168,7 +188,11 @@ pub(super) fn verify_closure_call(
         unreachable!("closure.call verifier received another instruction");
     };
     verify_closure_layout(*closure_type, *capture_array_type, defined, *span)?;
-    if !is_ref(require_value(definitions, *callee, *span)?) {
+    if !is_struct_reference(
+        require_value(definitions, *callee, *span)?,
+        *closure_type,
+        defined,
+    ) {
         return Err(mir_error(*span, "closure.call target must be a reference"));
     }
     let Some(CompositeType::Func {
@@ -216,7 +240,11 @@ pub(super) fn verify_closure_get_capture(
         unreachable!("closure.get_capture verifier received another instruction");
     };
     verify_closure_layout(*closure_type, *capture_array_type, defined, *span)?;
-    if !is_ref(require_value(definitions, *closure, *span)?) {
+    if !is_struct_reference(
+        require_value(definitions, *closure, *span)?,
+        *closure_type,
+        defined,
+    ) {
         return Err(mir_error(
             *span,
             "closure capture source must be a reference",

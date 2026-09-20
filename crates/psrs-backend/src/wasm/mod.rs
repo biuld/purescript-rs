@@ -11,7 +11,7 @@ mod verify;
 mod tests;
 
 pub use encode::encode_module;
-pub use lower::lower_module;
+pub use lower::{lower_module, lower_module_with_capabilities};
 
 /// A WebAssembly function signature in the thin Wasm IR.
 #[derive(Clone, Debug, PartialEq, Eq)]

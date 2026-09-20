@@ -1,4 +1,5 @@
 use crate::abi::WasiRegistry;
+use crate::capability::TargetCapabilities;
 use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
 use crate::{BackendError, annotate_errors, cc};
 use psrs_hir::SymbolId;
@@ -91,7 +92,15 @@ pub enum Terminator {
 /// resolved its WIT imports. The registry is returned so the Wasm stage can name
 /// each import; the MIR module itself stores no WIT or component detail.
 pub fn lower_module(module: cc::Module) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
-    let mut wasi = WasiRegistry::load().map_err(|message| {
+    lower_module_with_capabilities(module, TargetCapabilities::default())
+}
+
+/// Lowers CC to MIR using an explicit target capability profile.
+pub fn lower_module_with_capabilities(
+    module: cc::Module,
+    target: TargetCapabilities,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    let mut wasi = WasiRegistry::load_with_capabilities(target).map_err(|message| {
         annotate_errors(
             vec![BackendError::new("P9 MIR lowering", module.span, message)],
             module.entry.map(|entry| entry.module),

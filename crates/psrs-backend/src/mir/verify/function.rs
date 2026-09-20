@@ -55,9 +55,13 @@ pub(super) fn verify_function(
             ));
         }
     }
-    // MIR is SSA: every value is defined exactly once, by the function
-    // parameters, a block parameter, or one instruction.
+    // MIR is SSA: every value is defined exactly once, by a function
+    // parameter, a block parameter, or one instruction. Keep the owning block
+    // so operand checks can enforce dominance rather than only checking that a
+    // value appears somewhere in the function.
     let mut defined_values = HashSet::new();
+    let mut owners = HashMap::<ValueId, Option<BlockId>>::new();
+    let mut function_parameters = HashSet::new();
     for parameter in &function.parameters {
         if !definitions.contains_key(parameter) {
             return Err(mir_error(
@@ -65,11 +69,24 @@ pub(super) fn verify_function(
                 "MIR function parameter has no value type",
             ));
         }
-        defined_values.insert(*parameter);
+        if !defined_values.insert(*parameter) {
+            return Err(mir_error(
+                function.span,
+                "MIR value is defined more than once",
+            ));
+        }
+        function_parameters.insert(*parameter);
+        owners.insert(*parameter, None);
     }
     for block in &function.blocks {
         for parameter in &block.parameters {
-            defined_values.insert(*parameter);
+            if !defined_values.insert(*parameter) {
+                return Err(mir_error(
+                    function.span,
+                    "MIR value is defined more than once",
+                ));
+            }
+            owners.insert(*parameter, Some(block.id));
         }
     }
     for block in &function.blocks {
@@ -87,7 +104,15 @@ pub(super) fn verify_function(
                         "MIR value is defined more than once",
                     ));
                 }
+                owners.insert(destination, Some(block.id));
             }
+        }
+    }
+
+    let dominators = compute_dominators(function.entry, &blocks);
+    for block in &function.blocks {
+        let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
+        for instruction in &block.instructions {
             for operand in instruction.operands() {
                 if !definitions.contains_key(&operand) {
                     return Err(mir_error(
@@ -95,13 +120,159 @@ pub(super) fn verify_function(
                         "MIR instruction uses an unknown value",
                     ));
                 }
+                if !value_available(
+                    operand,
+                    block.id,
+                    &available,
+                    &function_parameters,
+                    &owners,
+                    &dominators,
+                ) {
+                    return Err(mir_error(
+                        instruction.span(),
+                        "MIR instruction uses a value before its definition or outside its dominance scope",
+                    ));
+                }
             }
             verify_instruction(function, instruction, &definitions, signatures, defined)?;
+            if let Some(destination) = instruction.destination() {
+                available.insert(destination);
+            }
         }
         let terminator = block.terminator.as_ref().expect("checked above");
+        for operand in terminator_operands(terminator) {
+            if !definitions.contains_key(&operand) {
+                return Err(mir_error(
+                    terminator_span(terminator),
+                    "MIR terminator uses an unknown value",
+                ));
+            }
+            if !value_available(
+                operand,
+                block.id,
+                &available,
+                &function_parameters,
+                &owners,
+                &dominators,
+            ) {
+                return Err(mir_error(
+                    terminator_span(terminator),
+                    "MIR terminator uses a value before its definition or outside its dominance scope",
+                ));
+            }
+        }
         verify_terminator(function, terminator, &blocks, &definitions)?;
     }
     Ok(())
+}
+
+fn value_available(
+    value: ValueId,
+    block: BlockId,
+    local: &HashSet<ValueId>,
+    function_parameters: &HashSet<ValueId>,
+    owners: &HashMap<ValueId, Option<BlockId>>,
+    dominators: &HashMap<BlockId, HashSet<BlockId>>,
+) -> bool {
+    if local.contains(&value) || function_parameters.contains(&value) {
+        return true;
+    }
+    let Some(Some(owner)) = owners.get(&value) else {
+        return false;
+    };
+    *owner != block
+        && dominators
+            .get(&block)
+            .is_some_and(|set| set.contains(owner))
+}
+
+fn compute_dominators(
+    entry: BlockId,
+    blocks: &HashMap<BlockId, &BasicBlock>,
+) -> HashMap<BlockId, HashSet<BlockId>> {
+    let all = blocks.keys().copied().collect::<HashSet<_>>();
+    let mut predecessors = blocks
+        .keys()
+        .copied()
+        .map(|id| (id, HashSet::new()))
+        .collect::<HashMap<BlockId, HashSet<BlockId>>>();
+    for block in blocks.values() {
+        let Some(terminator) = &block.terminator else {
+            continue;
+        };
+        for successor in terminator_successors(terminator) {
+            if let Some(preds) = predecessors.get_mut(&successor) {
+                preds.insert(block.id);
+            }
+        }
+    }
+
+    let mut dominators = blocks
+        .keys()
+        .copied()
+        .map(|id| {
+            let initial = if id == entry {
+                HashSet::from([entry])
+            } else {
+                all.clone()
+            };
+            (id, initial)
+        })
+        .collect::<HashMap<_, _>>();
+    loop {
+        let mut changed = false;
+        for id in blocks.keys().copied().filter(|id| *id != entry) {
+            let mut next = all.clone();
+            if let Some(preds) = predecessors.get(&id) {
+                if preds.is_empty() {
+                    next.clear();
+                } else {
+                    for pred in preds {
+                        if let Some(pred_dominators) = dominators.get(pred) {
+                            next.retain(|candidate| pred_dominators.contains(candidate));
+                        }
+                    }
+                }
+            }
+            next.insert(id);
+            if dominators.get(&id) != Some(&next) {
+                dominators.insert(id, next);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    dominators
+}
+
+fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
+    match terminator {
+        Terminator::Return { .. } => Vec::new(),
+        Terminator::Jump { target, .. } => vec![*target],
+        Terminator::Branch {
+            then_block,
+            else_block,
+            ..
+        } => vec![*then_block, *else_block],
+    }
+}
+
+fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
+    match terminator {
+        Terminator::Return { value, .. } => vec![*value],
+        Terminator::Jump { arguments, .. } => arguments.clone(),
+        Terminator::Branch { condition, .. } => vec![*condition],
+    }
+}
+
+fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
+    match terminator {
+        Terminator::Return { span, .. }
+        | Terminator::Jump { span, .. }
+        | Terminator::Branch { span, .. } => *span,
+    }
 }
 
 fn verify_terminator(

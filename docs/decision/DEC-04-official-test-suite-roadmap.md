@@ -100,6 +100,7 @@ when its local implementation tests pass.
 | BE-24–BE-25 | No current acceptance gate | These are outside or later than the current target. |
 | BE-26–BE-27 | L6/M7 | Module-loading and full passing-suite execution scoreboards. |
 | BE-28 | No gate | JavaScript/Node.js FFI is excluded. |
+| BC-01–BC-12 | No direct source-suite gate | Core Wasm feature tests, profile validation, WIT/component tests, and runtime compatibility tests. |
 
 ## Frontend feature matrix
 
@@ -163,8 +164,8 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-12 | Core optimization and MIR optimization | Optimization is not yet a compatibility target. | Planned | Add semantics-preserving passes after the unoptimized path is complete. |
 | BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`. | Partial | Cover the remaining MIR instruction and control-flow forms and pass the L6/M7 gate. |
 | BE-14 | Wasm validation and WAT output | Generated core modules are validated with `wasmparser` and printed with `wasmprinter`. | Partial | Make feature-profile validation part of every backend acceptance test and pass the L6/M7 gate. |
-| BE-15 | Wasm GC, reference types, typed function references, and `call_ref` | The selected `wasmtime` profile and the GC/reference subset used by the backend are integrated. | Partial | Add profile tests for every feature the backend starts to rely on. |
-| BE-16 | Wasm feature profile and pinned runtime | The profile is documented for the pinned `wasmtime` baseline; tail calls, exceptions, SIMD, threads, and multi-memory are allowed but not used. | Partial | Keep the profile and execution tests synchronized with runtime upgrades. |
+| BE-15 | Wasm GC, reference types, typed function references, and `call_ref` | GC/reference operations and `call_ref` are emitted for the current closure and aggregate slice; the profile gate now rejects disabled targets. | Partial | Add per-operation validation and execution coverage for the complete selected subset. |
+| BE-16 | Wasm feature profile and pinned runtime | `TargetCapabilities` defines the stable profile and `wasmparser` validates from the same explicit flags; optional Wasmtime proposals are disabled by default. | Partial | Add fallback lowerings or keep each optional capability explicitly out of the target. |
 | BE-17 | WIT vendoring, parsing, name resolution, and canonical signatures | Vendored WASI WIT is loaded into a registry and resolves interfaces, functions, resources, lists, and results. | Partial | Expand the accepted source and result type mapping and pass the L6/M7 capability gate. |
 | BE-18 | Generic source-declared WIT imports | Compatible `Int`/`Boolean`/`Number` scalars, handles, and byte-list/string imports lower through the canonical ABI with signature validation. | Partial | Add aggregate WIT values, richer results, and user-library loading. |
 | BE-19 | WIT aggregate values and resources | Resource handles and byte lists have a bootstrap path; lists of strings, tuples, and general aggregates are rejected. | Partial | Add aggregate layouts and ownership/lifetime rules. |
@@ -183,6 +184,54 @@ The backend landing order is:
 ```text
 BE-01..BE-04 -> BE-05..BE-11 -> BE-13..BE-16 -> BE-17..BE-23 -> BE-12, BE-25..BE-27
 ```
+
+The backend capability checklist is tracked at a smaller granularity than the
+language-facing rows above. `BC` rows describe the target contract and must not
+be read as claims that every opcode in an enabled proposal is already emitted.
+
+## Backend target capability matrix
+
+| ID | Capability slice | Current support | Status | Next landing |
+| --- | --- | --- | --- | --- |
+| BC-01 | Wasm MVP values, function types, locals, imports/exports, memory, code, and data sections | The encoder covers the sections needed by the current component path; tables, globals, start, passive segments, and custom sections are not modeled. | Partial | Add explicit module-section records and section-level encode/validate tests. |
+| BC-02 | MVP calls, structured control, locals, numeric operations, and memory operations | Direct calls, `if`, integer/floating scalar locals, arithmetic, comparisons, `i32` loads/stores, `memory.size`, and `memory.grow` are emitted; block/loop/br-table and the full numeric/memory families are not. | Partial | Split control-flow and opcode coverage into independently tested lowering slices. |
+| BC-03 | Linear memory and data-segment ABI | Active data segments and the byte-oriented WASI allocator work with one wasm32 memory. | Partial | Add passive segments/bulk operations and make pointer width a target choice. |
+| BC-04 | Tier-1 scalar proposals: mutable globals, sign extension, saturating float-to-int, and extended const | The target profile exposes these capabilities, but the MIR/emitter does not yet have dedicated nodes or end-to-end tests for all of them. | Partial | Add explicit MIR operations, constant folding, and validator tests. |
+| BC-05 | Multi-value function/block signatures | The thin encoder can carry multiple function results, but MIR functions and structured regions currently have one result. | Partial | Extend MIR signatures, block parameters/results, stack typing, and tuple lowering. |
+| BC-06 | Bulk memory and passive element/data segments | Not emitted by the current lowering. | Planned | Add passive segment ownership and `memory.init/copy/fill` lowering. |
+| BC-07 | Reference types, typed function references, and Wasm GC | GC structs/arrays, nullable references, casts, `i31`, `ref.func`, and `call_ref` support the current closure/aggregate representation. | Partial | Complete subtype validation, recursive groups, and per-instruction Wasmtime tests. |
+| BC-08 | SIMD, relaxed SIMD, tail calls, exceptions, multi-memory, memory64, and wide arithmetic | Runtime-supported proposal families are explicitly disabled in the stable profile and have no lowering. | Planned | Adopt each independently with a flag, fallback or rejection behavior, and execution evidence. |
+| BC-09 | Threads, shared memory, and stack switching | Not part of the single-threaded runtime or language ABI. | Planned | Design a concurrency/effect model before enabling Core or WASI threading. |
+| BC-10 | Component Model MVP, WIT, canonical lift/lower, resources, and realloc/post-return | WASI 0.2 command componentization, WIT registry lookup, scalar/handle/byte-list mappings, and `cabi_realloc` work in a restricted slice. | Partial | Add records, tuples, variants, option/result, resource lifetime, and component round trips. |
+| BC-11 | WASI version targets | WASI 0.2 Component Model is the stable target; Preview 1 is excluded and WASI 0.3 async is deferred. | Partial | Keep version selection in target capabilities and add an explicit Preview 1 compatibility target only if needed. |
+| BC-12 | WASI service capabilities | CLI exit/stdout/stderr, monotonic clocks, and random imports are wired; filesystem, sockets, HTTP, TLS, and async streams are not. | Partial | Add one capability/interface family at a time with source library, canonical ABI, sandbox, and runtime tests. |
+
+### CC/MIR stage crosswalk
+
+The BC rows above are capability families. This crosswalk is the smaller
+implementation unit used when deciding whether a row can move from `Partial`
+to `Implemented`.
+
+| Stage | Owns today | Does not own yet | Gate for a capability claim |
+| --- | --- | --- | --- |
+| CC | Evaluation order, closure captures, direct versus indirect calls, current erased-value adapters, and expression-level `if`. | General control flow, multi-result values, and a target-neutral layout contract. | Every operation has a type/shape verifier and carries symbolic representation information rather than Wasm indices. |
+| MIR | Typed CFG, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Loops/multi-way branches, multi-value signatures, tables/globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, aggregate reference compatibility, and the lowering has binary plus execution evidence. |
+| WIT/ABI lowering | WASI WIT lookup and the scalar/handle/byte-list canonical ABI subset. | General records, variants, options, results, resources, ownership, and version-polymorphic ABI. | Source signature validation, canonical lift/lower, component metadata, and runtime tests agree for the selected service family. |
+
+The current CC type-table pass-through is an explicit architecture debt, not a
+hidden implementation detail: `BE-03`, `BE-15`, and `BC-07` remain `Partial`
+until the CC-to-MIR conversion owns a real target-representation boundary.
+
+The capability landing order is:
+
+```text
+BC-01..BC-03 -> BC-04..BC-07 -> BC-10..BC-12 -> BC-08..BC-09
+```
+
+This matrix is intentionally aligned with the external Wasmtime checklist:
+Core Wasm proposals, Component Model gates, WASI version strategy, and WASI
+service families are separate rows. A Wasmtime stability tier is evidence about
+the host runtime, not a compiler implementation status.
 
 The frontend and backend are developed in parallel, but a runtime feature is
 not counted as an official passing case until the frontend can produce the

@@ -3,11 +3,15 @@
 //! hard-coded in the compiler. See
 //! `docs/decision/DEC-06-runtime-interface-via-wit.md`.
 
+use crate::TargetCapabilities;
 use crate::types::ValueType;
 use psrs_hir::{BuiltinType, ModuleId, SymbolId, Type as HirType, TypeKind as HirTypeKind};
 use std::collections::HashMap;
 use wit_parser::abi::{AbiVariant, WasmType};
 use wit_parser::{Resolve, Type as WitType, TypeDefKind};
+
+#[cfg(test)]
+mod tests;
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -126,6 +130,7 @@ pub struct WasiRegistry {
     resolve: Resolve,
     imports: Vec<WasiImport>,
     keys: HashMap<(String, String), usize>,
+    target: TargetCapabilities,
 }
 
 impl WasiRegistry {
@@ -134,12 +139,18 @@ impl WasiRegistry {
     const SYMBOL_BASE: u32 = 1 << 20;
 
     pub fn load() -> Result<Self, String> {
+        Self::load_with_capabilities(TargetCapabilities::default())
+    }
+
+    /// Loads the vendored WIT with the service families enabled by `target`.
+    pub fn load_with_capabilities(target: TargetCapabilities) -> Result<Self, String> {
         let mut resolve = Resolve::default();
         crate::component::load_vendored_wasi(&mut resolve)?;
         Ok(Self {
             resolve,
             imports: Vec::new(),
             keys: HashMap::new(),
+            target,
         })
     }
 
@@ -187,13 +198,20 @@ impl WasiRegistry {
             None => WasiResultKind::None,
             Some(ty) => result_kind(&self.resolve, ty),
         };
-        let unsupported =
-            unsupported_shape(&self.resolve, wit_function, &result_kind).or_else(|| {
+        let unsupported = unsupported_shape(&self.resolve, wit_function, &result_kind)
+            .or_else(|| {
                 (!crate::component::component_interface_supported(&module)).then(|| {
-                format!(
-                    "WASI interface `{module}` is not in the current component capability profile"
-                )
+                    format!(
+                        "WASI interface `{module}` is not in the current component capability profile"
+                    )
+                })
             })
+            .or_else(|| {
+                (!wasi_interface_enabled(self.target, &module)).then(|| {
+                    format!(
+                        "WASI interface `{module}` is disabled by the selected target capability profile"
+                    )
+                })
             });
         let parameters = signature
             .params
@@ -310,6 +328,26 @@ impl WasiRegistry {
             ));
         }
         Ok(())
+    }
+}
+
+fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
+    let package_path = module
+        .split_once('/')
+        .map_or(module, |(package, _)| package);
+    let package = package_path
+        .split_once('@')
+        .map_or(package_path, |(package, _)| package);
+    match package {
+        "wasi:cli" => target.wasi_cli,
+        "wasi:io" => target.wasi_io,
+        "wasi:clocks" => target.wasi_clocks,
+        "wasi:random" => target.wasi_random,
+        "wasi:filesystem" => target.wasi_filesystem,
+        "wasi:sockets" => target.wasi_sockets,
+        "wasi:http" => target.wasi_http,
+        "wasi:tls" => target.wasi_tls,
+        _ => false,
     }
 }
 
@@ -436,57 +474,4 @@ fn value_type(ty: WasmType) -> Result<ValueType, String> {
         WasmType::F32 => ValueType::F32,
         WasmType::F64 => ValueType::F64,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolves_stdout_and_exit_imports() {
-        let mut registry = WasiRegistry::load().expect("WASI WIT should load");
-        let stdout = registry
-            .import(names::STDOUT, names::GET_STDOUT)
-            .expect("get-stdout should resolve");
-        assert_eq!(stdout.module, "wasi:cli/stdout@0.2.12");
-        assert!(stdout.parameters.is_empty());
-        assert!(stdout.param_kinds.is_empty());
-        assert_eq!(stdout.result, Some(ValueType::I32));
-
-        let write = registry
-            .import(names::STREAMS, names::WRITE_STDOUT)
-            .expect("blocking-write-and-flush should resolve");
-        assert_eq!(write.module, "wasi:io/streams@0.2.12");
-        assert_eq!(
-            write.param_kinds,
-            vec![WasiParamKind::Handle, WasiParamKind::List]
-        );
-        assert_eq!(write.result_kind, WasiResultKind::Result);
-        assert!(write.retptr);
-
-        let exit = registry
-            .import(names::EXIT, names::EXIT_WITH_CODE)
-            .expect("exit-with-code should resolve");
-        assert_eq!(exit.module, "wasi:cli/exit@0.2.12");
-        assert_eq!(exit.parameters, vec![ValueType::I32]);
-        assert_eq!(exit.result, None);
-
-        // Interning returns the same symbol for the same import.
-        let stdout_again = registry
-            .import(names::STDOUT, names::GET_STDOUT)
-            .expect("get-stdout should resolve again");
-        assert_eq!(stdout.symbol, stdout_again.symbol);
-    }
-
-    #[test]
-    fn classifies_a_64_bit_parameter_by_its_wit_signedness() {
-        let mut registry = WasiRegistry::load().expect("WASI WIT should load");
-        let random = registry
-            .import("wasi:random/random", "get-random-bytes")
-            .expect("get-random-bytes should resolve");
-        assert_eq!(
-            random.param_kinds,
-            vec![WasiParamKind::Scalar64 { signed: false }]
-        );
-    }
 }

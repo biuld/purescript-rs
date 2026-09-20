@@ -4,6 +4,7 @@ use super::{
 };
 use crate::BackendError;
 use crate::abi::{self, names};
+use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
 use crate::types::{CompositeType, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
@@ -11,9 +12,11 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::{Instruction, MemArg, ValType};
 
+mod capability;
 mod runtime;
 mod structure;
 
+use capability::validate_target_capabilities;
 use runtime::collect_strings;
 use structure::Structurer;
 
@@ -23,7 +26,17 @@ pub fn lower_module(
     module: &mir::Module,
     wasi: &mut abi::WasiRegistry,
 ) -> Result<Module, Vec<BackendError>> {
+    lower_module_with_capabilities(module, wasi, TargetCapabilities::default())
+}
+
+/// Lowers MIR using an explicit target capability profile.
+pub fn lower_module_with_capabilities(
+    module: &mir::Module,
+    wasi: &mut abi::WasiRegistry,
+    target: TargetCapabilities,
+) -> Result<Module, Vec<BackendError>> {
     mir::verify_module(module)?;
+    validate_target_capabilities(module, target)?;
     let Some(entry_symbol) = module.entry else {
         return Err(wasm_error(
             module.span,
