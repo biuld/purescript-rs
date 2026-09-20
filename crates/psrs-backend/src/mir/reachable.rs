@@ -16,6 +16,19 @@ pub(super) struct ReachableHandles {
 
 impl ReachableHandles {
     pub(super) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
+        Self::from_module_with_gc_boxes(module, true)
+    }
+
+    /// Computes reachability for a planner whose closure environments store
+    /// numbers directly instead of boxing them for an `eqref` capture array.
+    pub(super) fn from_module_without_gc_boxes(module: &CcModule) -> Result<Self, LayoutError> {
+        Self::from_module_with_gc_boxes(module, false)
+    }
+
+    fn from_module_with_gc_boxes(
+        module: &CcModule,
+        require_number_box: bool,
+    ) -> Result<Self, LayoutError> {
         let mut representations = HashSet::new();
         let mut signatures = HashSet::new();
         let mut representation_work = Vec::new();
@@ -56,7 +69,7 @@ impl ReachableHandles {
                 &mut signature_work,
             );
         }
-        if needs_number_box {
+        if require_number_box && needs_number_box {
             let id = module
                 .representations
                 .representations

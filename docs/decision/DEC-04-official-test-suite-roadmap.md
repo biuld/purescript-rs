@@ -193,9 +193,9 @@ be read as claims that every opcode in an enabled proposal is already emitted.
 
 | ID | Capability slice | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
-| BC-01 | Wasm MVP values, function types, locals, imports/exports, memory, code, and data sections | The encoder covers the sections needed by the current component path; tables, globals, start, passive segments, and custom sections are not modeled. | Partial | Add explicit module-section records and section-level encode/validate tests. |
-| BC-02 | MVP calls, structured control, locals, numeric operations, and memory operations | Direct calls, `if`, integer/floating scalar locals, arithmetic, comparisons, `i32` loads/stores, `memory.size`, and `memory.grow` are emitted; block/loop/br-table and the full numeric/memory families are not. | Partial | Split control-flow and opcode coverage into independently tested lowering slices. |
-| BC-03 | Linear memory and data-segment ABI | Active data segments and the byte-oriented WASI allocator work with one wasm32 memory. | Partial | Add passive segments/bulk operations and make pointer width a target choice. |
+| BC-01 | Wasm MVP values, function types, locals, imports/exports, memory, tables, code, and data sections | The encoder covers the sections needed by the current component path, including the linear closure function table; globals, start, passive segments, and custom sections are not modeled. | Partial | Add explicit module-section records and section-level encode/validate tests for the remaining sections. |
+| BC-02 | MVP calls, structured control, locals, numeric operations, and memory operations | Direct calls, `if`, integer/floating scalar locals, arithmetic, comparisons, typed linear `i32`/`f64` loads and stores, `memory.size`, and `memory.grow` are emitted; block/loop/br-table and the full numeric/memory families are not. | Partial | Split control-flow and opcode coverage into independently tested lowering slices. |
+| BC-03 | Linear memory and data-segment ABI | Active data segments, the byte-oriented WASI allocator, P9 aggregate/array allocation, and table-backed closure environments use one wasm32 memory; the strict MVP profile validates and executes the supported subset. | Partial | Add passive segments/bulk operations, make pointer width a target choice, and broaden allocation/ABI coverage. |
 | BC-04 | Tier-1 scalar proposals: mutable globals, sign extension, saturating float-to-int, and extended const | The target profile exposes these capabilities, but the MIR/emitter does not yet have dedicated nodes or end-to-end tests for all of them. | Partial | Add explicit MIR operations, constant folding, and validator tests. |
 | BC-05 | Multi-value function/block signatures | The thin encoder can carry multiple function results, but MIR functions and structured regions currently have one result. | Partial | Extend MIR signatures, block parameters/results, stack typing, and tuple lowering. |
 | BC-06 | Bulk memory and passive element/data segments | Not emitted by the current lowering. | Planned | Add passive segment ownership and `memory.init/copy/fill` lowering. |
@@ -215,15 +215,16 @@ to `Implemented`.
 | Stage | Owns today | Does not own yet | Gate for a capability claim |
 | --- | --- | --- | --- |
 | CC | Evaluation order, symbolic representation/signature handles, closure captures, direct versus indirect calls, current erased-value adapters, expression-level `if`, and complete verification for the current operation set. | General control flow and multi-result values. | Every represented operation has a type/shape verifier and remains independent of the selected P9 planner. |
-| MIR | Typed CFG, P9 GC layout planning, the linear-memory planner's abstract layout contract, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Linear-memory instruction selection/runtime lowering, loops/multi-way branches, multi-value signatures, tables/globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, aggregate reference compatibility, and each emitted planner path has binary plus execution evidence. |
+| MIR | Typed CFG, P9 GC layout planning, linear product/box/array allocator and typed load/store lowering, table-backed closure environments and `call_indirect`, block parameters for current merge diamonds, canonical import calls, GC/reference operations, and the current wasm32 memory boundary. | Dynamic representation tests, linear WIT adapters, loops/multi-way branches, multi-value signatures, globals, bulk memory, and proposal-specific instructions. | The verifier checks dominance, exact call/reference signatures, linear pointer/scalar types, aggregate compatibility, and each emitted planner path has binary plus execution evidence. |
 | WIT/ABI lowering | WASI WIT lookup and the scalar/handle/byte-list canonical ABI subset. | General records, variants, options, results, resources, ownership, and version-polymorphic ABI. | Source signature validation, canonical lift/lower, component metadata, and runtime tests agree for the selected service family. |
 
 The former CC type-table pass-through has been removed: P9 planner
 implementations resolve reachable abstract handles, with the current GC
-planner constructing the concrete MIR `RecGroup`. CC verification now covers
-the current operation set; the `BE-03`, `BE-15`, and `BC-07` rows remain
-`Partial` while non-GC instruction selection/runtime evidence and the remaining
-proposal/control-flow slices are still open.
+planner constructing the concrete MIR `RecGroup` and the linear planner
+constructing allocator/load/store/table-closure MIR for its supported subset.
+CC verification covers the current operation set; the `BE-03`, `BE-15`, and
+`BC-07` rows remain `Partial` while dynamic representation operations, broader
+ABI operations, and the remaining proposal/control-flow slices are still open.
 
 The capability landing order is:
 

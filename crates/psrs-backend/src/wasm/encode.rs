@@ -4,8 +4,8 @@ use std::borrow::Cow;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
     ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction, FunctionSection,
-    ImportSection, Instruction, MemorySection, MemoryType, Module as EncoderModule, TypeSection,
-    ValType,
+    ImportSection, Instruction, MemorySection, MemoryType, Module as EncoderModule, RefType,
+    TableSection, TableType, TypeSection, ValType,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -51,6 +51,20 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         encoder.section(&functions);
     }
 
+    if !module.tables.is_empty() {
+        let mut tables = TableSection::new();
+        for table in &module.tables {
+            tables.table(TableType {
+                element_type: RefType::FUNCREF,
+                table64: false,
+                minimum: u64::from(table.minimum),
+                maximum: table.maximum.map(u64::from),
+                shared: false,
+            });
+        }
+        encoder.section(&tables);
+    }
+
     if !module.memories.is_empty() {
         let mut memories = MemorySection::new();
         for memory in &module.memories {
@@ -82,9 +96,23 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
     }
 
     let function_references = referenced_functions(module);
-    if !function_references.is_empty() {
+    if !function_references.is_empty() || !module.table_elements.is_empty() {
         let mut elements = ElementSection::new();
-        elements.declared(Elements::Functions(Cow::Owned(function_references)));
+        if !function_references.is_empty() {
+            elements.declared(Elements::Functions(Cow::Owned(function_references)));
+        }
+        if !module.table_elements.is_empty() {
+            let table_elements = module
+                .table_elements
+                .iter()
+                .map(|function| function.0)
+                .collect::<Vec<_>>();
+            elements.active(
+                None,
+                &ConstExpr::i32_const(0),
+                Elements::Functions(Cow::Owned(table_elements)),
+            );
+        }
         encoder.section(&elements);
     }
 

@@ -8,6 +8,7 @@ use super::layout::{LayoutError, PlannedLayout};
 use super::reachable::ReachableHandles;
 use crate::TargetCapabilities;
 use crate::cc::{Module as CcModule, ReprId, Representation, SignatureId, ValueShape};
+use crate::types::{CompositeType, DefinedType, DefinedTypeId, ValueType};
 use std::collections::HashMap;
 
 /// A P9 planner consumes target-neutral CC requirements and produces a
@@ -41,7 +42,69 @@ impl RepresentationPlanner for GcPlanner {
 pub(crate) struct LinearMemoryLayout {
     pub(super) representations: HashMap<ReprId, LinearRepresentation>,
     pub(super) signatures: HashMap<SignatureId, LinearSignature>,
+    /// Function types used by the linear closure table. These are MIR-owned
+    /// types, just like the GC planner's struct and array types.
+    pub(super) types: Vec<crate::types::RecGroup>,
     pub(super) next_offset: u32,
+}
+
+impl LinearMemoryLayout {
+    pub(super) fn representation(&self, id: ReprId) -> Result<&LinearRepresentation, LayoutError> {
+        self.representations
+            .get(&id)
+            .ok_or(LayoutError::UnknownRepresentation)
+    }
+
+    pub(super) fn value_type(value: ValueShape) -> ValueType {
+        match value {
+            ValueShape::Integer => ValueType::I32,
+            ValueShape::Boolean => ValueType::Boolean,
+            ValueShape::Number => ValueType::F64,
+            ValueShape::Reference(_) => ValueType::I32,
+        }
+    }
+
+    pub(super) fn representation_size(&self, id: ReprId) -> Result<u32, LayoutError> {
+        match self.representation(id)? {
+            LinearRepresentation::Box { size, .. }
+            | LinearRepresentation::Product { size, .. }
+            | LinearRepresentation::Variant { size, .. } => Ok((*size).max(1)),
+            LinearRepresentation::Array { .. } => Err(LayoutError::UnsupportedLinearOperation),
+        }
+    }
+
+    pub(super) fn field(&self, id: ReprId, field: u32) -> Result<(u32, ValueShape), LayoutError> {
+        match self.representation(id)? {
+            LinearRepresentation::Box { value, .. } => {
+                if field == 0 {
+                    Ok((0, *value))
+                } else {
+                    Err(LayoutError::UnknownField)
+                }
+            }
+            LinearRepresentation::Product { fields, .. } => fields
+                .get(field as usize)
+                .map(|field| (field.offset, field.value))
+                .ok_or(LayoutError::UnknownField),
+            LinearRepresentation::Variant { .. } | LinearRepresentation::Array { .. } => {
+                Err(LayoutError::UnknownField)
+            }
+        }
+    }
+
+    pub(super) fn array(&self, id: ReprId) -> Result<(ValueShape, u32), LayoutError> {
+        match self.representation(id)? {
+            LinearRepresentation::Array { element, stride } => Ok((*element, *stride)),
+            _ => Err(LayoutError::UnsupportedLinearOperation),
+        }
+    }
+
+    pub(super) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
+        self.signatures
+            .get(&id)
+            .map(|signature| signature.type_index)
+            .ok_or(LayoutError::UnknownSignature)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,15 +136,15 @@ pub(crate) struct LinearField {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LinearSignature {
+    pub(super) type_index: DefinedTypeId,
     pub(super) table_slot: u32,
     pub(super) parameters: Vec<ValueShape>,
     pub(super) result: ValueShape,
 }
 
-/// Linear-memory planner used as the second M2 strategy.  It does not emit
-/// Wasm instructions yet; M5 will connect this plan to table/allocator MIR and
-/// execution tests.  It nevertheless consumes the same reachable CC handles
-/// and performs complete shape/handle validation before producing offsets.
+/// Linear-memory planner used as the non-GC M5 strategy. It consumes the same
+/// reachable CC handles as the GC planner and exposes byte layouts to P9's
+/// allocator/load/store instruction selection.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct LinearMemoryPlanner;
 
@@ -89,7 +152,7 @@ impl RepresentationPlanner for LinearMemoryPlanner {
     type Layout = LinearMemoryLayout;
 
     fn plan_module(&self, module: &CcModule) -> Result<Self::Layout, LayoutError> {
-        let reachable = ReachableHandles::from_module(module)?;
+        let reachable = ReachableHandles::from_module_without_gc_boxes(module)?;
         let mut representations = HashMap::new();
         let mut offset = 0u32;
         for id in reachable.representations {
@@ -104,6 +167,7 @@ impl RepresentationPlanner for LinearMemoryPlanner {
         }
 
         let mut signatures = HashMap::new();
+        let mut signature_types = Vec::new();
         for (slot, id) in reachable.signatures.into_iter().enumerate() {
             let signature = module
                 .representations
@@ -112,15 +176,37 @@ impl RepresentationPlanner for LinearMemoryPlanner {
             signatures.insert(
                 id,
                 LinearSignature {
+                    type_index: DefinedTypeId(slot as u32),
                     table_slot: slot as u32,
                     parameters: signature.parameters.clone(),
                     result: signature.result,
                 },
             );
+            let mut parameters = vec![ValueType::I32];
+            parameters.extend(
+                signature
+                    .parameters
+                    .iter()
+                    .copied()
+                    .map(LinearMemoryLayout::value_type),
+            );
+            signature_types.push(DefinedType {
+                final_type: true,
+                supertype: None,
+                composite: CompositeType::Func {
+                    parameters,
+                    results: vec![LinearMemoryLayout::value_type(signature.result)],
+                },
+            });
         }
         Ok(LinearMemoryLayout {
             representations,
             signatures,
+            types: if signature_types.is_empty() {
+                Vec::new()
+            } else {
+                vec![crate::types::RecGroup(signature_types)]
+            },
             next_offset: offset,
         })
     }

@@ -1,6 +1,6 @@
 use crate::abi::WasiRegistry;
 use crate::capability::TargetCapabilities;
-use crate::types::{FunctionId, RecGroup, ValueDecl, ValueId, ValueType};
+use crate::types::{FunctionId, RecGroup, TableSlot, ValueDecl, ValueId, ValueType};
 use crate::{BackendError, annotate_errors, cc};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -9,13 +9,16 @@ use std::collections::{HashMap, HashSet};
 mod instruction;
 mod layout;
 mod lower;
+mod lower_linear;
 mod planner;
 mod reachable;
 mod verify;
 mod wit;
 
+use layout::PlannedLayout;
 use lower::lower_function;
-use planner::{GcPlanner, LinearMemoryPlanner, RepresentationPlanner};
+use lower_linear::lower_function as lower_linear_function;
+use planner::{GcPlanner, LinearMemoryLayout, LinearMemoryPlanner, RepresentationPlanner};
 
 pub use instruction::Instruction;
 pub use verify::verify_module;
@@ -23,10 +26,17 @@ pub use verify::verify_module;
 #[cfg(test)]
 mod binding_tests;
 #[cfg(test)]
+mod linear_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
+
+enum PlannedLayoutKind {
+    Gc(PlannedLayout),
+    Linear(LinearMemoryLayout),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
@@ -171,7 +181,7 @@ pub fn lower_module_with_bindings(
         wit_imports.insert(external.symbol, import);
     }
     let planned_layout = if target.gc {
-        GcPlanner { target }.plan_module(&module).map_err(|error| {
+        let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
             annotate_errors(
                 vec![BackendError::new(
                     "P9 MIR lowering",
@@ -180,11 +190,10 @@ pub fn lower_module_with_bindings(
                 )],
                 module.entry.map(|entry| entry.module),
             )
-        })?
+        })?;
+        PlannedLayoutKind::Gc(layout)
     } else {
-        // The second planner consumes the same CC requirements even though its
-        // table/allocator instruction selection is an M5 follow-up.
-        LinearMemoryPlanner.plan_module(&module).map_err(|error| {
+        let layout = LinearMemoryPlanner.plan_module(&module).map_err(|error| {
             annotate_errors(
                 vec![BackendError::new(
                     "P9 MIR lowering",
@@ -194,23 +203,28 @@ pub fn lower_module_with_bindings(
                 module.entry.map(|entry| entry.module),
             )
         })?;
-        return Err(annotate_errors(
-            vec![BackendError::new(
-                "P9 MIR lowering",
-                module.span,
-                "linear-memory planner is available, but its MIR instruction selection is not implemented",
-            )],
-            module.entry.map(|entry| entry.module),
-        ));
+        PlannedLayoutKind::Linear(layout)
     };
     let mut functions = Vec::with_capacity(module.functions.len());
+    let table_slots = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(id, function)| (function.symbol, TableSlot(id as u32)))
+        .collect::<HashMap<_, _>>();
     for (id, function) in module.functions.iter().enumerate() {
-        let lowered = lower_function(
-            function,
-            FunctionId(id as u32),
-            &wit_imports,
-            &planned_layout,
-        )
+        let lowered = match &planned_layout {
+            PlannedLayoutKind::Gc(layout) => {
+                lower_function(function, FunctionId(id as u32), &wit_imports, layout)
+            }
+            PlannedLayoutKind::Linear(layout) => lower_linear_function(
+                function,
+                FunctionId(id as u32),
+                layout,
+                &wit_imports,
+                &table_slots,
+            ),
+        }
         .map_err(|errors| {
             errors
                 .into_iter()
@@ -234,7 +248,10 @@ pub fn lower_module_with_bindings(
         .collect();
     let mir = Module {
         name: module.name,
-        types: planned_layout.types.clone(),
+        types: match planned_layout {
+            PlannedLayoutKind::Gc(layout) => layout.types,
+            PlannedLayoutKind::Linear(layout) => layout.types,
+        },
         imports,
         functions,
         entry: module.entry,

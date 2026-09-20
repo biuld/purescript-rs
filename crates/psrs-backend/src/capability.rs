@@ -127,6 +127,20 @@ impl TargetCapabilities {
         }
     }
 
+    /// A linear-memory backend profile: the core module is MVP-only, while
+    /// the surrounding artifact may still use the component-model/WASI 0.2
+    /// metadata needed by the driver.
+    pub const fn linear_memory_wasi_0_2() -> Self {
+        let mut target = Self::wasm_mvp();
+        target.component_model = true;
+        target.wasi_p2 = true;
+        target.wasi_cli = true;
+        target.wasi_io = true;
+        target.wasi_clocks = true;
+        target.wasi_random = true;
+        target
+    }
+
     /// Converts the profile to the validator feature set.
     pub(crate) fn wasm_features(self) -> wasmparser::WasmFeatures {
         use wasmparser::WasmFeatures;
@@ -195,5 +209,16 @@ mod tests {
         assert!(features.contains(WasmFeatures::MVP));
         assert!(!features.contains(WasmFeatures::GC));
         assert!(!features.contains(WasmFeatures::COMPONENT_MODEL));
+    }
+
+    #[test]
+    fn linear_memory_profile_keeps_the_core_module_mvp_only() {
+        let target = TargetCapabilities::linear_memory_wasi_0_2();
+        let features = target.wasm_features();
+        assert!(!target.reference_types);
+        assert!(!target.function_references);
+        assert!(!target.gc);
+        assert!(features.contains(WasmFeatures::COMPONENT_MODEL));
+        assert!(!features.contains(WasmFeatures::GC));
     }
 }

@@ -22,9 +22,10 @@ This document complements:
   fallback for polymorphic values.
 
 The capability level of CC/MIR remains **Partial** until the migration in this
-document is complete. The existing GC, reference, closure, and WASI canonical
-ABI paths are working vertical slices, but they do not yet implement the
-required ownership boundary.
+document is complete. The GC/reference/closure and WASI canonical ABI paths,
+plus the MVP linear aggregate/array/table-closure slice, are working vertical
+slices; broader operation and ABI families still do not satisfy the complete
+ownership contract.
 
 ## Backend pipeline
 
@@ -344,10 +345,13 @@ sufficient.
 
 ## Current implementation and deviations
 
-The current code has a functioning GC-oriented vertical slice and a second
-linear-memory planner for the same CC requirements. The ownership migration is
-implemented at the planning boundary; non-GC instruction selection and runtime
-execution remain separate work.
+The current code has functioning GC-oriented and linear-memory vertical slices
+for the supported aggregate/array and table-backed closure operation subsets.
+Both consume the same CC module; the linear path lowers pointers and payloads
+to allocator and typed load/store MIR operations, and lowers closures to
+environments plus an MVP function table. Dynamic representation tests and
+canonical WIT calls are still rejected with source-associated P9 diagnostics
+until their MVP representation contracts are added.
 
 | Area | Current implementation | Required state |
 | --- | --- | --- |
@@ -355,8 +359,8 @@ execution remain separate work.
 | CC module | `cc::Module` owns only abstract representations and signatures. | **Implemented:** no concrete type table crosses P8. |
 | CC operations | Function/closure, product, array, and representation-adaptation operations carry semantic signatures, handles, and logical slots. Closure operations do not carry environment or box layouts. | **Implemented for the current operation set.** |
 | Layout construction | `cc::layout` interns requirements; P9 planner implementations realize reachable handles. | **Implemented:** GC and linear-memory planners consume the same CC requirements. |
-| MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. | **Implemented for GC; linear-memory instruction selection and execution remain M5 work.** |
-| MIR identities | `DefinedTypeId`, `FunctionId`, and `MemoryId` are used by MIR; P10 owns the conversion to typed final Wasm indices, with data/resource IDs kept distinct from encoded indices. | **Implemented for the current resource set; table operations remain absent until a table planner/emitter is introduced.** |
+| MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. | **Implemented for GC and for linear product/box/array/table-closure operations; dynamic-cast and WIT operations fail before emission.** |
+| MIR identities | `DefinedTypeId`, `FunctionId`, `TableSlot`, and `MemoryId` are used by MIR; P10 owns the conversion to typed final Wasm indices, with data/resource IDs kept distinct from encoded indices. | **Implemented for the current resource set; P10 emits the linear table and keeps its final table/function indices typed.** |
 | External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. P8/P9 validate the side-table/CC pairing; P9 resolves all declarations and retains only used ABI symbols in MIR. | **Implemented:** WIT names and source ABI types are backend side-table data; MIR retains only canonical signatures and used ABI symbols. |
 | CC verification | `cc::verify` checks declaration/definition order, table handles, value shapes, calls, captures, representation operations, products, arrays, and branches. | Extend the verifier when a new CC operation family is introduced; the current operation set is fully covered. |
 | MIR verification | MIR now checks SSA ordering/dominance and important concrete operation types. | Complete remaining CFG, subtype, memory, capability, and ABI checks. |
@@ -365,11 +369,15 @@ The former CC-to-MIR type-table pass-through has been removed. P9 now exposes a
 planner contract: the GC implementation creates its closure object, erased
 capture array, aggregate layouts, and concrete function types, while the
 linear-memory implementation assigns handle payload offsets, field alignment,
-array strides, and closure table slots. Both walk the CC module's value shapes,
-operations, called external signatures, and recursively referenced handles, so
-unreachable requirements do not become layouts. Backend coverage remains
-Partial because only the GC planner is connected to MIR instruction selection;
-the current CC operation set is verified independently of either planner.
+array strides, closure environment slots, and function-table slots. Both walk
+the CC module's value shapes, operations, called external signatures, and
+recursively referenced handles, so unreachable requirements do not become
+layouts. The linear MIR path materializes allocator/load/store operations for
+products, boxes, and arrays plus table-backed closure creation, capture loads,
+and indirect calls. Operations requiring runtime type tests or canonical WIT
+calls receive an explicit P9 diagnostic. Backend coverage remains **Partial**
+because this supported subset is not yet the complete GC/table/linear feature
+set.
 
 ## Migration plan
 
@@ -399,8 +407,8 @@ current CC operation set has an abstract operand/result and handle check.
   CC `ReprId`/`SignatureId` requirements.
 - Replace raw type-index fields in CC operations with abstract handles and
   logical slots.
-- Keep golden MIR/WAT and execution tests for the GC strategy; keep planner
-  layout tests for the linear-memory strategy until its emitter lands.
+- Keep golden MIR/WAT and execution tests for the GC strategy, plus MVP
+  validation and execution tests for the linear aggregate/array strategy.
 
 Exit criterion: `cc::Module` has no concrete type table, every planner consumes
 the same reachable CC handles, and the selected planner owns concrete layout
@@ -434,14 +442,18 @@ types.
 Exit criterion: mixing index spaces is unrepresentable in MIR APIs and all
 indices are range-checked.
 
-### M5 — Connect the alternative planner to MIR and prove target independence
+### M5 — Connect the alternative planner to MIR and prove target independence (implemented for the supported subset)
 
-- Lower the linear-memory plan to table/allocator MIR operations; the second
-  planner itself is delivered by M2.
-- Add an MVP-only capability profile that either lowers each CC requirement or
-  reports a P9 diagnostic before emission.
-- Run the same CC fixtures through both planners and compare observable
-  behavior where both are supported.
+- Lower supported linear-memory plans to allocator, typed load, and typed store
+  MIR operations, and lower table-backed closures to typed environments and
+  `call_indirect`; dynamic-representation operations report a P9 diagnostic
+  before any Wasm module is built.
+- Add strict `wasm_mvp` and `linear_memory_wasi_0_2` capability profiles; the
+  latter keeps the core module MVP-only while retaining the component metadata
+  needed by the driver.
+- Run the same product fixture through GC and linear planners, and execute the
+  product, array, and captured-closure fixtures through Wasmtime under the MVP
+  profile.
 
 Exit criterion: at least one non-GC strategy consumes unchanged CC, and the
 CC/MIR capability rows may be reconsidered independently rather than being

@@ -133,3 +133,13 @@ fn is_reference_to_composite(
 pub(super) fn mir_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P9 MIR verification", span, message)]
 }
+
+/// `Boolean` is a logical MIR type but uses the same i32 representation as a
+/// canonical ABI scalar.
+pub(super) fn call_value_types_match(actual: ValueType, expected: ValueType) -> bool {
+    actual == expected
+        || matches!(
+            (actual, expected),
+            (ValueType::Boolean, ValueType::I32) | (ValueType::I32, ValueType::Boolean)
+        )
+}

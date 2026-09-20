@@ -46,6 +46,69 @@ pub(super) fn verify_memory_instruction(
                 return Err(mir_error(*span, "MIR store value must be i32"));
             }
         }
+        Instruction::LinearAlloc {
+            destination,
+            bytes,
+            span,
+        } => {
+            if *bytes == 0 {
+                return Err(mir_error(
+                    *span,
+                    "MIR linear allocation must have nonzero size",
+                ));
+            }
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(
+                    *span,
+                    "MIR linear allocation must produce an i32 pointer",
+                ));
+            }
+        }
+        Instruction::LinearLoad {
+            destination,
+            address,
+            ty,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *address, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR linear load address must be i32"));
+            }
+            if !linear_memory_type(*ty) || value_type(function, *destination) != Some(*ty) {
+                return Err(mir_error(*span, "MIR linear load type is invalid"));
+            }
+        }
+        Instruction::LinearStore {
+            address,
+            value,
+            ty,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *address, *span)? != ValueType::I32
+                || require_value(definitions, *value, *span)? != *ty
+                || !linear_memory_type(*ty)
+            {
+                return Err(mir_error(*span, "MIR linear store type is invalid"));
+            }
+        }
+        Instruction::LinearClosureGetCapture {
+            destination,
+            closure,
+            ty,
+            span,
+            ..
+        } => {
+            if require_value(definitions, *closure, *span)? != ValueType::I32
+                || !linear_memory_type(*ty)
+                || value_type(function, *destination) != Some(*ty)
+            {
+                return Err(mir_error(
+                    *span,
+                    "MIR linear closure capture type is invalid",
+                ));
+            }
+        }
         Instruction::WrapI64 {
             destination,
             value,
@@ -78,4 +141,8 @@ pub(super) fn verify_memory_instruction(
         _ => unreachable!("memory verifier received a non-memory instruction"),
     }
     Ok(())
+}
+
+fn linear_memory_type(ty: ValueType) -> bool {
+    matches!(ty, ValueType::I32 | ValueType::Boolean | ValueType::F64)
 }

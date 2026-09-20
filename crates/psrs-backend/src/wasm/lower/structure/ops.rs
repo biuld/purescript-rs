@@ -1,4 +1,5 @@
 use crate::types::RefType;
+use crate::types::ValueType;
 use crate::wasm::convert::heap_type;
 use psrs_core::Primitive;
 use wasm_encoder::{Instruction, MemArg};
@@ -20,10 +21,30 @@ pub(super) fn ref_cast(reference: RefType) -> Instruction<'static> {
 }
 
 pub(super) fn memory(offset: u32) -> MemArg {
+    memory_with_align(offset, 2)
+}
+
+pub(super) fn memory_with_align(offset: u32, align: u32) -> MemArg {
     MemArg {
         offset: u64::from(offset),
-        align: 2,
+        align,
         memory_index: 0,
+    }
+}
+
+pub(super) fn linear_load(ty: ValueType, offset: u32) -> Instruction<'static> {
+    match ty {
+        ValueType::I32 | ValueType::Boolean => Instruction::I32Load(memory(offset)),
+        ValueType::F64 => Instruction::F64Load(memory_with_align(offset, 3)),
+        _ => unreachable!("MIR verifier rejects unsupported linear load types"),
+    }
+}
+
+pub(super) fn linear_store(ty: ValueType, offset: u32) -> Instruction<'static> {
+    match ty {
+        ValueType::I32 | ValueType::Boolean => Instruction::I32Store(memory(offset)),
+        ValueType::F64 => Instruction::F64Store(memory_with_align(offset, 3)),
+        _ => unreachable!("MIR verifier rejects unsupported linear store types"),
     }
 }
 

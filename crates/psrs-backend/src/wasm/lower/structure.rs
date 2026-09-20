@@ -1,10 +1,10 @@
 use super::{local, value_type, wasm_error};
 use crate::BackendError;
 use crate::mir::{self, BlockId, Function as MirFunction, Instruction as MirInstruction};
-use crate::types::ValueId;
+use crate::types::{ValueId, ValueType};
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
-use ops::{memory, primitive, ref_cast, ref_test};
+use ops::{linear_load, linear_store, memory, primitive, ref_cast, ref_test};
 
 mod closure;
 mod helpers;
@@ -24,6 +24,7 @@ pub(super) struct Structurer<'a> {
     pub(super) locals: HashMap<ValueId, u32>,
     pub(super) function_indices: &'a HashMap<SymbolId, FunctionIndex>,
     pub(super) string_offsets: &'a HashMap<String, u32>,
+    pub(super) linear_allocator: Option<FunctionIndex>,
 }
 
 impl Structurer<'_> {
@@ -343,6 +344,113 @@ impl Structurer<'_> {
                     self.load(body, *address, *span)?;
                     self.load(body, *value, *span)?;
                     body.push(Op::Leaf(Instruction::I32Store(memory(*offset))));
+                }
+                MirInstruction::LinearAlloc {
+                    destination,
+                    bytes,
+                    span,
+                } => {
+                    let allocator = self.linear_allocator.ok_or_else(|| {
+                        wasm_error(*span, "linear allocation has no allocator function")
+                    })?;
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                    body.push(Op::Leaf(Instruction::I32Const(4)));
+                    body.push(Op::Leaf(Instruction::I32Const(*bytes as i32)));
+                    body.push(Op::Leaf(Instruction::Call(allocator.0)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::LinearLoad {
+                    destination,
+                    address,
+                    offset,
+                    ty,
+                    span,
+                } => {
+                    self.load(body, *address, *span)?;
+                    body.push(Op::Leaf(linear_load(*ty, *offset)));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::LinearStore {
+                    address,
+                    value,
+                    offset,
+                    ty,
+                    span,
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(linear_store(*ty, *offset)));
+                }
+                MirInstruction::LinearClosureNew {
+                    destination,
+                    table_slot,
+                    captures,
+                    span,
+                    ..
+                } => {
+                    let allocator = self.linear_allocator.ok_or_else(|| {
+                        wasm_error(*span, "linear closure allocation has no allocator function")
+                    })?;
+                    let bytes = 4u32
+                        .checked_add((captures.len() as u32).saturating_mul(8))
+                        .ok_or_else(|| wasm_error(*span, "linear closure is too large"))?;
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                    body.push(Op::Leaf(Instruction::I32Const(4)));
+                    body.push(Op::Leaf(Instruction::I32Const(bytes as i32)));
+                    body.push(Op::Leaf(Instruction::Call(allocator.0)));
+                    self.store(body, *destination, *span)?;
+                    self.load(body, *destination, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Const(table_slot.0 as i32)));
+                    body.push(Op::Leaf(Instruction::I32Store(memory(0))));
+                    for (index, capture) in captures.iter().enumerate() {
+                        let ty = value_type(self.function, *capture).ok_or_else(|| {
+                            wasm_error(*span, "linear closure capture has no value type")
+                        })?;
+                        if !matches!(ty, ValueType::I32 | ValueType::Boolean | ValueType::F64) {
+                            return Err(wasm_error(
+                                *span,
+                                "linear closure capture has an unsupported value type",
+                            ));
+                        }
+                        self.load(body, *destination, *span)?;
+                        self.load(body, *capture, *span)?;
+                        body.push(Op::Leaf(linear_store(
+                            ty,
+                            4 + (index as u32).saturating_mul(8),
+                        )));
+                    }
+                }
+                MirInstruction::LinearClosureCall {
+                    destination,
+                    function,
+                    type_index,
+                    arguments,
+                    span,
+                } => {
+                    self.load(body, *function, *span)?;
+                    for argument in arguments {
+                        self.load(body, *argument, *span)?;
+                    }
+                    self.load(body, *function, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Load(memory(0))));
+                    body.push(Op::Leaf(Instruction::CallIndirect {
+                        type_index: type_index.0,
+                        table_index: 0,
+                    }));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::LinearClosureGetCapture {
+                    destination,
+                    closure,
+                    index,
+                    ty,
+                    span,
+                } => {
+                    self.load(body, *closure, *span)?;
+                    body.push(Op::Leaf(linear_load(*ty, 4 + index.saturating_mul(8))));
+                    self.store(body, *destination, *span)?;
                 }
                 MirInstruction::WrapI64 {
                     destination,

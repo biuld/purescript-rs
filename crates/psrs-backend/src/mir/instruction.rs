@@ -1,4 +1,4 @@
-use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
+use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, TableSlot, ValueId, ValueType};
 use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -173,6 +173,56 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// Allocate a byte payload from the target's linear-memory allocator.
+    /// The result is an i32 pointer to the payload, not a GC reference.
+    LinearAlloc {
+        destination: ValueId,
+        bytes: u32,
+        span: TextRange,
+    },
+    /// Load a scalar from a linear-memory payload. References are represented
+    /// as i32 handles by the linear planner.
+    LinearLoad {
+        destination: ValueId,
+        address: ValueId,
+        offset: u32,
+        ty: ValueType,
+        span: TextRange,
+    },
+    /// Store a scalar into a linear-memory payload.
+    LinearStore {
+        address: ValueId,
+        value: ValueId,
+        offset: u32,
+        ty: ValueType,
+        span: TextRange,
+    },
+    /// Allocate a linear closure environment and install its function-table
+    /// slot at payload offset zero.
+    LinearClosureNew {
+        destination: ValueId,
+        function: SymbolId,
+        table_slot: TableSlot,
+        type_index: DefinedTypeId,
+        captures: Vec<ValueId>,
+        span: TextRange,
+    },
+    /// Call a linear closure through the MVP function table.
+    LinearClosureCall {
+        destination: ValueId,
+        function: ValueId,
+        type_index: DefinedTypeId,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    },
+    /// Read a fixed-width capture slot from a linear closure environment.
+    LinearClosureGetCapture {
+        destination: ValueId,
+        closure: ValueId,
+        index: u32,
+        ty: ValueType,
+        span: TextRange,
+    },
     /// `i32.wrap_i64`, used to narrow a 64-bit WASI result to `Int`.
     WrapI64 {
         destination: ValueId,
@@ -215,11 +265,17 @@ impl Instruction {
             | Self::ArrayGet { destination, .. }
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
+            | Self::LinearAlloc { destination, .. }
+            | Self::LinearLoad { destination, .. }
+            | Self::LinearClosureNew { destination, .. }
+            | Self::LinearClosureCall { destination, .. }
+            | Self::LinearClosureGetCapture { destination, .. }
             | Self::WrapI64 { destination, .. }
             | Self::WidenI64 { destination, .. } => Some(*destination),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
+            | Self::LinearStore { .. }
             | Self::CallVoid { .. } => None,
         }
     }
@@ -275,6 +331,18 @@ impl Instruction {
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
+            Self::LinearAlloc { .. } => Vec::new(),
+            Self::LinearLoad { address, .. } => vec![*address],
+            Self::LinearStore { address, value, .. } => vec![*address, *value],
+            Self::LinearClosureNew { captures, .. } => captures.clone(),
+            Self::LinearClosureCall {
+                function,
+                arguments,
+                ..
+            } => std::iter::once(*function)
+                .chain(arguments.iter().copied())
+                .collect(),
+            Self::LinearClosureGetCapture { closure, .. } => vec![*closure],
             Self::WrapI64 { value, .. } | Self::WidenI64 { value, .. } => vec![*value],
         }
     }
@@ -307,6 +375,12 @@ impl Instruction {
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
             | Self::Store { span, .. }
+            | Self::LinearAlloc { span, .. }
+            | Self::LinearLoad { span, .. }
+            | Self::LinearStore { span, .. }
+            | Self::LinearClosureNew { span, .. }
+            | Self::LinearClosureCall { span, .. }
+            | Self::LinearClosureGetCapture { span, .. }
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. } => *span,
         }

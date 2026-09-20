@@ -2,7 +2,7 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
 
-use crate::types::{DataId, MemoryId};
+use crate::types::{DataId, MemoryId, TableId};
 
 mod convert;
 mod encode;
@@ -55,6 +55,15 @@ pub struct Memory {
     pub index: MemoryIndex,
     pub minimum: u64,
     pub maximum: Option<u64>,
+}
+
+/// A function-reference table in the thin Wasm IR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Table {
+    pub id: TableId,
+    pub index: TableIndex,
+    pub minimum: u32,
+    pub maximum: Option<u32>,
 }
 
 /// The kind of an export in the module skeleton.
@@ -144,6 +153,8 @@ pub struct Module {
     pub type_defs: Vec<crate::types::RecGroup>,
     pub functions: Vec<Function>,
     pub memories: Vec<Memory>,
+    pub tables: Vec<Table>,
+    pub table_elements: Vec<FunctionIndex>,
     pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,
     pub entry: Option<Entry>,

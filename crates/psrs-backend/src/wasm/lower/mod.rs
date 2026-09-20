@@ -1,23 +1,25 @@
 use super::convert::val_type;
 use super::{
     Body, DataIndex, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType, Function,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, Table, TableIndex, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
-use psrs_hir::{ModuleId, SymbolId};
+use crate::types::{CompositeType, DataId, MemoryId, TableId, ValueId, ValueType};
+use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
-use wasm_encoder::{Instruction, MemArg, ValType};
+use wasm_encoder::{Instruction, ValType};
 
 mod capability;
+mod realloc;
 mod runtime;
 mod structure;
 
 use capability::validate_target_capabilities;
+use realloc::build_realloc;
 use runtime::collect_strings;
 use structure::Structurer;
 
@@ -66,17 +68,67 @@ pub fn lower_module_with_capabilities(
     let needs_realloc = module
         .imports
         .iter()
-        .any(|import| wasi.has_list_result(import.symbol));
+        .any(|import| wasi.has_list_result(import.symbol))
+        || module.functions.iter().any(|function| {
+            function.blocks.iter().any(|block| {
+                block.instructions.iter().any(|instruction| {
+                    matches!(
+                        instruction,
+                        mir::Instruction::LinearAlloc { .. }
+                            | mir::Instruction::LinearClosureNew { .. }
+                    )
+                })
+            })
+        });
+    let needs_table = module.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            block
+                .instructions
+                .iter()
+                .any(|instruction| matches!(instruction, mir::Instruction::LinearClosureNew { .. }))
+        })
+    });
 
-    let defined = module
-        .types
+    // MVP tables use ordinary function types. Keep linear closure signatures
+    // out of the GC rec-group section so the core module remains MVP-valid;
+    // the MIR IDs still identify those signatures before this final mapping.
+    let (type_defs, initial_types) = if !target.gc
+        && module
+            .types
+            .iter()
+            .flat_map(|group| group.0.iter())
+            .all(|definition| matches!(definition.composite, CompositeType::Func { .. }))
+    {
+        let types = module
+            .types
+            .iter()
+            .flat_map(|group| group.0.iter())
+            .filter_map(|definition| {
+                let CompositeType::Func {
+                    parameters,
+                    results,
+                } = &definition.composite
+                else {
+                    return None;
+                };
+                Some(FuncType {
+                    parameters: parameters.iter().copied().map(val_type).collect(),
+                    results: results.iter().copied().map(val_type).collect(),
+                })
+            })
+            .collect::<Vec<_>>();
+        (Vec::new(), types)
+    } else {
+        (module.types.clone(), Vec::new())
+    };
+    let defined = type_defs
         .iter()
         .map(|group| group.0.len() as u32)
         .sum::<u32>();
-    let (mut types, function_types) = collect_function_types(module, defined)?;
+    let (mut types, function_types) = collect_function_types(module, defined, initial_types)?;
 
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
-    // by the synthesized `run` entry.
+    // by the synthesized `run` entry when the target exposes WASI CLI.
     let mut imports = Vec::new();
     let mut import_indices = HashMap::<SymbolId, FunctionIndex>::new();
     for import in &module.imports {
@@ -101,26 +153,31 @@ pub fn lower_module_with_capabilities(
     // The synthesized `run` entry exits with `main`'s code through WASI. The
     // registry is the one P9 built; interning `exit` here does not add an import
     // unless a lowered call references it.
-    let exit = wasi
-        .import(names::EXIT, names::EXIT_WITH_CODE)
-        .map_err(|message| {
-            vec![BackendError::new(
-                "P10 Wasm structuring",
-                module.span,
-                message,
-            )]
-        })?;
-    let exit_type_index = TypeIndex(defined + types.len() as u32);
-    types.push(FuncType {
-        parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
-        results: Vec::new(),
-    });
-    let exit_index = FunctionIndex(imports.len() as u32);
-    imports.push(Import {
-        module: exit.module,
-        name: exit.name,
-        type_index: exit_type_index,
-    });
+    let exit_index = if target.wasi_cli {
+        let exit = wasi
+            .import(names::EXIT, names::EXIT_WITH_CODE)
+            .map_err(|message| {
+                vec![BackendError::new(
+                    "P10 Wasm structuring",
+                    module.span,
+                    message,
+                )]
+            })?;
+        let exit_type_index = TypeIndex(defined + types.len() as u32);
+        types.push(FuncType {
+            parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
+            results: Vec::new(),
+        });
+        let index = FunctionIndex(imports.len() as u32);
+        imports.push(Import {
+            module: exit.module,
+            name: exit.name,
+            type_index: exit_type_index,
+        });
+        Some(index)
+    } else {
+        None
+    };
 
     let import_count = imports.len() as u32;
     let entry_type = TypeIndex(defined + types.len() as u32);
@@ -128,6 +185,9 @@ pub fn lower_module_with_capabilities(
         parameters: Vec::new(),
         results: vec![ValType::I32],
     });
+
+    let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
+    let linear_allocator = needs_realloc.then_some(FunctionIndex(entry_index.0 + 1));
 
     let mut function_indices = module
         .functions
@@ -145,6 +205,7 @@ pub fn lower_module_with_capabilities(
             function_types[index],
             &function_indices,
             &string_offsets,
+            linear_allocator,
         )
         .map_err(|errors| {
             errors
@@ -156,7 +217,15 @@ pub fn lower_module_with_capabilities(
     }
 
     let main_index = FunctionIndex(import_count + entry_function.id.0);
-    let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
+    let table_elements = if needs_table {
+        module
+            .functions
+            .iter()
+            .map(|function| FunctionIndex(import_count + function.id.0))
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // An imported function that returns a list/string has the host allocate the
     // buffer in guest memory, so the module must export `cabi_realloc`. The
@@ -205,7 +274,7 @@ pub fn lower_module_with_capabilities(
         name: module.name.clone(),
         imports,
         types,
-        type_defs: module.types.clone(),
+        type_defs,
         functions,
         memories: vec![Memory {
             id: MemoryId(0),
@@ -213,15 +282,29 @@ pub fn lower_module_with_capabilities(
             minimum,
             maximum: None,
         }],
+        tables: if needs_table {
+            vec![Table {
+                id: TableId(0),
+                index: TableIndex(0),
+                minimum: module.functions.len() as u32,
+                maximum: None,
+            }]
+        } else {
+            Vec::new()
+        },
+        table_elements,
         data,
         exports,
         entry: Some(Entry {
             type_index: entry_type,
-            body: vec![
-                Op::Leaf(Instruction::Call(main_index.0)),
-                Op::Leaf(Instruction::Call(exit_index.0)),
-                Op::Leaf(Instruction::I32Const(0)),
-            ],
+            body: {
+                let mut body = vec![Op::Leaf(Instruction::Call(main_index.0))];
+                if let Some(exit_index) = exit_index {
+                    body.push(Op::Leaf(Instruction::Call(exit_index.0)));
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                }
+                body
+            },
         }),
         realloc,
         span: module.span,
@@ -230,92 +313,12 @@ pub fn lower_module_with_capabilities(
     Ok(wasm)
 }
 
-/// Builds the bump-allocator `cabi_realloc` the canonical ABI calls to allocate
-/// returned `list`/`string` buffers in guest memory. Each allocation is
-/// preceded by a four-byte length so the result is a length-prefixed string
-/// value. Old allocations are not reclaimed.
-#[allow(clippy::vec_init_then_push)]
-fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: TextRange) -> Function {
-    let memarg = || MemArg {
-        offset: 0,
-        align: 2,
-        memory_index: 0,
-    };
-    let page_round = |body: &mut Body| {
-        // (value + 65535) >> 16, the number of pages needed to hold `value`.
-        body.push(Op::Leaf(Instruction::I32Const(65535)));
-        body.push(Op::Leaf(Instruction::I32Add));
-        body.push(Op::Leaf(Instruction::I32Const(16)));
-        body.push(Op::Leaf(Instruction::I32ShrU));
-    };
-    let mut body = Body::new();
-    // local 4 = free pointer
-    body.push(Op::Leaf(Instruction::I32Const(heap_pointer as i32)));
-    body.push(Op::Leaf(Instruction::I32Load(memarg())));
-    body.push(Op::Leaf(Instruction::LocalSet(4)));
-    // free pointer = (free + align - 1) & -align
-    body.push(Op::Leaf(Instruction::LocalGet(4)));
-    body.push(Op::Leaf(Instruction::LocalGet(2)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    body.push(Op::Leaf(Instruction::I32Const(1)));
-    body.push(Op::Leaf(Instruction::I32Sub));
-    body.push(Op::Leaf(Instruction::I32Const(0)));
-    body.push(Op::Leaf(Instruction::LocalGet(2)));
-    body.push(Op::Leaf(Instruction::I32Sub));
-    body.push(Op::Leaf(Instruction::I32And));
-    body.push(Op::Leaf(Instruction::LocalSet(4)));
-    // local 5 = end = free pointer + new size + the four-byte length prefix
-    body.push(Op::Leaf(Instruction::LocalGet(4)));
-    body.push(Op::Leaf(Instruction::LocalGet(3)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    body.push(Op::Leaf(Instruction::I32Const(4)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    body.push(Op::Leaf(Instruction::LocalSet(5)));
-    // Grow the memory if the allocation crosses the current size.
-    body.push(Op::Leaf(Instruction::LocalGet(5)));
-    page_round(&mut body);
-    body.push(Op::Leaf(Instruction::MemorySize(0)));
-    body.push(Op::Leaf(Instruction::I32GtU));
-    let mut grow = Body::new();
-    grow.push(Op::Leaf(Instruction::LocalGet(5)));
-    page_round(&mut grow);
-    grow.push(Op::Leaf(Instruction::MemorySize(0)));
-    grow.push(Op::Leaf(Instruction::I32Sub));
-    grow.push(Op::Leaf(Instruction::MemoryGrow(0)));
-    grow.push(Op::Leaf(Instruction::Drop));
-    body.push(Op::If {
-        then_body: grow,
-        else_body: Body::new(),
-        result: None,
-        span,
-    });
-    // Store the length prefix and the new free pointer.
-    body.push(Op::Leaf(Instruction::LocalGet(4)));
-    body.push(Op::Leaf(Instruction::LocalGet(3)));
-    body.push(Op::Leaf(Instruction::I32Store(memarg())));
-    body.push(Op::Leaf(Instruction::I32Const(heap_pointer as i32)));
-    body.push(Op::Leaf(Instruction::LocalGet(5)));
-    body.push(Op::Leaf(Instruction::I32Store(memarg())));
-    // Return the buffer after its length prefix.
-    body.push(Op::Leaf(Instruction::LocalGet(4)));
-    body.push(Op::Leaf(Instruction::I32Const(4)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    Function {
-        symbol: SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1),
-        name: "cabi_realloc".into(),
-        type_index,
-        parameters: vec![ValType::I32; 4],
-        locals: vec![ValType::I32, ValType::I32],
-        body,
-        span,
-    }
-}
-
 fn collect_function_types(
     module: &mir::Module,
     defined: u32,
+    initial_types: Vec<FuncType>,
 ) -> Result<(Vec<FuncType>, Vec<TypeIndex>), Vec<BackendError>> {
-    let mut types = Vec::<FuncType>::new();
+    let mut types = initial_types;
     let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), TypeIndex>::new();
     for (index, definition) in module
         .types
@@ -376,6 +379,7 @@ fn lower_function(
     type_index: TypeIndex,
     function_indices: &HashMap<SymbolId, FunctionIndex>,
     string_offsets: &HashMap<String, u32>,
+    linear_allocator: Option<FunctionIndex>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -403,6 +407,7 @@ fn lower_function(
         locals,
         function_indices,
         string_offsets,
+        linear_allocator,
     };
     let mut body = Body::new();
     structurer.emit_region(source.entry, None, &mut HashSet::new(), &mut body)?;

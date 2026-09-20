@@ -114,6 +114,8 @@ mod tests {
                 span,
             }],
             memories: Vec::new(),
+            tables: Vec::new(),
+            table_elements: Vec::new(),
             data: Vec::new(),
             exports: vec![Export {
                 name: crate::abi::RUN_CORE_EXPORT.into(),
@@ -247,6 +249,8 @@ mod tests {
                 minimum: 1,
                 maximum: None,
             }],
+            tables: Vec::new(),
+            table_elements: Vec::new(),
             data: vec![DataSegment {
                 id: crate::types::DataId(0),
                 index: DataIndex(0),

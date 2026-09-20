@@ -4,12 +4,10 @@ use crate::cc::RepresentationTable;
 use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
 
-#[path = "verify_helpers.rs"]
-mod verify_helpers;
-#[path = "verify_ops.rs"]
-mod verify_ops;
-use verify_helpers::{verify_capture_layout, verify_value_shape};
-use verify_ops::{verify_assignments, verify_table};
+mod helpers;
+mod ops;
+use helpers::{verify_capture_layout, verify_value_shape};
+use ops::{verify_assignments, verify_table};
 
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     verify_table(&module.representations, module.span)?;

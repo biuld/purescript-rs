@@ -236,14 +236,12 @@ impl PlannedLayout {
             boxed_number_index,
         })
     }
-
     pub(super) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
         self.repr_indices
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
     }
-
     pub(super) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
         self.signature_indices
             .get(&id)
@@ -348,6 +346,8 @@ fn validate_value_shape(
 pub(super) enum LayoutError {
     UnknownRepresentation,
     UnknownSignature,
+    UnknownField,
+    UnsupportedLinearOperation,
     MissingNumberBox,
     UnknownClosureLayout,
     UnsupportedGcTarget,

@@ -8,7 +8,7 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
-use super::verify_helpers::*;
+use super::helpers::*;
 
 pub(super) fn verify_table(
     table: &RepresentationTable,

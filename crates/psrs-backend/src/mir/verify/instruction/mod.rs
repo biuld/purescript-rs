@@ -3,8 +3,9 @@
 use super::Signature;
 use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
-    check_heap, composite_at, is_any_array_reference, is_array_reference, is_ref, is_ref_opt,
-    is_struct_reference, mir_error, require_value, storage_value_type, value_type,
+    call_value_types_match, check_heap, composite_at, is_any_array_reference, is_array_reference,
+    is_ref, is_ref_opt, is_struct_reference, mir_error, require_value, storage_value_type,
+    value_type,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -13,6 +14,7 @@ use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
+mod linear_closure;
 mod memory;
 
 pub(super) fn verify_instruction(
@@ -470,21 +472,20 @@ pub(super) fn verify_instruction(
         }
         Instruction::Load { .. }
         | Instruction::Store { .. }
+        | Instruction::LinearAlloc { .. }
+        | Instruction::LinearLoad { .. }
+        | Instruction::LinearStore { .. }
+        | Instruction::LinearClosureGetCapture { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
             memory::verify_memory_instruction(function, instruction, definitions)?;
         }
+        Instruction::LinearClosureNew { .. } => {
+            linear_closure::verify_new(function, instruction, definitions, signatures, defined)?
+        }
+        Instruction::LinearClosureCall { .. } => {
+            linear_closure::verify_call(function, instruction, definitions, defined)?
+        }
     }
     Ok(())
-}
-
-/// `Boolean` is a logical MIR type but uses the same `i32` representation as a
-/// canonical ABI scalar. Calls at the ABI boundary may therefore connect the
-/// two without an instruction-level conversion.
-fn call_value_types_match(actual: ValueType, expected: ValueType) -> bool {
-    actual == expected
-        || matches!(
-            (actual, expected),
-            (ValueType::Boolean, ValueType::I32) | (ValueType::I32, ValueType::Boolean)
-        )
 }

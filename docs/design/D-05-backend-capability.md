@@ -100,11 +100,13 @@ the same profile, starting at the MVP set rather than the dependency's default
 feature set.
 
 This is a capability gate, not an implicit fallback implementation. The P9
-linear-memory planner now consumes the same CC requirements, but its table/
-allocator instruction lowering is still a separate feature. Any fallback must
-be an explicit lowering with its own representation and execution tests. Until
-then, a narrower target fails with a source-associated backend diagnostic
-instead of silently emitting a module with a different ABI.
+linear-memory planner now consumes the same CC requirements and lowers the
+supported product/box/array and table-backed closure subset to allocator,
+typed load/store, and `call_indirect` MIR. Dynamic-representation and
+canonical WIT operations still fail with source-associated P9 diagnostics on
+that profile. Any fallback must be an explicit lowering with its own
+representation and execution tests; the linear subset has those MVP
+validation and execution tests.
 
 Every new checklist item needs four pieces of evidence before it becomes
 `Implemented`: a capability flag, lowering/validation coverage, a binary or
@@ -120,19 +122,21 @@ considered covered merely because a Wasm opcode or a low-level type exists.
 
 | Capability family | CC status | MIR status | Design assessment |
 | --- | --- | --- | --- |
-| MVP scalar values and calls | `i32`, `Boolean`, `f64`, direct calls, and the current closure ABI are lowered. | Typed calls, constants, scalar primitives, and the current `i32` memory boundary are verified. | Partial; `i64`/`f32`, full numeric operations, and indirect table calls are not a complete slice. |
+| MVP scalar values and calls | `i32`, `Boolean`, `f64`, direct calls, and the current closure ABI are lowered. | Typed calls, constants, scalar primitives, and the current `i32` memory boundary are verified. | Partial; `i64`/`f32` and full numeric operations are not a complete slice. |
 | Structured control | Expression-level `if` is explicit in ANF. | CFG has `if` diamonds, jumps, merge parameters, and returns. | Partial; `block`, `loop`, `br`, `br_if`, and `br_table` are not represented. |
-| Linear memory | Strings and WIT byte-list boundaries select the pointer representation. | Loads/stores are fixed to wasm32 `i32` addresses and values. | Partial; pointer width, load/store variants, memory selection, and allocation ownership are not abstracted. |
+| Linear memory | Strings, aggregate handles, closures, and WIT byte-list boundaries select the pointer representation. | Product/box/array payloads lower to allocator plus typed wasm32 load/store operations; table-backed closures lower to environments plus `call_indirect`; the verifier checks pointer and scalar types. | Partial; pointer width, memory selection, and the broader allocation/ABI family are not complete. |
 | Multi-value | No multi-result CC operation. | Function/import signatures and calls have one result; the verifier rejects multi-result `call_ref`. | Correctly marked Partial; do not enable it as an implementation claim. |
-| Bulk memory, tables, globals, SIMD, tail calls, exceptions, threads | No CC operation or representation. | No MIR operation or module resource for these families. | Profile flags are policy inputs only; they are not lowering coverage. |
-| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, logical fields, and a complete verifier for the current operation set; it has no Wasm type indices. | MIR plans the current GC layout, owns `RecGroup` and concrete reference types, and verifies the resulting operations. A linear-memory planner now consumes the same CC requirements but is not yet an emitter path. | Partial; non-GC instruction selection/runtime evidence and broader proposal coverage remain. |
+| Bulk memory, globals, SIMD, tail calls, exceptions, threads | No CC operation or representation. | The MIR/P10 function table supports the linear closure slice; bulk memory and the other proposal families have no operations or resources. | Profile flags are policy inputs only; they are not lowering coverage. |
+| Reference types and GC | CC carries symbolic `ReprId`/`SignatureId` requirements, abstract references, closure shapes, logical fields, and a complete verifier for the current operation set; it has no Wasm type indices. | MIR plans the current GC layout and owns `RecGroup` and concrete reference types; the linear planner separately owns pointer payloads, table slots, and MVP function types. | Partial; dynamic representation operations and broader proposal coverage remain. |
 | Component Model and WASI | CC keeps only an external `SymbolId` and abstract signature. `BackendInput::externals` carries WIT names and source signatures beside CC. | MIR resolves bindings through the WIT ABI registry, emits adapters for referenced calls, and retains only used runtime imports. | Partial; broader canonical ABI forms and ownership rules remain. |
 
 The residual structural issue is deliberately called out here: the linear-memory
-planner consumes the same CC module but is not yet connected to MIR instruction
-selection or runtime execution. CC verification now type-checks every operation
-in the current abstract operation set. Any new CC operation must add an
-operation-level verifier before it is used as evidence for a capability row.
+path is an explicit supported subset, not a claim that every GC operation or
+WIT operation has an MVP representation. CC verification now type-checks every
+operation in the current abstract operation set, and P9 diagnoses operations
+that the selected linear profile cannot represent. Any new CC operation must
+add an operation-level verifier before it is used as evidence for a capability
+row.
 
 ## Open items
 
