@@ -154,6 +154,7 @@ pub fn lower_module_with_bindings(
     module: CoreModule,
     bindings: ExternalBindings,
 ) -> Result<BackendInput, Vec<BackendError>> {
+    bindings.validate_core(&module)?;
     if let Err(errors) = module.verify() {
         return Err(annotate_errors(
             errors
@@ -198,7 +199,7 @@ pub fn lower_module_with_bindings(
     }
     let mut externals = Vec::new();
     for binding in &bindings.imports {
-        let signature = binding.signature.as_ref().and_then(cc_signature);
+        let signature = binding.signature.as_ref().and_then(abstract_signature);
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }
@@ -263,7 +264,7 @@ pub fn lower_module_with_bindings(
     })
 }
 
-fn cc_signature(signature: &SourceSignature) -> Option<Signature> {
+pub(crate) fn abstract_signature(signature: &SourceSignature) -> Option<Signature> {
     Some(Signature {
         parameters: signature
             .parameters

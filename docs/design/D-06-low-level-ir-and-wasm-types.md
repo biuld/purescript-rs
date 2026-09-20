@@ -181,6 +181,14 @@ registry, emits canonical calls and adapters for referenced symbols, and keeps
 unused runtime imports out of MIR. Consequently, WIT names do not become part
 of CC identity, dumps, equality, or verification.
 
+The boundary is checked in both directions. P8 validates that the side table is
+a complete projection of Core's WIT externals, and P9 validates that every
+binding has exactly one CC external with the same abstract signature. P9
+resolves and validates every binding, then projects the ABI registry down to
+symbols referenced by lowered MIR calls. An unused valid binding therefore
+cannot add a runtime import, while an unsupported or malformed declaration
+still receives its source-associated ABI diagnostic.
+
 ## P9: representation lowering to MIR
 
 ### Responsibilities
@@ -347,7 +355,7 @@ execution remain separate work.
 | CC operations | Function/closure, product, array, and representation-adaptation operations carry semantic signatures, handles, and logical slots. Closure operations do not carry environment or box layouts. | **Implemented for the current operation set.** |
 | Layout construction | `cc::layout` interns requirements; P9 planner implementations realize reachable handles. | **Implemented:** GC and linear-memory planners consume the same CC requirements. |
 | MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. | **Implemented for GC; linear-memory instruction selection and execution remain M5 work.** |
-| External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. | **Implemented:** WIT names and source ABI types are backend side-table data. |
+| External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. P8/P9 validate the side-table/CC pairing; P9 resolves all declarations and retains only used ABI symbols in MIR. | **Implemented:** WIT names and source ABI types are backend side-table data; MIR retains only canonical signatures and used ABI symbols. |
 | CC verification | `cc::verify` checks declaration/definition order, table handles, value shapes, calls, captures, representation operations, products, arrays, and branches. | Extend the verifier when a new CC operation family is introduced; the current operation set is fully covered. |
 | MIR verification | MIR now checks SSA ordering/dominance and important concrete operation types. | Complete remaining CFG, subtype, memory, capability, and ABI checks. |
 
@@ -402,6 +410,8 @@ construction without changing P8.
 - Let CC calls retain only `SymbolId` and an abstract signature.
 - Resolve and validate external bindings in P9 ABI lowering, while retaining
   only imports referenced by emitted MIR.
+- Validate the Core-to-side-table and side-table-to-CC mappings so a missing,
+  duplicate, or signature-mismatched binding fails at the owning boundary.
 - Preserve the current WIT scalar, handle, and byte-list behavior.
 
 Exit criterion: CC dumps and equality contain no WIT names or canonical ABI

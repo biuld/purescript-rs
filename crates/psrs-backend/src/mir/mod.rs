@@ -21,6 +21,8 @@ pub use instruction::Instruction;
 pub use verify::verify_module;
 
 #[cfg(test)]
+mod binding_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -113,13 +115,16 @@ pub fn lower_module_with_bindings(
     bindings: crate::ExternalBindings,
     target: TargetCapabilities,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    bindings.validate_cc(&module)?;
     let mut wasi = WasiRegistry::load_with_capabilities(target).map_err(|message| {
         annotate_errors(
             vec![BackendError::new("P9 MIR lowering", module.span, message)],
             module.entry.map(|entry| entry.module),
         )
     })?;
-    // Resolve every source-declared WIT import to its canonical ABI descriptor.
+    // Resolve and validate every source-declared WIT binding. A declaration
+    // must fail with its ABI diagnostic even when dead code does not call it;
+    // the later import projection keeps unused runtime imports out of MIR.
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
