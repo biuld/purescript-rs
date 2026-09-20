@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 mod instruction;
 mod layout;
 mod lower;
+mod reachable;
 mod verify;
 mod wit;
 
@@ -160,7 +161,7 @@ pub fn lower_module_with_bindings(
             })?;
         wit_imports.insert(external.symbol, import);
     }
-    let planned_layout = PlannedLayout::plan(&module.representations, target).map_err(|error| {
+    let planned_layout = PlannedLayout::plan_module(&module, target).map_err(|error| {
         annotate_errors(
             vec![BackendError::new(
                 "P9 MIR lowering",

@@ -347,9 +347,12 @@ explicitly below:
 
 The former CC-to-MIR type-table pass-through has been removed. The current P9
 planner creates its GC closure object, erased capture array, aggregate layouts,
-and concrete function types itself. Backend coverage remains Partial because a
-second planner has not yet demonstrated that the abstract CC contract is
-sufficient, and CC operation verification is not yet complete.
+and concrete function types itself. It first walks the CC module's value shapes,
+operations, called external signatures, and recursively referenced handles, so
+unreachable representation requirements do not become MIR types. Backend
+coverage remains Partial because a second planner has not yet demonstrated that
+the abstract CC contract is sufficient, and CC operation verification is not
+yet complete.
 
 ## Migration plan
 
