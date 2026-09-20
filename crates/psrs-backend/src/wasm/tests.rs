@@ -44,7 +44,7 @@ fn encodes_and_runs_a_gc_struct() {
         functions: vec![Function {
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "sum".into(),
-            type_index: 1,
+            type_index: super::TypeIndex(1),
             parameters: Vec::new(),
             locals: vec![struct_ref(0)],
             body: vec![
@@ -71,7 +71,7 @@ fn encodes_and_runs_a_gc_struct() {
         exports: vec![Export {
             name: "sum".into(),
             kind: ExportKind::Function,
-            index: 0,
+            index: super::ExportIndex::Function(super::FunctionIndex(0)),
         }],
         entry: None,
         realloc: None,
@@ -129,4 +129,61 @@ fn defined_types_precede_function_types() {
         span: span(),
     };
     assert_eq!(module.defined_type_count(), 1);
+}
+
+#[test]
+fn rejects_a_data_index_that_does_not_match_module_order() {
+    let module = Module {
+        name: "DataIndex".into(),
+        imports: Vec::new(),
+        types: Vec::new(),
+        type_defs: Vec::new(),
+        functions: Vec::new(),
+        memories: Vec::new(),
+        data: vec![DataSegment {
+            id: crate::types::DataId(0),
+            index: super::DataIndex(1),
+            offset: 0,
+            bytes: Vec::new(),
+        }],
+        exports: Vec::new(),
+        entry: None,
+        realloc: None,
+        span: span(),
+    };
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("data segment")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_an_export_with_the_wrong_index_domain() {
+    let module = Module {
+        name: "ExportIndex".into(),
+        imports: Vec::new(),
+        types: Vec::new(),
+        type_defs: Vec::new(),
+        functions: Vec::new(),
+        memories: Vec::new(),
+        data: Vec::new(),
+        exports: vec![Export {
+            name: "bad".into(),
+            kind: ExportKind::Function,
+            index: super::ExportIndex::Memory(super::MemoryIndex(0)),
+        }],
+        entry: None,
+        realloc: None,
+        span: span(),
+    };
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unknown index")),
+        "{errors:?}"
+    );
 }

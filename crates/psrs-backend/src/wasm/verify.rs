@@ -1,18 +1,45 @@
-use super::{Body, ExportKind, Module, Op};
+use super::{Body, ExportIndex, ExportKind, Module, Op};
 use crate::BackendError;
 use crate::types::CompositeType;
 use psrs_span::TextRange;
+use std::collections::HashSet;
 use wasm_encoder::Instruction;
 
 /// Checks the structural invariants of the thin Wasm IR before encoding.
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
+    let mut data_ids = HashSet::new();
+    let mut data_indices = HashSet::new();
+    for (position, segment) in module.data.iter().enumerate() {
+        if !data_ids.insert(segment.id)
+            || !data_indices.insert(segment.index)
+            || segment.index.0 != position as u32
+        {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm data segment IDs or indices are duplicated or not deterministic",
+            ));
+        }
+    }
+    let mut memory_ids = HashSet::new();
+    let mut memory_indices = HashSet::new();
+    for (position, memory) in module.memories.iter().enumerate() {
+        if !memory_ids.insert(memory.id)
+            || !memory_indices.insert(memory.index)
+            || memory.index.0 != position as u32
+        {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm memory IDs or indices are not deterministic",
+            ));
+        }
+    }
     let function_count = (module.imports.len()
         + module.functions.len()
         + usize::from(module.entry.is_some())
         + usize::from(module.realloc.is_some())) as u32;
     for import in &module.imports {
-        if !valid_function_type(module, import.type_index) {
+        if !valid_function_type(module, import.type_index.0) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm import type index is out of range",
@@ -20,9 +47,12 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         }
     }
     for export in &module.exports {
-        let in_range = match export.kind {
-            ExportKind::Function => export.index < function_count,
-            ExportKind::Memory => (export.index as usize) < module.memories.len(),
+        let in_range = match (export.kind, export.index) {
+            (ExportKind::Function, ExportIndex::Function(index)) => index.0 < function_count,
+            (ExportKind::Memory, ExportIndex::Memory(index)) => {
+                (index.0 as usize) < module.memories.len()
+            }
+            _ => false,
         };
         if !in_range {
             errors.push(wasm_error(
@@ -32,7 +62,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         }
     }
     for function in &module.functions {
-        if !valid_function_type(module, function.type_index) {
+        if !valid_function_type(module, function.type_index.0) {
             errors.push(wasm_error(
                 function.span,
                 "Wasm function type index is out of range",
@@ -49,7 +79,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         );
     }
     if let Some(entry) = &module.entry {
-        if !valid_function_type(module, entry.type_index) {
+        if !valid_function_type(module, entry.type_index.0) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm entry type index is out of range",
@@ -65,7 +95,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         );
     }
     if let Some(realloc) = &module.realloc {
-        if !valid_function_type(module, realloc.type_index) {
+        if !valid_function_type(module, realloc.type_index.0) {
             errors.push(wasm_error(
                 module.span,
                 "Wasm realloc type index is out of range",

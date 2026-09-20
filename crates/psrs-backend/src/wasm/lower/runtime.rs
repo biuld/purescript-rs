@@ -1,6 +1,7 @@
 use crate::abi::SCRATCH_END;
 use crate::mir::Instruction as MirInstruction;
-use crate::wasm::DataSegment;
+use crate::types::DataId;
+use crate::wasm::{DataIndex, DataSegment};
 use std::collections::HashMap;
 
 /// Collects string literals into length-prefixed data segments after the
@@ -22,6 +23,8 @@ pub(super) fn collect_strings(
                     let mut segment = (bytes.len() as u32).to_le_bytes().to_vec();
                     segment.extend_from_slice(bytes.as_bytes());
                     data.push(DataSegment {
+                        id: DataId(data.len() as u32),
+                        index: DataIndex(data.len() as u32),
                         offset,
                         bytes: segment,
                     });

@@ -1,4 +1,4 @@
-use crate::types::{HeapType, RefType, ValueId};
+use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -36,41 +36,41 @@ pub enum Instruction {
     RefFunc {
         destination: ValueId,
         function: SymbolId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         span: TextRange,
     },
     ClosureNew {
         destination: ValueId,
         function: SymbolId,
-        type_index: u32,
-        closure_type: u32,
-        capture_array_type: u32,
-        boxed_f64_type: Option<u32>,
+        type_index: DefinedTypeId,
+        closure_type: DefinedTypeId,
+        capture_array_type: DefinedTypeId,
+        boxed_f64_type: Option<DefinedTypeId>,
         captures: Vec<ValueId>,
         span: TextRange,
     },
     CallRef {
         destination: ValueId,
         function: ValueId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         arguments: Vec<ValueId>,
         span: TextRange,
     },
     ClosureCall {
         destination: ValueId,
         function: ValueId,
-        type_index: u32,
-        closure_type: u32,
-        capture_array_type: u32,
+        type_index: DefinedTypeId,
+        closure_type: DefinedTypeId,
+        capture_array_type: DefinedTypeId,
         arguments: Vec<ValueId>,
         span: TextRange,
     },
     ClosureGetCapture {
         destination: ValueId,
         closure: ValueId,
-        closure_type: u32,
-        capture_array_type: u32,
-        boxed_f64_type: Option<u32>,
+        closure_type: DefinedTypeId,
+        capture_array_type: DefinedTypeId,
+        boxed_f64_type: Option<DefinedTypeId>,
         index: u32,
         span: TextRange,
     },
@@ -114,19 +114,19 @@ pub enum Instruction {
     },
     StructNew {
         destination: ValueId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         arguments: Vec<ValueId>,
         span: TextRange,
     },
     StructGet {
         destination: ValueId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         field: u32,
         value: ValueId,
         span: TextRange,
     },
     StructSet {
-        type_index: u32,
+        type_index: DefinedTypeId,
         field: u32,
         value: ValueId,
         new_value: ValueId,
@@ -134,19 +134,19 @@ pub enum Instruction {
     },
     ArrayNew {
         destination: ValueId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         elements: Vec<ValueId>,
         span: TextRange,
     },
     ArrayGet {
         destination: ValueId,
-        type_index: u32,
+        type_index: DefinedTypeId,
         value: ValueId,
         index: ValueId,
         span: TextRange,
     },
     ArraySet {
-        type_index: u32,
+        type_index: DefinedTypeId,
         value: ValueId,
         index: ValueId,
         new_value: ValueId,
@@ -161,6 +161,7 @@ pub enum Instruction {
     Load {
         destination: ValueId,
         address: ValueId,
+        memory: MemoryId,
         offset: u32,
         span: TextRange,
     },
@@ -168,6 +169,7 @@ pub enum Instruction {
     Store {
         address: ValueId,
         value: ValueId,
+        memory: MemoryId,
         offset: u32,
         span: TextRange,
     },

@@ -3,15 +3,15 @@
 
 use crate::BackendError;
 use crate::mir::{Function, ValueId, ValueType};
-use crate::types::{CompositeType, DefinedType, HeapType, StorageType};
+use crate::types::{CompositeType, DefinedType, DefinedTypeId, HeapType, StorageType};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
 pub(super) fn composite_at<'a>(
     defined: &[&'a DefinedType],
-    index: u32,
+    index: DefinedTypeId,
 ) -> Option<&'a CompositeType> {
-    defined.get(index as usize).map(|def| &def.composite)
+    defined.get(index.0 as usize).map(|def| &def.composite)
 }
 
 /// The low-level value type a struct or array field stores, when representable.
@@ -51,7 +51,7 @@ pub(super) fn check_heap(
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
     if let HeapType::Index(index) = heap
-        && index as usize >= defined.len()
+        && index.0 as usize >= defined.len()
     {
         return Err(mir_error(
             span,
@@ -74,7 +74,7 @@ pub(super) fn is_ref_opt(ty: Option<ValueType>) -> bool {
 /// CC/MIR boundary; field operations name the concrete type index.
 pub(super) fn is_struct_reference(
     ty: ValueType,
-    type_index: u32,
+    type_index: DefinedTypeId,
     defined: &[&DefinedType],
 ) -> bool {
     is_reference_to_composite(ty, type_index, HeapType::Struct, defined, |composite| {
@@ -84,7 +84,11 @@ pub(super) fn is_struct_reference(
 
 /// Checks whether a reference can be used where a concrete array type is
 /// required.
-pub(super) fn is_array_reference(ty: ValueType, type_index: u32, defined: &[&DefinedType]) -> bool {
+pub(super) fn is_array_reference(
+    ty: ValueType,
+    type_index: DefinedTypeId,
+    defined: &[&DefinedType],
+) -> bool {
     is_reference_to_composite(ty, type_index, HeapType::Array, defined, |composite| {
         matches!(composite, CompositeType::Array(_))
     })
@@ -107,7 +111,7 @@ pub(super) fn is_any_array_reference(ty: ValueType, defined: &[&DefinedType]) ->
 
 fn is_reference_to_composite(
     ty: ValueType,
-    type_index: u32,
+    type_index: DefinedTypeId,
     abstract_heap: HeapType,
     defined: &[&DefinedType],
     predicate: impl FnOnce(&CompositeType) -> bool,

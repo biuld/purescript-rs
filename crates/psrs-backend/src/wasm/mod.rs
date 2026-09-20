@@ -2,6 +2,8 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
 
+use crate::types::{DataId, MemoryId};
+
 mod convert;
 mod encode;
 mod lower;
@@ -12,6 +14,24 @@ mod tests;
 
 pub use encode::encode_module;
 pub use lower::{lower_module, lower_module_with_capabilities};
+
+/// Final index domains assigned by P10. These are deliberately distinct from
+/// MIR's module-local IDs and from one another; conversion to raw `u32` is
+/// confined to the encoder boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TableIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct MemoryIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DataIndex(pub u32);
 
 /// A WebAssembly function signature in the thin Wasm IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,12 +45,14 @@ pub struct FuncType {
 pub struct Import {
     pub module: String,
     pub name: String,
-    pub type_index: u32,
+    pub type_index: TypeIndex,
 }
 
 /// A linear memory in the module skeleton.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Memory {
+    pub id: MemoryId,
+    pub index: MemoryIndex,
     pub minimum: u64,
     pub maximum: Option<u64>,
 }
@@ -47,7 +69,15 @@ pub enum ExportKind {
 pub struct Export {
     pub name: String,
     pub kind: ExportKind,
-    pub index: u32,
+    pub index: ExportIndex,
+}
+
+/// The index domain selected by an export's kind. A function index can never
+/// be accidentally passed where a memory index is expected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportIndex {
+    Function(FunctionIndex),
+    Memory(MemoryIndex),
 }
 
 /// A structured function body.
@@ -77,7 +107,7 @@ pub type Body = Vec<Op>;
 pub struct Function {
     pub symbol: SymbolId,
     pub name: String,
-    pub type_index: u32,
+    pub type_index: TypeIndex,
     pub parameters: Vec<ValType>,
     pub locals: Vec<ValType>,
     pub body: Body,
@@ -87,6 +117,8 @@ pub struct Function {
 /// An initialized data segment in linear memory.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataSegment {
+    pub id: DataId,
+    pub index: DataIndex,
     pub offset: u32,
     pub bytes: Vec<u8>,
 }
@@ -94,7 +126,7 @@ pub struct DataSegment {
 /// The synthesized command entry that calls `main` and exits.
 #[derive(Clone, Debug)]
 pub struct Entry {
-    pub type_index: u32,
+    pub type_index: TypeIndex,
     pub body: Body,
 }
 

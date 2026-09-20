@@ -38,8 +38,28 @@ pub enum HeapType {
     Struct,
     Array,
     /// A defined type in the module's type table.
-    Index(u32),
+    Index(DefinedTypeId),
 }
+
+/// A module-local ID for one concrete defined type owned by MIR. This is not
+/// a final Wasm type index; P10 assigns those only when it builds the thin
+/// Wasm module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DefinedTypeId(pub u32);
+
+/// Module-local resource IDs. They are intentionally separate from final Wasm
+/// indices, which are assigned by P10 after all MIR resources are known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TableId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct MemoryId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct DataId(pub u32);
 
 /// The storage type of a struct or array field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -76,7 +96,7 @@ pub enum CompositeType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DefinedType {
     pub final_type: bool,
-    pub supertype: Option<u32>,
+    pub supertype: Option<DefinedTypeId>,
     pub composite: CompositeType,
 }
 

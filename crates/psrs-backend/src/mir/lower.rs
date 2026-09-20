@@ -5,7 +5,7 @@ use crate::BackendError;
 use crate::abi::WasiImport;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
-use crate::types::{ValueDecl, ValueId, ValueType};
+use crate::types::{FunctionId, ValueDecl, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -20,6 +20,7 @@ fn layout_error(span: TextRange, error: LayoutError) -> Vec<BackendError> {
 
 pub(super) fn lower_function(
     source: &cc::Function,
+    id: FunctionId,
     wit_imports: &HashMap<SymbolId, WasiImport>,
     layout: &PlannedLayout,
 ) -> Result<Function, Vec<BackendError>> {
@@ -63,6 +64,7 @@ pub(super) fn lower_function(
         source.span,
     )?;
     Ok(Function {
+        id,
         symbol: source.symbol,
         name: source.name.clone(),
         parameters: source.parameters.clone(),

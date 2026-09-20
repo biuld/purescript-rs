@@ -10,6 +10,7 @@ mod closure;
 mod helpers;
 mod ops;
 mod region;
+use crate::wasm::FunctionIndex;
 use closure::ClosureOps;
 use helpers::ValueOps;
 use psrs_hir::SymbolId;
@@ -21,7 +22,7 @@ pub(super) struct Structurer<'a> {
     pub(super) function: &'a MirFunction,
     pub(super) blocks: HashMap<BlockId, &'a mir::BasicBlock>,
     pub(super) locals: HashMap<ValueId, u32>,
-    pub(super) function_indices: &'a HashMap<SymbolId, u32>,
+    pub(super) function_indices: &'a HashMap<SymbolId, FunctionIndex>,
     pub(super) string_offsets: &'a HashMap<String, u32>,
 }
 
@@ -132,7 +133,7 @@ impl Structurer<'_> {
                         .ok_or_else(|| {
                             wasm_error(*span, "MIR call target has no Wasm function index")
                         })?;
-                    body.push(Op::Leaf(Instruction::Call(index)));
+                    body.push(Op::Leaf(Instruction::Call(index.0)));
                     body.push(Op::Leaf(Instruction::LocalSet(local(
                         &self.locals,
                         *destination,
@@ -152,7 +153,7 @@ impl Structurer<'_> {
                         .ok_or_else(|| {
                             wasm_error(*span, "MIR ref.func target has no Wasm function index")
                         })?;
-                    body.push(Op::Leaf(Instruction::RefFunc(index)));
+                    body.push(Op::Leaf(Instruction::RefFunc(index.0)));
                     body.push(Op::Leaf(Instruction::LocalSet(local(
                         &self.locals,
                         *destination,
@@ -171,7 +172,7 @@ impl Structurer<'_> {
                         self.load(body, *argument, *span)?;
                     }
                     self.load(body, *function, *span)?;
-                    body.push(Op::Leaf(Instruction::CallRef(*type_index)));
+                    body.push(Op::Leaf(Instruction::CallRef(type_index.0)));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::ClosureCall { .. } => self.emit_closure_call(body, instruction)?,
@@ -242,7 +243,7 @@ impl Structurer<'_> {
                     for argument in arguments {
                         self.load(body, *argument, *span)?;
                     }
-                    body.push(Op::Leaf(Instruction::StructNew(*type_index)));
+                    body.push(Op::Leaf(Instruction::StructNew(type_index.0)));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::StructGet {
@@ -254,7 +255,7 @@ impl Structurer<'_> {
                 } => {
                     self.load(body, *value, *span)?;
                     body.push(Op::Leaf(Instruction::StructGet {
-                        struct_type_index: *type_index,
+                        struct_type_index: type_index.0,
                         field_index: *field,
                     }));
                     self.store(body, *destination, *span)?;
@@ -269,7 +270,7 @@ impl Structurer<'_> {
                     self.load(body, *value, *span)?;
                     self.load(body, *new_value, *span)?;
                     body.push(Op::Leaf(Instruction::StructSet {
-                        struct_type_index: *type_index,
+                        struct_type_index: type_index.0,
                         field_index: *field,
                     }));
                 }
@@ -283,7 +284,7 @@ impl Structurer<'_> {
                         self.load(body, *element, *span)?;
                     }
                     body.push(Op::Leaf(Instruction::ArrayNewFixed {
-                        array_type_index: *type_index,
+                        array_type_index: type_index.0,
                         array_size: elements.len() as u32,
                     }));
                     self.store(body, *destination, *span)?;
@@ -297,7 +298,7 @@ impl Structurer<'_> {
                 } => {
                     self.load(body, *value, *span)?;
                     self.load(body, *index, *span)?;
-                    body.push(Op::Leaf(Instruction::ArrayGet(*type_index)));
+                    body.push(Op::Leaf(Instruction::ArrayGet(type_index.0)));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::ArraySet {
@@ -310,7 +311,7 @@ impl Structurer<'_> {
                     self.load(body, *value, *span)?;
                     self.load(body, *index, *span)?;
                     self.load(body, *new_value, *span)?;
-                    body.push(Op::Leaf(Instruction::ArraySet(*type_index)));
+                    body.push(Op::Leaf(Instruction::ArraySet(type_index.0)));
                 }
                 MirInstruction::ArrayLen {
                     destination,
@@ -326,6 +327,7 @@ impl Structurer<'_> {
                     address,
                     offset,
                     span,
+                    ..
                 } => {
                     self.load(body, *address, *span)?;
                     body.push(Op::Leaf(Instruction::I32Load(memory(*offset))));
@@ -336,6 +338,7 @@ impl Structurer<'_> {
                     value,
                     offset,
                     span,
+                    ..
                 } => {
                     self.load(body, *address, *span)?;
                     self.load(body, *value, *span)?;
@@ -379,7 +382,7 @@ impl Structurer<'_> {
                         .ok_or_else(|| {
                             wasm_error(*span, "MIR call target has no Wasm function index")
                         })?;
-                    body.push(Op::Leaf(Instruction::Call(index)));
+                    body.push(Op::Leaf(Instruction::Call(index.0)));
                 }
             }
         }

@@ -230,13 +230,14 @@ types, defined function/struct/array types, loads/stores, reference operations,
 and direct or indirect calls. These are legal in MIR because P9 has already
 selected the target representation.
 
-MIR type references should use a dedicated ID newtype rather than an untyped
+MIR type references use a dedicated `DefinedTypeId` rather than an untyped
 `u32`. P9 interns concrete types, creates recursion groups, assigns their
-module-local order, and allocates the final Wasm type-index mapping. A raw
-index is permitted only in that type-table module, whose API proves that it
-indexes the MIR type table. Defined-type IDs, function IDs, table IDs, memory
-IDs, data IDs, and their encoded index forms are distinct types even if all
-encode as `u32`.
+module-local order, and P10 allocates the final Wasm type-index mapping. A raw
+index is permitted only at the type-table/encoding boundary, whose API proves
+which table it indexes. Defined-type IDs, function IDs, table IDs, memory IDs,
+and data IDs are distinct from the final Wasm `TypeIndex`, `FunctionIndex`,
+`TableIndex`, `MemoryIndex`, and `DataIndex` forms even though all encode as
+`u32`.
 
 ### Layout alternatives
 
@@ -355,6 +356,7 @@ execution remain separate work.
 | CC operations | Function/closure, product, array, and representation-adaptation operations carry semantic signatures, handles, and logical slots. Closure operations do not carry environment or box layouts. | **Implemented for the current operation set.** |
 | Layout construction | `cc::layout` interns requirements; P9 planner implementations realize reachable handles. | **Implemented:** GC and linear-memory planners consume the same CC requirements. |
 | MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. | **Implemented for GC; linear-memory instruction selection and execution remain M5 work.** |
+| MIR identities | `DefinedTypeId`, `FunctionId`, and `MemoryId` are used by MIR; P10 owns the conversion to typed final Wasm indices, with data/resource IDs kept distinct from encoded indices. | **Implemented for the current resource set; table operations remain absent until a table planner/emitter is introduced.** |
 | External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. P8/P9 validate the side-table/CC pairing; P9 resolves all declarations and retains only used ABI symbols in MIR. | **Implemented:** WIT names and source ABI types are backend side-table data; MIR retains only canonical signatures and used ABI symbols. |
 | CC verification | `cc::verify` checks declaration/definition order, table handles, value shapes, calls, captures, representation operations, products, arrays, and branches. | Extend the verifier when a new CC operation family is introduced; the current operation set is fully covered. |
 | MIR verification | MIR now checks SSA ordering/dominance and important concrete operation types. | Complete remaining CFG, subtype, memory, capability, and ABI checks. |
@@ -417,13 +419,17 @@ construction without changing P8.
 Exit criterion: CC dumps and equality contain no WIT names or canonical ABI
 types.
 
-### M4 — Make MIR identities explicit
+### M4 — Make MIR identities explicit (implemented)
 
-- Replace raw `u32` type references with dedicated MIR ID types.
-- Separate defined-type, function, table, memory, data, and final Wasm index
-  domains.
-- Make type-index allocation deterministic and owned by P9, with P10/P11 only
-  applying the recorded mapping.
+- Replace raw `u32` MIR type references with `DefinedTypeId` and validate the
+  ID against the P9-owned concrete type table.
+- Give MIR functions and memory operands dedicated IDs, and keep table/data
+  resource IDs separate from final encoded index types.
+- Make concrete type and function-index allocation deterministic from the
+  verified MIR order; P10/P11 only apply typed mappings at the encoding
+  boundary.
+- Range-check typed defined types, function IDs, memory IDs, final Wasm type,
+  function, memory, and data indices before encoding.
 
 Exit criterion: mixing index spaces is unrepresentable in MIR APIs and all
 indices are range-checked.

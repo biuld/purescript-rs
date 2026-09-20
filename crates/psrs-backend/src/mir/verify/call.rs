@@ -4,7 +4,7 @@ use super::util::{
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueType};
-use crate::types::{CompositeType, DefinedType, HeapType, RefType};
+use crate::types::{CompositeType, DefinedType, DefinedTypeId, HeapType, RefType};
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
@@ -272,7 +272,7 @@ pub(super) fn verify_closure_get_capture(
 }
 
 fn verify_f64_box(
-    boxed_f64_type: Option<u32>,
+    boxed_f64_type: Option<DefinedTypeId>,
     defined: &[&DefinedType],
     span: psrs_span::TextRange,
 ) -> Result<(), Vec<BackendError>> {
@@ -292,8 +292,8 @@ fn verify_f64_box(
 }
 
 fn verify_closure_layout(
-    closure_type: u32,
-    capture_array_type: u32,
+    closure_type: DefinedTypeId,
+    capture_array_type: DefinedTypeId,
     defined: &[&DefinedType],
     span: psrs_span::TextRange,
 ) -> Result<(), Vec<BackendError>> {

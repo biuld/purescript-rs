@@ -4,7 +4,7 @@
 
 use super::{Module, ValueType};
 use crate::BackendError;
-use crate::types::{CompositeType, DefinedType, HeapType, StorageType};
+use crate::types::{CompositeType, DefinedType, DefinedTypeId, FunctionId, HeapType, StorageType};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -62,7 +62,14 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     }
     let defined_types = defined_type_count(module);
     let defined = defined_types_list(module);
-    for function in &module.functions {
+    let mut function_ids = HashSet::new();
+    for (position, function) in module.functions.iter().enumerate() {
+        if !function_ids.insert(function.id) || function.id != FunctionId(position as u32) {
+            errors.extend(mir_error(
+                function.span,
+                "MIR function IDs are duplicated or not in module order",
+            ));
+        }
         for value in &function.values {
             verify_value_type(&value.ty, defined_types, module.span, &mut errors);
         }
@@ -76,8 +83,8 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     Ok(())
 }
 
-fn defined_type_count(module: &Module) -> u32 {
-    module.types.iter().map(|group| group.0.len() as u32).sum()
+fn defined_type_count(module: &Module) -> DefinedTypeId {
+    DefinedTypeId(module.types.iter().map(|group| group.0.len() as u32).sum())
 }
 
 /// The defined types flattened into the Wasm type index order.
@@ -94,7 +101,7 @@ fn verify_defined_types(module: &Module, errors: &mut Vec<BackendError>) {
     for group in &module.types {
         for def in &group.0 {
             if let Some(supertype) = def.supertype
-                && supertype >= count
+                && supertype.0 >= count.0
             {
                 errors.extend(mir_error(
                     module.span,
@@ -123,7 +130,12 @@ fn verify_defined_types(module: &Module, errors: &mut Vec<BackendError>) {
     }
 }
 
-fn verify_value_type(ty: &ValueType, count: u32, span: TextRange, errors: &mut Vec<BackendError>) {
+fn verify_value_type(
+    ty: &ValueType,
+    count: DefinedTypeId,
+    span: TextRange,
+    errors: &mut Vec<BackendError>,
+) {
     if let ValueType::Ref(reference) = ty {
         verify_heap(reference.heap, count, span, errors);
     }
@@ -131,7 +143,7 @@ fn verify_value_type(ty: &ValueType, count: u32, span: TextRange, errors: &mut V
 
 fn verify_storage_type(
     storage: StorageType,
-    count: u32,
+    count: DefinedTypeId,
     span: TextRange,
     errors: &mut Vec<BackendError>,
 ) {
@@ -140,9 +152,14 @@ fn verify_storage_type(
     }
 }
 
-fn verify_heap(heap: HeapType, count: u32, span: TextRange, errors: &mut Vec<BackendError>) {
+fn verify_heap(
+    heap: HeapType,
+    count: DefinedTypeId,
+    span: TextRange,
+    errors: &mut Vec<BackendError>,
+) {
     if let HeapType::Index(index) = heap
-        && index >= count
+        && index.0 >= count.0
     {
         errors.extend(mir_error(
             span,

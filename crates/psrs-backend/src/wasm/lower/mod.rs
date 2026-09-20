@@ -1,12 +1,13 @@
 use super::convert::val_type;
 use super::{
-    Body, DataSegment, Entry, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
+    Body, DataIndex, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType, Function,
+    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, ValueId, ValueType};
+use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -77,9 +78,9 @@ pub fn lower_module_with_capabilities(
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
     // by the synthesized `run` entry.
     let mut imports = Vec::new();
-    let mut import_indices = HashMap::new();
+    let mut import_indices = HashMap::<SymbolId, FunctionIndex>::new();
     for import in &module.imports {
-        let type_index = defined + types.len() as u32;
+        let type_index = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: import.parameters.iter().map(|ty| val_type(*ty)).collect(),
             results: import
@@ -90,7 +91,7 @@ pub fn lower_module_with_capabilities(
         let (module_name, field) = wasi.symbol_name(import.symbol).ok_or_else(|| {
             wasm_error(module.span, "a MIR import symbol has no ABI registry entry")
         })?;
-        import_indices.insert(import.symbol, imports.len() as u32);
+        import_indices.insert(import.symbol, FunctionIndex(imports.len() as u32));
         imports.push(Import {
             module: module_name.to_string(),
             name: field.to_string(),
@@ -109,12 +110,12 @@ pub fn lower_module_with_capabilities(
                 message,
             )]
         })?;
-    let exit_type_index = defined + types.len() as u32;
+    let exit_type_index = TypeIndex(defined + types.len() as u32);
     types.push(FuncType {
         parameters: exit.parameters.iter().map(|ty| val_type(*ty)).collect(),
         results: Vec::new(),
     });
-    let exit_index = imports.len() as u32;
+    let exit_index = FunctionIndex(imports.len() as u32);
     imports.push(Import {
         module: exit.module,
         name: exit.name,
@@ -122,7 +123,7 @@ pub fn lower_module_with_capabilities(
     });
 
     let import_count = imports.len() as u32;
-    let entry_type = defined + types.len() as u32;
+    let entry_type = TypeIndex(defined + types.len() as u32);
     types.push(FuncType {
         parameters: Vec::new(),
         results: vec![ValType::I32],
@@ -131,8 +132,7 @@ pub fn lower_module_with_capabilities(
     let mut function_indices = module
         .functions
         .iter()
-        .enumerate()
-        .map(|(index, function)| (function.symbol, import_count + index as u32))
+        .map(|function| (function.symbol, FunctionIndex(import_count + function.id.0)))
         .collect::<HashMap<_, _>>();
     for (symbol, index) in &import_indices {
         function_indices.insert(*symbol, *index);
@@ -155,8 +155,8 @@ pub fn lower_module_with_capabilities(
         functions.push(lowered);
     }
 
-    let main_index = import_count + main_position as u32;
-    let entry_index = import_count + module.functions.len() as u32;
+    let main_index = FunctionIndex(import_count + entry_function.id.0);
+    let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
 
     // An imported function that returns a list/string has the host allocate the
     // buffer in guest memory, so the module must export `cabi_realloc`. The
@@ -167,12 +167,12 @@ pub fn lower_module_with_capabilities(
         Export {
             name: abi::RUN_CORE_EXPORT.into(),
             kind: ExportKind::Function,
-            index: entry_index,
+            index: ExportIndex::Function(entry_index),
         },
         Export {
             name: "memory".into(),
             kind: ExportKind::Memory,
-            index: 0,
+            index: ExportIndex::Memory(MemoryIndex(0)),
         },
     ];
     let mut minimum = 1;
@@ -180,18 +180,20 @@ pub fn lower_module_with_capabilities(
     if needs_realloc {
         let heap_pointer = data_end.next_multiple_of(4);
         let heap_start = (heap_pointer + 4).next_multiple_of(16);
-        let realloc_type = defined + types.len() as u32;
+        let realloc_type = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: vec![ValType::I32; 4],
             results: vec![ValType::I32],
         });
-        let index = entry_index + 1;
+        let index = FunctionIndex(entry_index.0 + 1);
         exports.push(Export {
             name: "cabi_realloc".into(),
             kind: ExportKind::Function,
-            index,
+            index: ExportIndex::Function(index),
         });
         data.push(DataSegment {
+            id: DataId(data.len() as u32),
+            index: DataIndex(data.len() as u32),
             offset: heap_pointer,
             bytes: heap_start.to_le_bytes().to_vec(),
         });
@@ -206,6 +208,8 @@ pub fn lower_module_with_capabilities(
         type_defs: module.types.clone(),
         functions,
         memories: vec![Memory {
+            id: MemoryId(0),
+            index: MemoryIndex(0),
             minimum,
             maximum: None,
         }],
@@ -214,8 +218,8 @@ pub fn lower_module_with_capabilities(
         entry: Some(Entry {
             type_index: entry_type,
             body: vec![
-                Op::Leaf(Instruction::Call(main_index)),
-                Op::Leaf(Instruction::Call(exit_index)),
+                Op::Leaf(Instruction::Call(main_index.0)),
+                Op::Leaf(Instruction::Call(exit_index.0)),
                 Op::Leaf(Instruction::I32Const(0)),
             ],
         }),
@@ -231,7 +235,7 @@ pub fn lower_module_with_capabilities(
 /// preceded by a four-byte length so the result is a length-prefixed string
 /// value. Old allocations are not reclaimed.
 #[allow(clippy::vec_init_then_push)]
-fn build_realloc(type_index: u32, heap_pointer: u32, span: TextRange) -> Function {
+fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: TextRange) -> Function {
     let memarg = || MemArg {
         offset: 0,
         align: 2,
@@ -310,9 +314,9 @@ fn build_realloc(type_index: u32, heap_pointer: u32, span: TextRange) -> Functio
 fn collect_function_types(
     module: &mir::Module,
     defined: u32,
-) -> Result<(Vec<FuncType>, Vec<u32>), Vec<BackendError>> {
+) -> Result<(Vec<FuncType>, Vec<TypeIndex>), Vec<BackendError>> {
     let mut types = Vec::<FuncType>::new();
-    let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), u32>::new();
+    let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), TypeIndex>::new();
     for (index, definition) in module
         .types
         .iter()
@@ -331,7 +335,7 @@ fn collect_function_types(
                 parameters.iter().copied().map(val_type).collect(),
                 results.iter().copied().map(val_type).collect(),
             ),
-            index as u32,
+            TypeIndex(index as u32),
         );
     }
     let mut function_types = Vec::with_capacity(module.functions.len());
@@ -353,7 +357,7 @@ fn collect_function_types(
         let type_index = match indices.get(&key) {
             Some(index) => *index,
             None => {
-                let index = defined + types.len() as u32;
+                let index = TypeIndex(defined + types.len() as u32);
                 types.push(FuncType {
                     parameters: key.0.clone(),
                     results: key.1.clone(),
@@ -369,8 +373,8 @@ fn collect_function_types(
 
 fn lower_function(
     source: &MirFunction,
-    type_index: u32,
-    function_indices: &HashMap<SymbolId, u32>,
+    type_index: TypeIndex,
+    function_indices: &HashMap<SymbolId, FunctionIndex>,
     string_offsets: &HashMap<String, u32>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;

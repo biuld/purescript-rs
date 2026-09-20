@@ -3,6 +3,7 @@
 use super::super::util::{mir_error, require_value, value_type};
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
+use crate::types::MemoryId;
 use std::collections::HashMap;
 
 pub(super) fn verify_memory_instruction(
@@ -14,9 +15,13 @@ pub(super) fn verify_memory_instruction(
         Instruction::Load {
             destination,
             address,
+            memory,
             span,
             ..
         } => {
+            if *memory != MemoryId(0) {
+                return Err(mir_error(*span, "MIR load references an unknown memory"));
+            }
             if require_value(definitions, *address, *span)? != ValueType::I32 {
                 return Err(mir_error(*span, "MIR load address must be i32"));
             }
@@ -27,9 +32,13 @@ pub(super) fn verify_memory_instruction(
         Instruction::Store {
             address,
             value,
+            memory,
             span,
             ..
         } => {
+            if *memory != MemoryId(0) {
+                return Err(mir_error(*span, "MIR store references an unknown memory"));
+            }
             if require_value(definitions, *address, *span)? != ValueType::I32 {
                 return Err(mir_error(*span, "MIR store address must be i32"));
             }

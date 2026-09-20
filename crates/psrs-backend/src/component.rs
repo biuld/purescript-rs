@@ -86,7 +86,8 @@ pub fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Ve
 mod tests {
     use super::*;
     use crate::wasm::{
-        DataSegment, Export, ExportKind, FuncType, Function, Import, Memory, Module, Op,
+        DataIndex, DataSegment, Export, ExportIndex, ExportKind, FuncType, Function, FunctionIndex,
+        Import, Memory, MemoryIndex, Module, Op, TypeIndex,
     };
     use psrs_hir::{ModuleId, SymbolId};
     use psrs_span::TextRange;
@@ -106,7 +107,7 @@ mod tests {
             functions: vec![Function {
                 symbol: SymbolId::new(ModuleId(0), 0),
                 name: crate::abi::RUN_CORE_EXPORT.into(),
-                type_index: 0,
+                type_index: TypeIndex(0),
                 parameters: Vec::new(),
                 locals: Vec::new(),
                 body: vec![Op::Leaf(Instruction::I32Const(0))],
@@ -117,7 +118,7 @@ mod tests {
             exports: vec![Export {
                 name: crate::abi::RUN_CORE_EXPORT.into(),
                 kind: ExportKind::Function,
-                index: 0,
+                index: ExportIndex::Function(FunctionIndex(0)),
             }],
             entry: None,
             realloc: None,
@@ -199,12 +200,12 @@ mod tests {
                 Import {
                     module: "wasi:cli/stdout@0.2.12".into(),
                     name: "get-stdout".into(),
-                    type_index: 0,
+                    type_index: TypeIndex(0),
                 },
                 Import {
                     module: "wasi:io/streams@0.2.12".into(),
                     name: "[method]output-stream.blocking-write-and-flush".into(),
-                    type_index: 1,
+                    type_index: TypeIndex(1),
                 },
             ],
             types: vec![
@@ -225,7 +226,7 @@ mod tests {
             functions: vec![Function {
                 symbol: SymbolId::new(ModuleId(0), 0),
                 name: crate::abi::RUN_CORE_EXPORT.into(),
-                type_index: 2,
+                type_index: TypeIndex(2),
                 parameters: Vec::new(),
                 locals: vec![ValType::I32],
                 body: vec![
@@ -241,10 +242,14 @@ mod tests {
                 span,
             }],
             memories: vec![Memory {
+                id: crate::types::MemoryId(0),
+                index: MemoryIndex(0),
                 minimum: 1,
                 maximum: None,
             }],
             data: vec![DataSegment {
+                id: crate::types::DataId(0),
+                index: DataIndex(0),
                 offset: 100,
                 bytes: b"hello\n".to_vec(),
             }],
@@ -252,12 +257,12 @@ mod tests {
                 Export {
                     name: crate::abi::RUN_CORE_EXPORT.into(),
                     kind: ExportKind::Function,
-                    index: 2,
+                    index: ExportIndex::Function(FunctionIndex(2)),
                 },
                 Export {
                     name: "memory".into(),
                     kind: ExportKind::Memory,
-                    index: 0,
+                    index: ExportIndex::Memory(MemoryIndex(0)),
                 },
             ],
             entry: None,

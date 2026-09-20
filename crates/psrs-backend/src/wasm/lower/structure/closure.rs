@@ -50,7 +50,7 @@ impl ClosureOps for Structurer<'_> {
             .get(function)
             .copied()
             .ok_or_else(|| wasm_error(*span, "MIR closure target has no Wasm function index"))?;
-        body.push(Op::Leaf(Instruction::RefFunc(index)));
+        body.push(Op::Leaf(Instruction::RefFunc(index.0)));
         for capture in captures {
             self.load(body, *capture, *span)?;
             match value_type(self.function, *capture) {
@@ -64,7 +64,7 @@ impl ClosureOps for Structurer<'_> {
                             "MIR closure has no F64 capture box layout",
                         ));
                     };
-                    body.push(Op::Leaf(Instruction::StructNew(*boxed_f64_type)));
+                    body.push(Op::Leaf(Instruction::StructNew(boxed_f64_type.0)));
                 }
                 Some(ValueType::Ref(_)) => {}
                 _ => {
@@ -76,10 +76,10 @@ impl ClosureOps for Structurer<'_> {
             }
         }
         body.push(Op::Leaf(Instruction::ArrayNewFixed {
-            array_type_index: *capture_array_type,
+            array_type_index: capture_array_type.0,
             array_size: captures.len() as u32,
         }));
-        body.push(Op::Leaf(Instruction::StructNew(*closure_type)));
+        body.push(Op::Leaf(Instruction::StructNew(closure_type.0)));
         self.store(body, *destination, *span)
     }
 
@@ -110,14 +110,14 @@ impl ClosureOps for Structurer<'_> {
             heap: HeapType::Index(*closure_type),
         })));
         body.push(Op::Leaf(Instruction::StructGet {
-            struct_type_index: *closure_type,
+            struct_type_index: closure_type.0,
             field_index: 0,
         }));
         body.push(Op::Leaf(ref_cast(RefType {
             nullable: false,
             heap: HeapType::Index(*type_index),
         })));
-        body.push(Op::Leaf(Instruction::CallRef(*type_index)));
+        body.push(Op::Leaf(Instruction::CallRef(type_index.0)));
         self.store(body, *destination, *span)
     }
 
@@ -144,11 +144,11 @@ impl ClosureOps for Structurer<'_> {
             heap: HeapType::Index(*closure_type),
         })));
         body.push(Op::Leaf(Instruction::StructGet {
-            struct_type_index: *closure_type,
+            struct_type_index: closure_type.0,
             field_index: 1,
         }));
         body.push(Op::Leaf(Instruction::I32Const(*index as i32)));
-        body.push(Op::Leaf(Instruction::ArrayGet(*capture_array_type)));
+        body.push(Op::Leaf(Instruction::ArrayGet(capture_array_type.0)));
         match value_type(self.function, *destination) {
             Some(ValueType::I32 | ValueType::Boolean) => {
                 body.push(Op::Leaf(ref_cast(RefType {
@@ -169,7 +169,7 @@ impl ClosureOps for Structurer<'_> {
                     heap: HeapType::Index(*boxed_f64_type),
                 })));
                 body.push(Op::Leaf(Instruction::StructGet {
-                    struct_type_index: *boxed_f64_type,
+                    struct_type_index: boxed_f64_type.0,
                     field_index: 0,
                 }));
             }

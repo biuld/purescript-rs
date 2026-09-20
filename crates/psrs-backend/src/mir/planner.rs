@@ -317,7 +317,10 @@ mod tests {
         let linear = LinearMemoryPlanner
             .plan_module(&module)
             .expect("linear planner should accept the same fixture");
-        assert_eq!(gc.repr_index(ReprId(0)).unwrap(), 0);
+        assert_eq!(
+            gc.repr_index(ReprId(0)).unwrap(),
+            crate::types::DefinedTypeId(0)
+        );
         assert!(linear.representations.contains_key(&ReprId(0)));
         assert!(linear.representations.contains_key(&ReprId(1)));
         assert_eq!(linear.signatures[&SignatureId(0)].table_slot, 0);

@@ -32,6 +32,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
         }])],
         imports: Vec::new(),
         functions: vec![Function {
+            id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
@@ -62,7 +63,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
 
     let wasm = crate::wasm::lower_module(&mir, &mut registry()).expect("lowering to Wasm");
     assert_eq!(wasm.defined_type_count(), 1);
-    assert_eq!(wasm.functions[0].type_index, 1);
+    assert_eq!(wasm.functions[0].type_index, crate::wasm::TypeIndex(1));
     let binary = crate::wasm::encode_module(&wasm).expect("encoding");
     crate::validator()
         .validate_all(&binary)
@@ -89,7 +90,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
     };
     let reference = ValueType::Ref(RefType {
         nullable: false,
-        heap: HeapType::Index(0),
+        heap: HeapType::Index(crate::types::DefinedTypeId(0)),
     });
     let mir = Module {
         name: "MirGc".into(),
@@ -97,6 +98,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         types: vec![RecGroup(vec![struct_type])],
         imports: Vec::new(),
         functions: vec![Function {
+            id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
@@ -143,20 +145,20 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
                     },
                     Instruction::StructNew {
                         destination: ValueId(1),
-                        type_index: 0,
+                        type_index: crate::types::DefinedTypeId(0),
                         arguments: vec![ValueId(2), ValueId(3)],
                         span: span(),
                     },
                     Instruction::StructGet {
                         destination: ValueId(4),
-                        type_index: 0,
+                        type_index: crate::types::DefinedTypeId(0),
                         field: 0,
                         value: ValueId(1),
                         span: span(),
                     },
                     Instruction::StructGet {
                         destination: ValueId(5),
-                        type_index: 0,
+                        type_index: crate::types::DefinedTypeId(0),
                         field: 1,
                         value: ValueId(1),
                         span: span(),
@@ -228,6 +230,7 @@ fn lowers_an_imported_call() {
             result: import.result,
         }],
         functions: vec![Function {
+            id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
@@ -280,6 +283,7 @@ fn wasm_lowering_requires_an_explicit_entry_symbol() {
         types: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
+            id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
@@ -333,6 +337,7 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
         }])],
         imports: Vec::new(),
         functions: vec![Function {
+            id: crate::types::FunctionId(0),
             symbol: SymbolId::new(ModuleId(0), 0),
             name: "main".into(),
             parameters: Vec::new(),
@@ -349,7 +354,7 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
                     id: ValueId(2),
                     ty: ValueType::Ref(RefType {
                         nullable: false,
-                        heap: HeapType::Index(0),
+                        heap: HeapType::Index(crate::types::DefinedTypeId(0)),
                     }),
                 },
             ],
@@ -365,7 +370,7 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
                     },
                     Instruction::StructNew {
                         destination: ValueId(2),
-                        type_index: 0,
+                        type_index: crate::types::DefinedTypeId(0),
                         arguments: vec![ValueId(1)],
                         span: span(),
                     },

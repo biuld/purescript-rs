@@ -1,4 +1,4 @@
-use super::{Body, ExportKind, Module, Op};
+use super::{Body, ExportIndex, ExportKind, Module, Op};
 use crate::BackendError;
 use std::borrow::Cow;
 use wasm_encoder::{
@@ -31,7 +31,7 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             imports.import(
                 &import.module,
                 &import.name,
-                EntityType::Function(import.type_index),
+                EntityType::Function(import.type_index.0),
             );
         }
         encoder.section(&imports);
@@ -40,13 +40,13 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
     if has_defined_functions(module) {
         let mut functions = FunctionSection::new();
         for function in &module.functions {
-            functions.function(function.type_index);
+            functions.function(function.type_index.0);
         }
         if let Some(entry) = &module.entry {
-            functions.function(entry.type_index);
+            functions.function(entry.type_index.0);
         }
         if let Some(realloc) = &module.realloc {
-            functions.function(realloc.type_index);
+            functions.function(realloc.type_index.0);
         }
         encoder.section(&functions);
     }
@@ -72,7 +72,11 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
                 ExportKind::Function => WasmExportKind::Func,
                 ExportKind::Memory => WasmExportKind::Memory,
             };
-            exports.export(&export.name, kind, export.index);
+            let index = match export.index {
+                ExportIndex::Function(index) => index.0,
+                ExportIndex::Memory(index) => index.0,
+            };
+            exports.export(&export.name, kind, index);
         }
         encoder.section(&exports);
     }

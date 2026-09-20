@@ -33,7 +33,7 @@ pub(super) fn heap_type(heap: types::HeapType) -> HeapType {
         types::HeapType::I31 => abstract_heap(AbstractHeapType::I31),
         types::HeapType::Struct => abstract_heap(AbstractHeapType::Struct),
         types::HeapType::Array => abstract_heap(AbstractHeapType::Array),
-        types::HeapType::Index(index) => HeapType::Concrete(index),
+        types::HeapType::Index(index) => HeapType::Concrete(index.0),
     }
 }
 
@@ -83,7 +83,7 @@ pub(super) fn sub_type(def: &types::DefinedType) -> SubType {
     };
     SubType {
         is_final: def.final_type,
-        supertype_idx: def.supertype,
+        supertype_idx: def.supertype.map(|index| index.0),
         composite_type: CompositeType {
             inner,
             shared: false,

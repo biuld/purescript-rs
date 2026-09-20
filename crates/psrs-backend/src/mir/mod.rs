@@ -1,6 +1,6 @@
 use crate::abi::WasiRegistry;
 use crate::capability::TargetCapabilities;
-use crate::types::{RecGroup, ValueDecl, ValueId, ValueType};
+use crate::types::{FunctionId, RecGroup, ValueDecl, ValueId, ValueType};
 use crate::{BackendError, annotate_errors, cc};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -55,6 +55,9 @@ pub struct Import {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Function {
+    /// Stable module-local MIR identity. P10 maps this identity to a final
+    /// Wasm function index after imports are ordered.
+    pub id: FunctionId,
     pub symbol: SymbolId,
     pub name: String,
     pub parameters: Vec<ValueId>,
@@ -201,14 +204,19 @@ pub fn lower_module_with_bindings(
         ));
     };
     let mut functions = Vec::with_capacity(module.functions.len());
-    for function in &module.functions {
-        let lowered =
-            lower_function(function, &wit_imports, &planned_layout).map_err(|errors| {
-                errors
-                    .into_iter()
-                    .map(|error| error.with_module(function.symbol.module))
-                    .collect::<Vec<_>>()
-            })?;
+    for (id, function) in module.functions.iter().enumerate() {
+        let lowered = lower_function(
+            function,
+            FunctionId(id as u32),
+            &wit_imports,
+            &planned_layout,
+        )
+        .map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|error| error.with_module(function.symbol.module))
+                .collect::<Vec<_>>()
+        })?;
         functions.push(lowered);
     }
     // Keep only the imports a lowered call actually references, so a resolved but

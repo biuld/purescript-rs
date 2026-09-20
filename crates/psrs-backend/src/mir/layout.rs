@@ -7,18 +7,19 @@ use crate::cc::{
     RepresentationTable, SignatureId, ValueShape as CcValueShape,
 };
 use crate::types::{
-    CompositeType, DefinedType, FieldType, HeapType, RecGroup, RefType, StorageType, ValueType,
+    CompositeType, DefinedType, DefinedTypeId, FieldType, HeapType, RecGroup, RefType, StorageType,
+    ValueType,
 };
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
-    repr_indices: HashMap<ReprId, u32>,
-    signature_indices: HashMap<SignatureId, u32>,
-    closure_index: Option<u32>,
-    capture_array_index: Option<u32>,
-    boxed_number_index: Option<u32>,
+    repr_indices: HashMap<ReprId, DefinedTypeId>,
+    signature_indices: HashMap<SignatureId, DefinedTypeId>,
+    closure_index: Option<DefinedTypeId>,
+    capture_array_index: Option<DefinedTypeId>,
+    boxed_number_index: Option<DefinedTypeId>,
 }
 
 impl PlannedLayout {
@@ -70,7 +71,7 @@ impl PlannedLayout {
         let mut repr_indices = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len());
         for (index, id) in repr_ids.iter().enumerate() {
-            repr_indices.insert(*id, index as u32);
+            repr_indices.insert(*id, DefinedTypeId(index as u32));
             definitions.push(DefinedType {
                 final_type: true,
                 supertype: None,
@@ -80,7 +81,7 @@ impl PlannedLayout {
         let (closure_index, capture_array_index) = if signature_ids.is_empty() {
             (None, None)
         } else {
-            let capture_array_index = definitions.len() as u32;
+            let capture_array_index = DefinedTypeId(definitions.len() as u32);
             definitions.push(DefinedType {
                 final_type: true,
                 supertype: None,
@@ -92,7 +93,7 @@ impl PlannedLayout {
                     mutable: true,
                 }),
             });
-            let closure_index = definitions.len() as u32;
+            let closure_index = DefinedTypeId(definitions.len() as u32);
             definitions.push(DefinedType {
                 final_type: true,
                 supertype: None,
@@ -125,7 +126,7 @@ impl PlannedLayout {
                     })
                 )
             })
-            .map(|index| index as u32);
+            .map(|index| DefinedTypeId(index as u32));
         for (index, id) in repr_ids.iter().enumerate() {
             let representation = table
                 .representation(*id)
@@ -199,7 +200,7 @@ impl PlannedLayout {
         let mut signature_indices = HashMap::new();
         for id in signature_ids {
             let signature = table.signature(*id).ok_or(LayoutError::UnknownSignature)?;
-            let index = definitions.len() as u32;
+            let index = DefinedTypeId(definitions.len() as u32);
             signature_indices.insert(*id, index);
             let mut parameters = vec![ValueType::Ref(RefType {
                 nullable: false,
@@ -236,27 +237,27 @@ impl PlannedLayout {
         })
     }
 
-    pub(super) fn repr_index(&self, id: ReprId) -> Result<u32, LayoutError> {
+    pub(super) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
         self.repr_indices
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
     }
 
-    pub(super) fn signature_index(&self, id: SignatureId) -> Result<u32, LayoutError> {
+    pub(super) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
         self.signature_indices
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownSignature)
     }
 
-    pub(super) fn closure_layout(&self) -> Result<(u32, u32), LayoutError> {
+    pub(super) fn closure_layout(&self) -> Result<(DefinedTypeId, DefinedTypeId), LayoutError> {
         self.closure_index
             .zip(self.capture_array_index)
             .ok_or(LayoutError::UnknownClosureLayout)
     }
 
-    pub(super) fn boxed_number_index(&self) -> Option<u32> {
+    pub(super) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
         self.boxed_number_index
     }
 
@@ -357,8 +358,8 @@ pub(super) enum LayoutError {
 
 fn value_type(
     value: &CcValueShape,
-    repr_indices: &HashMap<ReprId, u32>,
-    closure_index: Option<u32>,
+    repr_indices: &HashMap<ReprId, DefinedTypeId>,
+    closure_index: Option<DefinedTypeId>,
 ) -> Result<ValueType, LayoutError> {
     Ok(match value {
         CcValueShape::Integer => ValueType::I32,
@@ -385,8 +386,8 @@ fn value_type(
 
 fn storage_type(
     value: &CcValueShape,
-    repr_indices: &HashMap<ReprId, u32>,
-    closure_index: Option<u32>,
+    repr_indices: &HashMap<ReprId, DefinedTypeId>,
+    closure_index: Option<DefinedTypeId>,
 ) -> Result<StorageType, LayoutError> {
     Ok(match value_type(value, repr_indices, closure_index)? {
         ValueType::I32 | ValueType::Boolean => StorageType::I32,
@@ -421,9 +422,11 @@ mod tests {
             definitions[2].composite,
             CompositeType::Func { .. }
         ));
-        assert_eq!(layout.closure_layout().unwrap(), (1, 0));
+        assert_eq!(
+            layout.closure_layout().unwrap(),
+            (DefinedTypeId(1), DefinedTypeId(0))
+        );
     }
-
     #[test]
     fn planner_rejects_a_dangling_closure_signature() {
         let table = RepresentationTable {
@@ -435,13 +438,11 @@ mod tests {
             }],
             signatures: Vec::new(),
         };
-
         assert!(matches!(
             PlannedLayout::plan(&table, TargetCapabilities::default()),
             Err(LayoutError::UnknownSignature)
         ));
     }
-
     #[test]
     fn gc_planner_rejects_an_mvp_only_target() {
         let table = RepresentationTable {
@@ -454,7 +455,6 @@ mod tests {
             Err(LayoutError::UnsupportedGcTarget)
         ));
     }
-
     #[test]
     fn module_planner_omits_unreachable_requirements() {
         let mut table = RepresentationTable::default();
@@ -491,7 +491,7 @@ mod tests {
         let layout = PlannedLayout::plan_module(&module, TargetCapabilities::default())
             .expect("planning reachable requirements");
         assert_eq!(layout.types[0].0.len(), 1);
-        assert_eq!(layout.repr_index(reachable).unwrap(), 0);
+        assert_eq!(layout.repr_index(reachable).unwrap(), DefinedTypeId(0));
         assert!(matches!(
             layout.repr_index(unreachable),
             Err(LayoutError::UnknownRepresentation)

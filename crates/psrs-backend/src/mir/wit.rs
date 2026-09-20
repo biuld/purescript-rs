@@ -10,7 +10,7 @@ use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
-use crate::types::{ValueId, ValueType};
+use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_core::Primitive;
 use psrs_span::TextRange;
 
@@ -64,6 +64,7 @@ pub(super) fn lower(
                     Instruction::Load {
                         destination: length,
                         address: *argument,
+                        memory: MemoryId(0),
                         offset: 0,
                         span,
                     },
@@ -132,6 +133,7 @@ pub(super) fn lower(
                 Instruction::Load {
                     destination: pointer,
                     address,
+                    memory: MemoryId(0),
                     offset: 0,
                     span,
                 },
