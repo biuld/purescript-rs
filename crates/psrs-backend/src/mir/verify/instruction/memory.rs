@@ -18,6 +18,13 @@ pub(super) fn verify_memory_instruction(
             memory,
             span,
             ..
+        }
+        | Instruction::Load8U {
+            destination,
+            address,
+            memory,
+            span,
+            ..
         } => {
             if *memory != MemoryId(0) {
                 return Err(mir_error(*span, "MIR load references an unknown memory"));

@@ -224,6 +224,8 @@ fn lowers_string_log_to_wasi_stdout() {
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
     assert!(artifact.wat.contains("hello world"));
+    assert!(artifact.wat.contains("i32.load8_u"));
+    assert!(artifact.wat.contains("unreachable"));
 }
 
 #[test]
