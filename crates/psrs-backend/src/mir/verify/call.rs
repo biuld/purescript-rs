@@ -115,6 +115,7 @@ pub(super) fn verify_closure_new(
         type_index,
         closure_type,
         capture_array_type,
+        boxed_integer_type,
         boxed_f64_type,
         captures,
         span,
@@ -152,18 +153,20 @@ pub(super) fn verify_closure_new(
     }
     for capture in captures {
         let capture_type = require_value(definitions, *capture, *span)?;
-        if !matches!(
-            capture_type,
-            ValueType::I32 | ValueType::Boolean | ValueType::Ref(_)
-        ) {
-            if capture_type == ValueType::F64 {
-                verify_f64_box(*boxed_f64_type, defined, *span)?;
-                continue;
+        match capture_type {
+            ValueType::I32 => {
+                verify_integer_box(*boxed_integer_type, defined, *span)?;
             }
-            return Err(mir_error(
-                *span,
-                "closure capture type is not representable in an eqref array",
-            ));
+            ValueType::F64 => {
+                verify_f64_box(*boxed_f64_type, defined, *span)?;
+            }
+            ValueType::Boolean | ValueType::Ref(_) => {}
+            _ => {
+                return Err(mir_error(
+                    *span,
+                    "closure capture type is not representable in an eqref array",
+                ));
+            }
         }
     }
     Ok(())
@@ -232,6 +235,7 @@ pub(super) fn verify_closure_get_capture(
         closure,
         closure_type,
         capture_array_type,
+        boxed_integer_type,
         boxed_f64_type,
         index: _,
         span,
@@ -265,8 +269,30 @@ pub(super) fn verify_closure_get_capture(
     let Some(destination_type) = value_type(function, *destination) else {
         return Err(mir_error(*span, "closure capture result has no value type"));
     };
-    if destination_type == ValueType::F64 {
+    if destination_type == ValueType::I32 {
+        verify_integer_box(*boxed_integer_type, defined, *span)?;
+    } else if destination_type == ValueType::F64 {
         verify_f64_box(*boxed_f64_type, defined, *span)?;
+    }
+    Ok(())
+}
+
+fn verify_integer_box(
+    boxed_integer_type: Option<DefinedTypeId>,
+    defined: &[&DefinedType],
+    span: psrs_span::TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let Some(index) = boxed_integer_type else {
+        return Err(mir_error(span, "Int closure capture has no box layout"));
+    };
+    let Some(CompositeType::Struct(fields)) = composite_at(defined, index) else {
+        return Err(mir_error(span, "Int closure capture box is not a struct"));
+    };
+    if fields.len() != 1 || storage_value_type(&fields[0].storage) != Some(ValueType::I32) {
+        return Err(mir_error(
+            span,
+            "Int closure capture box has the wrong layout",
+        ));
     }
     Ok(())
 }
