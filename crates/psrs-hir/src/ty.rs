@@ -78,4 +78,8 @@ pub enum BuiltinType {
     Row,
     Record,
     Array,
+    /// The platform-independent effect constructor. The type checker
+    /// elaborates `Effect a` to the function type used by the bootstrap
+    /// runtime until a dedicated effect runtime is available.
+    Effect,
 }

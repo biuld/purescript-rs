@@ -33,14 +33,14 @@ pub fn compile_program_sources(
 pub fn compile_program_sources_with_prelude(
     sources: &[(&str, &str)],
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let mut all_sources = Vec::with_capacity(sources.len() + 1);
-    all_sources.push((prelude::NAME, prelude::SOURCE));
+    let mut all_sources = Vec::with_capacity(sources.len() + prelude::SOURCES.len());
+    all_sources.extend_from_slice(prelude::SOURCES);
     all_sources.extend_from_slice(sources);
     compile_program_sources(&all_sources).map_err(|errors| {
         errors
             .into_iter()
             .map(|mut error| {
-                error.source = error.source.saturating_sub(1);
+                error.source = error.source.saturating_sub(prelude::SOURCES.len());
                 error
             })
             .collect()

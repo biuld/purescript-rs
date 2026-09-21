@@ -8,7 +8,15 @@ impl Checker {
     /// `a -> a` is elaborated as one variable appearing twice.
     pub(super) fn elaborate_signature(&mut self, ty: &hir::Type) -> InferType {
         let mut variables = HashMap::new();
-        self.elaborate_type(ty, &mut variables)
+        self.elaborate_type_mode(ty, &mut variables, true)
+    }
+
+    /// Elaborates a signature at a use site. Its universally quantified
+    /// variables must be fresh and flexible so each imported use can choose a
+    /// different concrete type.
+    pub(super) fn elaborate_imported_signature(&mut self, ty: &hir::Type) -> InferType {
+        let mut variables = HashMap::new();
+        self.elaborate_type_mode(ty, &mut variables, false)
     }
 
     pub(super) fn elaborate_type(
@@ -16,13 +24,22 @@ impl Checker {
         ty: &hir::Type,
         variables: &mut HashMap<String, InferType>,
     ) -> InferType {
+        self.elaborate_type_mode(ty, variables, true)
+    }
+
+    fn elaborate_type_mode(
+        &mut self,
+        ty: &hir::Type,
+        variables: &mut HashMap<String, InferType>,
+        rigid_variables: bool,
+    ) -> InferType {
         match &ty.kind {
             hir::TypeKind::Variable(name) => {
                 if let Some(variable) = variables.get(name) {
                     return variable.clone();
                 }
                 let variable = self.fresh();
-                if let InferType::Variable(id) = variable {
+                if rigid_variables && let InferType::Variable(id) = variable {
                     self.rigid.insert(id);
                 }
                 variables.insert(name.clone(), variable.clone());
@@ -41,7 +58,8 @@ impl Checker {
                 | hir::BuiltinType::Symbol
                 | hir::BuiltinType::Function
                 | hir::BuiltinType::Row
-                | hir::BuiltinType::Record => {
+                | hir::BuiltinType::Record
+                | hir::BuiltinType::Effect => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::UnsupportedType,
                         ty.span,
@@ -64,21 +82,47 @@ impl Checker {
                 {
                     let arguments = arguments
                         .into_iter()
-                        .map(|argument| self.elaborate_type(argument, variables))
+                        .map(|argument| {
+                            self.elaborate_type_mode(argument, variables, rigid_variables)
+                        })
                         .collect();
                     return self.expand_synonym(*id, arguments, ty.span);
                 }
+                if matches!(
+                    head.kind,
+                    hir::TypeKind::Constructor(hir::BuiltinType::Effect)
+                ) {
+                    let Some(argument) = arguments.first() else {
+                        return self.fresh();
+                    };
+                    if arguments.len() != 1 {
+                        self.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::UnsupportedType,
+                            ty.span,
+                            "Effect takes exactly one type argument",
+                        ));
+                        return self.fresh();
+                    }
+                    return InferType::Function(
+                        Box::new(InferType::Boolean),
+                        Box::new(self.elaborate_type_mode(argument, variables, rigid_variables)),
+                    );
+                }
                 InferType::Application(
-                    Box::new(self.elaborate_type(function, variables)),
-                    Box::new(self.elaborate_type(argument, variables)),
+                    Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),
+                    Box::new(self.elaborate_type_mode(argument, variables, rigid_variables)),
                 )
             }
             hir::TypeKind::Function { parameter, result } => InferType::Function(
-                Box::new(self.elaborate_type(parameter, variables)),
-                Box::new(self.elaborate_type(result, variables)),
+                Box::new(self.elaborate_type_mode(parameter, variables, rigid_variables)),
+                Box::new(self.elaborate_type_mode(result, variables, rigid_variables)),
             ),
-            hir::TypeKind::Forall { body, .. } => self.elaborate_type(body, variables),
-            hir::TypeKind::Constrained { body, .. } => self.elaborate_type(body, variables),
+            hir::TypeKind::Forall { body, .. } => {
+                self.elaborate_type_mode(body, variables, rigid_variables)
+            }
+            hir::TypeKind::Constrained { body, .. } => {
+                self.elaborate_type_mode(body, variables, rigid_variables)
+            }
             hir::TypeKind::Row { .. }
             | hir::TypeKind::Record { .. }
             | hir::TypeKind::Integer(_)

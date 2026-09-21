@@ -1,6 +1,8 @@
 use super::*;
 use crate::program::lower_program_to_core;
 
+mod effects;
+
 #[test]
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
     let source = "module Main where\nadd x y = x + y\nmain = add 40 2\n";
@@ -144,7 +146,7 @@ fn compiles_multiple_user_sources_with_the_embedded_prelude() {
     let helper = ("Helper.purs", "module Helper where\nanswer = 40\n");
     let main = (
         "Main.purs",
-        "module Main where\nimport Helper\nimport Prelude\nmain = log \"linked\"\n",
+        "module Main where\nimport Helper\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"linked\") in 0\n",
     );
     let artifact = compile_program_sources_with_prelude(&[helper, main]).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
@@ -219,7 +221,7 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
 
 #[test]
 fn lowers_string_log_to_wasi_stdout() {
-    let source = "module Main where\nimport Prelude\nmain = log \"hello world\"\n";
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"hello world\") in 0\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
@@ -259,9 +261,9 @@ fn runs_main_as_a_wasi_component_when_wasmtime_is_available() {
 
 #[test]
 fn prints_hello_world_when_wasmtime_is_available() {
-    let Some(output) =
-        run_with_wasmtime("module Main where\nimport Prelude\nmain = log \"hello world\"\n")
-    else {
+    let Some(output) = run_with_wasmtime(
+        "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"hello world\") in 0\n",
+    ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
@@ -271,8 +273,9 @@ fn prints_hello_world_when_wasmtime_is_available() {
 
 #[test]
 fn reads_the_monotonic_clock_when_wasmtime_is_available() {
-    let Some(output) = run_with_wasmtime("module Main where\nimport Prelude\nmain = now * 0\n")
-    else {
+    let Some(output) = run_with_wasmtime(
+        "module Main where\nimport Prelude\nimport WASI.Clock\nmain = (runEffect now) * 0\n",
+    ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
@@ -282,7 +285,7 @@ fn reads_the_monotonic_clock_when_wasmtime_is_available() {
 #[test]
 fn writes_to_stderr_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(
-        "module Main where\nimport Prelude\nmain = let x = error \"oops\" in 7\n",
+        "module Main where\nimport Prelude\nimport WASI.Console\nmain = let x = runEffect (error \"oops\") in 7\n",
     ) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -354,8 +357,9 @@ fn reads_random_bytes_when_wasmtime_is_available() {
 fn passes_a_returned_wit_string_to_another_import() {
     let source = "module Main where\n\
         import Prelude\n\
+        import WASI.Console\n\
         foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
-        main = log (randomBytes 8)\n";
+        main = let ignored = runEffect (log (randomBytes 8)) in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
