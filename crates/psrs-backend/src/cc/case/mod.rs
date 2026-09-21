@@ -95,7 +95,10 @@ impl FunctionLowerer<'_> {
                     covered.insert(*symbol);
                     constructor_branches.push((branch, *tag));
                 }
-                PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
+                PatternKind::Wildcard | PatternKind::Var { .. } => {
+                    default = Some(branch);
+                    break;
+                }
                 PatternKind::Record { .. } => {
                     return Err(case_error(
                         branch.pattern.span,
@@ -217,10 +220,10 @@ impl FunctionLowerer<'_> {
         result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let Some((branch, tag)) = constructor_branches.last() else {
+        let Some((branch, tag)) = constructor_branches.first() else {
             return Ok(fallback);
         };
-        let rest = &constructor_branches[..constructor_branches.len() - 1];
+        let rest = &constructor_branches[1..];
         let (else_assignments, else_value) =
             self.build_case(scrutinee, rest, fallback, result_type, span)?;
 

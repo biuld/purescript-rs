@@ -5,8 +5,10 @@ use super::{
 };
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
-use psrs_hir::{LocalId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 mod array;
 mod call;
@@ -17,6 +19,45 @@ mod record;
 use call::ApplicationLowering;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
+
+/// Allocates generated callable symbols without relying on source offsets.
+///
+/// Linked Core keeps source declaration symbols from each input module but
+/// lowers generated functions after linking. A shared allocator therefore
+/// reserves every existing callable symbol and allocates within the
+/// originating source module so diagnostics retain their source ownership.
+pub(super) struct GeneratedSymbolAllocator {
+    used: HashSet<SymbolId>,
+    next: HashMap<ModuleId, u32>,
+}
+
+impl GeneratedSymbolAllocator {
+    pub(super) fn new(module: &CoreModule) -> Self {
+        let used = module
+            .declarations
+            .iter()
+            .map(|declaration| declaration.symbol)
+            .chain(module.externals.iter().map(|external| external.symbol))
+            .collect();
+        Self {
+            used,
+            next: HashMap::new(),
+        }
+    }
+
+    pub(super) fn fresh(&mut self, module: ModuleId) -> SymbolId {
+        let next = self.next.entry(module).or_default();
+        loop {
+            let symbol = SymbolId::new(module, *next);
+            *next = next
+                .checked_add(1)
+                .expect("generated symbol index space exhausted");
+            if self.used.insert(symbol) {
+                return symbol;
+            }
+        }
+    }
+}
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -34,6 +75,7 @@ pub(super) struct LoweringContext<'a> {
     pub(super) constructor_types: &'a HashMap<SymbolId, ReprId>,
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
+    pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
 }
 
 pub(super) fn lower_function(
@@ -60,6 +102,8 @@ pub(super) fn lower_function(
         constructor_types: context.constructor_types,
         function_types: context.function_types,
         function_wrappers: context.function_wrappers,
+        generated_symbols: Rc::clone(&context.generated_symbols),
+        owner: declaration.symbol.module,
         erased_function_types: HashMap::new(),
         generated: Vec::new(),
     };
@@ -130,6 +174,8 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) constructor_types: &'a HashMap<SymbolId, ReprId>,
     pub(super) function_types: &'a HashMap<psrs_core::TypeId, SignatureId>,
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
+    pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
+    pub(super) owner: ModuleId,
     pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }
