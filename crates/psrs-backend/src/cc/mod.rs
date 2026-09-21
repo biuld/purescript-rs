@@ -3,7 +3,9 @@ use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
 use psrs_core::{Module as CoreModule, Primitive};
 use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 mod case;
 mod layout;
@@ -12,7 +14,7 @@ mod representation;
 mod verify;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
-use lower::{LoweringContext, lower_function};
+use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
 pub use representation::{
@@ -214,17 +216,15 @@ pub fn lower_module_with_bindings(
         });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());
+    let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module)));
     let function_wrappers = module
         .declarations
         .iter()
         .map(|declaration| {
-            (
-                declaration.symbol,
-                SymbolId::new(
-                    declaration.symbol.module,
-                    u32::MAX - 0x4000_0000 - declaration.symbol.index,
-                ),
-            )
+            let wrapper = generated_symbols
+                .borrow_mut()
+                .fresh(declaration.symbol.module);
+            (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
     let context = LoweringContext {
@@ -243,6 +243,7 @@ pub fn lower_module_with_bindings(
         constructor_types: &layout.constructor_types,
         function_types: &layout.function_types,
         function_wrappers: &function_wrappers,
+        generated_symbols,
     };
     for declaration in &module.declarations {
         let (lowered, generated) = lower_function(declaration, &context).map_err(|errors| {

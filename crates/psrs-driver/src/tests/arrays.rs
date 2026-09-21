@@ -132,6 +132,20 @@ fn keeps_independent_gc_array_updates_independent() {
 }
 
 #[test]
+fn updates_an_array_of_non_null_references() {
+    let source = "module Main where\nmain = let original = [{ answer: 10 }] in let updated = arrayUpdate original 0 { answer: 42 } in case arrayIndex updated 0 of\n  { answer: result } -> result\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("array cloning must support non-null reference elements");
+    assert!(artifact.wat.contains("array.new_default"));
+    assert!(artifact.wat.contains("ref.cast"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_an_array_of_records_through_the_gc_array() {
     let source = "module Main where\nmain = case arrayIndex [{ answer: 42 }] 0 of\n  { answer: result } -> result\n";
     let artifact = compile_source("Main.purs", source).expect("lowering an array of records");

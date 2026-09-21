@@ -112,6 +112,7 @@ impl Structurer<'_> {
         self.store(body, destination, span)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_linear_memory_copy(
         &self,
         body: &mut Body,
