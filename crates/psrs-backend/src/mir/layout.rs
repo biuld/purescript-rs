@@ -202,7 +202,7 @@ impl PlannedLayout {
                     )
                 }
                 Representation::Array { element } => CompositeType::Array(FieldType {
-                    storage: storage_type(element, &repr_indices, closure_index)?,
+                    storage: array_storage_type(element, &repr_indices, closure_index)?,
                     mutable: true,
                 }),
             };
@@ -413,6 +413,20 @@ fn storage_type(
         ValueType::Ref(reference) => StorageType::Ref(reference),
         _ => return Err(LayoutError::UnsupportedValue),
     })
+}
+
+fn array_storage_type(
+    value: &CcValueShape,
+    repr_indices: &HashMap<ReprId, DefinedTypeId>,
+    closure_index: Option<DefinedTypeId>,
+) -> Result<StorageType, LayoutError> {
+    let mut storage = storage_type(value, repr_indices, closure_index)?;
+    if let StorageType::Ref(reference) = &mut storage {
+        // Dynamic clones use `array.new_default`, so reference slots must be
+        // nullable while the fresh array is being initialized by `array.copy`.
+        reference.nullable = true;
+    }
+    Ok(storage)
 }
 
 #[cfg(test)]

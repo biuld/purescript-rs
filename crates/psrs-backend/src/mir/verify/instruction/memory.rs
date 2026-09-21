@@ -64,6 +64,37 @@ pub(super) fn verify_memory_instruction(
                 ));
             }
         }
+        Instruction::LinearAllocDynamic {
+            destination,
+            bytes,
+            span,
+        } => {
+            if require_value(definitions, *bytes, *span)? != ValueType::I32 {
+                return Err(mir_error(
+                    *span,
+                    "MIR dynamic linear allocation size must be i32",
+                ));
+            }
+            if value_type(function, *destination) != Some(ValueType::I32) {
+                return Err(mir_error(
+                    *span,
+                    "MIR dynamic linear allocation must produce an i32 pointer",
+                ));
+            }
+        }
+        Instruction::LinearMemoryCopy {
+            destination,
+            source,
+            bytes,
+            span,
+            ..
+        } => {
+            for value in [destination, source, bytes] {
+                if require_value(definitions, *value, *span)? != ValueType::I32 {
+                    return Err(mir_error(*span, "MIR memory.copy operands must be i32"));
+                }
+            }
+        }
         Instruction::LinearLoad {
             destination,
             address,

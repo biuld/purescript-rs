@@ -3,9 +3,9 @@
 use super::Signature;
 use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
-    call_value_types_match, check_heap, composite_at, is_any_array_reference, is_array_reference,
-    is_ref, is_ref_opt, is_struct_reference, mir_error, require_value, storage_value_type,
-    value_type,
+    call_value_types_match, check_heap, composite_at, is_array_reference, is_ref, is_ref_opt,
+    is_struct_reference, mir_error, require_value, storage_value_type, value_type,
+    value_type_assignable,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -14,6 +14,7 @@ use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
+mod arrays;
 mod linear_closure;
 mod memory;
 
@@ -379,7 +380,7 @@ pub(super) fn verify_instruction(
                 mir_error(*span, "MIR array element storage is not representable")
             })?;
             for element in elements {
-                if require_value(definitions, *element, *span)? != expected {
+                if !value_type_assignable(require_value(definitions, *element, *span)?, expected) {
                     return Err(mir_error(*span, "MIR array.new element has the wrong type"));
                 }
             }
@@ -422,6 +423,20 @@ pub(super) fn verify_instruction(
                 return Err(mir_error(*span, "MIR array.get result has the wrong type"));
             }
         }
+        Instruction::ArrayClone {
+            destination,
+            type_index,
+            value,
+            span,
+        } => arrays::verify_clone(
+            function,
+            *destination,
+            *type_index,
+            *value,
+            *span,
+            definitions,
+            defined,
+        )?,
         Instruction::ArraySet {
             type_index,
             value,
@@ -451,7 +466,7 @@ pub(super) fn verify_instruction(
             let expected = storage_value_type(&element.storage).ok_or_else(|| {
                 mir_error(*span, "MIR array element storage is not representable")
             })?;
-            if require_value(definitions, *new_value, *span)? != expected {
+            if !value_type_assignable(require_value(definitions, *new_value, *span)?, expected) {
                 return Err(mir_error(*span, "MIR array.set value has the wrong type"));
             }
         }
@@ -459,20 +474,12 @@ pub(super) fn verify_instruction(
             destination,
             value,
             span,
-        } => {
-            if !is_any_array_reference(require_value(definitions, *value, *span)?, defined) {
-                return Err(mir_error(
-                    *span,
-                    "MIR array.len operand must be a reference",
-                ));
-            }
-            if value_type(function, *destination) != Some(ValueType::I32) {
-                return Err(mir_error(*span, "MIR array.len result must be i32"));
-            }
-        }
+        } => arrays::verify_len(function, *destination, *value, *span, definitions, defined)?,
         Instruction::Load { .. }
         | Instruction::Store { .. }
         | Instruction::LinearAlloc { .. }
+        | Instruction::LinearAllocDynamic { .. }
+        | Instruction::LinearMemoryCopy { .. }
         | Instruction::LinearLoad { .. }
         | Instruction::LinearStore { .. }
         | Instruction::LinearClosureGetCapture { .. }

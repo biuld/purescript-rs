@@ -198,6 +198,7 @@ fn add_assignments(
             | AssignmentKind::ProductGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
+            | AssignmentKind::ArrayClone { representation, .. }
             | AssignmentKind::ArraySet { representation, .. } => {
                 add_representation(*representation, representations, representation_work)
             }
