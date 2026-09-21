@@ -7,7 +7,6 @@ use super::call::is_erased_value_type;
 use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
 use psrs_core::{Type, TypeId};
-use psrs_hir::SymbolId;
 
 impl FunctionLowerer<'_> {
     pub(super) fn adapt_erased_function_value(
@@ -144,10 +143,7 @@ impl FunctionLowerer<'_> {
         } else {
             concrete_result
         };
-        let symbol = SymbolId::new(
-            self.module.id,
-            u32::MAX - 0x2000_0000 - span.start - self.generated.len() as u32,
-        );
+        let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let adapter_function = Function {
             symbol,
             name: format!("erased_adapter_{}", span.start),
