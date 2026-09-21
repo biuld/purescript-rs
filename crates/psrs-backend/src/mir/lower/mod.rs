@@ -240,16 +240,78 @@ impl FunctionLowerer<'_> {
                     representation,
                     value,
                     index,
+                } => {
+                    let type_index = self
+                        .layout
+                        .repr_index(*representation)
+                        .map_err(|error| layout_error(assignment.span, error))?;
+                    let destination_type = self
+                        .values
+                        .iter()
+                        .find(|candidate| candidate.id == *destination)
+                        .map(|candidate| candidate.ty)
+                        .ok_or_else(|| {
+                            vec![BackendError::new(
+                                "P9 MIR lowering",
+                                assignment.span,
+                                "array.get destination has no value declaration",
+                            )]
+                        })?;
+                    if let ValueType::Ref(reference) = destination_type
+                        && !reference.nullable
+                    {
+                        let temporary = self.fresh(ValueType::Ref(crate::types::RefType {
+                            nullable: true,
+                            heap: reference.heap,
+                        }));
+                        self.append_instruction(
+                            current,
+                            Instruction::ArrayGet {
+                                destination: temporary,
+                                type_index,
+                                value: *value,
+                                index: *index,
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                        self.append_instruction(
+                            current,
+                            Instruction::RefCast {
+                                destination: *destination,
+                                value: temporary,
+                                reference,
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                    } else {
+                        self.append_instruction(
+                            current,
+                            Instruction::ArrayGet {
+                                destination: *destination,
+                                type_index,
+                                value: *value,
+                                index: *index,
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                    }
+                }
+                AssignmentKind::ArrayClone {
+                    destination,
+                    representation,
+                    value,
                 } => self.append_instruction(
                     current,
-                    Instruction::ArrayGet {
+                    Instruction::ArrayClone {
                         destination: *destination,
                         type_index: self
                             .layout
                             .repr_index(*representation)
                             .map_err(|error| layout_error(assignment.span, error))?,
                         value: *value,
-                        index: *index,
                         span: assignment.span,
                     },
                     assignment.span,

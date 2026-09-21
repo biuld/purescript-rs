@@ -69,6 +69,11 @@ and the supported higher-order generic adapters are lowered; generic
 aggregates, open rows, and unsupported WIT shapes receive source-oriented
 diagnostics.
 
+`arrayUpdate` is a pure operation: it returns an updated array without changing
+the input array or any aliases of it. Repeated updates from the same input are
+therefore independent. This behavior is the same for the GC and linear-memory
+backend profiles.
+
 Scalar operators cover the full `Int`, `Number`, `Boolean`, and `Char` sets the
 standard library exposes, including bitwise and shift operations, conversions,
 and Euclidean `Int` division and modulus. A data type with fields constructs and
