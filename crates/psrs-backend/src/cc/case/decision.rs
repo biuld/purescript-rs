@@ -22,7 +22,9 @@ pub(super) struct Alternative {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PatternDecision {
-    /// All branch indices in source order, including default alternatives.
+    /// Reachable branch indices in source order, ending at the first default
+    /// alternative (if any). Later alternatives are unreachable under
+    /// first-match semantics and are omitted.
     pub(super) ordered: Vec<usize>,
     pub(super) alternatives: Vec<Alternative>,
     pub(super) fallback: Option<usize>,
@@ -47,7 +49,8 @@ pub(super) fn compile(
                 matcher: Matcher::Record,
             }),
             PatternKind::Wildcard | PatternKind::Var { .. } => {
-                fallback.get_or_insert(branch);
+                fallback = Some(branch);
+                break;
             }
         }
     }

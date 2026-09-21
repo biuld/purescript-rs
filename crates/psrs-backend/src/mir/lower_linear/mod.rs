@@ -10,6 +10,7 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
+mod arrays;
 mod helpers;
 
 fn layout_error(span: TextRange, error: LayoutError) -> Vec<BackendError> {
@@ -322,6 +323,13 @@ impl LinearFunctionLowerer<'_> {
                         },
                         span,
                     )?;
+                }
+                AssignmentKind::ArrayClone {
+                    destination,
+                    representation,
+                    value,
+                } => {
+                    self.lower_array_clone(current, *destination, *representation, *value, span)?
                 }
                 AssignmentKind::ArraySet {
                     representation,

@@ -1,4 +1,4 @@
-use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::Expr;
@@ -51,19 +51,32 @@ impl FunctionLowerer<'_> {
             )]);
         };
         let array = self.lower_value(array, assignments)?;
+        let destination = self.fresh(ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(representation),
+        }));
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::ArrayClone {
+                destination,
+                representation,
+                value: array,
+            },
+            span: expression.span,
+        });
         let index = self.lower_value(index, assignments)?;
         let new_value = self.lower_value(new_value, assignments)?;
         assignments.push(Assignment {
-            destination: array,
+            destination,
             kind: AssignmentKind::ArraySet {
-                destination: array,
+                destination,
                 representation,
-                value: array,
+                value: destination,
                 index,
                 new_value,
             },
             span: expression.span,
         });
-        Ok(array)
+        Ok(destination)
     }
 }

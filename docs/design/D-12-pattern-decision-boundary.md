@@ -34,6 +34,8 @@ serialized compiler representation.
 
 - Alternatives retain source order; the first matching branch wins.
 - A default alternative is selected only after earlier alternatives fail.
+  Alternatives after the first default are unreachable and are not emitted, so a
+  constructor that follows a wildcard can never win.
 - Nested pattern checks are emitted inside the selected branch's conditional
   assignments, so their projections cannot evaluate the original scrutinee
   again.

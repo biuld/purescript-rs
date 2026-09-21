@@ -104,7 +104,11 @@ CC emits representation tests, casts, and projections; see
 Concrete scalar array literals
 lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
 to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
-the concrete `arrayUpdate` intrinsic lowers to `array.set`.
+the concrete `arrayUpdate` intrinsic allocates a same-length copy with
+`array.new_default` and `array.copy`, then lowers the update to `array.set` on
+that copy. The input reference is never mutated. The linear-memory lowering
+allocates a new length-prefixed buffer, copies its payload with `memory.copy`,
+and then performs the store in the new buffer.
 Newtypes are erased to their single field, and
 constructor patterns in function parameters are lowered to an explicit
 temporary parameter plus `case`. Parameterized ADTs use the erased runtime
@@ -118,9 +122,9 @@ the generic Wasm representation defined by
 [D-08](D-08-generic-wasm-representation.md). Unsupported generic aggregates,
 partial applications, and type-class evidence remain diagnostics. Function values lower to GC
 structs containing a code reference and an immutable `eqref` capture array;
-closure calls extract the typed code reference and lower to `call_ref`. Scalar
-captures are boxed as `i31` values, while reference captures retain their GC
-reference representation.
+closure calls extract the typed code reference and lower to `call_ref`. Boolean
+captures are boxed as `i31` values, Int captures use a full-width one-field GC
+box, and reference captures retain their GC reference representation.
 Compatible source WIT imports are lowered through the generic canonical-ABI
 adapter; mismatched source signatures, non-byte lists, and unsupported
 aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
