@@ -1,4 +1,5 @@
 use super::*;
+use crate::program::lower_program_to_core;
 
 #[test]
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
@@ -105,6 +106,37 @@ fn compiles_a_value_imported_from_another_module() {
     let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
     let artifact = compile_program_sources(&[a, b]).unwrap();
     assert!(artifact.wat.contains("i32.add"));
+}
+
+#[test]
+fn gives_generated_functions_unique_symbols_across_linked_modules() {
+    let a = (
+        "A.purs",
+        "module A where\nmakeA :: Int -> Int\nmakeA x = (\\ignored -> x) 0\n",
+    );
+    let b = (
+        "B.purs",
+        "module B where\nmakeB :: Int -> Int\nmakeB x = (\\ignored -> x) 0\n",
+    );
+    assert_eq!(a.1.find('\\'), b.1.find('\\'));
+    let main = (
+        "Main.purs",
+        "module Main where\nimport A\nimport B\nmain = makeA 11 + makeB 22\n",
+    );
+    let core = lower_program_to_core(&[a, b, main]).expect("linking generated functions");
+    let stages = psrs_backend::compile_with_stages(core).expect("lowering generated functions");
+    let symbols = stages
+        .cc
+        .functions
+        .iter()
+        .map(|function| function.symbol)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(symbols.len(), stages.cc.functions.len());
+    let Some(output) = run_program_with_wasmtime(&[a, b, main]) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(33));
 }
 
 #[test]
