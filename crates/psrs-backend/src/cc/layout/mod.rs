@@ -109,6 +109,10 @@ pub(super) fn type_layout(
         .types
         .iter()
         .any(|ty| matches!(ty, Type::Variable(_)))
+        || module
+            .declarations
+            .iter()
+            .any(|declaration| depends_on_type_variable(module, declaration.ty))
         || module_has_integer_capture(module)
         || module
             .constructors

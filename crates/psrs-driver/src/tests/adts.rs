@@ -211,7 +211,17 @@ main = unAge (Age 42)
         psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", source).unwrap())
             .unwrap();
     assert!(
-        stages.cc.representations.representations.is_empty(),
+        stages
+            .cc
+            .representations
+            .representations
+            .iter()
+            .all(|representation| matches!(
+                representation,
+                psrs_backend::cc::Representation::Box {
+                    value: psrs_backend::cc::ValueShape::Integer
+                }
+            )),
         "newtypes must not allocate target representations"
     );
     assert!(

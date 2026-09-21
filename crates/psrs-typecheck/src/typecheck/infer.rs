@@ -142,7 +142,7 @@ impl Checker {
                     let ty = self.instantiate(&scheme);
                     (InferredExprKind::Global(*symbol), ty)
                 } else if let Some(signature) = self.imported.get(symbol).cloned() {
-                    let ty = self.elaborate_signature(&signature);
+                    let ty = self.elaborate_imported_signature(&signature);
                     (InferredExprKind::Global(*symbol), ty)
                 } else {
                     let external = self.external_kinds.get(symbol).cloned();
@@ -167,7 +167,7 @@ impl Checker {
                                 ));
                                 return None;
                             };
-                            let ty = self.elaborate_signature(&signature);
+                            let ty = self.elaborate_imported_signature(&signature);
                             (InferredExprKind::Global(*symbol), ty)
                         }
                         None => {

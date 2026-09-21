@@ -496,6 +496,7 @@ pub(super) fn builtin_type(name: &str) -> Option<BuiltinType> {
         "Row" => BuiltinType::Row,
         "Record" => BuiltinType::Record,
         "Array" => BuiltinType::Array,
+        "Effect" => BuiltinType::Effect,
         "Function" | "->" | "~>" => BuiltinType::Function,
         _ => return None,
     })
