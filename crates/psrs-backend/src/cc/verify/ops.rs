@@ -369,6 +369,22 @@ pub(super) fn verify_assignments(
                 )?;
                 uses.extend([*value, *index]);
             }
+            AssignmentKind::ArrayClone {
+                destination,
+                representation,
+                value,
+            } => {
+                verify_embedded_destination(assignment, *destination)?;
+                verify_array_representation(table, *representation, assignment)?;
+                verify_array_value(declared, *value, table, Some(*representation), assignment)?;
+                require_destination(
+                    declared,
+                    assignment,
+                    repr_shape(*representation),
+                    "array clone has an incompatible result shape",
+                )?;
+                uses.push(*value);
+            }
             AssignmentKind::ArraySet {
                 destination,
                 representation,

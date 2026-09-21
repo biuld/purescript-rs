@@ -4,7 +4,7 @@ use crate::mir::{self, BlockId, Function as MirFunction, Instruction as MirInstr
 use crate::types::{ValueId, ValueType};
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
-use ops::{linear_load, linear_store, memory, primitive, ref_cast, ref_test};
+use ops::{linear_load, linear_store, memory, memory_with_align, primitive, ref_cast, ref_test};
 mod arrays;
 mod closure;
 mod helpers;
@@ -299,9 +299,11 @@ impl Structurer<'_> {
                     new_value,
                     span,
                 } => self.emit_array_set(body, *type_index, *value, *index, *new_value, *span)?,
-                instruction @ MirInstruction::ArrayLen { .. } => {
-                    self.emit_array_len_instruction(body, instruction)?
-                }
+                MirInstruction::ArrayLen {
+                    destination,
+                    value,
+                    span,
+                } => self.emit_array_len(body, *destination, *value, *span)?,
                 MirInstruction::Load {
                     destination,
                     address,
@@ -311,6 +313,19 @@ impl Structurer<'_> {
                 } => {
                     self.load(body, *address, *span)?;
                     body.push(Op::Leaf(Instruction::I32Load(memory(*offset))));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::Load8U {
+                    destination,
+                    address,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Load8U(memory_with_align(
+                        *offset, 0,
+                    ))));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::Store {

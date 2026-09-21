@@ -45,6 +45,7 @@ pub enum Instruction {
         type_index: DefinedTypeId,
         closure_type: DefinedTypeId,
         capture_array_type: DefinedTypeId,
+        boxed_integer_type: Option<DefinedTypeId>,
         boxed_f64_type: Option<DefinedTypeId>,
         captures: Vec<ValueId>,
         span: TextRange,
@@ -70,6 +71,7 @@ pub enum Instruction {
         closure: ValueId,
         closure_type: DefinedTypeId,
         capture_array_type: DefinedTypeId,
+        boxed_integer_type: Option<DefinedTypeId>,
         boxed_f64_type: Option<DefinedTypeId>,
         index: u32,
         span: TextRange,
@@ -165,6 +167,14 @@ pub enum Instruction {
     },
     /// `i32.load`, for the canonical ABI and the byte-oriented WASI boundary.
     Load {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// Zero-extending `i32.load8_u`, used for one-byte canonical ABI tags.
+    Load8U {
         destination: ValueId,
         address: ValueId,
         memory: MemoryId,
@@ -287,6 +297,7 @@ impl Instruction {
             | Self::ArrayClone { destination, .. }
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
+            | Self::Load8U { destination, .. }
             | Self::LinearAlloc { destination, .. }
             | Self::LinearAllocDynamic { destination, .. }
             | Self::LinearLoad { destination, .. }
@@ -355,7 +366,7 @@ impl Instruction {
                 new_value,
                 ..
             } => vec![*value, *index, *new_value],
-            Self::Load { address, .. } => vec![*address],
+            Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
             Self::LinearAlloc { .. } => Vec::new(),
             Self::LinearAllocDynamic { bytes, .. } => vec![*bytes],
@@ -412,6 +423,7 @@ impl Instruction {
             | Self::ArraySet { span, .. }
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
+            | Self::Load8U { span, .. }
             | Self::Store { span, .. }
             | Self::LinearAlloc { span, .. }
             | Self::LinearAllocDynamic { span, .. }

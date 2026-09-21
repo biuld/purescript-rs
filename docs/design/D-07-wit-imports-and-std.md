@@ -55,8 +55,9 @@ mapping** rather than a per-function recipe:
   `list`/`string` read back from the return pointer.
 
 The output-stream write adapter is the one supported `result`-shaped import.
-Its source declaration returns `Unit`, but the canonical result discriminant is
-read from the return area after the call. A nonzero discriminant traps instead
+Its source declaration returns `Unit`, but the one-byte canonical result
+discriminant is read with `i32.load8_u` from the return area after the call. A
+nonzero discriminant traps instead
 of being silently converted to `Unit`; this keeps the current source API
 small without losing a host-side write failure. Other result-shaped imports
 remain rejected until a source-level error representation is available.

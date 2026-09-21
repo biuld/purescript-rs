@@ -235,7 +235,7 @@ pub(super) fn lower(
             let status = lowerer.fresh(ValueType::I32);
             lowerer.append_instruction(
                 current,
-                Instruction::Load {
+                Instruction::Load8U {
                     destination: status,
                     address: retptr.expect("a result takes a return pointer"),
                     memory: MemoryId(0),
