@@ -2,11 +2,10 @@ use super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
 use super::super::lower::FunctionLowerer;
 use super::super::{Assignment, AssignmentKind, RefShape, Reference, ReprId, ValueId, ValueShape};
 use super::clone::AssignmentCloning;
-use super::{PatternState, case_error};
+use super::{PatternState, case_error, decision};
 use crate::BackendError;
 use psrs_core::{CaseBranch, PatternKind, Primitive};
 use psrs_span::TextRange;
-use std::collections::HashSet;
 
 impl FunctionLowerer<'_> {
     pub(super) fn lower_aggregate_case(
@@ -21,35 +20,38 @@ impl FunctionLowerer<'_> {
         let Some(constructors) = self.constructors_by_type.get(&type_id).cloned() else {
             return Err(case_error(span, "case scrutinee type has no constructors"));
         };
+        let compiled =
+            decision::compile(branches, span).map_err(|message| case_error(span, message))?;
         let mut constructor_branches = Vec::new();
-        let mut default = None;
-        let mut covered = HashSet::new();
-        for branch in branches {
+        let mut covered = std::collections::HashSet::new();
+        for alternative in &compiled.alternatives {
+            let decision::Matcher::Constructor(symbol) = alternative.matcher else {
+                return Err(case_error(
+                    branches[alternative.branch].pattern.span,
+                    "record pattern does not match an algebraic data type",
+                ));
+            };
+            let branch = &branches[alternative.branch];
             match &branch.pattern.kind {
-                PatternKind::Constructor { symbol, .. } => {
-                    let Some((_, tag)) = constructors.iter().find(|(known, _)| known == symbol)
+                PatternKind::Constructor { .. } => {
+                    let Some((_, tag)) = constructors.iter().find(|(known, _)| known == &symbol)
                     else {
                         return Err(case_error(
                             span,
                             "case pattern constructor does not belong to the scrutinee type",
                         ));
                     };
-                    let Some(representation) = self.constructor_types.get(symbol).copied() else {
+                    let Some(representation) = self.constructor_types.get(&symbol).copied() else {
                         return Err(case_error(span, "case constructor has no representation"));
                     };
-                    covered.insert(*symbol);
+                    covered.insert(symbol);
                     constructor_branches.push((branch, *tag, representation));
                 }
-                PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
-                PatternKind::Record { .. } => {
-                    return Err(case_error(
-                        branch.pattern.span,
-                        "record pattern does not match an algebraic data type",
-                    ));
-                }
+                _ => unreachable!("decision matcher and pattern disagree"),
             }
         }
-        let fallback = if let Some(branch) = default {
+        let fallback = if let Some(index) = compiled.fallback {
+            let branch = &branches[index];
             let mut fallback_assignments = Vec::new();
             let value = self.lower_branch(branch, scrutinee, &mut fallback_assignments)?;
             (fallback_assignments, value)
@@ -92,10 +94,10 @@ impl FunctionLowerer<'_> {
         result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let Some((branch, _, representation)) = branches.last() else {
+        let Some((branch, _, representation)) = branches.first() else {
             return Ok(fallback);
         };
-        let rest = &branches[..branches.len() - 1];
+        let rest = &branches[1..];
         let (else_assignments, else_value) =
             self.build_aggregate_case(scrutinee, rest, fallback, result_type, span)?;
         let condition = self.fresh(ValueShape::Boolean);

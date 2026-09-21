@@ -98,7 +98,10 @@ the value with `struct.new`. Open rows remain rejected with source diagnostics.
 Field reads lower to `struct.get`. Closed concrete record patterns extract
 fields with `struct.get`; nested constructor and record field patterns reuse
 the existing conditional pattern lowering, while open record patterns remain
-rejected. Concrete scalar array literals
+rejected. Pattern ordering and top-level matcher selection are compiled before
+CC emits representation tests, casts, and projections; see
+[D-12 — Pattern Decision Boundary](D-12-pattern-decision-boundary.md).
+Concrete scalar array literals
 lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
 to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
 the concrete `arrayUpdate` intrinsic lowers to `array.set`.

@@ -4,6 +4,7 @@ use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use super::PatternState;
 use super::case_error;
 use super::clone::AssignmentCloning;
+use super::decision;
 use crate::BackendError;
 use psrs_core::{CaseBranch, Pattern, PatternKind, Type};
 use psrs_span::TextRange;
@@ -19,7 +20,10 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let mut fallback = None;
-        for branch in branches.iter().rev() {
+        let compiled =
+            decision::compile(branches, span).map_err(|message| case_error(span, message))?;
+        for index in compiled.ordered.iter().rev() {
+            let branch = &branches[*index];
             match &branch.pattern.kind {
                 PatternKind::Wildcard | PatternKind::Var { .. } => {
                     let mut branch_assignments = Vec::new();

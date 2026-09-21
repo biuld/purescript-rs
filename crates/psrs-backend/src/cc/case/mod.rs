@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 mod aggregate;
 mod clone;
+mod decision;
 mod erased;
 mod record;
 
@@ -73,39 +74,42 @@ impl FunctionLowerer<'_> {
                 "case scrutinee type has no record of its constructors",
             ));
         };
+        let compiled =
+            decision::compile(branches, span).map_err(|message| case_error(span, message))?;
         let mut constructor_branches: Vec<(&CaseBranch, u32)> = Vec::new();
-        let mut default: Option<&CaseBranch> = None;
         let mut covered: HashSet<SymbolId> = HashSet::new();
-        for branch in branches {
+        for alternative in &compiled.alternatives {
+            let decision::Matcher::Constructor(symbol) = alternative.matcher else {
+                return Err(case_error(
+                    branches[alternative.branch].pattern.span,
+                    "record pattern does not match a data type",
+                ));
+            };
+            let branch = &branches[alternative.branch];
             match &branch.pattern.kind {
-                PatternKind::Constructor { symbol, arguments } => {
+                PatternKind::Constructor { arguments, .. } => {
                     if !arguments.is_empty() {
                         return Err(case_error(
                             span,
                             "field constructor patterns require aggregate lowering",
                         ));
                     }
-                    let Some((_, tag)) = constructors.iter().find(|(known, _)| known == symbol)
+                    let Some((_, tag)) = constructors.iter().find(|(known, _)| known == &symbol)
                     else {
                         return Err(case_error(
                             span,
                             "case pattern constructor does not belong to the scrutinee type",
                         ));
                     };
-                    covered.insert(*symbol);
+                    covered.insert(symbol);
                     constructor_branches.push((branch, *tag));
                 }
-                PatternKind::Wildcard | PatternKind::Var { .. } => default = Some(branch),
-                PatternKind::Record { .. } => {
-                    return Err(case_error(
-                        branch.pattern.span,
-                        "record pattern does not match a data type",
-                    ));
-                }
+                _ => unreachable!("decision matcher and pattern disagree"),
             }
         }
 
-        let fallback = if let Some(branch) = default {
+        let fallback = if let Some(index) = compiled.fallback {
+            let branch = &branches[index];
             let mut fallback_assignments = Vec::new();
             let value = self.lower_branch(branch, scrutinee, &mut fallback_assignments)?;
             (fallback_assignments, value)
@@ -217,10 +221,10 @@ impl FunctionLowerer<'_> {
         result_type: ValueShape,
         span: TextRange,
     ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let Some((branch, tag)) = constructor_branches.last() else {
+        let Some((branch, tag)) = constructor_branches.first() else {
             return Ok(fallback);
         };
-        let rest = &constructor_branches[..constructor_branches.len() - 1];
+        let rest = &constructor_branches[1..];
         let (else_assignments, else_value) =
             self.build_case(scrutinee, rest, fallback, result_type, span)?;
 
