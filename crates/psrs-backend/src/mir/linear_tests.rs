@@ -4,11 +4,17 @@ use crate::cc::{Reference, Representation, RepresentationTable, ValueShape};
 use crate::types::ValueId;
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 mod array_clone;
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
+}
+
+fn next_artifact_id() -> u32 {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 fn wasi() -> crate::abi::WasiRegistry {
@@ -34,9 +40,10 @@ fn run_linear(module: CcModule, expected: &str) {
         .is_ok()
     {
         let path = std::env::temp_dir().join(format!(
-            "psrs-linear-{}-{}.wasm",
+            "psrs-linear-{}-{}-{}.wasm",
             expected,
-            std::process::id()
+            std::process::id(),
+            next_artifact_id()
         ));
         std::fs::write(&path, &binary).expect("writing linear MVP Wasm");
         let output = std::process::Command::new("wasmtime")
