@@ -202,12 +202,74 @@ pub(super) fn lower(
                 )]);
             }
         },
-        abi::WasiResultKind::None | abi::WasiResultKind::Result => {
+        abi::WasiResultKind::None => {
             lowerer.append_instruction(
                 current,
                 Instruction::CallVoid {
                     function: import.symbol,
                     arguments: flat,
+                    span,
+                },
+                span,
+            )?;
+            lowerer.append_instruction(
+                current,
+                Instruction::Constant {
+                    destination,
+                    value: 0,
+                    span,
+                },
+                span,
+            )?;
+        }
+        abi::WasiResultKind::Result => {
+            lowerer.append_instruction(
+                current,
+                Instruction::CallVoid {
+                    function: import.symbol,
+                    arguments: flat,
+                    span,
+                },
+                span,
+            )?;
+            let status = lowerer.fresh(ValueType::I32);
+            lowerer.append_instruction(
+                current,
+                Instruction::Load {
+                    destination: status,
+                    address: retptr.expect("a result takes a return pointer"),
+                    memory: MemoryId(0),
+                    offset: 0,
+                    span,
+                },
+                span,
+            )?;
+            let zero = lowerer.fresh(ValueType::I32);
+            lowerer.append_instruction(
+                current,
+                Instruction::Constant {
+                    destination: zero,
+                    value: 0,
+                    span,
+                },
+                span,
+            )?;
+            let failed = lowerer.fresh(ValueType::Boolean);
+            lowerer.append_instruction(
+                current,
+                Instruction::Primitive {
+                    destination: failed,
+                    op: Primitive::Ne,
+                    left: status,
+                    right: zero,
+                    span,
+                },
+                span,
+            )?;
+            lowerer.append_instruction(
+                current,
+                Instruction::TrapIf {
+                    condition: failed,
                     span,
                 },
                 span,

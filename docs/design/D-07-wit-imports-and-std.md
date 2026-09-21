@@ -54,6 +54,13 @@ mapping** rather than a per-function recipe:
   narrowed to `Int` with `i32.wrap_i64`, no result to `Unit`, and a returned
   `list`/`string` read back from the return pointer.
 
+The output-stream write adapter is the one supported `result`-shaped import.
+Its source declaration returns `Unit`, but the canonical result discriminant is
+read from the return area after the call. A nonzero discriminant traps instead
+of being silently converted to `Unit`; this keeps the current source API
+small without losing a host-side write failure. Other result-shaped imports
+remain rejected until a source-level error representation is available.
+
 ### Returned lists and the allocator
 
 When an import returns a `list`/`string`, the host writes it into guest memory
