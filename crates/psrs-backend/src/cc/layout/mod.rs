@@ -104,9 +104,9 @@ pub(super) fn type_layout(
     let mut representations = RepresentationTable::default();
 
     let boxed_integer_type = if module
-        .types
+        .declarations
         .iter()
-        .any(|ty| matches!(ty, Type::Variable(_)))
+        .any(|declaration| depends_on_type_variable(module, declaration.ty))
         || module
             .constructors
             .iter()

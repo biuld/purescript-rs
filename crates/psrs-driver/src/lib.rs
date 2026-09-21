@@ -71,12 +71,25 @@ fn lower_source_with_prelude_to_core(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_core::Module, Vec<Diagnostic>> {
-    let sources = [(prelude::NAME, prelude::SOURCE), (source_name, source_text)];
-    program::lower_program_to_core(&sources).map_err(program_diagnostics)
+    let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
+    sources.extend_from_slice(prelude::SOURCES);
+    sources.push((source_name, source_text));
+    program::lower_program_to_core(&sources)
+        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
 }
 
-fn program_diagnostics(errors: Vec<ProgramDiagnostic>) -> Vec<Diagnostic> {
-    errors.into_iter().map(|error| error.diagnostic).collect()
+fn program_diagnostics_from_hidden_prelude(
+    errors: Vec<ProgramDiagnostic>,
+    hidden_sources: usize,
+) -> Vec<Diagnostic> {
+    errors
+        .into_iter()
+        .map(|mut error| {
+            error.source = error.source.saturating_sub(hidden_sources);
+            error
+        })
+        .map(|error| error.diagnostic)
+        .collect()
 }
 
 #[cfg(test)]
@@ -150,8 +163,11 @@ pub(crate) fn lower_source_to_ast(
 /// Runs the source stages P0 through P5 and reports diagnostics without
 /// lowering to Core or the backend. Useful for checking source acceptance.
 pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
-    let sources = [(prelude::NAME, prelude::SOURCE), (source_name, source_text)];
-    program::check_program(&sources).map_err(program_diagnostics)
+    let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
+    sources.extend_from_slice(prelude::SOURCES);
+    sources.push((source_name, source_text));
+    program::check_program(&sources)
+        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
 }
 
 /// Runs lexing, layout, and parsing only (P0–P2). Reports diagnostics and

@@ -1,6 +1,9 @@
 use super::super::layout::depends_on_type_variable;
 use super::super::layout::function_signature;
-use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId};
+use super::super::{
+    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId,
+};
+use super::lambda::LambdaLowering;
 use super::{FunctionLowerer, Signature, ValueShape};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Type};
@@ -42,6 +45,16 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     "call target is not a local top-level function",
                 )]
             })?;
+            if arguments.len() < signature.parameters.len() {
+                return self.lower_partial_global_application(
+                    expression,
+                    function,
+                    &signature,
+                    arguments,
+                    result_type,
+                    assignments,
+                );
+            }
             self.check_call_shape(&signature, arguments.len(), result_type, expression.span)?;
             let source_parameters = declaration_parameter_types(self.module, function);
             let returned_erased_function_type = if is_erased_value_type(signature.result)
@@ -188,6 +201,149 @@ impl ApplicationLowering for FunctionLowerer<'_> {
     }
 }
 
+impl FunctionLowerer<'_> {
+    fn lower_partial_global_application(
+        &mut self,
+        expression: &Expr,
+        function: SymbolId,
+        source_signature: &Signature,
+        arguments: Vec<&Expr>,
+        result_type: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(&target_signature_id) = self.function_types.get(&expression.ty) else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "partial application has no runtime function type",
+            )]);
+        };
+        let Some(target_signature) = self.representations.signature(target_signature_id).cloned()
+        else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "partial application has no target call signature",
+            )]);
+        };
+
+        let mut captured = Vec::with_capacity(arguments.len());
+        for (argument, expected) in arguments.into_iter().zip(&source_signature.parameters) {
+            let value = self.lower_value(argument, assignments)?;
+            captured.push(if is_erased_value_type(*expected) {
+                self.box_erased_value(value, expression.span, assignments)?
+            } else {
+                value
+            });
+        }
+
+        let mut nested = self.child_lowerer();
+        let closure_parameter = nested.fresh(closure_value_type());
+        let mut parameters = vec![closure_parameter];
+        let mut nested_assignments = Vec::with_capacity(captured.len() + 1);
+        let mut call_arguments = Vec::with_capacity(source_signature.parameters.len());
+        let mut remaining_parameters = Vec::with_capacity(target_signature.parameters.len());
+        for expected in target_signature.parameters {
+            let parameter = nested.fresh(expected);
+            parameters.push(parameter);
+            remaining_parameters.push(parameter);
+        }
+        for (index, value) in captured.iter().enumerate() {
+            let Some(capture_type) = self
+                .values
+                .iter()
+                .find(|declaration| declaration.id == *value)
+                .map(|declaration| declaration.ty)
+            else {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    expression.span,
+                    "partial application capture has no runtime type",
+                )]);
+            };
+            let destination = nested.fresh(capture_type);
+            nested_assignments.push(Assignment {
+                destination,
+                kind: AssignmentKind::ClosureGetCapture {
+                    closure: closure_parameter,
+                    index: index as u32,
+                },
+                span: expression.span,
+            });
+            call_arguments.push(destination);
+        }
+        call_arguments.extend(remaining_parameters);
+        let result = nested.fresh(source_signature.result);
+        nested_assignments.push(Assignment {
+            destination: result,
+            kind: AssignmentKind::DirectCall {
+                function,
+                arguments: call_arguments,
+            },
+            span: expression.span,
+        });
+
+        let symbol = SymbolId::new(
+            self.module.id,
+            u32::MAX - 0x1000_0000 - expression.span.start - self.generated.len() as u32,
+        );
+        let generated = Function {
+            symbol,
+            name: format!("partial_{}", expression.span.start),
+            parameters,
+            values: nested.values,
+            assignments: nested_assignments,
+            result,
+            result_type: source_signature.result,
+            span: expression.span,
+        };
+        super::super::verify::verify_function(&generated, self.signatures, self.representations)?;
+        self.generated.extend(nested.generated);
+        self.generated.push(generated);
+
+        let closure = self.fresh(closure_value_type_for(target_signature_id));
+        assignments.push(Assignment {
+            destination: closure,
+            kind: AssignmentKind::FunctionRef {
+                function: symbol,
+                signature: target_signature_id,
+                captures: captured,
+            },
+            span: expression.span,
+        });
+        if result_type
+            == ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Erased,
+            })
+        {
+            let erased = self.fresh(result_type);
+            assignments.push(Assignment {
+                destination: erased,
+                kind: AssignmentKind::RepresentationCast {
+                    destination: erased,
+                    value: closure,
+                    reference: Reference {
+                        nullable: false,
+                        heap: RefShape::Erased,
+                    },
+                },
+                span: expression.span,
+            });
+            self.erased_function_types.insert(erased, expression.ty);
+            Ok(erased)
+        } else if result_type == closure_value_type_for(target_signature_id) {
+            Ok(closure)
+        } else {
+            Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "partial application result has the wrong runtime type",
+            )])
+        }
+    }
+}
+
 impl CallShape for FunctionLowerer<'_> {
     fn check_call_shape(
         &self,
@@ -256,6 +412,20 @@ pub(super) fn is_function_type(module: &CoreModule, type_id: psrs_core::TypeId) 
 
 pub(super) fn is_generic_function_type(module: &CoreModule, type_id: psrs_core::TypeId) -> bool {
     is_function_type(module, type_id) && depends_on_type_variable(module, type_id)
+}
+
+fn closure_value_type() -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Aggregate,
+    })
+}
+
+fn closure_value_type_for(signature: SignatureId) -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Closure(signature),
+    })
 }
 
 pub(super) fn declaration_parameter_types(

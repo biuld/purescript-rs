@@ -154,19 +154,28 @@ Wasmtime execution test against a vendored WIT function.
 ### The standard library
 
 The standard library is source code that declares its WIT imports and defines
-`log`, `error`, `now`, and later `args`, `env`, `clock`, `random`, and
-`filesystem` over them. No host function is implemented in the compiler; the
-backend only knows the generic WIT-import call.
+platform services over them. No host function is implemented in the compiler;
+the backend only knows the generic WIT-import call. The platform-independent
+`Prelude` defines `Effect a`, `pure`, `bind`, and `runEffect`. `WASI.Console`
+defines `log :: String -> Effect Unit` and `error :: String -> Effect Unit`,
+while `WASI.Clock` defines `now :: Effect Int`.
 
 The library is a real module. It is embedded in the driver because there is no
 filesystem module loader yet, but it is resolved, type checked, and linked like
-any other module; a program reaches its values with `import Prelude`. It
+any other module; a program reaches its values with explicit `import` lines. It
 declares `getStdout`, `getStderr`, `writeStdout`, and `monotonicNow` with WIT
-bindings, exposes `now`, and defines:
+bindings, and defines the effectful services in ordinary source code:
 
 ```purescript
-log s = let a = writeStdout getStdout s in writeStdout getStdout "\n"
+log s = \token -> let ignored = writeStdout getStdout s in writeStdout getStdout "\n"
 ```
+
+`Effect a` is currently represented by the bootstrap compiler as `Boolean -> a`.
+This is a temporary representation for deferred construction and explicit
+execution, not a dedicated effect runtime. Constructing an effect only creates
+a closure; `runEffect` supplies the execution token, and `bind` invokes the
+left action before the continuation. Scheduling, cancellation, and asynchronous
+runtime support are separate future work.
 
 There is no `Write` composition left in the compiler: the newline is an ordinary
 string literal and becomes a data segment. After linking, declarations the
