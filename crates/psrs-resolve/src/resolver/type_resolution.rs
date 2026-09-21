@@ -14,15 +14,11 @@ impl Resolver {
                 if let Some(builtin) = builtin_type(&name.text) {
                     HirTypeKind::Constructor(builtin)
                 } else if let Some((qualifier, member)) = split_qualified(&name.text) {
-                    match self.lookup_qualified_type(&name.text, qualifier, member, name.span) {
-                        Some(id) => HirTypeKind::Named(id),
-                        None => return None,
-                    }
+                    HirTypeKind::Named(
+                        self.lookup_qualified_type(&name.text, qualifier, member, name.span)?,
+                    )
                 } else if is_uppercase(&name.text) {
-                    match self.lookup_type_name(&name.text, name.span) {
-                        Some(id) => HirTypeKind::Named(id),
-                        None => return None,
-                    }
+                    HirTypeKind::Named(self.lookup_type_name(&name.text, name.span)?)
                 } else {
                     HirTypeKind::Variable(name.text)
                 }

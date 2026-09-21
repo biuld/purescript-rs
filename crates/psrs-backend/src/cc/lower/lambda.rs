@@ -5,7 +5,7 @@ use super::super::{
 use super::{FunctionLowerer, LoweringContext};
 use crate::BackendError;
 use psrs_core::{Declaration, Expr, ExprKind, PatternKind};
-use psrs_hir::{LocalId, SymbolId};
+use psrs_hir::LocalId;
 use std::collections::{HashMap, HashSet};
 
 pub(super) trait LambdaLowering {
@@ -94,7 +94,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        let symbol = SymbolId::new(self.module.id, u32::MAX - expression.span.start);
+        let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let nested_function = Function {
             symbol,
             name: format!("lambda_{}", expression.span.start),
@@ -170,6 +170,8 @@ impl LambdaLowering for FunctionLowerer<'_> {
             constructor_types: self.constructor_types,
             function_types: self.function_types,
             function_wrappers: self.function_wrappers,
+            generated_symbols: std::rc::Rc::clone(&self.generated_symbols),
+            owner: self.owner,
             erased_function_types: HashMap::new(),
             generated: Vec::new(),
         }
