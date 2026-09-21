@@ -4,7 +4,7 @@ use crate::mir::{self, BlockId, Function as MirFunction, Instruction as MirInstr
 use crate::types::{ValueId, ValueType};
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
-use ops::{linear_load, linear_store, memory, primitive, ref_cast, ref_test};
+use ops::{linear_load, linear_store, memory, memory_with_align, primitive, ref_cast, ref_test};
 mod arrays;
 mod closure;
 mod helpers;
@@ -111,6 +111,7 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
+                instruction @ MirInstruction::TrapIf { .. } => self.trap_if(body, instruction)?,
                 MirInstruction::Call {
                     destination,
                     function,
@@ -312,6 +313,19 @@ impl Structurer<'_> {
                 } => {
                     self.load(body, *address, *span)?;
                     body.push(Op::Leaf(Instruction::I32Load(memory(*offset))));
+                    self.store(body, *destination, *span)?;
+                }
+                MirInstruction::Load8U {
+                    destination,
+                    address,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Load8U(memory_with_align(
+                        *offset, 0,
+                    ))));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::Store {

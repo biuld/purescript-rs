@@ -3,11 +3,36 @@
 use super::Structurer;
 use super::helpers::ValueOps;
 use crate::BackendError;
+use crate::mir::Instruction as MirInstruction;
 use crate::types::{DefinedTypeId, ValueId};
 use crate::wasm::{Body, Op};
 use wasm_encoder::Instruction;
 
 impl Structurer<'_> {
+    pub(super) fn trap_if(
+        &self,
+        body: &mut Body,
+        instruction: &MirInstruction,
+    ) -> Result<(), Vec<BackendError>> {
+        let MirInstruction::TrapIf { condition, span } = instruction else {
+            unreachable!("trap helper received another instruction")
+        };
+        self.emit_trap_if(body, *condition, *span)
+    }
+
+    pub(super) fn emit_trap_if(
+        &self,
+        body: &mut Body,
+        condition: ValueId,
+        span: psrs_span::TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.load(body, condition, span)?;
+        body.push(Op::Leaf(Instruction::If(wasm_encoder::BlockType::Empty)));
+        body.push(Op::Leaf(Instruction::Unreachable));
+        body.push(Op::Leaf(Instruction::End));
+        Ok(())
+    }
+
     pub(super) fn emit_array_new(
         &self,
         body: &mut Body,

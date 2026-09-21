@@ -173,6 +173,14 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// Zero-extending `i32.load8_u`, used for one-byte canonical ABI tags.
+    Load8U {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
     /// `i32.store`.
     Store {
         address: ValueId,
@@ -258,6 +266,8 @@ pub enum Instruction {
         signed: bool,
         span: TextRange,
     },
+    /// Trap when a canonical ABI status value is nonzero.
+    TrapIf { condition: ValueId, span: TextRange },
 }
 
 impl Instruction {
@@ -287,6 +297,7 @@ impl Instruction {
             | Self::ArrayClone { destination, .. }
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
+            | Self::Load8U { destination, .. }
             | Self::LinearAlloc { destination, .. }
             | Self::LinearAllocDynamic { destination, .. }
             | Self::LinearLoad { destination, .. }
@@ -300,7 +311,8 @@ impl Instruction {
             | Self::Store { .. }
             | Self::LinearStore { .. }
             | Self::LinearMemoryCopy { .. }
-            | Self::CallVoid { .. } => None,
+            | Self::CallVoid { .. }
+            | Self::TrapIf { .. } => None,
         }
     }
 
@@ -354,7 +366,7 @@ impl Instruction {
                 new_value,
                 ..
             } => vec![*value, *index, *new_value],
-            Self::Load { address, .. } => vec![*address],
+            Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
             Self::LinearAlloc { .. } => Vec::new(),
             Self::LinearAllocDynamic { bytes, .. } => vec![*bytes],
@@ -375,7 +387,11 @@ impl Instruction {
                 .chain(arguments.iter().copied())
                 .collect(),
             Self::LinearClosureGetCapture { closure, .. } => vec![*closure],
-            Self::WrapI64 { value, .. } | Self::WidenI64 { value, .. } => vec![*value],
+            Self::WrapI64 { value, .. }
+            | Self::WidenI64 { value, .. }
+            | Self::TrapIf {
+                condition: value, ..
+            } => vec![*value],
         }
     }
 
@@ -407,6 +423,7 @@ impl Instruction {
             | Self::ArraySet { span, .. }
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
+            | Self::Load8U { span, .. }
             | Self::Store { span, .. }
             | Self::LinearAlloc { span, .. }
             | Self::LinearAllocDynamic { span, .. }
@@ -417,7 +434,8 @@ impl Instruction {
             | Self::LinearClosureCall { span, .. }
             | Self::LinearClosureGetCapture { span, .. }
             | Self::WrapI64 { span, .. }
-            | Self::WidenI64 { span, .. } => *span,
+            | Self::WidenI64 { span, .. }
+            | Self::TrapIf { span, .. } => *span,
         }
     }
 }

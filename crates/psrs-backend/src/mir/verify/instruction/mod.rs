@@ -1,5 +1,4 @@
 //! Instruction and terminator type checks for MIR verification.
-
 use super::Signature;
 use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
@@ -13,7 +12,6 @@ use crate::types::{CompositeType, DefinedType, HeapType, RefType};
 use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
-
 mod arrays;
 mod linear_closure;
 mod memory;
@@ -88,6 +86,11 @@ pub(super) fn verify_instruction(
                     *span,
                     "MIR primitive operand or result type is invalid",
                 ));
+            }
+        }
+        Instruction::TrapIf { condition, span } => {
+            if require_value(definitions, *condition, *span)? != ValueType::Boolean {
+                return Err(mir_error(*span, "MIR trap condition must be Boolean"));
             }
         }
         Instruction::Call {
@@ -476,6 +479,7 @@ pub(super) fn verify_instruction(
             span,
         } => arrays::verify_len(function, *destination, *value, *span, definitions, defined)?,
         Instruction::Load { .. }
+        | Instruction::Load8U { .. }
         | Instruction::Store { .. }
         | Instruction::LinearAlloc { .. }
         | Instruction::LinearAllocDynamic { .. }
