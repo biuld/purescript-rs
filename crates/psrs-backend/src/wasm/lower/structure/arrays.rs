@@ -20,22 +20,6 @@ impl Structurer<'_> {
         self.emit_trap_if(body, *condition, *span)
     }
 
-    pub(super) fn emit_array_len_instruction(
-        &self,
-        body: &mut Body,
-        instruction: &MirInstruction,
-    ) -> Result<(), Vec<BackendError>> {
-        let MirInstruction::ArrayLen {
-            destination,
-            value,
-            span,
-        } = instruction
-        else {
-            unreachable!("array length helper received another instruction")
-        };
-        self.emit_array_len(body, *destination, *value, *span)
-    }
-
     pub(super) fn emit_trap_if(
         &self,
         body: &mut Body,
@@ -153,6 +137,7 @@ impl Structurer<'_> {
         self.store(body, destination, span)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn emit_linear_memory_copy(
         &self,
         body: &mut Body,

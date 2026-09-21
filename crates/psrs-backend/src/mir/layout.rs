@@ -19,6 +19,7 @@ pub(super) struct PlannedLayout {
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
     capture_array_index: Option<DefinedTypeId>,
+    boxed_integer_index: Option<DefinedTypeId>,
     boxed_number_index: Option<DefinedTypeId>,
 }
 
@@ -127,6 +128,17 @@ impl PlannedLayout {
                 )
             })
             .map(|index| DefinedTypeId(index as u32));
+        let boxed_integer_index = repr_ids
+            .iter()
+            .position(|id| {
+                matches!(
+                    table.representation(*id),
+                    Some(Representation::Box {
+                        value: CcValueShape::Integer
+                    })
+                )
+            })
+            .map(|index| DefinedTypeId(index as u32));
         for (index, id) in repr_ids.iter().enumerate() {
             let representation = table
                 .representation(*id)
@@ -190,7 +202,7 @@ impl PlannedLayout {
                     )
                 }
                 Representation::Array { element } => CompositeType::Array(FieldType {
-                    storage: storage_type(element, &repr_indices, closure_index)?,
+                    storage: array_storage_type(element, &repr_indices, closure_index)?,
                     mutable: true,
                 }),
             };
@@ -233,6 +245,7 @@ impl PlannedLayout {
             signature_indices,
             closure_index,
             capture_array_index,
+            boxed_integer_index,
             boxed_number_index,
         })
     }
@@ -257,6 +270,10 @@ impl PlannedLayout {
 
     pub(super) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
         self.boxed_number_index
+    }
+
+    pub(super) fn boxed_integer_index(&self) -> Option<DefinedTypeId> {
+        self.boxed_integer_index
     }
 
     pub(super) fn value_type(&self, value: &CcValueShape) -> Result<ValueType, LayoutError> {
@@ -348,6 +365,7 @@ pub(super) enum LayoutError {
     UnknownSignature,
     UnknownField,
     UnsupportedLinearOperation,
+    MissingIntegerBox,
     MissingNumberBox,
     UnknownClosureLayout,
     UnsupportedGcTarget,
@@ -395,6 +413,20 @@ fn storage_type(
         ValueType::Ref(reference) => StorageType::Ref(reference),
         _ => return Err(LayoutError::UnsupportedValue),
     })
+}
+
+fn array_storage_type(
+    value: &CcValueShape,
+    repr_indices: &HashMap<ReprId, DefinedTypeId>,
+    closure_index: Option<DefinedTypeId>,
+) -> Result<StorageType, LayoutError> {
+    let mut storage = storage_type(value, repr_indices, closure_index)?;
+    if let StorageType::Ref(reference) = &mut storage {
+        // Dynamic clones use `array.new_default`, so reference slots must be
+        // nullable while the fresh array is being initialized by `array.copy`.
+        reference.nullable = true;
+    }
+    Ok(storage)
 }
 
 #[cfg(test)]
