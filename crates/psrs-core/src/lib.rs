@@ -1,16 +1,15 @@
 mod link;
 mod lower;
 mod pattern;
+mod verify;
 
 pub use link::{link, prune_unreachable};
 pub use pattern::{Pattern, PatternKind};
 
-use pattern::{remove_pattern_locals, verify_pattern};
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
 };
 use psrs_span::TextRange;
-use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -237,203 +236,7 @@ pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<
 
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
-        let globals = self
-            .declarations
-            .iter()
-            .map(|declaration| declaration.symbol)
-            .chain(self.externals.iter().map(|external| external.symbol))
-            .collect::<HashSet<_>>();
-        let mut errors = Vec::new();
-        for ty in &self.types {
-            match ty {
-                Type::Function { parameter, result } | Type::Application(parameter, result) => {
-                    verify_type(*parameter, self, self.id, self.span, &mut errors);
-                    verify_type(*result, self, self.id, self.span, &mut errors);
-                }
-                Type::Record(fields) => {
-                    for (_, field) in fields {
-                        verify_type(*field, self, self.id, self.span, &mut errors);
-                    }
-                }
-                _ => {}
-            }
-        }
-        for declaration in &self.declarations {
-            let owner = declaration.symbol.module;
-            verify_type(
-                declaration.ty,
-                self,
-                owner,
-                declaration.name_span,
-                &mut errors,
-            );
-            let mut locals = HashSet::new();
-            verify_expr(
-                &declaration.value,
-                self,
-                owner,
-                &globals,
-                &mut locals,
-                &mut errors,
-            );
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-}
-
-fn verify_type(
-    id: TypeId,
-    module: &Module,
-    owner: ModuleId,
-    span: TextRange,
-    errors: &mut Vec<VerifyError>,
-) {
-    if id.0 as usize >= module.types.len() {
-        errors.push(VerifyError {
-            module: owner,
-            span,
-            message: "type reference is outside the Core type table",
-        });
-    }
-}
-
-fn verify_expr(
-    expression: &Expr,
-    module: &Module,
-    owner: ModuleId,
-    globals: &HashSet<SymbolId>,
-    locals: &mut HashSet<LocalId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    verify_type(expression.ty, module, owner, expression.span, errors);
-    match &expression.kind {
-        ExprKind::Local(id) if !locals.contains(id) => errors.push(VerifyError {
-            module: owner,
-            span: expression.span,
-            message: "local reference is not in scope",
-        }),
-        ExprKind::Global(id) if !globals.contains(id) => errors.push(VerifyError {
-            module: owner,
-            span: expression.span,
-            message: "global reference is not declared",
-        }),
-        ExprKind::Local(_)
-        | ExprKind::Global(_)
-        | ExprKind::Integer(_)
-        | ExprKind::Number(_)
-        | ExprKind::Boolean(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
-        ExprKind::Array { elements } => {
-            for element in elements {
-                verify_expr(element, module, owner, globals, locals, errors);
-            }
-        }
-        ExprKind::Record { fields } => {
-            for (_, value) in fields {
-                verify_expr(value, module, owner, globals, locals, errors);
-            }
-        }
-        ExprKind::RecordUpdate { record, fields } => {
-            verify_expr(record, module, owner, globals, locals, errors);
-            for (_, value) in fields {
-                verify_expr(value, module, owner, globals, locals, errors);
-            }
-        }
-        ExprKind::FieldAccess { record, .. } => {
-            verify_expr(record, module, owner, globals, locals, errors);
-        }
-        ExprKind::ArrayLength(value) => verify_expr(value, module, owner, globals, locals, errors),
-        ExprKind::ArrayIndex { array, index } => {
-            verify_expr(array, module, owner, globals, locals, errors);
-            verify_expr(index, module, owner, globals, locals, errors);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            verify_expr(array, module, owner, globals, locals, errors);
-            verify_expr(index, module, owner, globals, locals, errors);
-            verify_expr(value, module, owner, globals, locals, errors);
-        }
-        ExprKind::Constructor { symbol, arguments } => {
-            if let Some(constructor) = module
-                .constructors
-                .iter()
-                .find(|constructor| constructor.symbol == *symbol)
-            {
-                if constructor.field_count != arguments.len() {
-                    errors.push(VerifyError {
-                        module: owner,
-                        span: expression.span,
-                        message: "constructor application has the wrong field count",
-                    });
-                }
-            } else {
-                errors.push(VerifyError {
-                    module: owner,
-                    span: expression.span,
-                    message: "constructor reference is not declared",
-                });
-            }
-            for argument in arguments {
-                verify_expr(argument, module, owner, globals, locals, errors);
-            }
-        }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
-            verify_expr(left, module, owner, globals, locals, errors);
-            verify_expr(right, module, owner, globals, locals, errors);
-        }
-        ExprKind::Lambda { binder, body } => {
-            verify_type(binder.ty, module, owner, binder.span, errors);
-            locals.insert(binder.id);
-            verify_expr(body, module, owner, globals, locals, errors);
-            locals.remove(&binder.id);
-        }
-        ExprKind::Let { bindings, body } => {
-            for binding in bindings {
-                verify_type(
-                    binding.binder.ty,
-                    module,
-                    owner,
-                    binding.binder.span,
-                    errors,
-                );
-                locals.insert(binding.binder.id);
-            }
-            for binding in bindings {
-                verify_expr(&binding.value, module, owner, globals, locals, errors);
-            }
-            verify_expr(body, module, owner, globals, locals, errors);
-            for binding in bindings {
-                locals.remove(&binding.binder.id);
-            }
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            verify_expr(condition, module, owner, globals, locals, errors);
-            verify_expr(then_branch, module, owner, globals, locals, errors);
-            verify_expr(else_branch, module, owner, globals, locals, errors);
-        }
-        ExprKind::Case {
-            scrutinee,
-            branches,
-        } => {
-            verify_expr(scrutinee, module, owner, globals, locals, errors);
-            for branch in branches {
-                verify_pattern(&branch.pattern, module, owner, locals, errors);
-                verify_expr(&branch.value, module, owner, globals, locals, errors);
-                remove_pattern_locals(&branch.pattern, locals);
-            }
-        }
+        verify::module(self)
     }
 }
 

@@ -34,6 +34,7 @@ impl ReachableHandles {
         let mut representation_work = Vec::new();
         let mut signature_work = Vec::new();
         let mut direct_calls = HashSet::new();
+        let mut needs_integer_box = false;
         let mut needs_number_box = false;
 
         for function in &module.functions {
@@ -62,12 +63,30 @@ impl ReachableHandles {
                 &function.assignments,
                 &mut direct_calls,
                 &value_types,
+                &mut needs_integer_box,
                 &mut needs_number_box,
                 &mut representations,
                 &mut signatures,
                 &mut representation_work,
                 &mut signature_work,
             );
+        }
+        if require_number_box && needs_integer_box {
+            let id = module
+                .representations
+                .representations
+                .iter()
+                .position(|representation| {
+                    matches!(
+                        representation,
+                        Representation::Box {
+                            value: ValueShape::Integer
+                        }
+                    )
+                })
+                .map(|index| ReprId(index as u32))
+                .ok_or(LayoutError::MissingIntegerBox)?;
+            add_representation(id, &mut representations, &mut representation_work);
         }
         if require_number_box && needs_number_box {
             let id = module
@@ -139,6 +158,7 @@ fn add_assignments(
     assignments: &[Assignment],
     direct_calls: &mut HashSet<SymbolId>,
     value_types: &HashMap<ValueId, ValueShape>,
+    needs_integer_box: &mut bool,
     needs_number_box: &mut bool,
     representations: &mut HashSet<ReprId>,
     signatures: &mut HashSet<SignatureId>,
@@ -156,6 +176,9 @@ fn add_assignments(
                 ..
             } => {
                 add_signature(*signature, signatures, signature_work);
+                *needs_integer_box |= captures
+                    .iter()
+                    .any(|capture| value_types.get(capture) == Some(&ValueShape::Integer));
                 *needs_number_box |= captures
                     .iter()
                     .any(|capture| value_types.get(capture) == Some(&ValueShape::Number));
@@ -175,6 +198,7 @@ fn add_assignments(
             | AssignmentKind::ProductGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
+            | AssignmentKind::ArrayClone { representation, .. }
             | AssignmentKind::ArraySet { representation, .. } => {
                 add_representation(*representation, representations, representation_work)
             }
@@ -187,6 +211,7 @@ fn add_assignments(
                     then_assignments,
                     direct_calls,
                     value_types,
+                    needs_integer_box,
                     needs_number_box,
                     representations,
                     signatures,
@@ -197,6 +222,7 @@ fn add_assignments(
                     else_assignments,
                     direct_calls,
                     value_types,
+                    needs_integer_box,
                     needs_number_box,
                     representations,
                     signatures,
@@ -210,6 +236,8 @@ fn add_assignments(
             | AssignmentKind::Primitive { .. }
             | AssignmentKind::ArrayLen { .. } => {}
             AssignmentKind::ClosureGetCapture { .. } => {
+                *needs_integer_box |=
+                    value_types.get(&assignment.destination) == Some(&ValueShape::Integer);
                 *needs_number_box |=
                     value_types.get(&assignment.destination) == Some(&ValueShape::Number);
             }

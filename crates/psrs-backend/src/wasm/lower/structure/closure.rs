@@ -37,6 +37,7 @@ impl ClosureOps for Structurer<'_> {
             function,
             closure_type,
             capture_array_type,
+            boxed_integer_type,
             boxed_f64_type,
             captures,
             span,
@@ -54,7 +55,16 @@ impl ClosureOps for Structurer<'_> {
         for capture in captures {
             self.load(body, *capture, *span)?;
             match value_type(self.function, *capture) {
-                Some(ValueType::I32 | ValueType::Boolean) => {
+                Some(ValueType::I32) => {
+                    let Some(boxed_integer_type) = boxed_integer_type else {
+                        return Err(wasm_error(
+                            *span,
+                            "MIR closure has no Int capture box layout",
+                        ));
+                    };
+                    body.push(Op::Leaf(Instruction::StructNew(boxed_integer_type.0)));
+                }
+                Some(ValueType::Boolean) => {
                     body.push(Op::Leaf(Instruction::RefI31));
                 }
                 Some(ValueType::F64) => {
@@ -131,6 +141,7 @@ impl ClosureOps for Structurer<'_> {
             closure,
             closure_type,
             capture_array_type,
+            boxed_integer_type,
             boxed_f64_type,
             index,
             span,
@@ -150,7 +161,23 @@ impl ClosureOps for Structurer<'_> {
         body.push(Op::Leaf(Instruction::I32Const(*index as i32)));
         body.push(Op::Leaf(Instruction::ArrayGet(capture_array_type.0)));
         match value_type(self.function, *destination) {
-            Some(ValueType::I32 | ValueType::Boolean) => {
+            Some(ValueType::I32) => {
+                let Some(boxed_integer_type) = boxed_integer_type else {
+                    return Err(wasm_error(
+                        *span,
+                        "MIR closure has no Int capture box layout",
+                    ));
+                };
+                body.push(Op::Leaf(ref_cast(RefType {
+                    nullable: false,
+                    heap: HeapType::Index(*boxed_integer_type),
+                })));
+                body.push(Op::Leaf(Instruction::StructGet {
+                    struct_type_index: boxed_integer_type.0,
+                    field_index: 0,
+                }));
+            }
+            Some(ValueType::Boolean) => {
                 body.push(Op::Leaf(ref_cast(RefType {
                     nullable: true,
                     heap: HeapType::I31,
