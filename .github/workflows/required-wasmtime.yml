@@ -1,0 +1,24 @@
+name: Required Wasmtime execution
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  execution:
+    runs-on: ubuntu-latest
+    env:
+      PSRS_REQUIRE_WASMTIME: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned Wasmtime
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/bytecodealliance/wasmtime/releases/download/v48.0.2/wasmtime-v48.0.2-x86_64-linux.tar.xz \
+            --output "$RUNNER_TEMP/wasmtime.tar.xz"
+          tar -xJf "$RUNNER_TEMP/wasmtime.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/wasmtime-v48.0.2-x86_64-linux" >> "$GITHUB_PATH"
+      - run: wasmtime --version
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace

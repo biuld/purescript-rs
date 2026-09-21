@@ -49,6 +49,10 @@ can execute. The default profile is
   flags, and execution tests run under the pinned `wasmtime`. If a lowering
   needs a disabled capability, compilation fails with a backend diagnostic;
   there is no implicit fallback ABI.
+- CI installs Wasmtime 48.0.2 and sets `PSRS_REQUIRE_WASMTIME=1`. The required
+  driver execution test then fails when the runtime is missing, unusable, or
+  unable to execute a freshly compiled component. Local test runs keep the
+  existing opt-in behavior when that variable is unset.
 
 ## Consequences
 
