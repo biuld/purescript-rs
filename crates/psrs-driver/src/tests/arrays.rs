@@ -100,6 +100,52 @@ fn runs_number_array_update_through_the_gc_array() {
 }
 
 #[test]
+fn preserves_the_original_gc_array_when_updating_a_copy() {
+    let source = "module Main where\nmain = let original = [10, 20] in let updated = arrayUpdate original 0 99 in arrayIndex original 0 + arrayIndex updated 0\n";
+    let artifact = compile_source("Main.purs", source).expect("lowering a pure array update");
+    assert!(artifact.wat.contains("array.copy"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(109));
+}
+
+#[test]
+fn preserves_aliases_when_updating_a_gc_array() {
+    let source = "module Main where\nmain = let original = [10, 20] in let alias = original in let updated = arrayUpdate original 0 99 in arrayIndex alias 0 + arrayIndex updated 0\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(109));
+}
+
+#[test]
+fn keeps_independent_gc_array_updates_independent() {
+    let source = "module Main where\nmain = let original = [10, 20] in let first = arrayUpdate original 0 99 in let second = arrayUpdate original 1 77 in arrayIndex first 0 + arrayIndex second 1\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(176));
+}
+
+#[test]
+fn updates_an_array_of_non_null_references() {
+    let source = "module Main where\nmain = let original = [{ answer: 10 }] in let updated = arrayUpdate original 0 { answer: 42 } in case arrayIndex updated 0 of\n  { answer: result } -> result\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("array cloning must support non-null reference elements");
+    assert!(artifact.wat.contains("array.new_default"));
+    assert!(artifact.wat.contains("ref.cast"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_an_array_of_records_through_the_gc_array() {
     let source = "module Main where\nmain = case arrayIndex [{ answer: 42 }] 0 of\n  { answer: result } -> result\n";
     let artifact = compile_source("Main.purs", source).expect("lowering an array of records");

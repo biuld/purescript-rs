@@ -176,6 +176,15 @@ impl FunctionLowerer<'_> {
                 value: remap(*value, mapping),
                 index: remap(*index, mapping),
             },
+            AssignmentKind::ArrayClone {
+                destination,
+                representation,
+                value,
+            } => AssignmentKind::ArrayClone {
+                destination: remap(*destination, mapping),
+                representation: *representation,
+                value: remap(*value, mapping),
+            },
             AssignmentKind::ArraySet {
                 destination,
                 representation,

@@ -51,6 +51,48 @@ fn lowers_enum_case_to_tag_comparisons() {
 }
 
 #[test]
+fn preserves_an_earlier_wildcard_before_a_constructor_pattern() {
+    let source = "module Main where\ndata T = A | B\nmain = case A of\n  _ -> 10\n  A -> 20\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(10));
+}
+
+#[test]
+fn preserves_an_earlier_variable_before_a_constructor_pattern() {
+    let source = "module Main where\ndata T = A | B\nmain = case A of\n  value -> 10\n  A -> 20\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(10));
+}
+
+#[test]
+fn preserves_the_first_of_duplicate_constructor_patterns() {
+    let source =
+        "module Main where\ndata T = A | B\nmain = case A of\n  A -> 10\n  A -> 20\n  _ -> 30\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(10));
+}
+
+#[test]
+fn keeps_a_constructor_before_an_earlier_matching_wildcard() {
+    let source =
+        "module Main where\ndata T = A | B\nmain = case B of\n  A -> 10\n  _ -> 20\n  B -> 30\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(20));
+}
+
+#[test]
 fn compiles_a_non_parameterized_field_constructor_case() {
     let source = "\
 module Main where
@@ -169,7 +211,17 @@ main = unAge (Age 42)
         psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", source).unwrap())
             .unwrap();
     assert!(
-        stages.cc.representations.representations.is_empty(),
+        stages
+            .cc
+            .representations
+            .representations
+            .iter()
+            .all(|representation| matches!(
+                representation,
+                psrs_backend::cc::Representation::Box {
+                    value: psrs_backend::cc::ValueShape::Integer
+                }
+            )),
         "newtypes must not allocate target representations"
     );
     assert!(

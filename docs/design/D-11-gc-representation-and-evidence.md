@@ -56,7 +56,9 @@ all nullary is an immediate `i32` tag and allocates nothing.
 Captures are stored in one uniform `eqref` array so a closure type is
 independent of its capture types:
 
-- an `i32`/`Boolean` capture is boxed as an `i31` value;
+- a `Boolean` capture is boxed as an `i31` value;
+- an `Int` capture is boxed in the `Box { Integer }` struct so all signed
+  32-bit values round-trip without truncation;
 - an `f64` capture is boxed in the `Box { Number }` struct;
 - a reference capture is stored as-is; and
 - an erased capture is already `eqref`.

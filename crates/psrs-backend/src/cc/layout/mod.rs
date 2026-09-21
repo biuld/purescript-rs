@@ -5,9 +5,11 @@ use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod captures;
 mod functions;
 mod scalar;
 
+use captures::module_has_integer_capture;
 pub(crate) use functions::function_signature;
 pub(super) use scalar::{declaration_shape, scalar_type};
 
@@ -104,9 +106,14 @@ pub(super) fn type_layout(
     let mut representations = RepresentationTable::default();
 
     let boxed_integer_type = if module
-        .declarations
+        .types
         .iter()
-        .any(|declaration| depends_on_type_variable(module, declaration.ty))
+        .any(|ty| matches!(ty, Type::Variable(_)))
+        || module
+            .declarations
+            .iter()
+            .any(|declaration| depends_on_type_variable(module, declaration.ty))
+        || module_has_integer_capture(module)
         || module
             .constructors
             .iter()

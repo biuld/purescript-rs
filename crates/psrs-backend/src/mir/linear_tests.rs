@@ -5,6 +5,8 @@ use crate::types::ValueId;
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 
+mod array_clone;
+
 fn span() -> TextRange {
     TextRange::new(0, 1)
 }
@@ -14,7 +16,10 @@ fn wasi() -> crate::abi::WasiRegistry {
 }
 
 fn run_linear(module: CcModule, expected: &str) {
-    let target = crate::TargetCapabilities::wasm_mvp();
+    let target = crate::TargetCapabilities {
+        bulk_memory: true,
+        ..crate::TargetCapabilities::wasm_mvp()
+    };
     let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
         .expect("the CC module should lower without GC");
     let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut wasi(), target)

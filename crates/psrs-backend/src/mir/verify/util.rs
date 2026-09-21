@@ -26,6 +26,15 @@ pub(super) fn storage_value_type(storage: &StorageType) -> Option<ValueType> {
     })
 }
 
+pub(super) fn value_type_assignable(actual: ValueType, expected: ValueType) -> bool {
+    match (actual, expected) {
+        (ValueType::Ref(actual), ValueType::Ref(expected)) => {
+            actual.heap == expected.heap && (expected.nullable || !actual.nullable)
+        }
+        _ => actual == expected,
+    }
+}
+
 pub(super) fn value_type(function: &Function, value: ValueId) -> Option<ValueType> {
     function
         .values

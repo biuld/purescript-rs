@@ -52,6 +52,23 @@ main = let x = 40 in apply (\y -> x + y) 2
 }
 
 #[test]
+fn preserves_full_width_ints_in_capturing_lambdas() {
+    let source = r#"module Main where
+apply :: (Int -> Int) -> Int -> Int
+apply f x = f x
+main = let captured = 1073741824
+       in apply (\ignored -> if captured == 1073741824 then 42 else 1) 0
+"#;
+    let artifact = compile_source("Main.purs", source).expect("lowering a full-width Int capture");
+    assert!(artifact.wat.contains("struct.new"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_a_record_capturing_lambda_through_a_closure() {
     let source = r#"module Main where
 apply :: (Int -> Int) -> Int -> Int
