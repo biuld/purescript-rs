@@ -119,9 +119,9 @@ the generic Wasm representation defined by
 [D-08](D-08-generic-wasm-representation.md). Unsupported generic aggregates,
 partial applications, and type-class evidence remain diagnostics. Function values lower to GC
 structs containing a code reference and an immutable `eqref` capture array;
-closure calls extract the typed code reference and lower to `call_ref`. Scalar
-captures are boxed as `i31` values, while reference captures retain their GC
-reference representation.
+closure calls extract the typed code reference and lower to `call_ref`. Boolean
+captures are boxed as `i31` values, Int captures use a full-width one-field GC
+box, and reference captures retain their GC reference representation.
 Compatible source WIT imports are lowered through the generic canonical-ABI
 adapter; mismatched source signatures, non-byte lists, and unsupported
 aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
