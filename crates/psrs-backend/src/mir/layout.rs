@@ -19,6 +19,7 @@ pub(super) struct PlannedLayout {
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
     capture_array_index: Option<DefinedTypeId>,
+    boxed_integer_index: Option<DefinedTypeId>,
     boxed_number_index: Option<DefinedTypeId>,
 }
 
@@ -123,6 +124,17 @@ impl PlannedLayout {
                     table.representation(*id),
                     Some(Representation::Box {
                         value: CcValueShape::Number
+                    })
+                )
+            })
+            .map(|index| DefinedTypeId(index as u32));
+        let boxed_integer_index = repr_ids
+            .iter()
+            .position(|id| {
+                matches!(
+                    table.representation(*id),
+                    Some(Representation::Box {
+                        value: CcValueShape::Integer
                     })
                 )
             })
@@ -233,6 +245,7 @@ impl PlannedLayout {
             signature_indices,
             closure_index,
             capture_array_index,
+            boxed_integer_index,
             boxed_number_index,
         })
     }
@@ -257,6 +270,10 @@ impl PlannedLayout {
 
     pub(super) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
         self.boxed_number_index
+    }
+
+    pub(super) fn boxed_integer_index(&self) -> Option<DefinedTypeId> {
+        self.boxed_integer_index
     }
 
     pub(super) fn value_type(&self, value: &CcValueShape) -> Result<ValueType, LayoutError> {
@@ -348,6 +365,7 @@ pub(super) enum LayoutError {
     UnknownSignature,
     UnknownField,
     UnsupportedLinearOperation,
+    MissingIntegerBox,
     MissingNumberBox,
     UnknownClosureLayout,
     UnsupportedGcTarget,
