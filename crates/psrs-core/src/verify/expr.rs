@@ -1,17 +1,17 @@
 use super::{
     Locals, array_element, compatible, error, primitive_types, record_field, restore_local,
-    type_id_for, verify_pattern, verify_type,
+    type_id_for, user_type_constructor, verify_pattern, verify_type,
 };
 use crate::{Expr, ExprKind, Module, Type, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 pub(super) fn verify_expr(
     expression: &Expr,
     expected: Option<TypeId>,
     module: &Module,
     owner: ModuleId,
-    globals: &HashSet<SymbolId>,
+    globals: &HashMap<SymbolId, Option<TypeId>>,
     locals: &mut Locals,
     errors: &mut Vec<VerifyError>,
 ) {
@@ -28,7 +28,7 @@ pub(super) fn verify_expr(
 struct Context<'a> {
     module: &'a Module,
     owner: ModuleId,
-    globals: &'a HashSet<SymbolId>,
+    globals: &'a HashMap<SymbolId, Option<TypeId>>,
     locals: &'a mut Locals,
     errors: &'a mut Vec<VerifyError>,
 }
@@ -71,15 +71,22 @@ impl Context<'_> {
                     self.errors,
                 );
             }
-            ExprKind::Global(id) => {
-                if !self.globals.contains(id) {
-                    self.errors.push(error(
-                        self.owner,
-                        expression.span,
-                        "global reference is not declared",
-                    ));
-                }
-            }
+            ExprKind::Global(id) => match self.globals.get(id) {
+                Some(Some(global_type)) => compatible(
+                    *global_type,
+                    expression.ty,
+                    self.module,
+                    self.owner,
+                    expression.span,
+                    self.errors,
+                ),
+                Some(None) => {}
+                None => self.errors.push(error(
+                    self.owner,
+                    expression.span,
+                    "global reference is not declared",
+                )),
+            },
             ExprKind::Integer(_) => self.shape(expression, Type::I32),
             ExprKind::Number(_) => self.shape(expression, Type::F64),
             ExprKind::Boolean(_) => self.shape(expression, Type::Boolean),
@@ -240,6 +247,13 @@ impl Context<'_> {
                         self.owner,
                         expression.span,
                         "constructor application has the wrong field count",
+                    ));
+                }
+                if user_type_constructor(expression.ty, self.module) != Some(constructor.type_id) {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "constructor result type does not match its parent type",
                     ));
                 }
                 for (argument, field_type) in arguments.iter().zip(constructor.field_types) {

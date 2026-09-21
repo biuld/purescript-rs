@@ -147,6 +147,36 @@ fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
 }
 
 #[test]
+fn verifier_rejects_a_global_use_with_the_wrong_annotation() {
+    let mut module = single_declaration(
+        vec![Type::I32, Type::Boolean],
+        TypeId(1),
+        Expr {
+            kind: ExprKind::Global(SymbolId::new(ModuleId(0), 1)),
+            ty: TypeId(1),
+            span: TextRange::new(7, 13),
+        },
+    );
+    module.declarations.push(Declaration {
+        symbol: SymbolId::new(ModuleId(0), 1),
+        name: "answer".into(),
+        name_span: TextRange::new(14, 20),
+        quantified: Vec::new(),
+        ty: TypeId(0),
+        value: Expr {
+            kind: ExprKind::Integer(42),
+            ty: TypeId(0),
+            span: TextRange::new(23, 25),
+        },
+        span: TextRange::new(14, 25),
+    });
+    assert!(has_message(
+        &module,
+        "Core expression type is inconsistent with its context"
+    ));
+}
+
+#[test]
 fn verifier_rejects_non_functions_and_wrong_application_arguments() {
     let non_function = single_declaration(
         vec![Type::I32, Type::Boolean],
@@ -301,5 +331,37 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
     assert!(has_message(
         &invalid_array,
         "Core expression type is inconsistent with its context"
+    ));
+}
+
+#[test]
+fn verifier_rejects_a_constructor_annotated_as_an_unrelated_type() {
+    let parent = psrs_hir::TypeId::new(ModuleId(0), 0);
+    let mut module = single_declaration(
+        vec![Type::I32, Type::Constructor(TypeConstructor::User(parent))],
+        TypeId(0),
+        Expr {
+            kind: ExprKind::Constructor {
+                symbol: SymbolId::new(ModuleId(0), 1),
+                arguments: vec![Expr {
+                    kind: ExprKind::Integer(1),
+                    ty: TypeId(0),
+                    span: TextRange::new(5, 6),
+                }],
+            },
+            ty: TypeId(0),
+            span: TextRange::new(0, 7),
+        },
+    );
+    module.constructors.push(ConstructorInfo {
+        symbol: SymbolId::new(ModuleId(0), 1),
+        type_id: parent,
+        tag: 0,
+        field_count: 1,
+        field_types: vec![TypeId(0)],
+    });
+    assert!(has_message(
+        &module,
+        "constructor result type does not match its parent type"
     ));
 }

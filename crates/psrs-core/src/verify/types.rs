@@ -1,5 +1,6 @@
 use super::Locals;
-use crate::{Module, Primitive, Type, TypeId, VerifyError};
+use crate::{Module, Primitive, Type, TypeConstructor, TypeId, VerifyError};
+use psrs_hir::TypeId as HirTypeId;
 use psrs_hir::{LocalId, ModuleId};
 use psrs_span::TextRange;
 use std::collections::HashSet;
@@ -61,6 +62,16 @@ pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<T
         .iter()
         .find(|(field, _)| field == label)
         .map(|(_, id)| *id)
+}
+
+pub(super) fn user_type_constructor(mut id: TypeId, module: &Module) -> Option<HirTypeId> {
+    loop {
+        match module.types.get(id.0 as usize)? {
+            Type::Application(function, _) => id = *function,
+            Type::Constructor(TypeConstructor::User(id)) => return Some(*id),
+            _ => return None,
+        }
+    }
 }
 
 pub(super) fn compatible(

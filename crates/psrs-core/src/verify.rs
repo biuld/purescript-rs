@@ -1,7 +1,6 @@
 use crate::{Module, Type, TypeId, VerifyError};
 use psrs_hir::LocalId;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 mod expr;
 mod patterns;
@@ -11,7 +10,7 @@ use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
     array_element, compatible, error, primitive_types, record_field, restore_local, type_id_for,
-    verify_type,
+    user_type_constructor, verify_type,
 };
 
 type Locals = HashMap<LocalId, TypeId>;
@@ -20,9 +19,14 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
     let globals = module
         .declarations
         .iter()
-        .map(|declaration| declaration.symbol)
-        .chain(module.externals.iter().map(|external| external.symbol))
-        .collect::<HashSet<_>>();
+        .map(|declaration| (declaration.symbol, Some(declaration.ty)))
+        .chain(
+            module
+                .externals
+                .iter()
+                .map(|external| (external.symbol, None)),
+        )
+        .collect::<HashMap<_, _>>();
     let mut errors = Vec::new();
     for (index, ty) in module.types.iter().enumerate() {
         let id = TypeId(index as u32);

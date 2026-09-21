@@ -1,4 +1,4 @@
-use super::{Locals, compatible, error, record_field, verify_type};
+use super::{Locals, compatible, error, record_field, user_type_constructor, verify_type};
 use crate::{Module, Pattern, PatternKind, TypeId, VerifyError};
 use psrs_hir::ModuleId;
 
@@ -43,6 +43,13 @@ pub(super) fn verify_pattern(
                     owner,
                     pattern.span,
                     "pattern constructor has the wrong field count",
+                ));
+            }
+            if user_type_constructor(pattern.ty, module) != Some(constructor.type_id) {
+                errors.push(error(
+                    owner,
+                    pattern.span,
+                    "pattern constructor type does not match its parent type",
                 ));
             }
             for (argument, field_type) in arguments.iter().zip(&constructor.field_types) {
