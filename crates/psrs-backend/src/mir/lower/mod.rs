@@ -254,6 +254,23 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::ArrayClone {
+                    destination,
+                    representation,
+                    value,
+                } => self.append_instruction(
+                    current,
+                    Instruction::ArrayClone {
+                        destination: *destination,
+                        type_index: self
+                            .layout
+                            .repr_index(*representation)
+                            .map_err(|error| layout_error(assignment.span, error))?,
+                        value: *value,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
                 AssignmentKind::ArraySet {
                     representation,
                     value,

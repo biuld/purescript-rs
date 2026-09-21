@@ -125,6 +125,11 @@ pub enum AssignmentKind {
         value: ValueId,
         index: ValueId,
     },
+    ArrayClone {
+        destination: ValueId,
+        representation: ReprId,
+        value: ValueId,
+    },
     ArraySet {
         destination: ValueId,
         representation: ReprId,

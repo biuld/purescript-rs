@@ -145,6 +145,12 @@ pub enum Instruction {
         index: ValueId,
         span: TextRange,
     },
+    ArrayClone {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        value: ValueId,
+        span: TextRange,
+    },
     ArraySet {
         type_index: DefinedTypeId,
         value: ValueId,
@@ -178,6 +184,19 @@ pub enum Instruction {
     LinearAlloc {
         destination: ValueId,
         bytes: u32,
+        span: TextRange,
+    },
+    LinearAllocDynamic {
+        destination: ValueId,
+        bytes: ValueId,
+        span: TextRange,
+    },
+    LinearMemoryCopy {
+        destination: ValueId,
+        source: ValueId,
+        bytes: ValueId,
+        destination_offset: u32,
+        source_offset: u32,
         span: TextRange,
     },
     /// Load a scalar from a linear-memory payload. References are represented
@@ -263,9 +282,11 @@ impl Instruction {
             | Self::StructGet { destination, .. }
             | Self::ArrayNew { destination, .. }
             | Self::ArrayGet { destination, .. }
+            | Self::ArrayClone { destination, .. }
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
             | Self::LinearAlloc { destination, .. }
+            | Self::LinearAllocDynamic { destination, .. }
             | Self::LinearLoad { destination, .. }
             | Self::LinearClosureNew { destination, .. }
             | Self::LinearClosureCall { destination, .. }
@@ -276,6 +297,7 @@ impl Instruction {
             | Self::ArraySet { .. }
             | Self::Store { .. }
             | Self::LinearStore { .. }
+            | Self::LinearMemoryCopy { .. }
             | Self::CallVoid { .. } => None,
         }
     }
@@ -323,6 +345,7 @@ impl Instruction {
                 value, new_value, ..
             } => vec![*value, *new_value],
             Self::ArrayGet { value, index, .. } => vec![*value, *index],
+            Self::ArrayClone { value, .. } => vec![*value],
             Self::ArraySet {
                 value,
                 index,
@@ -332,6 +355,13 @@ impl Instruction {
             Self::Load { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
             Self::LinearAlloc { .. } => Vec::new(),
+            Self::LinearAllocDynamic { bytes, .. } => vec![*bytes],
+            Self::LinearMemoryCopy {
+                destination,
+                source,
+                bytes,
+                ..
+            } => vec![*destination, *source, *bytes],
             Self::LinearLoad { address, .. } => vec![*address],
             Self::LinearStore { address, value, .. } => vec![*address, *value],
             Self::LinearClosureNew { captures, .. } => captures.clone(),
@@ -371,11 +401,14 @@ impl Instruction {
             | Self::StructSet { span, .. }
             | Self::ArrayNew { span, .. }
             | Self::ArrayGet { span, .. }
+            | Self::ArrayClone { span, .. }
             | Self::ArraySet { span, .. }
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
             | Self::Store { span, .. }
             | Self::LinearAlloc { span, .. }
+            | Self::LinearAllocDynamic { span, .. }
+            | Self::LinearMemoryCopy { span, .. }
             | Self::LinearLoad { span, .. }
             | Self::LinearStore { span, .. }
             | Self::LinearClosureNew { span, .. }

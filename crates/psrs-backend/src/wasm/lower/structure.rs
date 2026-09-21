@@ -5,7 +5,7 @@ use crate::types::{ValueId, ValueType};
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
 use ops::{linear_load, linear_store, memory, primitive, ref_cast, ref_test};
-
+mod arrays;
 mod closure;
 mod helpers;
 mod ops;
@@ -17,7 +17,6 @@ use psrs_hir::SymbolId;
 use region::RegionOps;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::Instruction;
-
 pub(super) struct Structurer<'a> {
     pub(super) function: &'a MirFunction,
     pub(super) blocks: HashMap<BlockId, &'a mir::BasicBlock>,
@@ -26,7 +25,6 @@ pub(super) struct Structurer<'a> {
     pub(super) string_offsets: &'a HashMap<String, u32>,
     pub(super) linear_allocator: Option<FunctionIndex>,
 }
-
 impl Structurer<'_> {
     pub(super) fn emit_region(
         &self,
@@ -38,7 +36,6 @@ impl Structurer<'_> {
         RegionOps::emit_region(self, current, stop, visited, body)
     }
 }
-
 impl Structurer<'_> {
     fn emit_block_instructions(
         &self,
@@ -280,49 +277,32 @@ impl Structurer<'_> {
                     type_index,
                     elements,
                     span,
-                } => {
-                    for element in elements {
-                        self.load(body, *element, *span)?;
-                    }
-                    body.push(Op::Leaf(Instruction::ArrayNewFixed {
-                        array_type_index: type_index.0,
-                        array_size: elements.len() as u32,
-                    }));
-                    self.store(body, *destination, *span)?;
-                }
+                } => self.emit_array_new(body, *destination, *type_index, elements, *span)?,
                 MirInstruction::ArrayGet {
                     destination,
                     type_index,
                     value,
                     index,
                     span,
-                } => {
-                    self.load(body, *value, *span)?;
-                    self.load(body, *index, *span)?;
-                    body.push(Op::Leaf(Instruction::ArrayGet(type_index.0)));
-                    self.store(body, *destination, *span)?;
-                }
+                } => self.emit_array_get(body, *destination, *type_index, *value, *index, *span)?,
+                MirInstruction::ArrayClone {
+                    destination,
+                    type_index,
+                    value,
+                    span,
+                } => self.emit_array_clone(body, *destination, *type_index, *value, *span)?,
                 MirInstruction::ArraySet {
                     type_index,
                     value,
                     index,
                     new_value,
                     span,
-                } => {
-                    self.load(body, *value, *span)?;
-                    self.load(body, *index, *span)?;
-                    self.load(body, *new_value, *span)?;
-                    body.push(Op::Leaf(Instruction::ArraySet(type_index.0)));
-                }
+                } => self.emit_array_set(body, *type_index, *value, *index, *new_value, *span)?,
                 MirInstruction::ArrayLen {
                     destination,
                     value,
                     span,
-                } => {
-                    self.load(body, *value, *span)?;
-                    body.push(Op::Leaf(Instruction::ArrayLen));
-                    self.store(body, *destination, *span)?;
-                }
+                } => self.emit_array_len(body, *destination, *value, *span)?,
                 MirInstruction::Load {
                     destination,
                     address,
@@ -360,6 +340,27 @@ impl Structurer<'_> {
                     body.push(Op::Leaf(Instruction::Call(allocator.0)));
                     self.store(body, *destination, *span)?;
                 }
+                MirInstruction::LinearAllocDynamic {
+                    destination,
+                    bytes,
+                    span,
+                } => self.emit_linear_alloc_dynamic(body, *destination, *bytes, *span)?,
+                MirInstruction::LinearMemoryCopy {
+                    destination,
+                    source,
+                    bytes,
+                    destination_offset,
+                    source_offset,
+                    span,
+                } => self.emit_linear_memory_copy(
+                    body,
+                    *destination,
+                    *source,
+                    *bytes,
+                    *destination_offset,
+                    *source_offset,
+                    *span,
+                )?,
                 MirInstruction::LinearLoad {
                     destination,
                     address,
