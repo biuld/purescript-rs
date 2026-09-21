@@ -3,6 +3,29 @@
 These instructions apply to the whole repository. Keep changes aligned with the
 feature and design documents under `docs/`.
 
+## Workflow
+
+### Feature development
+
+- Create a dedicated branch before making changes.
+- Push the branch and open a pull request with the `gh` CLI.
+- Keep the complete documentation flow in the pull request: a feature document
+  (`docs/feature/`), a design document (`docs/design/`), and any decision
+  records (`docs/decision/`) the change requires.
+
+### Code review
+
+- For complex problems, especially anything that affects the
+  feature/design/decision flow or documented behavior, file an issue with
+  `gh issue create`.
+- Fix simple problems directly instead of filing an issue.
+
+### Fixing code
+
+- List open issues with `gh issue list`.
+- Create an isolated worktree for the fix with `git worktree add`.
+- Fix the issue in that worktree and open a pull request with `gh pr create`.
+
 ## Documentation
 
 - Write all documentation in English.
