@@ -123,6 +123,10 @@ representation), with the concrete GC layouts and execution-evidence matrix in
 in [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md).
 
+For a guided, interactive overview of P0 through P11, use the React application
+in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching forms as curated
+and links to CLI commands for real compiler output.
+
 Decision records:
 
 - [DEC-01](docs/decision/DEC-01-distinct-ir-boundaries.md) — distinct IR
