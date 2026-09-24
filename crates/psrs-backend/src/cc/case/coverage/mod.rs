@@ -22,7 +22,7 @@ impl CoverageReport {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Pat {
     Any(Option<TypeId>),
     Constructor {
@@ -61,6 +61,7 @@ struct Shape {
 }
 
 type Matrix = Vec<Vec<Pat>>;
+type AnalysisState = (Matrix, Vec<Pat>);
 
 pub(super) fn analyze(
     module: &Module,
@@ -113,6 +114,36 @@ fn convert(pattern: &Pattern) -> Pat {
 /// Returns a value described by `query` that does not match any matrix row.
 /// `None` means that every value described by the query is already covered.
 fn useful(module: &Module, matrix: &Matrix, query: &[Pat]) -> Option<Vec<Pat>> {
+    useful_with_active(module, matrix, query, &mut std::collections::HashSet::new())
+}
+
+fn useful_with_active(
+    module: &Module,
+    matrix: &Matrix,
+    query: &[Pat],
+    active: &mut std::collections::HashSet<AnalysisState>,
+) -> Option<Vec<Pat>> {
+    if matrix
+        .iter()
+        .any(|row| row.len() == query.len() && row.iter().all(Pat::is_any))
+    {
+        return None;
+    }
+    let state = (matrix.clone(), query.to_vec());
+    if !active.insert(state.clone()) {
+        return None;
+    }
+    let result = useful_inner(module, matrix, query, active);
+    active.remove(&state);
+    result
+}
+
+fn useful_inner(
+    module: &Module,
+    matrix: &Matrix,
+    query: &[Pat],
+    active: &mut std::collections::HashSet<AnalysisState>,
+) -> Option<Vec<Pat>> {
     let Some(head) = query.first() else {
         return matrix.is_empty().then(Vec::new);
     };
@@ -127,7 +158,9 @@ fn useful(module: &Module, matrix: &Matrix, query: &[Pat]) -> Option<Vec<Pat>> {
                 let query_head = expanded_any(&shape, matrix, query);
                 let mut specialized_query = query_head;
                 specialized_query.extend_from_slice(tail);
-                if let Some(mut witness) = useful(module, &specialized, &specialized_query) {
+                if let Some(mut witness) =
+                    useful_with_active(module, &specialized, &specialized_query, active)
+                {
                     let arity = shape.fields.len();
                     let rest = witness.split_off(arity);
                     let constructor_arguments = witness;
@@ -138,7 +171,7 @@ fn useful(module: &Module, matrix: &Matrix, query: &[Pat]) -> Option<Vec<Pat>> {
             return None;
         }
         let default = default_matrix(matrix);
-        return useful(module, &default, tail)
+        return useful_with_active(module, &default, tail, active)
             .map(|witness| std::iter::once(Pat::Any(ty)).chain(witness).collect());
     }
 
@@ -151,7 +184,7 @@ fn useful(module: &Module, matrix: &Matrix, query: &[Pat]) -> Option<Vec<Pat>> {
     let specialized = specialize(matrix, &shape);
     let mut specialized_query = expand(head, &shape, matrix, query);
     specialized_query.extend_from_slice(tail);
-    useful(module, &specialized, &specialized_query).map(|mut witness| {
+    useful_with_active(module, &specialized, &specialized_query, active).map(|mut witness| {
         let arity = shape.fields.len();
         let rest = witness.split_off(arity);
         let reconstructed = reconstruct(&shape, witness);

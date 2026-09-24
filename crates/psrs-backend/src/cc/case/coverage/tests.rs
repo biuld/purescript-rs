@@ -193,3 +193,42 @@ fn record_products_are_covered_fieldwise_and_duplicate_rows_are_redundant() {
     );
     assert_eq!(redundant.redundant_branches, vec![1]);
 }
+
+#[test]
+fn recursive_adt_wildcard_coverage_terminates() {
+    let module = module(
+        vec![
+            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+            Type::I32,
+        ],
+        vec![
+            constructor(0, "Cons", 0, vec![TypeId(0)]),
+            constructor(1, "Nil", 0, Vec::new()),
+        ],
+    );
+    let report = analyze(&module, TypeId(0), &[branch(pat(0, PatternKind::Wildcard))]);
+    assert!(report.exhaustive, "{report:?}");
+}
+
+#[test]
+fn recursive_adt_analysis_finds_a_finite_uncovered_witness() {
+    let module = module(
+        vec![
+            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+            Type::I32,
+        ],
+        vec![
+            constructor(0, "Cons", 0, vec![TypeId(0)]),
+            constructor(1, "Nil", 0, Vec::new()),
+        ],
+    );
+    let cons_nil = branch(pat(
+        0,
+        PatternKind::Constructor {
+            symbol: symbol(0),
+            arguments: vec![nullary(1, 0)],
+        },
+    ));
+    let report = analyze(&module, TypeId(0), &[cons_nil]);
+    assert_eq!(report.witness.as_deref(), Some("Cons (Cons Nil)"));
+}

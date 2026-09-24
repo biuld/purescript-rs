@@ -38,6 +38,17 @@ main = case Wrap First of
 }
 
 #[test]
+fn compiles_a_wildcard_case_over_a_recursive_adt() {
+    let source = "\
+module Main where
+data List = Cons List | Nil
+main = case Cons Nil of
+  _ -> 42
+";
+    compile_source("Main.purs", source).expect("wildcard coverage over a recursive ADT");
+}
+
+#[test]
 fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(ENUM_SOURCE) else {
         eprintln!("skipping: wasmtime is not installed");
