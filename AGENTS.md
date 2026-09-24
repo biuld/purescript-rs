@@ -27,12 +27,16 @@ uncommitted work.
   `README.md`.
 - Put user-facing, implementation-independent behavior in
   `docs/feature/F-XX-<slug>.md`. Use stable, zero-padded IDs such as `F-01`.
-- Put implementation details in `docs/design/`. Frontend, tooling, and
-  cross-cutting documents use `D-XX-<slug>.md` with stable zero-padded IDs such
-  as `D-01`. Backend designs live under `docs/design/backend/`: the cross-cutting
+- Put implementation details in `docs/design/`. Root-level overview, tooling,
+  roadmap, and cross-cutting documents use `D-XX-<slug>.md` with stable
+  zero-padded IDs such as `D-01`. Backend designs live under `docs/design/backend/`: the cross-cutting
   contract at `backend/00-<slug>.md`, functional topics under `backend/fp/<slug>.md`,
-  and Wasm/WASI topics under `backend/wasm/<slug>.md`, each file one
-  self-contained topic. Every design document must identify the feature it
+  optimization topics under `backend/opt/<slug>.md`, and Wasm/WASI topics under
+  `backend/wasm/<slug>.md`. Frontend designs follow the same pattern under
+  `docs/design/frontend/`: `00-<slug>.md` for the cross-cutting contract,
+  and focused topics under `syntax/`, `semantics/`, and `type-system/` with
+  unnumbered slug filenames. Each topic file is self-contained. Every design
+  document must identify the feature it
   implements, for example `D-01` for `F-01`.
 - Use `docs/decision/` only for major, durable decisions. Do not create a
   decision record for routine implementation choices. Give decision records
@@ -46,9 +50,10 @@ uncommitted work.
   in an ordinary fenced block. Keep formal model, grammar, and IR fragments and
   pseudocode as ordinary fenced code blocks either way.
 
-### Backend design document template
+### Frontend and backend topic design document template
 
-Backend documents under `docs/design/backend/` follow a fixed chapter order so
+Topic documents under `docs/design/frontend/` and `docs/design/backend/`
+follow a fixed chapter order so
 each one both specifies an implementation and teaches its topic. Short documents
 may merge sections, but keep the order and the names.
 

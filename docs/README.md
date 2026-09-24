@@ -18,24 +18,11 @@ Project documentation is written in English and grouped by purpose:
 
 Decision records use the `DEC-XX` prefix. See [decision policy](decision/README.md).
 
-## The backend has two concerns
+## Compiler design
 
-The backend does exactly two jobs, and every backend document serves one of
-them. The backend design lives under [`design/backend/`](design/backend/README.md).
-
-1. **Functional semantics** (`design/backend/fp/`). Represent and execute a
-   typed functional core: functions and closures, algebraic data types and
-   pattern matching, records and arrays, polymorphism and its erasure, recursion
-   and control flow, and later type classes and effects. The theoretical
-   backbone is the standard functional pipeline — System F(C) to administrative
-   normal form, closure conversion, and an SSA/CFG low IR.
-2. **The Wasm/WASI target** (`design/backend/wasm/`). Lower those representations
-   to Wasm GC and the WASI 0.2 Component Model: encoding and structuring, the
-   capability profile, the canonical ABI and WIT, the linear-memory boundary,
-   and the WASI platform library.
-
-The cross-cutting contract is
-[Backend IR boundaries](design/backend/00-ir-boundaries.md);
-[D-01](design/D-01-frontend-and-ir-boundaries.md) defines the pass pipeline and
-[DEC-04](decision/DEC-04-official-test-suite-roadmap.md) tracks compatibility.
-Control-flow lowering is the foundation the functional concern builds on.
+The [frontend design](design/frontend/README.md) groups syntax, semantic
+elaboration, and the [PureScript type system](design/frontend/type-system/README.md).
+The [backend design](design/backend/README.md) groups functional lowering,
+optimization, and the Wasm/WASI target. Their shared pass pipeline is
+[D-01](design/D-01-frontend-and-ir-boundaries.md); [DEC-04](decision/DEC-04-official-test-suite-roadmap.md)
+tracks compatibility with the official compiler.

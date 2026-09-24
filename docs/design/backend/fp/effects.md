@@ -2,7 +2,7 @@
 
 **Feature:** F-02  
 **Status:** Draft (design)  
-**Prerequisites:** [functional core](functional-core.md), [CC IR](cc-ir.md), and
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md), and
 [type classes and dictionaries](type-classes-and-dictionaries.md); monads,
 closures, and the distinction between a value and a computation. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -45,28 +45,29 @@ intended generalization, and it should remain contained in the functional core
 and the platform layer.
 
 PureScript's official `Effect a` is close to a thunk: a value that performs work
-when supplied with a token. In this repository the embedded `Prelude` defines
-`type Effect a = Boolean -> a`, and the type checker elaborates `Effect a` to
-that function type. That spelling is a placeholder, not the final
-representation; the semantics it encodes (a computation value that runs only
-when applied to a token) is the contract this document fixes.
+when supplied with a token. The design resolves `Effect` as an abstract imported type and selects its
+token-taking runtime representation only after ordinary source type checking.
+This keeps construction inert while preventing source code from forging or
+running an effect through the representation.
 
 ## Model
 
 ### Surface and semantics
 
-The platform-independent `Prelude` owns the effect vocabulary:
+The effect library owns the source vocabulary. Its visible signatures include:
 
 ```purescript
-type Effect a = Boolean -> a      -- current placeholder spelling; see Design
+foreign import data Effect :: Type -> Type
 
 pure :: forall a. a -> Effect a
 bind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
 runEffect :: forall a. Effect a -> a
 ```
 
-Semantically, an `Effect a` is a computation value and the token is its
-execution context:
+`runEffect` is provided only to the selected command entry as specified by
+[F-02](../../../feature/F-02-portable-programs.md). It has an ordinary function
+type; entry authorization is a driver rule, not an inference rule. Semantically,
+the token is its execution context:
 
 ```text
 Effect a         ≈ Token -> a            (a computation value)
@@ -77,29 +78,37 @@ runEffect m       = m token               (token from the runtime)
 
 - **Construction is inert.** Building an `Effect` value allocates a closure and
   performs no operation; merely storing or passing it does not run it.
-- **Running is explicit.** Only `runEffect` supplies the token; each explicit
-  `runEffect` performs the computation. A stored effect run twice runs twice.
+- **Running is explicit.** The trusted `runEffect` binding supplies the token.
+  Only the selected command entry can reference it; an effect invoked twice
+  there runs twice.
 - **Sequencing is left to right.** `bind` runs the first computation, then feeds
   its result to the continuation with the same token, so operations keep source
   order.
-- **The token is opaque.** It is internal to the runtime and the effect
-  machinery; it is not part of the source-visible API, even though the current
-  spelling names a `Boolean`.
+- **The token is opaque.** Only trusted effect-library definitions and the
+  command entry can construct or consume it. Source programs cannot use a
+  Boolean or an ordinary function as an `Effect`, or call an effect without
+  going through the library's execution boundary.
 
 ### Elaboration and invariants
 
-The frontend treats `Effect` as a built-in type constructor and does not add a
-platform field to CST, AST, HIR, or Core nodes
-(`psrs_hir::BuiltinType::Effect`). The checker elaborates `Effect a` to a
-function type so imported polymorphic signatures stay instantiable.
+The frontend resolves `Effect` as an imported abstract type constructor and
+checks it by ordinary kind, application, and subsumption rules. It adds no
+effect flag to syntax or typed nodes. The runtime representation is selected
+after source checking.
 
 - `Effect a` is a first-class value of an ordinary type.
 - No stage stores an "effect" flag on an expression; effects compose only
   through `pure`, `bind`, and `runEffect`.
-- The current token is representation-only: replacing `Boolean` with a richer
-  token type must not change the source API or the Core shape of `pure`/`bind`.
+- Lowering the abstract type to a token-taking function is a trusted elaboration
+  after source type checking. The token's concrete representation may change
+  without changing the source API or the Core shape of `pure`/`bind`.
 - Reusing a value never reorders or merges observably distinct `runEffect`
   calls; each call receives a token.
+- The driver identifies the selected command entry and checks the scope of
+  `runEffect` references before ordinary type inference.
+- Calls, including calls reached through closures, may perform effects. Core,
+  CC, and MIR optimizations preserve their order and multiplicity unless a
+  separate purity proof establishes that a particular call is inert.
 
 ## Design
 
@@ -121,14 +130,16 @@ becomes a record/closure over its operation implementations and
 `runEffect` interprets it. That is a change of the operation set, not of the
 lowering mechanism, and it still introduces no dedicated CC/MIR node.
 
-The current token is a placeholder. The final token type is chosen by the
-runtime and carries whatever state effects need — scheduling, resource handles,
-or an interpreter state — and remains invisible to source and to Core.
+The token's physical value is an internal calling-convention detail. A constant
+`i32` token is sufficient for synchronous execution because the calls themselves
+are observable and cannot be merged or removed; distinct token bits are not a
+substitute for that optimizer rule. A later runtime may pass state or resource
+handles without exposing the token to source programs.
 
 ### Partial application
 
 The surface form `runEffect (log "message")` requires `log "message"` to be an
-`Effect Unit` when `log :: String -> Effect Unit`. In the current placeholder spelling
+`Effect Unit` when `log :: String -> Effect Unit`. After trusted elaboration,
 `log` is a two-argument function (`message`, then `token`), so `log "message"`
 is a **partial application**. The backend implements partial application of a
 top-level function by generating a closure that captures the supplied arguments
@@ -145,14 +156,14 @@ eta-expansion or arity special case is needed at the source of an effect.
 - **Performing an operation when it is constructed (eager effects).** Rejected:
   it breaks the user-visible contract that constructing an effect has no
   observable result and that an effect runs once per `runEffect`.
-- **`Effect a = Unit -> a` with no token.** Rejected as the final model: a
-  unique token keeps distinct runs distinct, so an engine cannot merge or
-  eliminate two otherwise identical `runEffect` calls, and the token is the
-  natural place to thread runtime state.
+- **A source-visible `Effect a = Unit -> a` alias.** Rejected: callers could
+  construct and run effects as unrestricted functions, bypassing the execution
+  boundary. Token uniqueness cannot prevent an optimizer from removing a call;
+  preserving effectful calls is an explicit pass invariant.
 - **Full CBPV representation now.** Rejected for the current synchronous
   `Effect`: it would add value/computation distinctions the source does not need
   yet. The CBPV view is retained as the growth path if the effect language gains
-  multiple computation forms ([functional core](functional-core.md)).
+  multiple computation forms ([functional core](../../frontend/semantics/functional-core.md)).
 - **Executing effects inside the compiler's constant evaluator or driver.**
   Rejected: only the runtime performs effects; the compiler preserves the
   program as a value.
@@ -167,7 +178,7 @@ effect-specific; they lower through lambda and application lowering:
 ```text
 pure  = \value -> \token -> value
 bind  = \first -> \next -> \token -> next (first token) token
-runEffect = \action -> action true
+runEffect = \action -> action runtime_token  // trusted entry-only binding
 ```
 
 A lambda becomes a closure capturing its free variables (`cc/lower/lambda.rs`),
@@ -202,7 +213,7 @@ rewrites to `bind` before Core, so the backend sees only `pure`, `bind`,
 
 ### Edge cases
 
-- **Stored effect run twice.** Each `runEffect` applies a fresh token, so both
+- **Stored effect run twice.** Each `runEffect` calls the closure once, so both
   runs execute; the closure itself is unchanged.
 - **Effect captured by a closure.** The closure capture path handles an effect
   value like any other reference; no special case.
@@ -213,9 +224,9 @@ rewrites to `bind` before Core, so the backend sees only `pure`, `bind`,
 - **Polymorphic effect.** `Effect a` with an erased `a` uses the erased
   protocol; `runEffect`'s consumer knows the concrete type
   ([polymorphism and erasure](polymorphism-and-erasure.md)).
-- **A future richer token.** Changing the current `Boolean` to a stateful
-  token changes only `Prelude` and the runtime, not the Core shape or the CC/MIR
-  operations.
+- **A future richer token.** Changing the internal token to a stateful value
+  changes trusted elaboration and the runtime, not the source API or the CC/MIR
+  operation families.
 
 ## Code map
 
@@ -238,19 +249,16 @@ crates/psrs-backend/src/
 
 Responsibilities and required types:
 
-- The embedded `Prelude` (`psrs-driver/src/prelude.rs`) must define the required
-  surface names `Effect`, `pure`, `bind`, and `runEffect` as ordinary source
-  declarations. `Effect` must remain the single built-in computation former;
-  `pure`, `bind`, and `runEffect` must lower as ordinary lambdas and
-  applications with no effect-specific compiler pass.
-- `psrs-hir/src/ty.rs` must expose `BuiltinType::Effect` as a built-in type
-  constructor. No CST, AST, HIR, or Core node may carry an effect flag or
-  platform-specific effect field.
-- `psrs-typecheck` must elaborate `Effect a` to a function arrow so imported
-  polymorphic signatures stay instantiable, and must reject running an effect
-  in a pure position. Required entry point in `signature.rs`:
-  `fn elaborate_effect(ty, env) -> Result<Type, Diagnostic>`; `builtins.rs` must
-  register `Effect` as a built-in type constructor.
+- The effect library must supply `Effect`, `pure`, `bind`, and the trusted
+  `runEffect` binding. The driver enforces its entry-only availability. Their
+  source types undergo ordinary name resolution and type checking; runtime
+  operations lower through closures and applications.
+- `psrs-hir` must retain the resolved imported `Effect` type identity. No CST,
+  AST, HIR, or Core node may carry an effect flag or platform-specific field.
+- `psrs-typecheck` must check `Effect a` as an ordinary imported abstract type
+  application. After type checking, Core lowering maps the known library type
+  identity to the internal closure representation. The driver alone grants
+  access to the trusted command-entry runner.
 - `psrs-core/src/effect.rs` must ensure the elaborated `pure`, `bind`, and
   `runEffect` shapes are ordinary Core values (closures and calls); it must not
   add an effect-specific Core node.
@@ -304,8 +312,8 @@ partial_fn = partial_<span>(closure, token) {
     msg    = ClosureGetCapture(closure, 0)
     result = DirectCall(log, [msg, token])       // the original two-parameter `log`
 }
-action1    = FunctionRef(partial_fn, signature = Boolean -> Unit, captures = [captured])
-result1    = DirectCall(runEffect, [action1])       // runEffect applies action1 to true
+action1    = FunctionRef(partial_fn, signature = Token -> Unit, captures = [captured])
+result1    = DirectCall(runEffect, [action1])       // trusted runner supplies token
 ```
 
 The second `runEffect` lowers identically into the following assignment, so the
@@ -315,8 +323,8 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Boundaries and interfaces
 
-- **From the frontend.** `Effect` is a built-in type constructor; the checker
-  elaborates it and `do`/`ado` desugars to `bind`. No effect flag is added to
+- **From the frontend.** `Effect` is an imported abstract type constructor;
+  `do`/`ado` desugars to library `bind`. No effect flag is added to
   CST, AST, HIR, or Core nodes.
 - **To CC.** Effects are closures and applications; the only backend feature an
   effect needs is partial application of a top-level function.
@@ -331,9 +339,8 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Open questions and future work
 
-- **Final token type.** The current placeholder uses `Boolean`; the runtime and the
-  platform layer must agree on a token that carries scheduling and resource
-  state once effects need it.
+- **Stateful token.** The runtime and platform layer must agree on a token
+  representation if scheduling or resource state is later threaded through it.
 - **Effect dictionary.** If the operation set grows and becomes extensible,
   effect operations should be dictionary-passing records, with `runEffect` an
   interpreter; this is defined by
@@ -341,22 +348,25 @@ would allocate a closure and print nothing, which is exactly the test
 - **Asynchronous effects.** WASI 0.3 async streams/futures are a separate
   platform track (`BE-25`); CBPV is the intended semantic home if and when
   async computation forms arrive.
-- **Optimization.** Inlining `pure`/`bind` and eliminating the token on
-  statically known computations belongs to the MIR optimization track
-  (`BE-12`) and must preserve the run-once-per-`runEffect` behavior.
-- **Diagnostics.** A source program that runs an effect in a pure position is a
-  type error produced by the checker, not by the backend.
+- **Optimization.** Inlining `pure`/`bind` belongs to
+  [Core optimization](../opt/core.md); token elimination after representation
+  lowering belongs to [MIR optimization](../opt/mir.md). Both must preserve the
+  run-once-per-`runEffect` behavior.
+- **Diagnostics.** A source program that refers to `runEffect` outside the
+  selected command entry receives a frontend diagnostic before Core lowering.
 
 ## Implementation notes
 
 In progress. The embedded `Prelude` defines
 `type Effect a = Boolean -> a` with `pure`, `bind`, and `runEffect` as ordinary
 source functions, and the checker expands `Effect a` to a `Boolean -> a`
-function type; there is no abstract effect type. Partial application of a
+function type. This currently violates the abstract-source-type boundary above:
+source code can forge and run effects through the alias. Partial application of a
 top-level function is implemented in `cc/lower/call.rs`; the generated function
 is verified like any other. Construct/run/order behavior is covered by the
 `psrs-driver` effect tests under `wasmtime`. The Boolean token is explicitly a
-placeholder; nothing in this document depends on it.
+placeholder. The design requires the source boundary and optimizer rule above
+before treating this implementation as complete.
 
 ## References
 

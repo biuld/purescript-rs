@@ -32,7 +32,7 @@ Still open:
   ([scalars](docs/design/backend/fp/scalars-and-primitives.md));
 - broader aggregate coverage for the target-neutral variant representation and
   the canonical ABI boundary
-  ([DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md),
+  ([CC IR](docs/design/backend/fp/cc-ir.md),
   [linear ABI boundary](docs/design/backend/wasm/linear-memory-and-canonical-abi-boundary.md));
 - the broader canonical ABI and ownership rules
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)).
@@ -121,9 +121,11 @@ canonical ABI), [erasure](docs/design/backend/fp/polymorphism-and-erasure.md)
 (scalar and numeric lowering), and
 [linear ABI boundary](docs/design/backend/wasm/linear-memory-and-canonical-abi-boundary.md) (canonical ABI
 boundary), with the concrete GC layouts and execution-evidence matrix in
-[data representation](docs/design/backend/fp/data-representation.md). The type system is
-in [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
-[D-04](docs/design/D-04-suite-roadmap.md).
+[data representation](docs/design/backend/fp/data-representation.md). The
+[frontend design](docs/design/frontend/README.md) includes the
+[PureScript type system](docs/design/frontend/type-system/README.md);
+[D-04](docs/design/D-04-suite-roadmap.md) tracks feature coverage and official-suite progress
+under [DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md).
 
 For a guided, interactive overview of P0 through P11, use the React application
 in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching forms as curated
@@ -144,8 +146,6 @@ Decision records:
   interface via WIT
 - [DEC-07](docs/decision/DEC-07-runtime-representation-for-parameterized-adts.md) —
   parameterized-ADT representation
-- [DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md) —
-  target-neutral variant representation
 
 ## Development checks
 

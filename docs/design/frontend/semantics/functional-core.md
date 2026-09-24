@@ -1,36 +1,38 @@
 # Functional Core
 
-**Feature:** F-02  
-**Status:** Stable (design)  
+**Feature:** F-02
+
+**Status:** Stable (design)
+
 **Prerequisites:** the call-by-value lambda calculus, algebraic data types and
-pattern matching, rank-1 polymorphism (Hindley–Milner/System F style), and a
+pattern matching, polymorphism with higher-rank signatures, and a
 reading knowledge of administrative normal form and closure conversion. Read
-[IR boundaries](../00-ir-boundaries.md) first, then this document, [CC IR](cc-ir.md),
-and [MIR](mir.md).  
+[D-01](../../D-01-frontend-and-ir-boundaries.md) first, then this document and
+[backend IR boundaries](../../backend/00-ir-boundaries.md).
+
 **Summary:** Functional Core is the typed, call-by-value core calculus that the
 backend targets: base scalars, functions, products and records, sums, arrays,
-rank-1 polymorphism, and a distinguished effect type. It is independent of
+checked polymorphism and library-defined abstract types. It is independent of
 surface syntax and is the last representation that keeps source types and
-unresolved names; P8 lowers it to CC through administrative normalization,
-closure conversion, and dictionary elaboration.
+resolved declaration and local identities. P8 lowers it to CC through
+administrative normalization and closure conversion.
 
 ## Scope
 
-This document owns the Functional Core model — its type and term grammar, its
-semantics, the invariants the Core verifier checks, and the responsibilities of
-the Core-to-CC lowering at the Core boundary. It is the anchor of the
-functional concern: [CC IR](cc-ir.md) is the administrative-normal-form and
-closure-converted form of these terms, and [MIR](mir.md) fixes their runtime
-representation.
+This document owns the frontend's Typed Core output: its type and term grammar,
+semantics, source information, and verifier. It also states the input guarantees
+the backend may rely on. [CC IR](../../backend/fp/cc-ir.md) owns P8 lowering to an
+administrative-normal-form, closure-converted representation, and
+[MIR](../../backend/fp/mir.md) fixes runtime representation.
 
 It does not own surface syntax or name/type resolution (those belong to the
 frontend in [D-01](../../D-01-frontend-and-ir-boundaries.md)); evaluation order and
-closures (see [CC IR](cc-ir.md)); runtime layout (see [MIR](mir.md)); the
+closures (see [CC IR](../../backend/fp/cc-ir.md)); runtime layout (see [MIR](../../backend/fp/mir.md)); the
 pattern decision compilation used when a `case` is lowered (see
-[pattern matching](pattern-matching.md)); scalar operator definitions (see
-[scalars and primitives](scalars-and-primitives.md)); dictionary passing (see
-[type classes and dictionaries](type-classes-and-dictionaries.md)); or the
-representation of effects (see [effects](effects.md)).
+[pattern matching](../../backend/fp/pattern-matching.md)); scalar operator definitions (see
+[scalars and primitives](../../backend/fp/scalars-and-primitives.md)); dictionary passing (see
+[type classes and dictionaries](../../backend/fp/type-classes-and-dictionaries.md)); or the
+representation of effects (see [effects](../../backend/fp/effects.md)).
 
 ## Background
 
@@ -42,7 +44,7 @@ and every argument of a call is a value or a variable. ANF was introduced for
 compiling with continuations by Flanagan, Sabry, Duba, and Felleisen (1993),
 building on Steele's (1978) lambda-lifting work and Appel's *Compiling with
 Continuations* (1992). Core is an ordinary expression tree; P8's ANF pass makes
-the order of evaluation explicit. See [CC IR](cc-ir.md).
+the order of evaluation explicit. See [CC IR](../../backend/fp/cc-ir.md).
 
 **Closure conversion.** A lambda that refers to variables from its surrounding
 scope is *converted* into a top-level function plus an explicit environment of
@@ -56,12 +58,12 @@ Following the type-erasure semantics studied by Crary, Weirich, and Morrisett
 source-type test: a value's type is known from the expression that consumes it,
 so no type tag is needed. Polymorphism is recovered by passing dictionaries
 (Wadler and Blott, 1989), never by runtime type tags. See
-[polymorphism and erasure](polymorphism-and-erasure.md).
+[polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md).
 
 **Effects.** Squaring a value with effects is the standard monadic translation
-(Wadler). The platform-independent `Effect a` type is a distinguished type
-former, and effectful code is ordinary monadic code; Core has no ambient side
-effects. The final runtime representation is specified in [effects](effects.md),
+(Wadler). The library-defined abstract `Effect a` type represents effectful
+code as ordinary monadic code; Core has no ambient side
+effects. The final runtime representation is specified in [effects](../../backend/fp/effects.md),
 following Wadler and, if the effect language grows, Levy's call-by-push-value.
 
 ## Model
@@ -99,12 +101,11 @@ A data type's cases are not part of its `Type`; they are `ConstructorInfo`
 records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
-`Effect a` is a distinguished type former in the source and
-resolved/typed front-end representations. The type checker elaborates it to the
-ordinary function token used by the platform-independent `Effect` library, `Boolean -> a`
-(`crates/psrs-typecheck/src/typecheck/signature.rs`), so Core itself needs no
-`Effect` type node. The token is an internal execution token, not source-visible
-API; the final representation is [effects](effects.md)'s concern.
+`Effect a` is an ordinary imported abstract type constructor in source typing.
+Target-specific lowering after source checking maps it to an
+internal token-taking function, so Core itself needs no `Effect` type node.
+The token and function representation are not source-visible API; the execution
+boundary and optimization rules are specified in [effects](../../backend/fp/effects.md).
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
 field below Core. Erasing a newtype is representation metadata, not a change to
@@ -140,7 +141,7 @@ Primitive = Add | Sub | Mul | DivS | RemS
 Every expression carries its checked `TypeId`, so a Core term is well-typed by
 construction. `Primitive` is the small integer comparison/arithmetic set that
 survives the surface-language `Prim` desugaring; the full scalar set is defined
-in [scalars and primitives](scalars-and-primitives.md).
+in [scalars and primitives](../../backend/fp/scalars-and-primitives.md).
 
 ### Bindings and declarations
 
@@ -173,23 +174,23 @@ PatternKind = Wildcard
 
 Patterns are nested and source-oriented; compiling them into tests, and checking
 exhaustiveness and redundancy, happens at the Core-to-CC boundary
-([pattern matching](pattern-matching.md)).
+([pattern matching](../../backend/fp/pattern-matching.md)).
 
 ### Semantics
 
 - **Strict.** Functions evaluate their argument before the call; constructors,
   records, and arrays evaluate their elements before allocation.
-- **Order is explicit after ANF.** Core terms are expression trees and do not
-  encode a particular evaluation order beyond call-by-value. P8 chooses a
-  left-to-right order as it binds intermediate computations in ANF, and CC
-  records it. Pure terms are order-independent; the order becomes observable
-  only once effects exist, which is why ANF, not Core, owns it.
+- **Left-to-right evaluation.** Core expression trees have a defined evaluation
+  order: evaluate the callee before its argument, and operands, constructor
+  fields, record fields, array elements, and `let` bindings in source order.
+  `If` and `Case` evaluate only the selected branch after their condition or
+  scrutinee. P8 records this order in ANF; it does not choose a new order.
 - **Types are erased.** No source type is inspected at runtime. Polymorphism is
-  dictionary passing ([type classes and dictionaries](type-classes-and-dictionaries.md));
-  the erased representation is [polymorphism and erasure](polymorphism-and-erasure.md).
+  dictionary passing ([type classes and dictionaries](../../backend/fp/type-classes-and-dictionaries.md));
+  the erased representation is [polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md).
 - **Recursion is the only iteration.** There is no loop term. Iteration is
   tail recursion, made cheap by control-flow lowering
-  ([control flow and tail calls](control-flow-and-tail-calls.md)).
+  ([control flow and tail calls](../../backend/fp/control-flow-and-tail-calls.md)).
 - **Patterns are exhaustive.** Coverage and redundancy are established when the
   Core `case` is produced and again by the decision compiler at the boundary.
 - **`arrayUpdate` is pure.** It returns an updated array without mutating the
@@ -200,60 +201,59 @@ exhaustiveness and redundancy, happens at the Core-to-CC boundary
 ### The chosen shape
 
 Core is a compact System F(C)-style calculus: first-class functions, products,
-sums, arrays, and rank-1 polymorphism, with no dedicated loop, class, or effect
+sums, arrays, and elaborated polymorphism, with no dedicated loop, class, or effect
 node. This shape is chosen because every later stage has a meaning-preserving
 counterpart:
 
 | Core construct | Lowered by P8 to |
 | --- | --- |
-| `Lambda` / free variables | a lifted function plus explicit captures ([CC IR](cc-ir.md)) |
+| `Lambda` / free variables | a lifted function plus explicit captures ([CC IR](../../backend/fp/cc-ir.md)) |
 | `Application` | a direct call (callee is a `Global`) or an indirect closure call |
 | `Let` and nested expressions | ordered ANF `Assignment`s |
 | `Constructor` / `Case` | variant and product operations, then a pattern decision |
 | `Record*` | product construction and field projection |
 | `Array*` | array operations |
-| rank-1 polymorphism | erased representation requirements and, later, dictionary arguments |
-| `Effect a` | its elaborated token type; ordinary function values at runtime |
+| polymorphism and constraints | erased type arguments and explicit dictionary arguments |
+| `Effect a` | its lowered runtime representation; ordinary function values at runtime |
 
 The full Core-to-CC contract, including the representation requirements that CC
-introduces and the operations it owns, is specified in [CC IR](cc-ir.md).
+introduces and the operations it owns, is specified in [CC IR](../../backend/fp/cc-ir.md).
 
-### Lowering responsibilities
+### Backend consumption
 
-`functional-core -> CC` performs three transformations, all of which are
-obligations of the P8 pass rather than new Core nodes:
+Core's grammar leaves these transformations to P8; they introduce no new Core
+nodes and are owned by [CC IR](../../backend/fp/cc-ir.md):
 
 1. **Administrative normalization (ANF).** Name every non-trivial computation in
    evaluation order; every call argument becomes a value or variable.
 2. **Closure conversion.** Compute each lambda's captures, lift the lambda to a
    top-level generated function with an explicit closure parameter, and emit a
    function value that pairs the code with its captures.
-3. **Dictionary elaboration.** Turn constrained types into functions over
-   dictionary records and method selection into field projection. Until the
-   frontend produces constraint evidence, this step is vacuous but in place.
+3. **Dictionary consumption.** Receive the explicit dictionary evidence
+   elaborated by the frontend and lower it as ordinary values and projections.
 
 `CC -> MIR` then fixes runtime representation; those steps are in
-[MIR](mir.md).
+[MIR](../../backend/fp/mir.md).
 
 ### Rejected alternatives
 
 - **Make Core a CPS or ANF language.** Rejected: ANF is a *form* of the same
   program and belongs to CC. Keeping Core as an ordinary expression tree keeps
   source diagnostics and type structure visible and lets ANF be verified
-  separately ([CC IR](cc-ir.md)).
+  separately ([CC IR](../../backend/fp/cc-ir.md)).
 - **Represent polymorphism with runtime type tags or `Typeable`-style evidence
   in the terms.** Rejected: the typed core performs no runtime type analysis, so
   tags would add cost with no semantic need; dictionaries cover the instances
-  that genuinely need runtime dispatch ([polymorphism and erasure](polymorphism-and-erasure.md)).
+  that genuinely need runtime dispatch ([polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md)).
 - **Add a dedicated loop term for recursion.** Rejected: recursion is already
-  expressible and tail-recursion lowering in [control flow](control-flow-and-tail-calls.md)
+  expressible and tail-recursion lowering in [control flow](../../backend/fp/control-flow-and-tail-calls.md)
   recovers looping without enlarging the core.
 - **Make `Effect` a Core node.** Rejected for the same reason as a loop node:
   an effect is a value (a token-taking function), and treating it as ordinary
-  data keeps CC and MIR free of effect special cases ([effects](effects.md)).
+  data keeps CC and MIR free of effect special cases ([effects](../../backend/fp/effects.md)).
 - **Keep surface `where`/guards/view patterns in Core.** Rejected: those are
   surface sugar and patterns; the desugaring and the decision compiler own them
-  ([pattern matching](pattern-matching.md)).
+  ([pattern matching](../../backend/fp/pattern-matching.md)).
 
 ## Algorithms
 
@@ -281,25 +281,6 @@ verify_module(module):
 checking each node's `ty` against its operands and its expected type. See
 [Invariants and verification](#invariants-and-verification).
 
-### Lowering to CC
-
-```text
-lower_declaration(declaration):
-    peel Lambda binders into function parameters
-    lower_value(body) under a left-to-right ANF traversal
-lift_lambda(lambda):
-    captures = free locals of body, in first-use order
-    generate a top-level function (closure_parameter, bound_parameter, ...)
-    inside, bind each capture from ClosureGetCapture(closure_parameter, index)
-    emit FunctionRef(generated, signature, captures)
-lower_value(expr):
-    for each operand in evaluation order: v = lower_value(operand)
-    emit one Assignment naming the result
-```
-
-The concrete assignment shapes, capture ordering rules, and the representation
-requirements passed to P9 are specified in [CC IR](cc-ir.md).
-
 ## Code map
 
 The functional core is a frontend representation, so its code lives in the
@@ -317,9 +298,8 @@ The required modules and the values they provide are:
   Core is elaborated from. It provides `Type`, `TypeId`, `TypeConstructor`,
   `Expr`, `ExprKind`, `Primitive`, `ConstructorInfo`, `Declaration`, `Binding`,
   and `Binder`.
-- `psrs-typecheck` owns elaboration from the surface AST to THIR, including the
-  `Effect` type former and its elaboration to the platform-independent token
-  type.
+- `psrs-typecheck` checks `Effect` through its imported kind and declarations,
+  using the same type rules as for other abstract type constructors.
 - `psrs-core` owns Typed Core and the P7 boundary. It provides:
   - `Module`, `Type`, `Expr`, `ExprKind`, `Primitive`, `ConstructorInfo`,
     `Declaration`, `Binding`, and `Binder` at the crate root;
@@ -392,49 +372,39 @@ aggregate, and unboxes the erased result back to an integer. The `Case` in
 `fromMaybe` is lowered through the pattern decision compiler. Dictionary
 elaboration is vacuous here because `fromMaybe` is polymorphic but not
 constrained. The assignment shapes and the erased-adaptation operations used at
-such a call are specified in [CC IR](cc-ir.md).
+such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Boundaries and interfaces
 
-- **Input.** Typed Core is the stable frontend/backend boundary. The driver
-  links and prunes Core declarations and selects the entry `SymbolId`
-  ([D-01](../../D-01-frontend-and-ir-boundaries.md)); this document defines the
-  calculus but not the front end that produces it.
-- **Output.** A verified Core module with an explicit checked type on every
+- **Input.** P6 elaborates checked THIR into Typed Core. The driver links and
+  prunes declarations and selects the entry `SymbolId`
+  ([D-01](../../D-01-frontend-and-ir-boundaries.md)).
+- **Output.** A verified Core module for P7 with an explicit checked type on every
   expression, `quantified` variables at binding sites, source spans, external
-  `symbols`, and newtype metadata. It is the only input to P8.
-- **To P8 (CC IR).** Core does not fix evaluation order, captures, dictionary
-  arguments, or any runtime shape; those are exactly what [CC IR](cc-ir.md)
-  establishes.
+  `symbols`, and newtype metadata. P7 preserves this contract for P8.
+- **To P8 (CC IR).** Core fixes evaluation order and carries explicit dictionary
+  evidence. It leaves captures and runtime requirements to
+  [CC IR](../../backend/fp/cc-ir.md).
 - **To P9 (MIR).** Core types are not runtime types. Only the erased
   representation requirements that CC derives from them survive
-  ([polymorphism and erasure](polymorphism-and-erasure.md)).
+  ([polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md)).
 
 ## Open questions and future work
 
-- **General effects.** The token type `Boolean -> a` is the current encoding; the
-  monadic/CBPV representation in [effects](effects.md) will change how effect
-  operations are lowered without adding a Core node.
+- **General effects.** The current implementation elaborates to `Boolean -> a`;
+  the abstract source boundary and later token representation are specified in
+  [effects](../../backend/fp/effects.md) without adding a Core effect node.
 - **Higher-rank and constraints.** Rank-1 quantification and dictionary
   elaboration are specified; higher-rank types and the exact constraint
   evidence representation remain front-end work
-  ([type classes and dictionaries](type-classes-and-dictionaries.md)).
-- **Open rows.** Core records are closed. Row polymorphism, when it lands,
-  extends `Record` and the record representation rules, not the term grammar.
+  ([classes and evidence](../type-system/classes-and-evidence.md)).
+- **Open rows.** Source row polymorphism is checked by P5. Core preserves the
+  checked record type and evidence; P9 fixes concrete record layouts at each
+  reachable use without changing the term grammar.
 - **Literal patterns.** `PatternKind` has no literal case. If source guards or
   literal patterns arrive, the decision compiler already has a literal test
-  category ([pattern matching](pattern-matching.md)); the Core pattern grammar
+  category ([pattern matching](../../backend/fp/pattern-matching.md)); the Core pattern grammar
   would gain one case.
-
-## Implementation notes
-
-The current front end produces a working subset of this core: monomorphic and
-rank-1 polymorphic functions, non-parameterized and a restricted parameterized
-ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
-the current effect encoding. Local recursive `Let` groups are not yet lowered — only
-top-level recursion through `Global` and the generated closure wrappers are —
-and constraint evidence, open rows, and the final effect representation are not
-yet produced. Nothing in the model above depends on those deviations.
 
 ## References
 
@@ -452,3 +422,13 @@ yet produced. Nothing in the model above depends on those deviations.
   Trees* (2008).
 - [D-01 Frontend and IR Boundaries](../../D-01-frontend-and-ir-boundaries.md),
   [DEC-01](../../../decision/DEC-01-distinct-ir-boundaries.md).
+
+## Implementation notes
+
+The current front end produces a working subset of this core: monomorphic and
+rank-1 polymorphic functions, non-parameterized and a restricted parameterized
+ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
+the current effect encoding. Local recursive `Let` groups are not yet lowered — only
+top-level recursion through `Global` and the generated closure wrappers are —
+and constraint evidence, open rows, and the final effect representation are not
+yet produced. Nothing in the model above depends on those deviations.

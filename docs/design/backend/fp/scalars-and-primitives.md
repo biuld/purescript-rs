@@ -3,20 +3,20 @@
 **Feature:** F-02  
 **Status:** Stable (design)  
 **Prerequisites:** [CC IR](cc-ir.md) and [MIR](mir.md); two's-complement
-integer arithmetic, IEEE-754 binary64, Euclidean division, and the Wasm numeric
+integer arithmetic, IEEE-754 binary64, floor division, and the Wasm numeric
 instruction set. Read [IR boundaries](../00-ir-boundaries.md) first.  
 **Summary:** Scalars are the unboxed Wasm value types the backend uses for
 `Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is an ABI pointer and
 not a scalar. This document fixes the complete unary and binary operation
 vocabulary, the concrete Wasm lowering of every operation, the module-local
-Euclidean division and modulo helpers, and the saturating `Number`-to-`Int`
+floor division and modulo helpers, and the saturating `Number`-to-`Int`
 conversion. It is the reference a frontend uses to lower every built-in scalar
 operator without adding representation special cases.
 
 ## Scope
 
 This document owns the scalar value model shared by CC and MIR, the unary and
-binary operation vocabularies and their lowering, the generated Euclidean
+binary operation vocabularies and their lowering, the generated floor
 helpers, the saturating float-to-int sequence, and scalar verification. It does
 not own the byte-oriented string and ABI boundary (see
 [linear memory and the canonical ABI
@@ -34,13 +34,12 @@ the Wasm `i32.add`/`sub`/`mul` behavior. The official compiler realizes `Int` on
 JavaScript with `| 0`, giving the same wrapping semantics; that behavior is the
 reference.
 
-**Truncated versus Euclidean division.** Truncated division rounds toward zero
-and its remainder takes the sign of the dividend. Euclidean division
-(Boute, *The Euclidean definition of the functions div and mod*, 1992) requires
-`a = b * div a b + mod a b` with `0 <= mod a b < |b|`, so the remainder takes
-the sign of the divisor. The `Data.Int` instances use the Euclidean pair; Wasm
-and JavaScript only provide the truncated pair (`i32.div_s`/`i32.rem_s`), so
-Euclidean division is computed by a helper.
+**Truncated versus floor division.** Truncated division rounds toward zero
+and its remainder takes the sign of the dividend. `Data.Int`'s `div` rounds
+toward negative infinity, and `mod` satisfies `a = b * div a b + mod a b`:
+for nonzero `b`, the remainder is zero or has the sign of `b` and magnitude
+less than `|b|`. Wasm `i32.div_s`/`i32.rem_s` provide the truncated pair, so
+the floor pair is computed by a helper.
 
 **IEEE-754 binary64.** `Number` is an IEEE-754 binary64 value. The ordered
 comparisons follow the usual rules: a `NaN` is unequal to everything including
@@ -66,13 +65,13 @@ the language-level expectation that the conversion is total.
 | `Boolean` | `Boolean` | `Boolean` | `i32` | `0` is false, `1` is true; no other value is produced. |
 | `Char` | `Integer` | `I32` | `i32` | Unicode scalar value. |
 | `Unit` | `Integer` | `I32` | `i32` | No payload; the canonical value is `0`. |
-| `String` | `Integer` | `I32` | `i32` | Pointer to a length-prefixed UTF-8 buffer; an ABI pointer, not a scalar. |
+| `String` | `String` | `I32` | `i32` | Pointer to a length-prefixed UTF-8 buffer; an ABI pointer, not a scalar. |
 
 CC has no distinct `Char` or `Unit` shape: the layout classifier maps
-`Type::I32`, `Type::Char`, `Type::String`, and `Type::Unit` to
-`ValueShape::Integer`, and `Boolean` and `F64` to their own shapes. `String` is
-grouped with `Integer` only because both are `i32`; its meaning is an ABI
-address, and the byte-oriented rules above apply. `I64` and `F32` remain MIR
+`Type::I32`, `Type::Char`, and `Type::Unit` to `ValueShape::Integer`;
+`Type::String` maps to the distinct `ValueShape::String`. `Boolean` and `F64`
+also have their own shapes. P9 maps `String` to an ABI address while CC can
+reject numeric operations on it. `I64` and `F32` remain MIR
 value types reserved for the canonical ABI; a future source type can map to
 them without changing the operation model.
 
@@ -120,7 +119,7 @@ reachable from the CC vocabulary.
 - Every MIR scalar operation has a defined operand and result `ValueType`; the
   MIR verifier checks them exactly.
 - A `String` is never passed to a numeric operation.
-- Euclidean helpers are ordinary MIR functions with `i32` parameters and
+- floor helpers are ordinary MIR functions with `i32` parameters and
   result, generated only when the module contains `IntDiv` or `IntMod`.
 
 ## Design
@@ -165,7 +164,8 @@ JavaScript specify.
   dividend. Division or remainder by zero traps because the Wasm instruction
   traps; `i32.div_s` also traps on `i32.min / -1`, and that is the defined
   two's-complement overflow behavior.
-- `IntDiv`/`IntMod` are Euclidean and match `Data.Int`; they are computed by
+- `IntDiv`/`IntMod` use floor division and a remainder with the divisor's sign,
+  matching `Data.Int`; they are computed by
   the helpers below.
 - Comparisons are signed; shifts and bitwise operations act on the 32-bit
   pattern.
@@ -203,7 +203,7 @@ JavaScript specify.
 ### Rejected alternatives
 
 - **Map `IntDiv`/`IntMod` to `i32.div_s`/`i32.rem_s`.** Rejected: these are
-  truncated, not Euclidean, and produce the wrong remainder sign for negative
+  truncated, not floor, and produce the wrong remainder sign for negative
   operands (`-5` by `3` would give remainder `-2` instead of `1`).
 - **Trapping `Number`-to-`Int`.** Rejected: an out-of-range or `NaN` operand
   would trap a type-correct program. The saturating lowering keeps the
@@ -234,7 +234,7 @@ The emitter builds this as nested `if` expressions over `f64.le`, `f64.ge`,
 and `f64.ne` and calls the trapping `i32.trunc_f64_s` only inside the safe
 range, so it never traps.
 
-### Euclidean division and modulo
+### Floor division and modulo
 
 Both helpers read their operands as `i32` parameters `a` and `b`. They first
 compute the truncated remainder and decide whether an adjustment is needed:
@@ -253,9 +253,10 @@ if adjust: a div_s b - 1 else: a div_s b
 if adjust: r + b        else: r
 ```
 
-The adjustment flips a quotient or remainder only when the truncated remainder
-and the divisor have opposite signs, so the result is always Euclidean:
-`a = b * div a b + mod a b`, with `mod a b` taking the sign of `b`. Both paths
+The adjustment changes a quotient or remainder only when the truncated remainder
+and the divisor have opposite signs. Thus `a = b * div a b + mod a b`, with
+`mod a b` taking the sign of `b` (or zero). This is floor division; the
+nonnegative-remainder convention is a different rule. Both paths
 execute `a rem_s b` (and `a div_s b` for the divide helper), so `b = 0` traps as
 the underlying instruction does. This matches the official `Data.Int`
 semantics.
@@ -288,7 +289,7 @@ intended structure is:
 
 ```text
 mir/numeric.rs                  UnaryOp and NumericOp; CC -> MIR operation selection
-mir/scalar_helpers.rs           Euclidean helper detection, generation, and
+mir/scalar_helpers.rs           floor helper detection, generation, and
                                 helper symbol allocation
 wasm/lower/structure/ops.rs     binary NumericOp -> wasm_encoder::Instruction,
                                 plus reference and memory operand helpers
@@ -368,7 +369,7 @@ exactly; the MIR verifier checks each lowered operation's operand and result
 - unary negation/complement match their operand and result types;
 - `I32ToF64` is `I32 -> F64`, `F64ToI32Sat` is `F64 -> I32`, `BoolToI32` is
   `Boolean -> I32`, and `I32ToBool` is `I32 -> Boolean`; and
-- the Euclidean helper signatures are `(I32, I32) -> I32`.
+- the floor helper signatures are `(I32, I32) -> I32`.
 
 A mismatch is reported with the operation's source span. Every operation in
 this vocabulary is part of the core WebAssembly baseline; the target capability
@@ -376,7 +377,7 @@ gate needs no new proposal for it.
 
 ## Worked example
 
-Euclidean division of `-5` by `3`. The CC fragment
+floor division of `-5` by `3`. The CC fragment
 
 ```text
 v0 = -5
@@ -387,7 +388,7 @@ result = v2 + v3*...          // in source, `div (-5) 3` and `mod (-5) 3`
 ```
 
 has both operations replaced by helper calls, and the module gains
-`__psrs_euclidean_int_div` and `__psrs_euclidean_int_mod`. Tracing the divide
+`__psrs_floor_int_div` and `__psrs_floor_int_mod`. Tracing the divide
 helper:
 
 ```text
@@ -401,7 +402,7 @@ result        = (-5 div_s 3) - 1 = -1 - 1 = -2
 ```
 
 The modulo helper computes `r + b = -2 + 3 = 1`. Substituting into
-`a = b * div a b + mod a b` gives `-5 = 3 * (-2) + 1`, the Euclidean identity.
+`a = b * div a b + mod a b` gives `-5 = 3 * (-2) + 1`, the floor identity.
 The `div_mod` and `binary_matrix` fixtures execute this and the other sign
 combinations through Wasm GC and check the combined boolean result.
 
@@ -422,7 +423,7 @@ combinations through Wasm GC and check the combined boolean result.
 ## Open questions and future work
 
 - **`Number` remainder.** If a source `mod` for `Number` is added, its exact
-  semantics (JavaScript `%` versus Euclidean) and helper must be fixed here.
+  semantics (JavaScript `%` versus floor) and helper must be fixed here.
 - **Source intrinsic integration.** The frontend must map every language
   operator and standard-library intrinsic to this vocabulary so each operation
   has an end-to-end executable test.
@@ -433,7 +434,7 @@ combinations through Wasm GC and check the combined boolean result.
   change to the operand/result model.
 - **Fast paths for known-sign constants.** The helper could inline the
   adjustment when both operands are statically non-negative; this is an
-  optimization that must preserve the Euclidean result.
+  optimization that must preserve the floor result.
 
 ## Implementation notes
 
@@ -444,7 +445,6 @@ matrix, not by this design.
 
 ## References
 
-- Boute, *The Euclidean definition of the functions div and mod* (1992).
 - IEEE 754-2019, binary64 arithmetic.
 - WebAssembly 3.0: numeric instructions, `i32`/`f64` semantics, and traps.
 - [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md),

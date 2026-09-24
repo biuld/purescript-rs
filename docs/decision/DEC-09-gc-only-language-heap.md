@@ -71,6 +71,6 @@ heap:
   [capability profile](../design/backend/wasm/capability-profile.md),
   [IR boundaries](../design/backend/00-ir-boundaries.md),
   [data representation](../design/backend/fp/data-representation.md), and
-  [DEC-08](DEC-08-target-neutral-variant-representation.md) are superseded.
+  the former linear variant planner are superseded.
 - Reversing this decision would mean reintroducing a second planner **and**
   eventually a hand-written collector, so it is deliberately expensive to undo.

@@ -53,7 +53,8 @@ Specifically:
 - The compiler-native algebraic-effect standard library proposed earlier is
   rejected.
 
-See [D-03](../design/D-03-type-system.md) for the staged type-system plan.
+See the [frontend type-system design](../design/frontend/type-system/README.md)
+for the complete target and [D-04](../design/D-04-suite-roadmap.md) for coverage.
 
 ## Alternatives considered
 
@@ -85,7 +86,7 @@ See [D-03](../design/D-03-type-system.md) for the staged type-system plan.
 - Trade-offs: algebraic effects arrive later than a native shortcut would
   allow, and the standard library must respect PureScript's type-class and row
   semantics.
-- Follow-up: record the type-system design in
-  [D-03](../design/D-03-type-system.md), and update
-  [D-01](../design/D-01-frontend-and-ir-boundaries.md) and
-  [wasm encoding](../design/backend/wasm/encoding-and-structuring.md) when the type representations change.
+- The [frontend type-system design](../design/frontend/type-system/README.md)
+  specifies the semantic target. [D-01](../design/D-01-frontend-and-ir-boundaries.md)
+  and [wasm encoding](../design/backend/wasm/encoding-and-structuring.md)
+  specify the adjacent representation boundaries.
