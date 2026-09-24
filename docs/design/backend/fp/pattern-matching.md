@@ -518,14 +518,17 @@ only one that projects, and it does so once.
 
 ## Implementation notes
 
-The current code does not implement the matrix algorithm. `cc/case/decision.rs`
-records the reachable branch order and a single trailing wildcard/variable
-fallback, and `cc/case/aggregate.rs` lowers the remaining alternatives as nested
-`If` diamonds comparing `VariantTag` against a constant. Coverage is limited to
-the diagnostic "non-exhaustive case requires a wildcard alternative"; there is
-no redundancy analysis and no witness. `Terminator::Switch` and multi-way
-`br_table` do not exist yet. Nothing in this document depends on those
-temporary shapes.
+`cc/case/coverage/` now runs usefulness analysis over constructor and record
+patterns, including nested fields. It rejects non-exhaustive cases before CC
+lowering and includes a missing constructor pattern in the diagnostic. The
+analysis also identifies redundant rows, but the current diagnostic pipeline
+does not yet expose them as warnings. Constructor matching is still realized
+through ordered CC `If` diamonds; `cc/case/decision.rs` records top-level branch
+order and a trailing irrefutable fallback rather than constructing the
+specified shared decision DAG. Exhaustive nested record matrices are analyzed
+correctly, but the current record lowerer can still require a trailing
+irrefutable fallback to realize them. `Terminator::Switch` and multi-way
+`br_table` do not exist yet.
 
 ## References
 
