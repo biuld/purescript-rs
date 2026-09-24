@@ -216,25 +216,17 @@ code map owns class declarations, solving, and THIR evidence. This backend topic
 consumes verified Core dictionary values:
 
 ```text
-psrs-thir::Evidence                         selected given/instance/superclass evidence
-psrs-thir::Module::verify                  evidence type and context-shape checks
-psrs-core::lower::dictionary::lower_evidence
-                                            erase evidence to Core values/calls/projections
-psrs-backend::cc::representation            ordinary product representation
-psrs-backend::cc::lower::record             product construction/projection
-psrs-backend::cc::lower::call               dictionary argument calls
-psrs-backend::mir::layout                   concrete product layout
+crates/psrs-core/src/dictionary.rs               checked dictionary field metadata
+crates/psrs-backend/src/cc/representation.rs     product representation
+crates/psrs-backend/src/cc/lower/record.rs       product construction/projection
+crates/psrs-backend/src/cc/lower/call.rs         dictionary argument calls
+crates/psrs-backend/src/mir/layout/              concrete product layout
 ```
 
-`Evidence` carries the source class identity, the proved dictionary type, and
-the selected derivation. An instance derivation names its dictionary
-constructor and context evidence; a superclass derivation names the logical
-record field. The class identity is compile-time metadata and is erased with
-the evidence node. Core lowering checks the constructor's function shape and
-emits only existing `Local`, `Global`, `Application`, and `FieldAccess`
-expressions. Core, CC, and MIR verification then check those ordinary
-operations against their type and representation layouts. No backend module
-imports class-solving state.
+The backend entry point `lower_dictionary_value(&core::Expr, &ClassLayout) ->
+Result<cc::Value, Diagnostic>` accepts a checked Core expression and fixed field
+layout. CC and MIR verification check that each product operation matches that
+layout. No backend module imports class-solving state.
 
 ## Invariants and verification
 
@@ -339,13 +331,20 @@ no runtime check of `a`.
 
 ## Implementation notes
 
-The typed-evidence handoff and its erasure are implemented. THIR can retain
-`Given`, `Global`, `Instance`, and `Superclass` evidence; its verifier checks
-instance-context arrows and superclass record fields. Core lowering expands
-those derivations into ordinary local/global values, applications, and field
-projections, and Core verification checks the resulting expression types. A
-focused regression exercises an instance constructor applied to a given
-dictionary followed by a superclass and method projection.
+The typed-evidence handoff and its erasure are implemented as a current
+coverage path: THIR can retain `Given`, `Global`, `Instance`, and `Superclass`
+evidence; its verifier checks instance-context arrows and superclass record
+fields. Core lowering expands those derivations into ordinary local/global
+values, applications, and field projections, and Core verification checks the
+resulting expression types. A focused regression exercises an instance
+constructor applied to a given dictionary followed by a superclass and method
+projection.
+
+This is an implementation deviation from the backend Code map above. The
+handoff currently lives at the THIR-to-Core boundary and uses existing Core
+record operations; the planned backend `lower_dictionary_value` entry point and
+`ClassLayout` abstraction are not implemented. The Code map remains the design
+target for the backend representation API.
 
 The source frontend does not yet produce these evidence terms. Instance syntax
 is still rejected by AST lowering, HIR has no instance declarations, and the
