@@ -102,6 +102,7 @@ pub fn compile_with_target(
     let cc = lowered_cc.cc;
     let (mir, mut wasi) =
         mir::lower_module_with_bindings(cc.clone(), lowered_cc.externals, target)?;
+    let mir = mir::opt::optimize(mir, target)?;
     let owner = mir.entry.map(|entry| entry.module);
     if !target.component_model
         || !target.wasi_p2
