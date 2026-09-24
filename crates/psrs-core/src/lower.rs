@@ -1,5 +1,6 @@
 use crate::{
     Binder, Binding, Declaration, Expr, ExprKind, LowerError, Module, Primitive, Type, TypeId,
+    UnaryPrimitive,
 };
 use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
@@ -233,6 +234,22 @@ fn lower_expr(
                 });
             }
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
+                && args.len() == 1
+                && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
+                    ExternalKind::Intrinsic(intrinsic) => UnaryPrimitive::from_intrinsic(intrinsic),
+                    ExternalKind::Wit { .. } => None,
+                })
+            {
+                return Ok(Expr {
+                    kind: ExprKind::UnaryPrimitive {
+                        op,
+                        value: Box::new(args[0].clone()),
+                    },
+                    ty,
+                    span,
+                });
+            }
+            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
                 && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
                     ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
@@ -386,10 +403,18 @@ mod tests {
     use psrs_hir::Intrinsic;
 
     #[test]
-    fn primitive_mapping_is_limited_to_integer_operations() {
+    fn primitive_mapping_covers_the_scalar_intrinsic_set() {
         assert_eq!(
             Primitive::from_intrinsic(Intrinsic::I32Add),
-            Some(Primitive::Add)
+            Some(Primitive::IntAdd)
+        );
+        assert_eq!(
+            Primitive::from_intrinsic(Intrinsic::NumberAdd),
+            Some(Primitive::NumberAdd)
+        );
+        assert_eq!(
+            UnaryPrimitive::from_intrinsic(Intrinsic::NumberToInt),
+            Some(UnaryPrimitive::NumberToInt)
         );
         assert_eq!(Primitive::from_intrinsic(Intrinsic::BoolTrue), None);
     }

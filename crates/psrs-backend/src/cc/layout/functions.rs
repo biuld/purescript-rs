@@ -168,6 +168,7 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
         ExprKind::Primitive { left, right, .. } => {
             contains_function_value(left, module) || contains_function_value(right, module)
         }
+        ExprKind::UnaryPrimitive { value, .. } => contains_function_value(value, module),
         ExprKind::If {
             condition,
             then_branch,

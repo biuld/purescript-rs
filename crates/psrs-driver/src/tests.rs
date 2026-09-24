@@ -2,6 +2,7 @@ use super::*;
 use crate::program::lower_program_to_core;
 
 mod effects;
+mod scalars;
 
 #[test]
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {

@@ -424,9 +424,6 @@ combinations through Wasm GC and check the combined boolean result.
 
 - **`Number` remainder.** If a source `mod` for `Number` is added, its exact
   semantics (JavaScript `%` versus floor) and helper must be fixed here.
-- **Source intrinsic integration.** The frontend must map every language
-  operator and standard-library intrinsic to this vocabulary so each operation
-  has an end-to-end executable test.
 - **Saturating-capability switch.** The profile enables the saturating
   float-to-int proposal; if the sequence were replaced by `i32.trunc_sat_f64_s`
   the capability gate would have to require it.
@@ -438,10 +435,21 @@ combinations through Wasm GC and check the combined boolean result.
 
 ## Implementation notes
 
-The CC and MIR vocabularies, lowerings, verifiers, and GC execution fixtures
-are implemented for the full unary and binary set above. The frontend's Core
-intrinsic integration is the remaining boundary and is tracked by the feature
-matrix, not by this design.
+The CC and MIR vocabularies, lowerings, and verifiers implement the full unary
+and binary set above. The source bootstrap exposes the operations that do not
+already have symbolic integer syntax as specialized functions: `intNeg`,
+`intComplement`, `numberNeg`, `booleanNot`, the six conversion names from the
+table (`intToNumber`, `numberToInt`, `booleanToInt`, `intToBoolean`,
+`charToInt`, and `intToChar`), `intDiv`, `intMod`, the six integer bitwise
+and shift names, all `number*`, `boolean*`, and `char*` binary names in the
+table.
+The existing symbols `+`, `-`, `*`, `/`, `%`, `==`, `/=`, `<`, `<=`, `>`, and
+`>=` continue to expose the integer arithmetic and comparison operations.
+Fully saturated intrinsic applications lower to typed Core unary or binary
+primitives; Core verification checks their exact scalar operand and result
+types before P8 maps them into CC. A source-level driver fixture compiles every
+operation and executes the documented floor, conversion, comparison, and
+wrapping behaviors through Wasmtime when it is available.
 
 ## References
 
