@@ -105,6 +105,14 @@ pub enum Terminator {
         merge_block: BlockId,
         span: TextRange,
     },
+    /// Selects a basic block using a closed integer tag. Case values are
+    /// required to be unique; the default target makes the dispatch total.
+    Switch {
+        value: ValueId,
+        cases: Vec<(i32, BlockId)>,
+        default: BlockId,
+        span: TextRange,
+    },
 }
 
 /// Lowers a CC module to MIR, returning the module and the ABI registry that

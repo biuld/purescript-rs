@@ -156,6 +156,9 @@ fn collect_references(body: &Body, references: &mut Vec<u32>) {
                 collect_references(then_body, references);
                 collect_references(else_body, references);
             }
+            Op::Block { body, .. } | Op::Loop { body, .. } => {
+                collect_references(body, references);
+            }
             Op::Leaf(_) => {}
         }
     }
@@ -185,6 +188,24 @@ fn emit_body(body: &Body, function: &mut EncoderFunction) {
                 emit_body(then_body, function);
                 function.instruction(&Instruction::Else);
                 emit_body(else_body, function);
+                function.instruction(&Instruction::End);
+            }
+            Op::Block { body, result, .. } => {
+                let block_type = match result {
+                    Some(ty) => BlockType::Result(*ty),
+                    None => BlockType::Empty,
+                };
+                function.instruction(&Instruction::Block(block_type));
+                emit_body(body, function);
+                function.instruction(&Instruction::End);
+            }
+            Op::Loop { body, result, .. } => {
+                let block_type = match result {
+                    Some(ty) => BlockType::Result(*ty),
+                    None => BlockType::Empty,
+                };
+                function.instruction(&Instruction::Loop(block_type));
+                emit_body(body, function);
                 function.instruction(&Instruction::End);
             }
         }

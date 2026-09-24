@@ -1,6 +1,6 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
-use super::{Assignment, AssignmentKind, BinaryOp, ValueId, ValueShape};
+use super::{Assignment, AssignmentKind, BinaryOp, TagCase, ValueId, ValueShape};
 use crate::BackendError;
 use psrs_core::{CaseBranch, PatternKind};
 use psrs_hir::SymbolId;
@@ -22,7 +22,8 @@ struct PatternState<'a> {
 
 impl FunctionLowerer<'_> {
     /// Lowers a `case` over a type whose constructors are all nullary into a
-    /// chain of tag comparisons.
+    /// tag switch when the constructor patterns are unique, preserving a
+    /// comparison chain for duplicate patterns that need source-order priority.
     pub(super) fn lower_case(
         &mut self,
         scrutinee_type: psrs_core::TypeId,
@@ -128,15 +129,66 @@ impl FunctionLowerer<'_> {
             (fallback_assignments, value)
         };
 
-        let (built, value) = self.build_case(
-            scrutinee,
-            &constructor_branches,
-            fallback,
-            result_type,
-            span,
-        )?;
+        let has_unique_tags = constructor_branches
+            .iter()
+            .map(|(_, tag)| *tag)
+            .collect::<HashSet<_>>()
+            .len()
+            == constructor_branches.len();
+        let (built, value) = if has_unique_tags && !constructor_branches.is_empty() {
+            self.build_tag_switch(
+                scrutinee,
+                &constructor_branches,
+                fallback,
+                result_type,
+                span,
+            )?
+        } else {
+            self.build_case(
+                scrutinee,
+                &constructor_branches,
+                fallback,
+                result_type,
+                span,
+            )?
+        };
         assignments.extend(built);
         Ok(value)
+    }
+
+    fn build_tag_switch(
+        &mut self,
+        scrutinee: ValueId,
+        constructor_branches: &[(&CaseBranch, u32)],
+        fallback: (Vec<Assignment>, ValueId),
+        result_type: ValueShape,
+        span: TextRange,
+    ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
+        let mut cases = Vec::with_capacity(constructor_branches.len());
+        for (branch, tag) in constructor_branches {
+            let mut assignments = Vec::new();
+            let value = self.lower_branch(branch, scrutinee, &mut assignments)?;
+            cases.push(TagCase {
+                tag: i32::try_from(*tag)
+                    .map_err(|_| case_error(span, "data constructor tag exceeds i32"))?,
+                assignments,
+                value,
+            });
+        }
+        let destination = self.fresh(result_type);
+        Ok((
+            vec![Assignment {
+                destination,
+                kind: AssignmentKind::TagSwitch {
+                    value: scrutinee,
+                    cases,
+                    default_assignments: fallback.0,
+                    default_value: fallback.1,
+                },
+                span,
+            }],
+            destination,
+        ))
     }
 
     fn lower_newtype_case(

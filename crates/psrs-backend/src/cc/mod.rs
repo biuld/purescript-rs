@@ -170,6 +170,22 @@ pub enum AssignmentKind {
         else_assignments: Vec<Assignment>,
         else_value: ValueId,
     },
+    /// A multi-way choice on a closed, integer-tagged data type. Pattern
+    /// matching chooses these tags; P9 carries the choice into MIR's Switch.
+    TagSwitch {
+        value: ValueId,
+        cases: Vec<TagCase>,
+        default_assignments: Vec<Assignment>,
+        default_value: ValueId,
+    },
+}
+
+/// One selected arm of a tag switch, with its branch-local computations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagCase {
+    pub tag: i32,
+    pub assignments: Vec<Assignment>,
+    pub value: ValueId,
 }
 
 /// Lowers Core with the default backend-side external binding extraction.

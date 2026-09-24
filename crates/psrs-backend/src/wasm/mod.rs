@@ -94,6 +94,20 @@ pub enum Op {
         result: Option<ValType>,
         span: TextRange,
     },
+    /// A branch label whose depth is relative to the enclosing structured
+    /// control stack.
+    Block {
+        body: Body,
+        result: Option<ValType>,
+        span: TextRange,
+    },
+    /// A loop label whose depth is relative to the enclosing structured
+    /// control stack.
+    Loop {
+        body: Body,
+        result: Option<ValType>,
+        span: TextRange,
+    },
 }
 
 /// A sequence of structured Wasm operations.

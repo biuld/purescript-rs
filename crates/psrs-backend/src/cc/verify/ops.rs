@@ -11,6 +11,9 @@ use super::adaptation::verify_erased_adaptation;
 use super::helpers::*;
 use super::scalar::{verify_binary_operation, verify_unary_operation};
 use super::variant::verify_variant_assignment;
+use tag_switch::verify_tag_switch;
+
+mod tag_switch;
 
 pub(super) fn verify_table(
     table: &RepresentationTable,
@@ -442,6 +445,27 @@ pub(super) fn verify_assignments(
                         "if branches have incompatible result shapes",
                     ));
                 }
+            }
+            AssignmentKind::TagSwitch {
+                value,
+                cases,
+                default_assignments,
+                default_value,
+            } => {
+                verify_tag_switch(
+                    assignment,
+                    *value,
+                    cases,
+                    default_assignments,
+                    *default_value,
+                    available,
+                    declared,
+                    signatures,
+                    table,
+                    functions,
+                    function_span,
+                )?;
+                uses.push(*value);
             }
         }
         if uses.iter().any(|value| !available.contains(value)) {

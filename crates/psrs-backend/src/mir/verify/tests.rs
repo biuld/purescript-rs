@@ -105,6 +105,63 @@ fn rejects_a_unary_primitive_with_mistyped_operands() {
 }
 
 #[test]
+fn rejects_duplicate_switch_case_values() {
+    let selector = ValueId(0);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "duplicate_switch_cases".into(),
+        parameters: vec![selector],
+        values: vec![ValueDecl {
+            id: selector,
+            ty: ValueType::I32,
+        }],
+        entry: BlockId(0),
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Switch {
+                    value: selector,
+                    cases: vec![(7, BlockId(1)), (7, BlockId(2))],
+                    default: BlockId(2),
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Return {
+                    value: selector,
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Return {
+                    value: selector,
+                    span: span(),
+                }),
+            },
+        ],
+        result: selector,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("case values are not unique")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_values_used_before_definition() {
     let function = Function {
         id: crate::types::FunctionId(0),

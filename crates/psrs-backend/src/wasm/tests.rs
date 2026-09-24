@@ -187,3 +187,38 @@ fn rejects_an_export_with_the_wrong_index_domain() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn rejects_a_branch_depth_outside_its_enclosing_labels() {
+    let module = Module {
+        name: "BadBranchDepth".into(),
+        imports: Vec::new(),
+        types: vec![FuncType {
+            parameters: Vec::new(),
+            results: Vec::new(),
+        }],
+        type_defs: Vec::new(),
+        functions: vec![Function {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "bad".into(),
+            type_index: super::TypeIndex(0),
+            parameters: Vec::new(),
+            locals: Vec::new(),
+            body: vec![Op::Leaf(Instruction::Br(0))],
+            span: span(),
+        }],
+        memories: Vec::new(),
+        data: Vec::new(),
+        exports: Vec::new(),
+        entry: None,
+        realloc: None,
+        span: span(),
+    };
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("does not target an enclosing label")),
+        "{errors:?}"
+    );
+}

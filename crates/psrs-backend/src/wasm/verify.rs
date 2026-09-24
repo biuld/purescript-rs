@@ -75,6 +75,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             function.span,
+            0,
             &mut errors,
         );
     }
@@ -91,6 +92,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             0,
             function_count,
             module.span,
+            0,
             &mut errors,
         );
     }
@@ -108,6 +110,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             realloc.span,
+            0,
             &mut errors,
         );
     }
@@ -124,6 +127,7 @@ fn verify_body(
     local_count: u32,
     function_count: u32,
     span: TextRange,
+    label_depth: u32,
     errors: &mut Vec<BackendError>,
 ) {
     for op in body {
@@ -135,6 +139,7 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
+                    label_depth,
                     errors,
                 );
             }
@@ -143,8 +148,35 @@ fn verify_body(
                 else_body,
                 ..
             } => {
-                verify_body(then_body, module, local_count, function_count, span, errors);
-                verify_body(else_body, module, local_count, function_count, span, errors);
+                verify_body(
+                    then_body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    label_depth + 1,
+                    errors,
+                );
+                verify_body(
+                    else_body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    label_depth + 1,
+                    errors,
+                );
+            }
+            Op::Block { body, .. } | Op::Loop { body, .. } => {
+                verify_body(
+                    body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    label_depth + 1,
+                    errors,
+                );
             }
         }
     }
@@ -156,6 +188,7 @@ fn verify_instruction(
     local_count: u32,
     function_count: u32,
     span: TextRange,
+    label_depth: u32,
     errors: &mut Vec<BackendError>,
 ) {
     match instruction {
@@ -174,6 +207,23 @@ fn verify_instruction(
         }
         Instruction::CallRef(index) if !valid_function_type(module, *index) => {
             errors.push(wasm_error(span, "Wasm call_ref type index is out of range"));
+        }
+        Instruction::Br(depth) | Instruction::BrIf(depth) if *depth >= label_depth => {
+            errors.push(wasm_error(
+                span,
+                "Wasm branch depth does not target an enclosing label",
+            ));
+        }
+        Instruction::BrTable(targets, default)
+            if targets
+                .iter()
+                .chain(std::iter::once(default))
+                .any(|depth| *depth >= label_depth) =>
+        {
+            errors.push(wasm_error(
+                span,
+                "Wasm br_table depth does not target an enclosing label",
+            ));
         }
         Instruction::CallIndirect { type_index, .. }
             if !valid_function_type(module, *type_index) =>

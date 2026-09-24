@@ -23,6 +23,8 @@ main = toInt (next Red)
 
 #[test]
 fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
+    let artifact = compile_source("Main.purs", ENUM_SOURCE).expect("lowering enum cases");
+    assert!(artifact.wat.contains("br_table"));
     let Some(output) = run_with_wasmtime(ENUM_SOURCE) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -32,11 +34,11 @@ fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
 }
 
 #[test]
-fn lowers_enum_case_to_tag_comparisons() {
+fn lowers_enum_case_to_mir_switch_and_wasm_br_table() {
     let stages =
         psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", ENUM_SOURCE).unwrap())
             .unwrap();
-    let has_primitive = stages
+    let has_tag_switch = stages
         .cc
         .functions
         .iter()
@@ -44,10 +46,37 @@ fn lowers_enum_case_to_tag_comparisons() {
         .any(|assignment| {
             matches!(
                 assignment.kind,
-                psrs_backend::cc::AssignmentKind::Primitive { .. }
+                psrs_backend::cc::AssignmentKind::TagSwitch { .. }
             )
         });
-    assert!(has_primitive, "expected tag comparison assignments");
+    assert!(has_tag_switch, "expected a tag switch in CC");
+    assert!(stages.mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            matches!(
+                block.terminator,
+                Some(psrs_backend::mir::Terminator::Switch { .. })
+            )
+        })
+    }));
+    assert!(stages.artifact.wat.contains("br_table"));
+}
+
+#[test]
+fn dispatches_reordered_enum_tags_and_the_default_arm_correctly() {
+    let source = "\
+module Main where
+data Color = Red | Green | Blue
+toInt color = case color of
+  Blue -> 30
+  Red -> 10
+  Green -> 20
+main = toInt Green
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(20));
 }
 
 #[test]
