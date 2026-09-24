@@ -87,7 +87,7 @@ pub enum ExternalKind {
     /// A value imported from a WIT interface, declared in source with
     /// `foreign import "<interface>#<function>" name :: Type`. The backend
     /// resolves the canonical signature from the vendored WIT and lowers calls
-    /// generically. See `docs/design/D-07-wit-imports-and-std.md`.
+    /// generically. See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
     Wit { interface: String, function: String },
 }
 

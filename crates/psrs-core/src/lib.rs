@@ -65,7 +65,7 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     /// The declaration used as the program entry point, if one was selected.
     /// The backend lowers this symbol rather than inferring identity from a
-    /// source name. See `docs/design/D-02-wasm-lowering.md`.
+    /// source name. See `docs/design/backend/wasm/encoding-and-structuring.md`.
     pub entry: Option<SymbolId>,
     pub span: TextRange,
 }

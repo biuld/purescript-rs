@@ -27,15 +27,67 @@ uncommitted work.
   `README.md`.
 - Put user-facing, implementation-independent behavior in
   `docs/feature/F-XX-<slug>.md`. Use stable, zero-padded IDs such as `F-01`.
-- Put implementation details in `docs/design/D-XX-<slug>.md`. Every design
-  document must identify the feature it implements, for example `D-01` for
-  `F-01`.
+- Put implementation details in `docs/design/`. Frontend, tooling, and
+  cross-cutting documents use `D-XX-<slug>.md` with stable zero-padded IDs such
+  as `D-01`. Backend designs live under `docs/design/backend/`: the cross-cutting
+  contract at `backend/00-<slug>.md`, functional topics under `backend/fp/<slug>.md`,
+  and Wasm/WASI topics under `backend/wasm/<slug>.md`, each file one
+  self-contained topic. Every design document must identify the feature it
+  implements, for example `D-01` for `F-01`.
 - Use `docs/decision/` only for major, durable decisions. Do not create a
   decision record for routine implementation choices. Give decision records
   stable IDs such as `DEC-01` and include context, the chosen option, and its
   consequences.
 - Keep feature documents free of crate names, libraries, and internal IR
   details. Put those in design documents.
+- Draw diagrams with Mermaid fenced blocks (````mermaid`): architecture,
+  pipelines, control flow, state machines, and sequence diagrams. A short,
+  direct diagram — a simple linear order or a tiny dependency chain — may stay
+  in an ordinary fenced block. Keep formal model, grammar, and IR fragments and
+  pseudocode as ordinary fenced code blocks either way.
+
+### Backend design document template
+
+Backend documents under `docs/design/backend/` follow a fixed chapter order so
+each one both specifies an implementation and teaches its topic. Short documents
+may merge sections, but keep the order and the names.
+
+Front matter:
+
+- `# Title`
+- `**Feature:** F-XX`
+- `**Status:**` the design's maturity (`Draft` or `Stable`), not an
+  implementation phase.
+- `**Prerequisites:**` the background a reader needs (functional programming,
+  WebAssembly, compilers) and the documents to read first.
+- `**Summary:**` two to four sentences on what the topic decides.
+
+Sections, in order:
+
+1. **Scope** — what the document owns, what it does not, and where those live.
+2. **Background** — the concepts and theory a reader needs, with references.
+3. **Model** — precise definitions: types, grammars, IR shapes, notation, and
+   invariants.
+4. **Design** — the chosen representation or lowering, including the rejected
+   alternatives and why.
+5. **Algorithms** — step-by-step procedures, pseudocode, and edge cases.
+6. **Code map** — the intended code organization for this topic: the module
+   directory structure, each module's responsibility, and the key types and
+   entry-point function signatures the implementation must provide. This is a
+   design target that guides the code; the code is expected to conform to it,
+   not the reverse. Do not describe the current file inventory here.
+7. **Invariants and verification** — what must hold and what the verifier
+   checks.
+8. **Worked example** — a small program or IR fragment traced through the stage.
+9. **Boundaries and interfaces** — the contracts with adjacent stages.
+10. **Open questions and future work**.
+11. **References**.
+
+Describe the complete design, not a bootstrap. Do not frame sections around
+"MVP", "bootstrap", or a first implementation slice. Implementation coverage
+belongs in `docs/design/backend/wasm/capability-profile.md` and
+`docs/decision/DEC-04-official-test-suite-roadmap.md`; a document may end with
+short implementation notes that only record deviations from the design.
 
 ## Code
 
@@ -68,7 +120,7 @@ uncommitted work.
   MIR, not a separate IR.
 
 See `docs/design/D-01-frontend-and-ir-boundaries.md` and
-`docs/design/D-02-wasm-lowering.md` before changing these boundaries.
+`docs/design/backend/wasm/encoding-and-structuring.md` before changing these boundaries.
 
 ## Reference Implementations
 

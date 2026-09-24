@@ -14,19 +14,19 @@ form; it is not one of the long-lived IR families.
 
 ## Pipeline
 
-```text
-P0  Source -> TokenStream
-P1  TokenStream -> CST
-P2  CST -> AST
-P3  AST -> Resolved HIR
-P4  Resolved HIR -> Resolved HIR
-P5  Resolved HIR -> THIR
-P6  THIR -> Typed Core
-P7  Typed Core -> Typed Core
-P8  Typed Core -> CC IR
-P9  CC IR -> MIR / CFG
-P10 MIR -> structured Wasm encoding
-P11 structured Wasm encoding -> .wasm / WASI artifact
+```mermaid
+flowchart TD
+    P0["P0  Source → TokenStream"] --> P1["P1  TokenStream → CST"]
+    P1 --> P2["P2  CST → AST"]
+    P2 --> P3["P3  AST → Resolved HIR"]
+    P3 --> P4["P4  Resolved HIR → Resolved HIR"]
+    P4 --> P5["P5  Resolved HIR → THIR"]
+    P5 --> P6["P6  THIR → Typed Core"]
+    P6 --> P7["P7  Typed Core → Typed Core"]
+    P7 --> P8["P8  Typed Core → CC IR"]
+    P8 --> P9["P9  CC IR → MIR / CFG"]
+    P9 --> P10["P10  MIR → structured Wasm encoding"]
+    P10 --> P11["P11  structured encoding → .wasm / WASI artifact"]
 ```
 
 | Pass | Name | Responsibility |
@@ -144,7 +144,7 @@ binary, without introducing another IR family. Below Typed Core, the
 representations are language-agnostic. CC carries target-neutral
 representation requirements; P9 maps them to the concrete WebAssembly value
 and type system owned by MIR, as specified in
-[D-06](D-06-low-level-ir-and-wasm-types.md).
+[IR boundaries](backend/00-ir-boundaries.md).
 
 ## Source information
 
@@ -257,7 +257,7 @@ under WASI. Constructors with fields, parameterized types, heap allocation, and
 tagged aggregate layouts are not implemented and are reported as named
 limitations. Type-class constraints and rows are not implemented yet. The
 backend uses the initial erased representation in
-[D-08](D-08-generic-wasm-representation.md) for supported rank-1 generic calls
+[erasure](backend/fp/polymorphism-and-erasure.md) for supported rank-1 generic calls
 and rejects remaining generic aggregates, partial applications, and dictionary
 passing. Type classes and pattern exhaustiveness are not implemented. P4
 currently lowers resolved operators to applications. P6 turns saturated integer

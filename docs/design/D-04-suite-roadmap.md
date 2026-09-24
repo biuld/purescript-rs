@@ -291,13 +291,14 @@ the code reference and an immutable capture array.
 
 ## Dependency graph
 
-```text
-M0 -> M1 -> M2 -> M3 -> M4 -> M5 -> M7
-                        ^      ^
-                        |      |
-                       M6 -----+
-M1 -> M8 (warnings)
-M4, M6 -> M8 (optimize)
+```mermaid
+flowchart LR
+    M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M7
+    M6 --> M4
+    M6 --> M5
+    M1 --> M8W["M8 warnings"]
+    M4 --> M8O["M8 optimize"]
+    M6 --> M8O
 ```
 
 ## Progress measurement

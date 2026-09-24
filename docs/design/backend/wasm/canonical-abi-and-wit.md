@@ -1,245 +1,438 @@
-# D-07 — WIT Imports and the Standard Library
+# Canonical ABI and WIT
 
-**Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress (exact scalar, handle, byte-list, and nullary-enum mappings implemented; direct scalar record and flags parameters lower through P9; aggregate ABI remains incomplete)
+**Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
+**Status:** Draft  
+**Prerequisites:** the Component Model and its Canonical ABI (flattening, `lift`/`lower`, `realloc`, the return pointer and post-return), the WIT interface language (interfaces, worlds, records, variants, flags, enums, lists, resources), and the Wasm value types. Read [MIR](../fp/mir.md), the [capability profile](capability-profile.md), and [DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md) first.  
+**Summary:** A source `foreign import` names a WIT function by an interface/name binding, and the backend adapts the call to the Canonical ABI generically instead of hand-coding host functions. The ABI layer resolves the canonical signature, flattens declared arguments, reads indirect results, and emits the adaptation as MIR; WIT names never enter CC or MIR.
 
-## Purpose
+## Scope
 
-WASI is the runtime ABI ([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)):
-the PureScript-facing standard library is built on WASI and the compiler lowers
-to WASI's canonical ABI. This document defines how a source declaration binds to
-a WIT import and how the backend lowers such a call generically, so the compiler
-does not implement host functions one by one. It complements
-[D-06](D-06-low-level-ir-and-wasm-types.md).
+This document owns source WIT bindings, the ABI registry, argument classification
+and flattening, result recovery, signature validation, and the ownership rules
+at the boundary. It does not own the linear-memory layout and allocator used by
+the boundary ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)),
+the structured encoding of the resulting calls ([Wasm encoding](encoding-and-structuring.md)),
+which WASI interfaces are enabled ([capability profile](capability-profile.md)),
+or the component world and library modules ([WASI platform library](wasi-platform-library.md)).
 
-## Problem
+## Background
 
-The bootstrap implements `log`, `error`, and `now` as compiler code: the host
-registry declares them (name, symbol, type), but the backend matches on the host
-name and emits a hand-written WASI sequence. Adding a host function means
-editing the backend, and the standard library is not library code.
+**WIT.** WIT is the Component Model's interface definition language. A `world`
+declares the interfaces a component imports and exports. An interface declares
+`func`s over types such as `bool`, integer and float scalars, `char`, `string`,
+`list<T>`, `record`, `tuple`, `variant`, `option`, `result`, `enum`, `flags`,
+and resources (`own<T>`, `borrow<T>`). WASI publishes its host interfaces as WIT
+packages, for example `wasi:cli`, `wasi:io`, and `wasi:clocks`.
+
+**The Canonical ABI.** A core module and a component exchange aggregate values
+by *flattening* them to core Wasm values or, when the flattened form is too
+large, by passing a pointer to a record in linear memory. `lift`/`lower` convert
+between the component and core views. A flattened result that does not fit in
+one core value is written through a trailing *return pointer* to a return area.
+A component that receives an allocated list or string needs an exported
+`cabi_realloc` so the host can allocate in guest memory. Values a component
+receives through the boundary may need explicit release through a post-return
+action or a resource `drop`.
+
+**Why a generic adapter.** Hand-coding WASI functions in the compiler bakes a
+host ABI, a string representation, and a per-function recipe into the backend,
+and adding a service means editing the compiler. [DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md)
+instead makes WASI itself the runtime interface and lowers WIT imports
+type-directedly, so the library is ordinary source code.
+
+## Model
+
+Two side tables carry the boundary. Neither is part of CC or MIR.
+
+```text
+ExternalBindings = { imports: [ExternalBinding] }
+ExternalBinding  = { symbol: SymbolId, interface: String, function: String,
+                     signature: Option(SourceSignature) }
+
+SourceSignature = { parameters: [SourceType], result: SourceType, span: TextRange }
+SourceType      = Int | Boolean | Number | Char | String | Unit
+                | Enum { cases: [String] }
+                | Record { fields: [(String, SourceType)] }
+
+WasiRegistry = { resolve: wit_parser::Resolve,
+                 imports: [WasiImport],
+                 keys: [(String, String) -> usize],
+                 target: TargetCapabilities }
+
+WasiImport = { symbol: SymbolId, module: String, name: String,
+               parameters: [ValueType], param_kinds: [WasiParamKind],
+               result: Option<ValueType>, result_kind: WasiResultKind,
+               unsupported: Option<String>, retptr: bool }
+
+WasiParamKind = Integer32 | Boolean | Char | Scalar64 { signed: bool }
+              | Float32 | Float64
+              | Enum { cases: [String] }
+              | Flags { names: [String] }
+              | Record { fields: [WasiField] }
+              | Handle | List | Unsupported
+
+WasiResultKind = None | Scalar | Boolean | Enum { cases: [String] }
+               | Char | List | Result | Discarded
+
+WasiField      = { name: String, kind: WasiParamKind }
+BoundWasiImport = { import: WasiImport, signature: SourceSignature }
+```
+
+`ExternalBindings` is produced from Typed Core by `ExternalBindings::from_core`,
+which keeps every `ExternalKind::Wit { interface, function }` and projects its
+HIR signature into `SourceSignature`; a signature the source ABI cannot express
+stays `None` and is rejected. `BoundWasiImport` pairs a resolved `WasiImport`
+with the exact `SourceSignature` so P9 can recover record field order after CC
+lowering.
+
+### Invariants
+
+- A `WasiImport` is interned once per `(interface, function)`; its `symbol` is
+  stable in the reserved intrinsic module above the runtime ranges.
+- `WasiImport::parameters` is the canonical signature from
+  `Resolve::wasm_signature(AbiVariant::GuestImport)`; `param_kinds` is aligned
+  with the WIT-level parameter list, including a method's receiver.
+- `param_kinds` flatten to exactly the canonical parameter count plus `retptr`;
+  a mismatch is recorded as an `unsupported` reason, never approximated.
+- A binding is validated against its source signature before CC or MIR is
+  emitted; a mismatched arity or type is a source diagnostic.
+- WIT interface names, function names, and canonical signatures never appear in
+  CC or MIR; MIR records only the interned symbol and its canonical value types.
 
 ## Design
 
 ### Declaring an import
 
-A value provided by WIT is declared in source with a **binding string**:
+A value provided by WIT is declared with a binding string in source:
 
 ```purescript
 foreign import "wasi:clocks/monotonic-clock#now" now :: Int
 ```
 
-The string is `<interface>#<function>` and names the WIT interface and
-function. The declaration's source name is unrelated to the WIT name, and its
-type is the declared type: the backend maps it to the canonical signature
-through the standard type mapping. There is a single external kind, `Wit`; the
-compiler has no per-function host registry.
+The string is `<interface>#<function>`. The declaration's source name is
+unrelated to the WIT name, and its declared type is mapped to the canonical
+signature through the standard type mapping. There is a single external kind,
+`Wit`; the compiler has no per-function host registry. `ExternalBindings` is a
+lossless projection of the source externals, checked against Core
+(`validate_core`) and against CC's abstract signatures (`validate_cc`).
 
-### Generic WIT-import lowering
+### Resolving and validating
 
-For a `Wit` binding the backend resolves the canonical signature from the
-vendored WASI WIT (`WasiRegistry`) and lowers the call by **type-directed
-mapping** rather than a per-function recipe:
+For each binding, P9 asks the `WasiRegistry` to resolve the interface and
+function against the vendored WASI 0.2.12 WIT. Resolution:
 
-- Each declared argument is classified against the WIT-level parameter it
-  matches. A scalar parameter and a resource handle each flatten to one `i32`
-  (or `f64` for `Number`-compatible WIT scalars);
-  a 64-bit scalar is widened from `Int` with the extension its WIT signedness
-  requires (`i64.extend_i32_s` for `s64`, `i64.extend_i32_u` for `u64`); a
-  `String` argument (a `list<u8>`) flattens to the data pointer and length of
-  its length-prefixed buffer.
-- If the canonical import takes a return pointer, the backend passes a scratch
-  address as the last argument.
-- The canonical result is mapped to the declared result: `i32` as-is, `i64`
-  narrowed to `Int` with `i32.wrap_i64`, no result to `Unit`, and a returned
-  `list`/`string` read back from the return pointer.
+- finds the package and interface, then the WIT function;
+- computes the canonical signature with `Resolve::wasm_signature`;
+- classifies each WIT parameter and the result;
+- records an `unsupported` reason when the shape has no source mapping, when a
+  list is not byte-valued, when a `result` has a payload on success, when
+  parameters are passed indirectly, when flattening does not agree with the
+  canonical signature, or when the interface's package is disabled by the
+  target; and
+- interns the import and returns it.
 
-The current `result` adapter accepts only a unit success payload. Its source
-declaration returns `Unit`; after the call it reads the one-byte canonical
-result discriminant with `i32.load8_u`. A nonzero discriminant traps instead of
-being silently converted to `Unit`, so host-side failure cannot appear as
-success. Results with a success payload are rejected until a source-level
-result representation is available.
+P9 then validates the source declaration against the resolved import
+(`WasiRegistry::validate_signature`). A failure is reported against the
+declaration's span; a declaration fails even when dead code never calls it,
+because the side table is validated eagerly.
 
-### Returned lists and the allocator
+### Lowering a call
 
-When an import returns a `list`/`string`, the host writes it into guest memory
-and passes `(pointer, length)` through the return pointer. Allocating in guest
-memory requires an exported `cabi_realloc`, so a module that imports such a
-function also exports one. It is a bump allocator whose free pointer lives in a
-data segment after the string data and grows memory on demand. Each allocation
-is prefixed with its length and the allocated pointer is returned after that
-prefix, so a returned `(pointer, length)` is exactly a length-prefixed string
-value: the lowering computes `pointer - 4`.
+`mir::wit::lower` lowers a call from the declared arguments, the source
+signature, and the import's classification. It flattens arguments into canonical
+values, appends a return pointer when `retptr` is set, emits the call, and
+recovers the result. All adaptation instructions are ordinary MIR operations:
 
-A returned list whose element type is not a byte is rejected with a source
-diagnostic; such imports (for example `get-arguments`, which returns
-`list<string>`) require aggregate values before they can be enabled.
-Returned byte lists are covered by execution tests that feed the recovered
-`String` to the ordinary `writeStdout` WIT import and exercise repeated
-allocator calls.
+- **Parameters.** Scalars and handles push directly; `Float32` narrows
+  (`f64 -> f32`); `Scalar64` widens (`i64.extend_i32_s/u` by WIT signedness); a
+  `String`/`list` pushes its data pointer and length; a `Record` projects fields
+  in WIT order and recurses; `Flags` packs Boolean fields into one or more `i32`
+  words in WIT declaration order.
+- **Return pointer.** A scratch address (`PRINT_SCRATCH = 0`, inside the 16-byte
+  reserved scratch region) is passed as the last argument.
+- **Results.** A scalar `i64` is wrapped to `Int`, an `f32` widened to `Number`,
+  an `i32`/`f64` used directly, and a `list`/`string` read from the return area
+  as `(pointer, length)` and converted to the length-prefixed string value. A
+  `result<_, _>` with a unit success payload reads the one-byte discriminant and
+  traps on a nonzero status rather than silently succeeding.
 
-### Canonical ABI coverage
+### Rejected alternatives
 
-The current implementation supports exact source mappings for `bool`/`Boolean`,
-`s32`/`Int`, `s64` and `u64`/`Int`, `f32` and `f64`/`Number`, `char`/`Char`,
-nullary WIT enums mapped to nullary source data types with matching case names
-and order, resource handles represented by `Int`, byte lists represented by
-`String`, and the current unit-success `result` adapter. Direct scalar WIT
-record parameters are classified recursively, checked against closed source
-record fields by name and type, and flattened in WIT field order by P9 for the
-GC layout. WIT flags map to a closed source record of
-`Boolean` fields; P9 packs those fields in WIT declaration order into the
-canonical one or more `i32` words. The PureScript type checker still rejects
-record type signatures, so neither record nor flags declarations can reach
-this backend path from source yet.
-Enum tags pass through as canonical `i32` values after P9 validates the source
-constructor list. `u32`, the 8- and 16-bit integer types, tuples, indirect
-record parameters, and aggregate results remain outside the supported subset.
-Enum, direct-record, and flags paths have classification and validation tests;
-P9 has field-flattening and flags-packing tests. None is promoted in the
-capability matrix until binary and Wasmtime execution evidence exists.
+- **A per-function host registry.** Rejected: adding a host function would edit
+  the backend, and the standard library would not be library code
+  ([DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md)).
+- **A project-specific WIT runtime ABI (`psrs:runtime`).** Rejected: WASI already
+  plays that role, and a second ABI would need its own design, versioning, and
+  adaptation.
+- **Hand-coding WASI Preview 1 (`fd_write`) in the backend.** Rejected: it bakes
+  a WASI version, a string representation, and an iovec layout into the
+  compiler.
+- **Storing WIT metadata in CC or MIR.** Rejected: it would couple the
+  target-neutral IRs to the component boundary. The names live only in
+  `ExternalBindings` and the `WasiRegistry`.
 
-The broader target is to classify the canonical ABI forms used by WASI 0.2 and
-adapt them to source values. Classification stays in the ABI layer; CC receives
-only an abstract signature and MIR receives only the resulting canonical
-parameters and adapter instructions. That target is not yet complete.
+## Algorithms
 
-#### Classification
+### Parameter flattening
 
-The following table states the target ABI shapes, not the current implemented
-subset. Each WIT function is classified into a canonical signature plus a per-parameter
-and per-result **ABI shape** that records how the declared source value flattens
-or is read back:
+```text
+lower_parameters(import, source_signature, args, flat):
+    require len(args) == len(source_signature.parameters) == len(import.param_kinds)
+    for (arg, source, kind) in zip(args, source_signature.parameters, import.param_kinds):
+        lower_parameter(arg, source, kind, flat)
 
-| WIT form | Flattened core form | Read back |
-| --- | --- | --- |
-| `bool`, `u8`/`s8`, `u16`/`s16`, `u32`/`s32`, `char` | one `i32` | direct |
-| `u64`/`s64` | one `i64` | direct |
-| `f32`/`f64` | one `f32`/`f64` | direct |
-| `enum`, `flags` | one or more `i32` | direct |
-| `record`, `tuple` | flattened concatenation of the fields | return pointer if the flattened result has more than one value |
-| `variant`, `option`, `result` | `i32` discriminant plus the flattened join of the case payloads | return pointer when it does not fit one value |
-| `list<T>`, `string` | `(pointer, length)` pair | return pointer, read as `(pointer, length)` |
-| `own<T>`, `borrow<T>`, resource | one `i32` handle | direct |
-
-When the flattened parameters exceed the canonical ABI limit, the import takes a
-single pointer to a memory record instead; when the flattened result exceeds one
-value, the import takes a trailing return pointer. Both cases are represented by
-the same `retptr` and ABI-shape data the bootstrap already carries.
-
-#### Memory layout
-
-The ABI layer computes the canonical memory layout (field offsets, alignment,
-padding, variant discriminant placement, and list/string length prefixes) for
-every aggregate form that is passed or returned indirectly. The layout is used
-only to emit MIR loads, stores, and pointer arithmetic; it is not stored in CC
-or MIR as metadata.
-
-#### Source mapping
-
-A source declaration is validated against the resolved WIT function by mapping
-its source type to a WIT form:
-
-- `Int` to `s32`, `Number` to `f64`, `Boolean` to `bool`, `Char` to `char`,
-  `String` to `string`, `Unit` to `unit`;
-- a closed record to a `record` with matching field names and types;
-- a closed record of `Boolean` fields to WIT `flags` with matching kebab-case
-  names, packing set bits in WIT declaration order;
-- a data type with field constructors to a `variant` with matching case tags;
-- a nullary data type to a WIT `enum` when its constructor names, converted from
-  WIT kebab case to source Pascal case, match the WIT cases in the same order;
-- `Array a` to `list<...>` with a byte element for the current `String`
-  boundary, and to other element types once aggregate lists are supported; and
-- a tuple to `tuple`.
-
-The source `Number` representation is `f64`. A WIT `f32` parameter is narrowed
-at the canonical ABI boundary and a WIT `f32` result is widened back to
-`Number`; these conversions are explicit MIR operations. WIT `char` maps only
-to source `Char`, even though both use the canonical `i32` core type.
-
-A source type that does not match its WIT form is rejected with a
-source-associated diagnostic during P9 binding validation, before MIR emits
-the call. CC remains independent of WIT and the canonical ABI.
-
-#### Ownership and post-return
-
-- A returned `list`/`string` is owned by the guest after the call. When the
-  source value is consumed and no longer referenced, the adapter releases it
-  through the `cabi_realloc`-compatible allocator or a `post-return` action
-  once reclamation exists. Until then the allocator is a bump allocator and the
-  release is a no-op, which is sound but leaks.
-- An `own` handle returned to the guest must be dropped when the source value is
-  dropped; a `borrow` handle must not be dropped. The adapter inserts the
-  required drop calls for `own` handles once resource types are exposed.
-- A guest that passes a `borrow` handle must keep the resource alive across the
-  call; the lowering evaluates the argument before the call and does not drop it.
-
-#### Delivery order
-
-1. WIT `enum` maps to nullary source data types, direct scalar record
-   parameters lower through P9, and flags pack closed Boolean records into
-   canonical words. Direct scalar tuples, source type-checker integration for
-   record signatures, and runtime execution evidence remain.
-2. Indirect records and tuples through the return pointer.
-3. `option`/`result`/`variant` with an `i32` discriminant and payload join.
-4. Non-byte `list<T>` and `list<string>` with aggregate memory layout.
-5. `own`/`borrow` handles and their drop rules; resource types.
-
-Each step adds classification, adapter lowering, a validation test, and a
-Wasmtime execution test against a vendored WIT function.
-
-### The standard library
-
-The standard library is source code that declares its WIT imports and defines
-platform services over them. No host function is implemented in the compiler;
-the backend only knows the generic WIT-import call. The platform-independent
-`Prelude` defines `Effect a`, `pure`, `bind`, and `runEffect`. `WASI.Console`
-defines `log :: String -> Effect Unit` and `error :: String -> Effect Unit`,
-while `WASI.Clock` defines `now :: Effect Int`.
-
-The library is a real module. It is embedded in the driver because there is no
-filesystem module loader yet, but it is resolved, type checked, and linked like
-any other module; a program reaches its values with explicit `import` lines. It
-declares `getStdout`, `getStderr`, `writeStdout`, and `monotonicNow` with WIT
-bindings, and defines the effectful services in ordinary source code:
-
-```purescript
-log s = \token -> let ignored = writeStdout getStdout s in writeStdout getStdout "\n"
+lower_parameter(arg, source, kind, flat):
+    Integer32 | Boolean | Char | Float64 | Handle | Enum
+        => flat.push(arg)
+    Float32
+        => flat.push(F64ToF32(arg))
+    Scalar64 { signed }
+        => flat.push(WidenI64(arg, signed))
+    Flags { names }
+        => for each chunk of 32 names:
+               word = 0
+               for bit, name in chunk:
+                   index = position of source_field_name(name) in source fields
+                   boolean = project(arg, index)
+                   word |= BoolToI32(boolean) << bit
+               flat.push(word)
+    List
+        => length = Load(arg)                 # 4-byte length prefix
+           bytes  = arg + 4
+           flat.push(bytes); flat.push(length)
+    Record { fields }
+        => for field in fields (WIT order):
+               index = position of source_field_name(field.name) in source fields
+               value = project(arg, index)
+               lower_parameter(value, source_field, field.kind, flat)
+    Unsupported => error
 ```
 
-`Effect a` is currently represented by the bootstrap compiler as `Boolean -> a`.
-This is a temporary representation for deferred construction and explicit
-execution, not a dedicated effect runtime. Constructing an effect only creates
-a closure; `runEffect` supplies the execution token, and `bind` invokes the
-left action before the continuation. Scheduling, cancellation, and asynchronous
-runtime support are separate future work.
+### Result recovery
 
-There is no `Write` composition left in the compiler: the newline is an ordinary
-string literal and becomes a data segment. After linking, declarations the
-program does not reach from `main` are pruned, so a program that does not use
-`log` or `error` does not import the output streams.
+```text
+lower_result(import, destination, flat):
+    if import.retptr: flat.push(Constant(PRINT_SCRATCH))
+    match import.result_kind:
+        List =>
+            CallVoid(import, flat)
+            pointer = Load(PRINT_SCRATCH)
+            destination = pointer - 4          # undo the length prefix
+        Scalar | Boolean | Enum | Char =>
+            match import.result:
+                I64 => destination = WrapI64(Call(import, flat))
+                F32 => destination = F32ToF64(Call(import, flat))
+                I32 | F64 => destination = Call(import, flat)
+        None =>
+            CallVoid(import, flat); destination = Constant(0)
+        Result =>
+            CallVoid(import, flat)
+            status   = Load8U(PRINT_SCRATCH)
+            failed   = status != 0
+            TrapIf(failed)
+            destination = Constant(0)
+        Discarded => error
+```
 
-## Consequences
+### Signature validation
 
-- Adding a compatible WIT import is a `foreign import` declaration, not a
-  per-function backend recipe. The compiler rejects source signatures that do
-  not match the canonical WIT shape.
-- The compiler still owns the string representation (length-prefixed buffer in
-  linear memory); a library sees strings, and the generic lowering adapts them.
-- Modules are linked at the Core level: type IDs are renumbered into one table
-  and unreachable declarations are pruned. A module's values are exported by
-  their declared types, so an unannotated declaration is not visible to other
-  modules yet.
-- Imports that return a `list`/`string` need an allocator, so the module exports
-  `cabi_realloc`. Other returned aggregates (`list<string>`,
-  `list<tuple<...>>`) additionally need aggregate values in the backend.
+```text
+validate_signature(import, signature):
+    require len(signature.parameters) == len(import.param_kinds)
+    for (source, kind) in zip(signature.parameters, import.param_kinds):
+        require source_parameter_matches(source, kind)
+    match import.result_kind:
+        None      => require signature.result is Unit
+        Scalar    => I64/I32 -> Int, F32/F64 -> Number
+        Boolean   => Boolean
+        Enum      => the source cases equal the WIT cases in order
+        Char      => Char
+        List      => String (byte list)
+        Result    => Unit
+        Discarded => always reject
+```
 
-## Open items
+### Edge cases
 
-- A filesystem module loader, so user modules and libraries are discovered and
-  selected instead of the driver providing the standard library source.
-- The canonical ABI coverage above, so imports like `get-arguments` and
-  `get-environment` can be exposed.
-- A reclaiming allocator, so returned lists and owned resources can be released
-  instead of leaked by the bump allocator.
+- A method parameter list includes the receiver handle, so the declared arity
+  and the canonical arity differ by one; classification keeps them aligned.
+- A `list<u8>` flattens to `(pointer, length)` while a scalar pushes one value;
+  `flattened_parameter_count` is compared with the canonical signature to reject
+  a shape the direct ABI cannot express.
+- A WIT `char` maps only to source `Char` even though both use the canonical
+  `i32` core type; an `Int` is rejected.
+- A WIT `f32` parameter/result is narrowed/widened at the boundary because the
+  source `Number` is `f64`; these are explicit MIR conversions.
+- A source type that does not match its WIT form is rejected during binding
+  validation, before MIR emits the call.
+
+## Code map
+
+The ABI layer is split between the WIT-binding side table, the MIR-side
+adapter, and component packaging; [IR boundaries](../00-ir-boundaries.md) fixes
+the crate-level tree. The implementation must conform to this organization:
+
+```text
+backend/src/
+  abi.rs               WasiRegistry, WasiImport, SourceSignature,
+                       validate_signature, package gating
+  abi/
+    classification.rs  WIT type classification and value types
+  bindings.rs          ExternalBindings side table and boundary checks
+  mir/
+    wit/
+      mod.rs           canonical call lowering and result recovery
+      parameters.rs    parameter flattening, records, flags
+  component.rs         vendored WIT loading and component packaging
+```
+
+`abi.rs` and `abi/` own resolving source WIT bindings and must define:
+
+- `ExternalBindings`, `ExternalBinding`, `SourceSignature`, and `SourceType` —
+  the side table of the Model section, with
+  `ExternalBindings::from_core` keeping every `ExternalKind::Wit` binding and
+  projecting its HIR signature. It must provide `validate_core` and
+  `validate_cc` for the P8/P9 boundary checks.
+- `WasiRegistry` — the interned `(interface, function)` registry, holding the
+  `TargetCapabilities` it was loaded with. It must provide:
+  - `load() -> Result<Self, String>` and
+    `load_with_capabilities(target) -> Result<Self, String>`;
+  - `import(&mut self, interface: &str, function: &str) -> Result<WasiImport, String>`,
+    which interns on first use;
+  - `imports(&self) -> &[WasiImport]`, `symbol_name(&self, symbol: SymbolId) -> Option<(&str, &str)>`,
+    and `has_list_result(&self, symbol: SymbolId) -> bool`;
+  - `validate_signature(&self, import: &WasiImport, signature: &SourceSignature) -> Result<(), String>`.
+- `WasiImport`, `WasiParamKind`, `WasiResultKind`, and `WasiField` — the
+  resolved canonical descriptor. `param_kinds` must stay aligned with the
+  WIT-level parameter list, including a method receiver, and `unsupported` must
+  record any shape outside the supported subset instead of approximating it.
+- `abi/classification.rs` owns `param_kind`, `result_kind`, `source_signature`,
+  `value_type`, and `unsupported_shape`. Classification and flattening must
+  agree with `Resolve::wasm_signature`, or the import must be rejected as
+  unsupported.
+
+`mir/wit/` owns the Canonical ABI adaptation and must provide:
+
+```rust
+pub(super) fn lower<L: WitCallLowerer>(
+    lowerer: &mut L,
+    import: &WasiImport,
+    source_signature: &abi::SourceSignature,
+    destination: ValueId,
+    arguments: &[ValueId],
+    span: TextRange,
+    current: BlockId,
+) -> Result<(), Vec<BackendError>>;
+```
+
+It flattens arguments into canonical parameters, appends the return pointer when
+`retptr` is set, emits the call, and recovers the result; `parameters.rs` owns
+record and flags flattening. Every adaptation instruction must be an ordinary
+MIR operation, and no WIT name, interface, or canonical signature may enter MIR.
+
+`component.rs` owns vendored WIT loading and packaging and must provide:
+
+```rust
+pub fn load_vendored_wasi(resolve: &mut Resolve) -> Result<(), String>;
+pub fn command_world() -> Result<(Resolve, WorldId), String>;
+pub fn componentize(core: &[u8], resolve: &Resolve, world: WorldId) -> Result<Vec<u8>, String>;
+```
+
+It also owns the supported-interface set. `abi.rs` owns the
+`wasi_interface_enabled(target, interface)` package gate consulted before
+resolving a WASI import ([capability profile](capability-profile.md)).
+Dependencies must stay one-directional: `abi` and `mir/wit` may depend on
+`capability` and shared types; `component` may depend on `abi` and `capability`;
+none may depend on the front end.
+
+## Invariants and verification
+
+- Every source WIT external appears exactly once in `ExternalBindings`; a missing,
+  extra, or duplicate binding is a P8/P9 error (`validate_core`, `validate_cc`).
+- The declared source signature matches the resolved WIT form in arity and type;
+  otherwise P9 fails before CC/MIR emits anything.
+- Flattening is checked against the canonical signature, so an unsupported shape
+  is rejected rather than emitted with a lossy approximation.
+- MIR verifier checks canonical import calls against the MIR import table, and
+  memory operations use `MemoryId(0)` with an `i32` address
+  ([MIR](../fp/mir.md), [linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+- WIT names, interfaces, and worlds are confined to `ExternalBindings`, the
+  `WasiRegistry`, and component metadata; CC and MIR contain only interning
+  symbols and canonical value types ([IR boundaries](../00-ir-boundaries.md)).
+
+## Worked example
+
+Consider an import
+
+```purescript
+foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
+  writeStdout :: Int -> String -> Unit
+```
+
+and a call `writeStdout handle message`. Resolution yields `module =
+"wasi:io/streams@0.2.12"`, `name =
+"[method]output-stream.blocking-write-and-flush"`, `param_kinds = [Handle,
+List]` (the `String` is a byte list), `retptr = true`, and `result_kind =
+Result` (the WIT function returns `result<_, stream-error>` with a unit success
+payload). Lowering `writeStdout handle message` emits:
+
+```text
+v_len   = Load [0] message            # message[0..4] is the byte length
+v_bytes = message + 4
+v_ret   = Constant 0                  # PRINT_SCRATCH return pointer
+CallVoid writeStdout(handle, v_bytes, v_len, v_ret)
+v_stat  = Load8U [0] 0                # canonical result discriminant
+v_bad   = v_stat != 0
+TrapIf v_bad
+result  = Constant 0                  # Unit
+```
+
+If the same program also used a `list`-returning import, P10 would additionally
+synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+
+## Boundaries and interfaces
+
+- **Input:** Typed Core externals projected into `ExternalBindings`, the vendored
+  WASI WIT, and the target profile.
+- **Output:** a set of `BoundWasiImport`s and the `WasiRegistry` P9 hands to P10;
+  MIR imports carry only the canonical symbol, parameters, and result.
+- **To MIR:** canonical calls and adaptation instructions. The ABI layer decides
+  how values flatten; MIR only executes the resulting operations.
+- **To P10/P11:** the registry names each interned symbol as a core import
+  `(module, field)`; the componentizer lifts the module against the app world
+  ([WASI platform library](wasi-platform-library.md)).
+
+## Open questions and future work
+
+- **Aggregate ABI.** Indirect records and tuples, `option`/`result`/`variant`
+  payloads, and non-byte `list<T>` need memory-layout computation and read-back.
+- **Resources.** `own`/`borrow` handles need `drop` insertion and lifetime rules;
+  ownership and post-return reclamation are specified but not implemented.
+- **Source integration.** The type checker still rejects record type signatures,
+  so the record and flags paths are not yet reachable from source.
+- **Allocator reclamation.** Returned lists and owned resources are currently
+  served by a bump allocator and leak
+  ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+- **Filesystem loader.** The standard library is embedded in the driver; a real
+  module loader would let it be discovered like any module.
+
+## Implementation notes
+
+Exact mappings are implemented for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
+`char`, nullary enums, resource handles, byte lists, the unit-success `result`,
+direct scalar records, and flags words. Indirect parameters, non-byte lists,
+aggregate results, `u32` and narrower integers, tuples, and `own`/`borrow` drop
+rules are specified but not yet produced. These are coverage gaps in this
+design, not a change to it.
+
+## References
+
+- WebAssembly Component Model specification: WIT and the Canonical ABI
+  (`lift`/`lower`, flattening, `realloc`, return pointer, post-return).
+- WASI 0.2 WIT interfaces (`wasi:cli`, `wasi:io`, `wasi:clocks`, `wasi:random`).
+- `wit-parser` `Resolve::wasm_signature`, `AbiVariant`.
+- [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md),
+  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
+- [MIR](../fp/mir.md), [capability profile](capability-profile.md),
+  [linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
+  [WASI platform library](wasi-platform-library.md).

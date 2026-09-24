@@ -29,13 +29,13 @@ Still open:
 
 - type classes and dictionary passing, open rows, and generic aggregates;
 - the complete scalar and numeric operation set
-  ([D-09](docs/design/D-09-scalar-and-numeric-lowering.md));
+  ([scalars](docs/design/backend/fp/scalars-and-primitives.md));
 - broader aggregate coverage for the target-neutral variant representation and
   the canonical ABI boundary
   ([DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md),
-  [D-10](docs/design/D-10-linear-memory-representation.md));
+  [linear ABI boundary](docs/design/backend/wasm/linear-memory-and-canonical-abi-boundary.md));
 - the broader canonical ABI and ownership rules
-  ([D-07](docs/design/D-07-wit-imports-and-std.md)).
+  ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)).
 
 General PureScript compatibility and the official runtime suite remain future
 work.
@@ -98,7 +98,7 @@ and WASI 0.3 stay disabled until their lowerings and tests land. Wasm GC is the
 only language heap; linear memory is reserved for the canonical ABI boundary
 ([DEC-09](docs/decision/DEC-09-gc-only-language-heap.md)). See
 [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) and
-[D-05](docs/design/D-05-backend-capability.md).
+[capability profile](docs/design/backend/wasm/capability-profile.md).
 
 ## Project documents
 
@@ -112,16 +112,16 @@ only language heap; linear memory is reserved for the canonical ABI boundary
 The user-facing goals are [F-01](docs/feature/F-01-source-inspection.md) and
 [F-02](docs/feature/F-02-portable-programs.md). Their implementations are
 specified by [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
-[D-02](docs/design/D-02-wasm-lowering.md). The backend is split across
-[D-05](docs/design/D-05-backend-capability.md) (capability profile),
-[D-06](docs/design/D-06-low-level-ir-and-wasm-types.md) (IR boundaries and
-verification), [D-07](docs/design/D-07-wit-imports-and-std.md) (WIT imports and
-canonical ABI), [D-08](docs/design/D-08-generic-wasm-representation.md)
-(generic values), [D-09](docs/design/D-09-scalar-and-numeric-lowering.md)
+[wasm encoding](docs/design/backend/wasm/encoding-and-structuring.md). The backend is split across
+[capability profile](docs/design/backend/wasm/capability-profile.md) (capability profile),
+[IR boundaries](docs/design/backend/00-ir-boundaries.md) (IR boundaries and
+verification), [canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md) (WIT imports and
+canonical ABI), [erasure](docs/design/backend/fp/polymorphism-and-erasure.md)
+(generic values), [scalars](docs/design/backend/fp/scalars-and-primitives.md)
 (scalar and numeric lowering), and
-[D-10](docs/design/D-10-linear-memory-representation.md) (canonical ABI
+[linear ABI boundary](docs/design/backend/wasm/linear-memory-and-canonical-abi-boundary.md) (canonical ABI
 boundary), with the concrete GC layouts and execution-evidence matrix in
-[D-11](docs/design/D-11-gc-representation-and-evidence.md). The type system is
+[data representation](docs/design/backend/fp/data-representation.md). The type system is
 in [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md).
 

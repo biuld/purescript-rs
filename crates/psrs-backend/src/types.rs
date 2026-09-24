@@ -1,5 +1,5 @@
 //! The language-agnostic WebAssembly 3.0 value and type model shared by the
-//! low-level IRs. See `docs/design/D-06-low-level-ir-and-wasm-types.md`.
+//! low-level IRs. See `docs/design/backend/00-ir-boundaries.md`.
 
 /// A WebAssembly value type. `Boolean` is a logical convenience that the
 /// low-level IRs represent as `i32`; every other variant is a Wasm value type.

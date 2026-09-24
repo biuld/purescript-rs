@@ -40,7 +40,8 @@ pub struct BlockId(pub u32);
 pub struct Module {
     pub name: String,
     /// Defined GC types owned by MIR. The Wasm encoding emits them after the
-    /// function types at a fixed base; see `docs/design/D-06`.
+    /// function types at a fixed base; see
+    /// `docs/design/backend/00-ir-boundaries.md`.
     pub types: Vec<RecGroup>,
     /// Runtime ABI imports the module may call. Their canonical signatures come
     /// from the WIT runtime ABI; see `docs/decision/DEC-06`.

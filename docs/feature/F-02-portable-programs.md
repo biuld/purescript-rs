@@ -1,7 +1,7 @@
 # F-02 — Build Portable Program Artifacts
 
 **Status:** In progress
-**Design:** [D-02 — Wasm Lowering](../design/D-02-wasm-lowering.md)
+**Design:** [wasm encoding — Wasm Lowering](../design/backend/wasm/encoding-and-structuring.md)
 
 ## User need
 
