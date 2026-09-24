@@ -113,3 +113,61 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         })]
     );
 }
+
+#[test]
+fn accepts_records_with_nested_byte_list_fields() {
+    let mut resolve = Resolve::default();
+    let package = resolve
+        .push_str(
+            "record-lists.wit",
+            "package test:record-lists@0.1.0; interface messages { record metadata { note: string, revision: s32 } record message { metadata: metadata, body: list<u8>, code: s32 } take: func(value: message); }",
+        )
+        .expect("the nested byte-list WIT fixture should resolve");
+    let interface = resolve.packages[package].interfaces["messages"];
+    let function = &resolve.interfaces[interface].functions["take"];
+    let kind = param_kind(&resolve, &function.params[0].ty);
+    let WasiParamKind::Record { fields } = &kind else {
+        panic!("records containing byte lists should remain directly flattenable");
+    };
+    assert_eq!(fields.len(), 3);
+    assert!(matches!(fields[0].kind, WasiParamKind::Record { .. }));
+    assert_eq!(fields[1].kind, WasiParamKind::List);
+
+    let canonical = resolve.wasm_signature(AbiVariant::GuestImport, function);
+    assert!(!canonical.indirect_params);
+    assert_eq!(
+        canonical.params,
+        vec![
+            WasmType::Pointer,
+            WasmType::Length,
+            WasmType::I32,
+            WasmType::Pointer,
+            WasmType::Length,
+            WasmType::I32,
+        ]
+    );
+    assert_eq!(
+        flattened_parameter_count(&kind) + usize::from(canonical.retptr),
+        canonical.params.len()
+    );
+    assert!(unsupported_shape(&resolve, function, &WasiResultKind::None).is_none());
+}
+
+#[test]
+fn rejects_non_byte_lists_nested_in_records() {
+    let mut resolve = Resolve::default();
+    let package = resolve
+        .push_str(
+            "record-non-byte-list.wit",
+            "package test:record-non-byte-list@0.1.0; interface messages { record message { values: list<s32> } take: func(value: message); }",
+        )
+        .expect("the non-byte-list WIT fixture should resolve");
+    let interface = resolve.packages[package].interfaces["messages"];
+    let function = &resolve.interfaces[interface].functions["take"];
+    let kind = param_kind(&resolve, &function.params[0].ty);
+    assert!(matches!(kind, WasiParamKind::Record { .. }));
+    assert_eq!(
+        unsupported_shape(&resolve, function, &WasiResultKind::None).as_deref(),
+        Some("non-byte WIT lists are not supported by the String ABI")
+    );
+}

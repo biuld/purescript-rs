@@ -107,10 +107,11 @@ pub(super) fn unsupported_shape(
     {
         return Some("WIT parameter shape has no source ABI mapping yet".into());
     }
-    if function.params.iter().any(|parameter| {
-        matches!(param_kind(resolve, &parameter.ty), WasiParamKind::List)
-            && !list_is_bytes(resolve, &parameter.ty)
-    }) {
+    if function
+        .params
+        .iter()
+        .any(|parameter| contains_non_byte_list(resolve, &parameter.ty))
+    {
         return Some("non-byte WIT lists are not supported by the String ABI".into());
     }
     if matches!(result_kind, WasiResultKind::List)
@@ -161,6 +162,24 @@ fn list_element_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
         WitType::U8 => true,
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::Type(inner) => list_element_is_bytes(resolve, inner),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Finds lists nested inside records as well as top-level list parameters.
+/// Source records can carry byte-list fields directly, but a non-byte list
+/// would require an element layout the String ABI does not provide.
+fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
+    match ty {
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => !list_is_bytes(resolve, ty),
+            TypeDefKind::Record(record) => record
+                .fields
+                .iter()
+                .any(|field| contains_non_byte_list(resolve, &field.ty)),
+            TypeDefKind::Type(inner) => contains_non_byte_list(resolve, inner),
             _ => false,
         },
         _ => false,
@@ -228,7 +247,8 @@ fn direct_parameter(kind: &WasiParamKind) -> bool {
         WasiParamKind::Record { fields } => {
             fields.iter().all(|field| direct_parameter(&field.kind))
         }
-        WasiParamKind::List | WasiParamKind::Unsupported => false,
+        WasiParamKind::List => true,
+        WasiParamKind::Unsupported => false,
     }
 }
 
