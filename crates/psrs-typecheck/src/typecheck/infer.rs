@@ -54,22 +54,9 @@ impl Checker {
                     ))
                 })
                 .collect(),
-            effect_type: effect_type.or_else(|| {
-                module
-                    .types
-                    .iter()
-                    .find(|declaration| module.name == "Prelude" && declaration.name == "Effect")
-                    .map(|declaration| declaration.id)
-                    .or_else(|| {
-                        module
-                            .imports
-                            .iter()
-                            .filter(|import| import.module_name == "Prelude")
-                            .flat_map(|import| &import.types)
-                            .find(|imported_type| imported_type.name == "Effect")
-                            .map(|imported_type| imported_type.id)
-                    })
-            }),
+            // The driver supplies this identity only for its embedded Prelude.
+            // A module name or imported type name is not enough to establish trust.
+            effect_type,
             effect_runtime_representation,
             constructor_info: module
                 .types

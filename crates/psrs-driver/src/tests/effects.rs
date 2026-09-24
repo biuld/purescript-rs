@@ -109,6 +109,34 @@ fn transitive_effect_types_keep_their_closure_representation() {
     assert!(artifact.is_ok(), "{artifact:?}");
 }
 
+#[test]
+fn an_untrusted_prelude_effect_remains_an_ordinary_user_type() {
+    let prelude_source = (
+        "Prelude.purs",
+        "module Prelude where\ndata Effect a = MkEffect a\nidentity :: Effect Int\nidentity = MkEffect 42\n",
+    );
+    let main_source = (
+        "Main.purs",
+        "module Main where\nimport Prelude\nforward :: Effect Int\nforward = identity\nmain = 0\n",
+    );
+    let typed = crate::program::typecheck_program_sources(&[prelude_source, main_source]).unwrap();
+    let main = typed.iter().find(|module| module.name == "Main").unwrap();
+    let forward = main
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "forward")
+        .unwrap();
+    let psrs_thir::Type::Application(effect_constructor, _) = &main.types[forward.ty.0 as usize]
+    else {
+        panic!("untrusted Prelude.Effect should remain an applied user type");
+    };
+    assert!(matches!(
+        main.types[effect_constructor.0 as usize],
+        psrs_thir::Type::Constructor(psrs_thir::TypeConstructor::User(_))
+    ));
+    assert!(compile_program_sources(&[prelude_source, main_source]).is_ok());
+}
+
 fn run_effect_program(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

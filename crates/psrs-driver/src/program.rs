@@ -243,6 +243,7 @@ fn typecheck_program(
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
     let effect_type = modules
         .iter()
+        .take(trusted_prefix)
         .find(|module| module.name == "Prelude")
         .and_then(|module| {
             module

@@ -365,9 +365,11 @@ modules keep `Effect a` nominal and cannot pass a function such as
 `Prelude` and platform modules are checked directly against that closure shape
 to implement `pure`, `bind`, `runEffect`, and WASI operations. The source
 language does not expose the token type through the `Effect` signature. The
-driver passes the resolved Prelude `Effect` type identity to every module, so a
-signature that carries it through another module keeps the same closure
-representation even when the importing module does not import Prelude itself.
+driver passes the resolved `Effect` type identity from its trusted embedded
+Prelude to every module, so a signature that carries it through another module
+keeps the same closure representation even when the importing module does not
+import Prelude itself. A user-supplied module named `Prelude` does not establish
+this identity; its `Effect` declaration remains an ordinary user type.
 
 The driver resolves the trusted `Prelude.runEffect` symbol and rejects
 references outside the selected command entry before type inference. The
@@ -377,8 +379,9 @@ runtime token and explicit `foreign import data` declaration still require
 foreign type support. Partial application of a top-level function is
 implemented in `cc/lower/call.rs`; the generated function is verified like any
 other. Construct/run/order behavior, function-forgery rejection, the entry-only
-runner rule, and transitive cross-module effect forwarding are covered by
-`psrs-driver` tests. CC treats a top-level function-typed binding with no
+runner rule, transitive cross-module effect forwarding, and an untrusted
+user-defined `Prelude.Effect` remaining nominal are covered by `psrs-driver`
+tests. CC treats a top-level function-typed binding with no
 source parameters as a value-producing call, preserving returned effect
 closures across a global alias. The optimizer's general effectful-call
 preservation rules remain specified in the Core and MIR optimization
