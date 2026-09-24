@@ -2,7 +2,7 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** [functional core](functional-core.md), [CC IR](cc-ir.md),
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
 [MIR](mir.md), and [data representation](data-representation.md); parametric
 polymorphism (Reynolds) and type-erasure semantics; the Wasm GC type system
 with typed function references. Read [IR boundaries](../00-ir-boundaries.md)
@@ -78,7 +78,7 @@ signature.
 CC carries target-neutral requirements, not Wasm types. The relevant model is:
 
 ```text
-ValueShape = Integer | Boolean | Number | Reference(Reference)
+ValueShape = Integer | Boolean | Number | String | Reference(Reference)
 Reference  = { nullable: bool, heap: RefShape }
 RefShape   = Repr(ReprId) | Aggregate | Erased | Closure(SignatureId)
 Signature  = { parameters: [ValueShape], result: ValueShape }
@@ -129,7 +129,7 @@ Two CC operations cross the concrete/erased boundary:
 `RepresentationTest`/`RepresentationCast` are reserved for erased
 representation adaptation and are **not** used for constructor dispatch; sum
 dispatch uses the tag-carrying variant representation of
-[DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md). The
+[CC IR](cc-ir.md). The
 CC verifier accepts an adaptation only when the source value is erased or the
 destination requirement is erased. P9 lowers `RepresentationCast` to `RefCast`
 and `RepresentationTest` to `RefTest`, each carrying the concrete target
@@ -142,13 +142,13 @@ enter it as follows:
 
 | Concrete shape | Erased entry | Erased exit |
 | --- | --- | --- |
-| `Integer`, `Boolean` | one-field i32 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
+| `Integer`, `Boolean`, `String` | one-field i32 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
 | `Number` | one-field f64 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
 | GC reference (`Repr`, `Aggregate`, `Closure`) | `ref.cast` to `eqref`, no allocation | `ref.cast` to the concrete reference |
 | already erased | identity | identity |
 
-`Boolean` is boxed in the integer box on the erased path, so all signed 32-bit
-values round-trip; the i31 shorthand is used only for closure *captures*, not
+`Boolean` and `String` are boxed in the integer box on the erased path, so all
+32-bit patterns round-trip; the i31 shorthand is used only for closure *captures*, not
 for the general erased protocol (see [data representation](data-representation.md)).
 The empty-erasure case (an erased value used where an erased value is expected)
 is an identity, so nested polymorphic boundaries add no work.
@@ -217,7 +217,7 @@ A closure is a GC struct `{ funref, capture-array }` whose captures live in one
 uniform array of nullable `eqref` (`array (mut (ref null eq))`), so the closure
 type does not depend on capture types. Captures enter the array as follows:
 
-- an `Integer` capture is boxed in the one-field integer box;
+- an `Integer` or `String` capture is boxed in the one-field i32 box;
 - a `Boolean` capture is boxed with `i31.new`;
 - an `f64` capture is boxed in the one-field number box;
 - a reference capture is stored as-is; and
@@ -492,5 +492,5 @@ document depends on those temporary gaps.
   space* (1997).
 - WebAssembly 3.0: garbage collection and typed function references.
 - [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md),
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md),
+  [CC IR](cc-ir.md),
   [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md).

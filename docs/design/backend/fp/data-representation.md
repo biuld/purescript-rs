@@ -23,7 +23,7 @@ from CC requirements, the Wasm operations that construct and observe them, and
 the execution-evidence expectations recorded for each capability. It does not
 own the planner contract (see [IR boundaries](../00-ir-boundaries.md)), the
 target-neutral `Variant` model (see [CC IR](cc-ir.md) and
-[DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md)),
+[CC IR](cc-ir.md)),
 the erased protocol for polymorphic values (see
 [polymorphism and erasure](polymorphism-and-erasure.md)), scalar semantics (see
 [scalars and primitives](scalars-and-primitives.md)), or the byte-oriented
@@ -58,7 +58,7 @@ so a field or capture whose representation depends on a type parameter is
 stored as a uniform erased reference rather than as the parameter's concrete
 type.
 
-**Target-neutral variants.** [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md)
+**Target-neutral variants.** [CC IR](cc-ir.md)
 makes the sum encoding a P9 decision: CC states one `Variant` requirement per
 source sum type with a stable tag and field shapes per case, and the GC planner
 chooses the object layout.
@@ -72,6 +72,7 @@ chooses the object layout.
 | `Integer` | `I32` |
 | `Boolean` | `Boolean` (encoded as `i32`) |
 | `Number` | `F64` |
+| `String` | `I32` (ABI address; distinct from numeric `Integer` in CC) |
 | `Reference(Repr(id))` | `(ref $repr)` or `(ref null $repr)` |
 | `Reference(Aggregate)` | `(ref struct)` or `(ref null struct)` |
 | `Reference(Closure(signature))` | `(ref $closure)` or `(ref null $closure)` |
@@ -96,7 +97,7 @@ All GC objects are immutable unless stated otherwise.
 | capture array | `array (mut (ref null eq))` | one mutable nullable `eqref` per capture |
 
 A `Variant` is realized per
-[DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md): the
+[CC IR](cc-ir.md): the
 supertype is non-final and carries only the tag at field 0; each case is a
 final subtype that repeats the tag at field 0 and appends the case fields at
 fields `1..`. Constructor identity is the tag; source type arguments are never
@@ -106,7 +107,7 @@ runtime tags. A sum type whose constructors are all nullary uses an immediate
 Captures are stored in one uniform `(ref null eq)` array so a closure type does
 not depend on its capture types:
 
-- an `Integer` capture is boxed in the one-field integer box;
+- an `Integer` or `String` capture is boxed in the one-field i32 box;
 - a `Boolean` capture is boxed with `i31.new`;
 - an `f64` capture is boxed in the one-field number box;
 - a reference capture is stored as-is; and
@@ -114,8 +115,9 @@ not depend on its capture types:
 
 ### Type-table invariants
 
-- A defined type precedes its uses in the planned type list; a variant
-  supertype precedes every case subtype.
+- Every defined type reference resolves within the completed recursion group;
+  mutual references may point forward. A variant supertype precedes every case
+  subtype because Wasm subtyping requires that order.
 - All planned definitions live in one `RecGroup`, so recursive and mutually
   recursive types are admissible.
 - `Box` types exist only when a value is actually boxed; an unreachable box
@@ -205,7 +207,7 @@ Three sequences are worth spelling out:
 ### Rejected alternatives
 
 - **One GC struct per constructor with a leading tag.** Rejected by
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md):
+  [CC IR](cc-ir.md):
   it forces constructor dispatch to be a GC type test, conflating it with the
   erased protocol and making the target-neutral `Variant` model impossible.
 - **`i31` for every nullary constructor, including mixed sums.** Rejected as
@@ -393,7 +395,7 @@ must run fixtures of the following class:
 | Scalars and direct calls | the full scalar unary/binary vocabulary plus direct calls |
 | `if` and `case` | value-producing branches and constructor matches |
 | Nullary data types | tag construction and tag comparison |
-| Field data types | construction, tag test, and field projection (DEC-08) |
+| Field data types | construction, tag test, and field projection ([CC IR](cc-ir.md)) |
 | Newtypes | erased single-field construction and match |
 | Records | literal, field read, and update |
 | Arrays | literal, length, index, and update |
@@ -503,6 +505,6 @@ design.
 - WebAssembly 3.0: garbage collection, typed function references, `i31`, and
   `call_ref`.
 - [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md),
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md),
+  [CC IR](cc-ir.md),
   [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md).
 - [capability profile](../wasm/capability-profile.md).

@@ -1,7 +1,8 @@
 # Backend Design
 
-The backend does exactly two jobs. Every document in this directory serves one
-of them; `00-ir-boundaries.md` is the cross-cutting contract between them.
+The backend implements functional semantics and a Wasm/WASI target.
+Optimization crosses those concerns without adding a representation;
+`00-ir-boundaries.md` is their shared stage contract.
 
 1. **Functional semantics** (`fp/`) — represent and execute a typed functional
    core: functions and closures, algebraic data types and pattern matching,
@@ -16,9 +17,11 @@ of them; `00-ir-boundaries.md` is the cross-cutting contract between them.
 
 ```mermaid
 flowchart LR
-    core["Typed Core"] --> cc["CC IR<br/>ANF + closure conversion"]
+    core["Typed Core"] --> coreopt["P7 Core optimization"]
+    coreopt --> cc["CC IR<br/>ANF + closure conversion"]
     cc --> mir["MIR<br/>SSA/CFG, representation fixed"]
-    mir --> wasm["structured Wasm encoding"]
+    mir --> miropt["P10 MIR optimization"]
+    miropt --> wasm["structured Wasm encoding"]
     wasm --> artifact["WASI component artifact"]
 ```
 
@@ -35,12 +38,14 @@ encodes. `00-ir-boundaries.md` states the ownership and verification contract.
 | --- | --- |
 | [00-ir-boundaries.md](00-ir-boundaries.md) | Pass pipeline, IR ownership, boundary verification, P10/P11 |
 
+Typed Core is the frontend output and backend input. Its producer-owned model
+is [Functional Core](../frontend/semantics/functional-core.md).
+
 ### Functional (`fp/`)
 
 | Document | Owns | Depends on |
 | --- | --- | --- |
-| [functional-core.md](fp/functional-core.md) | The typed core calculus the backend targets | — |
-| [cc-ir.md](fp/cc-ir.md) | ANF, closure conversion, CC operations and verifier | functional-core |
+| [cc-ir.md](fp/cc-ir.md) | ANF, closure conversion, CC operations and verifier | frontend Functional Core |
 | [mir.md](fp/mir.md) | SSA/CFG model, representation planning, MIR verifier | cc-ir |
 | [polymorphism-and-erasure.md](fp/polymorphism-and-erasure.md) | Rank-1 polymorphism, erased representation, adapters | mir |
 | [scalars-and-primitives.md](fp/scalars-and-primitives.md) | Scalar values and numeric operations | mir |
@@ -60,12 +65,23 @@ encodes. `00-ir-boundaries.md` states the ownership and verification contract.
 | [linear-memory-and-canonical-abi-boundary.md](wasm/linear-memory-and-canonical-abi-boundary.md) | Linear memory as the ABI boundary | canonical-abi-and-wit |
 | [wasi-platform-library.md](wasm/wasi-platform-library.md) | Component packaging and WASI services | canonical-abi-and-wit |
 
+### Optimization (`opt/`)
+
+| Document | Owns | Depends on |
+| --- | --- | --- |
+| [core.md](opt/core.md) | P7 Core simplification, specialization, and effect-aware inlining | functional-core, effects |
+| [mir.md](opt/mir.md) | P10 MIR-preserving CFG and instruction passes | mir, capability-profile |
+
+[Optimization index](opt/README.md) summarizes the pass placement and shared
+rules.
+
 ## Ordering
 
-The functional concern is built bottom-up: functional core, then CC and MIR,
-then representation topics (erasure, scalars, data, patterns, control flow),
-then dictionaries and effects. The Wasm/WASI concern is independent of the
-functional topic order and is gated by the capability profile.
+Read the functional concern bottom-up: functional core, then CC and MIR, then
+representation topics (erasure, scalars, data, patterns, control flow), then
+dictionaries and effects. Read P7 optimization after Core and P10 optimization
+after MIR and the target capability profile. Wasm/WASI encoding consumes the
+optimized MIR.
 
 ## Writing
 

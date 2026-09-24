@@ -192,7 +192,8 @@ buffer: a 4-byte little-endian length followed by the bytes. The first 16 bytes
 of memory are a reserved scratch region (`SCRATCH_SIZE`) that holds the return
 pointer area of canonical ABI calls; string data begins after it and is
 4-aligned. When a program imports a function that returns a `list`/`string`, P10
-also synthesizes and exports `cabi_realloc`, a bump allocator whose free pointer
+also emits and exports P9's specified `cabi_realloc` contract, a bump allocator
+whose free pointer
 lives in one further data segment after the string data
 ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 
@@ -467,8 +468,8 @@ sections in that order. Adding `log "hello"` would add a string data segment
 - **Multi-value.** `FuncType` admits multiple results, but MIR functions and
   calls have one; the encoder is ready when MIR is
   ([MIR](../fp/mir.md) open questions).
-- **Optimization.** No MIR-preserving optimization pass exists yet; P10 performs
-  none.
+- **Optimization.** [MIR optimization](../opt/mir.md) runs before this
+  structurer; the structured encoder performs no semantic optimization.
 - **Table-based calls.** `call_indirect` is verified but not produced; closures
   use typed `call_ref`, so no table is emitted.
 - **Data segment layout.** Offset assignment and allocator state are fixed here;

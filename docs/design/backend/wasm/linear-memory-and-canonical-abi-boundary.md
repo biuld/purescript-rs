@@ -59,9 +59,9 @@ TrapIf { condition: ValueId, span }
 ```
 
 A `String` value is an `i32` pointer to a length-prefixed UTF-8 buffer: a 4-byte
-little-endian length followed by that many bytes. This is exactly what the WASI
-Canonical ABI consumes for `list<u8>`/`string`, so the boundary needs no
-conversion at the value level. The reserved scratch region is `[0, 16)`:
+little-endian length followed by that many bytes. The Canonical ABI consumes a separate `(pointer, length)` pair; the prefix is
+the language's internal representation and is converted at each import call.
+The reserved scratch region is `[0, 16)`:
 `PRINT_SCRATCH = 0` is the return pointer passed to indirect calls and
 `SCRATCH_END = 16` is the first free offset. String data begins after it.
 
@@ -77,9 +77,9 @@ known constant added by the leaf `MemArg`, and `Load8U` reads one byte. The
   language data; it holds only canonical return areas.
 - Data segments are active at constant `i32` offsets, aligned to 4 bytes, and do
   not overlap each other or the scratch region.
-- A `cabi_realloc` allocation is 4-aligned and its payload is preceded by the
-  length of the allocation, so a returned buffer is a valid length-prefixed
-  `String`.
+- A nonzero `cabi_realloc` result is aligned to the requested alignment, its
+  payload is preceded by a 4-byte length prefix, and reallocation preserves
+  `min(old_len, new_len)` bytes. A zero result is never read as a prefix.
 - Language arrays and aggregates never use linear memory; their operations are
   GC `array.*`/`struct.*`.
 
@@ -106,22 +106,26 @@ passed to a WIT import without copying.
 
 ### The `cabi_realloc` bump allocator
 
-When the module imports a function that returns a `list`/`string`, the host must
-be able to allocate in guest memory, so P10 synthesizes and exports
+When the module imports a function that returns a `list`/`string`, canonical
+lowering must be able to allocate in guest memory. P9 fixes the internal buffer
+layout and allocator contract; P10 mechanically synthesizes and exports
 `cabi_realloc`. It is a bump allocator:
 
 - a free pointer lives in one further active data segment, after the string data;
-- the payload pointer is aligned up to the requested `align`, with the 4-byte
-  length prefix in the four bytes before it;
-- the byte length is written at the prefix and the new free pointer is stored;
+- the payload pointer is aligned to `max(align, 4)`, with the 4-byte length
+  prefix immediately before it;
+- when `old_ptr` is nonzero, the old payload is copied up to the smaller size;
+- the new byte length is written at the prefix and the free pointer advances;
 - the memory is grown with `memory.grow` (MVP, not `bulk_memory`) when the
   aligned end crosses the current page count; and
-- the returned pointer points after the length prefix, so a returned
-  `(pointer, length)` is already a length-prefixed `String` value.
+- the returned pointer points after the prefix; an imported string result is
+  converted back to the internal prefix pointer after checking its length.
 
-There is no reclamation: the allocator is not a language heap, so programs do
-not allocate unbounded language data through it. Reclamation and post-return
-release are future work ([canonical ABI and WIT](canonical-abi-and-wit.md)).
+There is no reclamation in this design. Repeated imported strings can therefore
+grow linear memory without bound even though the language heap uses GC. The
+artifact must report allocation failure as a trap; reclaiming canonical buffers
+requires a later ownership and lifetime design
+([canonical ABI and WIT](canonical-abi-and-wit.md)).
 
 ### Byte operations at the boundary
 
@@ -150,20 +154,24 @@ instead of silently succeeding.
 
 ```text
 realloc(old_ptr, old_len, align, new_len):
-    free    = load(heap_pointer)
-    aligned = ((free + 4 + new_len - 1) & -align) - 4
-    end     = aligned + new_len + 4
-    pages   = ceil(end / 65536)
-    if pages > memory.size():
-        memory.grow(pages - memory.size())
-    store(aligned, new_len)
+    require align is a nonzero power of two
+    if new_len == 0: return 0             # free is a no-op
+    require old_ptr == 0 implies old_len == 0
+    validate the old range and stored prefix if old_ptr != 0
+    payload = align_up(checked_add(load(heap_pointer), 4), max(align, 4))
+    end = checked_add(payload, new_len)
+    require end <= i32_address_space_limit
+    pages = ceil(end / 65536)
+    if pages > memory.size() and memory.grow(pages - memory.size()) == -1:
+        trap
+    if old_ptr != 0: copy min(old_len, new_len) bytes from old_ptr to payload
+    store_i32(payload - 4, new_len)
     store(heap_pointer, end)
-    return aligned + 4
+    return payload
 ```
 
-The allocator ignores `old_ptr` and `old_len`; it never frees, which is sound
-because returned buffers are owned by the guest and are released only once
-reclamation exists.
+The allocator accepts canonical reallocations and preserves the old contents.
+Freeing is a no-op, so correctness is maintained at the cost of retained memory.
 
 ### Passing a string argument
 
@@ -179,7 +187,11 @@ lower_string_argument(string):
 ```text
 read_returned_string(retptr):
     pointer = Load [0] retptr         # returned payload pointer
-    value   = pointer - 4             # undo the length prefix
+    length  = Load [4] retptr
+    if length == 0 and pointer == 0: return static_empty_string
+    require pointer >= 4             # canonical lowering validates payload extent
+    require Load [0] (pointer - 4) == length
+    value   = pointer - 4             # internal prefix pointer
 ```
 
 A returned list whose element type is not a byte is rejected before MIR, because
@@ -189,10 +201,9 @@ the `String` boundary cannot represent it.
 
 - A string literal and a returned buffer use the same length-prefixed layout, so
   a literal can be passed through unchanged.
-- An allocation of zero bytes still consumes a 4-byte prefix and advances the
-  free pointer; it is never at the scratch region.
-- `memory.grow` returns the previous page count; its result is dropped because
-  a trap on failure is the desired behavior.
+- A zero-size realloc returns `0`; an imported empty string with a null payload
+  pointer maps to the static empty-string buffer.
+- `memory.grow` returns `-1` on failure; the allocator tests and traps on it.
 - `Load8U` is used for a one-byte canonical result discriminant; a nonzero
   discriminant traps.
 
@@ -318,8 +329,8 @@ extents. These are coverage gaps, not changes to the boundary design.
 
 - WebAssembly 3.0 specification: memories, `memory.size`, `memory.grow`, load
   and store instructions, data segments.
-- WebAssembly Component Model Canonical ABI: `realloc`, return pointer, list and
-  string passing.
+- [WebAssembly Component Model Canonical ABI](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#canonical-abi):
+  `realloc`, return pointer, list and string passing.
 - [DEC-09 — GC-Only Language Heap](../../../decision/DEC-09-gc-only-language-heap.md),
   [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
 - [canonical ABI and WIT](canonical-abi-and-wit.md),

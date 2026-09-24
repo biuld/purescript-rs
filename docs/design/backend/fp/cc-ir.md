@@ -2,9 +2,9 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** the [functional core](functional-core.md) calculus,
+**Prerequisites:** the [functional core](../../frontend/semantics/functional-core.md) calculus,
 administrative normal form, and closure conversion; read
-[IR boundaries](../00-ir-boundaries.md) and [functional core](functional-core.md)
+[IR boundaries](../00-ir-boundaries.md) and [functional core](../../frontend/semantics/functional-core.md)
 first.  
 **Summary:** CC is the target-neutral administrative-normal-form and
 closure-converted backend representation. It fixes evaluation order, lifts
@@ -19,7 +19,7 @@ representation-requirement model (`ReprId`/`SignatureId`/`ValueShape`), the CC
 operation families, the external-binding boundary, and the CC verifier. It
 specifies what CC must express and must never contain.
 
-It does not own the Core terms it lowers (see [functional core](functional-core.md)),
+It does not own the Core terms it lowers (see [functional core](../../frontend/semantics/functional-core.md)),
 the concrete runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
 decision algorithm (see [pattern matching](pattern-matching.md)), the erased
 representation protocol (see [polymorphism and erasure](polymorphism-and-erasure.md)),
@@ -47,8 +47,8 @@ references. CC keeps captures explicit and ordered; the physical closure object
 is chosen later by [MIR](mir.md).
 
 **Evaluation order.** Because Core is strict, the order in which operands are
-evaluated is observable as soon as effects exist. CC is where that order is
-fixed: `lower_value` lowers operands in source order and emits one `Assignment`
+evaluated is observable as soon as effects exist. CC makes Core's defined order
+explicit: `lower_value` lowers operands in source order and emits one `Assignment`
 per result, so reading the assignment list top to bottom is reading the
 evaluation order. Structured `If` keeps its branch assignments nested rather
 than flattened, because only one branch runs.
@@ -84,8 +84,9 @@ not a source name. Source spans are retained on every assignment because it can
 produce a diagnostic.
 
 A function's `parameters` must be the first `ValueDecl`s and are the only values
-available at entry; every assignment defines exactly one new value (the one
-exception is `ArraySet`, whose destination is the array it updates). The list of
+available at entry; every assignment defines exactly one new value. `ArraySet`
+produces the updated array as a distinct value after a clone, preserving the
+source operation's purity. The list of
 assignments is ordered so that the reader sees evaluation order.
 
 ### Representation requirements
@@ -103,7 +104,7 @@ RepresentationTable = { representations: [Representation], signatures: [Signatur
 ReprId      -> Representation
 SignatureId -> Signature
 
-ValueShape  = Integer | Boolean | Number | Reference(Reference)
+ValueShape  = Integer | Boolean | Number | String | Reference(Reference)
 Reference   = { nullable: bool, heap: RefShape }
 RefShape    = Repr(ReprId) | Aggregate | Erased | Closure(SignatureId)
 
@@ -115,6 +116,11 @@ Representation = Box(ValueShape)
 Signature    = { parameters: [ValueShape], result: ValueShape }
 VariantCase  = { tag: u32, fields: [ValueShape] }
 ```
+
+`String` is a semantic CC shape, distinct from numeric `Integer`; P9 alone maps
+it to the current target's linear-memory address. This distinction lets the CC
+verifier reject arithmetic on strings and verify WIT string arguments without
+putting a pointer layout in CC.
 
 `ReprId` describes required behavior, not physical layout. For example,
 `RefShape::Closure(signature)` says a value is callable and has an ordered
@@ -140,7 +146,7 @@ equality and do not enter MIR.
 One `Variant` requirement represents one source sum type. Each case has a
 stable tag and a field-shape list, so a sum type is one requirement rather than
 one requirement per constructor. The concrete case encoding is a P9 decision,
-following [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md):
+following [CC IR](cc-ir.md):
 the GC planner emits one abstract, non-final `struct` supertype carrying the tag
 plus one final `struct` subtype per case. The former linear-memory realization
 as a `{ tag: i32, payload }` record is retired
@@ -197,9 +203,8 @@ ExternalBinding  = { symbol: SymbolId, interface: String,
 ```
 
 The Rust names are `BackendInput`, `ExternalBindings`, and `ExternalBinding`
-(`crates/psrs-backend/src/bindings.rs`); `ExternalBindings` is the concrete
-side table that plays the role of the conceptual `ExternalBindings`. Its
-`imports` map a symbol to its source declaration and platform binding. For the
+(`crates/psrs-backend/src/bindings.rs`); `ExternalBindings` is the concrete side
+table. Its `imports` map a symbol to its source declaration and platform binding. For the
 WASI target the binding contains the WIT interface and function names and the
 source signature required by the [canonical ABI](../wasm/canonical-abi-and-wit.md).
 P9 resolves these bindings through the ABI registry, emits canonical calls and
@@ -277,7 +282,7 @@ CC names neither of these.
 - **One `Variant` requirement per constructor.** Rejected: a sum would lose its
   identity as one type; the tag-carrying supertype and one-case-per-subtype
   model needs the whole case set in one place
-  ([DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md)).
+  ([CC IR](cc-ir.md)).
 - **Keeping expression trees instead of ANF.** Rejected: evaluation order and
   intermediate values would stay implicit, and the CC verifier could not check
   definition-before-use.
@@ -443,8 +448,9 @@ The CC verifier (`verify_module`, `verify_table`, `verify_function_inner`,
 - parameters are available at function entry and assignments use only
   previously available values;
 - closure capture indices are contiguous and read with consistent shapes;
-- each constant and primitive has the required operand/result representation,
-  and a `Boolean` constant is `0` or `1`;
+- each constant and primitive has the required operand/result representation;
+  `StringConstant` produces `String`, numeric primitives reject it, and a
+  `Boolean` constant is `0` or `1`;
 - each representation adaptation has compatible source and destination
   requirements, and adaptation is used only on erased values;
 - direct-call arguments and results exactly match the callee signature;
@@ -453,7 +459,8 @@ The CC verifier (`verify_module`, `verify_table`, `verify_function_inner`,
 - capture count, order, and representations match the lifted function;
 - product fields and array elements match their abstract representation, while
   variant cases are validated in the representation table;
-- `ArraySet`'s destination is the array it updates;
+- `ArraySet`'s destination is a fresh array value; its source array remains
+  available and unchanged;
 - both branches of a value-producing conditional yield the declared
   representation; and
 - no target type, physical layout, numeric Wasm index, or platform name occurs
@@ -555,7 +562,7 @@ yet lowered. Nothing in this document depends on those temporary shapes.
 - Steele, *Rabbit: A Compiler for Scheme* (1978).
 - Appel, *Compiling with Continuations* (1992).
 - [DEC-01](../../../decision/DEC-01-distinct-ir-boundaries.md),
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md),
+  [CC IR](cc-ir.md),
   [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md).
-- [IR boundaries](../00-ir-boundaries.md), [functional core](functional-core.md),
+- [IR boundaries](../00-ir-boundaries.md), [functional core](../../frontend/semantics/functional-core.md),
   [MIR](mir.md), [polymorphism and erasure](polymorphism-and-erasure.md).

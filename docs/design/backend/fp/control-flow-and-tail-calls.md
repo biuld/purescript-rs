@@ -62,7 +62,7 @@ not grow the stack. A self tail call need not use the proposal at all: if the
 callee is the caller, redirecting the back edge to the function entry with
 updated parameters produces a loop, which is cheaper and works on any profile.
 PureScript has no loop syntax — recursion is the only iteration
-([functional core](functional-core.md)) — so loopification is what makes
+([functional core](../../frontend/semantics/functional-core.md)) — so loopification is what makes
 idiomatic recursive loops cheap.
 
 ## Model
@@ -84,7 +84,10 @@ Terminator = Return      { value: ValueId, span }
 graph. `Switch` dispatches on an `i32` tag or label; its case values are unique
 `i32`s and `default` is always present — for a total match over a closed sum it
 targets a trap block or the last arm. `ReturnCall` names a direct callee symbol
-and `ReturnCallRef` a value of typed function-reference type.
+and `ReturnCallRef` a value of typed function-reference type. For a closure
+tail call, P9 projects the code reference and passes the closure as the receiver
+argument before forming `ReturnCallRef`; the terminator never takes a closure
+object as its function operand.
 
 ### Structured Wasm model
 
@@ -154,10 +157,13 @@ handle, and it is validated by execution tests rather than assumed.
 
 ### Self-recursion to a loop
 
-A self tail call is rewritten to a back edge to the function entry instead of a
-`return_call`. The entry block's parameters are the function parameters; the
-rewrite copies the call arguments into those locals and jumps to the entry. The
-structurer then sees an ordinary natural loop and encodes it as a `loop`, so
+A self tail call is rewritten to a back edge to a new loop header instead of a
+`return_call`. The original function entry remains a preheader: it passes the
+function parameters to the loop header's block parameters. Each recursive call
+evaluates all arguments before jumping to that header with the new values. The
+header parameters replace uses of the original parameters in the loop body,
+preserving SSA dominance even when arguments swap positions. The structurer
+then sees an ordinary natural loop and encodes it as a `loop`, so
 deep self-recursion runs in constant stack on every profile, including profiles
 with the tail-call proposal disabled. Non-self tail calls use
 `return_call`/`return_call_ref` and require the proposal.
@@ -290,27 +296,30 @@ emit_dispatcher(blocks, entry):
 
 ### Tail-call classification
 
-A call is in tail position when its result is the function's result and no
-later use observes it. The analysis runs over the ordered CC assignments per
-branch:
+A call is in tail position when its result is returned directly and no later
+use observes it. The analysis runs on MIR blocks after P9 has built the CFG:
 
 ```text
 mark_tail(function):
+    if a self tail call exists:
+        create a loop header with block parameters matching function parameters
+        make the original entry a preheader that jumps to the header
+        rewrite body uses of function parameters to the header parameters
     for each reachable block b:
-        for each assignment a in b:
+        for each final instruction a in b:
             d = a.destination
-            if a is Call/CallRef and a is the last use-site of d
-               and the only use of d is b's Return(d):
+            if a is Call/ClosureCall and b's terminator is Return(d)
+               and d has no other use:
                 if callee == function.symbol:
-                    rewrite to a Jump(entry, a.arguments)      // self loop
+                    rewrite to a Jump(loop_header, a.arguments) // header has block params
                 else if is_function_ref_call(a):
                     replace with ReturnCallRef(a.function, a.arguments)
                 else:
                     replace with ReturnCall(a.function, a.arguments)
 ```
 
-The analysis descends into `If` arms, so both arms of a value-producing `If`
-can be tail. A tail call's destination must have no other users; the MIR
+Both arms of a lowered Core `If` can qualify independently when each ends in
+a return. A tail call's destination must have no other users; the MIR
 verifier confirms this after the rewrite.
 
 ### Edge cases
@@ -377,11 +386,11 @@ Required types and entry points:
   fn mark_tail(function: &mut MirFunction) -> Result<(), MirError>;
   ```
 
-  It must rewrite a self tail call to a jump to the entry block with copied
-  parameters, a non-self call through a typed function reference as
-  `ReturnCallRef`, and any other non-self tail call as `ReturnCall`, and it must
-  emit neither `return_call*` when the profile disables `tail_call` (it falls
-  back to an ordinary call plus return).
+  It must rewrite a self tail call to a jump to a loop header with block
+  parameters, reached initially from an entry preheader. A non-self call
+  through a typed function reference becomes `ReturnCallRef`; another non-self
+  tail call becomes `ReturnCall`. When the profile disables `tail_call`, it
+  emits an ordinary call plus return instead.
 - `mir/lower/assignments.rs` must lower CC `If` and tag-based `case` to
   `Branch` and `Switch` without a structuring hint; joins are derived later.
 - `wasm/lower/structure.rs` must expose the structuring entry point:
@@ -512,7 +521,8 @@ which requires the tail-call capability.
   completeness; no current frontend lowering produces irreducible control flow,
   so its fixture and cost model remain to be validated.
 - **Optimization interaction.** Loop rotation, unrolling, and tail-call
-  inlining are P10 optimizations that must preserve the structuring invariants.
+  inlining belong to [MIR optimization](../opt/mir.md) and must preserve the
+  structuring invariants.
 
 ## Implementation notes
 

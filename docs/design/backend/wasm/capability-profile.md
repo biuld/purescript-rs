@@ -192,8 +192,8 @@ for each function:
 mark_value_type | mark_storage_type:
     Ref { heap } => reference_types = true
         heap = Func                         => function_references = true
-        heap in { I31, Struct, Array, Index } => gc = true
-        heap in { Extern, Any, Eq }         => (reference_types only)
+        heap in { Any, Eq, I31, Struct, Array, Index } => gc = true
+        heap = Extern                      => (reference_types only)
 
 mark_instruction:
     RefFunc | CallRef                      => reference_types, function_references
@@ -239,8 +239,8 @@ wasm_features(target):
   profile; the required set is simply empty.
 - `func`-typed references require both `reference_types` and
   `function_references`; the verifier marks both.
-- A GC struct field of type `anyref` marks only `reference_types`; a field of a
-  defined struct type marks `gc`.
+- A GC struct field of type `anyref` marks `gc` as well as `reference_types`;
+  the same holds for a field of a defined struct type.
 - An ABI resolution for a disabled package fails even if no call reaches it,
   because P9 validates every source-declared binding.
 

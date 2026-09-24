@@ -5,7 +5,7 @@
 **Prerequisites:** functional-programming, WebAssembly, and compiler basics
 (lexical scoping, strict evaluation, SSA/CFGs, the Wasm GC and typed
 function-reference type systems). Read [D-01](../D-01-frontend-and-ir-boundaries.md)
-first for the complete pass pipeline, then [functional core](fp/functional-core.md),
+first for the complete pass pipeline, then [functional core](../frontend/semantics/functional-core.md),
 [CC IR](fp/cc-ir.md), and [MIR](fp/mir.md).  
 **Summary:** The backend is one pipeline with distinct long-lived
 representations: Typed Core (P6/P7), target-neutral CC (P8), target-specific MIR
@@ -22,7 +22,7 @@ encoding (P10) and artifact production (P11). It is the cross-cutting contract
 between the two backend concerns.
 
 It does not own the individual representations or topics. The typed core
-calculus is [functional core](fp/functional-core.md); ANF and closure conversion
+calculus is [functional core](../frontend/semantics/functional-core.md); ANF and closure conversion
 are [CC IR](fp/cc-ir.md); SSA/CFG and representation planning are [MIR](fp/mir.md);
 control-flow structuring and tail calls are
 [control flow and tail calls](fp/control-flow-and-tail-calls.md); scalar
@@ -39,6 +39,9 @@ and canonical ABI adaptation, [linear memory
 boundary](wasm/linear-memory-and-canonical-abi-boundary.md) owns linear memory,
 and [WASI platform library](wasm/wasi-platform-library.md) owns platform
 services.
+
+Optimization has its own [index](opt/README.md): [Core optimization](opt/core.md)
+owns P7 and [MIR optimization](opt/mir.md) owns the MIR-preserving part of P10.
 
 Non-goals: CC is not a portable serialized interchange format; MIR is not
 target-neutral and does not preserve PureScript type semantics; the thin Wasm
@@ -114,10 +117,11 @@ flowchart TD
     P10 --> P11["P11  Wasm/WASI artifact"]
 ```
 
-P8 makes evaluation order, captures, and abstract representation requirements
-explicit. P9 chooses how those requirements are represented for the selected
-target. P10 may optimize in ways that preserve MIR types, structure control flow,
-and assign final indices mechanically, but it must not choose a representation.
+P8 makes Core's defined evaluation order, captures, and abstract representation
+requirements explicit. P9 chooses how those requirements are represented for
+the selected target. P10 may optimize while preserving MIR types and the order
+and multiplicity of potentially effectful calls. It structures control flow and
+assigns final indices mechanically; it must not choose a representation.
 
 ## Model
 
@@ -202,8 +206,9 @@ downgraded into output.
 
 ### Thin Wasm target: P10 and P11
 
-P10 consumes verified MIR and performs optimizations that preserve MIR types,
-then structures the CFG for Wasm. The structured form owns module sections and
+P10 consumes verified MIR, applies the passes in
+[MIR optimization](opt/mir.md), then structures the CFG for Wasm. The
+structured form owns module sections and
 structured control regions. Leaf operations may use `wasm_encoder::Instruction`
 values, as established by
 [DEC-02](../../decision/DEC-02-thin-structured-wasm-encoding.md); the encoder
@@ -243,11 +248,13 @@ run_stage(stage, input):
     return output
 ```
 
-Every stage follows this shape. P8 verifies Core (`Module::verify`) and the
+Every stage follows this shape. P7 verifies Core before and after each
+[Core optimization](opt/core.md) pass. P8 verifies Core (`Module::verify`) and the
 binding projection (`validate_core`) before lowering, then verifies CC
 (`cc::verify::verify_module`). P9 validates the bindings against CC
 (`validate_cc`), plans the layout, lowers, then verifies MIR with the selected
-capability profile. P10 re-runs the MIR verifier and verifies the structured
+capability profile. P10 verifies MIR after each [MIR optimization](opt/mir.md)
+pass, then re-runs the MIR verifier and verifies the structured
 Wasm. P11 refuses to encode a module that did not pass P10's verifier.
 
 ### Import projection
@@ -317,6 +324,7 @@ mir/              MIR
   planner.rs       `RepresentationPlanner` trait and `GcPlanner`
   layout/          `PlannedLayout` and concrete GC layouts
   lower/           CC -> MIR lowering
+  opt/             P10 MIR-preserving optimization
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
@@ -338,9 +346,11 @@ The crate's public entry points are the only cross-crate surface:
 - `ExternalBindings`, the side table carried beside CC and validated in both
   directions, exposed at the crate root for callers that own the binding
   boundary.
-- Stage entry points: `cc::lower_module` and `cc::lower_module_with_bindings`
-  (P8), `mir::lower_module` and `mir::lower_module_with_bindings` (P9), and
-  `wasm::lower_module` and `wasm::lower_module_with_capabilities` (P10).
+- Stage entry points: `psrs_core::opt::optimize` (P7),
+  `cc::lower_module` and `cc::lower_module_with_bindings` (P8),
+  `mir::lower_module` and `mir::lower_module_with_bindings` (P9),
+  `mir::opt::optimize` (P10 before structuring), and `wasm::lower_module` and
+  `wasm::lower_module_with_capabilities` (P10 structuring).
 
 ## Invariants and verification
 
@@ -426,7 +436,7 @@ and P10/P11 would name it from the ABI registry; CC would be unchanged.
   target calling conventions ([D-01](../D-01-frontend-and-ir-boundaries.md), [Wasm
   encoding](wasm/encoding-and-structuring.md)).
 - **P7 to P8.** A verified Core module plus the external binding side table.
-  See [functional core](fp/functional-core.md) and [CC IR](fp/cc-ir.md).
+  See [functional core](../frontend/semantics/functional-core.md) and [CC IR](fp/cc-ir.md).
 - **P8 to P9.** A `BackendInput { cc, externals }` plus an explicit
   `TargetCapabilities` profile. See [CC IR](fp/cc-ir.md) and
   [capability profile](wasm/capability-profile.md).
@@ -437,12 +447,11 @@ and P10/P11 would name it from the ABI registry; CC would be unchanged.
 
 ## Open questions and future work
 
-- **Optimization placement.** No MIR-preserving optimization pass exists yet.
-  Inlining, DCE, unboxing, and local coalescing are planned as MIR-preserving
-  passes between P9 and P10.
-- **Optimizing across the boundary.** Any optimization that needs source types
-  must run at or above Core; a boundary-crossing optimization must state which
-  invariants it preserves.
+- **Optimization coverage.** P7 and P10 pass contracts are specified in
+  [Core optimization](opt/core.md) and [MIR optimization](opt/mir.md).
+  Implementation coverage belongs in the
+  [capability profile](wasm/capability-profile.md) and
+  [DEC-04](../../decision/DEC-04-official-test-suite-roadmap.md).
 - **Optional target tracks.** SIMD, tail calls, exceptions, threads, memory64,
   and WASI 0.3 are separate capability tracks
   ([capability profile](wasm/capability-profile.md)); they must not leak above
@@ -459,8 +468,7 @@ deviations recorded in [CC IR](fp/cc-ir.md) and [MIR](fp/mir.md); the
 linear-memory language-heap detour was retired by
 [DEC-09](../../decision/DEC-09-gc-only-language-heap.md). Decision records
 preserve the rationale ([DEC-01](../../decision/DEC-01-distinct-ir-boundaries.md),
-[DEC-02](../../decision/DEC-02-thin-structured-wasm-encoding.md),
-[DEC-08](../../decision/DEC-08-target-neutral-variant-representation.md),
+[DEC-02](../../decision/DEC-02-thin-structured-wasm-encoding.md), and
 [DEC-09](../../decision/DEC-09-gc-only-language-heap.md)); this document
 describes the architecture they produced.
 
@@ -485,5 +493,5 @@ describes the architecture they produced.
 - [DEC-01](../../decision/DEC-01-distinct-ir-boundaries.md),
   [DEC-02](../../decision/DEC-02-thin-structured-wasm-encoding.md),
   [DEC-04](../../decision/DEC-04-official-test-suite-roadmap.md),
-  [DEC-08](../../decision/DEC-08-target-neutral-variant-representation.md),
+  [CC IR](fp/cc-ir.md),
   [DEC-09](../../decision/DEC-09-gc-only-language-heap.md).

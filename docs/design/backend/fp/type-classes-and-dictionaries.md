@@ -2,7 +2,7 @@
 
 **Feature:** F-02  
 **Status:** Draft (design)  
-**Prerequisites:** [functional core](functional-core.md), [CC IR](cc-ir.md),
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
 [polymorphism and erasure](polymorphism-and-erasure.md), and the record and
 closure representations of [data representation](data-representation.md);
 ad-hoc polymorphism and dictionary passing. Read
@@ -17,12 +17,12 @@ ordinary products and closures.
 
 ## Scope
 
-This document owns the runtime representation of classes, instances, and
-dictionary evidence, together with the resolution, dictionary construction, and
-coherence checks at the Typed Core boundary. It does not own class and instance
-syntax or the class environment (frontend; `FE-14`/`FE-15`/`FE-16` in
-[DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and
-[D-03](../../D-03-type-system.md)), the general record and closure layouts
+This document owns the runtime representation and lowering of checked class
+and instance dictionary evidence. Class and instance validation, entailment,
+functional-dependency improvement, instance-chain selection, and coherence
+belong to the frontend's
+[classes and evidence](../../frontend/type-system/classes-and-evidence.md).
+It does not own the general record and closure layouts
 ([data representation](data-representation.md)), or the erased representation of
 polymorphic values ([polymorphism and erasure](polymorphism-and-erasure.md)).
 
@@ -106,10 +106,9 @@ the elaborate form is the target, not the current output.
 
 - **No runtime type tags.** A dictionary carries methods, never a type
   descriptor; type arguments are erased.
-- **Coherence.** For every constraint there is exactly one dictionary value up
-  to the class's semantic equality; instance heads do not overlap.
-- **Instance-context size.** An instance context may not be larger than its
-  head, so resolution terminates.
+- **Evidence consistency.** Each dictionary use follows the instance or
+  superclass evidence selected and verified by the frontend, including valid
+  ordered instance chains. The backend never searches instance heads.
 - **Binding-once.** A `let`-bound constrained value receives its dictionaries
   as parameters and does not re-derive them per use.
 - **Representation-freedom.** Every dictionary is a product of closures and
@@ -171,83 +170,36 @@ position already taken for erasure and monomorphization in
 
 ## Algorithms
 
-### Resolution and dictionary construction
+### Lowering selected evidence
 
-Resolution runs when Typed Core is produced and is driven by the constraint on
-the use site. It is standard instance resolution with dictionary construction:
-
-```text
-resolve(constraint C τ, env):
-    // Unify the constraint against every instance head for C.
-    candidates = [ inst for inst in instances(C)
-                   if unify(head(inst), C τ) succeeds ]
-    if candidates is empty:
-        report "no instance for C τ" at the constraint span
-    if candidates has more than one:
-        report overlap at the constraint span
-    inst = the unique candidate
-    context_values = [ resolve(sub, env) for sub in coerced_context(inst, τ) ]
-    return dictionary_value(inst, context_values)
-```
-
-`dictionary_value` builds a record expression whose fields are the instance's
-method implementations and superclass dictionaries, closing over
-`context_values`. Superclass dictionaries for `inst` are themselves resolved by
-`resolve` on the instance's superclass constraints.
-
-### Elaboration to a dictionary arrow
+The frontend validates classes, selects instances, solves constraints, and
+constructs typed evidence as specified by
+[classes and evidence](../../frontend/type-system/classes-and-evidence.md).
+Core lowering turns this evidence into dictionary values and projections:
 
 ```text
-elaborate(declaration d with constraints [C_1 a, ..., C_n a]):
-    body' = elaborate_body(d.body)
-    return Lambda(dict_1, ... Lambda(dict_n, body'))
-
-elaborate_body(use of method m at type τ):
-    dict = dictionary_for(C, τ)          // a local parameter or a resolved value
-    field = method_index(C, m)
-    return Project(field, dict)
-
-elaborate_body(use of superclass method m via S):
-    dict = dictionary_for(C, τ)
-    super = Project(super_index(C, S), dict)
-    return Project(method_index(S, m), super)
+lower_evidence(Given(local)) = local
+lower_evidence(Superclass(parent, field)) = Project(field, lower_evidence(parent))
+lower_evidence(Instance(instance, context)) =
+    Apply(instance_dictionary_constructor(instance), map(lower_evidence, context))
 ```
 
-Each projection is an ordinary `ProductGet`; each dictionary value is an
-ordinary `ProductNew`. Because a class record mixes methods and superclass
-dictionaries in one product, `method_index` and `super_index` must be assigned
-once per class and used consistently by elaboration and by the verifier.
-
-### Coherence checks
-
-Coherence is checked when the class environment is built, before resolution is
-used as an oracle:
-
-```text
-check_coherence(instances):
-    for every pair (i, j) of instance heads of the same class:
-        if heads(i) and heads(j) unify: report overlapping instances
-    for every instance i:
-        if context_size(i) > head_size(i): report context larger than head
-    for every class:
-        superclass graph is acyclic
-        method and superclass field indices are unique within the class record
-```
-
-Names and orphan status remain frontend concerns; this document only requires
-that a constraint resolves to exactly one dictionary so the backend lowering is
-deterministic.
+An instance dictionary constructor builds a record from its method values and
+superclass dictionaries. A constrained declaration becomes a lambda over its
+given dictionaries. Method and superclass field indices are fixed by the class
+record and checked by the Core and CC verifiers. This lowering cannot choose a
+different instance or resolve a new constraint.
 
 ### Edge cases
 
 - **Superclass chains.** `Ord a <= Eq a <= ...` projects one dictionary per
   link; each link is a `ProductGet`.
 - **Recursive instances.** `instance eqList :: Eq a => Eq (List a)` builds a
-  dictionary that recursively passes the element dictionary into the recursive
-  method; resolution terminates because contexts are no larger than heads.
+  dictionary that passes the element dictionary into the recursive method;
+  the frontend supplies finite selected evidence for the element constraint.
 - **Method with a constrained type.** A method that itself needs a dictionary
   is a closure that takes the extra dictionary as a parameter; the caller
-  resolves and supplies it at the use site.
+  receives frontend-selected evidence at the use site.
 - **Default methods.** A class default is a top-level function used when an
   instance omits the method field; the instance simply stores the default
   closure in that field.
@@ -259,65 +211,22 @@ deterministic.
 
 ## Code map
 
-The class system spans the frontend that elaborates dictionaries and the backend
-that consumes them as ordinary products and closures. This organization is
-planned, not yet implemented; the implementation must conform to it.
+The frontend's [classes and evidence](../../frontend/type-system/classes-and-evidence.md)
+code map owns class declarations, solving, and THIR evidence. This backend topic
+consumes verified Core dictionary values:
 
 ```text
-crates/psrs-hir/src/
-  ty.rs
-  types.rs
-crates/psrs-resolve/src/resolver/type_resolution.rs
-crates/psrs-kind/src/
-  kind.rs
-  check/infer.rs
-crates/psrs-typecheck/src/
-  class.rs
-  solve.rs
-  elaborate.rs
-  signature.rs
-crates/psrs-core/src/dictionary.rs
-crates/psrs-backend/src/
-  cc/representation.rs
-  cc/layout/mod.rs
-  cc/lower/record.rs
-  cc/lower/lambda.rs
-  cc/lower/call.rs
-  mir/layout/mod.rs
-  mir/lower/assignments.rs
+crates/psrs-core/src/dictionary.rs       checked dictionary field metadata
+crates/psrs-backend/src/cc/representation.rs  product representation
+crates/psrs-backend/src/cc/lower/record.rs     product construction/projection
+crates/psrs-backend/src/cc/lower/call.rs       dictionary argument calls
+crates/psrs-backend/src/mir/layout/            concrete product layout
 ```
 
-Responsibilities and required types:
-
-- `psrs-hir` must carry class and instance declarations and resolved constraints:
-  `TypeDeclaration`, `TypeDeclarationKind::Class`, and `ClassMember` in
-  `types.rs`, and `TypeKind::Constrained` in `ty.rs`. `psrs-resolve`'s
-  `type_resolution.rs` must resolve class members, superclasses, and instance
-  heads; `psrs-kind` must check that a class kind is `Constraint`.
-- `psrs-typecheck` must own the class environment and constraint solving and
-  must elaborate dictionaries. It must define:
-  - a class record `ClassRecord { members, supers, method_indices, super_indices }`,
-    whose method and superclass indices are fixed once per class;
-  - an instance dictionary
-    `InstanceDictionary { head, context, method_values, super_values }`;
-  - a constraint arrow, the elaboration of `C a => t` to `Dict(C, a) -> t`.
-  Required entry point in `elaborate.rs`:
-  `fn elaborate_dictionaries(declarations, env) -> Result<TypedCore, Diagnostic>`,
-  with the resolution oracle in `solve.rs`:
-  `fn resolve_constraint(constraint, env) -> Result<Dictionary, Diagnostic>`.
-  `class.rs` must check coherence when the environment is built, before the
-  oracle is used, and must report a missing or ambiguous dictionary at the
-  constraint span.
-- `psrs-core` must represent an elaborated dictionary as an ordinary value in
-  `dictionary.rs`; it must not add a class- or dictionary-specific Core node.
-- The backend must consume dictionaries only through existing products and
-  closures: `cc/representation.rs::Representation::Product` for the class
-  record, `cc/layout/mod.rs` and `mir/layout/mod.rs` for the record layout,
-  `cc/lower/record.rs` for `ProductNew`/`ProductGet`, and
-  `cc/lower/lambda.rs`/`cc/lower/call.rs` for method closures. No backend stage
-  may introduce a Wasm type dedicated to dictionaries or a runtime type tag
-  ([polymorphism and erasure](polymorphism-and-erasure.md),
-  [data representation](data-representation.md)).
+The backend entry point `lower_dictionary_value(&core::Expr, &ClassLayout) ->
+Result<cc::Value, Diagnostic>` accepts a checked Core expression and fixed field
+layout. CC and MIR verification check that each product operation matches that
+layout. No backend module imports class-solving state.
 
 ## Invariants and verification
 
@@ -331,9 +240,8 @@ Responsibilities and required types:
   (`mir/verify/instruction/mod.rs`).
 - No runtime type tag is introduced anywhere; the erased protocol remains the
   only polymorphic mechanism ([polymorphism and erasure](polymorphism-and-erasure.md)).
-- Coherence is checked once when the class environment is built; a constraint
-  that does not resolve, or resolves ambiguously, is a source error and never
-  reaches CC.
+- The frontend has verified coherence and selected evidence; CC rejects a
+  missing or malformed dictionary value rather than searching for one.
 - `let`-bound constrained values bind their dictionaries once; a later use does
   not re-resolve.
 
@@ -414,9 +322,9 @@ no runtime check of `a`.
   the runtime dictionary shape; it is tracked by `FE-15`.
 - **Associated types and `Coercible`/roles.** They add type-level information but
   should still erase to products and coercions, per `FE-16`.
-- **Specialization policy.** Which dictionaries to specialize, and how to
-  preserve semantics under it, belongs to the MIR optimization track
-  (`BE-12`).
+- **Specialization policy.** Source-type-dependent dictionary specialization
+  belongs to [Core optimization](../opt/core.md); representation-preserving
+  projection and call simplification belong to [MIR optimization](../opt/mir.md).
 - **Diagnostics.** Overlap, missing-instance, and context-size diagnostics need
   official `errorCode` agreement (`L5` in
   [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md)).

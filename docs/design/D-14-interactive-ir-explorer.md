@@ -47,7 +47,8 @@ inventory lists each current variant and its purpose. The backend review beside
 it states the current implementation, target design, reason for the change,
 and supporting source or design record. Each finding is marked implemented or
 remaining; only variants present in Rust appear in the current inventory. The
-review follows IR boundaries and DEC-08 and is updated as backend code evolves.
+review follows IR boundaries and the [CC IR](backend/fp/cc-ir.md) design and is
+updated as backend code evolves.
 
 The pass-detail route has a three-region desktop layout:
 

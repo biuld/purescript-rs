@@ -24,6 +24,11 @@ Existing Node.js APIs and JavaScript FFI modules are not supported compatibility
 targets. Programs that use unsupported syntax, types, or platform services
 receive source-oriented diagnostics rather than a malformed artifact.
 
+The selected command entry is a zero-argument integer `main`. It may use the
+provided `runEffect` operation to execute effect values; other source
+declarations cannot invoke the runner. An `Effect` value is opaque to source
+code, and constructing it does not execute it.
+
 The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
 Preview 1 module ABI is not part of the supported output contract.
 
@@ -64,8 +69,7 @@ field reads, record updates, and closed concrete record patterns with variable,
 wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented effect-based WASI console and clock libraries plus random imports.
-The selected entry
-must be a zero-argument integer `main` function. Rank-1 generic direct calls
+The selected entry must be a zero-argument integer `main` function. Rank-1 generic direct calls
 and the supported higher-order generic adapters are lowered; generic
 aggregates, open rows, and unsupported WIT shapes receive source-oriented
 diagnostics.
@@ -77,7 +81,7 @@ reserved for the canonical ABI boundary.
 
 Scalar operators cover the full `Int`, `Number`, `Boolean`, and `Char` sets the
 standard library exposes, including bitwise and shift operations, conversions,
-and Euclidean `Int` division and modulus. A data type with fields constructs and
+and floor `Int` division and divisor-sign modulus. A data type with fields constructs and
 pattern matches on every target profile the compiler supports. Platform services
 grow as PureScript-facing WASI libraries: console, clock, and random are
 implemented, and arguments, environment, and files follow as their WIT forms are

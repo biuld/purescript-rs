@@ -152,7 +152,9 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
   reserved scratch region) is passed as the last argument.
 - **Results.** A scalar `i64` is wrapped to `Int`, an `f32` widened to `Number`,
   an `i32`/`f64` used directly, and a `list`/`string` read from the return area
-  as `(pointer, length)` and converted to the length-prefixed string value. A
+  as `(pointer, length)`, checked against the guest allocator's prefix, and
+  converted to the internal string pointer. A zero-length null result uses the
+  static empty-string buffer. A
   `result<_, _>` with a unit success payload reads the one-byte discriminant and
   traps on a nonzero status rather than silently succeeding.
 
@@ -217,7 +219,8 @@ lower_result(import, destination, flat):
         List =>
             CallVoid(import, flat)
             pointer = Load(PRINT_SCRATCH)
-            destination = pointer - 4          # undo the length prefix
+            length = Load(PRINT_SCRATCH + 4)
+            destination = validate_and_recover_internal_string(pointer, length)
         Scalar | Boolean | Enum | Char =>
             match import.result:
                 I64 => destination = WrapI64(Call(import, flat))
@@ -427,7 +430,7 @@ design, not a change to it.
 
 ## References
 
-- WebAssembly Component Model specification: WIT and the Canonical ABI
+- [WebAssembly Component Model specification](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#canonical-abi): WIT and the Canonical ABI
   (`lift`/`lower`, flattening, `realloc`, return pointer, post-return).
 - WASI 0.2 WIT interfaces (`wasi:cli`, `wasi:io`, `wasi:clocks`, `wasi:random`).
 - `wit-parser` `Resolve::wasm_signature`, `AbiVariant`.

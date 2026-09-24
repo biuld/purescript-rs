@@ -2,7 +2,7 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** [functional core](functional-core.md), [CC IR](cc-ir.md), and
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md), and
 the constructor model of [data representation](data-representation.md);
 algebraic data types, first-match semantics, and basic decision procedures. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -19,10 +19,10 @@ This document owns the pattern decision boundary: the pattern matrix, the
 decision DAG, exhaustiveness and redundancy analysis with witnesses, and the CC
 lowering that realizes a selected alternative. It does not own pattern type
 checking or the source syntax of patterns (frontend; see
-[D-03](../../D-03-type-system.md) and `FE-06`/`FE-12` in
+[frontend type inference](../../frontend/type-system/type-inference.md) and `FE-06`/`FE-12` in
 [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md)), the concrete
 constructor and record layout ([data representation](data-representation.md),
-[DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md)), or
+[CC IR](cc-ir.md)), or
 multi-way control-flow structuring and tail calls
 ([control flow and tail calls](control-flow-and-tail-calls.md)).
 
@@ -99,7 +99,6 @@ literal tests, projections, and variable bindings.
 Decision = Leaf   { branch: usize }
          | Fail
          | Switch { column: usize,
-                    test:   Test,
                     edges:  [(Test, Decision)],
                     default: Option<Decision> }
 Test     = Constructor { type: TypeId, tag: i32 }
@@ -203,9 +202,8 @@ keeps its source span.
 compile(matrix, columns):
     if matrix is empty:
         return Fail
-    if matrix has a row of all-irrefutable patterns:
-        // First-match: that row is the answer.
-        return Leaf { branch = first such row.branch }
+    if the first row has only irrefutable patterns:
+        return Leaf { branch = first row.branch }
     column = choose_column(matrix, columns)
     if column has no constructor or literal patterns:
         // Only irrefutable heads remain; drop the column and recurse.
@@ -216,17 +214,22 @@ compile(matrix, columns):
     edges = []
     for test in tests:
         edges.push((test, compile(specialize(matrix, column, test), columns)))
-    default_decision = if column_has_irrefutable_rows(matrix, column):
+    // A closed constructor signature proves whether the remaining tags exist.
+    default_decision = if column_has_irrefutable_rows(matrix, column)
+                          or tests do not cover the closed signature:
         Some(compile(default(matrix, column), columns - column))
     else:
         None
     return share(Switch {
         column,
-        test   = head_test(column),
         edges,
         default = default_decision,
     })
 ```
+
+The base case checks the **first** row: a later wildcard may not preempt an
+earlier constructor row. A missing default compiles to `Fail` and must be
+unreachable only when coverage has proved the tested signature complete.
 
 `specialize(matrix, column, Constructor c)` keeps rows whose `column` pattern is
 `c` or irrefutable; for each kept row it removes the column and splices in `c`'s
@@ -286,22 +289,14 @@ lower(decision, env):
     match decision:
         Leaf { branch } -> lower_branch(branch, env)
         Fail            -> trap
-        Switch { column, test, edges, default }:
+        Switch { column, edges, default }:
             value = env[column]
-            for (test, sub) in edges:
-                match test:
-                    Constructor { type, tag } ->
-                        actual = VariantTag(type, value)     // nullary: value itself
-                        expected = Constant(tag)
-                        cond = IntEq(actual, expected)
-                        then = lower_projecting(sub, value, ctor(type, tag))
-                        else = lower(default, env) or trap
-                        emit If(cond, then, else)
-                    Literal l ->
-                        cond = literal_test(value, l)
-                        then = lower(sub, env)
-                        else = lower(default, env) or trap
-                        emit If(cond, then, else)
+            fallback = lower(default, env) if default exists else trap
+            for (test, sub) in reverse(edges):
+                cond = test_constructor_tag_or_literal(test, value)
+                selected = lower_projecting(sub, value, test)
+                fallback = If(cond, selected, fallback)
+            return fallback
 ```
 
 `lower_projecting` emits one `VariantGet` or `ProductGet` per field of the
@@ -322,7 +317,7 @@ outer value is already the tag, the target is a MIR `Switch` rather than a chain
 - **Newtypes:** erase; recurse on the field pattern against the scrutinee.
 - **Mixed sums (some cases nullary, some with fields):** nullary edges carry no
   projection; field edges cast to the case type and project, per
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md).
+  [CC IR](cc-ir.md).
 - **Nested patterns:** each nesting level adds a column and an edge; projection
   happens once per field on the path.
 - **Erased (parameter-dependent) fields:** project the erased value and unbox it
@@ -542,7 +537,7 @@ temporary shapes.
 - Maranget, L., *Compiling Pattern Matching to Good Decision Trees* (2008).
 - [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md)
   and
-  [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md):
+  [CC IR](cc-ir.md):
   erased parameterized fields and the target-neutral variant representation.
 - [Control flow and tail calls](control-flow-and-tail-calls.md): `Switch` and
   structured control.

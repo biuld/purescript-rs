@@ -2,7 +2,7 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** [functional core](functional-core.md) and [CC IR](cc-ir.md);
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md) and [CC IR](cc-ir.md);
 the WebAssembly type system (GC structs and arrays, typed function references)
 and the basics of SSA form and dominators. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -160,7 +160,9 @@ the `RecGroup`s that become MIR's type table.
 - **Ordering.** A defined type must precede its uses; in particular a variant
   supertype precedes its case subtypes. P9 assigns `DefinedTypeId`s in this
   order and puts every definition in a single recursion group, which admits
-  recursive and mutually recursive types.
+  recursive and mutually recursive references within that group. IDs are
+  reserved before definitions are filled; forward references inside the group
+  are valid. Only a supertype edge must point to a previously declared type.
 - **GC target.** The planner uses `struct`, `array`, typed function references,
   `ref.test`, `ref.cast`, and `call_ref`. A profile without GC or function
   references is rejected here with a source-associated diagnostic, never by a
@@ -176,7 +178,8 @@ the lifted code, and a capture array. Captures are stored in one uniform array o
 nullable `eqref` so the closure type does not depend on the capture types:
 
 - `Boolean` captures are boxed as `i31`;
-- `Int` captures are boxed in a one-field struct so all 32-bit values round-trip;
+- `Int` and `String` captures are boxed in a one-field struct so all 32-bit
+  values and addresses round-trip;
 - `f64` captures are boxed in a one-field struct;
 - reference captures are stored as they are;
 - erased captures are already `eqref`.
@@ -190,7 +193,7 @@ projection reads the array and unboxes. The concrete layouts are in
 
 A product is a GC struct whose fields are the product's elements. A sum is an
 abstract, non-final struct carrying the tag plus one final struct per case, per
-[DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md); a
+[CC IR](cc-ir.md); a
 sum whose cases are all nullary is an immediate `i32` tag and allocates nothing.
 Arrays are GC arrays with a mutable element type. Strings are `i32` pointers to
 length-prefixed UTF-8 buffers at the canonical ABI boundary
@@ -245,7 +248,8 @@ plan_selected(table, reachable):
         each case gets a fresh id with that supertype
     for each closure signature:
         allocate the capture array type and the closure struct type
-    build one RecGroup from the definitions, supertypes before subtypes
+    build one RecGroup from the definitions, supertypes before subtypes;
+    validate all references after the group is complete
 ```
 
 ### Lowering CC to SSA
@@ -266,7 +270,7 @@ lower_if(cond, then_assignments, then_value, else_assignments, else_value):
 
 A direct call becomes `Call`/`CallVoid`; a closure call becomes `ClosureCall`.
 The scalar helpers of `scalar_helpers` are appended as extra functions when the
-module uses Euclidean division or modulo.
+module uses floor division or modulo.
 
 ### Dominance
 
@@ -451,8 +455,8 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the
   meantime.
-- **Optimization.** No P10 optimization exists yet. Inlining, DCE, unboxing, and
-  local coalescing are planned as MIR-preserving passes.
+- **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
+  Unboxing across call boundaries remains a P9 representation decision.
 - **Memory access extents.** The verifier checks memory identity and types, not
   static offsets; offset validation is deferred to the ABI boundary design.
 
@@ -471,5 +475,5 @@ temporary shapes.
 - Flanagan, Sabry, Duba, and Felleisen, *The Essence of Compiling with
   Continuations* (1993).
 - WebAssembly 3.0: GC, typed function references, and the core type system.
-- [DEC-08](../../../decision/DEC-08-target-neutral-variant-representation.md),
+- [CC IR](cc-ir.md),
   [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md).
