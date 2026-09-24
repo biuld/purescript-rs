@@ -108,14 +108,20 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
                     remap_instruction(&mut cloned, &mapping);
                     rewritten.push(cloned);
                 }
-                let Terminator::Return { value, .. } = callee.blocks[0]
+                let Terminator::Return { .. } = callee.blocks[0]
                     .terminator
                     .as_ref()
                     .expect("candidate terminators are verified")
                 else {
                     unreachable!("candidate functions return")
                 };
-                let result = mapping.get(value).copied().unwrap_or(*value);
+                // Wasm lowering reads Function.result directly, so it is the
+                // callee result contract even if the terminator names another
+                // same-typed value.
+                let result = mapping
+                    .get(&callee.result)
+                    .copied()
+                    .unwrap_or(callee.result);
                 rewritten.push(Instruction::Copy {
                     destination,
                     value: result,

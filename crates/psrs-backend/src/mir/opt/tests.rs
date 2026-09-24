@@ -326,6 +326,87 @@ fn inlines_small_direct_functions_and_folds_the_result() {
 }
 
 #[test]
+fn inlining_uses_the_callee_function_result_value() {
+    let caller_symbol = SymbolId::new(ModuleId(0), 0);
+    let callee_symbol = SymbolId::new(ModuleId(0), 1);
+    let caller = Function {
+        id: FunctionId(0),
+        symbol: caller_symbol,
+        name: "main".into(),
+        parameters: Vec::new(),
+        values: vec![value(0, ValueType::I32)],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::Call {
+                destination: ValueId(0),
+                function: callee_symbol,
+                arguments: Vec::new(),
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: ValueId(0),
+                span: span(),
+            }),
+        }],
+        result: ValueId(0),
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let callee = Function {
+        id: FunctionId(1),
+        symbol: callee_symbol,
+        name: "different_result_values".into(),
+        parameters: Vec::new(),
+        values: vec![value(0, ValueType::I32), value(1, ValueType::I32)],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![
+                Instruction::Constant {
+                    destination: ValueId(0),
+                    value: 10,
+                    span: span(),
+                },
+                Instruction::Constant {
+                    destination: ValueId(1),
+                    value: 20,
+                    span: span(),
+                },
+            ],
+            terminator: Some(Terminator::Return {
+                value: ValueId(0),
+                span: span(),
+            }),
+        }],
+        result: ValueId(1),
+        result_type: ValueType::I32,
+        span: span(),
+    };
+
+    let optimized = optimize(
+        module(vec![caller, callee], Vec::new(), caller_symbol),
+        TargetCapabilities::default(),
+    )
+    .expect("valid MIR should optimize");
+    let caller = &optimized.functions[0];
+    assert!(
+        caller.blocks[0]
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, Instruction::Constant { value: 20, .. }))
+    );
+    assert!(
+        !caller.blocks[0]
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, Instruction::Constant { value: 10, .. }))
+    );
+}
+
+#[test]
 fn copy_forwarding_updates_the_structurer_result_value() {
     let symbol = SymbolId::new(ModuleId(0), 0);
     let function = Function {
