@@ -7,7 +7,7 @@
 
 [F-02](../feature/F-02-portable-programs.md) commits the compiler to PureScript
 language semantics, and [D-01](../design/D-01-frontend-and-ir-boundaries.md)
-and [D-02](../design/D-02-wasm-lowering.md) plan the type system in stages:
+and [wasm encoding](../design/backend/wasm/encoding-and-structuring.md) plan the type system in stages:
 monomorphic types, Hindley–Milner inference, algebraic data types, kinds and
 row-polymorphic records, then type classes and explicit dictionaries.
 
@@ -48,7 +48,7 @@ Specifically:
   and type) plus library declarations, not a `RuntimeFunction` enum, and the
   backend lowers them to WASI by name. The `Intrinsic` set stays for compiler
   primitives such as integer operators. This keeps the two-layer split of
-  [D-02](../design/D-02-wasm-lowering.md): PureScript-facing standard library →
+  [wasm encoding](../design/backend/wasm/encoding-and-structuring.md): PureScript-facing standard library →
   WASI interfaces ([DEC-06](DEC-06-runtime-interface-via-wit.md)).
 - The compiler-native algebraic-effect standard library proposed earlier is
   rejected.
@@ -76,7 +76,7 @@ See [D-03](../design/D-03-type-system.md) for the staged type-system plan.
 - A large type-system program precedes any algebraic-effect library: rank-1
   polymorphism, kinds, ADTs, classes, and rows.
 - The backend uses the initial erased representation in
-  [D-08](../design/D-08-generic-wasm-representation.md) for supported rank-1
+  [erasure](../design/backend/fp/polymorphism-and-erasure.md) for supported rank-1
   generic calls and rejects programs whose remaining generic or dictionary
   representation it cannot lower, with source-oriented diagnostics. Rejecting
   at the backend is a bootstrap limitation, not a type-system rule.
@@ -88,4 +88,4 @@ See [D-03](../design/D-03-type-system.md) for the staged type-system plan.
 - Follow-up: record the type-system design in
   [D-03](../design/D-03-type-system.md), and update
   [D-01](../design/D-01-frontend-and-ir-boundaries.md) and
-  [D-02](../design/D-02-wasm-lowering.md) when the type representations change.
+  [wasm encoding](../design/backend/wasm/encoding-and-structuring.md) when the type representations change.

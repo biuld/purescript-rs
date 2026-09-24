@@ -291,7 +291,7 @@ external dependency is unavailable.
   parameterized ADTs need frontend type checking and backend erased layouts;
   neither side can claim the feature alone is complete.
 - D-03 remains the source of truth for type representations and type-system
-  sequencing. D-02, D-05, D-06, and D-07 remain the source of truth for backend,
+  sequencing. wasm encoding, capability profile, IR boundaries, and canonical ABI remain the source of truth for backend,
   Wasm, WIT, and WASI implementation details.
 - Official `errorCode` agreement remains mandatory for frontend diagnostics,
   but message text and golden `.out` formatting are not compatibility criteria.

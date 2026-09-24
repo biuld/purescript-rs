@@ -11,16 +11,16 @@ minimal core WebAssembly with a linear-memory bump allocator as the language
 heap". It stated that linear memory "remains only for the byte-oriented WASI
 boundary and is not the language heap".
 
-Later work moved away from that decision. [D-10](../design/D-10-linear-memory-representation.md)
+Later work moved away from that decision. [linear ABI boundary](../design/backend/wasm/linear-memory-and-canonical-abi-boundary.md)
 reclassified linear memory as "a real language-heap strategy", P9 gained a
 second planner (`LinearMemoryPlanner`) that lowers products, boxes, arrays,
 variants, and table-backed closures to allocator and typed load/store MIR, and
 the MIR verifier grew a large pointer-bounds analysis to justify those accesses.
-The CAP rows and the [D-05](../design/D-05-backend-capability.md) audit tracked
+The CAP rows and the [capability profile](../design/backend/wasm/capability-profile.md) audit tracked
 that path as a supported alternative profile.
 
 That linear path cannot be a complete execution strategy for PureScript. Its
-allocator is a bump allocator with **no reclamation**: `D-10 §Allocator` states
+allocator is a bump allocator with **no reclamation**: `linear ABI boundary §Allocator` states
 "there is no reclamation yet; a program that allocates without bound will exhaust
 memory and trap". A garbage-collected source language run under it therefore
 requires a hand-written collector (root/stack maps, tracing, and eventually
@@ -66,11 +66,11 @@ heap:
   remains useful only for isolated ABI-boundary tests, if at all.
 - The wasm32 linear address model, strings, data segments, and `cabi_realloc`
   stay, so the canonical ABI and WASI boundary are unchanged.
-- [D-10](../design/D-10-linear-memory-representation.md) is rewritten to describe
+- [linear ABI boundary](../design/backend/wasm/linear-memory-and-canonical-abi-boundary.md) is rewritten to describe
   only the canonical ABI boundary; the linear-language-heap parts of
-  [D-05](../design/D-05-backend-capability.md),
-  [D-06](../design/D-06-low-level-ir-and-wasm-types.md),
-  [D-11](../design/D-11-gc-representation-and-evidence.md), and
+  [capability profile](../design/backend/wasm/capability-profile.md),
+  [IR boundaries](../design/backend/00-ir-boundaries.md),
+  [data representation](../design/backend/fp/data-representation.md), and
   [DEC-08](DEC-08-target-neutral-variant-representation.md) are superseded.
 - Reversing this decision would mean reintroducing a second planner **and**
   eventually a hand-written collector, so it is deliberately expensive to undo.

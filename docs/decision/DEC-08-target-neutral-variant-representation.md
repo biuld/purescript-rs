@@ -55,7 +55,7 @@ P9 realizes them per target:
 
 `RepresentationTest`/`RepresentationCast` remain in CC only for erased
 representation adaptation
-([D-08](../design/D-08-generic-wasm-representation.md)), not for constructor
+([erasure](../design/backend/fp/polymorphism-and-erasure.md)), not for constructor
 dispatch.
 
 ## Consequences

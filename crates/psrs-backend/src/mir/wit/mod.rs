@@ -4,7 +4,7 @@
 //! pointer, and the scratch and `cabi_realloc` conventions live here. MIR
 //! itself only carries the resulting calls and memory operations.
 //!
-//! See `docs/design/D-07-wit-imports-and-std.md`.
+//! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
 mod parameters;
 

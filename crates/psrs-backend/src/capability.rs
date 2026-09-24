@@ -26,7 +26,7 @@ pub struct TargetCapabilities {
     pub multi_memory: bool,
     /// Deferred: the pinned component toolchain cannot lift 64-bit memories and
     /// the WASI host path is incomplete, so enabling it would break the WASI
-    /// artifact. See `docs/design/D-05-backend-capability.md`.
+    /// artifact. See `docs/design/backend/wasm/capability-profile.md`.
     pub memory64: bool,
     pub exceptions: bool,
     pub extended_const: bool,

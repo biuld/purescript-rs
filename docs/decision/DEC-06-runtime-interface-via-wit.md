@@ -5,7 +5,7 @@
 
 ## Context
 
-[D-02](../design/D-02-wasm-lowering.md) separates three layers: a
+[wasm encoding](../design/backend/wasm/encoding-and-structuring.md) separates three layers: a
 PureScript-facing library, a compiler runtime ABI, and the WASI host interface.
 The bootstrap collapsed the last two: the backend synthesizes `ps_rt_log`, hand
 codes the WASI Preview 1 `fd_write` convention, and lays out an iovec and

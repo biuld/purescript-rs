@@ -1,277 +1,501 @@
-# D-02 — Wasm Lowering
+# Wasm Encoding and Structuring
 
-**Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress
+**Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
+**Status:** Stable (design)  
+**Prerequisites:** [MIR](../fp/mir.md) and [control flow and tail calls](../fp/control-flow-and-tail-calls.md); the WebAssembly 3.0 binary format, its structured control instructions, and its separate type, function, memory, and data index spaces; the idea of recovering structured control flow from a CFG (the Relooper, the LLVM WebAssembly stackifier). Read [IR boundaries](../00-ir-boundaries.md) and [DEC-02](../../../decision/DEC-02-thin-structured-wasm-encoding.md) first.  
+**Summary:** The thin structured Wasm encoding is the target representation that sits between MIR and the binary artifact. It models only the module skeleton and structured control regions; leaf opcodes are `wasm_encoder::Instruction` values, so the encoding does not re-declare the WebAssembly instruction set. P10 structures the CFG, maps MIR identities to final Wasm indices, and P11 encodes the sections and validates the result.
 
-## Goal
+## Scope
 
-Compile the supported PureScript language subset to a portable WebAssembly
-artifact for a WASI host. WASI is the first platform target. The initial
-compatibility goal is PureScript language semantics plus the project's
-PureScript-facing WASI libraries; Node.js and JavaScript FFI compatibility are
-outside this target.
+This document owns the thin Wasm IR, the structuring of MIR control flow into
+structured regions, final index allocation, the declared element segment for
+`ref.func`, active data segments, the synthesized command entry, and binary
+emission. It does not own:
 
-The artifact targets an explicit capability profile for a pinned `wasmtime`
-release rather than inheriting every feature the runtime happens to support.
-The stable profile uses Wasm GC, reference types, typed function references,
-and the synchronous WASI 0.2 Component Model path; SIMD, tail calls, threads,
-memory64, exceptions, async components, and WASI 0.3 are disabled. The policy
-is fixed by [DEC-05](../decision/DEC-05-wasmtime-feature-set.md), and the
-concrete feature list, WASI surface, and verification are defined by
-[D-05](D-05-backend-capability.md). Target features are selected below Typed
-Core and never leak into the frontend IRs.
+- the MIR model or its CFG, which is specified in [MIR](../fp/mir.md);
+- general control-flow structuring and tail calls, whose algorithms live in
+  [control flow and tail calls](../fp/control-flow-and-tail-calls.md);
+- concrete scalar, GC, and closure layouts, which MIR fixes;
+- canonical ABI adaptation, which is [canonical ABI and WIT](canonical-abi-and-wit.md);
+- target capability policy, which is the [capability profile](capability-profile.md);
+- component packaging and WASI services, which is the
+  [WASI platform library](wasi-platform-library.md).
 
-The backend starts from Typed Core, the stable frontend/backend boundary. Wasm
-is the primary backend. A native executable, if added, should embed or run the
-Wasm artifact rather than introduce an independent code generator.
+## Background
 
-## Pipeline and contracts
+**Structured control flow.** WebAssembly is not a graph of jumps. Its control
+instructions are `block`, `loop`, and `if`, each introducing a region delimited
+by `end` (and `else` for `if`). A `block` branches forward to its end, a `loop`
+branches backward to its head, and an `if` selects one of two regions. Branch
+instructions (`br`, `br_if`, `br_table`) name a target by its depth in the stack
+of enclosing labels, not by an address. A region may consume operands and yield
+results, so a value-producing `if` can return a value to its continuation. Any
+program whose control flow is reducible can be expressed this way; irreducible
+graphs need a dispatcher loop over a state local. The Relooper (Zakai) and the
+LLVM WebAssembly stackifier (Gohman) are the standard recovery algorithms.
 
-The full pass order is specified in [D-01](D-01-frontend-and-ir-boundaries.md).
-The backend stages are:
+**CFG versus tree.** MIR is an arbitrary graph of basic blocks with block
+parameters. Wasm requires a tree of nested regions. MIR therefore deliberately
+carries no structure; recovering it is a distinct, late, independently
+verifiable step, and [DEC-02](../../../decision/DEC-02-thin-structured-wasm-encoding.md)
+rejects both of the alternatives that would blur it: a full Wasm IR that mirrors
+the opcode set, and encoding bytes directly while structuring.
 
-```text
-P6  THIR -> Typed Core
-P7  Typed Core -> optimized Typed Core
-P8  Typed Core -> ANF / CC IR
-P9  CC IR -> MIR / CFG
-P10 MIR -> structured Wasm encoding
-P11 structured Wasm encoding -> Wasm/WASI artifact
-```
+**Binary format and index spaces.** A core module is a sequence of sections in a
+fixed order: type, import, function, table, memory, global, export, start,
+element, code, data. Each entity kind has its own index space. Imported
+functions occupy the start of the function index space, defined functions follow
+in function-section order, and a function's body is found by subtracting the
+import count. Types are defined types first (in the GC case, recursion groups),
+then function types. `ref.func` may only reference a function that is *declared*
+somewhere in the module, which an active or declared element segment provides.
 
-| Stage | Required invariant |
-| --- | --- |
-| Typed Core | Types and semantic IDs remain explicit; source sugar and source patterns are lowered. |
-| CC IR | Evaluation order, closure captures, and direct versus indirect calls are explicit. |
-| MIR | Control flow is a graph of basic blocks; values and terminators are explicit; runtime layouts and calling conventions are fixed; its value and type model is the WebAssembly 3.0 type system ([D-06](D-06-low-level-ir-and-wasm-types.md)). |
-| Structured Wasm encoding | The module skeleton is explicit and control flow is structured; leaf opcodes are `wasm_encoder::Instruction` values, not a re-declared instruction set. |
-| Artifact | The encoded module validates, uses the selected target layout, and declares the WASI interfaces it uses. |
+**Data segments.** Active data segments initialize linear memory at a constant
+offset. They carry the string literals and the allocator's state that the
+canonical ABI boundary needs; they are not a language object heap
+([linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
+[DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)).
 
-CC IR and MIR are separate representations in one backend IR family. ANF is a
-form within CC IR, not an additional long-lived IR. MIR is the lowest
-long-lived IR and owns runtime layout decisions; it lowers into a thin
-structured Wasm encoding that P11 emits. Wasm is a target encoding, not a
-separate IR family, and the encoding does not mirror the Wasm instruction set.
+## Model
 
-No backend stage may infer semantic identity from source text. Source and
-typed-source stages may not depend on memory offsets, Wasm indices, or target
-calling conventions.
-
-## First executable slice
-
-Start with a module containing `main` and support integer and boolean values,
-arithmetic, direct function calls, `let`, and `if`. The bootstrap may combine
-implementations of passes that have no independent capability in this slice,
-but it must preserve the Typed Core boundary and lower through an explicit
-MIR/CFG before Wasm emission. Add algebraic data types and pattern matching
-next; the first higher-order slice uses a uniform GC closure representation for
-top-level functions, local lambdas, and captured lambdas.
-
-Use a Wasm encoder and validator for binary generation. Keep readable dumps of
-Typed Core, CC IR, and MIR. Test observable behavior rather than binary byte
-identity.
-
-## Implemented vertical slice
-
-The bootstrap compiler now lowers this source subset through every IR family:
+The thin encoding is a small Rust data model. Raw `u32` indices are produced
+only by `encode_module`; until then, values carry one of four distinct index
+domains so an index cannot be used in the wrong space.
 
 ```text
-module source -> resolved HIR -> THIR -> Typed Core -> direct-call CC IR / ANF
-  -> typed MIR / CFG -> structured Wasm -> .wasm and WAT
+Module   = { name: String,
+             imports: [Import],
+             types: [FuncType],
+             type_defs: [RecGroup],
+             functions: [Function],
+             memories: [Memory],
+             data: [DataSegment],
+             exports: [Export],
+             entry: Option(Entry),
+             realloc: Option(Function),
+             span: TextRange }
+
+Import   = { module: String, name: String, type_index: TypeIndex }
+FuncType = { parameters: [ValType], results: [ValType] }
+
+Function = { symbol: SymbolId, name: String, type_index: TypeIndex,
+             parameters: [ValType], locals: [ValType],
+             body: Body, span: TextRange }
+
+Body = [Op]
+Op   = Leaf(wasm_encoder::Instruction)
+     | If { then_body: Body, else_body: Body, result: Option(ValType),
+            span: TextRange }
+
+Entry        = { type_index: TypeIndex, body: Body }
+Memory       = { id: MemoryId, index: MemoryIndex,
+                 minimum: u64, maximum: Option<u64> }
+DataSegment  = { id: DataId, index: DataIndex, offset: u32, bytes: [u8] }
+Export       = { name: String, kind: ExportKind, index: ExportIndex }
+ExportKind   = Function | Memory
+ExportIndex  = Function(FunctionIndex) | Memory(MemoryIndex)
 ```
 
-The supported program shape includes top-level direct functions, function
-values, and higher-order calls through typed closure references, alongside
-`Int`, `Boolean`, `String`, and `Unit`, integer
-arithmetic and comparisons, string literals, local scalar `let` bindings, and
-value-producing `if`. A data type
-whose constructors are all nullary lowers to immediate integer tags and `case`
-over it to tag comparisons. A non-parameterized data type with fields lowers to
-one Wasm GC struct per constructor; construction uses `struct.new`, and field
-patterns use `ref.test`, `ref.cast`, and `struct.get`; nested constructor
-patterns test the nested constructor before projecting its matching GC object. Top-level lambdas become
-direct parameters. The `log` runtime function writes a `String` to standard
-output and returns `Unit`. Closed concrete record literals and record updates
-lower to Wasm GC structs: an update evaluates its base once, evaluates update
-values in source order, reads unchanged fields with `struct.get`, and rebuilds
-the value with `struct.new`. Open rows remain rejected with source diagnostics.
-Field reads lower to `struct.get`. Closed concrete record patterns extract
-fields with `struct.get`; nested constructor and record field patterns reuse
-the existing conditional pattern lowering, while open record patterns remain
-rejected. Pattern ordering and top-level matcher selection are compiled before
-CC emits representation tests, casts, and projections; see
-[D-12 — Pattern Decision Boundary](D-12-pattern-decision-boundary.md).
-Concrete scalar array literals
-lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
-to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
-the concrete `arrayUpdate` intrinsic allocates a same-length copy with
-`array.new_default` and `array.copy`, then lowers the update to `array.set` on
-that copy. The input reference is never mutated.
-Newtypes are erased to their single field, and
-constructor patterns in function parameters are lowered to an explicit
-temporary parameter plus `case`. Parameterized ADTs use the erased runtime
-representation selected by
-[DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md):
-concrete instantiations may use the first erased layout slice, which boxes
-parameter-dependent scalar fields as `eqref`, and concrete instance types are
-retained on patterns so nested constructor matches can recover those fields;
-direct rank-1 generic scalar/ADT calls and higher-order function adapters use
-the generic Wasm representation defined by
-[D-08](D-08-generic-wasm-representation.md). Unsupported generic aggregates,
-partial applications, and type-class evidence remain diagnostics. Function values lower to GC
-structs containing a code reference and an immutable `eqref` capture array;
-closure calls extract the typed code reference and lower to `call_ref`. Boolean
-captures are boxed as `i31` values, Int captures use a full-width one-field GC
-box, and reference captures retain their GC reference representation.
-Compatible source WIT imports are lowered through the generic canonical-ABI
-adapter; mismatched source signatures, non-byte lists, and unsupported
-aggregate results are rejected before MIR emission. P9 can also project and
-flatten direct scalar WIT record parameters in WIT field order. The type checker
-still rejects record type signatures, so this adapter path is not yet
-source-reachable; indirect record
-parameters and aggregate results remain unsupported. Type inference supports rank-1 polymorphism: it
-generalizes local `let` groups and top-level strongly connected components and
-instantiates schemes at use sites. Declarations may carry a `name :: Type`
-signature with function arrows and `forall`; the checker elaborates it with
-rigid variables and checks the body against it. Because the backend does not
-yet erase types or pass dictionaries, it rejects declarations whose checked
-type is polymorphic. Type classes remain future work.
+The four final index domains are `TypeIndex`, `FunctionIndex`, `MemoryIndex`,
+and `DataIndex`. They are distinct types, and distinct from MIR's module-local
+`DefinedTypeId`, `FunctionId`, `MemoryId`, and `DataId`. `Entry` and the
+optional `realloc` function are synthesized by P10 and therefore have no MIR
+identity of their own; `Module::defined_type_count` reports how many entries of
+the type index space are defined (non-function) types.
 
-The backend is grouped into one bootstrap crate, while CC IR, MIR, and the
-structured Wasm encoding remain separate Rust types with their own invariants.
-MIR records basic blocks, instructions, branch targets, merge blocks, and block
-parameters, and is the lowest long-lived IR. The Wasm structurer turns the
-reducible diamonds emitted for expression-level `if` into structured `if`
-regions; leaf opcodes reuse `wasm_encoder::Instruction` instead of a duplicate
-opcode enum. `wasm-encoder` emits the core module, `wit-component` lifts it
-into a component, `wasmparser` validates it, and `wasmprinter` prints WAT.
+### Invariants
 
-The CLI commands are `psrs build <file.purs>... [-o output.wasm]` and
-`psrs wat <file.purs>... [-o output.wat]`. Multiple source files are resolved,
-type checked, and linked together with the embedded `Prelude`. The artifact is
-a WASI 0.2 component that exports `wasi:cli/run@0.2.12`. The core module exports the canonical
-`wasi:cli/run@0.2.12#run` entry, which calls `main` and passes its result to
-`wasi:cli/exit.exit-with-code`, so a compatible runtime such as `wasmtime run`
-uses the value as the process exit code. The module exports its linear memory
-for the canonical ABI.
+- Defined types (`type_defs`) occupy the start of the type index space,
+  flattened in recursion-group order; function types (`types`) follow at
+  `defined_type_count()`. A `TypeIndex` below that bound must name a defined
+  function type or a defined struct/array type as the referring construct
+  requires.
+- The function index space is imports, then `functions` in order, then the
+  synthesized `entry`, then `realloc` when present. `FunctionIndex` values are
+  consistent with that order.
+- `MemoryId(0)` and `DataId`/`DataIndex` are assigned in vector order; data
+  segment `index.0` equals its position.
+- Every `Op::If` is immediately preceded in its body by the instruction that
+  pushes its condition.
+- A `Leaf(Instruction::RefFunc(f))` index is in range and appears in the
+  declared element segment.
+- The `entry` function, when present, is zero-argument and returns one `i32`;
+  when the WASI CLI capability is enabled its body calls `exit-with-code` with
+  `main`'s result.
 
-String literals are placed in active data segments; a `String` value is the
-address of a length-prefixed UTF-8 buffer. A program that calls `log` imports
-`wasi:cli/stdout` and `wasi:io/streams`; the standard-library lowering reads the
-buffer's length and calls `blocking-write-and-flush` with the bytes and then a
-newline. The component imports only the WASI interfaces the program uses. See
-`examples/hello.purs`. File, environment, and argument services are not
-implemented yet; monotonic clock and random bytes are implemented. `psrs dump
-<core|cc|mir> <file.purs>` prints any
-intermediate IR for debugging.
+## Design
 
-## Type-system sequence
+### One representation boundary
 
-Build the fully typed THIR before Typed Core lowering. Grow type support in
-stages:
+MIR already fixed every runtime layout and calling convention. P10 performs only
+three jobs: recover structure, assign final indices mechanically, and build the
+module skeleton. It must not create types, change a sum or closure encoding,
+introduce ABI adaptation, or infer a missing layout
+([IR boundaries](../00-ir-boundaries.md)). The thin IR therefore has exactly two
+`Op` shapes: a `Leaf` that carries a raw `wasm_encoder::Instruction`, and an
+`If` region. `wasm-encoder` owns the opcode set; the encoding grows with the
+language's control shapes, not with the WebAssembly instruction count.
 
-1. Monomorphic integer, boolean, string, unit, and function types.
-2. Hindley–Milner inference, unification, occurs check, generalization, and
-   instantiation.
-3. Algebraic data types and constructor applications.
-4. Kinds and row-polymorphic records.
-5. Type classes, instance resolution, and explicit dictionary evidence.
-6. Advanced PureScript behavior such as higher-rank types and functional
-   dependencies.
+### Structuring
 
-Later type-system features must enter typed representations or explicit
-lowering passes. Do not add type-system special cases to the Wasm emitter.
+The structurer consumes a MIR function and produces one `Body`. It walks the
+block graph from the entry block. Each MIR instruction is emitted as leaf
+opcodes with an explicit `LocalSet` (MIR values are Wasm locals). Each
+terminator decides the control shape:
 
-## Runtime and representation
+- `Return` ends the region;
+- `Jump` copies the jump arguments into the target block's parameters and
+  continues into the target (a fall-through inside the enclosing region);
+- `Branch` emits the condition, then an `Op::If` whose arms recursively emit the
+  then and else blocks up to the join block, and stores the join's parameter.
 
-Keep target representation decisions in P9. Aggregates and closures use Wasm GC
-per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md) and
-[DEC-09](../decision/DEC-09-gc-only-language-heap.md); linear memory serves only
-the byte-oriented canonical ABI boundary
-([D-10](D-10-linear-memory-representation.md)). Establish a small ABI before
-adding services:
+The current structurer is a linear walk that recognizes the reducible
+`if`-diamond shape MIR records with its `merge_block` hint, and rejects any
+revisited block (any loop). The general stackifier that removes the hint and
+adds `Block`, `Loop`, and `br_table`, and the tail-call lowering that reuses it,
+are specified in
+[control flow and tail calls](../fp/control-flow-and-tail-calls.md). Structuring
+is the only place that knows about Wasm region shape; MIR stays structure-free.
 
-- `Int` uses signed 32-bit values; `Number` uses 64-bit floating point.
-- `Boolean` uses an integer zero/one representation and `Char` a Unicode scalar.
-- `String` values remain linear-memory pointers to a length-prefixed UTF-8
-  buffer for the WASI boundary; literals live in data segments. A GC string
-  representation can replace it later without changing source semantics.
-- `Unit` has no payload and uses the integer zero.
-- A data type whose constructors are all nullary uses immediate integer tags and
-  allocates nothing.
-- A data type with fields uses a `rec` group of GC `struct` types: one subtype
-  per constructor under a tag-carrying abstract supertype, with each field a
-  reference or a scalar. Constructor application allocates with `struct.new`,
-  and pattern matching reads the shared tag and casts to the case subtype
-  ([DEC-08](../decision/DEC-08-target-neutral-variant-representation.md)).
-- A valid single-field `newtype` is represented by its field. Its constructor
-  and pattern are semantic Core operations but do not allocate a GC wrapper;
-  nested constructor patterns are matched against the erased field value.
-- Parameterized ADTs use the runtime-erasure policy in
-  [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md):
-  parameter-dependent fields use boxed erased references, while independent
-  fields may remain unboxed after layout verification.
-- Closures are GC `struct` values holding a `funcref` and their captures, called
-  with `call_ref`.
-- Records use a GC `struct` with a compile-time field shape, and arrays use a GC
-  `array`.
+### Index allocation
 
-The exact Wasm reference strategy may evolve, but it must not leak into CST,
-AST, HIR, THIR, or Typed Core.
+Index assignment is a mechanical consequence of section order and is the whole
+of P10's translation from MIR identities to Wasm indices:
 
-## WASI platform model
+- **Types.** MIR's `types` (recursion groups of GC structs, arrays, and function
+  types) are copied to `type_defs` and flattened from index `0`. For each MIR
+  function, if its parameter/result signature matches a defined function type in
+  that table, that index is reused; otherwise a fresh `FuncType` is appended
+  after the defined types. Import signatures, the entry signature, and the
+  `cabi_realloc` signature are appended the same way.
+- **Functions.** Imports are placed first in MIR import order; defined functions
+  follow in MIR order, indexed `import_count + function.id`; the entry and then
+  `realloc` are appended. MIR guarantees `FunctionId` equals the function's
+  position ([MIR](../fp/mir.md)).
+- **Memories and data.** The profile has one memory at index `0`. Data segments
+  keep their construction order.
 
-The platform target is a WASI 0.2 Component Model release; the choice and its
-rationale are in [D-05](D-05-backend-capability.md). **WASI is the runtime ABI**:
-the project does not define a separate host ABI
-([DEC-06](../decision/DEC-06-runtime-interface-via-wit.md)). The PureScript-facing
-standard library is built on WASI (for example `print` writes to
-`wasi:cli/stdout`), and the backend lowers to WASI's canonical ABI. Keep the
-layers separate:
+### Declared element segment
+
+When the structurer lowers a `ClosureNew` or another operation it emits
+`ref.func`. WebAssembly requires every function referenced by `ref.func` to be
+declared. `encode_module` scans all emitted bodies (including the entry and
+`realloc`), collects the referenced function indices, sorts and deduplicates
+them, and emits a single *declared* element segment (`Elements::Functions`). No
+table is installed; the segment exists only to satisfy the declaration rule.
+
+### Data segments and the allocator
+
+String literals are collected once, deduplicated by content, and placed in
+active data segments. A string is an `i32` pointer to a length-prefixed UTF-8
+buffer: a 4-byte little-endian length followed by the bytes. The first 16 bytes
+of memory are a reserved scratch region (`SCRATCH_SIZE`) that holds the return
+pointer area of canonical ABI calls; string data begins after it and is
+4-aligned. When a program imports a function that returns a `list`/`string`, P10
+also synthesizes and exports `cabi_realloc`, a bump allocator whose free pointer
+lives in one further data segment after the string data
+([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+
+### Command entry synthesis
+
+The selected entry declaration must be a zero-argument function returning `Int`
+(`i32`). P10 synthesizes a `run` entry with type `() -> i32` whose body calls
+`main`, then calls `wasi:cli/exit.exit-with-code` with `main`'s result, then
+returns `0`, the canonical `ok` discriminant of the `run` result. The core
+module exports this entry under the name `wit-component` expects
+(`wasi:cli/run@0.2.12#run`) and exports its linear memory as `memory`. The
+component lift and world are described in [WASI platform library](wasi-platform-library.md).
+
+### Rejected alternatives
+
+- **A full Wasm IR mirroring the opcode set.** Rejected: it duplicates
+  `wasm-encoder`, must be kept in sync with every proposal, and grows with the
+  instruction set instead of the language
+  ([DEC-02](../../../decision/DEC-02-thin-structured-wasm-encoding.md)).
+- **Encoding bytes directly from MIR.** Rejected: structuring and byte emission
+  would be one pass, leaving no independently verifiable structured artifact and
+  forcing MIR to carry target structuring hints permanently.
+- **Structuring in MIR.** Rejected: MIR is the representation the optimizer and
+  verifier operate on; structure is recovered once, late, and only for the
+  target.
+- **Assigning indices during MIR lowering.** Rejected: final indices depend on
+  the complete module skeleton (imports, entry, realloc), which only the encoder
+  knows; MIR keeps module-local IDs.
+
+## Algorithms
+
+### Structuring a function
 
 ```text
-PureScript-facing standard library -> WASI interfaces -> host
+lower_function(mir_fn):
+    body = []
+    emit_region(entry_block, stop = None, visited = {}, body)
+    body.push(LocalGet(mir_fn.result))
+    return Function { parameters, locals, body }
+
+emit_region(block, stop, visited, body):
+    loop:
+        if block == stop: return stop_block.parameters[0]
+        if block in visited: error("loop not yet supported")
+        visited.insert(block)
+        emit each instruction of block as leaf ops
+        match block.terminator:
+            Return  => return
+            Jump(t, args) =>
+                for (arg, param) in reverse(zip(args, t.parameters)):
+                    body.push(LocalGet(local(arg))); body.push(LocalSet(local(param)))
+                block = t
+            Branch(cond, then, else, merge) =>
+                body.push(LocalGet(local(cond)))
+                then_val = emit_region(then, stop = merge, ...)
+                else_val = emit_region(else, stop = merge, ...)
+                body.push(If { then: [.., LocalGet(then_val)],
+                               else: [.., LocalGet(else_val)],
+                               result: merge_type })
+                body.push(LocalSet(local(merge.parameters[0])))
+                block = merge
 ```
 
-MIR declares the WASI imports a program uses in an import table with their
-canonical signatures; the backend emits calls to those imports and
-`wit-component` lifts the core module into a component. A component imports only
-the WASI capabilities the program uses. The console, clock, and exit
-capabilities are implemented: `log` writes to `wasi:cli/stdout`, `error` to
-`wasi:cli/stderr`, `now` reads `wasi:clocks/monotonic-clock`, and `main`'s
-result exits through `wasi:cli/exit`.
+The general algorithm replaces the `stop`-based diamond recognition with a
+dominator/loop analysis and a reducible stackifier, as specified in
+[control flow and tail calls](../fp/control-flow-and-tail-calls.md).
 
-Initial library capabilities grow as testable modules for console, arguments,
-environment, files, clock, and randomness. Networking and HTTP are later
-work. A later WASI profile may expose asynchronous streams and futures without
-changing frontend or Core representations.
+### Index assignment
 
-The compiler frontend recognizes language symbols and runtime intrinsics; it
-does not implement Node APIs. Existing `.js` FFI modules and Node built-ins
-are not compatibility targets. User-defined foreign interfaces need an
-explicit, target-aware ABI and are not mixed into Typed Core.
+```text
+defined = sum(len(group) for group in mir.types)
+types   = []                       # function types beyond `defined`
+defined_func_index = flattened positions of Func entries in mir.types
 
-## Validation
+for each mir function f:
+    if signature(f) in defined_func_index: f.type_index = that index
+    else: f.type_index = defined + types.push(signature(f)) - 1
 
-- Unit-test each lowering pass with small input/output cases and invariant
-  checks.
-- Verify generated Wasm modules before reporting successful compilation.
-- Keep dedicated dumps for Core, CC IR, and MIR available.
-- Compare source acceptance with the official `purs` compiler as language
-  coverage grows.
-- Run execution tests that compare observable results under a compatible WASI
-  runtime.
+for each mir import i:
+    i.type_index = defined + types.push(val_type_sig(i))
 
-## Milestones
+entry.type_index  = defined + types.push(() -> i32)
+realloc.type_index = defined + types.push((i32,i32,i32,i32) -> i32)
 
-| Milestone | Capability |
-| --- | --- |
-| M0–M1 | Implemented source inspection, CST, and normalized AST subset |
-| M2 | Partial: stable IDs, a module graph, imports/exports, and value resolution across modules; type and constructor namespaces pending |
-| M3 | Partial: monomorphic `Int`, `Boolean`, function inference, and THIR |
-| M4 | Implemented Typed Core lowering and verifier; optimization is pending |
-| M5 | Implemented direct-style integer Wasm through MIR/CFG, a WASI command entry, binary validation, and WAT output |
-| M6 | Partial: nullary data types, non-parameterized field constructors, newtype erasure, constructor argument patterns, an erased parameterized-ADT slice, direct generic calls and higher-order adapters, concrete scalar array literals plus length, indexing, and updates, and closed concrete record literals, field reads, and updates lower and run through Wasm GC; generic records, generic arrays, and open rows remain pending |
-| M7 | ANF, closure conversion, and higher-order functions |
-| M8–M9 | Type classes, records, rows, and broader PureScript semantics |
-| M10 | WASI runtime and PureScript-facing base libraries |
+function_index(f) = import_count + f.id
+entry_index       = import_count + len(mir.functions)
+realloc_index     = entry_index + 1
+```
+
+### Section emission
+
+```text
+encode_module(module):
+    if types non-empty:
+        TypeSection: type_defs as rec groups, then function types
+    if imports non-empty:
+        ImportSection: function imports with their type indices
+    if any defined functions:
+        FunctionSection: functions, then entry, then realloc
+    if memories non-empty:
+        MemorySection
+    if exports non-empty:
+        ExportSection
+    refs = sorted-unique RefFunc indices found in all bodies
+    if refs non-empty:
+        ElementSection: one declared segment over refs
+    if any defined functions:
+        CodeSection: one body per function, entry, realloc (each ends with `end`)
+    if data non-empty:
+        DataSection: active segments at constant i32 offsets
+    return module bytes
+```
+
+### Edge cases
+
+- A module with no code produces no function or code section.
+- `entry` requires a WASI CLI target; without it the entry returns `i32` without
+  calling `exit-with-code`.
+- `realloc` is emitted only when an import returns a `list`/`string`; its free
+  pointer and the memory minimum are computed from the end of the string data.
+- A `RefFunc` inside a nested `Op::If` is collected recursively, so nested
+  closures still declare their code reference.
+
+## Code map
+
+The Wasm target layer is a module tree under
+`crates/psrs-backend/src/wasm/`; [IR boundaries](../00-ir-boundaries.md) fixes the
+crate-level tree. The implementation must conform to this organization:
+
+```text
+wasm/
+  mod.rs         Wasm IR: Module, Op (Leaf/If/Block/Loop), Function, Export,
+                 DataSegment, and the final index types
+  encode.rs      binary encoding: section order, declared element segment, data
+  verify.rs      structural verification of the Wasm IR
+  lower/
+    mod.rs       MIR -> structured Wasm entry points and index allocation
+    structure/   structuring and instruction emission
+    realloc.rs   cabi_realloc synthesis
+    runtime.rs   data segments and strings
+```
+
+`wasm/mod.rs` owns the thin encoding and must not depend on MIR. It must define
+these types:
+
+- `Module` — the module skeleton of the Model section: imports, function and
+  defined types, functions, memories, data segments, exports, optional entry,
+  and optional `realloc`.
+- `Op` — the structured operation set: `Leaf(wasm_encoder::Instruction)` plus
+  structured regions. Every region shape this design names, including `If` and
+  the future `Block` and `Loop`, is an `Op` variant; the encoding must not
+  mirror the WebAssembly opcode set.
+- `Function` — a defined function: symbol, name, final type index, parameter and
+  local `ValType`s, body, and span.
+- `Export`, with `ExportKind` and `ExportIndex` — the export table, including
+  the `memory` export and the synthesized `run` entry.
+- `DataSegment` — an active data segment at a constant offset.
+- `TypeIndex`, `FunctionIndex`, `MemoryIndex`, and `DataIndex` — the four
+  distinct final index domains. They must not be interchangeable with each other
+  or with any MIR identity.
+
+`wasm/lower/` owns the translation from verified MIR and must provide:
+
+```rust
+pub fn lower_module(
+    module: &mir::Module,
+    wasi: &mut abi::WasiRegistry,
+) -> Result<Module, Vec<BackendError>>;
+
+pub fn lower_module_with_capabilities(
+    module: &mir::Module,
+    wasi: &mut abi::WasiRegistry,
+    target: TargetCapabilities,
+) -> Result<Module, Vec<BackendError>>;
+```
+
+`lower_module` must use the default profile; both entry points must re-run
+`mir::verify_module_with_capabilities` before translating. `lower/` also owns
+**index allocation**: it maps MIR identities to the final index domains as a
+mechanical consequence of section order. It must not create, deduplicate, or
+reorder types, and it must not choose a representation. Changing a layout,
+introducing ABI adaptation, or inferring a missing layout is a P9 decision and
+must not be repeated here ([MIR](../fp/mir.md),
+[IR boundaries](../00-ir-boundaries.md)).
+
+Within `lower/`, `structure/` owns region recovery and leaf instruction
+emission, `realloc.rs` synthesizes and exports `cabi_realloc`, and `runtime.rs`
+collects string literals and builds data segments; `lower/mod.rs` also
+synthesizes the command entry.
+
+`wasm/encode.rs` must provide:
+
+```rust
+pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>>;
+```
+
+It owns binary section order, the declared element segment for `ref.func`, and
+data emission.
+
+`wasm/verify.rs` must provide:
+
+```rust
+pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>>;
+```
+
+It checks the structural invariants of the thin IR before any bytes are emitted.
+No module under `wasm/` may import the front end or CC.
+
+## Invariants and verification
+
+The thin-IR verifier `wasm::verify_module` checks, before bytes are emitted:
+
+- data segment IDs and indices are unique and each index equals its position;
+- memory IDs and indices are unique and deterministic;
+- every import, function, entry, and `realloc` type index is in range and names
+  a function type;
+- every export index is in range for its kind;
+- every `LocalGet`/`LocalSet`/`LocalTee` is within the function's local count
+  (parameters plus locals); every `Call`/`RefFunc` is within the function index
+  space; every `CallRef`/`CallIndirect` type index is in range.
+
+After `encode_module`, P11 runs an independent WebAssembly validator configured
+from the same capability profile (`validator_for`), then `wasmprinter` produces
+WAT ([capability profile](capability-profile.md), [IR boundaries](../00-ir-boundaries.md)).
+Structural validation is necessary but not sufficient; observable behavior is
+covered by execution tests under the pinned runtime
+([WASI platform library](wasi-platform-library.md)). A failure is a compiler bug
+or an unsupported program and is reported with a source span, never as a
+malformed artifact.
+
+## Worked example
+
+For `main = 7` (a zero-argument `Int` entry), MIR is one function with one block:
+`Constant v0 = 7`, then `Return v0`. P10 produces:
+
+- **Types.** No MIR defined types. The `main` signature `() -> i32` becomes
+  `FuncType` index `0`. The interned `exit-with-code` signature `(i32) -> ()`
+  becomes index `1`, the synthesized entry `() -> i32` index `2`.
+- **Imports.** `wasi:cli/exit@0.2.12` / `exit-with-code` at function index `0`,
+  type index `1`.
+- **Functions.** `main` at function index `1` (`import_count + 0`), type `0`.
+- **Entry.** Synthesized at function index `2`, type `2`, body
+  `Call(1); Call(0); I32Const(0)`.
+- **Exports.** `wasi:cli/run@0.2.12#run` -> function `2`; `memory` -> memory `0`.
+- **Memory.** One memory, minimum one page.
+- **Code.** `main` is `I32Const(7); LocalSet(0); LocalGet(0); end`; the entry is
+  as above; no element or data segment is needed.
+
+Encoding therefore emits type, import, function, memory, export, and code
+sections in that order. Adding `log "hello"` would add a string data segment
+(and, because a `list`-returning import is present, the `cabi_realloc` export).
+
+## Boundaries and interfaces
+
+- **Input:** a verified `mir::Module`, the `WasiRegistry` that names its imports,
+  and an explicit `TargetCapabilities` profile
+  ([canonical ABI and WIT](canonical-abi-and-wit.md), [capability profile](capability-profile.md)).
+- **Output:** a verified `wasm::Module`, the thin structured encoding.
+- **To P11:** the thin module and the capability profile. `encode_module`
+  produces core bytes; the componentizer lifts them and the validator checks
+  them ([WASI platform library](wasi-platform-library.md)).
+- **From MIR:** the entry symbol, the function list and IDs, the type table, the
+  canonical import signatures, and the data needed for string segments. P10 may
+  map identities to indices but must not choose a representation
+  ([MIR](../fp/mir.md), [IR boundaries](../00-ir-boundaries.md)).
+
+## Open questions and future work
+
+- **Loops and multi-way branches.** `Op::Block`, `Op::Loop`, and `br_table`
+  arrive with the general stackifier
+  ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)).
+- **Multi-value.** `FuncType` admits multiple results, but MIR functions and
+  calls have one; the encoder is ready when MIR is
+  ([MIR](../fp/mir.md) open questions).
+- **Optimization.** No MIR-preserving optimization pass exists yet; P10 performs
+  none.
+- **Table-based calls.** `call_indirect` is verified but not produced; closures
+  use typed `call_ref`, so no table is emitted.
+- **Data segment layout.** Offset assignment and allocator state are fixed here;
+  a profile that changes the address type would revisit them
+  ([capability profile](capability-profile.md)).
+
+## Implementation notes
+
+The current structurer is the linear `emit_region` walk: it recognizes the
+`if`-diamond shape MIR records with `merge_block` and rejects any revisited
+block as an unsupported loop. The thin IR has only `Op::Leaf` and `Op::If`;
+`Block`, `Loop`, `Switch`/`br_table`, and tail calls are specified but not yet
+produced. These are temporary shapes and nothing in this document depends on
+them.
+
+## References
+
+- WebAssembly 3.0 specification: binary format, structured control
+  instructions, type and function index spaces, element segments.
+- WebAssembly proposals: function references, garbage collection.
+- Zakai, *The Relooper*; Gohman, *Beyond Relooper: recursive translation of
+  unstructured control flow to structured control flow* (LLVM WebAssembly
+  stackifier).
+- [DEC-02 — Thin Structured Wasm Encoding](../../../decision/DEC-02-thin-structured-wasm-encoding.md),
+  [DEC-09 — GC-Only Language Heap](../../../decision/DEC-09-gc-only-language-heap.md).
+- [IR boundaries](../00-ir-boundaries.md),
+  [MIR](../fp/mir.md),
+  [control flow and tail calls](../fp/control-flow-and-tail-calls.md),
+  [canonical ABI and WIT](canonical-abi-and-wit.md),
+  [linear memory boundary](linear-memory-and-canonical-abi-boundary.md).

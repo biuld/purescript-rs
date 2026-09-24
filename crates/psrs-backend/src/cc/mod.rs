@@ -33,7 +33,7 @@ pub struct Module {
     pub representations: RepresentationTable,
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver. A stable symbol
-    /// rather than a source name, per `docs/design/D-02-wasm-lowering.md`.
+    /// rather than a source name, per `docs/design/backend/wasm/encoding-and-structuring.md`.
     pub entry: Option<SymbolId>,
     pub span: TextRange,
 }

@@ -26,7 +26,7 @@ here.
 
 Host services are independent of this work. They are declared as WIT-bound
 `foreign import`s and PureScript-facing library code described in
-[D-07](D-07-wit-imports-and-std.md).
+[canonical ABI](backend/wasm/canonical-abi-and-wit.md).
 
 ## Suite-driven milestones
 
@@ -67,7 +67,7 @@ rejected with a source-spanned mismatch.
 The backend now has an initial representation for rank-1 generic values:
 direct scalar/ADT calls use erased boxes and concrete function values crossing
 generic higher-order boundaries use explicit adapters. The full policy is in
-[D-08](D-08-generic-wasm-representation.md). Type classes, generic records and
+[erasure](backend/fp/polymorphism-and-erasure.md). Type classes, generic records and
 arrays, and full official runtime coverage remain open.
 
 Phase 2 has started. A dedicated `psrs-kind` pass consumes resolved HIR and
@@ -307,7 +307,7 @@ Introduce user-defined data, the value side of Phase 2.
 ### 3.5 Backend tagged layouts
 
 - **Deliverable:** MIR lowers constructors to tagged layouts per
-  [D-02](D-02-wasm-lowering.md); pattern matching lowers to tag tests and
+  [wasm encoding](backend/wasm/encoding-and-structuring.md); pattern matching lowers to tag tests and
   projections.
 - **Acceptance:** execution tests compare observable results under a WASI
   runtime.
@@ -420,18 +420,19 @@ The type features above make a PureScript-style algebraic-effect library
 possible. That library is ordinary PureScript-level code; it is not part of the
 type system and needs no new compiler rules. Host services continue to use
 WIT-bound `foreign import`s and the standard library from
-[D-07](D-07-wit-imports-and-std.md).
+[canonical ABI](backend/wasm/canonical-abi-and-wit.md).
 
 ## Dependency graph
 
-```text
-0.1 -> 0.2 -> 0.3 -> 0.4 -> 0.5 -> 0.6
-0.5 -> 1.1 -> 1.2 -> 1.3 -> 1.4 -> 1.5
-1.1 -> 2.1 -> 2.2 -> 2.3 -> 2.4 -> 2.5 -> 2.6
-2.5 -> 3.1 -> 3.2 -> 3.3 -> 3.4 -> 3.5 -> 3.6
-3.4 -> 4.1 -> 4.2 -> 4.3 -> 4.4 -> 4.5
-2.5 -> 5.1 -> 5.2 -> 5.3 -> 5.4
-4.5 -> 6.1 -> 6.2 -> 6.3 -> 6.4
+```mermaid
+flowchart TD
+    a01["0.1"] --> a02["0.2"] --> a03["0.3"] --> a04["0.4"] --> a05["0.5"] --> a06["0.6"]
+    a05 --> b11["1.1"] --> b12["1.2"] --> b13["1.3"] --> b14["1.4"] --> b15["1.5"]
+    b11 --> c21["2.1"] --> c22["2.2"] --> c23["2.3"] --> c24["2.4"] --> c25["2.5"] --> c26["2.6"]
+    c25 --> d31["3.1"] --> d32["3.2"] --> d33["3.3"] --> d34["3.4"] --> d35["3.5"] --> d36["3.6"]
+    d34 --> e41["4.1"] --> e42["4.2"] --> e43["4.3"] --> e44["4.4"] --> e45["4.5"]
+    c25 --> f51["5.1"] --> f52["5.2"] --> f53["5.3"] --> f54["5.4"]
+    e45 --> g61["6.1"] --> g62["6.2"] --> g63["6.3"] --> g64["6.4"]
 ```
 
 ## Cross-cutting representation contracts
@@ -461,7 +462,7 @@ appear in THIR or lower representations.
 ### Backend interaction
 
 The backend learns nothing about inference. It uses the generic Wasm
-representation defined by [D-08](D-08-generic-wasm-representation.md) for the
+representation defined by [erasure](backend/fp/polymorphism-and-erasure.md) for the
 initial rank-1 direct-call and higher-order adapter slice, and rejects remaining
 generic aggregates, partial applications, type-class evidence, or unsupported
 constructors with source-oriented diagnostics. Rejecting there is a bootstrap

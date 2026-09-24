@@ -1,107 +1,327 @@
-# D-10 — Linear Memory and the Canonical ABI Boundary
+# Linear Memory and the Canonical ABI Boundary
 
-**Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress
+**Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
+**Status:** Stable (design)  
+**Prerequisites:** the Canonical ABI exchange format (flattened values, the return pointer, `realloc`), WebAssembly linear memory and the wasm32 address model, and Wasm GC as the language heap. Read [canonical ABI and WIT](canonical-abi-and-wit.md), [MIR](../fp/mir.md), and [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md) first.  
+**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: strings, byte lists, the return area of canonical calls, the bump allocator `cabi_realloc`, and active data segments. It is not a general object heap. Language aggregates, closures, variants, arrays, and erased values use Wasm GC.
 
-## Purpose
+## Scope
 
-Define how the backend uses linear memory now that
-[DEC-09](../decision/DEC-09-gc-only-language-heap.md) makes Wasm GC the only
-language-heap strategy. Linear memory is retained **only** for the
-byte-oriented canonical ABI and WASI boundary: strings, byte lists, the return
-area for canonical calls, `cabi_realloc`, and active data segments. It is not a
-general object heap, and there is no linear-memory planner for language
-aggregates, closures, variants, or erased values. This complements
-[D-06](D-06-low-level-ir-and-wasm-types.md) (planner contract and IR boundaries),
-[D-07](D-07-wit-imports-and-std.md) (canonical ABI adaptation), and
-[D-09](D-09-scalar-and-numeric-lowering.md) (scalar semantics).
+This document owns the address model, the string and byte-list representation,
+the `cabi_realloc` allocator, the scratch return area, data-segment use, and the
+MIR byte-operation contract at the boundary. It does not own canonical ABI
+adaptation itself ([canonical ABI and WIT](canonical-abi-and-wit.md)), the
+structured encoding of memory instructions ([Wasm encoding](encoding-and-structuring.md)),
+the choice of GC as the heap ([capability profile](capability-profile.md)), or
+the exact GC layouts ([data representation](../fp/data-representation.md)).
 
-The earlier version of this document described a linear-memory language heap
-with per-shape object layouts, a tag/payload variant encoding, erased boxing,
-table-backed closure environments, and a pointer-bounds verifier. Those parts
-are superseded by [DEC-09](../decision/DEC-09-gc-only-language-heap.md) and
-removed with the `LinearMemoryPlanner`.
+## Background
 
-## Address model
+**The Canonical ABI exchange format is bytes.** When a value cannot be passed in
+core Wasm values, the Canonical ABI passes a pointer into linear memory to a
+record laid out with computed offsets, alignment, and padding. Lists and strings
+are passed as `(pointer, length)` pairs, and a return value that does not fit in
+one core value is written through a return pointer into a return area. A guest
+that receives an allocated buffer needs an exported `cabi_realloc`, whose
+standard signature is `(old_ptr: i32, old_len: i32, align: i32, new_len: i32) ->
+i32`.
 
-- The linear target is **wasm32**: every ABI pointer is an `i32` byte offset into
-  a single memory. `memory64` is disabled in the capability profile
-  ([D-05](D-05-backend-capability.md)), so the address type and the `ValueType`
-  of every ABI pointer are `i32`.
-- The planner assigns a `MemoryId`; the current profile has exactly one memory
-  (`MemoryId(0)`). `multi_memory` is disabled. A `Load`/`Load8U`/`Store`
-  carries the `MemoryId` it addresses so a future profile can add memories
-  without changing CC.
-- The address type is an ABI detail, not a CC concept: CC references are opaque
-  handles owned by the GC planner. Memory64 is revisited only when the pinned
-  component toolchain lifts 64-bit-memory modules and the WASI host supports
-  them, with its own lowering and execution tests.
+**wasm32 addressing.** In wasm32 every address is a 32-bit byte offset into one
+linear memory, indexed in 64 KiB pages. `memory.size` reports the current page
+count and `memory.grow` extends it. A pointer is therefore an `i32`, and address
+arithmetic wraps modulo 2^32. `memory64` would make addresses `i64`, but it is
+disabled in the profile and cannot be lifted into the current component artifact
+([capability profile](capability-profile.md)).
 
-## Strings
+**A byte boundary, not a heap.** Wasm GC manages language objects with typed
+references, engine tracing, and no manual addresses. Linear memory is still
+required because the component boundary is byte-oriented. The design keeps the
+two separate: [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md) makes
+GC the only language heap and retires the former linear-memory language-heap
+planner.
 
-A `String` is an `i32` pointer to a length-prefixed UTF-8 buffer: a 4-byte
-little-endian length followed by the bytes. This is the same value the WASI
-canonical ABI consumes, so the boundary needs no conversion. String literals
-live in active data segments. Because the canonical ABI exchange format is
-bytes, strings stay linear-memory values even though the language heap is GC
-([D-11](D-11-gc-representation-and-evidence.md)).
+## Model
 
-## ABI allocator
+There is exactly one memory, `MemoryId(0)`, at `MemoryIndex(0)`. Its address
+type is `i32`. The boundary instructions are MIR operations that carry the
+memory they address:
 
-- `cabi_realloc` is a bump allocator: a free pointer lives in linear memory and
-  advances by the aligned size. The allocator aligns the payload pointer it
-  returns, then writes the byte-length prefix in the preceding 4 bytes.
-- It serves canonical ABI return values and byte buffers. There is no
-  reclamation: it is not a language heap, so programs are not expected to
-  allocate unbounded language data through it
-  ([DEC-09](../decision/DEC-09-gc-only-language-heap.md)).
-- A reserved scratch region at the start of memory holds the return-pointer area
-  of canonical ABI calls; string and byte data begin after it.
-- The allocator grows memory on demand with `memory.grow` (`bulk_memory` is not
-  required).
+```text
+Load   { destination: ValueId, address: ValueId, memory: MemoryId,
+         offset: u32, span }
+Load8U { destination: ValueId, address: ValueId, memory: MemoryId,
+         offset: u32, span }
+Store  { address: ValueId, value: ValueId, memory: MemoryId,
+         offset: u32, span }
+WrapI64 { destination: ValueId, value: ValueId, span }
+WidenI64 { destination: ValueId, value: ValueId, signed: bool, span }
+TrapIf { condition: ValueId, span }
+```
 
-## Instruction contract
+A `String` value is an `i32` pointer to a length-prefixed UTF-8 buffer: a 4-byte
+little-endian length followed by that many bytes. This is exactly what the WASI
+Canonical ABI consumes for `list<u8>`/`string`, so the boundary needs no
+conversion at the value level. The reserved scratch region is `[0, 16)`:
+`PRINT_SCRATCH = 0` is the return pointer passed to indirect calls and
+`SCRATCH_END = 16` is the first free offset. String data begins after it.
 
-P9 lowers canonical ABI adaptation to these MIR instructions. The MIR verifier
-checks their value types, memory identity, and address type.
+MIR's `Load`/`Load8U`/`Store` read and write only `i32`; `offset` is a statically
+known constant added by the leaf `MemArg`, and `Load8U` reads one byte. The
+`i64` conversions exist only for canonical ABI scalars, not for source values.
 
-- `Load`/`Load8U` read an `i32` for canonical results, return pointers, and
-  one-byte canonical tags.
-- `Store` writes an `i32` for canonical ABI arguments and return areas.
-- `WrapI64`/`WidenI64` narrow or widen a 64-bit WASI scalar.
-- `TrapIf` rejects a nonzero canonical status instead of silently succeeding.
-- Byte-level copy for return areas and byte lists uses MVP loads, stores, and
-  structured branches where the canonical ABI requires a copy. Language array
-  updates and clones use GC `array.set`/`array.copy`
-  ([D-11](D-11-gc-representation-and-evidence.md)), not linear instructions.
+### Invariants
 
-The former `LinearAlloc`/`LinearAllocDynamic`/`LinearLoad`/`LinearStore`/
-`LinearMemoryCopy` and `LinearClosure*` variants are removed with the linear
-language heap.
+- Every boundary access names `MemoryId(0)`; an address and every loaded or
+  stored value are `i32`.
+- The scratch region `[0, SCRATCH_END)` is never used by data segments or by
+  language data; it holds only canonical return areas.
+- Data segments are active at constant `i32` offsets, aligned to 4 bytes, and do
+  not overlap each other or the scratch region.
+- A `cabi_realloc` allocation is 4-aligned and its payload is preceded by the
+  length of the allocation, so a returned buffer is a valid length-prefixed
+  `String`.
+- Language arrays and aggregates never use linear memory; their operations are
+  GC `array.*`/`struct.*`.
 
-`i64` accesses are permitted only for canonical ABI adaptation
-([D-07](D-07-wit-imports-and-std.md)); source-level values do not use `i64` yet.
+## Design
 
-## Capability gating
+### One memory, gated only by the profile
 
-The retained linear operations require only core MVP; no language-heap
-representation exists to select. A future profile that needs a byte-oriented
-boundary for a host without GC is out of the supported contract
-([DEC-09](../decision/DEC-09-gc-only-language-heap.md)). Any requirement the
-selected profile cannot represent receives a source-associated P9 diagnostic
-rather than a silent fallback.
+`MemoryId(0)` is the only memory and `multi_memory` is disabled, so a memory
+instruction cannot address the wrong memory. Carrying the `MemoryId` anyway
+keeps the operation's meaning explicit and lets a future profile add memories
+without changing CC. The address type is an ABI detail, not a CC concept: CC
+references are opaque handles owned by the GC planner, so a future memory64
+profile changes `i32` to `i64` only in MIR and the encoder, not in CC
+([IR boundaries](../00-ir-boundaries.md)).
 
-## Delivery order
+### Strings and data segments
 
-1. Remove the `LinearMemoryPlanner` and its language-heap layouts
-   (box/product/variant/array/closure offsets), the linear erased
-   boxing/unboxing path, and their lowering entry points.
-2. Remove the MIR language-object pointer-bounds verifier and the
-   `LinearMemoryCopy`/`ArrayClone` linear path.
-3. Keep `Load`, `Load8U`, `Store`, `MemoryId`, strings, data segments,
-   `cabi_realloc`, and the ABI adapter.
-4. Retire the MVP linear capability profile and its language-heap execution
-   tests; keep only ABI-boundary validation and execution tests.
-5. Align [D-05](D-05-backend-capability.md), [D-06](D-06-low-level-ir-and-wasm-types.md),
-   [D-11](D-11-gc-representation-and-evidence.md), and
-   [DEC-04](../decision/DEC-04-official-test-suite-roadmap.md) with the removal.
+String literals are collected once, deduplicated by content, and placed in
+active data segments after the scratch region at 4-aligned offsets. Each segment
+holds the 4-byte little-endian length followed by the bytes. A `StringConstant`
+lowers to an `i32` constant naming the segment address. Because the same
+length-prefixed buffer is what the boundary consumes, a string literal can be
+passed to a WIT import without copying.
+
+### The `cabi_realloc` bump allocator
+
+When the module imports a function that returns a `list`/`string`, the host must
+be able to allocate in guest memory, so P10 synthesizes and exports
+`cabi_realloc`. It is a bump allocator:
+
+- a free pointer lives in one further active data segment, after the string data;
+- the payload pointer is aligned up to the requested `align`, with the 4-byte
+  length prefix in the four bytes before it;
+- the byte length is written at the prefix and the new free pointer is stored;
+- the memory is grown with `memory.grow` (MVP, not `bulk_memory`) when the
+  aligned end crosses the current page count; and
+- the returned pointer points after the length prefix, so a returned
+  `(pointer, length)` is already a length-prefixed `String` value.
+
+There is no reclamation: the allocator is not a language heap, so programs do
+not allocate unbounded language data through it. Reclamation and post-return
+release are future work ([canonical ABI and WIT](canonical-abi-and-wit.md)).
+
+### Byte operations at the boundary
+
+P9 lowers canonical ABI adaptation to the boundary instructions above. The MIR
+verifier checks their value types and memory identity. Byte-level copies for
+return areas and byte lists use MVP loads, stores, and structured branches where
+the Canonical ABI requires a copy. Language array updates and clones use GC
+`array.set`/`array.copy`, not linear instructions. `WrapI64`/`WidenI64` narrow or
+widen a 64-bit WASI scalar, and `TrapIf` rejects a nonzero canonical status
+instead of silently succeeding.
+
+### Rejected alternative
+
+- **A linear-memory language heap.** Rejected by
+  [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md): its bump
+  allocator has no reclamation, so a garbage-collected source language would
+  need a hand-written collector (root and stack maps, tracing, compaction) that
+  duplicates the engine's GC, and every new CC operation would need a second
+  linear realization and a pointer-bounds verifier. The former
+  `LinearMemoryPlanner`, its object layouts, its erased boxing path, and the
+  language-object pointer-bounds verifier are removed.
+
+## Algorithms
+
+### `cabi_realloc`
+
+```text
+realloc(old_ptr, old_len, align, new_len):
+    free    = load(heap_pointer)
+    aligned = ((free + 4 + new_len - 1) & -align) - 4
+    end     = aligned + new_len + 4
+    pages   = ceil(end / 65536)
+    if pages > memory.size():
+        memory.grow(pages - memory.size())
+    store(aligned, new_len)
+    store(heap_pointer, end)
+    return aligned + 4
+```
+
+The allocator ignores `old_ptr` and `old_len`; it never frees, which is sound
+because returned buffers are owned by the guest and are released only once
+reclamation exists.
+
+### Passing a string argument
+
+```text
+lower_string_argument(string):
+    length = Load [0] string          # length prefix
+    bytes  = string + 4
+    push (bytes, length)              # canonical (pointer, length)
+```
+
+### Reading a returned string
+
+```text
+read_returned_string(retptr):
+    pointer = Load [0] retptr         # returned payload pointer
+    value   = pointer - 4             # undo the length prefix
+```
+
+A returned list whose element type is not a byte is rejected before MIR, because
+the `String` boundary cannot represent it.
+
+### Edge cases
+
+- A string literal and a returned buffer use the same length-prefixed layout, so
+  a literal can be passed through unchanged.
+- An allocation of zero bytes still consumes a 4-byte prefix and advances the
+  free pointer; it is never at the scratch region.
+- `memory.grow` returns the previous page count; its result is dropped because
+  a trap on failure is the desired behavior.
+- `Load8U` is used for a one-byte canonical result discriminant; a nonzero
+  discriminant traps.
+
+## Code map
+
+The boundary must be implemented by the following module tree. Each module owns
+one part of the contract; no other module may synthesize boundary byte
+operations, plan data segments, or emit the allocator.
+
+```text
+crates/psrs-backend/src/
+  abi.rs
+  mir/
+    instruction.rs
+    verify/instruction/memory.rs
+    wit/mod.rs
+    wit/parameters.rs
+  wasm/
+    lower/mod.rs
+    lower/realloc.rs
+    lower/runtime.rs
+    lower/structure/instructions.rs
+```
+
+Responsibilities and required entry points:
+
+- `abi.rs` owns the fixed boundary constants. It must define `MemoryId(0)`, the
+  scratch constants `PRINT_SCRATCH`, `SCRATCH_SIZE`, and `SCRATCH_END`, and the
+  string/byte-list layout constants; no other module may redefine them.
+- `mir/instruction.rs` must define the boundary operations as first-class MIR
+  instructions: `Load`, `Load8U`, `Store`, `WrapI64`, `WidenI64`, and `TrapIf`,
+  each carrying its `MemoryId`, `ValueId`s, `offset`, and `span`. It must not
+  carry a language-object address, a GC type, or a dictionary/effect field.
+- `mir/verify/instruction/memory.rs` must verify that every `Load`/`Load8U`/
+  `Store` names the single memory, that its address and loaded/stored value are
+  `i32`, and that `WrapI64`/`WidenI64`/`TrapIf` match their operand and result
+  types. Required entry point:
+  `fn verify_memory(instruction, types) -> Result<(), Diagnostic>`.
+- `wasm/lower/runtime.rs` must collect and deduplicate string literals, lay them
+  out as active 4-aligned data segments after the scratch region, and own the
+  heap-pointer segment. Required entry point:
+  `fn plan_data_segments(strings, layout) -> DataSegments`.
+- `wasm/lower/realloc.rs` must synthesize the `cabi_realloc` bump allocator with
+  the standard `(old_ptr, old_len, align, new_len) -> i32` signature and export
+  it only when the module imports a function that returns a string or byte list.
+  Required entry point: `fn synthesize_realloc(layout) -> Function`.
+- `wasm/lower/mod.rs` must assemble the memory (minimum pages), the data
+  segments, and the allocator export into the thin Wasm module.
+- `wasm/lower/structure/instructions.rs` must lower the MIR boundary
+  instructions to leaf Wasm load/store/convert instructions carrying a `MemArg`.
+- `mir/wit/mod.rs` and `mir/wit/parameters.rs` must adapt strings and byte lists
+  to and from the `(pointer, length)` exchange format; a non-byte list must be
+  rejected before this layer.
+
+**No language objects in linear memory.** The module tree must not allocate
+language aggregates, closures, variants, arrays, or erased values in linear
+memory. GC objects are referenced only by opaque GC handles; the only values
+that cross this boundary are `i32` addresses, lengths, and canonical scalars.
+Any module needing a language-heap operation must depend on the GC lowering path
+([IR boundaries](../00-ir-boundaries.md)), not on these modules.
+
+## Invariants and verification
+
+The MIR memory verifier checks that each `Load`/`Load8U`/`Store` names
+`MemoryId(0)`, that the address is `i32`, and that the loaded, stored, or
+converted value has the required `i32`/`i64` type; `WrapI64` and `WidenI64` are
+checked for the matching `i64`/`i32` operand and result. The thin-IR verifier and
+the WebAssembly validator then check the emitted leaf instructions and the
+allocator body ([Wasm encoding](encoding-and-structuring.md)). The verifier does
+not currently validate static access extents; offset validation remains deferred
+([MIR](../fp/mir.md) open questions). Execution tests run returned buffers
+through the ordinary `writeStdout` import and exercise repeated allocator calls.
+
+## Worked example
+
+Suppose string data ends at offset `40` and the heap-pointer segment is
+initialized to `40`. An imported function returns a 5-byte list; the lowering
+calls `cabi_realloc(0, 0, 1, 5)`:
+
+```text
+free    = 40
+aligned = ((40 + 4 + 5 - 1) & -1) - 4 = 44
+end     = 44 + 5 + 4 = 53
+pages   = ceil(53 / 65536) = 1  (no grow)
+store [44] = 5
+store [heap_pointer] = 53
+return 48
+```
+
+The host writes the 5 bytes at `[48, 53)`. The return area at address `0` holds
+`(48, 5)`, and the lowering computes `48 - 4 = 44` as the `String` value. A
+subsequent `writeStdout` reads the length from `[44]` and the bytes from `[48]`,
+exactly as it would for a string literal.
+
+## Boundaries and interfaces
+
+- **Input:** MIR byte operations and canonical ABI adaptation produced by P9;
+  string literals from MIR.
+- **Output:** the memory, its data segments, and (conditionally) the
+  `cabi_realloc` export, all carried in the thin Wasm module.
+- **To the Canonical ABI layer:** the string and byte-list representation and the
+  `pointer - 4` convention.
+- **To GC lowering:** no interaction; language objects never cross into linear
+  memory ([DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)).
+
+## Open questions and future work
+
+- **Reclamation.** A reclaiming allocator and post-return release for returned
+  lists and owned resources.
+- **Memory layout.** Canonical memory layout for indirect records, tuples, and
+  variants beside the current scalar/byte shapes.
+- **Memory64.** Revisited only when the component toolchain and WASI host support
+  it ([capability profile](capability-profile.md)).
+- **Extent verification.** Static access-extent checking at the boundary.
+
+## Implementation notes
+
+The current allocator is the bump `cabi_realloc`; there is no reclamation, and
+the verifier checks memory identity and value types but not static access
+extents. These are coverage gaps, not changes to the boundary design.
+
+## References
+
+- WebAssembly 3.0 specification: memories, `memory.size`, `memory.grow`, load
+  and store instructions, data segments.
+- WebAssembly Component Model Canonical ABI: `realloc`, return pointer, list and
+  string passing.
+- [DEC-09 — GC-Only Language Heap](../../../decision/DEC-09-gc-only-language-heap.md),
+  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
+- [canonical ABI and WIT](canonical-abi-and-wit.md),
+  [capability profile](capability-profile.md),
+  [data representation](../fp/data-representation.md).

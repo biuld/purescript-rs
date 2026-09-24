@@ -1,6 +1,6 @@
 //! MIR verification: module-level type and signature setup plus the
 //! per-function SSA and instruction checks. See
-//! `docs/design/D-06-low-level-ir-and-wasm-types.md`.
+//! `docs/design/backend/00-ir-boundaries.md`.
 
 use super::{Module, ValueType};
 use crate::types::{CompositeType, DefinedType, DefinedTypeId, FunctionId, HeapType, StorageType};
