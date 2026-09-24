@@ -116,5 +116,4 @@ fn lowers_euclidean_integer_division_and_modulo_on_both_targets() {
             >= 8
     );
     run_gc(&gc_mir, 3);
-    run_linear(module, "3");
 }

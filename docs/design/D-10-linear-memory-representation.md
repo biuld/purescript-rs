@@ -29,7 +29,7 @@ removed with the `LinearMemoryPlanner`.
   ([D-05](D-05-backend-capability.md)), so the address type and the `ValueType`
   of every ABI pointer are `i32`.
 - The planner assigns a `MemoryId`; the current profile has exactly one memory
-  (`MemoryId(0)`). `multi_memory` is disabled. A `LinearLoad`/`LinearStore`
+  (`MemoryId(0)`). `multi_memory` is disabled. A `Load`/`Load8U`/`Store`
   carries the `MemoryId` it addresses so a future profile can add memories
   without changing CC.
 - The address type is an ABI detail, not a CC concept: CC references are opaque
@@ -63,20 +63,21 @@ bytes, strings stay linear-memory values even though the language heap is GC
 ## Instruction contract
 
 P9 lowers canonical ABI adaptation to these MIR instructions. The MIR verifier
-checks their value types, memory identity, and alignment, and that a statically
-addressed access stays within the planned ABI object extent.
+checks their value types, memory identity, and address type.
 
-- `LinearAlloc { bytes, alignment }` produces an `i32` pointer for an ABI
-  buffer; `bytes` is nonzero and aligned.
-- `LinearLoad`/`LinearStore` carry `MemoryId`, a byte `offset`, the planned
-  object extent available from the address, and the `ValueType` of the access.
-  The verifier checks that `offset + access width` stays within that extent, that
-  the access type matches the stored scalar, and that its alignment does not
-  exceed the planned alignment.
+- `Load`/`Load8U` read an `i32` for canonical results, return pointers, and
+  one-byte canonical tags.
+- `Store` writes an `i32` for canonical ABI arguments and return areas.
+- `WrapI64`/`WidenI64` narrow or widen a 64-bit WASI scalar.
+- `TrapIf` rejects a nonzero canonical status instead of silently succeeding.
 - Byte-level copy for return areas and byte lists uses MVP loads, stores, and
   structured branches where the canonical ABI requires a copy. Language array
   updates and clones use GC `array.set`/`array.copy`
   ([D-11](D-11-gc-representation-and-evidence.md)), not linear instructions.
+
+The former `LinearAlloc`/`LinearAllocDynamic`/`LinearLoad`/`LinearStore`/
+`LinearMemoryCopy` and `LinearClosure*` variants are removed with the linear
+language heap.
 
 `i64` accesses are permitted only for canonical ABI adaptation
 ([D-07](D-07-wit-imports-and-std.md)); source-level values do not use `i64` yet.
@@ -97,8 +98,8 @@ rather than a silent fallback.
    boxing/unboxing path, and their lowering entry points.
 2. Remove the MIR language-object pointer-bounds verifier and the
    `LinearMemoryCopy`/`ArrayClone` linear path.
-3. Keep `LinearAlloc`, `LinearLoad`, `LinearStore`, `MemoryId`, strings, data
-   segments, `cabi_realloc`, and the ABI adapter.
+3. Keep `Load`, `Load8U`, `Store`, `MemoryId`, strings, data segments,
+   `cabi_realloc`, and the ABI adapter.
 4. Retire the MVP linear capability profile and its language-heap execution
    tests; keep only ABI-boundary validation and execution tests.
 5. Align [D-05](D-05-backend-capability.md), [D-06](D-06-low-level-ir-and-wasm-types.md),

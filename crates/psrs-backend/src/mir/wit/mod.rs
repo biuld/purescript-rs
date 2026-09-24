@@ -12,8 +12,6 @@ use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
-use crate::cc::{RefShape, ValueShape};
-use crate::mir::planner::LinearMemoryLayout;
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
@@ -58,77 +56,6 @@ impl WitCallLowerer for FunctionLowerer<'_> {
     ) -> Result<ValueId, Vec<BackendError>> {
         self.wit_product_field(block, value, field, span)
     }
-}
-
-impl WitCallLowerer for super::lower_linear::LinearFunctionLowerer<'_> {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
-        self.fresh(ty)
-    }
-
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        self.append(block, instruction, span)
-    }
-
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        let ValueShape::Reference(reference) = self.shape(value, span)? else {
-            return Err(unsupported_record(span));
-        };
-        let RefShape::Repr(representation) = reference.heap else {
-            return Err(unsupported_record(span));
-        };
-        let object_bytes = self
-            .layout
-            .representation_size(representation)
-            .map_err(|error| linear_layout_error(span, error))?;
-        let (offset, shape) = self
-            .layout
-            .field(representation, field)
-            .map_err(|error| linear_layout_error(span, error))?;
-        let destination = self.fresh(LinearMemoryLayout::value_type(shape));
-        self.shapes.insert(destination, shape);
-        self.append(
-            block,
-            Instruction::LinearLoad {
-                memory: MemoryId(0),
-                alignment: LinearMemoryLayout::value_alignment(shape),
-                destination,
-                address: value,
-                offset,
-                object_bytes,
-                ty: LinearMemoryLayout::value_type(shape),
-                span,
-            },
-            span,
-        )?;
-        Ok(destination)
-    }
-}
-
-fn unsupported_record(span: TextRange) -> Vec<BackendError> {
-    vec![BackendError::new(
-        "P9 MIR lowering",
-        span,
-        "WIT record argument has no concrete product layout",
-    )]
-}
-
-fn linear_layout_error(span: TextRange, error: super::layout::LayoutError) -> Vec<BackendError> {
-    vec![BackendError::new(
-        "P9 MIR lowering",
-        span,
-        format!("invalid linear-memory layout request: {error:?}"),
-    )]
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's

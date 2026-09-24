@@ -397,7 +397,6 @@ pub(super) enum LayoutError {
     UnknownRepresentation,
     UnknownSignature,
     UnknownField,
-    UnsupportedLinearOperation,
     MissingIntegerBox,
     MissingNumberBox,
     UnknownClosureLayout,

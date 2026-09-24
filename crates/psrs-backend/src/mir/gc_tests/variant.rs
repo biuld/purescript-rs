@@ -1,4 +1,4 @@
-use super::{run_gc, run_linear, span};
+use super::{run_gc, span};
 use crate::cc::{
     Assignment, AssignmentKind, Function, Module, RefShape, Reference, Representation,
     RepresentationTable, ValueDecl, ValueShape, VariantCase,
@@ -129,5 +129,4 @@ fn lowers_different_variant_cases_through_both_planners() {
     )
     .expect("GC variant lowering");
     run_gc(&gc, 23);
-    run_linear(module, "23");
 }

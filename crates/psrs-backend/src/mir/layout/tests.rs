@@ -49,8 +49,12 @@ fn gc_planner_rejects_an_mvp_only_target() {
         signatures: Vec::new(),
     };
 
+    let mvp_only = TargetCapabilities {
+        gc: false,
+        ..TargetCapabilities::default()
+    };
     assert!(matches!(
-        PlannedLayout::plan(&table, TargetCapabilities::wasm_mvp()),
+        PlannedLayout::plan(&table, mvp_only),
         Err(LayoutError::UnsupportedGcTarget)
     ));
 }

@@ -1,5 +1,5 @@
 use super::NumericOp;
-use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, TableSlot, ValueId, ValueType};
+use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
@@ -200,86 +200,6 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
-    /// Allocate a byte payload from the target's linear-memory allocator.
-    /// The result is an i32 pointer to the payload, not a GC reference.
-    LinearAlloc {
-        destination: ValueId,
-        bytes: u32,
-        alignment: u32,
-        span: TextRange,
-    },
-    LinearAllocDynamic {
-        destination: ValueId,
-        bytes: ValueId,
-        alignment: u32,
-        span: TextRange,
-    },
-    LinearMemoryCopy {
-        destination: ValueId,
-        source: ValueId,
-        bytes: ValueId,
-        destination_offset: u32,
-        source_offset: u32,
-        span: TextRange,
-    },
-    /// Load a scalar from a linear-memory payload. References are represented
-    /// as i32 handles by the linear planner.
-    LinearLoad {
-        destination: ValueId,
-        address: ValueId,
-        memory: MemoryId,
-        offset: u32,
-        /// P9-planned byte extent available from this address. For a dynamic
-        /// array element address, this is the element stride.
-        object_bytes: u32,
-        alignment: u32,
-        ty: ValueType,
-        span: TextRange,
-    },
-    /// Store a scalar into a linear-memory payload.
-    LinearStore {
-        address: ValueId,
-        value: ValueId,
-        memory: MemoryId,
-        offset: u32,
-        /// P9-planned byte extent available from this address. For a dynamic
-        /// array element address, this is the element stride.
-        object_bytes: u32,
-        alignment: u32,
-        ty: ValueType,
-        span: TextRange,
-    },
-    /// Allocate a linear closure environment and install its function-table
-    /// slot at payload offset zero.
-    LinearClosureNew {
-        destination: ValueId,
-        function: SymbolId,
-        table_slot: TableSlot,
-        type_index: DefinedTypeId,
-        captures: Vec<ValueId>,
-        capture_offsets: Vec<u32>,
-        allocation_bytes: u32,
-        allocation_alignment: u32,
-        span: TextRange,
-    },
-    /// Call a linear closure through the MVP function table.
-    LinearClosureCall {
-        destination: ValueId,
-        function: ValueId,
-        type_index: DefinedTypeId,
-        arguments: Vec<ValueId>,
-        span: TextRange,
-    },
-    /// Read a fixed-width capture slot from a linear closure environment.
-    LinearClosureGetCapture {
-        destination: ValueId,
-        closure: ValueId,
-        offset: u32,
-        /// Minimum environment prefix containing this capture slot.
-        object_bytes: u32,
-        ty: ValueType,
-        span: TextRange,
-    },
     /// `i32.wrap_i64`, used to narrow a 64-bit WASI result to `Int`.
     WrapI64 {
         destination: ValueId,
@@ -328,19 +248,11 @@ impl Instruction {
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
             | Self::Load8U { destination, .. }
-            | Self::LinearAlloc { destination, .. }
-            | Self::LinearAllocDynamic { destination, .. }
-            | Self::LinearLoad { destination, .. }
-            | Self::LinearClosureNew { destination, .. }
-            | Self::LinearClosureCall { destination, .. }
-            | Self::LinearClosureGetCapture { destination, .. }
             | Self::WrapI64 { destination, .. }
             | Self::WidenI64 { destination, .. } => Some(*destination),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
-            | Self::LinearStore { .. }
-            | Self::LinearMemoryCopy { .. }
             | Self::CallVoid { .. }
             | Self::TrapIf { .. } => None,
         }
@@ -400,25 +312,6 @@ impl Instruction {
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
             Self::Store { address, value, .. } => vec![*address, *value],
-            Self::LinearAlloc { .. } => Vec::new(),
-            Self::LinearAllocDynamic { bytes, .. } => vec![*bytes],
-            Self::LinearMemoryCopy {
-                destination,
-                source,
-                bytes,
-                ..
-            } => vec![*destination, *source, *bytes],
-            Self::LinearLoad { address, .. } => vec![*address],
-            Self::LinearStore { address, value, .. } => vec![*address, *value],
-            Self::LinearClosureNew { captures, .. } => captures.clone(),
-            Self::LinearClosureCall {
-                function,
-                arguments,
-                ..
-            } => std::iter::once(*function)
-                .chain(arguments.iter().copied())
-                .collect(),
-            Self::LinearClosureGetCapture { closure, .. } => vec![*closure],
             Self::WrapI64 { value, .. }
             | Self::WidenI64 { value, .. }
             | Self::TrapIf {
@@ -459,14 +352,6 @@ impl Instruction {
             | Self::Load { span, .. }
             | Self::Load8U { span, .. }
             | Self::Store { span, .. }
-            | Self::LinearAlloc { span, .. }
-            | Self::LinearAllocDynamic { span, .. }
-            | Self::LinearMemoryCopy { span, .. }
-            | Self::LinearLoad { span, .. }
-            | Self::LinearStore { span, .. }
-            | Self::LinearClosureNew { span, .. }
-            | Self::LinearClosureCall { span, .. }
-            | Self::LinearClosureGetCapture { span, .. }
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. }
             | Self::TrapIf { span, .. } => *span,
