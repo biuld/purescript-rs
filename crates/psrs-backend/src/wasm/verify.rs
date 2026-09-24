@@ -34,50 +34,6 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             ));
         }
     }
-    let mut table_ids = HashSet::new();
-    let mut table_indices = HashSet::new();
-    for (position, table) in module.tables.iter().enumerate() {
-        if !table_ids.insert(table.id)
-            || !table_indices.insert(table.index)
-            || table.index.0 != position as u32
-        {
-            errors.push(wasm_error(
-                module.span,
-                "Wasm table IDs or indices are not deterministic",
-            ));
-        }
-        if let Some(maximum) = table.maximum
-            && maximum < table.minimum
-        {
-            errors.push(wasm_error(
-                module.span,
-                "Wasm table maximum is smaller than its minimum",
-            ));
-        }
-    }
-    for function in &module.table_elements {
-        if function.0 >= function_count_placeholder(module) {
-            errors.push(wasm_error(
-                module.span,
-                "Wasm table element references an unknown function",
-            ));
-        }
-    }
-    if !module.table_elements.is_empty() {
-        if let Some(table) = module.tables.first() {
-            if module.table_elements.len() > table.minimum as usize {
-                errors.push(wasm_error(
-                    module.span,
-                    "Wasm table elements exceed the table minimum",
-                ));
-            }
-        } else {
-            errors.push(wasm_error(
-                module.span,
-                "Wasm table elements require a table resource",
-            ));
-        }
-    }
     let function_count = (module.imports.len()
         + module.functions.len()
         + usize::from(module.entry.is_some())
@@ -219,32 +175,16 @@ fn verify_instruction(
         Instruction::CallRef(index) if !valid_function_type(module, *index) => {
             errors.push(wasm_error(span, "Wasm call_ref type index is out of range"));
         }
-        Instruction::CallIndirect {
-            type_index,
-            table_index,
-        } => {
-            if !valid_function_type(module, *type_index) {
-                errors.push(wasm_error(
-                    span,
-                    "Wasm call_indirect type index is out of range",
-                ));
-            }
-            if (*table_index as usize) >= module.tables.len() {
-                errors.push(wasm_error(
-                    span,
-                    "Wasm call_indirect table index is out of range",
-                ));
-            }
+        Instruction::CallIndirect { type_index, .. }
+            if !valid_function_type(module, *type_index) =>
+        {
+            errors.push(wasm_error(
+                span,
+                "Wasm call_indirect type index is out of range",
+            ));
         }
         _ => {}
     }
-}
-
-fn function_count_placeholder(module: &Module) -> u32 {
-    (module.imports.len()
-        + module.functions.len()
-        + usize::from(module.entry.is_some())
-        + usize::from(module.realloc.is_some())) as u32
 }
 
 fn valid_function_type(module: &Module, index: u32) -> bool {

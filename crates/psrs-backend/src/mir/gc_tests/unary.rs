@@ -154,5 +154,4 @@ fn lowers_unary_and_conversion_operations_on_both_targets() {
             .any(|instruction| matches!(instruction, Instruction::UnaryPrimitive { .. }))
     );
     run_gc(&gc_mir, 140);
-    run_linear(module, "140");
 }

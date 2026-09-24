@@ -278,5 +278,4 @@ fn executes_erased_identity_for_scalars_and_concrete_references_on_both_targets(
     let (gc_mir, _) = crate::mir::lower_module(module.clone())
         .expect("erased identity should lower through the GC planner");
     run_gc(&gc_mir, 70);
-    run_linear(module, "70");
 }

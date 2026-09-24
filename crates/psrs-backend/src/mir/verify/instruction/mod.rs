@@ -13,7 +13,6 @@ use psrs_hir::SymbolId;
 use std::collections::HashMap;
 mod arrays;
 mod copy;
-mod linear_closure;
 mod memory;
 mod primitive;
 mod unary;
@@ -22,7 +21,6 @@ pub(super) fn verify_instruction(
     function: &Function,
     instruction: &Instruction,
     definitions: &HashMap<ValueId, ValueType>,
-    linear_allocation_bounds: &HashMap<ValueId, u32>,
     signatures: &HashMap<SymbolId, Option<Signature>>,
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
@@ -461,26 +459,9 @@ pub(super) fn verify_instruction(
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }
-        | Instruction::LinearAlloc { .. }
-        | Instruction::LinearAllocDynamic { .. }
-        | Instruction::LinearMemoryCopy { .. }
-        | Instruction::LinearLoad { .. }
-        | Instruction::LinearStore { .. }
-        | Instruction::LinearClosureGetCapture { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
-            memory::verify_memory_instruction(
-                function,
-                instruction,
-                definitions,
-                linear_allocation_bounds,
-            )?;
-        }
-        Instruction::LinearClosureNew { .. } => {
-            linear_closure::verify_new(function, instruction, definitions, signatures, defined)?
-        }
-        Instruction::LinearClosureCall { .. } => {
-            linear_closure::verify_call(function, instruction, definitions, defined)?
+            memory::verify_memory_instruction(function, instruction, definitions)?;
         }
     }
     Ok(())

@@ -6,7 +6,7 @@ use psrs_span::TextRange;
 use wasm_encoder::{Instruction, MemArg, ValType};
 
 /// Builds the bump-allocator `cabi_realloc` used to allocate returned
-/// `list`/`string` buffers and linear closure environments.
+/// `list`/`string` buffers at the canonical ABI boundary.
 #[allow(clippy::vec_init_then_push)]
 pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: TextRange) -> Function {
     let memarg = || MemArg {

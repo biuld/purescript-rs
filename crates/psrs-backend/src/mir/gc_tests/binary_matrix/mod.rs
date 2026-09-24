@@ -479,5 +479,4 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
     .expect("the complete binary scalar module should lower for GC");
     assert_eq!(gc_mir.functions.len(), 3);
     run_gc(&gc_mir, 0);
-    run_linear(module, "0");
 }

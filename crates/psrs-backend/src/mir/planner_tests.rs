@@ -1,8 +1,8 @@
-use super::planner::{GcPlanner, LinearMemoryPlanner, LinearRepresentation, RepresentationPlanner};
+use super::planner::{GcPlanner, RepresentationPlanner};
 use crate::TargetCapabilities;
 use crate::cc::{
-    self, Function, Module as CcModule, Reference, ReprId, Representation, Signature, SignatureId,
-    ValueDecl, ValueShape,
+    self, Function, Module as CcModule, Reference, ReprId, Representation, Signature, ValueDecl,
+    ValueShape,
 };
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
@@ -70,38 +70,15 @@ fn module() -> CcModule {
 }
 
 #[test]
-fn gc_and_linear_planners_consume_the_same_cc_requirements() {
+fn gc_planner_consumes_cc_requirements() {
     let module = module();
     let gc = GcPlanner {
         target: TargetCapabilities::default(),
     }
     .plan_module(&module)
     .expect("GC planner should accept the fixture");
-    let linear = LinearMemoryPlanner
-        .plan_module(&module)
-        .expect("linear planner should accept the same fixture");
     assert_eq!(
         gc.repr_index(ReprId(0)).unwrap(),
         crate::types::DefinedTypeId(0)
     );
-    assert!(linear.representations.contains_key(&ReprId(0)));
-    assert!(linear.representations.contains_key(&ReprId(1)));
-    assert_eq!(linear.signatures[&SignatureId(0)].table_slot, 0);
-    assert!(linear.next_offset >= 12);
-    assert_eq!(linear.array(ReprId(1)).unwrap().2, 8);
-    assert_eq!(linear.array(ReprId(1)).unwrap().3, 8);
-}
-
-#[test]
-fn linear_planner_assigns_aligned_product_fields() {
-    let layout = LinearMemoryPlanner
-        .plan_module(&module())
-        .expect("linear planner should plan fields");
-    let LinearRepresentation::Product { fields, size, .. } = &layout.representations[&ReprId(0)]
-    else {
-        panic!("expected product layout");
-    };
-    assert_eq!(fields[0].offset, 0);
-    assert_eq!(fields[1].offset, 8);
-    assert_eq!(*size, 16);
 }

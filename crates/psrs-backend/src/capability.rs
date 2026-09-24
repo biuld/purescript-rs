@@ -92,58 +92,6 @@ impl TargetCapabilities {
         }
     }
 
-    /// A core-MVP profile useful for testing feature-independent lowerings.
-    pub const fn wasm_mvp() -> Self {
-        Self {
-            mutable_globals: false,
-            sign_extension: false,
-            nontrapping_float_to_int: false,
-            multi_value: false,
-            bulk_memory: false,
-            reference_types: false,
-            function_references: false,
-            gc: false,
-            simd: false,
-            relaxed_simd: false,
-            tail_call: false,
-            multi_memory: false,
-            memory64: false,
-            exceptions: false,
-            extended_const: false,
-            wide_arithmetic: false,
-            threads: false,
-            component_model: false,
-            component_async: false,
-            component_map: false,
-            component_implements: false,
-            wasi_p1: false,
-            wasi_p2: false,
-            wasi_p3: false,
-            wasi_cli: false,
-            wasi_io: false,
-            wasi_clocks: false,
-            wasi_random: false,
-            wasi_filesystem: false,
-            wasi_sockets: false,
-            wasi_http: false,
-            wasi_tls: false,
-        }
-    }
-
-    /// A linear-memory backend profile: the core module is MVP-only, while
-    /// the surrounding artifact may still use the component-model/WASI 0.2
-    /// metadata needed by the driver.
-    pub const fn linear_memory_wasi_0_2() -> Self {
-        let mut target = Self::wasm_mvp();
-        target.component_model = true;
-        target.wasi_p2 = true;
-        target.wasi_cli = true;
-        target.wasi_io = true;
-        target.wasi_clocks = true;
-        target.wasi_random = true;
-        target
-    }
-
     /// Converts the profile to the validator feature set.
     pub(crate) fn wasm_features(self) -> wasmparser::WasmFeatures {
         use wasmparser::WasmFeatures;
@@ -204,24 +152,5 @@ mod tests {
         assert!(!features.contains(WasmFeatures::TAIL_CALL));
         assert!(!features.contains(WasmFeatures::MEMORY64));
         assert!(!features.contains(WasmFeatures::CM_ASYNC));
-    }
-
-    #[test]
-    fn mvp_profile_does_not_enable_proposals() {
-        let features = TargetCapabilities::wasm_mvp().wasm_features();
-        assert!(features.contains(WasmFeatures::MVP));
-        assert!(!features.contains(WasmFeatures::GC));
-        assert!(!features.contains(WasmFeatures::COMPONENT_MODEL));
-    }
-
-    #[test]
-    fn linear_memory_profile_keeps_the_core_module_mvp_only() {
-        let target = TargetCapabilities::linear_memory_wasi_0_2();
-        let features = target.wasm_features();
-        assert!(!target.reference_types);
-        assert!(!target.function_references);
-        assert!(!target.gc);
-        assert!(features.contains(WasmFeatures::COMPONENT_MODEL));
-        assert!(!features.contains(WasmFeatures::GC));
     }
 }

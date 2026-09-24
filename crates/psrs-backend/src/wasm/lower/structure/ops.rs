@@ -1,6 +1,5 @@
 use crate::mir::NumericOp;
 use crate::types::RefType;
-use crate::types::ValueType;
 use crate::wasm::convert::heap_type;
 use wasm_encoder::{Instruction, MemArg};
 
@@ -29,50 +28,6 @@ pub(super) fn memory_with_align(offset: u32, align: u32) -> MemArg {
         offset: u64::from(offset),
         align,
         memory_index: 0,
-    }
-}
-
-pub(super) fn linear_load(
-    ty: ValueType,
-    offset: u32,
-    memory_index: u32,
-    alignment: u32,
-) -> Instruction<'static> {
-    let argument = MemArg {
-        offset: u64::from(offset),
-        align: alignment.trailing_zeros(),
-        memory_index,
-    };
-    match ty {
-        ValueType::I32 | ValueType::Boolean => Instruction::I32Load(argument),
-        ValueType::F64 => Instruction::F64Load(argument),
-        _ => unreachable!("MIR verifier rejects unsupported linear load types"),
-    }
-}
-
-pub(super) fn linear_store(
-    ty: ValueType,
-    offset: u32,
-    memory_index: u32,
-    alignment: u32,
-) -> Instruction<'static> {
-    let argument = MemArg {
-        offset: u64::from(offset),
-        align: alignment.trailing_zeros(),
-        memory_index,
-    };
-    match ty {
-        ValueType::I32 | ValueType::Boolean => Instruction::I32Store(argument),
-        ValueType::F64 => Instruction::F64Store(argument),
-        _ => unreachable!("MIR verifier rejects unsupported linear store types"),
-    }
-}
-
-pub(super) fn linear_value_alignment(ty: ValueType) -> u32 {
-    match ty {
-        ValueType::F64 => 8,
-        ValueType::I32 | ValueType::Boolean => 4,
-        _ => unreachable!("MIR verifier rejects unsupported linear memory types"),
     }
 }
 

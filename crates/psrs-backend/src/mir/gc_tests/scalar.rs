@@ -128,5 +128,4 @@ fn lowers_typed_number_boolean_character_and_bitwise_operations_on_both_targets(
         assert!(instructions.contains(&expected), "missing {expected:?}");
     }
     run_gc(&gc_mir, 33);
-    run_linear(module, "33");
 }

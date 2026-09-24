@@ -67,8 +67,6 @@ fn encodes_and_runs_a_gc_struct() {
             span: span(),
         }],
         memories: Vec::new(),
-        tables: Vec::new(),
-        table_elements: Vec::new(),
         data: Vec::new(),
         exports: vec![Export {
             name: "sum".into(),
@@ -124,8 +122,6 @@ fn defined_types_precede_function_types() {
         }])],
         functions: Vec::new(),
         memories: Vec::new(),
-        tables: Vec::new(),
-        table_elements: Vec::new(),
         data: Vec::new(),
         exports: Vec::new(),
         entry: None,
@@ -144,8 +140,6 @@ fn rejects_a_data_index_that_does_not_match_module_order() {
         type_defs: Vec::new(),
         functions: Vec::new(),
         memories: Vec::new(),
-        tables: Vec::new(),
-        table_elements: Vec::new(),
         data: vec![DataSegment {
             id: crate::types::DataId(0),
             index: super::DataIndex(1),
@@ -175,8 +169,6 @@ fn rejects_an_export_with_the_wrong_index_domain() {
         type_defs: Vec::new(),
         functions: Vec::new(),
         memories: Vec::new(),
-        tables: Vec::new(),
-        table_elements: Vec::new(),
         data: Vec::new(),
         exports: vec![Export {
             name: "bad".into(),

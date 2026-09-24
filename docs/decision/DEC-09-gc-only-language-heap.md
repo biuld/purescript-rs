@@ -40,8 +40,8 @@ heap:
   types, typed function references, and `call_ref`.
 - **Linear memory is retained only as the canonical ABI boundary**: strings,
   byte lists, the return area for canonical calls, `cabi_realloc`, active data
-  segments, and the `LinearLoad`/`LinearStore` byte operations that service
-  them. It is not a general object heap for the language.
+  segments, and the `Load`/`Load8U`/`Store` byte operations that service them.
+  It is not a general object heap for the language.
 - The `LinearMemoryPlanner`, its language-heap object layouts (box/product/
   variant/array/closure-environment offsets), the linear erased boxing/unboxing
   path, and the MIR pointer-bounds verifier for language objects are removed.

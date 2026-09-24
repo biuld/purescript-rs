@@ -12,7 +12,6 @@ mod call;
 mod capability;
 mod function;
 mod instruction;
-mod linear_bounds;
 mod subtype;
 mod util;
 
