@@ -22,6 +22,9 @@ pub(super) fn verify_new(
         function: callee,
         type_index,
         captures,
+        capture_offsets,
+        allocation_bytes,
+        allocation_alignment,
         span,
         ..
     } = instruction
@@ -60,11 +63,32 @@ pub(super) fn verify_new(
             "MIR linear closure environment has an invalid capture",
         ));
     }
-    for capture in captures {
-        if !linear_capture_type(require_value(definitions, *capture, *span)?) {
+    let expected_bytes = u32::try_from(captures.len())
+        .ok()
+        .and_then(|count| count.checked_mul(8))
+        .and_then(|bytes| bytes.checked_add(8));
+    if *allocation_alignment != 8
+        || expected_bytes != Some(*allocation_bytes)
+        || capture_offsets.len() != captures.len()
+    {
+        return Err(mir_error(*span, "MIR linear closure layout is invalid"));
+    }
+    for (index, (capture, offset)) in captures.iter().zip(capture_offsets).enumerate() {
+        let capture_type = require_value(definitions, *capture, *span)?;
+        let expected_offset = u32::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_mul(8))
+            .and_then(|offset| offset.checked_add(8));
+        let capture_size = if capture_type == ValueType::F64 { 8 } else { 4 };
+        if !linear_capture_type(capture_type)
+            || expected_offset != Some(*offset)
+            || offset
+                .checked_add(capture_size)
+                .is_none_or(|end| end > *allocation_bytes)
+        {
             return Err(mir_error(
                 *span,
-                "MIR linear closure environment has an invalid capture",
+                "MIR linear closure capture does not fit its slot",
             ));
         }
     }

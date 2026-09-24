@@ -106,5 +106,51 @@ fn copies_before_updating_a_linear_array() {
         entry: Some(symbol),
         span: span(),
     };
-    run_linear(module, "4");
+    let target = crate::TargetCapabilities::wasm_mvp();
+    let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
+        .expect("the cloned array should lower without GC");
+    let instructions = &mir.functions[0].blocks[0].instructions;
+    let allocation = instructions
+        .iter()
+        .position(|instruction| matches!(instruction, Instruction::LinearAllocDynamic { .. }))
+        .expect("the clone should allocate its dynamic payload");
+    let guards = instructions[..allocation]
+        .iter()
+        .filter(|instruction| matches!(instruction, Instruction::TrapIf { .. }))
+        .count();
+    assert_eq!(guards, 2, "clone length must be checked before allocation");
+    assert!(
+        instructions[..allocation]
+            .iter()
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Primitive {
+                    op: crate::mir::NumericOp::I32LtS,
+                    ..
+                }
+            ))
+    );
+    assert!(
+        instructions[..allocation]
+            .iter()
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Primitive {
+                    op: crate::mir::NumericOp::I32GtS,
+                    ..
+                }
+            ))
+    );
+    assert!(
+        instructions[..allocation]
+            .iter()
+            .any(|instruction| matches!(
+                instruction,
+                Instruction::Constant {
+                    value: 536_870_910,
+                    ..
+                }
+            ))
+    );
+    super::run_linear_mir(mir, "4", target);
 }

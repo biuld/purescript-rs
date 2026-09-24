@@ -1,7 +1,7 @@
 # D-07 — WIT Imports and the Standard Library
 
 **Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress (scalar, handle, and byte-list bootstrap implemented)
+**Status:** In progress (exact scalar, handle, byte-list, and nullary-enum mappings implemented; direct scalar record and flags parameters lower through P9; aggregate ABI remains incomplete)
 
 ## Purpose
 
@@ -54,13 +54,12 @@ mapping** rather than a per-function recipe:
   narrowed to `Int` with `i32.wrap_i64`, no result to `Unit`, and a returned
   `list`/`string` read back from the return pointer.
 
-The output-stream write adapter is the one supported `result`-shaped import.
-Its source declaration returns `Unit`, but the one-byte canonical result
-discriminant is read with `i32.load8_u` from the return area after the call. A
-nonzero discriminant traps instead
-of being silently converted to `Unit`; this keeps the current source API
-small without losing a host-side write failure. Other result-shaped imports
-remain rejected until a source-level error representation is available.
+The current `result` adapter accepts only a unit success payload. Its source
+declaration returns `Unit`; after the call it reads the one-byte canonical
+result discriminant with `i32.load8_u`. A nonzero discriminant traps instead of
+being silently converted to `Unit`, so host-side failure cannot appear as
+success. Results with a success payload are rejected until a source-level
+result representation is available.
 
 ### Returned lists and the allocator
 
@@ -82,15 +81,34 @@ allocator calls.
 
 ### Canonical ABI coverage
 
-The bootstrap classifies only scalars, resource handles, and byte lists. The
-completed slice classifies the canonical ABI forms the WASI 0.2 surface uses and
-adapts them to the source value representation. Classification stays in the ABI
-layer; CC receives only an abstract signature and MIR receives only the
-resulting canonical parameters and adapter instructions.
+The current implementation supports exact source mappings for `bool`/`Boolean`,
+`s32`/`Int`, `s64` and `u64`/`Int`, `f32` and `f64`/`Number`, `char`/`Char`,
+nullary WIT enums mapped to nullary source data types with matching case names
+and order, resource handles represented by `Int`, byte lists represented by
+`String`, and the current unit-success `result` adapter. Direct scalar WIT
+record parameters are classified recursively, checked against closed source
+record fields by name and type, and flattened in WIT field order by P9 for the
+GC layout. WIT flags map to a closed source record of
+`Boolean` fields; P9 packs those fields in WIT declaration order into the
+canonical one or more `i32` words. The PureScript type checker still rejects
+record type signatures, so neither record nor flags declarations can reach
+this backend path from source yet.
+Enum tags pass through as canonical `i32` values after P9 validates the source
+constructor list. `u32`, the 8- and 16-bit integer types, tuples, indirect
+record parameters, and aggregate results remain outside the supported subset.
+Enum, direct-record, and flags paths have classification and validation tests;
+P9 has field-flattening and flags-packing tests. None is promoted in the
+capability matrix until binary and Wasmtime execution evidence exists.
+
+The broader target is to classify the canonical ABI forms used by WASI 0.2 and
+adapt them to source values. Classification stays in the ABI layer; CC receives
+only an abstract signature and MIR receives only the resulting canonical
+parameters and adapter instructions. That target is not yet complete.
 
 #### Classification
 
-Each WIT function is classified into a canonical signature plus a per-parameter
+The following table states the target ABI shapes, not the current implemented
+subset. Each WIT function is classified into a canonical signature plus a per-parameter
 and per-result **ABI shape** that records how the declared source value flattens
 or is read back:
 
@@ -126,14 +144,23 @@ its source type to a WIT form:
 - `Int` to `s32`, `Number` to `f64`, `Boolean` to `bool`, `Char` to `char`,
   `String` to `string`, `Unit` to `unit`;
 - a closed record to a `record` with matching field names and types;
+- a closed record of `Boolean` fields to WIT `flags` with matching kebab-case
+  names, packing set bits in WIT declaration order;
 - a data type with field constructors to a `variant` with matching case tags;
+- a nullary data type to a WIT `enum` when its constructor names, converted from
+  WIT kebab case to source Pascal case, match the WIT cases in the same order;
 - `Array a` to `list<...>` with a byte element for the current `String`
   boundary, and to other element types once aggregate lists are supported; and
 - a tuple to `tuple`.
 
+The source `Number` representation is `f64`. A WIT `f32` parameter is narrowed
+at the canonical ABI boundary and a WIT `f32` result is widened back to
+`Number`; these conversions are explicit MIR operations. WIT `char` maps only
+to source `Char`, even though both use the canonical `i32` core type.
+
 A source type that does not match its WIT form is rejected with a
-source-associated diagnostic before CC lowering, as the bootstrap already does
-for scalars.
+source-associated diagnostic during P9 binding validation, before MIR emits
+the call. CC remains independent of WIT and the canonical ABI.
 
 #### Ownership and post-return
 
@@ -150,7 +177,10 @@ for scalars.
 
 #### Delivery order
 
-1. `enum`, `flags`, and direct scalar records and tuples.
+1. WIT `enum` maps to nullary source data types, direct scalar record
+   parameters lower through P9, and flags pack closed Boolean records into
+   canonical words. Direct scalar tuples, source type-checker integration for
+   record signatures, and runtime execution evidence remain.
 2. Indirect records and tuples through the return pointer.
 3. `option`/`result`/`variant` with an `i32` discriminant and payload join.
 4. Non-byte `list<T>` and `list<string>` with aggregate memory layout.

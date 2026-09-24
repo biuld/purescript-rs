@@ -38,6 +38,8 @@ pub enum Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructorInfo {
     pub symbol: SymbolId,
+    /// Source constructor name, retained for diagnostics and external type mapping.
+    pub name: String,
     pub type_id: HirTypeId,
     pub tag: u32,
     pub field_count: usize,

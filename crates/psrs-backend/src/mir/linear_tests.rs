@@ -6,7 +6,15 @@ use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod alignment;
 mod array_clone;
+mod binary_matrix;
+mod copy;
+mod div_mod;
+mod erased;
+mod scalar;
+mod unary;
+mod variant;
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
@@ -22,12 +30,17 @@ fn wasi() -> crate::abi::WasiRegistry {
 }
 
 fn run_linear(module: CcModule, expected: &str) {
-    let target = crate::TargetCapabilities {
-        bulk_memory: true,
-        ..crate::TargetCapabilities::wasm_mvp()
-    };
+    let target = crate::TargetCapabilities::wasm_mvp();
+    run_linear_with_target(module, expected, target);
+}
+
+fn run_linear_with_target(module: CcModule, expected: &str, target: crate::TargetCapabilities) {
     let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
         .expect("the CC module should lower without GC");
+    run_linear_mir(mir, expected, target);
+}
+
+fn run_linear_mir(mir: crate::mir::Module, expected: &str, target: crate::TargetCapabilities) {
     let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut wasi(), target)
         .expect("the linear MIR should lower to MVP Wasm");
     let binary = crate::wasm::encode_module(&wasm).expect("encoding linear MVP Wasm");
@@ -76,7 +89,11 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
         let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
         let component = crate::component::componentize(&core, &resolve, world)
             .expect("componentizing the GC module");
-        let path = std::env::temp_dir().join(format!("psrs-gc-linear-{}.wasm", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "psrs-gc-linear-{}-{}.wasm",
+            std::process::id(),
+            next_artifact_id()
+        ));
         std::fs::write(&path, component).expect("writing GC component");
         let output = std::process::Command::new("wasmtime")
             .arg("run")
@@ -406,6 +423,35 @@ fn lowers_linear_closures_through_the_function_table() {
             .instructions
             .iter()
             .any(|instruction| matches!(instruction, Instruction::LinearClosureGetCapture { .. }))
+    );
+    let allocation = mir.functions[0].blocks[0]
+        .instructions
+        .iter()
+        .find_map(|instruction| match instruction {
+            Instruction::LinearClosureNew {
+                capture_offsets,
+                allocation_bytes,
+                allocation_alignment,
+                ..
+            } => Some((capture_offsets, allocation_bytes, allocation_alignment)),
+            _ => None,
+        })
+        .expect("closure creation should carry its concrete capture layout");
+    assert_eq!(allocation, (&vec![8], &16, &8));
+    assert!(
+        mir.functions[1].blocks[0]
+            .instructions
+            .iter()
+            .any(|instruction| {
+                matches!(
+                    instruction,
+                    Instruction::LinearClosureGetCapture {
+                        offset: 8,
+                        ty: crate::types::ValueType::F64,
+                        ..
+                    }
+                )
+            })
     );
     run_linear(module, "1");
 }

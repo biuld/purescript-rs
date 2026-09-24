@@ -79,6 +79,13 @@ chooses whether those become boxes, unboxes, casts, or no-ops. MIR contains
 only concrete Wasm value types and typed references to its concrete function
 types. The Wasm emitter only emits those already-verified operations.
 
+The backend currently verifies and executes an erased identity fixture for
+`Int`, `Number`, and a concrete reference through the GC planner. This exercises
+scalar box allocation/projection and reference adaptation without adding runtime
+source-type tags. End-to-end
+Core integration and the remaining higher-order acceptance cases are still
+tracked by the feature matrix.
+
 The adapter boundary must preserve evaluation order: the original function
 value is evaluated once, then captured; each erased argument is unboxed only
 when the adapter is invoked; the concrete result is boxed before returning.

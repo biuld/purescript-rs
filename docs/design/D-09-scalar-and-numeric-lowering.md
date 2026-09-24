@@ -1,7 +1,7 @@
 # D-09 — Scalar and Numeric Lowering
 
 **Implements:** [F-02 — Build Portable Program Artifacts](../feature/F-02-portable-programs.md)  
-**Status:** In progress
+**Status:** In progress (backend operations implemented; Core intrinsic integration remains)
 
 ## Purpose
 
@@ -9,8 +9,8 @@ Define the complete scalar value and numeric operation slice for the backend so
 a frontend can lower every built-in scalar operator without adding
 representation special cases. This document complements
 [D-06](D-06-low-level-ir-and-wasm-types.md), which defines the IR boundaries,
-and [D-10](D-10-linear-memory-representation.md), which defines the
-linear-memory layout of the same values.
+and [D-10](D-10-linear-memory-representation.md), which defines the canonical
+ABI boundary where strings and byte lists are exchanged.
 
 Scalar semantics follow the official PureScript implementation. Where a
 JavaScript operator has no direct Wasm instruction, the backend defines an
@@ -33,9 +33,14 @@ without changing the operation model.
 
 ## Operation model
 
-CC carries target-independent scalar operations. The bootstrap reuses
-`psrs_core::Primitive`; the completed slice defines a CC-owned operation
-vocabulary so CC does not depend on a frontend enum:
+CC carries target-independent, type-directed scalar operations. CC owns
+`BinaryOp`; P8 converts the Core integer subset into it, and P9 converts it to
+MIR-owned `NumericOp`. CC also owns `UnaryOp`, which P9 converts to a MIR-owned
+unary operation. CC/MIR currently implement the listed unary vocabulary and
+binary operations; P9 expands Euclidean `IntDiv`/`IntMod` to ordinary MIR
+helper calls.
+
+The planned full vocabulary is:
 
 ```text
 UnaryOp  = IntNeg | IntComplement | NumberNeg | BooleanNot
@@ -100,8 +105,9 @@ stores a CC operation enum.
 ### Conversions
 
 - `IntToNumber` is `f64.convert_i32_s`.
-- `NumberToInt` is a saturating conversion (`i32.trunc_sat_f64_s`) so the
-  result is total; the standard library's `floor`/`ceil`/`trunc` build on it.
+- `NumberToInt` is a saturating conversion so the result is total. P9 lowers
+  it to comparisons and a guarded `i32.trunc_f64_s` sequence that uses only core
+  WebAssembly; the standard library's `floor`/`ceil`/`trunc` build on it.
 - `BooleanToInt` is a no-op on the `0`/`1` representation; `IntToBoolean` is
   `x /= 0` (`i32.ne`).
 
@@ -109,8 +115,9 @@ stores a CC operation enum.
 
 Operations with no single Wasm instruction lower to ordinary MIR functions:
 
-- Euclidean `IntDiv`/`IntMod`: a helper computes the quotient and remainder and
-  adjusts the sign so the remainder matches the divisor.
+- Euclidean `IntDiv`/`IntMod`: each operation uses a module-local helper. It
+  computes the truncated remainder and adjusts the quotient or remainder when
+  their signs differ, so the remainder matches the divisor.
 - `Number` `mod`, if enabled: an `f64` helper.
 
 Helpers are module-local MIR functions with ordinary MIR signatures. They are
@@ -132,11 +139,16 @@ to be non-negative, as an optimization that preserves semantics.
 ## Delivery order
 
 1. Define the CC operation vocabulary and lower the current Core primitives
-   through it.
-2. Add integer bitwise, shift, and unsigned-comparison operations and the
-   unary/conversion operations.
-3. Add the `Number` arithmetic and comparison set.
+   through it. **Implemented for Core's current integer subset:** CC `BinaryOp`
+   and MIR `NumericOp` are distinct enums with explicit P8/P9 conversions.
+2. Add integer bitwise and shift operations, plus Boolean and Char comparison
+   lowering, unary operations, and scalar conversions. **Implemented in
+   CC/MIR;** Core intrinsic integration remains at step 5.
+3. Add the `Number` arithmetic and comparison set. **Implemented in CC/MIR;**
+   frontend intrinsic integration remains at step 5.
 4. Add the Euclidean `IntDiv`/`IntMod` helpers and their execution tests.
+   **Implemented:** helpers are generated only when referenced and execute on
+   GC.
 5. Extend the Core intrinsic set and the frontend operator mapping in lockstep,
    so each operation has an end-to-end executable test.
 

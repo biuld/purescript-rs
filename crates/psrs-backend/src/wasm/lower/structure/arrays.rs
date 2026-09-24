@@ -3,10 +3,33 @@
 use super::Structurer;
 use super::helpers::ValueOps;
 use crate::BackendError;
-use crate::mir::Instruction as MirInstruction;
+use crate::mir::{Function as MirFunction, Instruction as MirInstruction};
 use crate::types::{DefinedTypeId, ValueId};
 use crate::wasm::{Body, Op};
 use wasm_encoder::Instruction;
+
+pub(super) fn linear_copy_local_indices(
+    function: &MirFunction,
+) -> Result<Option<[u32; 3]>, Vec<BackendError>> {
+    let needs_temporaries = function.blocks.iter().any(|block| {
+        block
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, MirInstruction::LinearMemoryCopy { .. }))
+    });
+    if !needs_temporaries {
+        return Ok(None);
+    }
+    let first = u32::try_from(function.values.len())
+        .map_err(|_| super::wasm_error(function.span, "MIR function has too many locals"))?;
+    let second = first
+        .checked_add(1)
+        .ok_or_else(|| super::wasm_error(function.span, "MIR function has too many locals"))?;
+    let third = first
+        .checked_add(2)
+        .ok_or_else(|| super::wasm_error(function.span, "MIR function has too many locals"))?;
+    Ok(Some([first, second, third]))
+}
 
 impl Structurer<'_> {
     pub(super) fn trap_if(
@@ -124,6 +147,7 @@ impl Structurer<'_> {
         body: &mut Body,
         destination: ValueId,
         bytes: ValueId,
+        alignment: u32,
         span: psrs_span::TextRange,
     ) -> Result<(), Vec<BackendError>> {
         let allocator = self.linear_allocator.ok_or_else(|| {
@@ -131,7 +155,7 @@ impl Structurer<'_> {
         })?;
         body.push(Op::Leaf(Instruction::I32Const(0)));
         body.push(Op::Leaf(Instruction::I32Const(0)));
-        body.push(Op::Leaf(Instruction::I32Const(4)));
+        body.push(Op::Leaf(Instruction::I32Const(alignment as i32)));
         self.load(body, bytes, span)?;
         body.push(Op::Leaf(Instruction::Call(allocator.0)));
         self.store(body, destination, span)
@@ -148,21 +172,114 @@ impl Structurer<'_> {
         source_offset: u32,
         span: psrs_span::TextRange,
     ) -> Result<(), Vec<BackendError>> {
+        let [destination_local, source_local, remaining_local] = self
+            .linear_copy_locals
+            .ok_or_else(|| super::super::wasm_error(span, "linear copy has no temporary locals"))?;
         self.load(body, destination, span)?;
         if destination_offset != 0 {
             body.push(Op::Leaf(Instruction::I32Const(destination_offset as i32)));
             body.push(Op::Leaf(Instruction::I32Add));
         }
+        body.push(Op::Leaf(Instruction::LocalSet(destination_local)));
         self.load(body, source, span)?;
         if source_offset != 0 {
             body.push(Op::Leaf(Instruction::I32Const(source_offset as i32)));
             body.push(Op::Leaf(Instruction::I32Add));
         }
+        body.push(Op::Leaf(Instruction::LocalSet(source_local)));
         self.load(body, bytes, span)?;
-        body.push(Op::Leaf(Instruction::MemoryCopy {
-            src_mem: 0,
-            dst_mem: 0,
-        }));
+        body.push(Op::Leaf(Instruction::LocalSet(remaining_local)));
+
+        // Expand memory.copy as a core-MVP memmove loop. This keeps the MIR
+        // operation's overlap semantics without requiring bulk-memory.
+        let byte = wasm_encoder::MemArg {
+            offset: 0,
+            align: 0,
+            memory_index: 0,
+        };
+        body.push(Op::Leaf(Instruction::Block(wasm_encoder::BlockType::Empty)));
+        body.push(Op::Leaf(Instruction::LocalGet(remaining_local)));
+        body.push(Op::Leaf(Instruction::I32Eqz));
+        body.push(Op::Leaf(Instruction::BrIf(0)));
+
+        body.push(Op::Leaf(Instruction::LocalGet(destination_local)));
+        body.push(Op::Leaf(Instruction::LocalGet(source_local)));
+        body.push(Op::Leaf(Instruction::I32GtU));
+        body.push(Op::Leaf(Instruction::LocalGet(destination_local)));
+        body.push(Op::Leaf(Instruction::LocalGet(source_local)));
+        body.push(Op::Leaf(Instruction::LocalGet(remaining_local)));
+        body.push(Op::Leaf(Instruction::I32Add));
+        body.push(Op::Leaf(Instruction::I32LtU));
+        body.push(Op::Leaf(Instruction::I32And));
+        body.push(Op::Leaf(Instruction::If(wasm_encoder::BlockType::Empty)));
+        for pointer_local in [destination_local, source_local] {
+            body.push(Op::Leaf(Instruction::LocalGet(pointer_local)));
+            body.push(Op::Leaf(Instruction::LocalGet(remaining_local)));
+            body.push(Op::Leaf(Instruction::I32Add));
+            body.push(Op::Leaf(Instruction::I32Const(1)));
+            body.push(Op::Leaf(Instruction::I32Sub));
+            body.push(Op::Leaf(Instruction::LocalSet(pointer_local)));
+        }
+        body.push(Op::Leaf(Instruction::Block(wasm_encoder::BlockType::Empty)));
+        body.push(Op::Leaf(Instruction::Loop(wasm_encoder::BlockType::Empty)));
+        emit_copy_loop_body(
+            body,
+            destination_local,
+            source_local,
+            remaining_local,
+            byte,
+            false,
+        );
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::Else));
+        body.push(Op::Leaf(Instruction::Block(wasm_encoder::BlockType::Empty)));
+        body.push(Op::Leaf(Instruction::Loop(wasm_encoder::BlockType::Empty)));
+        emit_copy_loop_body(
+            body,
+            destination_local,
+            source_local,
+            remaining_local,
+            byte,
+            true,
+        );
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::End));
         Ok(())
     }
+}
+
+fn emit_copy_loop_body(
+    body: &mut Body,
+    destination: u32,
+    source: u32,
+    remaining: u32,
+    byte: wasm_encoder::MemArg,
+    forward: bool,
+) {
+    body.push(Op::Leaf(Instruction::LocalGet(remaining)));
+    body.push(Op::Leaf(Instruction::I32Eqz));
+    body.push(Op::Leaf(Instruction::BrIf(1)));
+    body.push(Op::Leaf(Instruction::LocalGet(destination)));
+    body.push(Op::Leaf(Instruction::LocalGet(source)));
+    body.push(Op::Leaf(Instruction::I32Load8U(byte)));
+    body.push(Op::Leaf(Instruction::I32Store8(byte)));
+    let step = 1;
+    for pointer in [destination, source] {
+        body.push(Op::Leaf(Instruction::LocalGet(pointer)));
+        body.push(Op::Leaf(Instruction::I32Const(step)));
+        body.push(Op::Leaf(if forward {
+            Instruction::I32Add
+        } else {
+            Instruction::I32Sub
+        }));
+        body.push(Op::Leaf(Instruction::LocalSet(pointer)));
+    }
+    body.push(Op::Leaf(Instruction::LocalGet(remaining)));
+    body.push(Op::Leaf(Instruction::I32Const(1)));
+    body.push(Op::Leaf(Instruction::I32Sub));
+    body.push(Op::Leaf(Instruction::LocalSet(remaining)));
+    body.push(Op::Leaf(Instruction::Br(0)));
 }

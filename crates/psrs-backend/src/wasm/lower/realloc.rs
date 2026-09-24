@@ -25,6 +25,8 @@ pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: Text
     body.push(Op::Leaf(Instruction::I32Load(memarg())));
     body.push(Op::Leaf(Instruction::LocalSet(4)));
     body.push(Op::Leaf(Instruction::LocalGet(4)));
+    body.push(Op::Leaf(Instruction::I32Const(4)));
+    body.push(Op::Leaf(Instruction::I32Add));
     body.push(Op::Leaf(Instruction::LocalGet(2)));
     body.push(Op::Leaf(Instruction::I32Add));
     body.push(Op::Leaf(Instruction::I32Const(1)));
@@ -33,6 +35,8 @@ pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: Text
     body.push(Op::Leaf(Instruction::LocalGet(2)));
     body.push(Op::Leaf(Instruction::I32Sub));
     body.push(Op::Leaf(Instruction::I32And));
+    body.push(Op::Leaf(Instruction::I32Const(4)));
+    body.push(Op::Leaf(Instruction::I32Sub));
     body.push(Op::Leaf(Instruction::LocalSet(4)));
     body.push(Op::Leaf(Instruction::LocalGet(4)));
     body.push(Op::Leaf(Instruction::LocalGet(3)));

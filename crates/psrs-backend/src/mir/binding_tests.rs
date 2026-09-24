@@ -96,6 +96,27 @@ fn p9_emits_a_referenced_external_binding() {
 }
 
 #[test]
+fn p9_lowers_referenced_external_binding_for_linear_memory() {
+    let (module, bindings) = input(true);
+    let target = crate::TargetCapabilities::linear_memory_wasi_0_2();
+    let (mir, mut wasi) = lower_module_with_bindings(module, bindings, target)
+        .expect("the referenced WIT binding should lower for linear memory");
+
+    assert_eq!(mir.imports.len(), 1);
+    assert_eq!(wasi.imports().len(), 1);
+    assert!(matches!(
+        mir.functions[0].blocks[0].instructions.as_slice(),
+        [crate::mir::Instruction::Call { .. }]
+    ));
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut wasi, target)
+        .expect("the linear canonical call should lower to Wasm");
+    let binary = crate::wasm::encode_module(&wasm).expect("encoding the imported call");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the linear canonical import should validate");
+}
+
+#[test]
 fn p9_rejects_a_binding_that_disagrees_with_cc() {
     let (module, mut bindings) = input(false);
     bindings.imports[0].signature.as_mut().unwrap().result = SourceType::Boolean;

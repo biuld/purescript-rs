@@ -21,13 +21,22 @@ This document complements:
 - [D-08](D-08-generic-wasm-representation.md), which defines the erased
   fallback for polymorphic values.
 
-The capability level of CC/MIR remains **Partial** until M6 and M7 in this
-document are complete. The GC/reference/closure path, the WASI scalar/handle/
-byte-list slice, and the MVP linear aggregate/array/table-closure slice are
-working vertical slices. The unified variant representation
-([DEC-08](../decision/DEC-08-target-neutral-variant-representation.md)), the
-scalar family, erased adaptation, and the broader canonical ABI are designed
-but not yet implemented.
+The capability level of CC/MIR remains **Partial** until M7 is complete. The
+GC/reference/closure path and the WASI scalar/handle/byte-list/nullary-enum slice
+are working vertical slices. Under
+[DEC-09](../decision/DEC-09-gc-only-language-heap.md), Wasm GC is the only
+language-heap strategy; linear memory serves only the byte-oriented canonical ABI
+boundary, so the former MVP linear aggregate/array/table-closure planner is
+retired. The unified variant representation from
+[DEC-08](../decision/DEC-08-target-neutral-variant-representation.md) lowers
+through the GC planner. The current canonical WIT adapter lowers its supported
+call forms through GC MIR. Direct scalar WIT record parameters have P9 projection
+and flattening coverage; WIT flags also have Boolean-record validation and
+canonical-word packing tests. Frontend acceptance of record signatures and
+Wasmtime execution evidence remain pending. The full CC/MIR scalar family and
+typed erased scalar/reference adaptation have execution evidence. Core intrinsic
+integration and broader canonical ABI forms remain incomplete; runtime
+source-type tests are outside the D-08 erased-value model.
 
 ## Backend pipeline
 
@@ -124,7 +133,7 @@ VariantCase = { tag, fields: [ValueShape] }
 `RefShape::Closure(signature)` says that a value is callable and has an ordered
 capture list; it does not prescribe an environment object or capture array.
 `Variant` says which tags and fields must be representable; it does not select
-an i31, a struct hierarchy, or a linear-memory tag/payload record.
+an i31 or a struct hierarchy.
 
 One `Variant` requirement represents one source sum type. Each case has a
 stable tag and a field-shape list, so a sum type is one requirement rather than
@@ -133,9 +142,10 @@ following
 [DEC-08](../decision/DEC-08-target-neutral-variant-representation.md):
 
 - the GC planner emits one abstract, non-final `struct` supertype carrying the
-  tag plus one final `struct` subtype per case; and
-- the linear-memory planner emits `{ tag: i32, payload }` with per-case field
-  offsets ([D-10](D-10-linear-memory-representation.md)).
+  tag plus one final `struct` subtype per case.
+
+The former linear-memory realization as a `{ tag: i32, payload }` record is
+retired ([DEC-09](../decision/DEC-09-gc-only-language-heap.md)).
 
 A sum type whose constructors are all nullary keeps the immediate `i32` tag
 representation and creates no `Variant` requirement.
@@ -171,17 +181,16 @@ enum.
 
 An operation may refer to a `ReprId`, `SignatureId`, logical field, capture
 slot, or variant tag. It may not refer to a physical field offset or Wasm type
-index. This lets the same CC module lower to at least these representation
-strategies:
+index. This keeps CC independent of the concrete strategy; under
+[DEC-09](../decision/DEC-09-gc-only-language-heap.md) the only supported
+strategy is:
 
-| Strategy | Possible P9 choice |
+| Strategy | P9 choice |
 | --- | --- |
-| Wasm GC | Typed function reference plus GC closure/aggregate objects |
-| Table closure | Function-table slot plus an environment handle |
-| Linear memory | Pointer to compiler-defined object headers and payloads |
-| MVP-only | `i32` handles, `call_indirect`, and linear-memory objects |
+| Wasm GC | Typed function references plus GC closure/aggregate objects |
 
-The table lists required alternatives, not current implementation claims.
+A table-slot/MVP language heap is not supported; linear memory is reserved for
+the canonical ABI boundary ([D-10](D-10-linear-memory-representation.md)).
 
 ### External calls
 
@@ -219,7 +228,8 @@ P9 consumes CC, external bindings, and an explicit capability profile. It is
 the only stage that may:
 
 1. choose scalar and reference value types;
-2. select GC, table, linear-memory, or hybrid object representations;
+2. select GC object representations and retain linear memory only for the
+   canonical ABI boundary;
 3. choose closure code/environment layout and calling convention;
 4. choose layouts for products, variants, arrays, boxes, and strings;
 5. insert allocations, loads, stores, casts, boxing, and unboxing;
@@ -261,25 +271,22 @@ and data IDs are distinct from the final Wasm `TypeIndex`, `FunctionIndex`,
 `TableIndex`, `MemoryIndex`, and `DataIndex` forms even though all encode as
 `u32`.
 
-### Layout alternatives
+### Layout strategy
 
-The representation planner is selected by `TargetCapabilities`:
+Under [DEC-09](../decision/DEC-09-gc-only-language-heap.md) there is a single
+language-heap planner, selected by `TargetCapabilities`:
 
-- A GC planner may use `struct`, `array`, typed function references,
-  `ref.test`, `ref.cast`, and `call_ref`. It realizes a `Variant` as a tag on an
-  abstract supertype plus one final case subtype, and realizes `VariantTag` and
+- The GC planner uses `struct`, `array`, typed function references, `ref.test`,
+  `ref.cast`, and `call_ref`. It realizes a `Variant` as a tag on an abstract
+  supertype plus one final case subtype, and realizes `VariantTag` and
   `VariantGet` with `struct.get` and `ref.cast`. The concrete GC layouts are in
   [D-11](D-11-gc-representation-and-evidence.md).
-- A table planner may use a function table and `call_indirect`, with captures
-  represented separately.
-- A linear-memory planner may assign object headers, alignment, byte offsets,
-  and allocator operations. It realizes a `Variant` as a tag word followed by
-  the case payload, per [D-10](D-10-linear-memory-representation.md).
-- An MVP-only planner must reject or lower every non-MVP requirement before
-  MIR verification.
+- A profile without GC is rejected with a source-associated diagnostic before
+  MIR verification; there is no fallback language heap.
 
-These planners may share analyses and layout caches, but a CC operation must
-not branch on the chosen planner.
+Linear memory is not a layout strategy. It is reserved for the byte-oriented
+canonical ABI boundary ([D-10](D-10-linear-memory-representation.md)), and a CC
+operation must not branch on the presence or absence of GC.
 
 ### ABI boundary
 
@@ -383,42 +390,42 @@ sufficient.
 
 ## Current implementation and deviations
 
-The current code has functioning GC-oriented and linear-memory vertical slices
-for the supported aggregate/array and table-backed closure operation subsets.
-Both consume the same CC module; the linear path lowers pointers and payloads
-to allocator and typed load/store MIR operations, and lowers closures to
-environments plus an MVP function table. Dynamic representation tests and
-canonical WIT calls are still rejected with source-associated P9 diagnostics
-until their MVP representation contracts are added.
+The current code has a functioning GC-oriented vertical slice for the supported
+aggregate/array and closure operation subsets. A second linear-memory
+language-heap planner and its MIR pointer-bounds verifier still exist in the
+code but are being removed under
+[DEC-09](../decision/DEC-09-gc-only-language-heap.md); linear memory is retained
+only for the canonical ABI boundary. The current canonical WIT adapter lowers
+through GC MIR. Typed erased adaptation executes on GC. Unsupported
+`RepresentationTest` operations and canonical ABI forms outside the adapter's
+supported subset receive source-associated P9 diagnostics.
 
 | Area | Current implementation | Required state |
 | --- | --- | --- |
 | Shared types | CC and MIR use separate value/reference/type vocabularies. | **Implemented:** Wasm `ValueType`, `RefType`, `HeapType`, and `RecGroup` are MIR-owned. |
 | CC module | `cc::Module` owns only abstract representations and signatures. | **Implemented:** no concrete type table crosses P8. |
-| CC operations | Function/closure, product, array, and representation-adaptation operations carry semantic signatures, handles, and logical slots; each constructor is a `Product` with a leading tag and dispatch uses `RepresentationTest`/`RepresentationCast`. | **Required (M6):** add the target-neutral `VariantNew`/`VariantTag`/`VariantGet` family per DEC-08 and restrict representation test/cast to erased adaptation. |
-| Layout construction | `cc::layout` interns requirements; P9 planner implementations realize reachable handles. Constructors are interned as separate `Product` requirements. | **Required (M6):** intern one `Variant` requirement per sum type and realize it in both planners per DEC-08. |
-| MIR lowering | P9 plans and resolves every representation/signature handle before MIR verification. The linear path covers product/box/array and table-closure operations; dynamic representation tests and canonical WIT calls are rejected. | **Required (M6/M7):** add linear variant lowering and erased adaptation; keep unsupported WIT calls as P9 diagnostics. |
-| MIR identities | `DefinedTypeId`, `FunctionId`, `TableSlot`, and `MemoryId` are used by MIR; P10 owns the conversion to typed final Wasm indices, with data/resource IDs kept distinct from encoded indices. | **Implemented for the current resource set; P10 emits the linear table and keeps its final table/function indices typed.** |
+| CC operations | Function/closure, product, array, variant, and erased-adaptation operations carry semantic handles and logical slots. `VariantNew`, `VariantTag`, and `VariantGet` handle constructor operations. | **Implemented (M6):** constructor dispatch no longer uses representation tests/casts; those operations are verified as erased adaptation. |
+| Layout construction | `cc::layout` interns one `Variant` requirement per sum type; the GC planner realizes its reachable cases. | **Implemented (M6):** GC uses a tag-carrying supertype and case subtypes. The linear tag/payload realization is removed. |
+| MIR lowering | P9 resolves abstract handles before MIR verification and lowers the GC path for products, boxes, arrays, variants, closures, typed erased scalar/reference adaptation, and the currently supported canonical WIT call adapters, including nullary enums with validated case order. | **Partial (M7):** a typed erased identity fixture executes for `Int`, `Number`, and concrete references on GC; broader canonical ABI forms and enum runtime evidence remain. The linear language-heap lowering is removed ([DEC-09](../decision/DEC-09-gc-only-language-heap.md)). `RepresentationTest` is not part of the D-08 erased ABI, which has no runtime source-type tags. |
+| MIR identities | `DefinedTypeId`, `FunctionId`, and `MemoryId` are used by MIR; P10 owns the conversion to typed final Wasm indices, with data/resource IDs kept distinct from encoded indices. | **Implemented for the current resource set; P10 owns the final index mapping and keeps it typed.** |
 | External metadata | `BackendInput::externals` is returned beside CC; `cc::External` retains only a symbol and abstract signature. P8/P9 validate the side-table/CC pairing; P9 resolves all declarations and retains only used ABI symbols in MIR. | **Implemented:** WIT names and source ABI types are backend side-table data; MIR retains only canonical signatures and used ABI symbols. |
-| CC verification | `cc::verify` checks declaration/definition order, table handles, value shapes, calls, captures, representation operations, products, arrays, and branches. | **Required (M6):** add variant operand, result, tag, and case checks. |
-| MIR verification | MIR checks SSA ordering/dominance and concrete operation types. Target capability legality is checked in the Wasm lowering, and subtyping is range-checked only. | **Required (M6/M7):** add structural subtype checks, memory alignment/width checks, and a target-aware MIR verification entry point that owns capability legality. |
+| CC verification | `cc::verify` checks declaration/definition order, calls, captures, products, variants, arrays, erased adaptation, and branches. | **Implemented (M6):** variant operations check their tag, field, operands, and result. |
+| MIR verification | MIR checks SSA, concrete operation types, structural subtyping, target capability legality, and linear ABI access extents. | **Partial (M7):** access ranges are checked against P9 extents for the canonical ABI boundary; incoming pointers without local provenance and dynamic ranges across CFG joins remain outside the contract. The language-object pointer-bounds analysis is removed with the linear planner. |
 
 The former CC-to-MIR type-table pass-through has been removed. P9 exposes a
 planner contract: the GC implementation creates its closure object, erased
-capture array, aggregate and variant layouts, and concrete function types, while
-the linear-memory implementation assigns handle payload offsets, field
-alignment, array strides, variant tag/payload offsets, closure environment
-slots, and function-table slots. Both walk the CC module's value shapes,
-operations, called external signatures, and recursively referenced handles, so
-unreachable requirements do not become layouts. The linear MIR path
-materializes allocator/load/store operations for products, boxes, arrays, and
-variants plus table-backed closure creation, capture loads, and indirect calls.
-Erased adaptation and canonical WIT calls receive an explicit P9 diagnostic when
-the selected linear profile cannot represent them. Backend coverage remains
-**Partial** until the scalar ([D-09](D-09-scalar-and-numeric-lowering.md)),
-linear ([D-10](D-10-linear-memory-representation.md)), and canonical ABI
-([D-07](D-07-wit-imports-and-std.md)) slices are complete and carry execution
-evidence.
+capture array, aggregate and variant layouts, and concrete function types. It
+walks the CC module's value shapes, operations, called external signatures, and
+recursively referenced handles, so unreachable requirements do not become
+layouts. The canonical WIT adapter emits its currently supported ABI sequence,
+including direct scalar record parameters in backend lowering tests. Typed erased
+identity execution covers scalar boxing/unboxing and concrete reference casts on
+GC. WIT forms outside the adapter subset receive an explicit P9 diagnostic.
+Backend coverage remains **Partial** until the scalar
+([D-09](D-09-scalar-and-numeric-lowering.md)), canonical ABI
+([D-07](D-07-wit-imports-and-std.md)), and
+[linear ABI boundary](D-10-linear-memory-representation.md) slices are complete
+and carry execution evidence.
 
 ## Migration plan
 
@@ -444,12 +451,12 @@ current CC operation set has an abstract operand/result and handle check.
 - Move box, array, record/product, constructor/variant, function, capture-array,
   and closure layout creation out of `cc::layout`.
 - Make P9 compute a concrete representation map through a planner contract.
-- Provide GC and linear-memory planner implementations that consume unchanged
-  CC `ReprId`/`SignatureId` requirements.
+- Provide a GC planner implementation that consumes unchanged
+  CC `ReprId`/`SignatureId` requirements. (A second linear-memory planner was
+  added here and later retired by DEC-09.)
 - Replace raw type-index fields in CC operations with abstract handles and
   logical slots.
-- Keep golden MIR/WAT and execution tests for the GC strategy, plus MVP
-  validation and execution tests for the linear aggregate/array strategy.
+- Keep golden MIR/WAT and execution tests for the GC strategy.
 
 Exit criterion: `cc::Module` has no concrete type table, every planner consumes
 the same reachable CC handles, and the selected planner owns concrete layout
@@ -483,50 +490,47 @@ types.
 Exit criterion: mixing index spaces is unrepresentable in MIR APIs and all
 indices are range-checked.
 
-### M5 — Connect the alternative planner to MIR and prove target independence (implemented for the supported subset)
+### M5 — Alternative planner retired (reverted by DEC-09)
 
-- Lower supported linear-memory plans to allocator, typed load, and typed store
-  MIR operations, and lower table-backed closures to typed environments and
-  `call_indirect`; dynamic-representation operations report a P9 diagnostic
-  before any Wasm module is built.
-- Add strict `wasm_mvp` and `linear_memory_wasi_0_2` capability profiles; the
-  latter keeps the core module MVP-only while retaining the component metadata
-  needed by the driver.
-- Run the same product fixture through GC and linear planners, and execute the
-  product, array, and captured-closure fixtures through Wasmtime under the MVP
-  profile.
+An MVP linear-memory language-heap planner was built and briefly shared the CC
+module with the GC planner. That path could not reclaim memory and would have
+required a hand-written collector, so
+[DEC-09](../decision/DEC-09-gc-only-language-heap.md) retires it. The `wasm_mvp`
+and `linear_memory_wasi_0_2` profiles no longer select a language-heap planner;
+linear memory serves only the canonical ABI boundary
+([D-10](D-10-linear-memory-representation.md)).
 
-Exit criterion: at least one non-GC strategy consumes unchanged CC, and the
-CC/MIR capability rows may be reconsidered independently rather than being
-promoted together.
+Exit criterion: the backend has a single language-heap planner and no
+linear-memory language-object layouts, allocator paths, or pointer-bounds
+verifier.
 
-### M6 — Unified variant representation (planned)
+### M6 — Unified variant representation (implemented)
 
 - Add `VariantNew`, `VariantTag`, and `VariantGet` to CC and the CC verifier.
 - Build one `Variant` requirement per source sum type; a sum type whose
   constructors are all nullary keeps the immediate `i32` tag and allocates
   nothing.
 - Realize the requirement in the GC planner as a tag-carrying abstract
-  supertype plus one final case subtype, and in the linear-memory planner as a
-  tag word plus a per-case payload.
+  supertype plus one final case subtype.
 - Restrict `RepresentationTest`/`RepresentationCast` to erased adaptation.
-- Keep the existing GC execution behavior and add an MVP execution test for a
-  data type with fields.
+- Keep the existing GC execution behavior and add an execution test for a data
+  type with fields.
 
 Exit criterion: constructor construction, tag test, and field projection lower
-and execute on both the GC and MVP profiles from the same CC module.
+and execute on GC from one CC module. The linear realization was retired by
+DEC-09.
 
-### M7 — Complete scalar, linear, and canonical ABI coverage
+### M7 — Complete scalar, canonical ABI, and boundary coverage
 
 - Add the scalar operation slice of
-  [D-09](D-09-scalar-and-numeric-lowering.md), including the Euclidean
-  `IntDiv`/`IntMod` helpers.
-- Complete the linear representation of
-  [D-10](D-10-linear-memory-representation.md): memory identity and alignment
-  in the access instructions, erased boxing/unboxing, and the aligned allocator.
+  [D-09](D-09-scalar-and-numeric-lowering.md). **Implemented in the
+  backend:** CC/MIR lower the full listed unary and binary vocabulary, with
+  Euclidean helpers verified and executed on GC. Extending the Core intrinsic
+  mapping remains frontend integration work.
 - Expand the canonical ABI of
   [D-07](D-07-wit-imports-and-std.md) to the supported WIT forms and their
-  ownership rules.
+  ownership rules; keep linear memory limited to that boundary
+  ([D-10](D-10-linear-memory-representation.md)).
 - Add Wasmtime execution tests for every promoted capability row.
 
 Exit criterion: acceptance criterion 4 holds and the D-05 capability rows move
@@ -548,20 +552,20 @@ The corrected boundary is complete only when all of the following hold:
    MIR.
 6. The existing GC closure, aggregate, string, and WASI tests still validate
    and execute.
-7. One alternative planner consumes the same CC without modifying P8.
+7. There is one language-heap planner; linear memory carries no language
+   objects.
 
-Criteria 1–3, 5, and 6 are met. Criterion 4 is met for the current instruction
-set and grows with M7. Criterion 7 is met for the supported subset. The
-capability audit stays **Partial** until the M7 slices have execution evidence.
+Criteria 1–3, 5, 6, and 7 are met. Criterion 4 is met for the current
+instruction set and grows with M7. The capability audit stays **Partial** until
+the M7 slices have execution evidence.
 
 ## Non-goals
 
 - CC is not a portable serialized interchange format.
 - MIR is not target-neutral and does not preserve PureScript type semantics.
 - The thin Wasm encoding is not another optimization IR.
-- This design does not select a single permanent sum, closure, allocator, or
-  string encoding; the target-neutral requirements are realized per target
-  profile by P9 planners, as [DEC-08](../decision/DEC-08-target-neutral-variant-representation.md)
-  does for sums.
-- Supporting a new planner does not by itself claim complete Wasm proposal,
+- [DEC-09](../decision/DEC-09-gc-only-language-heap.md) selects GC as the single
+  language heap and reserves linear memory for the canonical ABI boundary; the
+  design does not support a second language-heap strategy.
+- Supporting the GC planner does not by itself claim complete Wasm proposal,
   Component Model, or WASI service coverage.

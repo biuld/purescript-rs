@@ -1,10 +1,15 @@
+use super::NumericOp;
 use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, TableSlot, ValueId, ValueType};
-use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
+    Copy {
+        destination: ValueId,
+        value: ValueId,
+        span: TextRange,
+    },
     Constant {
         destination: ValueId,
         value: i32,
@@ -22,9 +27,15 @@ pub enum Instruction {
     },
     Primitive {
         destination: ValueId,
-        op: Primitive,
+        op: NumericOp,
         left: ValueId,
         right: ValueId,
+        span: TextRange,
+    },
+    UnaryPrimitive {
+        destination: ValueId,
+        op: super::UnaryOp,
+        value: ValueId,
         span: TextRange,
     },
     Call {
@@ -194,11 +205,13 @@ pub enum Instruction {
     LinearAlloc {
         destination: ValueId,
         bytes: u32,
+        alignment: u32,
         span: TextRange,
     },
     LinearAllocDynamic {
         destination: ValueId,
         bytes: ValueId,
+        alignment: u32,
         span: TextRange,
     },
     LinearMemoryCopy {
@@ -214,7 +227,12 @@ pub enum Instruction {
     LinearLoad {
         destination: ValueId,
         address: ValueId,
+        memory: MemoryId,
         offset: u32,
+        /// P9-planned byte extent available from this address. For a dynamic
+        /// array element address, this is the element stride.
+        object_bytes: u32,
+        alignment: u32,
         ty: ValueType,
         span: TextRange,
     },
@@ -222,7 +240,12 @@ pub enum Instruction {
     LinearStore {
         address: ValueId,
         value: ValueId,
+        memory: MemoryId,
         offset: u32,
+        /// P9-planned byte extent available from this address. For a dynamic
+        /// array element address, this is the element stride.
+        object_bytes: u32,
+        alignment: u32,
         ty: ValueType,
         span: TextRange,
     },
@@ -234,6 +257,9 @@ pub enum Instruction {
         table_slot: TableSlot,
         type_index: DefinedTypeId,
         captures: Vec<ValueId>,
+        capture_offsets: Vec<u32>,
+        allocation_bytes: u32,
+        allocation_alignment: u32,
         span: TextRange,
     },
     /// Call a linear closure through the MVP function table.
@@ -248,7 +274,9 @@ pub enum Instruction {
     LinearClosureGetCapture {
         destination: ValueId,
         closure: ValueId,
-        index: u32,
+        offset: u32,
+        /// Minimum environment prefix containing this capture slot.
+        object_bytes: u32,
         ty: ValueType,
         span: TextRange,
     },
@@ -274,10 +302,12 @@ impl Instruction {
     /// The value this instruction defines, if it defines one.
     pub fn destination(&self) -> Option<ValueId> {
         match self {
-            Self::Constant { destination, .. }
+            Self::Copy { destination, .. }
+            | Self::Constant { destination, .. }
             | Self::NumberConstant { destination, .. }
             | Self::StringConstant { destination, .. }
             | Self::Primitive { destination, .. }
+            | Self::UnaryPrimitive { destination, .. }
             | Self::Call { destination, .. }
             | Self::RefFunc { destination, .. }
             | Self::ClosureNew { destination, .. }
@@ -319,10 +349,12 @@ impl Instruction {
     /// The values this instruction reads.
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
+            Self::Copy { value, .. } => vec![*value],
             Self::Constant { .. } | Self::NumberConstant { .. } | Self::StringConstant { .. } => {
                 Vec::new()
             }
             Self::Primitive { left, right, .. } => vec![*left, *right],
+            Self::UnaryPrimitive { value, .. } => vec![*value],
             Self::Call { arguments, .. } => arguments.clone(),
             Self::RefFunc { .. } => Vec::new(),
             Self::ClosureNew { captures, .. } => captures.clone(),
@@ -397,10 +429,12 @@ impl Instruction {
 
     pub fn span(&self) -> TextRange {
         match self {
-            Self::Constant { span, .. }
+            Self::Copy { span, .. }
+            | Self::Constant { span, .. }
             | Self::NumberConstant { span, .. }
             | Self::StringConstant { span, .. }
             | Self::Primitive { span, .. }
+            | Self::UnaryPrimitive { span, .. }
             | Self::Call { span, .. }
             | Self::RefFunc { span, .. }
             | Self::ClosureNew { span, .. }

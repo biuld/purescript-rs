@@ -30,8 +30,9 @@ Still open:
 - type classes and dictionary passing, open rows, and generic aggregates;
 - the complete scalar and numeric operation set
   ([D-09](docs/design/D-09-scalar-and-numeric-lowering.md));
-- the unified target-neutral variant representation and the linear-memory path
-  for every aggregate ([DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md),
+- broader aggregate coverage for the target-neutral variant representation and
+  the canonical ABI boundary
+  ([DEC-08](docs/decision/DEC-08-target-neutral-variant-representation.md),
   [D-10](docs/design/D-10-linear-memory-representation.md));
 - the broader canonical ABI and ownership rules
   ([D-07](docs/design/D-07-wit-imports-and-std.md)).
@@ -93,8 +94,9 @@ The artifact contract is an explicit capability profile for a pinned `wasmtime`
 release, not every feature a runtime happens to support. The stable profile
 enables Wasm GC, reference types, typed function references, and the synchronous
 WASI 0.2 Component Model path; SIMD, tail calls, exceptions, threads, memory64,
-and WASI 0.3 stay disabled until their lowerings and tests land. The backend also
-provides a core-MVP linear-memory planner that consumes the same CC IR. See
+and WASI 0.3 stay disabled until their lowerings and tests land. Wasm GC is the
+only language heap; linear memory is reserved for the canonical ABI boundary
+([DEC-09](docs/decision/DEC-09-gc-only-language-heap.md)). See
 [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) and
 [D-05](docs/design/D-05-backend-capability.md).
 
@@ -117,8 +119,8 @@ verification), [D-07](docs/design/D-07-wit-imports-and-std.md) (WIT imports and
 canonical ABI), [D-08](docs/design/D-08-generic-wasm-representation.md)
 (generic values), [D-09](docs/design/D-09-scalar-and-numeric-lowering.md)
 (scalar and numeric lowering), and
-[D-10](docs/design/D-10-linear-memory-representation.md) (linear-memory
-representation), with the concrete GC layouts and execution-evidence matrix in
+[D-10](docs/design/D-10-linear-memory-representation.md) (canonical ABI
+boundary), with the concrete GC layouts and execution-evidence matrix in
 [D-11](docs/design/D-11-gc-representation-and-evidence.md). The type system is
 in [D-03](docs/design/D-03-type-system.md) and the official-suite roadmap in
 [D-04](docs/design/D-04-suite-roadmap.md).

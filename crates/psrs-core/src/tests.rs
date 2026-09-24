@@ -298,6 +298,7 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
     );
     invalid_constructor.constructors.push(ConstructorInfo {
         symbol: SymbolId::new(ModuleId(0), 1),
+        name: "Invalid".into(),
         type_id: psrs_hir::TypeId::new(ModuleId(0), 0),
         tag: 0,
         field_count: 1,
@@ -355,6 +356,7 @@ fn verifier_rejects_a_constructor_annotated_as_an_unrelated_type() {
     );
     module.constructors.push(ConstructorInfo {
         symbol: SymbolId::new(ModuleId(0), 1),
+        name: "Invalid".into(),
         type_id: parent,
         tag: 0,
         field_count: 1,

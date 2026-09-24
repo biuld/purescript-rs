@@ -80,6 +80,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             .iter()
             .map(|constructor| crate::ConstructorInfo {
                 symbol: constructor.symbol,
+                name: constructor.name.clone(),
                 type_id: constructor.type_id,
                 tag: constructor.tag,
                 field_count: constructor.field_count,

@@ -1,7 +1,10 @@
 # DEC-08 — Target-Neutral Variant Representation
 
 **Status:** Accepted  
-**Date:** 2026-09-21
+**Date:** 2026-09-21  
+**Superseded in part by:** [DEC-09](DEC-09-gc-only-language-heap.md) — the
+linear-memory realization of `Variant` is retired; the target-neutral
+requirement and its GC realization remain.
 
 ## Context
 

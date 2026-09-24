@@ -10,6 +10,7 @@ pub(super) fn verify_memory_instruction(
     function: &Function,
     instruction: &Instruction,
     definitions: &HashMap<ValueId, ValueType>,
+    allocation_bounds: &HashMap<ValueId, u32>,
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
         Instruction::Load {
@@ -56,6 +57,7 @@ pub(super) fn verify_memory_instruction(
         Instruction::LinearAlloc {
             destination,
             bytes,
+            alignment,
             span,
         } => {
             if *bytes == 0 {
@@ -70,10 +72,12 @@ pub(super) fn verify_memory_instruction(
                     "MIR linear allocation must produce an i32 pointer",
                 ));
             }
+            verify_allocation_alignment(*alignment, Some(*bytes), *span)?;
         }
         Instruction::LinearAllocDynamic {
             destination,
             bytes,
+            alignment,
             span,
         } => {
             if require_value(definitions, *bytes, *span)? != ValueType::I32 {
@@ -88,6 +92,7 @@ pub(super) fn verify_memory_instruction(
                     "MIR dynamic linear allocation must produce an i32 pointer",
                 ));
             }
+            verify_allocation_alignment(*alignment, None, *span)?;
         }
         Instruction::LinearMemoryCopy {
             destination,
@@ -105,10 +110,23 @@ pub(super) fn verify_memory_instruction(
         Instruction::LinearLoad {
             destination,
             address,
+            memory,
+            offset,
+            object_bytes,
+            alignment,
             ty,
             span,
             ..
         } => {
+            verify_linear_access(*memory, *alignment, *ty, *span)?;
+            verify_access_bounds(
+                *address,
+                *offset,
+                *object_bytes,
+                *ty,
+                allocation_bounds,
+                *span,
+            )?;
             if require_value(definitions, *address, *span)? != ValueType::I32 {
                 return Err(mir_error(*span, "MIR linear load address must be i32"));
             }
@@ -119,10 +137,23 @@ pub(super) fn verify_memory_instruction(
         Instruction::LinearStore {
             address,
             value,
+            memory,
+            offset,
+            object_bytes,
+            alignment,
             ty,
             span,
             ..
         } => {
+            verify_linear_access(*memory, *alignment, *ty, *span)?;
+            verify_access_bounds(
+                *address,
+                *offset,
+                *object_bytes,
+                *ty,
+                allocation_bounds,
+                *span,
+            )?;
             if require_value(definitions, *address, *span)? != ValueType::I32
                 || require_value(definitions, *value, *span)? != *ty
                 || !linear_memory_type(*ty)
@@ -133,12 +164,24 @@ pub(super) fn verify_memory_instruction(
         Instruction::LinearClosureGetCapture {
             destination,
             closure,
+            offset,
+            object_bytes,
             ty,
             span,
             ..
         } => {
+            verify_access_bounds(
+                *closure,
+                *offset,
+                *object_bytes,
+                *ty,
+                allocation_bounds,
+                *span,
+            )?;
             if require_value(definitions, *closure, *span)? != ValueType::I32
                 || !linear_memory_type(*ty)
+                || *offset < 8
+                || !offset.is_multiple_of(value_alignment(*ty))
                 || value_type(function, *destination) != Some(*ty)
             {
                 return Err(mir_error(
@@ -183,4 +226,83 @@ pub(super) fn verify_memory_instruction(
 
 fn linear_memory_type(ty: ValueType) -> bool {
     matches!(ty, ValueType::I32 | ValueType::Boolean | ValueType::F64)
+}
+
+fn value_alignment(ty: ValueType) -> u32 {
+    match ty {
+        ValueType::F64 => 8,
+        ValueType::I32 | ValueType::Boolean => 4,
+        _ => 1,
+    }
+}
+
+fn verify_access_bounds(
+    address: ValueId,
+    offset: u32,
+    object_bytes: u32,
+    ty: ValueType,
+    allocation_bounds: &HashMap<ValueId, u32>,
+    span: psrs_span::TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let access_bytes = match ty {
+        ValueType::I32 | ValueType::Boolean => 4,
+        ValueType::F64 => 8,
+        _ => return Err(mir_error(span, "MIR linear access type is invalid")),
+    };
+    if offset
+        .checked_add(access_bytes)
+        .is_none_or(|end| end > object_bytes)
+    {
+        return Err(mir_error(
+            span,
+            "MIR linear access exceeds its planned object bounds",
+        ));
+    }
+    if allocation_bounds
+        .get(&address)
+        .is_some_and(|allocation_bytes| object_bytes > *allocation_bytes)
+    {
+        return Err(mir_error(
+            span,
+            "MIR linear access bound exceeds its originating allocation",
+        ));
+    }
+    Ok(())
+}
+
+fn verify_allocation_alignment(
+    alignment: u32,
+    bytes: Option<u32>,
+    span: psrs_span::TextRange,
+) -> Result<(), Vec<BackendError>> {
+    if !matches!(alignment, 4 | 8) || bytes.is_some_and(|bytes| !bytes.is_multiple_of(alignment)) {
+        return Err(mir_error(
+            span,
+            "MIR linear allocation alignment is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn verify_linear_access(
+    memory: MemoryId,
+    alignment: u32,
+    ty: ValueType,
+    span: psrs_span::TextRange,
+) -> Result<(), Vec<BackendError>> {
+    if memory != MemoryId(0) {
+        return Err(mir_error(
+            span,
+            "MIR linear access references an unknown memory",
+        ));
+    }
+    let natural = match ty {
+        ValueType::I32 | ValueType::Boolean => 4,
+        ValueType::F64 => 8,
+        _ => return Err(mir_error(span, "MIR linear access type is invalid")),
+    };
+    if !alignment.is_power_of_two() || alignment > natural {
+        return Err(mir_error(span, "MIR linear access alignment is invalid"));
+    }
+    Ok(())
 }

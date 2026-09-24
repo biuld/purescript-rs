@@ -1,4 +1,4 @@
-use super::wasm_error;
+use super::util::mir_error;
 use crate::BackendError;
 use crate::TargetCapabilities;
 use crate::mir;
@@ -14,9 +14,8 @@ struct RequiredCapabilities {
 
 /// Checks the capabilities that the current MIR module actually requires.
 ///
-/// This is intentionally a lowering check rather than a validator setting:
-/// the validator says what a target accepts, while this check explains why a
-/// particular source program cannot be emitted for a narrower target.
+/// The validator says what a binary target accepts; this check rejects an
+/// unsupported concrete MIR operation at the boundary that created it.
 pub(super) fn validate_target_capabilities(
     module: &mir::Module,
     target: TargetCapabilities,
@@ -60,25 +59,25 @@ pub(super) fn validate_target_capabilities(
 
     let mut errors = Vec::new();
     if required.reference_types && !target.reference_types {
-        errors.extend(wasm_error(
+        errors.extend(mir_error(
             module.span,
             "the selected target does not support WebAssembly reference types required by this module",
         ));
     }
     if required.function_references && !target.function_references {
-        errors.extend(wasm_error(
+        errors.extend(mir_error(
             module.span,
             "the selected target does not support typed function references required by this module",
         ));
     }
     if required.gc && !target.gc {
-        errors.extend(wasm_error(
+        errors.extend(mir_error(
             module.span,
             "the selected target does not support WebAssembly GC required by this module",
         ));
     }
     if required.multi_value && !target.multi_value {
-        errors.extend(wasm_error(
+        errors.extend(mir_error(
             module.span,
             "the selected target does not support multi-value function types required by this module",
         ));

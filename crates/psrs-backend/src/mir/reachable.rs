@@ -196,6 +196,9 @@ fn add_assignments(
             ),
             AssignmentKind::ProductNew { representation, .. }
             | AssignmentKind::ProductGet { representation, .. }
+            | AssignmentKind::VariantNew { representation, .. }
+            | AssignmentKind::VariantTag { representation, .. }
+            | AssignmentKind::VariantGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
             | AssignmentKind::ArrayClone { representation, .. }
@@ -234,6 +237,7 @@ fn add_assignments(
             | AssignmentKind::NumberConstant(_)
             | AssignmentKind::StringConstant(_)
             | AssignmentKind::Primitive { .. }
+            | AssignmentKind::Unary { .. }
             | AssignmentKind::ArrayLen { .. } => {}
             AssignmentKind::ClosureGetCapture { .. } => {
                 *needs_integer_box |=

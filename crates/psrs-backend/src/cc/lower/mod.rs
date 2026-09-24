@@ -16,9 +16,11 @@ mod erased;
 mod global;
 mod lambda;
 mod record;
+mod scalar;
 use call::ApplicationLowering;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
+use scalar::lower_binary_op;
 
 /// Allocates generated callable symbols without relying on source offsets.
 ///
@@ -338,14 +340,7 @@ impl FunctionLowerer<'_> {
                 })?;
                 let destination = self.fresh(ty);
                 if self.aggregate_types.contains(&constructor.type_id) {
-                    let mut values = Vec::with_capacity(arguments.len() + 1);
-                    let tag_value = self.fresh(ValueShape::Integer);
-                    assignments.push(Assignment {
-                        destination: tag_value,
-                        kind: AssignmentKind::Constant(tag as i32),
-                        span: expression.span,
-                    });
-                    values.push(tag_value);
+                    let mut values = Vec::with_capacity(arguments.len());
                     for (index, argument) in arguments.iter().enumerate() {
                         let value = self.lower_value(argument, assignments)?;
                         if depends_on_type_variable(
@@ -366,10 +361,11 @@ impl FunctionLowerer<'_> {
                     };
                     assignments.push(Assignment {
                         destination,
-                        kind: AssignmentKind::ProductNew {
+                        kind: AssignmentKind::VariantNew {
                             destination,
                             representation,
-                            arguments: values,
+                            case: tag,
+                            fields: values,
                         },
                         span: expression.span,
                     });
@@ -398,7 +394,7 @@ impl FunctionLowerer<'_> {
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::Primitive {
-                        op: *op,
+                        op: lower_binary_op(*op),
                         left,
                         right,
                     },

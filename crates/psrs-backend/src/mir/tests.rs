@@ -1,9 +1,9 @@
+use super::NumericOp;
 use super::{BasicBlock, BlockId, Function, Import, Instruction, Module, Terminator};
 use crate::types::{
     CompositeType, DefinedType, FieldType, HeapType, RecGroup, RefType, StorageType, ValueDecl,
     ValueId, ValueType,
 };
-use psrs_core::Primitive;
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 
@@ -68,6 +68,86 @@ fn defined_types_flow_into_the_wasm_type_section() {
     crate::validator()
         .validate_all(&binary)
         .expect("the encoded module should validate");
+}
+
+#[test]
+fn lowers_and_validates_f64_to_f32_abi_conversions() {
+    let symbol = SymbolId::new(ModuleId(0), 0);
+    let mir = Module {
+        name: "FloatAbi".into(),
+        entry: Some(symbol),
+        types: Vec::new(),
+        imports: Vec::new(),
+        functions: vec![Function {
+            id: crate::types::FunctionId(0),
+            symbol,
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![
+                ValueDecl {
+                    id: ValueId(0),
+                    ty: ValueType::F64,
+                },
+                ValueDecl {
+                    id: ValueId(1),
+                    ty: ValueType::F32,
+                },
+                ValueDecl {
+                    id: ValueId(2),
+                    ty: ValueType::F64,
+                },
+                ValueDecl {
+                    id: ValueId(3),
+                    ty: ValueType::I32,
+                },
+            ],
+            entry: BlockId(0),
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: vec![
+                    Instruction::NumberConstant {
+                        destination: ValueId(0),
+                        value: "1.25".into(),
+                        span: span(),
+                    },
+                    Instruction::UnaryPrimitive {
+                        destination: ValueId(1),
+                        op: super::UnaryOp::F64ToF32,
+                        value: ValueId(0),
+                        span: span(),
+                    },
+                    Instruction::UnaryPrimitive {
+                        destination: ValueId(2),
+                        op: super::UnaryOp::F32ToF64,
+                        value: ValueId(1),
+                        span: span(),
+                    },
+                    Instruction::UnaryPrimitive {
+                        destination: ValueId(3),
+                        op: super::UnaryOp::F64ToI32Sat,
+                        value: ValueId(2),
+                        span: span(),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: ValueId(3),
+                    span: span(),
+                }),
+            }],
+            result: ValueId(3),
+            result_type: ValueType::I32,
+            span: span(),
+        }],
+        span: span(),
+    };
+
+    let wasm = crate::wasm::lower_module(&mir, &mut registry())
+        .expect("f64/f32 ABI conversions should lower to Wasm");
+    let binary = crate::wasm::encode_module(&wasm).expect("encoding the Wasm module");
+    crate::validator()
+        .validate_all(&binary)
+        .expect("the encoded f64/f32 conversion sequence should validate");
 }
 
 /// A MIR function that builds a GC struct and sums its fields, lowered through
@@ -165,7 +245,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
                     },
                     Instruction::Primitive {
                         destination: ValueId(0),
-                        op: Primitive::Add,
+                        op: NumericOp::I32Add,
                         left: ValueId(4),
                         right: ValueId(5),
                         span: span(),
