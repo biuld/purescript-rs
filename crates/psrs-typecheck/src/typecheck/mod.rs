@@ -63,6 +63,23 @@ pub fn typecheck_module_with_imports_and_effect_representation(
     imported: &HashMap<SymbolId, hir::Type>,
     effect_runtime_representation: bool,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_imports_and_effect_context(
+        module,
+        imported,
+        None,
+        effect_runtime_representation,
+    )
+}
+
+/// Type checks a module with the resolved identity of the library's abstract
+/// `Effect` type, including when that identity arrives through transitive value
+/// signatures.
+pub fn typecheck_module_with_imports_and_effect_context(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -76,7 +93,12 @@ pub fn typecheck_module_with_imports_and_effect_representation(
             .collect());
     }
 
-    let mut checker = Checker::new(&module, imported, effect_runtime_representation);
+    let mut checker = Checker::new(
+        &module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+    );
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)

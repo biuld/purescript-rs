@@ -65,6 +65,50 @@ fn run_effect_is_only_available_from_the_selected_entry() {
     }));
 }
 
+#[test]
+fn transitive_effect_types_keep_their_closure_representation() {
+    let library_source = (
+        "Library.purs",
+        "module Library where\nimport Prelude\nimport WASI.Clock\naction :: Effect Int\naction = now\n",
+    );
+    let main_source = (
+        "Main.purs",
+        "module Main where\nimport Library\nforward = action\nmain = let ignored = forward in 0\n",
+    );
+    let mut sources = prelude::SOURCES.to_vec();
+    sources.extend([library_source, main_source]);
+    let typed = crate::program::typecheck_program_sources_with_trusted_prefix(
+        &sources,
+        prelude::SOURCES.len(),
+    )
+    .unwrap();
+    let library = typed
+        .iter()
+        .find(|module| module.name == "Library")
+        .unwrap();
+    let main = typed.iter().find(|module| module.name == "Main").unwrap();
+    let action = library
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "action")
+        .unwrap();
+    let forward = main
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "forward")
+        .unwrap();
+    assert!(matches!(
+        library.types.get(action.ty.0 as usize),
+        Some(psrs_thir::Type::Function { .. })
+    ));
+    assert_eq!(
+        main.types.get(forward.ty.0 as usize),
+        library.types.get(action.ty.0 as usize)
+    );
+    let artifact = compile_program_sources_with_prelude(&[library_source, main_source]);
+    assert!(artifact.is_ok(), "{artifact:?}");
+}
+
 fn run_effect_program(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

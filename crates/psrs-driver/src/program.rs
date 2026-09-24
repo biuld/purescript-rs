@@ -228,7 +228,7 @@ pub fn typecheck_program_sources(
     typecheck_program_sources_with_trusted_prefix(sources, 0)
 }
 
-fn typecheck_program_sources_with_trusted_prefix(
+pub(crate) fn typecheck_program_sources_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
@@ -241,6 +241,16 @@ fn typecheck_program(
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
+    let effect_type = modules
+        .iter()
+        .find(|module| module.name == "Prelude")
+        .and_then(|module| {
+            module
+                .types
+                .iter()
+                .find(|declaration| declaration.name == "Effect")
+                .map(|declaration| declaration.id)
+        });
     let exported = modules.iter().map(exported_signatures).collect::<Vec<_>>();
     let order = typecheck_order(&modules);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
@@ -283,13 +293,12 @@ fn typecheck_program(
                 module.name.as_str(),
                 "Prelude" | "WASI.Console" | "WASI.Clock"
             );
-        let check = if trusted_effect_representation {
-            psrs_typecheck::typecheck_module_with_imports_and_effect_representation(
-                module, &imported, true,
-            )
-        } else {
-            psrs_typecheck::typecheck_module_with_imports(module, &imported)
-        };
+        let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
+            module,
+            &imported,
+            effect_type,
+            trusted_effect_representation,
+        );
         match check {
             Ok(module) => typed[index] = Some(module),
             Err(module_errors) => {
