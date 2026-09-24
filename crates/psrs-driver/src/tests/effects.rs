@@ -34,6 +34,37 @@ fn a_stored_effect_runs_each_time_it_is_explicitly_run() {
     assert_eq!(output.stdout, b"again\nagain\n");
 }
 
+#[test]
+fn a_function_cannot_be_passed_to_run_effect_as_an_effect() {
+    let source = "module Main where\nimport Prelude\nmain = runEffect (\\token -> 42)\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.stage == "P5 typecheck" && error.message.contains("type mismatch")
+        })
+    );
+}
+
+#[test]
+fn run_effect_is_only_available_from_the_selected_entry() {
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nimport Prelude\nrun = runEffect (pure 42)\n",
+    );
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper\nmain = run\n",
+    );
+    let errors = compile_program_sources_with_prelude(&[helper, main]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.stage == "P7 entry selection"
+            && error
+                .diagnostic
+                .message
+                .contains("runEffect` binding may only be referenced")
+    }));
+}
+
 fn run_effect_program(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")

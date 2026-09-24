@@ -51,6 +51,18 @@ pub fn typecheck_module_with_imports(
     module: hir::Module,
     imported: &HashMap<SymbolId, hir::Type>,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_imports_and_effect_representation(module, imported, false)
+}
+
+/// Type checks a trusted embedded library module whose `Effect a` values are
+/// implemented as token-taking closures. Ordinary source modules must use
+/// [`typecheck_module_with_imports`] so `Effect` remains abstract while
+/// unification runs.
+pub fn typecheck_module_with_imports_and_effect_representation(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_runtime_representation: bool,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -64,7 +76,7 @@ pub fn typecheck_module_with_imports(
             .collect());
     }
 
-    let mut checker = Checker::new(&module, imported);
+    let mut checker = Checker::new(&module, imported, effect_runtime_representation);
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
@@ -246,6 +258,7 @@ enum InferType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TypeConstructor {
     Array,
+    Effect,
     User(hir::TypeId),
 }
 
@@ -393,6 +406,8 @@ struct Checker {
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
     synonyms: HashMap<hir::TypeId, Synonym>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
     constructor_info: HashMap<SymbolId, ConstructorInfo>,
     expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,

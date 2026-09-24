@@ -5,7 +5,11 @@ mod pattern;
 mod records;
 
 impl Checker {
-    pub(super) fn new(module: &hir::Module, imported: &HashMap<SymbolId, hir::Type>) -> Self {
+    pub(super) fn new(
+        module: &hir::Module,
+        imported: &HashMap<SymbolId, hir::Type>,
+        effect_runtime_representation: bool,
+    ) -> Self {
         let mut checker = Self {
             globals: HashMap::new(),
             external_kinds: module
@@ -49,6 +53,21 @@ impl Checker {
                     ))
                 })
                 .collect(),
+            effect_type: module
+                .types
+                .iter()
+                .find(|declaration| module.name == "Prelude" && declaration.name == "Effect")
+                .map(|declaration| declaration.id)
+                .or_else(|| {
+                    module
+                        .imports
+                        .iter()
+                        .filter(|import| import.module_name == "Prelude")
+                        .flat_map(|import| &import.types)
+                        .find(|imported_type| imported_type.name == "Effect")
+                        .map(|imported_type| imported_type.id)
+                }),
+            effect_runtime_representation,
             constructor_info: module
                 .types
                 .iter()
