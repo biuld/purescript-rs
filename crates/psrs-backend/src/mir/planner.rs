@@ -64,13 +64,37 @@ impl LinearMemoryLayout {
         }
     }
 
+    pub(super) fn value_bytes(value: ValueShape) -> u32 {
+        value_size(&value)
+    }
+
+    pub(super) fn value_alignment(value: ValueShape) -> u32 {
+        value_alignment(&value)
+    }
+
     pub(super) fn representation_size(&self, id: ReprId) -> Result<u32, LayoutError> {
         match self.representation(id)? {
-            LinearRepresentation::Box { size, .. }
-            | LinearRepresentation::Product { size, .. }
-            | LinearRepresentation::Variant { size, .. } => Ok((*size).max(1)),
+            LinearRepresentation::Box {
+                size, alignment, ..
+            }
+            | LinearRepresentation::Product {
+                size, alignment, ..
+            }
+            | LinearRepresentation::Variant {
+                size, alignment, ..
+            } => Ok((*size).max(*alignment)),
             LinearRepresentation::Array { .. } => Err(LayoutError::UnsupportedLinearOperation),
         }
+    }
+
+    pub(super) fn representation_alignment(&self, id: ReprId) -> Result<u32, LayoutError> {
+        let alignment = match self.representation(id)? {
+            LinearRepresentation::Box { alignment, .. }
+            | LinearRepresentation::Product { alignment, .. }
+            | LinearRepresentation::Variant { alignment, .. }
+            | LinearRepresentation::Array { alignment, .. } => *alignment,
+        };
+        Ok(alignment)
     }
 
     pub(super) fn field(&self, id: ReprId, field: u32) -> Result<(u32, ValueShape), LayoutError> {
@@ -92,10 +116,30 @@ impl LinearMemoryLayout {
         }
     }
 
-    pub(super) fn array(&self, id: ReprId) -> Result<(ValueShape, u32), LayoutError> {
+    pub(super) fn array(&self, id: ReprId) -> Result<(ValueShape, u32, u32, u32), LayoutError> {
         match self.representation(id)? {
-            LinearRepresentation::Array { element, stride } => Ok((*element, *stride)),
+            LinearRepresentation::Array {
+                element,
+                stride,
+                element_offset,
+                alignment,
+            } => Ok((*element, *stride, *element_offset, *alignment)),
             _ => Err(LayoutError::UnsupportedLinearOperation),
+        }
+    }
+
+    pub(super) fn variant_fields(
+        &self,
+        id: ReprId,
+        tag: u32,
+    ) -> Result<&[LinearField], LayoutError> {
+        match self.representation(id)? {
+            LinearRepresentation::Variant { cases, .. } => cases
+                .iter()
+                .find(|(case_tag, _)| *case_tag == tag)
+                .map(|(_, fields)| fields.as_slice())
+                .ok_or(LayoutError::UnknownField),
+            _ => Err(LayoutError::UnknownRepresentation),
         }
     }
 
@@ -112,19 +156,24 @@ pub(crate) enum LinearRepresentation {
     Box {
         value: ValueShape,
         size: u32,
+        alignment: u32,
     },
     Product {
         fields: Vec<LinearField>,
         size: u32,
+        alignment: u32,
     },
     Variant {
         tag_size: u32,
-        cases: Vec<Vec<LinearField>>,
+        cases: Vec<(u32, Vec<LinearField>)>,
         size: u32,
+        alignment: u32,
     },
     Array {
         element: ValueShape,
         stride: u32,
+        element_offset: u32,
+        alignment: u32,
     },
 }
 
@@ -161,7 +210,13 @@ impl RepresentationPlanner for LinearMemoryPlanner {
                 .representation(id)
                 .ok_or(LayoutError::UnknownRepresentation)?;
             let (planned, size) = plan_representation(representation, &module.representations)?;
-            offset = align(offset, alignment(size));
+            let alignment = match &planned {
+                LinearRepresentation::Box { alignment, .. }
+                | LinearRepresentation::Product { alignment, .. }
+                | LinearRepresentation::Variant { alignment, .. }
+                | LinearRepresentation::Array { alignment, .. } => *alignment,
+            };
+            offset = align(offset, alignment);
             representations.insert(id, planned);
             offset = offset.saturating_add(size);
         }
@@ -220,31 +275,45 @@ fn plan_representation(
         Representation::Box { value } => {
             validate_value(value, table)?;
             let size = value_size(value);
+            let alignment = value_alignment(value);
             Ok((
                 LinearRepresentation::Box {
                     value: *value,
                     size,
+                    alignment,
                 },
                 size,
             ))
         }
         Representation::Product { fields } => {
-            let (fields, size) = plan_fields(fields, table)?;
-            Ok((LinearRepresentation::Product { fields, size }, size))
+            let (fields, size, alignment) = plan_fields(fields, table)?;
+            Ok((
+                LinearRepresentation::Product {
+                    fields,
+                    size,
+                    alignment,
+                },
+                size,
+            ))
         }
         Representation::Variant { cases } => {
             let mut planned_cases = Vec::with_capacity(cases.len());
             let mut size = 4;
+            let mut case_alignment = 4;
             for case in cases {
-                let (fields, case_size) = plan_fields(&case.fields, table)?;
-                size = size.max(4 + case_size);
-                planned_cases.push(fields);
+                let (fields, case_size, field_alignment) = plan_fields_at(&case.fields, table, 4)?;
+                size = size.max(case_size);
+                case_alignment = case_alignment.max(field_alignment);
+                planned_cases.push((case.tag, fields));
             }
+            let alignment = case_alignment.max(4);
+            size = align(size, alignment);
             Ok((
                 LinearRepresentation::Variant {
                     tag_size: 4,
                     cases: planned_cases,
                     size,
+                    alignment,
                 },
                 size,
             ))
@@ -252,12 +321,16 @@ fn plan_representation(
         Representation::Array { element } => {
             validate_value(element, table)?;
             let stride = value_size(element);
+            let alignment = value_alignment(element);
+            let element_offset = align(4, alignment);
             Ok((
                 LinearRepresentation::Array {
                     element: *element,
                     stride,
+                    element_offset,
+                    alignment,
                 },
-                4,
+                element_offset,
             ))
         }
     }
@@ -266,20 +339,31 @@ fn plan_representation(
 fn plan_fields(
     fields: &[ValueShape],
     table: &crate::cc::RepresentationTable,
-) -> Result<(Vec<LinearField>, u32), LayoutError> {
-    let mut offset = 0u32;
+) -> Result<(Vec<LinearField>, u32, u32), LayoutError> {
+    plan_fields_at(fields, table, 0)
+}
+
+fn plan_fields_at(
+    fields: &[ValueShape],
+    table: &crate::cc::RepresentationTable,
+    start: u32,
+) -> Result<(Vec<LinearField>, u32, u32), LayoutError> {
+    let mut offset = start;
+    let mut object_alignment = 4;
     let mut planned = Vec::with_capacity(fields.len());
     for value in fields {
         validate_value(value, table)?;
         let size = value_size(value);
-        offset = align(offset, alignment(size));
+        let field_alignment = value_alignment(value);
+        object_alignment = object_alignment.max(field_alignment);
+        offset = align(offset, field_alignment);
         planned.push(LinearField {
             offset,
             value: *value,
         });
         offset = offset.saturating_add(size);
     }
-    Ok((planned, offset))
+    Ok((planned, align(offset, object_alignment), object_alignment))
 }
 
 fn validate_value(
@@ -307,8 +391,8 @@ fn value_size(value: &ValueShape) -> u32 {
     }
 }
 
-fn alignment(size: u32) -> u32 {
-    if size >= 8 { 8 } else { 4 }
+fn value_alignment(value: &ValueShape) -> u32 {
+    if value_size(value) >= 8 { 8 } else { 4 }
 }
 
 fn align(offset: u32, alignment: u32) -> u32 {
@@ -317,114 +401,5 @@ fn align(offset: u32, alignment: u32) -> u32 {
         offset
     } else {
         offset + alignment - remainder
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cc::{Function, Module as CcModule, Reference, Signature, ValueDecl};
-    use psrs_hir::{ModuleId, SymbolId};
-    use psrs_span::TextRange;
-
-    fn module() -> CcModule {
-        let mut representations = crate::cc::RepresentationTable::default();
-        let product = representations.reserve();
-        representations.set(
-            product,
-            Representation::Product {
-                fields: vec![ValueShape::Integer, ValueShape::Number],
-            },
-        );
-        let array = representations.reserve();
-        representations.set(
-            array,
-            Representation::Array {
-                element: ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: crate::cc::RefShape::Repr(product),
-                }),
-            },
-        );
-        let signature = representations.add_signature(Signature {
-            parameters: vec![ValueShape::Reference(Reference {
-                nullable: false,
-                heap: crate::cc::RefShape::Repr(product),
-            })],
-            result: ValueShape::Integer,
-        });
-        let closure_value = crate::cc::ValueId(0);
-        let array_value = crate::cc::ValueId(1);
-        CcModule {
-            name: "planner".into(),
-            externals: Vec::new(),
-            representations,
-            functions: vec![Function {
-                symbol: SymbolId::new(ModuleId(0), 0),
-                name: "entry".into(),
-                parameters: vec![closure_value, array_value],
-                values: vec![
-                    ValueDecl {
-                        id: closure_value,
-                        ty: ValueShape::Reference(Reference {
-                            nullable: false,
-                            heap: crate::cc::RefShape::Closure(signature),
-                        }),
-                    },
-                    ValueDecl {
-                        id: array_value,
-                        ty: ValueShape::Reference(Reference {
-                            nullable: false,
-                            heap: crate::cc::RefShape::Repr(array),
-                        }),
-                    },
-                ],
-                assignments: Vec::new(),
-                result: closure_value,
-                result_type: ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: crate::cc::RefShape::Closure(signature),
-                }),
-                span: TextRange::new(0, 1),
-            }],
-            entry: None,
-            span: TextRange::new(0, 1),
-        }
-    }
-
-    #[test]
-    fn gc_and_linear_planners_consume_the_same_cc_requirements() {
-        let module = module();
-        let gc = GcPlanner {
-            target: TargetCapabilities::default(),
-        }
-        .plan_module(&module)
-        .expect("GC planner should accept the fixture");
-        let linear = LinearMemoryPlanner
-            .plan_module(&module)
-            .expect("linear planner should accept the same fixture");
-        assert_eq!(
-            gc.repr_index(ReprId(0)).unwrap(),
-            crate::types::DefinedTypeId(0)
-        );
-        assert!(linear.representations.contains_key(&ReprId(0)));
-        assert!(linear.representations.contains_key(&ReprId(1)));
-        assert_eq!(linear.signatures[&SignatureId(0)].table_slot, 0);
-        assert!(linear.next_offset >= 12);
-    }
-
-    #[test]
-    fn linear_planner_assigns_aligned_product_fields() {
-        let module = module();
-        let layout = LinearMemoryPlanner
-            .plan_module(&module)
-            .expect("linear planner should plan fields");
-        let LinearRepresentation::Product { fields, size } = &layout.representations[&ReprId(0)]
-        else {
-            panic!("expected product layout");
-        };
-        assert_eq!(fields[0].offset, 0);
-        assert_eq!(fields[1].offset, 8);
-        assert_eq!(*size, 16);
     }
 }

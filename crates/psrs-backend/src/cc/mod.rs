@@ -1,6 +1,6 @@
 use crate::abi::{SourceSignature, SourceType};
 use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
-use psrs_core::{Module as CoreModule, Primitive};
+use psrs_core::{Module as CoreModule, Type as CoreType, TypeConstructor};
 use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::cell::RefCell;
@@ -11,6 +11,7 @@ mod case;
 mod layout;
 mod lower;
 mod representation;
+mod scalar;
 mod verify;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
@@ -19,8 +20,9 @@ use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 pub use crate::types::ValueId;
 pub use representation::{
     RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
-    ValueDecl, ValueShape,
+    ValueDecl, ValueShape, VariantCase,
 };
+pub use scalar::{BinaryOp, UnaryOp};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
@@ -69,9 +71,13 @@ pub enum AssignmentKind {
     NumberConstant(String),
     StringConstant(String),
     Primitive {
-        op: Primitive,
+        op: BinaryOp,
         left: ValueId,
         right: ValueId,
+    },
+    Unary {
+        op: UnaryOp,
+        value: ValueId,
     },
     DirectCall {
         function: SymbolId,
@@ -109,6 +115,24 @@ pub enum AssignmentKind {
     ProductGet {
         destination: ValueId,
         representation: ReprId,
+        field: u32,
+        value: ValueId,
+    },
+    VariantNew {
+        destination: ValueId,
+        representation: ReprId,
+        case: u32,
+        fields: Vec<ValueId>,
+    },
+    VariantTag {
+        destination: ValueId,
+        representation: ReprId,
+        value: ValueId,
+    },
+    VariantGet {
+        destination: ValueId,
+        representation: ReprId,
+        case: u32,
         field: u32,
         value: ValueId,
     },
@@ -206,7 +230,10 @@ pub fn lower_module_with_bindings(
     }
     let mut externals = Vec::new();
     for binding in &bindings.imports {
-        let signature = binding.signature.as_ref().and_then(abstract_signature);
+        let signature = binding
+            .signature
+            .as_ref()
+            .and_then(|signature| abstract_signature(signature, &module, &layout.record_types));
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }
@@ -270,22 +297,162 @@ pub fn lower_module_with_bindings(
     })
 }
 
-pub(crate) fn abstract_signature(signature: &SourceSignature) -> Option<Signature> {
+pub(crate) fn abstract_signature(
+    signature: &SourceSignature,
+    module: &CoreModule,
+    record_types: &HashMap<psrs_core::TypeId, ReprId>,
+) -> Option<Signature> {
     Some(Signature {
         parameters: signature
             .parameters
             .iter()
-            .copied()
-            .map(scalar_source_type)
+            .map(|ty| scalar_source_type(ty, module, record_types))
             .collect::<Option<Vec<_>>>()?,
-        result: scalar_source_type(signature.result)?,
+        result: scalar_source_type(&signature.result, module, record_types)?,
     })
 }
 
-fn scalar_source_type(ty: SourceType) -> Option<ValueShape> {
+fn scalar_source_type(
+    ty: &SourceType,
+    module: &CoreModule,
+    record_types: &HashMap<psrs_core::TypeId, ReprId>,
+) -> Option<ValueShape> {
     Some(match ty {
-        SourceType::Int | SourceType::String | SourceType::Unit => ValueShape::Integer,
+        SourceType::Int
+        | SourceType::Char
+        | SourceType::Enum { .. }
+        | SourceType::String
+        | SourceType::Unit => ValueShape::Integer,
         SourceType::Boolean => ValueShape::Boolean,
         SourceType::Number => ValueShape::Number,
+        SourceType::Record { .. } => {
+            let type_id = module
+                .types
+                .iter()
+                .enumerate()
+                .find_map(|(index, core_type)| {
+                    core_type_matches_source(module, core_type, ty)
+                        .then_some(psrs_core::TypeId(index as u32))
+                })?;
+            let representation = record_types.get(&type_id).copied()?;
+            ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(representation),
+            })
+        }
     })
+}
+
+pub(crate) fn signature_matches_source(
+    source: &SourceSignature,
+    actual: &Signature,
+    representations: &RepresentationTable,
+) -> bool {
+    source.parameters.len() == actual.parameters.len()
+        && source
+            .parameters
+            .iter()
+            .zip(&actual.parameters)
+            .all(|(source, actual)| source_shape_matches(source, actual, representations))
+        && source_shape_matches(&source.result, &actual.result, representations)
+}
+
+fn source_shape_matches(
+    source: &SourceType,
+    actual: &ValueShape,
+    representations: &RepresentationTable,
+) -> bool {
+    match source {
+        SourceType::Int
+        | SourceType::Char
+        | SourceType::Enum { .. }
+        | SourceType::String
+        | SourceType::Unit => *actual == ValueShape::Integer,
+        SourceType::Boolean => *actual == ValueShape::Boolean,
+        SourceType::Number => *actual == ValueShape::Number,
+        SourceType::Record { fields } => {
+            let ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(representation),
+            }) = actual
+            else {
+                return false;
+            };
+            let Some(Representation::Product {
+                fields: actual_fields,
+            }) = representations.representation(*representation)
+            else {
+                return false;
+            };
+            fields.len() == actual_fields.len()
+                && fields
+                    .iter()
+                    .zip(actual_fields)
+                    .all(|((_, source), actual)| {
+                        source_shape_matches(source, actual, representations)
+                    })
+        }
+    }
+}
+
+fn core_type_matches_source(module: &CoreModule, core: &CoreType, source: &SourceType) -> bool {
+    match (core, source) {
+        (CoreType::I32, SourceType::Int)
+        | (CoreType::Boolean, SourceType::Boolean)
+        | (CoreType::F64, SourceType::Number)
+        | (CoreType::Char, SourceType::Char)
+        | (CoreType::String, SourceType::String)
+        | (CoreType::Unit, SourceType::Unit) => true,
+        (CoreType::Constructor(TypeConstructor::User(type_id)), SourceType::Enum { cases }) => {
+            source_enum_cases(module, *type_id).as_ref() == Some(cases)
+        }
+        (CoreType::Application(function, _), SourceType::Enum { cases }) => {
+            core_type_user_id(module, *function)
+                .and_then(|type_id| source_enum_cases(module, type_id))
+                .as_ref()
+                == Some(cases)
+        }
+        (CoreType::Record(core_fields), SourceType::Record { fields }) => {
+            core_fields.len() == fields.len()
+                && core_fields.iter().zip(fields).all(
+                    |((core_label, core_type), (source_label, source_type))| {
+                        core_label == source_label
+                            && module.types.get(core_type.0 as usize).is_some_and(|core| {
+                                core_type_matches_source(module, core, source_type)
+                            })
+                    },
+                )
+        }
+        _ => false,
+    }
+}
+
+fn core_type_user_id(module: &CoreModule, id: psrs_core::TypeId) -> Option<HirTypeId> {
+    match module.types.get(id.0 as usize)? {
+        CoreType::Constructor(TypeConstructor::User(type_id)) => Some(*type_id),
+        CoreType::Application(function, _) => core_type_user_id(module, *function),
+        _ => None,
+    }
+}
+
+fn source_enum_cases(module: &CoreModule, type_id: HirTypeId) -> Option<Vec<String>> {
+    let mut constructors = module
+        .constructors
+        .iter()
+        .filter(|constructor| constructor.type_id == type_id)
+        .collect::<Vec<_>>();
+    constructors.sort_by_key(|constructor| constructor.tag);
+    if constructors.is_empty()
+        || constructors.iter().enumerate().any(|(index, constructor)| {
+            constructor.tag != index as u32 || constructor.field_count != 0
+        })
+    {
+        return None;
+    }
+    Some(
+        constructors
+            .into_iter()
+            .map(|constructor| constructor.name.clone())
+            .collect(),
+    )
 }

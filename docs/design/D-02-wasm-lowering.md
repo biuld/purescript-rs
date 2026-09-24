@@ -106,9 +106,7 @@ lower to Wasm GC `array.new_fixed`, the `arrayLength` bootstrap intrinsic lowers
 to `array.len`, the concrete `arrayIndex` intrinsic lowers to `array.get`, and
 the concrete `arrayUpdate` intrinsic allocates a same-length copy with
 `array.new_default` and `array.copy`, then lowers the update to `array.set` on
-that copy. The input reference is never mutated. The linear-memory lowering
-allocates a new length-prefixed buffer, copies its payload with `memory.copy`,
-and then performs the store in the new buffer.
+that copy. The input reference is never mutated.
 Newtypes are erased to their single field, and
 constructor patterns in function parameters are lowered to an explicit
 temporary parameter plus `case`. Parameterized ADTs use the erased runtime
@@ -127,7 +125,11 @@ captures are boxed as `i31` values, Int captures use a full-width one-field GC
 box, and reference captures retain their GC reference representation.
 Compatible source WIT imports are lowered through the generic canonical-ABI
 adapter; mismatched source signatures, non-byte lists, and unsupported
-aggregate results are rejected before MIR emission. Type inference supports rank-1 polymorphism: it
+aggregate results are rejected before MIR emission. P9 can also project and
+flatten direct scalar WIT record parameters in WIT field order. The type checker
+still rejects record type signatures, so this adapter path is not yet
+source-reachable; indirect record
+parameters and aggregate results remain unsupported. Type inference supports rank-1 polymorphism: it
 generalizes local `let` groups and top-level strongly connected components and
 instantiates schemes at use sites. Declarations may carry a `name :: Type`
 signature with function arrows and `forall`; the checker elaborates it with
@@ -183,10 +185,11 @@ lowering passes. Do not add type-system special cases to the Wasm emitter.
 ## Runtime and representation
 
 Keep target representation decisions in P9. Aggregates and closures use Wasm GC
-per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md); the linear-memory
-planner is an alternative language-heap strategy with its own representation
-([D-10](D-10-linear-memory-representation.md)) and also serves the byte-oriented
-WASI boundary. Establish a small ABI before adding services:
+per [DEC-05](../decision/DEC-05-wasmtime-feature-set.md) and
+[DEC-09](../decision/DEC-09-gc-only-language-heap.md); linear memory serves only
+the byte-oriented canonical ABI boundary
+([D-10](D-10-linear-memory-representation.md)). Establish a small ABI before
+adding services:
 
 - `Int` uses signed 32-bit values; `Number` uses 64-bit floating point.
 - `Boolean` uses an integer zero/one representation and `Char` a Unicode scalar.

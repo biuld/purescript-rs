@@ -100,36 +100,38 @@ validation coverage, a binary or WAT regression test, and a Wasmtime execution
 test where the behavior is observable. A local regression alone is not enough
 for a row that the official suite covers.
 
-The matrix below names the fixture class and the profile it must run under.
+The matrix below names the fixture class each capability must run under. GC is
+the only language-heap profile ([DEC-09](../decision/DEC-09-gc-only-language-heap.md));
+linear memory is exercised only at the canonical ABI boundary.
 `wasmtime` execution tests skip when the runtime is unavailable, so they never
 block `cargo test --workspace`.
 
-| Capability | Fixture class | GC | MVP linear |
-| --- | --- | --- | --- |
-| Scalars and direct calls | integer/boolean/number arithmetic and comparisons | required | required |
-| `if` and `case` | value-producing branches and constructor matches | required | required |
-| Nullary data types | tag construction and tag comparison | required | required |
-| Field data types | construction, tag test, and field projection (DEC-08) | required | required |
-| Newtypes | erased single-field construction and match | required | required |
-| Records | literal, field read, and update | required | required |
-| Arrays | literal, length, index, and update | required | required |
-| Closures | captured scalar/reference closures and higher-order calls | required | required |
-| Parameterized ADTs | erased field construction and recovery | required | not yet |
-| Strings and `log` | data segment, length prefix, stdout write | required | not yet |
-| WASI clock and random | monotonic clock and random bytes | required | not yet |
-| Variants (unified) | mixed nullary/field sum construction and match | required | required |
+| Capability | Fixture class | Profile |
+| --- | --- | --- |
+| Scalars and direct calls | full D-09 unary/binary scalar vocabulary plus direct calls | GC |
+| `if` and `case` | value-producing branches and constructor matches | GC |
+| Nullary data types | tag construction and tag comparison | GC |
+| Field data types | construction, tag test, and field projection (DEC-08) | GC |
+| Newtypes | erased single-field construction and match | GC |
+| Records | literal, field read, and update | GC |
+| Arrays | literal, length, index, and update | GC |
+| Closures | captured scalar/reference closures and higher-order calls | GC |
+| Parameterized ADTs | erased field construction and recovery | GC (gap) |
+| Strings and `log` | data segment, length prefix, stdout write | GC + linear ABI |
+| WASI clock and random | monotonic clock and random bytes | GC + linear ABI |
+| WIT enums and flags | validated enum tags and Boolean-record flags packing | GC + linear ABI |
+| Variants (unified) | mixed nullary/field sum construction and match | GC |
 
-"Not yet" marks a real gap that the corresponding design document closes
-([D-10](D-10-linear-memory-representation.md), [D-07](D-07-wit-imports-and-std.md)),
-not a permanent limitation.
+"Gap" marks a real implementation gap that the corresponding design document
+closes ([D-07](D-07-wit-imports-and-std.md)), not a permanent limitation.
 
 ## Delivery order
 
-1. Land the unified variant representation (M6) with GC and MVP execution
-   tests, and add the row to the matrix.
+1. Land the unified variant representation (M6) with GC execution tests, and add
+   the row to the matrix.
 2. Fill the GC gaps: parameterized erased fields, records, arrays, and
    closures across the full operation set.
-3. Add the missing linear rows as [D-10](D-10-linear-memory-representation.md)
-   lands.
+3. Add the remaining canonical ABI rows as [D-07](D-07-wit-imports-and-std.md)
+   and [D-10](D-10-linear-memory-representation.md) land.
 4. Keep the matrix and the D-05 audit in sync; a new CC operation adds its
    verifier and its execution test before it counts as evidence.

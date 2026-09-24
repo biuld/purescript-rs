@@ -1,4 +1,4 @@
-use super::ops::ref_cast;
+use super::ops::{linear_load, linear_store, linear_value_alignment, memory, ref_cast};
 use super::{Structurer, ValueOps, value_type, wasm_error};
 use crate::BackendError;
 use crate::mir::Instruction as MirInstruction;
@@ -20,6 +20,18 @@ pub(super) trait ClosureOps {
     ) -> Result<(), Vec<BackendError>>;
 
     fn emit_closure_get_capture(
+        &self,
+        body: &mut Body,
+        instruction: &MirInstruction,
+    ) -> Result<(), Vec<BackendError>>;
+
+    fn emit_linear_closure_new(
+        &self,
+        body: &mut Body,
+        instruction: &MirInstruction,
+    ) -> Result<(), Vec<BackendError>>;
+
+    fn emit_linear_closure_get_capture(
         &self,
         body: &mut Body,
         instruction: &MirInstruction,
@@ -210,6 +222,91 @@ impl ClosureOps for Structurer<'_> {
                 ));
             }
         }
+        self.store(body, *destination, *span)
+    }
+
+    fn emit_linear_closure_new(
+        &self,
+        body: &mut Body,
+        instruction: &MirInstruction,
+    ) -> Result<(), Vec<BackendError>> {
+        let MirInstruction::LinearClosureNew {
+            destination,
+            table_slot,
+            captures,
+            capture_offsets,
+            allocation_bytes,
+            allocation_alignment,
+            span,
+            ..
+        } = instruction
+        else {
+            unreachable!("linear closure.new emitter received another instruction");
+        };
+        if captures.len() != capture_offsets.len() {
+            return Err(wasm_error(
+                *span,
+                "linear closure capture layout is incomplete",
+            ));
+        }
+        let allocator = self.linear_allocator.ok_or_else(|| {
+            wasm_error(*span, "linear closure allocation has no allocator function")
+        })?;
+        body.push(Op::Leaf(Instruction::I32Const(0)));
+        body.push(Op::Leaf(Instruction::I32Const(0)));
+        body.push(Op::Leaf(Instruction::I32Const(
+            *allocation_alignment as i32,
+        )));
+        body.push(Op::Leaf(Instruction::I32Const(*allocation_bytes as i32)));
+        body.push(Op::Leaf(Instruction::Call(allocator.0)));
+        self.store(body, *destination, *span)?;
+        self.load(body, *destination, *span)?;
+        body.push(Op::Leaf(Instruction::I32Const(table_slot.0 as i32)));
+        body.push(Op::Leaf(Instruction::I32Store(memory(0))));
+        for (capture, offset) in captures.iter().zip(capture_offsets) {
+            let ty = value_type(self.function, *capture)
+                .ok_or_else(|| wasm_error(*span, "linear closure capture has no value type"))?;
+            if !matches!(ty, ValueType::I32 | ValueType::Boolean | ValueType::F64) {
+                return Err(wasm_error(
+                    *span,
+                    "linear closure capture has an unsupported value type",
+                ));
+            }
+            self.load(body, *destination, *span)?;
+            self.load(body, *capture, *span)?;
+            body.push(Op::Leaf(linear_store(
+                ty,
+                *offset,
+                0,
+                linear_value_alignment(ty),
+            )));
+        }
+        Ok(())
+    }
+
+    fn emit_linear_closure_get_capture(
+        &self,
+        body: &mut Body,
+        instruction: &MirInstruction,
+    ) -> Result<(), Vec<BackendError>> {
+        let MirInstruction::LinearClosureGetCapture {
+            destination,
+            closure,
+            offset,
+            ty,
+            span,
+            ..
+        } = instruction
+        else {
+            unreachable!("linear closure.get_capture emitter received another instruction");
+        };
+        self.load(body, *closure, *span)?;
+        body.push(Op::Leaf(linear_load(
+            *ty,
+            *offset,
+            0,
+            linear_value_alignment(*ty),
+        )));
         self.store(body, *destination, *span)
     }
 }

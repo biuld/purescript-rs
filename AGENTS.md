@@ -5,26 +5,20 @@ feature and design documents under `docs/`.
 
 ## Workflow
 
-### Feature development
+Work in the current checkout by default. Inspect the relevant code and
+documents, make the requested change, and report the result. Preserve existing
+uncommitted work.
 
-- Create a dedicated branch before making changes.
-- Push the branch and open a pull request with the `gh` CLI.
-- Keep the complete documentation flow in the pull request: a feature document
-  (`docs/feature/`), a design document (`docs/design/`), and any decision
-  records (`docs/decision/`) the change requires.
-
-### Code review
-
-- For complex problems, especially anything that affects the
-  feature/design/decision flow or documented behavior, file an issue with
-  `gh issue create`.
-- Fix simple problems directly instead of filing an issue.
-
-### Fixing code
-
-- List open issues with `gh issue list`.
-- Create an isolated worktree for the fix with `git worktree add`.
-- Fix the issue in that worktree and open a pull request with `gh pr create`.
+- Create a branch or isolated worktree when the user requests one, or when
+  isolation is needed to protect concurrent or unrelated changes. Do not make
+  either a prerequisite for routine work.
+- Use GitHub issues and pull requests when the user requests GitHub
+  collaboration or the task is explicitly tied to an existing issue or PR.
+  Do not list issues, create issues, push branches, or open PRs by default.
+- For a new user-facing feature, maintain the relevant feature and design
+  documents under `docs/`. Add a decision record only for a major, durable
+  decision. Keep documentation proportional to the change.
+- Review the local diff and run the validation relevant to the files changed.
 
 ## Documentation
 

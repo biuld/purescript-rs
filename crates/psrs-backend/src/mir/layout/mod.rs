@@ -2,9 +2,10 @@
 
 use super::reachable::ReachableHandles;
 use crate::TargetCapabilities;
+use crate::cc::Module as CcModule;
 use crate::cc::{
-    Module as CcModule, RefShape as CcRefShape, Reference as CcReference, ReprId, Representation,
-    RepresentationTable, SignatureId, ValueShape as CcValueShape,
+    RefShape as CcRefShape, Reference as CcReference, ReprId, Representation, RepresentationTable,
+    SignatureId, ValueShape as CcValueShape,
 };
 use crate::types::{
     CompositeType, DefinedType, DefinedTypeId, FieldType, HeapType, RecGroup, RefType, StorageType,
@@ -16,6 +17,8 @@ use std::collections::HashMap;
 pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
+    product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
+    variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
     capture_array_index: Option<DefinedTypeId>,
@@ -70,14 +73,35 @@ impl PlannedLayout {
             return Err(LayoutError::UnsupportedClosureTarget);
         }
         let mut repr_indices = HashMap::new();
+        let mut product_fields = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len());
         for (index, id) in repr_ids.iter().enumerate() {
             repr_indices.insert(*id, DefinedTypeId(index as u32));
+            if let Some(Representation::Product { fields }) = table.representation(*id) {
+                product_fields.insert(DefinedTypeId(index as u32), fields.clone());
+            }
             definitions.push(DefinedType {
                 final_type: true,
                 supertype: None,
                 composite: CompositeType::Struct(Vec::new()),
             });
+        }
+        let mut variant_indices = HashMap::new();
+        let mut variant_cases = Vec::new();
+        for id in repr_ids {
+            if let Some(Representation::Variant { cases }) = table.representation(*id) {
+                let supertype = repr_indices[id];
+                for case in cases {
+                    let index = DefinedTypeId(definitions.len() as u32);
+                    variant_indices.insert((*id, case.tag), index);
+                    variant_cases.push((index, case.fields.clone()));
+                    definitions.push(DefinedType {
+                        final_type: true,
+                        supertype: Some(supertype),
+                        composite: CompositeType::Struct(Vec::new()),
+                    });
+                }
+            }
         }
         let (closure_index, capture_array_index) = if signature_ids.is_empty() {
             (None, None)
@@ -160,46 +184,14 @@ impl PlannedLayout {
                         .collect::<Result<Vec<_>, LayoutError>>()?,
                 ),
                 Representation::Variant { cases } => {
-                    let first = cases
-                        .first()
-                        .map(|case| case.fields.as_slice())
-                        .unwrap_or(&[]);
-                    for case in cases.iter().skip(1) {
-                        let same_shape = case.fields.len() == first.len()
-                            && case
-                                .fields
-                                .iter()
-                                .zip(first)
-                                .map(|(left, right)| {
-                                    Ok((
-                                        storage_type(left, &repr_indices, closure_index)?,
-                                        storage_type(right, &repr_indices, closure_index)?,
-                                    ))
-                                })
-                                .collect::<Result<Vec<_>, LayoutError>>()?
-                                .iter()
-                                .all(|(left, right)| left == right);
-                        if !same_shape {
-                            return Err(LayoutError::IncompatibleVariant);
-                        }
+                    if cases.is_empty() {
+                        return Err(LayoutError::IncompatibleVariant);
                     }
-                    let fields = cases
-                        .first()
-                        .map(|case| case.fields.clone())
-                        .unwrap_or_default();
-                    CompositeType::Struct(
-                        std::iter::once(Ok(FieldType {
-                            storage: StorageType::I32,
-                            mutable: false,
-                        }))
-                        .chain(fields.iter().map(|value| {
-                            Ok(FieldType {
-                                storage: storage_type(value, &repr_indices, closure_index)?,
-                                mutable: false,
-                            })
-                        }))
-                        .collect::<Result<Vec<_>, LayoutError>>()?,
-                    )
+                    definitions[index].final_type = false;
+                    CompositeType::Struct(vec![FieldType {
+                        storage: StorageType::I32,
+                        mutable: false,
+                    }])
                 }
                 Representation::Array { element } => CompositeType::Array(FieldType {
                     storage: array_storage_type(element, &repr_indices, closure_index)?,
@@ -207,6 +199,24 @@ impl PlannedLayout {
                 }),
             };
             definitions[index].composite = composite;
+        }
+        for (index, fields) in variant_cases {
+            let mut concrete = vec![FieldType {
+                storage: StorageType::I32,
+                mutable: false,
+            }];
+            concrete.extend(
+                fields
+                    .iter()
+                    .map(|value| {
+                        Ok(FieldType {
+                            storage: storage_type(value, &repr_indices, closure_index)?,
+                            mutable: false,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, LayoutError>>()?,
+            );
+            definitions[index.0 as usize].composite = CompositeType::Struct(concrete);
         }
 
         let mut signature_indices = HashMap::new();
@@ -242,6 +252,8 @@ impl PlannedLayout {
                 vec![RecGroup(definitions)]
             },
             repr_indices,
+            product_fields,
+            variant_indices,
             signature_indices,
             closure_index,
             capture_array_index,
@@ -254,6 +266,27 @@ impl PlannedLayout {
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
+    }
+    pub(super) fn product_field(
+        &self,
+        id: DefinedTypeId,
+        field: u32,
+    ) -> Result<CcValueShape, LayoutError> {
+        self.product_fields
+            .get(&id)
+            .and_then(|fields| fields.get(field as usize))
+            .copied()
+            .ok_or(LayoutError::UnknownField)
+    }
+    pub(super) fn variant_index(
+        &self,
+        id: ReprId,
+        case: u32,
+    ) -> Result<DefinedTypeId, LayoutError> {
+        self.variant_indices
+            .get(&(id, case))
+            .copied()
+            .ok_or(LayoutError::UnknownField)
     }
     pub(super) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
         self.signature_indices
@@ -430,103 +463,4 @@ fn array_storage_type(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cc::{Function, Module as CcModule, Reference, Signature, ValueDecl};
-    use psrs_hir::{ModuleId, SymbolId};
-    use psrs_span::TextRange;
-
-    #[test]
-    fn planner_owns_the_gc_closure_and_capture_layouts() {
-        let mut table = RepresentationTable::default();
-        table.add_signature(Signature {
-            parameters: vec![CcValueShape::Integer],
-            result: CcValueShape::Integer,
-        });
-
-        let layout = PlannedLayout::plan(&table, TargetCapabilities::default())
-            .expect("planning a closure signature");
-        let definitions = &layout.types[0].0;
-
-        assert!(matches!(definitions[0].composite, CompositeType::Array(_)));
-        assert!(matches!(definitions[1].composite, CompositeType::Struct(_)));
-        assert!(matches!(
-            definitions[2].composite,
-            CompositeType::Func { .. }
-        ));
-        assert_eq!(
-            layout.closure_layout().unwrap(),
-            (DefinedTypeId(1), DefinedTypeId(0))
-        );
-    }
-    #[test]
-    fn planner_rejects_a_dangling_closure_signature() {
-        let table = RepresentationTable {
-            representations: vec![Representation::Product {
-                fields: vec![CcValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: CcRefShape::Closure(SignatureId(0)),
-                })],
-            }],
-            signatures: Vec::new(),
-        };
-        assert!(matches!(
-            PlannedLayout::plan(&table, TargetCapabilities::default()),
-            Err(LayoutError::UnknownSignature)
-        ));
-    }
-    #[test]
-    fn gc_planner_rejects_an_mvp_only_target() {
-        let table = RepresentationTable {
-            representations: vec![Representation::Product { fields: Vec::new() }],
-            signatures: Vec::new(),
-        };
-
-        assert!(matches!(
-            PlannedLayout::plan(&table, TargetCapabilities::wasm_mvp()),
-            Err(LayoutError::UnsupportedGcTarget)
-        ));
-    }
-    #[test]
-    fn module_planner_omits_unreachable_requirements() {
-        let mut table = RepresentationTable::default();
-        let reachable = table.reserve();
-        table.set(reachable, Representation::Product { fields: Vec::new() });
-        let unreachable = table.reserve();
-        table.set(unreachable, Representation::Product { fields: Vec::new() });
-        let value = crate::cc::ValueId(0);
-        let value_shape = CcValueShape::Reference(Reference {
-            nullable: false,
-            heap: CcRefShape::Repr(reachable),
-        });
-        let module = CcModule {
-            name: "reachable-layout".into(),
-            externals: Vec::new(),
-            representations: table,
-            functions: vec![Function {
-                symbol: SymbolId::new(ModuleId(0), 0),
-                name: "main".into(),
-                parameters: vec![value],
-                values: vec![ValueDecl {
-                    id: value,
-                    ty: value_shape,
-                }],
-                assignments: Vec::new(),
-                result: value,
-                result_type: value_shape,
-                span: TextRange::new(0, 1),
-            }],
-            entry: None,
-            span: TextRange::new(0, 1),
-        };
-
-        let layout = PlannedLayout::plan_module(&module, TargetCapabilities::default())
-            .expect("planning reachable requirements");
-        assert_eq!(layout.types[0].0.len(), 1);
-        assert_eq!(layout.repr_index(reachable).unwrap(), DefinedTypeId(0));
-        assert!(matches!(
-            layout.repr_index(unreachable),
-            Err(LayoutError::UnknownRepresentation)
-        ));
-    }
-}
+mod tests;

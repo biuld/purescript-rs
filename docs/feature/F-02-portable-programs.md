@@ -72,8 +72,8 @@ diagnostics.
 
 `arrayUpdate` is a pure operation: it returns an updated array without changing
 the input array or any aliases of it. Repeated updates from the same input are
-therefore independent. This behavior is the same for the GC and linear-memory
-backend profiles.
+therefore independent. This behavior uses the GC language heap; linear memory is
+reserved for the canonical ABI boundary.
 
 Scalar operators cover the full `Int`, `Number`, `Boolean`, and `Char` sets the
 standard library exposes, including bitwise and shift operations, conversions,

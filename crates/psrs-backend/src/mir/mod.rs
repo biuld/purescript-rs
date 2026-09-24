@@ -10,8 +10,12 @@ mod instruction;
 mod layout;
 mod lower;
 mod lower_linear;
+mod numeric;
 mod planner;
+#[cfg(test)]
+mod planner_tests;
 mod reachable;
+mod scalar_helpers;
 mod verify;
 mod wit;
 
@@ -19,9 +23,11 @@ use layout::PlannedLayout;
 use lower::lower_function;
 use lower_linear::lower_function as lower_linear_function;
 use planner::{GcPlanner, LinearMemoryLayout, LinearMemoryPlanner, RepresentationPlanner};
+use scalar_helpers::lower_scalar_helpers;
 
 pub use instruction::Instruction;
-pub use verify::verify_module;
+pub use numeric::{NumericOp, UnaryOp};
+pub use verify::{verify_module, verify_module_with_capabilities};
 
 #[cfg(test)]
 mod binding_tests;
@@ -178,7 +184,13 @@ pub fn lower_module_with_bindings(
                         .with_module(external.symbol.module),
                 ]
             })?;
-        wit_imports.insert(external.symbol, import);
+        wit_imports.insert(
+            external.symbol,
+            crate::abi::BoundWasiImport {
+                import,
+                signature: signature.clone(),
+            },
+        );
     }
     let planned_layout = if target.gc {
         let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
@@ -205,6 +217,8 @@ pub fn lower_module_with_bindings(
         })?;
         PlannedLayoutKind::Linear(layout)
     };
+    let (scalar_helpers, generated_helpers) =
+        lower_scalar_helpers(&module, module.functions.len() as u32);
     let mut functions = Vec::with_capacity(module.functions.len());
     let table_slots = module
         .functions
@@ -214,14 +228,19 @@ pub fn lower_module_with_bindings(
         .collect::<HashMap<_, _>>();
     for (id, function) in module.functions.iter().enumerate() {
         let lowered = match &planned_layout {
-            PlannedLayoutKind::Gc(layout) => {
-                lower_function(function, FunctionId(id as u32), &wit_imports, layout)
-            }
+            PlannedLayoutKind::Gc(layout) => lower_function(
+                function,
+                FunctionId(id as u32),
+                &wit_imports,
+                &scalar_helpers,
+                layout,
+            ),
             PlannedLayoutKind::Linear(layout) => lower_linear_function(
                 function,
                 FunctionId(id as u32),
                 layout,
                 &wit_imports,
+                &scalar_helpers,
                 &table_slots,
             ),
         }
@@ -233,6 +252,7 @@ pub fn lower_module_with_bindings(
         })?;
         functions.push(lowered);
     }
+    functions.extend(generated_helpers);
     // Keep only the imports a lowered call actually references, so a resolved but
     // unused external does not add a Wasm import.
     let used = referenced_imports(&functions);
@@ -257,7 +277,7 @@ pub fn lower_module_with_bindings(
         entry: module.entry,
         span: module.span,
     };
-    verify_module(&mir)?;
+    verify_module_with_capabilities(&mir, target)?;
     Ok((mir, wasi))
 }
 

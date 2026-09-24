@@ -3,6 +3,7 @@
 
 use super::Signature;
 use super::instruction::verify_instruction;
+use super::linear_bounds::linear_allocation_bounds;
 use super::util::{mir_error, require_value, value_type};
 use crate::BackendError;
 use crate::mir::{BasicBlock, BlockId, Function, Terminator, ValueId, ValueType};
@@ -110,6 +111,7 @@ pub(super) fn verify_function(
     }
 
     let dominators = compute_dominators(function.entry, &blocks);
+    let linear_allocation_bounds = linear_allocation_bounds(function);
     for block in &function.blocks {
         let mut available = block.parameters.iter().copied().collect::<HashSet<_>>();
         for instruction in &block.instructions {
@@ -134,7 +136,14 @@ pub(super) fn verify_function(
                     ));
                 }
             }
-            verify_instruction(function, instruction, &definitions, signatures, defined)?;
+            verify_instruction(
+                function,
+                instruction,
+                &definitions,
+                &linear_allocation_bounds,
+                signatures,
+                defined,
+            )?;
             if let Some(destination) = instruction.destination() {
                 available.insert(destination);
             }

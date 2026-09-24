@@ -58,6 +58,53 @@ fn rejects_constants_with_incompatible_result_types() {
 }
 
 #[test]
+fn rejects_a_unary_primitive_with_mistyped_operands() {
+    let input = ValueId(0);
+    let output = ValueId(1);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "bad_unary".into(),
+        parameters: vec![input],
+        values: vec![
+            ValueDecl {
+                id: input,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: output,
+                ty: ValueType::I32,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::UnaryPrimitive {
+                destination: output,
+                op: crate::mir::UnaryOp::F64Neg,
+                value: input,
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: output,
+                span: span(),
+            }),
+        }],
+        result: output,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unary operand or result type")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_values_used_before_definition() {
     let function = Function {
         id: crate::types::FunctionId(0),
@@ -81,7 +128,7 @@ fn rejects_values_used_before_definition() {
             instructions: vec![
                 Instruction::Primitive {
                     destination: ValueId(0),
-                    op: psrs_core::Primitive::Add,
+                    op: crate::mir::NumericOp::I32Add,
                     left: ValueId(1),
                     right: ValueId(1),
                     span: span(),
@@ -240,6 +287,160 @@ fn rejects_a_load_from_an_unknown_memory_id() {
         errors
             .iter()
             .any(|error| error.message.contains("unknown memory")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_linear_allocation_with_an_invalid_alignment() {
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "bad_alignment".into(),
+        parameters: Vec::new(),
+        values: vec![ValueDecl {
+            id: ValueId(0),
+            ty: ValueType::I32,
+        }],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::LinearAlloc {
+                destination: ValueId(0),
+                bytes: 4,
+                alignment: 3,
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: ValueId(0),
+                span: span(),
+            }),
+        }],
+        result: ValueId(0),
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("allocation alignment")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_linear_field_access_outside_its_allocation() {
+    let pointer = ValueId(0);
+    let value = ValueId(1);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "out_of_bounds_linear_field".into(),
+        parameters: Vec::new(),
+        values: vec![
+            ValueDecl {
+                id: pointer,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: value,
+                ty: ValueType::I32,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![
+                Instruction::LinearAlloc {
+                    destination: pointer,
+                    bytes: 4,
+                    alignment: 4,
+                    span: span(),
+                },
+                Instruction::Constant {
+                    destination: value,
+                    value: 1,
+                    span: span(),
+                },
+                Instruction::LinearStore {
+                    address: pointer,
+                    value,
+                    memory: MemoryId(0),
+                    offset: 4,
+                    object_bytes: 8,
+                    alignment: 4,
+                    ty: ValueType::I32,
+                    span: span(),
+                },
+            ],
+            terminator: Some(Terminator::Return {
+                value,
+                span: span(),
+            }),
+        }],
+        result: value,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("originating allocation")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_linear_access_outside_its_planned_object_extent() {
+    let pointer = ValueId(0);
+    let value = ValueId(1);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "out_of_bounds_planned_field".into(),
+        parameters: vec![pointer, value],
+        values: vec![
+            ValueDecl {
+                id: pointer,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: value,
+                ty: ValueType::I32,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::LinearStore {
+                address: pointer,
+                value,
+                memory: MemoryId(0),
+                offset: 4,
+                object_bytes: 4,
+                alignment: 4,
+                ty: ValueType::I32,
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value,
+                span: span(),
+            }),
+        }],
+        result: value,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("planned object bounds")),
         "{errors:?}"
     );
 }

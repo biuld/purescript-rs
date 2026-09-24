@@ -188,6 +188,7 @@ pub fn typecheck_module_with_imports(
         };
         constructors.push(thir::ConstructorInfo {
             symbol: info.symbol,
+            name: info.name.clone(),
             type_id: info.type_id,
             tag: info.tag,
             field_count: field_types.len(),

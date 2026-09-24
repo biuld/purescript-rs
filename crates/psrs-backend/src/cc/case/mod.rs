@@ -1,8 +1,8 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
-use super::{Assignment, AssignmentKind, ValueId, ValueShape};
+use super::{Assignment, AssignmentKind, BinaryOp, ValueId, ValueShape};
 use crate::BackendError;
-use psrs_core::{CaseBranch, PatternKind, Primitive};
+use psrs_core::{CaseBranch, PatternKind};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashSet;
@@ -239,7 +239,7 @@ impl FunctionLowerer<'_> {
         prefix.push(Assignment {
             destination: condition,
             kind: AssignmentKind::Primitive {
-                op: Primitive::Eq,
+                op: BinaryOp::IntEq,
                 left: scrutinee,
                 right: tag_value,
             },

@@ -83,7 +83,7 @@ fn runs_a_nested_constructor_pattern_in_a_record_field() {
     let artifact =
         compile_source("Main.purs", source).expect("lowering a nested constructor record pattern");
     assert!(artifact.wat.contains("struct.get"));
-    assert!(artifact.wat.contains("ref.test"));
+    assert!(artifact.wat.contains("i32.eq"));
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

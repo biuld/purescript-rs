@@ -13,12 +13,10 @@ use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::{Instruction, ValType};
 
-mod capability;
 mod realloc;
 mod runtime;
 mod structure;
 
-use capability::validate_target_capabilities;
 use realloc::build_realloc;
 use runtime::collect_strings;
 use structure::Structurer;
@@ -38,8 +36,7 @@ pub fn lower_module_with_capabilities(
     wasi: &mut abi::WasiRegistry,
     target: TargetCapabilities,
 ) -> Result<Module, Vec<BackendError>> {
-    mir::verify_module(module)?;
-    validate_target_capabilities(module, target)?;
+    mir::verify_module_with_capabilities(module, target)?;
     let Some(entry_symbol) = module.entry else {
         return Err(wasm_error(
             module.span,
@@ -391,12 +388,16 @@ fn lower_function(
                 .ok_or_else(|| wasm_error(source.span, "MIR function parameter has no value type"))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let local_types = source
+    let mut local_types = source
         .values
         .iter()
         .skip(source.parameters.len())
         .map(|value| val_type(value.ty))
         .collect::<Vec<_>>();
+    let linear_copy_locals = structure::linear_copy_local_indices(source)?;
+    if linear_copy_locals.is_some() {
+        local_types.extend([val_type(crate::types::ValueType::I32); 3]);
+    }
     let structurer = Structurer {
         function: source,
         blocks: source
@@ -408,6 +409,7 @@ fn lower_function(
         function_indices,
         string_offsets,
         linear_allocator,
+        linear_copy_locals,
     };
     let mut body = Body::new();
     structurer.emit_region(source.entry, None, &mut HashSet::new(), &mut body)?;
