@@ -36,15 +36,22 @@ change a program even when its final scalar result is unchanged.
 ```text
 MirPass = (Module, TargetCapabilities) -> Result<Module, Diagnostics>
 InstructionEffects = { may_trap, reads_memory, writes_memory, may_call }
+ConstantFact = Unknown | Constant(Scalar) | Overdefined
 ```
 
 `may_call` includes direct, closure, and import calls unless a trusted summary
-proves narrower behavior. Memory flags cover canonical ABI buffers and scratch
-state. An instruction is *pure and total* only when all flags are false. GC
+proves narrower behavior. The bounded inliner uses the complete body of a
+known direct callee as that summary; it leaves import, closure, and nested calls
+in place. Memory flags cover canonical ABI buffers and scratch state. An
+instruction is *pure and total* only when all flags are false. GC
 allocation and reads may be classified this way only when their operands and
 bounds are proved valid and object identity is not observable; otherwise they
 conservatively set `may_trap`.
 The ordering relation is derived from the instruction sequence and CFG edges.
+The constant lattice starts function parameters and unsupported definitions as
+`Overdefined`; a block parameter becomes constant only when every reachable
+incoming jump supplies the same known scalar. Cycles with unresolved inputs
+remain `Unknown`, so the pass never guesses a loop value.
 
 ## Design
 
@@ -63,10 +70,18 @@ specialization at MIR may eliminate a known projection or direct a known call
 without changing the dictionary's ABI; source-type-dependent specialization
 belongs to P7.
 
+The bounded inliner accepts only a single-block callee with no block parameters,
+at most 16 instructions, and no nested call instruction. It clones the body at
+the original call position, gives every cloned definition a fresh value ID,
+and keeps the cloned operations' spans, traps, and memory effects in order.
+Multi-block control flow, block parameters, and recursive call expansion remain
+as calls.
+
 P9 validates every external declaration before optimization. After the final
-MIR pass, import projection uses only calls in reachable optimized blocks; the
-ABI registry keeps the prevalidated signatures and names. Dropping an unused
-import is module assembly, not a change to its canonical ABI.
+MIR pass, import projection uses direct calls, function references, and closure
+construction in reachable optimized blocks; the ABI registry keeps the prevalidated
+signatures and names. Dropping an unused import is module assembly, not a
+change to its canonical ABI.
 
 Rejected alternatives: optimizing encoded Wasm obscures source spans and MIR
 dominance; re-planning layouts after each optimization blurs P9 ownership; and
@@ -77,23 +92,35 @@ classifying all allocations or memory loads as pure would permit trap removal.
 ```text
 optimize_mir(module, target):
     verify_mir_with_capabilities(module, target)
-    for pass in [prune_unreachable, propagate_constants,
-                 simplify_terminators, forward_values, eliminate_dead_pure]:
-        module = pass(module)
+    module = inline_small_functions(module)
+    verify_mir_with_capabilities(module, target)
+    repeat:
+        changed = prune_unreachable(module)
         verify_mir_with_capabilities(module, target)
-    project_imports_from_reachable_calls(module)
+        changed |= propagate_constants(module)
+        verify_mir_with_capabilities(module, target)
+        changed |= simplify_terminators(module)
+        verify_mir_with_capabilities(module, target)
+    until not changed
+    module = forward_values(module)
+    verify_mir_with_capabilities(module, target)
+    module = eliminate_dead_pure(module)
+    verify_mir_with_capabilities(module, target)
+    module = project_reachable_imports(module)
     verify_mir_with_capabilities(module, target)
     return module
 
 eliminate_dead_pure(function):
-    compute uses from reachable instructions and terminators
+    compute uses from reachable instructions, terminators, and function.result
     remove an unused instruction only if it is pure and total
     repeat until no further pure definition becomes unused
 ```
 
 Constant folding uses the semantics of [scalars](../fp/scalars-and-primitives.md):
-32-bit wrapping, floor division, binary64 `NaN` and signed zero, and exact
-trap cases. A known branch may be replaced with a jump after preserving every
+32-bit wrapping and shifts, binary64 arithmetic, comparisons, `NaN`, and signed
+zero. Signed division and remainder are folded only when the operands prove the
+operation will not trap. Operations with unknown or possible trap behavior stay
+in place. A known branch may be replaced with a jump after preserving every
 instruction evaluated before its condition. Removed blocks may leave unused
 types in P9's table; this is valid and avoids type-index churn.
 
@@ -105,7 +132,8 @@ Vec<BackendError>>` and verifies after each pass. `effects.rs` classifies
 instructions; `cfg.rs` owns reachability and branch rewrites; `constants.rs`
 owns scalar folding; `values.rs` owns forwarding and dead pure instructions;
 `inline.rs` owns bounded MIR inlining; `imports.rs` projects prevalidated ABI
-imports after optimization. The Wasm structurer consumes the resulting MIR and
+imports after optimization, retaining symbols used by reachable direct calls,
+function references, or closure construction. The Wasm structurer consumes the resulting MIR and
 does not call an optimizer internally.
 
 ## Invariants and verification
@@ -113,11 +141,18 @@ does not call an optimizer internally.
 Every pass preserves valid SSA: unique definitions, dominance, block-parameter
 arity and types, terminators, and source spans on retained operations. It
 preserves the MIR type table and function signatures, the sequence of
-potentially effectful calls and memory operations along each executed path,
-and the position of possible traps relative to those calls. The selected
+remaining potentially effectful calls and memory operations along each executed
+path, and the position of possible traps relative to those operations. A
+bounded inline removes only a direct internal call whose complete body is
+cloned in place; calls and effects inside that body remain ordered. The selected
 capability profile still accepts every emitted instruction. Differential
 execution compares optimized and unoptimized MIR through the same Wasm target,
 including traps, effect traces, branches, and recursion.
+
+Dead-code elimination treats `Function.result` as a use because the structurer
+loads that value for the Wasm function result, independently of the return
+terminator. Calls, memory operations, allocation, checked projections, casts,
+and explicit trap instructions remain live even when their result is unused.
 
 ## Worked example
 
