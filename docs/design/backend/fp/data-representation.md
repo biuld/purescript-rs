@@ -534,21 +534,15 @@ The GC planner and operation lowerings implement the unified variant
 representation, records, arrays, closures, and boxes. CC stores parameter-
 dependent variant payloads and record product fields as erased references.
 Construction boxes to the stored shape. Recovery to scalar fields uses typed
-GC boxes; recovery to a type-dependent nominal array or record layout is
-rejected with a source-spanned backend diagnostic, because each Core type still
-has its own `ReprId`. The generic canonical layouts and aggregate conversion
-plans in [generic aggregate erasure](generic-aggregate-erasure.md) are not
-implemented; current diagnostics remain required until reconstruction is
-available. A source-to-Wasm regression constructs and matches
-`Wrap Int` where `data Wrap a = Wrap (Array a)`, and a source-to-CC regression
-rejects a polymorphic `Wrap a` consumer. Synthetic Typed Core backend
-regressions verify generic record construction and update use erased field
-storage, while record pattern projection and direct field access to a
-type-dependent nominal array produce named diagnostics. The generic record
-cases are Typed Core tests, not source-to-CC coverage; current source lowering
-does not retain these generic record consumer shapes in backend input. Generic
-array and record representations across concrete instantiations remain
-unsupported.
+GC boxes; recovery to a type-dependent nominal array or closed-record layout
+uses explicit reconstruction between distinct `ReprId`s. Canonical layouts and
+conversion plans are implemented as specified in
+[generic aggregate erasure](generic-aggregate-erasure.md). The
+[acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
+includes source-to-component execution and verified Typed Core fixtures for
+backend inputs that source lowering does not yet produce. It also records the
+source limitation for empty array literals. Open rows and unknown foreign
+aggregate layouts remain outside this conversion contract.
 
 ## References
 
