@@ -2,7 +2,9 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md) and [CC IR](cc-ir.md);
+**Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
+[data representation](data-representation.md), and
+[generic aggregate erasure](generic-aggregate-erasure.md);
 the WebAssembly type system (GC structs and arrays, typed function references)
 and the basics of SSA form and dominators. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -15,14 +17,17 @@ representation decision can be made before the thin Wasm encoding.
 ## Scope
 
 This document owns the MIR model, the P9 representation-planner contract, the
-lowering from CC to MIR, and MIR verification. It does not own the structure of
+lowering from CC to MIR, including aggregate reconstruction helpers, and MIR
+verification. It does not own the structure of
 the Wasm encoder (see [Wasm encoding](../wasm/encoding-and-structuring.md)) or the
 ABI adaptation rules (see [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md)).
 Control-flow lowering from MIR to structured Wasm and tail calls are specified in
 [control flow and tail calls](control-flow-and-tail-calls.md); scalar semantics
 in [scalars and primitives](scalars-and-primitives.md); concrete GC layouts in
 [data representation](data-representation.md); erased values in
-[polymorphism and erasure](polymorphism-and-erasure.md).
+[polymorphism and erasure](polymorphism-and-erasure.md); generic aggregate
+normalization and conversion in
+[generic aggregate erasure](generic-aggregate-erasure.md).
 
 ## Background
 
@@ -126,7 +131,7 @@ Primitive, UnaryPrimitive,
 Call, CallVoid, RefFunc, ClosureNew, CallRef, ClosureCall, ClosureGetCapture,
 RefNull, RefIsNull, RefTest, RefCast, I31New, I31GetS,
 StructNew, StructGet, StructSet,
-ArrayNew, ArrayGet, ArraySet, ArrayLen, ArrayClone,
+ArrayNew, ArrayNewDefault, ArrayGet, ArraySet, ArrayLen, ArrayClone,
 Load, Load8U, Store, WrapI64, WidenI64, TrapIf
 ```
 
@@ -201,6 +206,24 @@ sum whose cases are all nullary is an immediate `i32` tag and allocates nothing.
 Arrays are GC arrays with a mutable element type. Strings are `i32` pointers to
 length-prefixed UTF-8 buffers at the canonical ABI boundary
 ([linear memory boundary](../wasm/linear-memory-and-canonical-abi-boundary.md)).
+Concrete arrays retain specialized element types; `Array a` uses the canonical
+generic array layout, and other dependent arrays use an array of recursively
+normalized element shapes. Dependent closed records likewise use canonical
+product layouts. P9 converts between these nominal layouts by fresh
+allocation and recursive reconstruction, following
+[generic aggregate erasure](generic-aggregate-erasure.md).
+
+### Aggregate conversion lowering
+
+P9 interns conversion helpers by their complete source and target layouts and
+nested plan. `ProductMap` reads and converts each field before constructing a
+new target struct. `ArrayMap` reads the source length, creates a private target
+with `ArrayNewDefault`, and emits a natural loop that converts and writes every
+element. This operation is permitted only when target storage is defaultable;
+nullable reference slots are initialized before the array becomes observable.
+The conversion does not mutate its source. Pure updates still clone and write a
+fresh array or build a fresh product as specified by
+[data representation](data-representation.md).
 
 ### Imports and the ABI boundary
 
@@ -309,7 +332,7 @@ mir/
   instruction.rs   Instruction and destination/operands/span
   planner.rs       RepresentationPlanner trait and GcPlanner
   layout/          PlannedLayout and concrete GC layouts
-  lower/           CC -> MIR lowering
+  lower/           CC -> MIR lowering, including aggregate map helpers
   verify/          MIR verifier
   wit/             canonical ABI adaptation for WIT calls
   reachable.rs     reachability of representation requirements
@@ -402,6 +425,10 @@ The MIR verifier checks:
 - exact direct, closure, and reference-call signatures and `ref.func` agreement;
 - reference nullability, casts, aggregate fields, array elements, and closure
   operations against the concrete type table;
+- `ArrayNewDefault` target storage is defaultable; array conversion loops
+  initialize every nullable reference slot before the result escapes;
+- conversion helper inputs and outputs match their exact source/target layouts,
+  and no helper replaces a conversion between nominal aggregates with `RefCast`;
 - canonical ABI memory operations: memory identity, `i32` address, and access
   type;
 - canonical import calls against the MIR import table;
@@ -466,8 +493,12 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the
   meantime.
+- **Generic aggregate conversion.** Canonical generic arrays, closed records,
+  and their explicit reconstruction helpers are specified in
+  [generic aggregate erasure](generic-aggregate-erasure.md), but current P9
+  reports a source-spanned diagnostic for unsupported nominal recovery.
 - **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
-  Unboxing across call boundaries remains a P9 representation decision.
+  Scalar unboxing across call boundaries remains a P9 representation decision.
 - **Memory access extents.** The ABI boundary design defines static address,
   interval, and region-permission checks. The Wasm verifier implementation is
   underway; dynamic reads retain runtime bounds traps, while stores require a
@@ -505,6 +536,11 @@ retain `Branch { merge_block }` and its one-value merge contract; cyclic
 structuring follows CFG edges, while the acyclic path uses the merge hint.
 `ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
 tail-call marking and self-recursion loopification remain unimplemented.
+The current MIR instruction model does not yet include the `ArrayNewDefault`
+operation or generated `ArrayMap`/`ProductMap` helpers required by
+[generic aggregate erasure](generic-aggregate-erasure.md). The design rules
+above are targets; current unsupported generic aggregate paths remain
+diagnosed before MIR conversion.
 
 ## References
 

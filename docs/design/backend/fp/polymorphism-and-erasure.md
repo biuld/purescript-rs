@@ -8,13 +8,16 @@ polymorphism (Reynolds) and type-erasure semantics; the Wasm GC type system
 with typed function references. Read [IR boundaries](../00-ir-boundaries.md)
 first.  
 **Summary:** Rank-1 polymorphism is erased at runtime: a type variable denotes
-one uniform, non-null `eqref`, never a type tag, and polymorphism is recovered
-from explicit dictionaries and compile-time instantiation. Because Wasm
+one uniform, non-null `eqref`, never a type tag; an aggregate type containing a
+variable may instead have a canonical aggregate layout. Polymorphism is
+recovered from explicit dictionaries and compile-time instantiation. Because Wasm
 `call_ref` names one exact function type, a concrete closure cannot cross a
 polymorphic boundary directly; the design inserts representation-directed
 boxing, unboxing, casts, and generated function adapters. This document
 specifies that erased representation, the concrete-versus-erased boundary, and
-the adaptation operations.
+the adaptation operations. Generic arrays and closed records use the recursive
+layout and conversion rules in
+[generic aggregate erasure](generic-aggregate-erasure.md).
 
 ## Scope
 
@@ -63,8 +66,10 @@ every type variable to `eqref` is therefore necessary but not sufficient.
 Higher-order polymorphic boundaries need an explicit adapter value whose own
 code signature is the erased one.
 
-**Terminology.** An *erased value* is a value whose source type contains a type
-variable and whose runtime representation is the uniform reference. *Boxing*
+**Terminology.** An *erased value* is the value of an abstract type variable,
+whose runtime representation is the uniform reference. A type such as
+`Array a` contains a variable but is itself a generic aggregate; see
+[generic aggregate erasure](generic-aggregate-erasure.md). *Boxing*
 allocates a wrapper for a scalar so it can inhabit the erased representation;
 *unboxing* projects it back. A *concrete* value is one whose source type is
 variable-free and therefore has a specialized representation. An *adapter* is a
@@ -86,13 +91,15 @@ Signature  = { parameters: [ValueShape], result: ValueShape }
 
 The erased requirement is exactly
 `Reference { nullable: false, heap: Erased }`. The predicate
-`is_erased_value_type` recognizes it. A representation requirement is *erased*
-when its source type depends on a type variable: the checker's
-`depends_on_type_variable` walks a `TypeId` and returns true for a
-`Type::Variable`, or for any application or function type that reaches one. A
-variable-free function type instead lowers to `Closure(SignatureId)`, whose
-`Signature` records a concrete or erased `ValueShape` for each parameter and
-the result.
+`is_erased_value_type` recognizes it. A bare type variable has this shape;
+containing a type variable does not by itself make an entire aggregate value an
+`Erased` reference. P8 recursively normalizes arrays, closed records, ADT
+fields, and function signatures. In particular, `Array a` uses the canonical
+generic array shape and a dependent closed record uses a canonical product;
+their element or field values may use `Erased`. See
+[generic aggregate erasure](generic-aggregate-erasure.md) for the normalization
+and layout conversions. A function value uses `Closure(SignatureId)`, whose
+`Signature` records the normalized `ValueShape` for each parameter and result.
 
 ### Concrete and erased signatures
 
@@ -103,6 +110,7 @@ a non-null `(ref struct)` receiver followed by one `eqref` per parameter and an
 
 ```text
 forall a. a -> a        =>  (ref struct, eqref) -> eqref
+forall a. Array a -> Array a => (ref struct, (ref $array_erased)) -> (ref $array_erased)
 Int -> Int              =>  (ref struct, i32) -> i32
 Number -> Number        =>  (ref struct, f64) -> f64
 (Int -> Int) -> Int     =>  (ref struct, (ref $closure)) -> i32
@@ -147,6 +155,12 @@ enter it as follows:
 | GC reference (`Repr`, `Aggregate`, `Closure`) | `ref.cast` to `eqref`, no allocation | `ref.cast` to the concrete reference |
 | already erased | identity | identity |
 
+The GC-reference row applies when the value crosses a bare type-variable
+boundary or keeps the same runtime object shape. A value whose type is
+`Array a`, or a dependent closed record, may need an element-wise or
+field-wise layout conversion before it can use its canonical generic shape;
+an `eqref` cast alone is not that conversion.
+
 `Boolean` and `String` are boxed in the integer box on the erased path, so all
 32-bit patterns round-trip; the i31 shorthand is used only for closure *captures*, not
 for the general erased protocol (see [data representation](data-representation.md)).
@@ -166,8 +180,12 @@ elaboration and dictionary construction lives in
 
 - Every erased value has the exact shape
   `Reference { nullable: false, heap: Erased }`.
+- An aggregate type that contains a type variable is normalized by its
+  aggregate constructor; it is not automatically the `Erased` shape.
 - `RepresentationTest`/`RepresentationCast` adapt only when the source is erased
   or the destination is erased.
+- Representation casts never convert between distinct nominal array or record
+  layouts; those conversions use the aggregate rules.
 - A concrete closure is never passed where a different concrete closure
   signature is expected without an adapter.
 - Structurally equal `Signature`s intern to one `SignatureId`; one
@@ -179,11 +197,14 @@ elaboration and dictionary construction lives in
 
 ### Chosen representation: representation-directed erasure
 
-Genuinely polymorphic values use the erased ABI; values with a known concrete
-type stay specialized. The choice is made per requirement, not per module:
-a call site with a concrete instantiation keeps concrete representation, while
-a generic function's parameter and result use the erased requirement. There is
-exactly one erased representation, and it carries no source type identity.
+Values of a bare abstract type use the erased ABI; values with a known concrete
+type stay specialized. Aggregate types are normalized recursively, so a
+generic function's `a` parameter uses `Erased`, while its `Array a` parameter
+uses the canonical generic array. A call site with a concrete instantiation
+converts between that canonical shape and its specialized shape as specified
+in [generic aggregate erasure](generic-aggregate-erasure.md). There is exactly
+one erased representation for abstract values, and it carries no source type
+identity.
 
 This is viable because:
 
@@ -248,41 +269,50 @@ consistent with the erased protocol: an erased capture is not boxed twice.
 
 ## Algorithms
 
-### Deciding erased versus concrete
+### Normalizing erased components
 
 ```text
-depends_on_type_variable(ty):
-    never revisit a TypeId (cycle guard)
-    Variable                         -> true
-    Application(f, a)                -> depends(f) or depends(a)
-    Function { parameter, result }   -> depends(parameter) or depends(result)
-    otherwise                        -> false
+normalize(ty, substitution):
+    never revisit a (TypeId, substitution) pair
+    Variable                         -> Erased
+    Array(element)                   -> concrete or canonical array shape;
+                                        record element conversion
+    closed Record(fields)            -> product of recursively normalized fields
+    Parameterized ADT                -> nominal variant; dependent fields Erased
+    Function(parameters, result)     -> Closure(Signature(normalize each part))
+    concrete scalar or other value   -> its concrete shape
 ```
 
-A function type is *generic* when it is a `Function` and depends on a type
-variable. Such a value's requirement is erased; all other value shapes are
-concrete.
+The array and record cases are defined by
+[generic aggregate erasure](generic-aggregate-erasure.md), including their
+conversion plans. A type variable nested in an ADT field continues to follow
+[DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 
 ### Boxing and unboxing
 
 ```text
-box(value):
-    match shape(value):
-        Integer | Boolean -> new Box{Integer}(value)   // one-field i32 struct
-        Number           -> new Box{Number}(value)      // one-field f64 struct
-        Erased           -> value
-        other Reference  -> RepresentationCast(value, Erased)   // ref.cast
-
-unbox(value, expected):
-    match expected:
-        Erased           -> value
-        Integer|Boolean  -> StructGet(RepresentationCast(value, Repr(box)), 0)
-        Number           -> StructGet(RepresentationCast(value, Repr(box)), 0)
-        other Reference  -> RepresentationCast(value, expected)
+adapt(value, source_type, destination_type):
+    if destination_type is a bare type variable:
+        scalar -> allocate its existing erased box
+        reference -> RepresentationCast(value, Erased)
+    else if source_type and destination_type are aggregate types:
+        AggregateConvert(value, plan_for(source_type, destination_type))
+    else if source_type is erased and destination_type is a concrete scalar:
+        project the typed box and unbox
+    else if source and destination reference shapes agree:
+        use identity or the compatible erased reference cast
+    otherwise:
+        report a source-spanned unsupported conversion
 ```
 
-`box` is used when supplying an erased parameter or result; `unbox` is used
-when recovering a concrete value from an erased one.
+Supplying a value to a bare erased parameter may erase an aggregate reference
+without copying it, as in `Hold a`. Supplying it to a generic aggregate such
+as `Array a` may need `AggregateConvert` first. Recovery from an erased ADT
+field likewise depends on the declared field template: `a` can recover a
+concrete reference directly, while `Array a` first recovers its canonical
+array and then maps to a concrete array when required. Aggregate conversions
+are never implemented as `RepresentationCast`s between distinct nominal
+layouts.
 
 ### Adapter generation
 
@@ -331,6 +361,8 @@ mir/layout/          concrete Box{Integer}/Box{Number} structs, the closure
                      struct type, and the uniform nullable-eqref capture array
                      that erased captures inhabit
 mir/lower/erased.rs  boxing and unboxing helpers and adapter generation
+cc/convert.rs        canonical generic aggregate conversion plans
+mir/lower/aggregate.rs array/product reconstruction for those plans
 mir/verify/          RefTest/RefCast agreement, closure capture checks, and
                      call-signature agreement at erased boundaries
 ```
@@ -378,6 +410,8 @@ The CC verifier:
 - accepts `RepresentationTest`/`RepresentationCast` only when the source value
   is erased or the destination requirement is erased
   (`cc/verify/adaptation.rs`);
+- verifies `AggregateConvert` endpoints and nested plans as specified by
+  [generic aggregate erasure](generic-aggregate-erasure.md); and
 - checks that direct-call arguments and results exactly match the callee
   `Signature`, closure-call arguments match the closure `SignatureId`, and
   capture count, order, and representations match the lifted function; and
@@ -459,10 +493,10 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 - **Dictionaries end to end.** Type-class elaboration must produce the
   dictionary values this design assumes and feed them through the normal
   aggregate path.
-- **Generic aggregates and open rows.** Generic records, generic arrays, and
-  open rows need erased fields and recovery at every access; DEC-07 fixes the
-  policy, and layout coverage continues in
-  [data representation](data-representation.md).
+- **Generic aggregate implementation.** Canonical generic arrays, closed
+  records, and their explicit conversion plans are specified in
+  [generic aggregate erasure](generic-aggregate-erasure.md), but remain
+  unimplemented. Open-row records remain unsupported.
 - **Higher-order acceptance breadth.** Direct generic calls, concrete arguments
   to generic parameters, and returned polymorphic functions are the remaining
   adapter cases to exercise end to end.
@@ -479,8 +513,10 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 lowering, but no current lowering pass generates it; only `RepresentationCast`
 is produced. The erased execution fixture covers scalars and a concrete
 reference through identity; higher-order adapter execution fixtures and
-type-class dictionaries are not yet wired to the frontend. Nothing in this
-document depends on those temporary gaps.
+type-class dictionaries are not yet wired to the frontend. Generic arrays and
+closed generic records still receive source-spanned diagnostics when a nominal
+layout recovery is unsupported; the conversion design is documented in
+[generic aggregate erasure](generic-aggregate-erasure.md), not implemented.
 
 ## References
 

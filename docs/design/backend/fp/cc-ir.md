@@ -23,6 +23,8 @@ It does not own the Core terms it lowers (see [functional core](../../frontend/s
 the concrete runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
 decision algorithm (see [pattern matching](pattern-matching.md)), the erased
 representation protocol (see [polymorphism and erasure](polymorphism-and-erasure.md)),
+or canonical generic aggregate layouts and conversion semantics (see
+[generic aggregate erasure](generic-aggregate-erasure.md)),
 the scalar operator definitions (see [scalars and primitives](scalars-and-primitives.md)),
 or the WIT/canonical-ABI binding rules (see
 [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md)). Dictionary
@@ -134,6 +136,15 @@ erased protocol of [polymorphism and erasure](polymorphism-and-erasure.md).
 `ReprId`s and `SignatureId`s are distinct index spaces from `ValueId` and from
 MIR's `DefinedTypeId`.
 
+P8 normalizes typed Core values into these requirements. A bare type variable
+uses `Reference(Erased)`, while a type-dependent array or closed record has a
+canonical aggregate representation with recursively normalized elements or
+fields. CC records a target-neutral aggregate conversion plan when a typed
+boundary must reconstruct a different aggregate shape; it never encodes that
+work as a nominal reference cast. See
+[generic aggregate erasure](generic-aggregate-erasure.md) for the canonical
+keys and conversion rules.
+
 `RepresentationTable::reserve` allocates a stable `ReprId` before its
 `Representation` is known, so recursive references can be built, and `set`
 fills it in; this is how a type that mentions itself is represented.
@@ -142,6 +153,14 @@ signatures in `cc/layout/functions.rs` so equivalent requirements share a
 `SignatureId`. The table may preserve links to Core type IDs in lowering-only
 side data for diagnostics, but those IDs are not part of representation
 equality and do not enter MIR.
+
+For generic aggregate normalization, P8 also interns by an explicit canonical
+key, not only by equality of the physical `Representation` value. A closed
+record key contains sorted `(label, normalized field shape)` pairs; positional
+products have a separate key. The `Representation::Product` still contains
+only the ordered field shapes needed by CC and P9, so distinct record keys can
+have equal product shapes but distinct `ReprId`s. P9 preserves one reachable
+`ReprId` to one `DefinedTypeId` mapping and does not merge by physical shape.
 
 One `Variant` requirement represents one source sum type. Each case has a
 stable tag and a field-shape list, so a sum type is one requirement rather than
@@ -172,6 +191,9 @@ CC operations are semantic operations over `ReprId`s, spelled by
   field;
 - arrays: `ArrayNew`, `ArrayLen`, `ArrayGet`, `ArrayClone`, `ArraySet`;
 - representation adaptation: `RepresentationTest`, `RepresentationCast`;
+- generic aggregate adaptation: `AggregateConvert` with a target-neutral
+  recursive conversion plan (`Identity`, scalar box/unbox, reference erasure or
+  recovery, `ArrayMap`, `ProductMap`, or a function adapter);
 - structured control: `If`, which nests a then and an else assignment list.
 
 An operation may refer to a `ReprId`, `SignatureId`, logical field, capture
@@ -183,6 +205,10 @@ is how the erased scalar boxes of
 `RepresentationTest`/`RepresentationCast` are reserved for the erased protocol
 and are never used for constructor dispatch; `verify_erased_adaptation` rejects
 a test or cast whose source is not erased and whose target is not erased.
+`AggregateConvert` is a separate design operation. It carries its value,
+source and destination `ValueShape`s, and recursive conversion plan. P8 builds
+the plan from typed Core substitutions; P9 resolves abstract representation
+handles. It carries no Wasm type or physical field offset.
 
 `If` is the only control construct in CC. It is not a CFG: the branch
 assignment lists are nested and produce a value, and P9 converts them into
@@ -246,6 +272,8 @@ source-associated ABI diagnostic.
 - lifted functions and their ordered capture lists;
 - construction, observation, and mutation requirements for abstract runtime
   values;
+- conversions between normalized aggregate shapes, including recursive field
+  and element adaptation;
 - scalar, aggregate, array, variant, closure, and erased-value shapes; and
 - structured expression-level control until P9 converts it to a CFG.
 
@@ -402,6 +430,7 @@ cc/
   mod.rs             `Module`, `Function`, `Assignment`, `AssignmentKind`, lowering entry
   representation.rs  `ReprId`, `ValueShape`, `Reference`, `RefShape`, `Representation`, `RepresentationTable`
   layout/            P8 layout requirement construction (Core types -> abstract shapes)
+  convert.rs         target-neutral generic aggregate conversion plans
   lower/             P8 lowering: ANF, closure conversion, patterns
   verify/            CC verifier
 ```
@@ -421,6 +450,10 @@ cc/
 `RefShape`, `Representation`, `Signature`, and `VariantCase`.
 `RepresentationTable` must provide `reserve` (allocate a stable `ReprId` before
 its shape is known), `set` (fill it in), and `add_signature`.
+
+`cc/convert.rs` provides `ValueConversion` and `AggregateConvert`, including
+their endpoint shapes and recursive array/product plans. It must not import MIR
+types. P8 attaches the source span and typed Core compatibility evidence.
 
 `cc/layout/` provides the Core-to-CC shape and signature construction that the
 lowering consumes.
@@ -453,6 +486,9 @@ The CC verifier (`verify_module`, `verify_table`, `verify_function_inner`,
   `Boolean` constant is `0` or `1`;
 - each representation adaptation has compatible source and destination
   requirements, and adaptation is used only on erased values;
+- each `AggregateConvert` source and destination agrees with its value
+  declaration, and nested `ArrayMap`/`ProductMap` plans match their abstract
+  representations;
 - direct-call arguments and results exactly match the callee signature;
 - closure-call (`IndirectCall`) arguments and results exactly match its
   `SignatureId`, and the callee value has that closure shape;
@@ -525,9 +561,10 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 - **Output.** A verified `cc::Module` carried in a `BackendInput` together with
   the bindings that P9 needs. CC is target-neutral: it names no layout.
 - **To P9 (MIR).** CC supplies representation requirements, function
-  signatures, and ordered assignments. P9 chooses the layout, builds the Wasm
-  type table, and converts structured `If` into a CFG; it must not invent a
-  requirement CC did not state.
+  signatures, aggregate conversion plans, and ordered assignments. P9 chooses
+  the layout, builds the Wasm type table, lowers aggregate maps, and converts
+  structured `If` into a CFG; it must not invent a requirement CC did not
+  state.
 - **From Core.** Core types and names are consumed here; nothing below CC
   depends on Core `TypeId`s except lowering-only diagnostic side data.
 
@@ -542,8 +579,11 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 - **Dictionaries.** CC already accepts products and closures, so no new
   representation is required when constraints land; the elaboration happens at
   Core ([type classes and dictionaries](type-classes-and-dictionaries.md)).
-- **Open rows.** Closed records only; row polymorphism changes how
-  `record_types` requirements are built, not the operations.
+- **Open rows.** Closed records only; row polymorphism needs a separate
+  representation contract. Canonical closed generic aggregates and explicit
+  conversion plans are specified in
+  [generic aggregate erasure](generic-aggregate-erasure.md), but are not
+  implemented yet.
 
 ## Implementation notes
 
@@ -551,9 +591,12 @@ The current code has `Constant`, `NumberConstant`, `StringConstant`,
 `Primitive`, `Unary`, `DirectCall`, `FunctionRef`, `IndirectCall`,
 `ClosureGetCapture`, `RepresentationTest`, `RepresentationCast`, `ProductNew`,
 `ProductGet`, `VariantNew`, `VariantTag`, `VariantGet`, `ArrayNew`, `ArrayLen`,
-`ArrayGet`, `ArrayClone`, `ArraySet`, and `If`. Pattern lowering produces nested
-`If` chains rather than a decision DAG, and local recursive `Let` groups are not
-yet lowered. Nothing in this document depends on those temporary shapes.
+`ArrayGet`, `ArrayClone`, `ArraySet`, and `If`. Pattern lowering uses the shared
+matrix compiler and decision DAG described in
+[pattern matching](pattern-matching.md). Local recursive `Let` groups are not
+yet lowered. `AggregateConvert` and its recursive plans are design requirements
+only; unsupported generic array and record recovery still receives a
+source-spanned diagnostic.
 
 ## References
 
