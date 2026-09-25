@@ -129,6 +129,16 @@ fn collect_capture_shapes(
                 collect_capture_shapes(then_assignments, declared, captures)?;
                 collect_capture_shapes(else_assignments, declared, captures)?;
             }
+            AssignmentKind::TagSwitch {
+                cases,
+                default_assignments,
+                ..
+            } => {
+                collect_capture_shapes(default_assignments, declared, captures)?;
+                for case in cases {
+                    collect_capture_shapes(&case.assignments, declared, captures)?;
+                }
+            }
             _ => {}
         }
     }

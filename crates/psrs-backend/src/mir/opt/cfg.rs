@@ -24,23 +24,39 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
             .blocks
             .iter()
             .filter_map(|block| {
-                let Some(Terminator::Branch {
-                    condition,
-                    then_block,
-                    else_block,
-                    span,
-                    ..
-                }) = block.terminator.as_ref()
-                else {
-                    return None;
+                let terminator = block.terminator.as_ref()?;
+                let (target, span) = match terminator {
+                    Terminator::Branch {
+                        condition,
+                        then_block,
+                        else_block,
+                        span,
+                        ..
+                    } => {
+                        let target = if then_block == else_block {
+                            Some(*then_block)
+                        } else {
+                            constants::boolean_constant(function, *condition)
+                                .map(|condition| if condition { *then_block } else { *else_block })
+                        }?;
+                        (target, *span)
+                    }
+                    Terminator::Switch {
+                        value,
+                        cases,
+                        default,
+                        span,
+                    } => {
+                        let value = constants::integer_constant(function, *value)?;
+                        let target = cases
+                            .iter()
+                            .find_map(|(case, target)| (*case == value).then_some(*target))
+                            .unwrap_or(*default);
+                        (target, *span)
+                    }
+                    Terminator::Return { .. } | Terminator::Jump { .. } => return None,
                 };
-                let target = if then_block == else_block {
-                    Some(*then_block)
-                } else {
-                    constants::boolean_constant(function, *condition)
-                        .map(|condition| if condition { *then_block } else { *else_block })
-                }?;
-                Some((block.id, (target, *span)))
+                Some((block.id, (target, span)))
             })
             .collect::<HashMap<_, _>>();
         for block in &mut function.blocks {
@@ -89,5 +105,10 @@ pub(super) fn successors(terminator: &Terminator) -> Vec<BlockId> {
             else_block,
             ..
         } => vec![*then_block, *else_block],
+        Terminator::Switch { cases, default, .. } => cases
+            .iter()
+            .map(|(_, target)| *target)
+            .chain(std::iter::once(*default))
+            .collect(),
     }
 }

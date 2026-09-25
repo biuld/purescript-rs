@@ -222,6 +222,36 @@ fn add_assignments(
                     signature_work,
                 );
             }
+            AssignmentKind::TagSwitch {
+                cases,
+                default_assignments,
+                ..
+            } => {
+                add_assignments(
+                    default_assignments,
+                    direct_calls,
+                    value_types,
+                    needs_integer_box,
+                    needs_number_box,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                );
+                for case in cases {
+                    add_assignments(
+                        &case.assignments,
+                        direct_calls,
+                        value_types,
+                        needs_integer_box,
+                        needs_number_box,
+                        representations,
+                        signatures,
+                        representation_work,
+                        signature_work,
+                    );
+                }
+            }
             AssignmentKind::Constant(_)
             | AssignmentKind::NumberConstant(_)
             | AssignmentKind::StringConstant(_)

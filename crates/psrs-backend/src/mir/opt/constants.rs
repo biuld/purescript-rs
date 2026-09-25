@@ -36,6 +36,13 @@ pub(super) fn boolean_constant(function: &Function, value: ValueId) -> Option<bo
     }
 }
 
+pub(super) fn integer_constant(function: &Function, value: ValueId) -> Option<i32> {
+    match analyze(function).get(&value).copied().unwrap_or_default() {
+        Fact::Constant(ScalarConstant::I32(value)) => Some(value),
+        _ => None,
+    }
+}
+
 fn propagate_function(function: &mut Function) -> bool {
     let facts = analyze(function);
     let mut changed = materialize_block_parameters(function, &facts);
@@ -151,6 +158,9 @@ fn incoming_values(function: &Function, reachable: &HashSet<crate::mir::BlockId>
                     }
                 }
             }
+            // Switch successors cannot carry block parameters, so there are no
+            // incoming values to add to the block-parameter lattice.
+            Terminator::Switch { .. } => {}
             Terminator::Return { .. } => {}
         }
     }

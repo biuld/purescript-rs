@@ -2,10 +2,39 @@ use super::*;
 use crate::types::{CompositeType, DefinedType, FieldType, RecGroup, StorageType};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
-use wasm_encoder::{HeapType, Instruction, RefType as WasmRefType, ValType as WasmValType};
+use wasm_encoder::{
+    BlockType, HeapType, Instruction, RefType as WasmRefType, ValType as WasmValType,
+};
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
+}
+
+fn module_with_function_body(name: &str, body: Body) -> Module {
+    Module {
+        name: name.into(),
+        imports: Vec::new(),
+        types: vec![FuncType {
+            parameters: Vec::new(),
+            results: Vec::new(),
+        }],
+        type_defs: Vec::new(),
+        functions: vec![Function {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: name.into(),
+            type_index: super::TypeIndex(0),
+            parameters: Vec::new(),
+            locals: Vec::new(),
+            body,
+            span: span(),
+        }],
+        memories: Vec::new(),
+        data: Vec::new(),
+        exports: Vec::new(),
+        entry: None,
+        realloc: None,
+        span: span(),
+    }
 }
 
 fn struct_ref(index: u32) -> WasmValType {
@@ -184,6 +213,104 @@ fn rejects_an_export_with_the_wrong_index_domain() {
         errors
             .iter()
             .any(|error| error.message.contains("unknown index")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_branch_depth_outside_its_enclosing_labels() {
+    let module = module_with_function_body("BadBranchDepth", vec![Op::Leaf(Instruction::Br(1))]);
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("does not target an enclosing label")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn accepts_a_branch_to_the_function_label_from_a_nested_block() {
+    let module = module_with_function_body(
+        "BranchToFunctionLabel",
+        vec![Op::Block {
+            body: vec![
+                Op::Leaf(Instruction::I32Const(1)),
+                Op::Leaf(Instruction::BrIf(1)),
+                Op::Leaf(Instruction::Br(1)),
+            ],
+            result: None,
+            span: span(),
+        }],
+    );
+
+    super::verify::verify_module(&module).expect("the function label is an active target");
+    let binary = super::encode_module(&module).expect("the structured body should encode");
+    crate::validator()
+        .validate_all(&binary)
+        .expect("the branch should target the implicit function label");
+}
+
+#[test]
+fn accepts_branches_to_the_function_label_through_raw_wasm_labels() {
+    let module = module_with_function_body(
+        "RawLabelsToFunctionLabel",
+        vec![
+            Op::Leaf(Instruction::Block(BlockType::Empty)),
+            Op::Leaf(Instruction::Loop(BlockType::Empty)),
+            Op::Leaf(Instruction::I32Const(1)),
+            Op::Leaf(Instruction::BrIf(2)),
+            Op::Leaf(Instruction::Br(2)),
+            Op::Leaf(Instruction::End),
+            Op::Leaf(Instruction::End),
+        ],
+    );
+
+    super::verify::verify_module(&module).expect("raw labels contribute to branch depth");
+    let binary = super::encode_module(&module).expect("the raw control flow should encode");
+    crate::validator()
+        .validate_all(&binary)
+        .expect("the raw branch targets should pass Wasm validation");
+}
+
+#[test]
+fn rejects_a_branch_depth_beyond_the_structured_labels() {
+    let module = module_with_function_body(
+        "BadStructuredBranchDepth",
+        vec![Op::Block {
+            body: vec![Op::Leaf(Instruction::Br(2))],
+            result: None,
+            span: span(),
+        }],
+    );
+
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("does not target an enclosing label")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_branch_depth_beyond_the_raw_labels() {
+    let module = module_with_function_body(
+        "BadRawBranchDepth",
+        vec![
+            Op::Leaf(Instruction::Block(BlockType::Empty)),
+            Op::Leaf(Instruction::Loop(BlockType::Empty)),
+            Op::Leaf(Instruction::Br(3)),
+            Op::Leaf(Instruction::End),
+            Op::Leaf(Instruction::End),
+        ],
+    );
+
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("does not target an enclosing label")),
         "{errors:?}"
     );
 }

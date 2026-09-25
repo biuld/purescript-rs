@@ -526,15 +526,33 @@ which requires the tail-call capability.
 
 ## Implementation notes
 
-The current code has `Return`, `Jump`, and `Branch { merge_block }` only;
-`Switch` and `ReturnCall*` are specified here but not yet produced.
-`mir/lower/assignments.rs` lowers `AssignmentKind::If` to a three-block diamond
-and sets `merge_block`. The structurer
-(`wasm/lower/structure/region.rs::emit_region`) is a linear walk with an
-explicit `stop` block; it rejects any revisited block with "MIR contains a loop
-that the first Wasm structurer cannot lower". The Wasm IR models only `Op::Leaf`
-and `Op::If`. Tail calls are disabled in the stable profile, so recursion grows
-the stack. Nothing in this document depends on those temporary shapes.
+CC now preserves a constructor-only, unique-tag case as `TagSwitch`, which P9
+lowers to a `Switch` with parameter-free successor blocks and a one-value join.
+The MIR verifier checks the `i32` selector, unique tags, and successor shape.
+P10 discovers the nearest common one-value join for these arms and emits a
+`br_table` dispatcher. Since `br_table` indexes a dense unsigned table, P10
+first maps the actual signed tag values to dense arm indices with a structured
+`if` expression; reordered and sparse source patterns therefore retain their
+tag semantics. The structured Wasm IR and encoder support `Block` and `Loop`,
+and the verifier checks every `br`, `br_if`, and `br_table` depth against the
+active label depth. Wasmtime execution coverage includes a reordered enum case
+whose final constructor is dispatched through the default label.
+
+The implementation remains narrower than the complete design in these
+specific areas:
+
+- `Branch` still stores `merge_block`; the general dominator-based join
+  discovery and reducible stackifier are not implemented. Existing `If`
+  lowering continues to rely on the merge hint.
+- The structurer accepts `Switch` only when every arm reaches a common
+  one-value join. Other CFG shapes, loops, and irreducible regions still report
+  a structuring error; `Loop` is currently an encodable Wasm node, not a node
+  emitted by MIR structuring.
+- Duplicate constructor alternatives retain source-order first-match behavior
+  by using the existing chain of `If` decisions instead of `TagSwitch`.
+- `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR
+  tail-call terminator or `return_call*` emission exists yet. The stable profile
+  keeps the flag disabled; setting it does not enable tail-call lowering.
 
 ## References
 

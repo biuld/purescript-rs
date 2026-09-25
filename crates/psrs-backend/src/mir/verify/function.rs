@@ -256,6 +256,11 @@ fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
             else_block,
             ..
         } => vec![*then_block, *else_block],
+        Terminator::Switch { cases, default, .. } => cases
+            .iter()
+            .map(|(_, block)| *block)
+            .chain(std::iter::once(*default))
+            .collect(),
     }
 }
 
@@ -264,6 +269,7 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
+        Terminator::Switch { value, .. } => vec![*value],
     }
 }
 
@@ -271,7 +277,8 @@ fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
     match terminator {
         Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
-        | Terminator::Branch { span, .. } => *span,
+        | Terminator::Branch { span, .. }
+        | Terminator::Switch { span, .. } => *span,
     }
 }
 
@@ -330,6 +337,40 @@ fn verify_terminator(
                     *span,
                     "MIR branch merge must have one result parameter",
                 ));
+            }
+        }
+        Terminator::Switch {
+            value,
+            cases,
+            default,
+            span,
+        } => {
+            if require_value(definitions, *value, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR switch selector is not i32"));
+            }
+            if cases
+                .iter()
+                .map(|(case, _)| *case)
+                .collect::<HashSet<_>>()
+                .len()
+                != cases.len()
+            {
+                return Err(mir_error(*span, "MIR switch case values are not unique"));
+            }
+            for target in cases
+                .iter()
+                .map(|(_, target)| target)
+                .chain(std::iter::once(default))
+            {
+                let Some(block) = blocks.get(target) else {
+                    return Err(mir_error(*span, "MIR switch target does not exist"));
+                };
+                if !block.parameters.is_empty() {
+                    return Err(mir_error(
+                        *span,
+                        "MIR switch targets cannot have block parameters",
+                    ));
+                }
             }
         }
     }
