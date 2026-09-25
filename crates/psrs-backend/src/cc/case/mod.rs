@@ -1,7 +1,7 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
 use super::{Assignment, AssignmentKind, BinaryOp, TagCase, ValueId, ValueShape};
-use crate::BackendError;
+use crate::{BackendError, BackendWarning};
 use psrs_core::{CaseBranch, PatternKind};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -40,6 +40,7 @@ impl FunctionLowerer<'_> {
             Some(psrs_core::Type::Record(_))
         ) {
             require_exhaustive(span, branches, &coverage)?;
+            self.report_redundant_branches(branches, &coverage);
             return self.lower_record_case(
                 scrutinee_type,
                 scrutinee,
@@ -53,6 +54,7 @@ impl FunctionLowerer<'_> {
             return Err(case_error(span, "case scrutinee is not a data type"));
         };
         require_exhaustive(span, branches, &coverage)?;
+        self.report_redundant_branches(branches, &coverage);
         if self.newtype_ids.contains(&type_id) {
             return self.lower_newtype_case(
                 type_id,
@@ -160,6 +162,20 @@ impl FunctionLowerer<'_> {
         };
         assignments.extend(built);
         Ok(value)
+    }
+
+    fn report_redundant_branches(
+        &mut self,
+        branches: &[CaseBranch],
+        coverage: &coverage::CoverageReport,
+    ) {
+        for index in &coverage.redundant_branches {
+            self.warnings.push(BackendWarning::new(
+                "P8 closure conversion",
+                branches[*index].span,
+                "redundant case alternative is unreachable",
+            ));
+        }
     }
 
     fn build_tag_switch(

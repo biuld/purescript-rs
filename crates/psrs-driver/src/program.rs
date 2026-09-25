@@ -2,7 +2,10 @@
 //! checking against imported signatures, Core lowering, and linking.
 
 use super::prelude;
-use super::{Artifact, ProgramDiagnostic, coded_diagnostic, diagnostic, lower_source_to_ast};
+use super::{
+    Artifact, ProgramDiagnostic, backend_warnings, coded_diagnostic, diagnostic,
+    lower_source_to_ast,
+};
 use std::collections::HashMap;
 
 mod effects;
@@ -30,9 +33,11 @@ fn compile_program_sources_with_trusted_prefix(
             })
             .collect::<Vec<_>>()
     })?;
+    let warnings = backend_warnings(output.warnings, trusted_prefix);
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
+        warnings,
     })
 }
 

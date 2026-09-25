@@ -25,6 +25,34 @@ pub struct BackendError {
     pub module: Option<ModuleId>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackendWarning {
+    pub pass: &'static str,
+    pub span: TextRange,
+    pub message: String,
+    /// The source module that owns the warning, when the lowering pass can
+    /// identify one.
+    pub module: Option<ModuleId>,
+}
+
+impl BackendWarning {
+    pub(crate) fn new(pass: &'static str, span: TextRange, message: impl Into<String>) -> Self {
+        Self {
+            pass,
+            span,
+            message: message.into(),
+            module: None,
+        }
+    }
+
+    pub(crate) fn with_module(mut self, module: ModuleId) -> Self {
+        if self.module.is_none() {
+            self.module = Some(module);
+        }
+        self
+    }
+}
+
 impl BackendError {
     fn new(pass: &'static str, span: TextRange, message: impl Into<String>) -> Self {
         Self {
@@ -60,6 +88,7 @@ pub(crate) fn annotate_errors(
 pub struct Artifact {
     pub wasm: Vec<u8>,
     pub wat: String,
+    pub warnings: Vec<BackendWarning>,
 }
 
 pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>> {
@@ -163,6 +192,7 @@ pub fn compile_with_target(
                 owner,
             )
         })?;
+    let warnings = lowered_cc.warnings;
     let text = wasmprinter::print_bytes(&binary).map_err(|error| {
         annotate_errors(
             vec![BackendError::new(
@@ -181,6 +211,7 @@ pub fn compile_with_target(
         artifact: Artifact {
             wasm: binary,
             wat: text,
+            warnings,
         },
     })
 }

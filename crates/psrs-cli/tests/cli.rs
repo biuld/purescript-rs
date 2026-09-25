@@ -35,3 +35,40 @@ fn builds_linked_sources_from_the_cli() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn prints_source_attributed_redundancy_warnings() {
+    let root = std::env::temp_dir().join(format!("psrs-warning-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("create CLI test directory");
+    let main = root.join("Main.purs");
+    let output = root.join("main.wasm");
+    std::fs::write(
+        &main,
+        "module Main where\ndata Choice = First | Second\nchoose input = case input of\n  First -> 1\n  First -> 2\n  _ -> 3\nmain = choose First\n",
+    )
+    .expect("write source with a redundant alternative");
+
+    let result = Command::new(env!("CARGO_BIN_EXE_psrs"))
+        .args([
+            "build",
+            main.to_str().expect("main path is UTF-8"),
+            "-o",
+            output.to_str().expect("output path is UTF-8"),
+        ])
+        .output()
+        .expect("run psrs build");
+    assert!(
+        result.status.success(),
+        "psrs build failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("Main.purs"),
+        "missing warning source: {stderr}"
+    );
+    assert!(stderr.contains("P8 closure conversion warning"), "{stderr}");
+    assert!(stderr.contains("redundant case alternative"), "{stderr}");
+
+    let _ = std::fs::remove_dir_all(root);
+}

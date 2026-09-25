@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 pub struct BackendInput {
     pub cc: cc::Module,
     pub externals: ExternalBindings,
+    pub warnings: Vec<crate::BackendWarning>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

@@ -3,7 +3,7 @@ use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
 };
-use crate::BackendError;
+use crate::{BackendError, BackendWarning};
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use std::cell::RefCell;
@@ -83,7 +83,7 @@ pub(super) struct LoweringContext<'a> {
 pub(super) fn lower_function(
     declaration: &psrs_core::Declaration,
     context: &LoweringContext<'_>,
-) -> Result<(Function, Vec<Function>), Vec<BackendError>> {
+) -> Result<(Function, Vec<Function>, Vec<BackendWarning>), Vec<BackendError>> {
     let module = context.module;
     let mut state = FunctionLowerer {
         next_value: 0,
@@ -106,6 +106,7 @@ pub(super) fn lower_function(
         function_wrappers: context.function_wrappers,
         generated_symbols: Rc::clone(&context.generated_symbols),
         owner: declaration.symbol.module,
+        warnings: Vec::new(),
         erased_function_types: HashMap::new(),
         generated: Vec::new(),
     };
@@ -154,7 +155,12 @@ pub(super) fn lower_function(
     super::verify::verify_function(&function, context.signatures, context.representations)?;
     let mut generated = state.generated;
     generated.push(lambda::make_wrapper(&function, declaration, context));
-    Ok((function, generated))
+    let warnings = state
+        .warnings
+        .into_iter()
+        .map(|warning| warning.with_module(declaration.symbol.module))
+        .collect();
+    Ok((function, generated, warnings))
 }
 
 pub(super) struct FunctionLowerer<'a> {
@@ -178,6 +184,7 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) function_wrappers: &'a HashMap<SymbolId, SymbolId>,
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
     pub(super) owner: ModuleId,
+    pub(super) warnings: Vec<BackendWarning>,
     pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }

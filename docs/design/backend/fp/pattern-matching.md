@@ -521,15 +521,20 @@ only one that projects, and it does so once.
 `cc/case/coverage/` now runs cycle-safe usefulness analysis over constructor
 and record patterns, including nested fields and recursive data types. It
 rejects non-exhaustive cases before CC lowering and includes a missing
-constructor pattern in the diagnostic. The analysis also identifies redundant
-rows, but the current diagnostic pipeline does not yet expose them as warnings.
-Constructor matching is still realized through ordered CC `If` diamonds;
+constructor pattern in the diagnostic. It also emits one source-spanned P8
+warning for each redundant row. The driver exposes warnings on compiled
+artifacts with their source index, and the CLI prints them for `build` and
+`wat` commands.
+
+Nullary enum cases with unique constructor rows lower through CC `TagSwitch`,
+MIR `Terminator::Switch`, and Wasm `br_table`. Duplicate rows preserve
+first-match behavior through ordered CC `If` diamonds. Field-bearing and nested
+constructor matching also uses ordered CC `If` diamonds;
 `cc/case/decision.rs` records top-level branch order and a trailing irrefutable
-fallback rather than constructing the
-specified shared decision DAG. Exhaustive nested record matrices are analyzed
-correctly, but the current record lowerer can still require a trailing
-irrefutable fallback to realize them. `Terminator::Switch` and multi-way
-`br_table` do not exist yet.
+fallback rather than constructing the specified shared decision DAG.
+Exhaustive nested record matrices are analyzed correctly, but the current
+record lowerer can still require a trailing irrefutable fallback to realize
+them.
 
 ## References
 

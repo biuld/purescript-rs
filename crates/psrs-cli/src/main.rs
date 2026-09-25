@@ -222,6 +222,7 @@ fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
             return Err(String::new());
         }
     };
+    print_warnings(&artifact.warnings, &sources);
     if command == "wat" {
         if let Some(output) = output_path {
             fs::write(&output, artifact.wat).map_err(|error| format!("{output}: {error}"))?;
@@ -296,6 +297,9 @@ fn dump_ir(stage: &str, path: &str) -> Result<(), String> {
     let Some(dump) = compilation.dumps.get(stage) else {
         return Err(usage());
     };
+    for warning in &compilation.artifact.warnings {
+        print_warning(&source, warning);
+    }
     print!("{dump}");
     Ok(())
 }
@@ -354,4 +358,24 @@ fn print_coded_diagnostic(
         }
         None => print_diagnostic(source, span, kind, message),
     }
+}
+
+fn print_warnings(warnings: &[psrs_driver::Warning], sources: &[(String, String)]) {
+    for warning in warnings {
+        let Some((path, text)) = sources.get(warning.source) else {
+            continue;
+        };
+        let source = SourceFile::new(path.as_str(), text.as_str());
+        print_warning(&source, warning);
+    }
+}
+
+fn print_warning(source: &SourceFile, warning: &psrs_driver::Warning) {
+    let kind = format!("{} warning", warning.diagnostic.stage);
+    print_diagnostic(
+        source,
+        warning.diagnostic.span,
+        &kind,
+        &warning.diagnostic.message,
+    );
 }
