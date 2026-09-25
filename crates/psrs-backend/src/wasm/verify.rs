@@ -134,6 +134,8 @@ fn verify_body(
     label_depth: u32,
     errors: &mut Vec<BackendError>,
 ) {
+    let mut current_label_depth = label_depth;
+    let mut raw_label_depth = 0;
     for op in body {
         match op {
             Op::Leaf(instruction) => {
@@ -143,9 +145,26 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
-                    label_depth,
+                    current_label_depth,
                     errors,
                 );
+                match instruction {
+                    Instruction::Block(_) | Instruction::Loop(_) | Instruction::If(_) => {
+                        current_label_depth += 1;
+                        raw_label_depth += 1;
+                    }
+                    Instruction::End if raw_label_depth > 0 => {
+                        current_label_depth -= 1;
+                        raw_label_depth -= 1;
+                    }
+                    Instruction::End => {
+                        errors.push(wasm_error(
+                            span,
+                            "Wasm end does not close a raw structured label",
+                        ));
+                    }
+                    _ => {}
+                }
             }
             Op::If {
                 then_body,
@@ -158,7 +177,7 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
-                    label_depth + 1,
+                    current_label_depth + 1,
                     errors,
                 );
                 verify_body(
@@ -167,7 +186,7 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
-                    label_depth + 1,
+                    current_label_depth + 1,
                     errors,
                 );
             }
@@ -178,11 +197,17 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
-                    label_depth + 1,
+                    current_label_depth + 1,
                     errors,
                 );
             }
         }
+    }
+    if raw_label_depth > 0 {
+        errors.push(wasm_error(
+            span,
+            "Wasm raw structured control label is not closed",
+        ));
     }
 }
 

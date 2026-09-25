@@ -2,7 +2,9 @@ use super::*;
 use crate::types::{CompositeType, DefinedType, FieldType, RecGroup, StorageType};
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
-use wasm_encoder::{HeapType, Instruction, RefType as WasmRefType, ValType as WasmValType};
+use wasm_encoder::{
+    BlockType, HeapType, Instruction, RefType as WasmRefType, ValType as WasmValType,
+};
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
@@ -250,6 +252,28 @@ fn accepts_a_branch_to_the_function_label_from_a_nested_block() {
 }
 
 #[test]
+fn accepts_branches_to_the_function_label_through_raw_wasm_labels() {
+    let module = module_with_function_body(
+        "RawLabelsToFunctionLabel",
+        vec![
+            Op::Leaf(Instruction::Block(BlockType::Empty)),
+            Op::Leaf(Instruction::Loop(BlockType::Empty)),
+            Op::Leaf(Instruction::I32Const(1)),
+            Op::Leaf(Instruction::BrIf(2)),
+            Op::Leaf(Instruction::Br(2)),
+            Op::Leaf(Instruction::End),
+            Op::Leaf(Instruction::End),
+        ],
+    );
+
+    super::verify::verify_module(&module).expect("raw labels contribute to branch depth");
+    let binary = super::encode_module(&module).expect("the raw control flow should encode");
+    crate::validator()
+        .validate_all(&binary)
+        .expect("the raw branch targets should pass Wasm validation");
+}
+
+#[test]
 fn rejects_a_branch_depth_beyond_the_structured_labels() {
     let module = module_with_function_body(
         "BadStructuredBranchDepth",
@@ -258,6 +282,28 @@ fn rejects_a_branch_depth_beyond_the_structured_labels() {
             result: None,
             span: span(),
         }],
+    );
+
+    let errors = super::verify::verify_module(&module).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("does not target an enclosing label")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_branch_depth_beyond_the_raw_labels() {
+    let module = module_with_function_body(
+        "BadRawBranchDepth",
+        vec![
+            Op::Leaf(Instruction::Block(BlockType::Empty)),
+            Op::Leaf(Instruction::Loop(BlockType::Empty)),
+            Op::Leaf(Instruction::Br(3)),
+            Op::Leaf(Instruction::End),
+            Op::Leaf(Instruction::End),
+        ],
     );
 
     let errors = super::verify::verify_module(&module).unwrap_err();
