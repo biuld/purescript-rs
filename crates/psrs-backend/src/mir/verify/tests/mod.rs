@@ -352,6 +352,7 @@ fn rejects_a_load_from_an_unknown_memory_id() {
 mod arrays;
 mod gaps;
 mod scalar;
+mod switch;
 
 #[test]
 fn rejects_a_branch_target_with_block_parameters() {
@@ -392,7 +393,6 @@ fn rejects_a_branch_target_with_block_parameters() {
                     condition,
                     then_block: BlockId(1),
                     else_block: BlockId(2),
-                    merge_block: BlockId(3),
                     span: span(),
                 }),
             },

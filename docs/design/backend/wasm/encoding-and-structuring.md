@@ -149,11 +149,11 @@ terminator decides the control shape:
 - `Branch` emits the condition, then an `Op::If` whose arms recursively emit the
   then and else blocks up to the join block, and stores the join's parameter.
 
-The current structurer is a linear walk that recognizes the reducible
-`if`-diamond shape MIR records with its `merge_block` hint, and rejects any
-revisited block (any loop). The general stackifier that removes the hint and
-adds `Block`, `Loop`, and `br_table`, and the tail-call lowering that reuses it,
-are specified in
+The structurer derives the join of a `Branch` or `Switch` from the CFG edges
+(the shared derivation in `mir/cfg.rs`); MIR carries no structuring hint. The
+reducible path also handles loops through the stackifier that adds `Block`,
+`Loop`, and `br_table`, and the tail-call lowering that reuses it, both
+specified in
 [control flow and tail calls](../fp/control-flow-and-tail-calls.md). Structuring
 is the only place that knows about Wasm region shape; MIR stays structure-free.
 
@@ -496,11 +496,11 @@ the entry-reachable MIR graph, checks loop nesting, then orders each loop and
 the function region after removing back edges. It emits a `Loop` at each
 natural-loop header and `Block` continuations for forward targets, including
 multiple loop exits. `Jump`, `Branch`, and `Switch` edges in these functions
-branch to active labels using computed depths. Acyclic functions keep the
-existing merge-based diamond and switch lowering. A switch maps sparse signed
+branch to active labels using computed depths. Acyclic functions derive the
+diamond and switch join from the CFG edges and keep the result-typed `if`/switch
+lowering; MIR carries no `merge_block`. A switch maps sparse signed
 tags to dense unsigned indices before `br_table`; duplicate constructor
-patterns still use the source-order comparison chain. The MIR `Branch` retains
-its `merge_block` field and verifier contract.
+patterns still use the source-order comparison chain.
 
 The thin IR and encoder support structured `If`, `Block`, and `Loop` regions.
 Branch-depth verification includes the implicit function label and counts

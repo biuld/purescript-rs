@@ -268,7 +268,6 @@ fn euclidean_helper(
                     condition: should_adjust,
                     then_block: BlockId(1),
                     else_block: BlockId(2),
-                    merge_block: merge,
                     span,
                 }),
             },

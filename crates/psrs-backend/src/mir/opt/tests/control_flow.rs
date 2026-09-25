@@ -29,7 +29,6 @@ fn folds_branch_merges_prunes_blocks_and_projects_imports() {
                     condition: ValueId(0),
                     then_block: BlockId(1),
                     else_block: BlockId(2),
-                    merge_block: BlockId(3),
                     span: span(),
                 }),
             },

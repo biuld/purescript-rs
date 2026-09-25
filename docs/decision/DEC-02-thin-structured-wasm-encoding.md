@@ -37,9 +37,10 @@ architecture keeps six IR families.
   mirror; `wasm-encoder` owns the instruction set.
 - Runtime layouts and calling conventions still belong to MIR, not to the Wasm
   encoding.
-- MIR currently carries a `merge_block` hint for the diamond structurer. That
-  is a bootstrap constraint and should be replaced by general structuring when
-  loops and multi-way branches arrive.
+- MIR briefly carried a `merge_block` hint for the bootstrap diamond
+  structurer. That constraint has been removed: the structurer now derives
+  branch and switch joins from the CFG edges, and general structuring handles
+  loops and multi-way branches.
 - Rejected: a full Wasm IR mirroring opcodes (duplication and unbounded growth);
   encoding directly from MIR (mixes structuring with emission and leaves no
   verifiable structured artifact).

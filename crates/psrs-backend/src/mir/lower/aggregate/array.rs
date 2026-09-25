@@ -115,7 +115,6 @@ impl FunctionLowerer<'_> {
                 condition,
                 then_block: body,
                 else_block: exit,
-                merge_block: header,
                 span,
             },
             span,
