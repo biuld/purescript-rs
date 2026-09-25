@@ -6,7 +6,7 @@
 ## Context
 
 The project promises a portable WebAssembly artifact that runs under a WASI
-host, and [D-02](../design/D-02-wasm-lowering.md) previously implied the
+host, and [wasm encoding](../design/backend/wasm/encoding-and-structuring.md) previously implied the
 minimal core WebAssembly specification plus a hand-written linear-memory bump
 allocator for heap objects. Modern `wasmtime` releases implement the
 standardized WebAssembly 3.0 recommendation—which includes garbage collection,
@@ -24,7 +24,7 @@ that requirement is pinned and verified.
 
 The execution oracle is a pinned **wasmtime 48** baseline, but the compilation
 target is an explicit, per-feature capability profile defined by
-[D-05](../design/D-05-backend-capability.md), not every proposal the runtime
+[capability profile](../design/backend/wasm/capability-profile.md), not every proposal the runtime
 can execute. The default profile is
 `TargetCapabilities::wasmtime_wasi_0_2()`.
 

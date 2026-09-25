@@ -1,7 +1,6 @@
+use crate::mir::NumericOp;
 use crate::types::RefType;
-use crate::types::ValueType;
 use crate::wasm::convert::heap_type;
-use psrs_core::Primitive;
 use wasm_encoder::{Instruction, MemArg};
 
 pub(super) fn ref_test(reference: RefType) -> Instruction<'static> {
@@ -32,34 +31,36 @@ pub(super) fn memory_with_align(offset: u32, align: u32) -> MemArg {
     }
 }
 
-pub(super) fn linear_load(ty: ValueType, offset: u32) -> Instruction<'static> {
-    match ty {
-        ValueType::I32 | ValueType::Boolean => Instruction::I32Load(memory(offset)),
-        ValueType::F64 => Instruction::F64Load(memory_with_align(offset, 3)),
-        _ => unreachable!("MIR verifier rejects unsupported linear load types"),
-    }
-}
-
-pub(super) fn linear_store(ty: ValueType, offset: u32) -> Instruction<'static> {
-    match ty {
-        ValueType::I32 | ValueType::Boolean => Instruction::I32Store(memory(offset)),
-        ValueType::F64 => Instruction::F64Store(memory_with_align(offset, 3)),
-        _ => unreachable!("MIR verifier rejects unsupported linear store types"),
-    }
-}
-
-pub(super) fn primitive(op: Primitive) -> Instruction<'static> {
+pub(super) fn primitive(op: NumericOp) -> Instruction<'static> {
     match op {
-        Primitive::Add => Instruction::I32Add,
-        Primitive::Sub => Instruction::I32Sub,
-        Primitive::Mul => Instruction::I32Mul,
-        Primitive::DivS => Instruction::I32DivS,
-        Primitive::RemS => Instruction::I32RemS,
-        Primitive::Eq => Instruction::I32Eq,
-        Primitive::Ne => Instruction::I32Ne,
-        Primitive::LtS => Instruction::I32LtS,
-        Primitive::LeS => Instruction::I32LeS,
-        Primitive::GtS => Instruction::I32GtS,
-        Primitive::GeS => Instruction::I32GeS,
+        NumericOp::I32Add => Instruction::I32Add,
+        NumericOp::I32Sub => Instruction::I32Sub,
+        NumericOp::I32Mul => Instruction::I32Mul,
+        NumericOp::I32DivS => Instruction::I32DivS,
+        NumericOp::I32RemS => Instruction::I32RemS,
+        NumericOp::I32And | NumericOp::BoolAnd => Instruction::I32And,
+        NumericOp::I32Or | NumericOp::BoolOr => Instruction::I32Or,
+        NumericOp::I32Xor => Instruction::I32Xor,
+        NumericOp::I32Shl => Instruction::I32Shl,
+        NumericOp::I32ShrS => Instruction::I32ShrS,
+        NumericOp::I32ShrU => Instruction::I32ShrU,
+        NumericOp::I32Eq => Instruction::I32Eq,
+        NumericOp::I32Ne => Instruction::I32Ne,
+        NumericOp::BoolEq => Instruction::I32Eq,
+        NumericOp::BoolNe => Instruction::I32Ne,
+        NumericOp::I32LtS => Instruction::I32LtS,
+        NumericOp::I32LeS => Instruction::I32LeS,
+        NumericOp::I32GtS => Instruction::I32GtS,
+        NumericOp::I32GeS => Instruction::I32GeS,
+        NumericOp::F64Add => Instruction::F64Add,
+        NumericOp::F64Sub => Instruction::F64Sub,
+        NumericOp::F64Mul => Instruction::F64Mul,
+        NumericOp::F64Div => Instruction::F64Div,
+        NumericOp::F64Eq => Instruction::F64Eq,
+        NumericOp::F64Ne => Instruction::F64Ne,
+        NumericOp::F64Lt => Instruction::F64Lt,
+        NumericOp::F64Le => Instruction::F64Le,
+        NumericOp::F64Gt => Instruction::F64Gt,
+        NumericOp::F64Ge => Instruction::F64Ge,
     }
 }

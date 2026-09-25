@@ -5,13 +5,18 @@ use super::case_error;
 use crate::BackendError;
 use psrs_span::TextRange;
 
+pub(super) struct VariantField {
+    pub(super) representation: ReprId,
+    pub(super) case: u32,
+    pub(super) field: u32,
+}
+
 impl FunctionLowerer<'_> {
     pub(super) fn lower_erased_field(
         &mut self,
         expected_type: psrs_core::TypeId,
         constructor: ValueId,
-        constructor_type: ReprId,
-        field: u32,
+        selector: VariantField,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
@@ -21,10 +26,11 @@ impl FunctionLowerer<'_> {
         }));
         assignments.push(Assignment {
             destination: boxed_value,
-            kind: AssignmentKind::ProductGet {
+            kind: AssignmentKind::VariantGet {
                 destination: boxed_value,
-                representation: constructor_type,
-                field,
+                representation: selector.representation,
+                case: selector.case,
+                field: selector.field,
                 value: constructor,
             },
             span,

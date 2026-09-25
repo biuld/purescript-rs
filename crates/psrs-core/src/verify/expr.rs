@@ -1,6 +1,6 @@
 use super::{
     Locals, array_element, compatible, error, primitive_types, record_field, restore_local,
-    type_id_for, user_type_constructor, verify_pattern, verify_type,
+    type_id_for, unary_primitive_types, user_type_constructor, verify_pattern, verify_type,
 };
 use crate::{Expr, ExprKind, Module, Type, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
@@ -264,6 +264,18 @@ impl Context<'_> {
                 let (operand, result) = primitive_types(*op, self.module);
                 self.expr(left, Some(operand));
                 self.expr(right, Some(operand));
+                compatible(
+                    result,
+                    expression.ty,
+                    self.module,
+                    self.owner,
+                    expression.span,
+                    self.errors,
+                );
+            }
+            ExprKind::UnaryPrimitive { op, value } => {
+                let (operand, result) = unary_primitive_types(*op, self.module);
+                self.expr(value, Some(operand));
                 compatible(
                     result,
                     expression.ty,

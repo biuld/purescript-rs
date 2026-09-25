@@ -1,14 +1,15 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
-use super::{Assignment, AssignmentKind, ValueId, ValueShape};
+use super::{Assignment, AssignmentKind, BinaryOp, TagCase, ValueId, ValueShape};
 use crate::BackendError;
-use psrs_core::{CaseBranch, PatternKind, Primitive};
+use psrs_core::{CaseBranch, PatternKind};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod aggregate;
 mod clone;
+mod coverage;
 mod decision;
 mod erased;
 mod record;
@@ -22,7 +23,8 @@ struct PatternState<'a> {
 
 impl FunctionLowerer<'_> {
     /// Lowers a `case` over a type whose constructors are all nullary into a
-    /// chain of tag comparisons.
+    /// tag switch when the constructor patterns are unique, preserving a
+    /// comparison chain for duplicate patterns that need source-order priority.
     pub(super) fn lower_case(
         &mut self,
         scrutinee_type: psrs_core::TypeId,
@@ -32,10 +34,12 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        let coverage = coverage::analyze(self.module, scrutinee_type, branches);
         if matches!(
             self.module.types.get(scrutinee_type.0 as usize),
             Some(psrs_core::Type::Record(_))
         ) {
+            require_exhaustive(span, branches, &coverage)?;
             return self.lower_record_case(
                 scrutinee_type,
                 scrutinee,
@@ -48,6 +52,7 @@ impl FunctionLowerer<'_> {
         let Some(type_id) = user_type_id(self.module, scrutinee_type) else {
             return Err(case_error(span, "case scrutinee is not a data type"));
         };
+        require_exhaustive(span, branches, &coverage)?;
         if self.newtype_ids.contains(&type_id) {
             return self.lower_newtype_case(
                 type_id,
@@ -117,7 +122,9 @@ impl FunctionLowerer<'_> {
             if covered.len() != constructors.len() {
                 return Err(case_error(
                     span,
-                    "non-exhaustive case requires a wildcard alternative",
+                    coverage.non_exhaustive_message(
+                        "non-exhaustive case requires a wildcard alternative",
+                    ),
                 ));
             }
             let (branch, _) = constructor_branches
@@ -128,15 +135,66 @@ impl FunctionLowerer<'_> {
             (fallback_assignments, value)
         };
 
-        let (built, value) = self.build_case(
-            scrutinee,
-            &constructor_branches,
-            fallback,
-            result_type,
-            span,
-        )?;
+        let has_unique_tags = constructor_branches
+            .iter()
+            .map(|(_, tag)| *tag)
+            .collect::<HashSet<_>>()
+            .len()
+            == constructor_branches.len();
+        let (built, value) = if has_unique_tags && !constructor_branches.is_empty() {
+            self.build_tag_switch(
+                scrutinee,
+                &constructor_branches,
+                fallback,
+                result_type,
+                span,
+            )?
+        } else {
+            self.build_case(
+                scrutinee,
+                &constructor_branches,
+                fallback,
+                result_type,
+                span,
+            )?
+        };
         assignments.extend(built);
         Ok(value)
+    }
+
+    fn build_tag_switch(
+        &mut self,
+        scrutinee: ValueId,
+        constructor_branches: &[(&CaseBranch, u32)],
+        fallback: (Vec<Assignment>, ValueId),
+        result_type: ValueShape,
+        span: TextRange,
+    ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
+        let mut cases = Vec::with_capacity(constructor_branches.len());
+        for (branch, tag) in constructor_branches {
+            let mut assignments = Vec::new();
+            let value = self.lower_branch(branch, scrutinee, &mut assignments)?;
+            cases.push(TagCase {
+                tag: i32::try_from(*tag)
+                    .map_err(|_| case_error(span, "data constructor tag exceeds i32"))?,
+                assignments,
+                value,
+            });
+        }
+        let destination = self.fresh(result_type);
+        Ok((
+            vec![Assignment {
+                destination,
+                kind: AssignmentKind::TagSwitch {
+                    value: scrutinee,
+                    cases,
+                    default_assignments: fallback.0,
+                    default_value: fallback.1,
+                },
+                span,
+            }],
+            destination,
+        ))
     }
 
     fn lower_newtype_case(
@@ -196,10 +254,7 @@ impl FunctionLowerer<'_> {
         }
         if !has_constructor_pattern {
             let Some(branch) = lowered_branches.first() else {
-                return Err(case_error(
-                    span,
-                    "non-exhaustive case requires a wildcard alternative",
-                ));
+                return Err(case_error(span, "newtype case has no alternatives"));
             };
             return self.lower_branch(branch, scrutinee, assignments);
         }
@@ -239,7 +294,7 @@ impl FunctionLowerer<'_> {
         prefix.push(Assignment {
             destination: condition,
             kind: AssignmentKind::Primitive {
-                op: Primitive::Eq,
+                op: BinaryOp::IntEq,
                 left: scrutinee,
                 right: tag_value,
             },
@@ -283,6 +338,20 @@ impl FunctionLowerer<'_> {
     }
 }
 
-fn case_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
+fn case_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
+fn require_exhaustive(
+    span: TextRange,
+    branches: &[CaseBranch],
+    coverage: &coverage::CoverageReport,
+) -> Result<(), Vec<BackendError>> {
+    if branches.is_empty() || coverage.exhaustive {
+        return Ok(());
+    }
+    Err(case_error(
+        span,
+        coverage.non_exhaustive_message("non-exhaustive case requires a wildcard alternative"),
+    ))
 }

@@ -45,4 +45,4 @@ binary emission; Wasm is a target encoding, not an IR family.
   not required in advance.
 
 See [D-01](../design/D-01-frontend-and-ir-boundaries.md) and
-[D-02](../design/D-02-wasm-lowering.md) for the current contracts.
+[wasm encoding](../design/backend/wasm/encoding-and-structuring.md) for the current contracts.

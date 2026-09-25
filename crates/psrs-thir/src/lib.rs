@@ -1,6 +1,10 @@
 use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 use psrs_span::TextRange;
 
+mod evidence;
+
+pub use evidence::{Evidence, EvidenceKind};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
@@ -38,6 +42,8 @@ pub enum Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConstructorInfo {
     pub symbol: SymbolId,
+    /// Source constructor name, retained for diagnostics and external type mapping.
+    pub name: String,
     pub type_id: HirTypeId,
     pub tag: u32,
     pub field_count: usize,
@@ -115,6 +121,9 @@ pub enum ExprKind {
         expression: Box<Expr>,
         field: String,
     },
+    /// Selected class evidence. Core lowering erases this to ordinary values,
+    /// applications, and record projections.
+    Evidence(Evidence),
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -195,7 +204,7 @@ impl Module {
                 declaration.name_span,
                 &mut errors,
             );
-            verify_expr(&declaration.value, self.types.len(), &mut errors);
+            verify_expr(&declaration.value, &self.types, &mut errors);
         }
         if errors.is_empty() {
             Ok(())
@@ -205,8 +214,8 @@ impl Module {
     }
 }
 
-fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyError>) {
-    verify_type_id(expression.ty, type_count, expression.span, errors);
+fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>) {
+    verify_type_id(expression.ty, types.len(), expression.span, errors);
     match &expression.kind {
         ExprKind::Local(_)
         | ExprKind::Global(_)
@@ -217,53 +226,113 @@ fn verify_expr(expression: &Expr, type_count: usize, errors: &mut Vec<VerifyErro
         | ExprKind::Char(_) => {}
         ExprKind::Array(elements) => {
             for element in elements {
-                verify_expr(element, type_count, errors);
+                verify_expr(element, types, errors);
             }
         }
         ExprKind::Record(fields) => {
             for (_, value) in fields {
-                verify_expr(value, type_count, errors);
+                verify_expr(value, types, errors);
             }
         }
         ExprKind::RecordUpdate { expression, fields } => {
-            verify_expr(expression, type_count, errors);
+            verify_expr(expression, types, errors);
             for (_, value) in fields {
-                verify_expr(value, type_count, errors);
+                verify_expr(value, types, errors);
             }
         }
-        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, type_count, errors),
+        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, types, errors),
+        ExprKind::Evidence(evidence) => verify_evidence(evidence, types, errors),
         ExprKind::Application(function, argument) => {
-            verify_expr(function, type_count, errors);
-            verify_expr(argument, type_count, errors);
+            verify_expr(function, types, errors);
+            verify_expr(argument, types, errors);
         }
         ExprKind::Lambda { binder, body } => {
-            verify_type_id(binder.ty, type_count, binder.span, errors);
-            verify_expr(body, type_count, errors);
+            verify_type_id(binder.ty, types.len(), binder.span, errors);
+            verify_expr(body, types, errors);
         }
         ExprKind::Let { bindings, body } => {
             for binding in bindings {
-                verify_type_id(binding.binder.ty, type_count, binding.binder.span, errors);
-                verify_expr(&binding.value, type_count, errors);
+                verify_type_id(binding.binder.ty, types.len(), binding.binder.span, errors);
+                verify_expr(&binding.value, types, errors);
             }
-            verify_expr(body, type_count, errors);
+            verify_expr(body, types, errors);
         }
         ExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            verify_expr(condition, type_count, errors);
-            verify_expr(then_branch, type_count, errors);
-            verify_expr(else_branch, type_count, errors);
+            verify_expr(condition, types, errors);
+            verify_expr(then_branch, types, errors);
+            verify_expr(else_branch, types, errors);
         }
         ExprKind::Case {
             scrutinee,
             branches,
         } => {
-            verify_expr(scrutinee, type_count, errors);
+            verify_expr(scrutinee, types, errors);
             for branch in branches {
-                verify_pattern(&branch.pattern, type_count, errors);
-                verify_expr(&branch.value, type_count, errors);
+                verify_pattern(&branch.pattern, types.len(), errors);
+                verify_expr(&branch.value, types, errors);
+            }
+        }
+    }
+}
+
+fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyError>) {
+    verify_type_id(evidence.ty, types.len(), evidence.span, errors);
+    match &evidence.kind {
+        EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
+        EvidenceKind::Superclass { parent, field } => {
+            verify_evidence(parent, types, errors);
+            let Some(Type::Record(fields)) = types.get(parent.ty.0 as usize) else {
+                errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "superclass evidence parent is not a dictionary record",
+                });
+                return;
+            };
+            match fields.iter().find(|(label, _)| label == field) {
+                Some((_, field_ty)) if *field_ty == evidence.ty => {}
+                _ => errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "superclass evidence field has the wrong type",
+                }),
+            }
+        }
+        EvidenceKind::Instance {
+            constructor_type,
+            context,
+            ..
+        } => {
+            verify_type_id(*constructor_type, types.len(), evidence.span, errors);
+            let mut result = *constructor_type;
+            for argument in context {
+                verify_evidence(argument, types, errors);
+                let Some(Type::Function {
+                    parameter,
+                    result: next,
+                }) = types.get(result.0 as usize)
+                else {
+                    errors.push(VerifyError {
+                        span: argument.span,
+                        message: "instance dictionary constructor takes too few context arguments",
+                    });
+                    return;
+                };
+                if *parameter != argument.ty {
+                    errors.push(VerifyError {
+                        span: argument.span,
+                        message: "instance evidence does not match its context parameter",
+                    });
+                }
+                result = *next;
+            }
+            if result != evidence.ty {
+                errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "instance evidence result has the wrong dictionary type",
+                });
             }
         }
     }
@@ -297,39 +366,4 @@ fn verify_type_id(id: TypeId, type_count: usize, span: TextRange, errors: &mut V
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn verifier_rejects_invalid_type_references() {
-        let module = Module {
-            id: ModuleId(0),
-            name: "Main".into(),
-            externals: Vec::new(),
-            types: vec![Type::I32],
-            newtype_ids: Vec::new(),
-            constructors: Vec::new(),
-            declarations: vec![Declaration {
-                symbol: SymbolId::new(ModuleId(0), 0),
-                name: "main".into(),
-                name_span: TextRange::new(0, 4),
-                quantified: Vec::new(),
-                ty: TypeId(2),
-                value: Expr {
-                    kind: ExprKind::Integer(1),
-                    ty: TypeId(0),
-                    span: TextRange::new(7, 8),
-                },
-                span: TextRange::new(0, 8),
-            }],
-            span: TextRange::new(0, 8),
-        };
-
-        let errors = module.verify().unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_eq!(
-            errors[0].message,
-            "type reference is outside the THIR type table"
-        );
-    }
-}
+mod tests;

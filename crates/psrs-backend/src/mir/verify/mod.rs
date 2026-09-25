@@ -1,16 +1,18 @@
 //! MIR verification: module-level type and signature setup plus the
 //! per-function SSA and instruction checks. See
-//! `docs/design/D-06-low-level-ir-and-wasm-types.md`.
+//! `docs/design/backend/00-ir-boundaries.md`.
 
 use super::{Module, ValueType};
-use crate::BackendError;
 use crate::types::{CompositeType, DefinedType, DefinedTypeId, FunctionId, HeapType, StorageType};
+use crate::{BackendError, TargetCapabilities};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod call;
+mod capability;
 mod function;
 mod instruction;
+mod subtype;
 mod util;
 
 #[cfg(test)]
@@ -83,6 +85,15 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     Ok(())
 }
 
+/// Verifies structural MIR invariants and legality under the profile used by P9.
+pub fn verify_module_with_capabilities(
+    module: &Module,
+    target: TargetCapabilities,
+) -> Result<(), Vec<BackendError>> {
+    verify_module(module)?;
+    capability::validate_target_capabilities(module, target)
+}
+
 fn defined_type_count(module: &Module) -> DefinedTypeId {
     DefinedTypeId(module.types.iter().map(|group| group.0.len() as u32).sum())
 }
@@ -128,6 +139,7 @@ fn verify_defined_types(module: &Module, errors: &mut Vec<BackendError>) {
             }
         }
     }
+    subtype::verify_subtypes(module, errors);
 }
 
 fn verify_value_type(

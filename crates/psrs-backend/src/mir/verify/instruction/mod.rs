@@ -9,12 +9,13 @@ use super::util::{
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
 use crate::types::{CompositeType, DefinedType, HeapType, RefType};
-use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 mod arrays;
-mod linear_closure;
+mod copy;
 mod memory;
+mod primitive;
+mod unary;
 
 pub(super) fn verify_instruction(
     function: &Function,
@@ -24,6 +25,7 @@ pub(super) fn verify_instruction(
     defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
+        Instruction::Copy { .. } => copy::verify_copy(function, instruction, definitions)?,
         Instruction::Constant {
             destination,
             value,
@@ -58,35 +60,11 @@ pub(super) fn verify_instruction(
                 ));
             }
         }
-        Instruction::Primitive {
-            destination,
-            op,
-            left,
-            right,
-            span,
-        } => {
-            let left_ty = require_value(definitions, *left, *span)?;
-            let right_ty = require_value(definitions, *right, *span)?;
-            let result_ty = value_type(function, *destination)
-                .ok_or_else(|| mir_error(*span, "missing MIR result type"))?;
-            let expected_result = match op {
-                Primitive::Eq
-                | Primitive::Ne
-                | Primitive::LtS
-                | Primitive::LeS
-                | Primitive::GtS
-                | Primitive::GeS => ValueType::Boolean,
-                _ => ValueType::I32,
-            };
-            if left_ty != ValueType::I32
-                || right_ty != ValueType::I32
-                || result_ty != expected_result
-            {
-                return Err(mir_error(
-                    *span,
-                    "MIR primitive operand or result type is invalid",
-                ));
-            }
+        Instruction::Primitive { .. } => {
+            primitive::verify_primitive(function, instruction, definitions)?
+        }
+        Instruction::UnaryPrimitive { .. } => {
+            unary::verify_unary(function, instruction, definitions)?
         }
         Instruction::TrapIf { condition, span } => {
             if require_value(definitions, *condition, *span)? != ValueType::Boolean {
@@ -481,21 +459,9 @@ pub(super) fn verify_instruction(
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }
-        | Instruction::LinearAlloc { .. }
-        | Instruction::LinearAllocDynamic { .. }
-        | Instruction::LinearMemoryCopy { .. }
-        | Instruction::LinearLoad { .. }
-        | Instruction::LinearStore { .. }
-        | Instruction::LinearClosureGetCapture { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
             memory::verify_memory_instruction(function, instruction, definitions)?;
-        }
-        Instruction::LinearClosureNew { .. } => {
-            linear_closure::verify_new(function, instruction, definitions, signatures, defined)?
-        }
-        Instruction::LinearClosureCall { .. } => {
-            linear_closure::verify_call(function, instruction, definitions, defined)?
         }
     }
     Ok(())

@@ -29,10 +29,12 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 "global is not a local top-level function",
             ));
         };
-        if matches!(
-            self.module.types.get(expression.ty.0 as usize),
-            Some(Type::Function { .. })
-        ) {
+        if !signature.parameters.is_empty()
+            && matches!(
+                self.module.types.get(expression.ty.0 as usize),
+                Some(Type::Function { .. })
+            )
+        {
             let Some(source_type) = self
                 .module
                 .declarations

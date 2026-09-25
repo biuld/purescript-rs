@@ -5,26 +5,20 @@ feature and design documents under `docs/`.
 
 ## Workflow
 
-### Feature development
+Work in the current checkout by default. Inspect the relevant code and
+documents, make the requested change, and report the result. Preserve existing
+uncommitted work.
 
-- Create a dedicated branch before making changes.
-- Push the branch and open a pull request with the `gh` CLI.
-- Keep the complete documentation flow in the pull request: a feature document
-  (`docs/feature/`), a design document (`docs/design/`), and any decision
-  records (`docs/decision/`) the change requires.
-
-### Code review
-
-- For complex problems, especially anything that affects the
-  feature/design/decision flow or documented behavior, file an issue with
-  `gh issue create`.
-- Fix simple problems directly instead of filing an issue.
-
-### Fixing code
-
-- List open issues with `gh issue list`.
-- Create an isolated worktree for the fix with `git worktree add`.
-- Fix the issue in that worktree and open a pull request with `gh pr create`.
+- Create a branch or isolated worktree when the user requests one, or when
+  isolation is needed to protect concurrent or unrelated changes. Do not make
+  either a prerequisite for routine work.
+- Use GitHub issues and pull requests when the user requests GitHub
+  collaboration or the task is explicitly tied to an existing issue or PR.
+  Do not list issues, create issues, push branches, or open PRs by default.
+- For a new user-facing feature, maintain the relevant feature and design
+  documents under `docs/`. Add a decision record only for a major, durable
+  decision. Keep documentation proportional to the change.
+- Review the local diff and run the validation relevant to the files changed.
 
 ## Documentation
 
@@ -33,15 +27,72 @@ feature and design documents under `docs/`.
   `README.md`.
 - Put user-facing, implementation-independent behavior in
   `docs/feature/F-XX-<slug>.md`. Use stable, zero-padded IDs such as `F-01`.
-- Put implementation details in `docs/design/D-XX-<slug>.md`. Every design
-  document must identify the feature it implements, for example `D-01` for
-  `F-01`.
+- Put implementation details in `docs/design/`. Root-level overview, tooling,
+  roadmap, and cross-cutting documents use `D-XX-<slug>.md` with stable
+  zero-padded IDs such as `D-01`. Backend designs live under `docs/design/backend/`: the cross-cutting
+  contract at `backend/00-<slug>.md`, functional topics under `backend/fp/<slug>.md`,
+  optimization topics under `backend/opt/<slug>.md`, and Wasm/WASI topics under
+  `backend/wasm/<slug>.md`. Frontend designs follow the same pattern under
+  `docs/design/frontend/`: `00-<slug>.md` for the cross-cutting contract,
+  and focused topics under `syntax/`, `semantics/`, and `type-system/` with
+  unnumbered slug filenames. Each topic file is self-contained. Every design
+  document must identify the feature it
+  implements, for example `D-01` for `F-01`.
 - Use `docs/decision/` only for major, durable decisions. Do not create a
   decision record for routine implementation choices. Give decision records
   stable IDs such as `DEC-01` and include context, the chosen option, and its
   consequences.
 - Keep feature documents free of crate names, libraries, and internal IR
   details. Put those in design documents.
+- Draw diagrams with Mermaid fenced blocks (````mermaid`): architecture,
+  pipelines, control flow, state machines, and sequence diagrams. A short,
+  direct diagram — a simple linear order or a tiny dependency chain — may stay
+  in an ordinary fenced block. Keep formal model, grammar, and IR fragments and
+  pseudocode as ordinary fenced code blocks either way.
+
+### Frontend and backend topic design document template
+
+Topic documents under `docs/design/frontend/` and `docs/design/backend/`
+follow a fixed chapter order so
+each one both specifies an implementation and teaches its topic. Short documents
+may merge sections, but keep the order and the names.
+
+Front matter:
+
+- `# Title`
+- `**Feature:** F-XX`
+- `**Status:**` the design's maturity (`Draft` or `Stable`), not an
+  implementation phase.
+- `**Prerequisites:**` the background a reader needs (functional programming,
+  WebAssembly, compilers) and the documents to read first.
+- `**Summary:**` two to four sentences on what the topic decides.
+
+Sections, in order:
+
+1. **Scope** — what the document owns, what it does not, and where those live.
+2. **Background** — the concepts and theory a reader needs, with references.
+3. **Model** — precise definitions: types, grammars, IR shapes, notation, and
+   invariants.
+4. **Design** — the chosen representation or lowering, including the rejected
+   alternatives and why.
+5. **Algorithms** — step-by-step procedures, pseudocode, and edge cases.
+6. **Code map** — the intended code organization for this topic: the module
+   directory structure, each module's responsibility, and the key types and
+   entry-point function signatures the implementation must provide. This is a
+   design target that guides the code; the code is expected to conform to it,
+   not the reverse. Do not describe the current file inventory here.
+7. **Invariants and verification** — what must hold and what the verifier
+   checks.
+8. **Worked example** — a small program or IR fragment traced through the stage.
+9. **Boundaries and interfaces** — the contracts with adjacent stages.
+10. **Open questions and future work**.
+11. **References**.
+
+Describe the complete design, not a bootstrap. Do not frame sections around
+"MVP", "bootstrap", or a first implementation slice. Implementation coverage
+belongs in `docs/design/backend/wasm/capability-profile.md` and
+`docs/decision/DEC-04-official-test-suite-roadmap.md`; a document may end with
+short implementation notes that only record deviations from the design.
 
 ## Code
 
@@ -74,7 +125,7 @@ feature and design documents under `docs/`.
   MIR, not a separate IR.
 
 See `docs/design/D-01-frontend-and-ir-boundaries.md` and
-`docs/design/D-02-wasm-lowering.md` before changing these boundaries.
+`docs/design/backend/wasm/encoding-and-structuring.md` before changing these boundaries.
 
 ## Reference Implementations
 

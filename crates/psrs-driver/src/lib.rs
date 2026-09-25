@@ -74,7 +74,7 @@ fn lower_source_with_prelude_to_core(
     let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
     sources.extend_from_slice(prelude::SOURCES);
     sources.push((source_name, source_text));
-    program::lower_program_to_core(&sources)
+    program::lower_program_to_core_with_trusted_prefix(&sources, prelude::SOURCES.len())
         .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
 }
 
@@ -105,7 +105,6 @@ pub fn compile_source_with_dumps(
     source_text: &str,
 ) -> Result<Compilation, Vec<Diagnostic>> {
     let core = lower_source_with_prelude_to_core(source_name, source_text)?;
-    let core_dump = format!("{core:#?}");
     let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
     Ok(Compilation {
         artifact: Artifact {
@@ -113,7 +112,7 @@ pub fn compile_source_with_dumps(
             wat: stages.artifact.wat,
         },
         dumps: IrDumps {
-            core: core_dump,
+            core: format!("{:#?}", stages.core),
             cc: format!("{:#?}", stages.cc),
             mir: format!("{:#?}", stages.mir),
         },
@@ -166,7 +165,7 @@ pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diag
     let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
     sources.extend_from_slice(prelude::SOURCES);
     sources.push((source_name, source_text));
-    program::check_program(&sources)
+    program::check_program_with_trusted_prefix(&sources, prelude::SOURCES.len())
         .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
 }
 

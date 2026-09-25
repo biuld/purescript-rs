@@ -68,6 +68,10 @@ impl FunctionLowerer<'_> {
                 left: remap(*left, mapping),
                 right: remap(*right, mapping),
             },
+            AssignmentKind::Unary { op, value } => AssignmentKind::Unary {
+                op: *op,
+                value: remap(*value, mapping),
+            },
             AssignmentKind::DirectCall {
                 function,
                 arguments,
@@ -149,6 +153,39 @@ impl FunctionLowerer<'_> {
                 field: *field,
                 value: remap(*value, mapping),
             },
+            AssignmentKind::VariantNew {
+                destination,
+                representation,
+                case,
+                fields,
+            } => AssignmentKind::VariantNew {
+                destination: remap(*destination, mapping),
+                representation: *representation,
+                case: *case,
+                fields: fields.iter().map(|value| remap(*value, mapping)).collect(),
+            },
+            AssignmentKind::VariantTag {
+                destination,
+                representation,
+                value,
+            } => AssignmentKind::VariantTag {
+                destination: remap(*destination, mapping),
+                representation: *representation,
+                value: remap(*value, mapping),
+            },
+            AssignmentKind::VariantGet {
+                destination,
+                representation,
+                case,
+                field,
+                value,
+            } => AssignmentKind::VariantGet {
+                destination: remap(*destination, mapping),
+                representation: *representation,
+                case: *case,
+                field: *field,
+                value: remap(*value, mapping),
+            },
             AssignmentKind::ArrayNew {
                 destination,
                 representation,
@@ -210,6 +247,24 @@ impl FunctionLowerer<'_> {
                 then_value: remap(*then_value, mapping),
                 else_assignments: self.clone_list(else_assignments, mapping),
                 else_value: remap(*else_value, mapping),
+            },
+            AssignmentKind::TagSwitch {
+                value,
+                cases,
+                default_assignments,
+                default_value,
+            } => AssignmentKind::TagSwitch {
+                value: remap(*value, mapping),
+                cases: cases
+                    .iter()
+                    .map(|case| super::super::TagCase {
+                        tag: case.tag,
+                        assignments: self.clone_list(&case.assignments, mapping),
+                        value: remap(case.value, mapping),
+                    })
+                    .collect(),
+                default_assignments: self.clone_list(default_assignments, mapping),
+                default_value: remap(*default_value, mapping),
             },
         }
     }

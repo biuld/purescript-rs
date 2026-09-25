@@ -3,12 +3,17 @@
 use super::super::{Assignment, AssignmentKind, Function, Signature, ValueId, ValueShape};
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, Representation, RepresentationTable};
-use psrs_core::Primitive;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+use super::adaptation::verify_erased_adaptation;
 use super::helpers::*;
+use super::scalar::{verify_binary_operation, verify_unary_operation};
+use super::variant::verify_variant_assignment;
+use tag_switch::verify_tag_switch;
+
+mod tag_switch;
 
 pub(super) fn verify_table(
     table: &RepresentationTable,
@@ -25,6 +30,9 @@ pub(super) fn verify_table(
                 }
             }
             Representation::Variant { cases } => {
+                if cases.is_empty() {
+                    return Err(table_error(span, "CC variant has no cases"));
+                }
                 let mut tags = HashSet::new();
                 for case in cases {
                     if !tags.insert(case.tag) {
@@ -86,28 +94,12 @@ pub(super) fn verify_assignments(
                 )?;
             }
             AssignmentKind::Primitive { op, left, right } => {
-                require_value_shape(declared, *left, ValueShape::Integer, assignment)?;
-                require_value_shape(declared, *right, ValueShape::Integer, assignment)?;
-                let expected = match op {
-                    Primitive::Eq
-                    | Primitive::Ne
-                    | Primitive::LtS
-                    | Primitive::LeS
-                    | Primitive::GtS
-                    | Primitive::GeS => ValueShape::Boolean,
-                    Primitive::Add
-                    | Primitive::Sub
-                    | Primitive::Mul
-                    | Primitive::DivS
-                    | Primitive::RemS => ValueShape::Integer,
-                };
-                require_destination(
-                    declared,
-                    assignment,
-                    expected,
-                    "primitive operation has an incompatible result shape",
-                )?;
+                verify_binary_operation(*op, *left, *right, assignment, declared)?;
                 uses.extend([*left, *right]);
+            }
+            AssignmentKind::Unary { op, value } => {
+                verify_unary_operation(*op, *value, assignment, declared)?;
+                uses.push(*value);
             }
             AssignmentKind::DirectCall {
                 function,
@@ -181,6 +173,7 @@ pub(super) fn verify_assignments(
                     "representation test must produce Boolean",
                 )?;
                 verify_reference_handle(table, reference, assignment)?;
+                verify_erased_adaptation(assignment, declared, *value, reference)?;
                 uses.push(*value);
             }
             AssignmentKind::RepresentationCast {
@@ -197,6 +190,7 @@ pub(super) fn verify_assignments(
                     "representation cast has an incompatible result shape",
                 )?;
                 verify_reference_handle(table, reference, assignment)?;
+                verify_erased_adaptation(assignment, declared, *value, reference)?;
                 uses.push(*value);
             }
             AssignmentKind::ProductNew {
@@ -309,6 +303,11 @@ pub(super) fn verify_assignments(
                     "product projection has an incompatible result shape",
                 )?;
                 uses.push(*value);
+            }
+            AssignmentKind::VariantNew { .. }
+            | AssignmentKind::VariantTag { .. }
+            | AssignmentKind::VariantGet { .. } => {
+                uses.extend(verify_variant_assignment(assignment, declared, table)?);
             }
             AssignmentKind::ArrayNew {
                 destination,
@@ -446,6 +445,27 @@ pub(super) fn verify_assignments(
                         "if branches have incompatible result shapes",
                     ));
                 }
+            }
+            AssignmentKind::TagSwitch {
+                value,
+                cases,
+                default_assignments,
+                default_value,
+            } => {
+                verify_tag_switch(
+                    assignment,
+                    *value,
+                    cases,
+                    default_assignments,
+                    *default_value,
+                    available,
+                    declared,
+                    signatures,
+                    table,
+                    functions,
+                    function_span,
+                )?;
+                uses.push(*value);
             }
         }
         if uses.iter().any(|value| !available.contains(value)) {
