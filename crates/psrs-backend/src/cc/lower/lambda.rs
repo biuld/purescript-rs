@@ -240,7 +240,11 @@ fn lambda_captures(body: &Expr, binder: LocalId) -> Vec<LocalId> {
     captures
 }
 
-fn collect_captures(expression: &Expr, bound: &mut HashSet<LocalId>, captures: &mut Vec<LocalId>) {
+pub(super) fn collect_captures(
+    expression: &Expr,
+    bound: &mut HashSet<LocalId>,
+    captures: &mut Vec<LocalId>,
+) {
     match &expression.kind {
         ExprKind::Local(local) => {
             if !bound.contains(local) && !captures.contains(local) {

@@ -593,10 +593,20 @@ The current code has `Constant`, `NumberConstant`, `StringConstant`,
 `ProductGet`, `VariantNew`, `VariantTag`, `VariantGet`, `ArrayNew`, `ArrayLen`,
 `ArrayGet`, `ArrayClone`, `ArraySet`, and `If`. Pattern lowering uses the shared
 matrix compiler and decision DAG described in
-[pattern matching](pattern-matching.md). Local recursive `Let` groups are not
-yet lowered. `AggregateConvert` and its recursive plans are design requirements
-only; unsupported generic array and record recovery still receives a
-source-spanned diagnostic.
+[pattern matching](pattern-matching.md). P8 detects cyclic dependencies among
+local `Let` bindings and lifts cyclic function bindings into target-neutral CC
+functions. Each cyclic member must be a lambda chain that binds every parameter
+in its CC signature. The lifted functions capture the ordered union of their
+external free locals; each function reconstructs the group's function values
+from those captures, so recursive calls and closures that escape through a
+nested lambda use ordinary `FunctionRef`, `ClosureGetCapture`, and
+`IndirectCall` operations. Regressions cover mutually recursive functions and
+an escaping closure that captures a recursive function, including preserved
+source ranges, and verify that both outputs lower through P9. Recursive
+non-function bindings and recursive function captures that depend on a later
+same-`Let` value still receive source-spanned diagnostics. `AggregateConvert`
+and its recursive plans are design requirements only; unsupported generic
+array and record recovery still receives a source-spanned diagnostic.
 
 ## References
 
