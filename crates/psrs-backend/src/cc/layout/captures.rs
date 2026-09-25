@@ -94,7 +94,10 @@ fn free_integer_local(
     match &expression.kind {
         ExprKind::Local(id) => {
             !bound.contains(id)
-                && matches!(module.types.get(expression.ty.0 as usize), Some(Type::I32))
+                && matches!(
+                    module.types.get(expression.ty.0 as usize),
+                    Some(Type::I32 | Type::Char | Type::String | Type::Unit)
+                )
         }
         ExprKind::Lambda { binder, body } => {
             let inserted = bound.insert(binder.id);

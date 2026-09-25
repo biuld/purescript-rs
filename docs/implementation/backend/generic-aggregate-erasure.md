@@ -168,8 +168,10 @@ GA-03:
   Result: pass. `plan_conversion` returns `Identity` when shapes are equal, so
     equal shapes allocate nothing.
   Revision: eb43bf9 + audit diff.
-  Gaps: none. `ValueConversion::FunctionAdapter` exists but function adaptation
-    is performed by the existing erased closure adapter, not by plan_conversion.
+  Gaps: none. The never-constructed `ValueConversion::FunctionAdapter`
+    variant was removed by the Polymorphism and Erasure topic; function
+    adaptation is performed by the existing erased closure adapter, not by
+    plan_conversion.
 
 GA-04:
   Implementation: cc/lower/conversion.rs (ArrayMap), mir/lower/aggregate/array.rs

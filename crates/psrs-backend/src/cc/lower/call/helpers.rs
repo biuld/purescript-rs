@@ -141,8 +141,7 @@ pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) ->
         | ValueConversion::BoxScalar { .. }
         | ValueConversion::UnboxScalar { .. }
         | ValueConversion::EraseReference
-        | ValueConversion::RecoverReference { .. }
-        | ValueConversion::FunctionAdapter { .. } => false,
+        | ValueConversion::RecoverReference { .. } => false,
     }
 }
 

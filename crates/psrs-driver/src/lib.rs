@@ -281,3 +281,7 @@ mod parameterized_shapes;
 #[cfg(test)]
 #[path = "tests/generic_aggregate_audit.rs"]
 mod generic_aggregate_audit;
+
+#[cfg(test)]
+#[path = "tests/polymorphism_erasure_audit.rs"]
+mod polymorphism_erasure_audit;

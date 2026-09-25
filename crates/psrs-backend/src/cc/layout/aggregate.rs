@@ -1,3 +1,4 @@
+use super::functions::canonicalize_signatures;
 use super::scalar::scalar_type;
 use super::{array_element_type, depends_on_type_variable};
 use crate::BackendError;
@@ -46,17 +47,17 @@ pub(super) fn normalize_aggregate_layouts(
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
     newtype_ids: &HashSet<HirTypeId>,
-    function_types: &HashMap<TypeId, SignatureId>,
+    mut function_types: HashMap<TypeId, SignatureId>,
     layouts: AggregateLayouts,
     representations: &mut RepresentationTable,
-) -> Result<AggregateLayouts, Vec<BackendError>> {
+) -> Result<(AggregateLayouts, HashMap<TypeId, SignatureId>), Vec<BackendError>> {
     let reserved = layouts.clone();
     let mut builder = Builder {
         module,
         enum_types,
         aggregate_types,
         newtype_ids,
-        function_types,
+        function_types: function_types.clone(),
         representations,
         arrays: layouts.arrays,
         records: layouts.records,
@@ -74,10 +75,13 @@ pub(super) fn normalize_aggregate_layouts(
     for id in ids {
         builder.normalize(id, module.span)?;
     }
-    let layouts = AggregateLayouts {
-        arrays: builder.arrays,
-        records: builder.records,
-    };
+    let Builder {
+        arrays,
+        records,
+        representations: representations_table,
+        ..
+    } = builder;
+    let layouts = AggregateLayouts { arrays, records };
     let mut remapped = HashMap::new();
     for (id, reserved_repr) in reserved.arrays.iter().chain(&reserved.records) {
         let canonical = layouts
@@ -90,13 +94,14 @@ pub(super) fn normalize_aggregate_layouts(
             remapped.insert(*reserved_repr, canonical);
         }
     }
-    for signature in &mut builder.representations.signatures {
+    for signature in &mut representations_table.signatures {
         for parameter in &mut signature.parameters {
             remap_shape(parameter, &remapped);
         }
         remap_shape(&mut signature.result, &remapped);
     }
-    Ok(layouts)
+    canonicalize_signatures(representations_table, &mut function_types);
+    Ok((layouts, function_types))
 }
 
 struct Builder<'a> {
@@ -104,7 +109,7 @@ struct Builder<'a> {
     enum_types: &'a HashSet<HirTypeId>,
     aggregate_types: &'a HashSet<HirTypeId>,
     newtype_ids: &'a HashSet<HirTypeId>,
-    function_types: &'a HashMap<TypeId, SignatureId>,
+    function_types: HashMap<TypeId, SignatureId>,
     representations: &'a mut RepresentationTable,
     arrays: HashMap<TypeId, ReprId>,
     records: HashMap<TypeId, ReprId>,
@@ -193,7 +198,7 @@ impl Builder<'_> {
             self.newtype_ids,
             &self.arrays,
             &self.records,
-            self.function_types,
+            &self.function_types,
         )
     }
 

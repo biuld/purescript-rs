@@ -1,6 +1,6 @@
 use super::{Signature, scalar_type};
 use crate::BackendError;
-use crate::cc::{ReprId, RepresentationTable, SignatureId, ValueShape};
+use crate::cc::{RefShape, ReprId, Representation, RepresentationTable, SignatureId, ValueShape};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use std::collections::{HashMap, HashSet};
@@ -124,6 +124,105 @@ pub(crate) fn function_signature(
             function_types,
         )?);
         id = *result;
+    }
+}
+
+/// Re-interns the signature table after aggregate normalization has rewritten
+/// its representation handles. P8 interns signatures before the canonical
+/// aggregate layouts exist, so two signatures whose provisional handles later
+/// normalize to the same handle can be distinct `SignatureId`s. This pass
+/// deduplicates those and rewrites every nested closure reference and function
+/// type to the canonical id, so one `SignatureId` maps to one MIR func type.
+pub(super) fn canonicalize_signatures(
+    representations: &mut RepresentationTable,
+    function_types: &mut HashMap<TypeId, SignatureId>,
+) {
+    let mut remap = HashMap::<SignatureId, SignatureId>::new();
+    let max_passes = representations.signatures.len().saturating_add(2);
+    for _ in 0..max_passes {
+        let mut canonical = HashMap::<Signature, SignatureId>::new();
+        let mut changed = false;
+        for index in 0..representations.signatures.len() {
+            let id = SignatureId(index as u32);
+            let mut signature = representations.signatures[index].clone();
+            remap_nested_signatures(&mut signature, &remap);
+            let target = resolve_signature(id, &remap);
+            let canonical_id = *canonical.entry(signature.clone()).or_insert(target);
+            if target != canonical_id {
+                remap.insert(id, canonical_id);
+                changed = true;
+            }
+            representations.signatures[index] = signature;
+        }
+        if !changed {
+            break;
+        }
+    }
+    let resolved = remap
+        .keys()
+        .map(|id| (*id, resolve_signature(*id, &remap)))
+        .collect::<HashMap<_, _>>();
+    for signature in &mut representations.signatures {
+        remap_nested_signatures(signature, &resolved);
+    }
+    for representation in &mut representations.representations {
+        remap_representation_signatures(representation, &resolved);
+    }
+    for id in function_types.values_mut() {
+        if let Some(canonical) = resolved.get(id) {
+            *id = *canonical;
+        }
+    }
+}
+
+fn resolve_signature(id: SignatureId, remap: &HashMap<SignatureId, SignatureId>) -> SignatureId {
+    let mut current = id;
+    while let Some(next) = remap.get(&current).copied() {
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+fn remap_nested_signatures(signature: &mut Signature, remap: &HashMap<SignatureId, SignatureId>) {
+    for parameter in &mut signature.parameters {
+        remap_shape_signature(parameter, remap);
+    }
+    remap_shape_signature(&mut signature.result, remap);
+}
+
+fn remap_shape_signature(shape: &mut ValueShape, remap: &HashMap<SignatureId, SignatureId>) {
+    let ValueShape::Reference(reference) = shape else {
+        return;
+    };
+    if let RefShape::Closure(id) = reference.heap
+        && let Some(canonical) = remap.get(&id)
+    {
+        reference.heap = RefShape::Closure(*canonical);
+    }
+}
+
+fn remap_representation_signatures(
+    representation: &mut Representation,
+    remap: &HashMap<SignatureId, SignatureId>,
+) {
+    match representation {
+        Representation::Box { value } => remap_shape_signature(value, remap),
+        Representation::Product { fields } => {
+            for field in fields {
+                remap_shape_signature(field, remap);
+            }
+        }
+        Representation::Variant { cases } => {
+            for case in cases {
+                for field in &mut case.fields {
+                    remap_shape_signature(field, remap);
+                }
+            }
+        }
+        Representation::Array { element } => remap_shape_signature(element, remap),
     }
 }
 
