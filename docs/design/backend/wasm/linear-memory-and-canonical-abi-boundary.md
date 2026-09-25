@@ -157,10 +157,11 @@ realloc(old_ptr, old_len, align, new_len):
     require align is a nonzero power of two
     if new_len == 0: return 0             # free is a no-op
     require old_ptr == 0 implies old_len == 0
-    validate the old range and stored prefix if old_ptr != 0
+    validate old range against current memory and verify its stored prefix
+        if old_ptr != 0
     payload = align_up(checked_add(load(heap_pointer), 4), max(align, 4))
     end = checked_add(payload, new_len)
-    require end <= i32_address_space_limit
+    require end <= 0xffff_ffff       # the next-free pointer must remain representable
     pages = ceil(end / 65536)
     if pages > memory.size() and memory.grow(pages - memory.size()) == -1:
         trap
@@ -321,9 +322,18 @@ exactly as it would for a string literal.
 
 ## Implementation notes
 
-The current allocator is the bump `cabi_realloc`; there is no reclamation, and
-the verifier checks memory identity and value types but not static access
-extents. These are coverage gaps, not changes to the boundary design.
+The synthesized `cabi_realloc` validates power-of-two alignment, checks each
+wasm32 address addition before committing allocator state, traps when
+`memory.grow` fails, verifies the old range against the pre-growth memory and
+checks its length prefix, and copies the preserved bytes with MVP byte loads and
+stores. Execution coverage checks alignment, growth and shrink reallocation,
+zero-sized frees, invalid alignment, address overflow, old-range bounds, and
+growth failure. Because the allocator stores its next
+free byte as an `i32`, it traps if an allocation's exclusive end would be
+`2^32`; the final byte of the wasm32 address space is consequently unavailable
+to allocator payloads. There is still no reclamation, and the MIR verifier does
+not statically check memory access extents; these remain coverage gaps rather
+than changes to the boundary design.
 
 ## References
 
