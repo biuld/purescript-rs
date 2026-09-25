@@ -4,8 +4,9 @@
 
 **Design:** [Effects](../../design/backend/fp/effects.md)
 
-**Progress:** Verified for EF-01..EF-11 against the linked design. One
-cross-topic MIR defect remains for `Effect Boolean` values (see blockers).
+**Progress:** Verified for EF-01..EF-11 against the linked design. The
+cross-topic `Effect Boolean` closure-type defect was fixed during review (see
+resolution below).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21, with BE-02 and BE-26 at closure/library boundaries.
 
@@ -123,9 +124,8 @@ EF-04:
   Result: pass. `bind` sequencing and continuation argument flow are
     observable in stdout.
   Revision: 95aebe3 + uncommitted
-  Gaps: an `Effect Boolean` whose value reaches a continuation traps at
-    runtime because two structurally identical closure signatures lower to
-    distinct Wasm function types. See blockers.
+  Gaps: none. An `Effect Boolean` whose value reaches a continuation now runs
+    through the shared `i32` closure function type; see the resolution below.
 EF-05:
   Implementation: crates/psrs-driver/src/program/effects.rs,
     crates/psrs-driver/src/program/mod.rs (entry selection),
@@ -169,13 +169,14 @@ EF-08:
     crates/psrs-backend/src/cc/layout/functions.rs
   Tests: a_polymorphic_effect_uses_ordinary_adapters,
     a_polymorphic_effect_carries_string_and_number_values,
-    a_polymorphic_effect_carries_a_gc_aggregate
+    a_polymorphic_effect_carries_a_gc_aggregate,
+    a_boolean_effect_runs_through_bind
   Input boundary: source; executed Wasm component
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver effects::
-  Result: pass for Int, Number, String, and a polymorphic ADT. Token is not
-    exposed in any signature.
-  Revision: 95aebe3 + uncommitted
-  Gaps: Boolean is blocked by the MIR closure-type identity defect below.
+  Result: pass for Int, Number, String, Boolean, and a polymorphic ADT. Token
+    is not exposed in any signature.
+  Revision: 84806c4
+  Gaps: none.
 EF-09:
   Implementation: crates/psrs-driver/src/program/mod.rs (imported signatures),
     crates/psrs-driver/src/program/effects.rs
@@ -244,22 +245,26 @@ EF-11:
   provisional signature id after structural deduplication. Fixed in
   `crates/psrs-backend/src/cc/layout/functions.rs`.
 
+## Resolution of the `Effect Boolean` closure-type defect (2026-09-26)
+
+A program such as
+`bind (pure true) (\x -> if x then log "y" else log "n")` previously trapped
+with `wasm trap: cast failure`. Root cause: `crates/psrs-backend/src/mir/layout/mod.rs`
+assigned one Wasm function type per CC `SignatureId`, so `Boolean` and `Integer`
+signatures (both `i32`) produced structurally identical but distinct concrete
+function types; the erased call site's `ref.cast` to one of them failed.
+
+Fix: the planner now deduplicates signature function types by their concrete
+Wasm value types (`concrete_value_type` normalizes `Boolean` to `I32`), so all
+signatures that lower to the same Wasm type share one `DefinedTypeId`. The MIR
+verifier's signature comparisons (`ref.func`, `closure.new`, `call_ref`,
+`closure.call`) use `call_value_types_match`, which already treats
+`Boolean`/`I32` as equivalent. Evidence:
+`mir::layout::tests::signatures_that_lower_to_the_same_wasm_type_share_one_definition`
+and the executed `effects::a_boolean_effect_runs_through_bind` (stdout `yes`,
+exit 0) under mandatory Wasmtime.
+
 ## Remaining work and blockers
 
-- **`Effect Boolean` closure-type identity (cross-topic: MIR / data
-  representation).** A program such as
-  `bind (pure true) (\x -> if x then log "y" else log "n")` compiles and passes
-  CC verification but traps with `wasm trap: cast failure` at runtime. Root
-  cause: `crates/psrs-backend/src/mir/layout/mod.rs` assigns one Wasm function
-  type per CC `SignatureId`, while
-  `crates/psrs-backend/src/wasm/lower/mod.rs::collect_function_types` collapses
-  structurally identical Wasm function types (`Boolean` and `Integer` both
-  lower to `i32`) and keeps the last index. A `ref.cast` to the first
-  signature's type then fails. A correct fix deduplicates signature function
-  types by their concrete Wasm type and normalizes the MIR verifier's
-  function-type comparisons accordingly. This is owned by the MIR /
-  data-representation topic, not by this one; EF-04 and EF-08 are marked
-  Verified using non-Boolean effects and this case is recorded here rather than
-  narrowing the design.
 - WASI service availability (clock, stdout, stderr) is owned by the platform
   topic; only the operations exercised above are claimed here.
