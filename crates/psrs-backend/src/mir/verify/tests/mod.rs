@@ -351,10 +351,14 @@ fn rejects_a_load_from_an_unknown_memory_id() {
 
 mod arrays;
 mod dictionary;
+mod dominance;
 mod effects;
 mod gaps;
 mod scalar;
+mod structure;
+mod subtype;
 mod switch;
+mod tail;
 
 #[test]
 fn rejects_a_branch_target_with_block_parameters() {
