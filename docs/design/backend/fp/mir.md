@@ -110,10 +110,13 @@ Terminator = Return    { value: ValueId }
            | ReturnCallRef  { function: ValueId, arguments: [ValueId] }
 ```
 
-`Branch` has no merge hint: the structurer discovers joins from the graph
-([control flow and tail calls](control-flow-and-tail-calls.md)). `Switch`
-dispatches on an `i32` tag and is the target lowering for constructor matches.
-`ReturnCall`/`ReturnCallRef` are tail calls.
+`Branch` omits `merge_block` in the target MIR model because the structurer
+should discover joins from the graph
+([control flow and tail calls](control-flow-and-tail-calls.md)). The current
+MIR still carries `merge_block` and verifies its one-value merge contract; the
+implementation status is recorded below. `Switch` dispatches on an `i32` tag
+and is the target lowering for constructor matches. `ReturnCall`/`ReturnCallRef`
+are tail calls in the target model.
 
 ### Instructions
 
@@ -451,10 +454,15 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 
 - **Control flow.** MIR `Switch` is implemented for nullary-constructor matches
   with unique constructor tags; duplicate alternatives retain an ordered
-  comparison chain. The Wasm structurer lowers acyclic switch regions to
-  `br_table`. Loops and tail calls remain future work in
-  [control flow and tail calls](control-flow-and-tail-calls.md); MIR terminators
-  and the structurer must change together to add them.
+  comparison chain. For acyclic functions, the Wasm structurer preserves the
+  existing merge-based diamond and switch-join lowering. For cyclic CFGs, it
+  computes dominators and natural loops, validates loop nesting, and emits
+  `Loop` regions with continuation `Block`s and depth-relative branches; tests
+  cover loop-carried values, nested loops, and multiple exits. Irreducible CFGs
+  are diagnosed, and the dispatcher fallback remains future work. Tail-call
+  marking and lowering to `ReturnCall`/`ReturnCallRef` also remain future work.
+  Current MIR retains `Branch { merge_block }` and its one-value verifier
+  contract.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the
   meantime.
@@ -485,10 +493,16 @@ by optimization may remain.
 Current MIR emits `Return`, `Jump`, `Branch { merge_block }`, and `Switch`;
 nullary-constructor cases with unique tags lower to `Switch`, while duplicate
 alternatives keep their source-order comparison chain. P10 preserves and can
-simplify switches, and the Wasm structurer lowers acyclic branch and switch
-regions. It still rejects loops. `ReturnCall` and `ReturnCallRef` are not in the
-current MIR terminator set; tail-call marking and loopification remain
-unimplemented.
+simplify switches. Acyclic functions retain the merge-based diamond and
+switch-join structurer. For cyclic MIR CFGs, P10 computes dominators and natural
+loops, checks that loop regions are nested, and emits Wasm `Loop` regions with
+continuation `Block`s and depth-relative branches. Loop fixtures use direct MIR
+because CC-to-MIR does not yet produce loops. Irreducible CFGs are diagnosed;
+the dispatcher fallback is not implemented. The current MIR and verifier still
+retain `Branch { merge_block }` and its one-value merge contract; cyclic
+structuring follows CFG edges, while the acyclic path uses the merge hint.
+`ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
+tail-call marking and self-recursion loopification remain unimplemented.
 
 ## References
 
