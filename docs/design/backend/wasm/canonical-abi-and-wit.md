@@ -259,9 +259,10 @@ validate_signature(import, signature):
 
 - A method parameter list includes the receiver handle, so the declared arity
   and the canonical arity differ by one; classification keeps them aligned.
-- A `list<u8>` flattens to `(pointer, length)` while a scalar pushes one value;
-  `flattened_parameter_count` is compared with the canonical signature to reject
-  a shape the direct ABI cannot express.
+- A `list<u8>` flattens to `(pointer, length)` while a scalar pushes one value.
+  The same expansion applies recursively to byte-list fields in directly
+  flattened records; `flattened_parameter_count` is compared with the canonical
+  signature to reject a shape the direct ABI cannot express.
 - A WIT `char` maps only to source `Char` even though both use the canonical
   `i32` core type; an `Int` is rejected.
 - A WIT `f32` parameter/result is narrowed/widened at the boundary because the
@@ -423,10 +424,10 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 Exact mappings are implemented for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, nullary enums, resource handles, byte lists, the unit-success `result`,
-direct scalar records, and flags words. Indirect parameters, non-byte lists,
-aggregate results, `u32` and narrower integers, tuples, and `own`/`borrow` drop
-rules are specified but not yet produced. These are coverage gaps in this
-design, not a change to it.
+direct records (including nested records with byte-list fields), and flags
+words. Indirect parameters, non-byte lists, aggregate results, `u32` and
+narrower integers, tuples, and `own`/`borrow` drop rules are specified but not
+yet produced. These are coverage gaps in this design, not a change to it.
 
 ## References
 
