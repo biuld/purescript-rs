@@ -349,11 +349,15 @@ impl Compiler<'_> {
 
     pub(super) fn surface(&self, ty: TypeId) -> Result<DecisionSurface, &'static str> {
         match self.module.types.get(ty.0 as usize) {
-            Some(Type::Record(fields)) => Ok(DecisionSurface {
-                cases: Vec::new(),
-                record_fields: fields.clone(),
-                is_record: true,
-            }),
+            Some(Type::Record(fields)) => {
+                let mut record_fields = fields.clone();
+                record_fields.sort_by(|left, right| left.0.cmp(&right.0));
+                Ok(DecisionSurface {
+                    cases: Vec::new(),
+                    record_fields,
+                    is_record: true,
+                })
+            }
             Some(_) => {
                 let Some(type_id) = crate::cc::layout::user_type_id(self.module, ty) else {
                     return Err("refutable pattern has no constructor signature");

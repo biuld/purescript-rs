@@ -1,4 +1,6 @@
-use super::super::{Assignment, AssignmentKind, Representation, ValueId, ValueShape};
+use super::super::{
+    Assignment, AssignmentKind, Representation, ValueConversion, ValueId, ValueShape,
+};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::Expr;
@@ -41,7 +43,39 @@ impl FunctionLowerer<'_> {
                     "newtype constructor must have exactly one field",
                 )]);
             }
-            return self.lower_value(&arguments[0], assignments);
+            let value = self.lower_value(&arguments[0], assignments)?;
+            let Some(template_type) = constructor.field_types.first().copied() else {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    expression.span,
+                    "newtype constructor has no field type",
+                )]);
+            };
+            let source_shape = self.value_shape(arguments[0].ty, expression.span)?;
+            let template_shape = self.value_shape(template_type, expression.span)?;
+            let conversion = self.typed_conversion(
+                arguments[0].ty,
+                template_type,
+                source_shape,
+                template_shape,
+                expression.span,
+            )?;
+            if template_shape != result_shape {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    expression.span,
+                    "newtype field conversion does not match its result representation",
+                )]);
+            }
+            let value = self.emit_conversion(
+                value,
+                source_shape,
+                result_shape,
+                conversion,
+                expression.span,
+                assignments,
+            );
+            return Ok(value);
         }
         let tag = self.constructor_tags.get(&symbol).copied().ok_or_else(|| {
             vec![BackendError::new(
@@ -65,6 +99,13 @@ impl FunctionLowerer<'_> {
                 })?;
             let mut values = Vec::with_capacity(arguments.len());
             for (index, argument) in arguments.iter().enumerate() {
+                let Some(template_type) = constructor.field_types.get(index).copied() else {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "constructor field has no declared type",
+                    )]);
+                };
                 let stored = variant_field_shape(
                     self.representations.representation(representation),
                     tag,
@@ -72,12 +113,46 @@ impl FunctionLowerer<'_> {
                     expression.span,
                 )?;
                 let value = self.lower_value(argument, assignments)?;
-                values.push(self.adapt_to_storage_shape(
+                let source_shape = self.value_shape(argument.ty, argument.span)?;
+                let template_shape = self.value_shape(template_type, expression.span)?;
+                if template_shape != stored
+                    && (stored != super::conversion::erased_shape()
+                        || !matches!(template_shape, ValueShape::Reference(_)))
+                {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "constructor field storage does not match its normalized template",
+                    )]);
+                }
+                let conversion = self.typed_conversion(
+                    argument.ty,
+                    template_type,
+                    source_shape,
+                    template_shape,
+                    expression.span,
+                )?;
+                let value = self.emit_conversion(
                     value,
-                    stored,
+                    source_shape,
+                    template_shape,
+                    conversion,
                     expression.span,
                     assignments,
-                )?);
+                );
+                let value = if template_shape == stored {
+                    value
+                } else {
+                    self.emit_conversion(
+                        value,
+                        template_shape,
+                        stored,
+                        ValueConversion::EraseReference,
+                        expression.span,
+                        assignments,
+                    )
+                };
+                values.push(value);
             }
             assignments.push(Assignment {
                 destination,

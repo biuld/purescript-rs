@@ -1,5 +1,6 @@
-use super::super::layout::erased_field_recovery_family;
-use super::super::{Assignment, AssignmentKind, Representation, ValueId, ValueShape};
+use super::super::{
+    Assignment, AssignmentKind, ReprId, Representation, RepresentationTable, ValueId, ValueShape,
+};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::{Expr, dictionary::ClassLayout};
@@ -23,28 +24,69 @@ impl FunctionLowerer<'_> {
                 "record expression has no representation requirement",
             )]);
         };
-        let mut arguments = Vec::with_capacity(layout.fields().len());
-        for field in layout.fields() {
-            let Some((_, value)) = fields.iter().find(|(label, _)| label == &field.label) else {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
+        let labels = record_labels(self.representations, representation, expression.span)?;
+        let mut lowered_fields = vec![None; labels.len()];
+        for (label, expression_value) in fields {
+            let Some(index) = labels.iter().position(|canonical| canonical == label) else {
+                return Err(record_error(
                     expression.span,
-                    "record expression is missing a typed field",
-                )]);
+                    "typed record field has no canonical product index",
+                ));
             };
-            let value = self.lower_value(value, assignments)?;
+            if lowered_fields[index].is_some() {
+                return Err(record_error(
+                    expression.span,
+                    "typed record expression contains a duplicate field",
+                ));
+            }
+            let Some(field_layout) = layout.field(label) else {
+                return Err(record_error(
+                    expression.span,
+                    "canonical record field is missing from its checked class layout",
+                ));
+            };
+            let value = self.lower_value(expression_value, assignments)?;
             let stored = product_field_shape(
                 self.representations.representation(representation),
-                field.index as usize,
+                index,
                 expression.span,
             )?;
-            arguments.push(self.adapt_to_storage_shape(
+            let source_shape = self.value_shape(expression_value.ty, expression_value.span)?;
+            let template_shape = self.value_shape(field_layout.ty, expression.span)?;
+            if template_shape != stored {
+                return Err(record_error(
+                    expression.span,
+                    "record field storage does not match its canonical generic layout",
+                ));
+            }
+            let conversion = self.typed_conversion(
+                expression_value.ty,
+                field_layout.ty,
+                source_shape,
+                template_shape,
+                expression.span,
+            )?;
+            let converted = self.emit_conversion(
                 value,
+                source_shape,
                 stored,
+                conversion,
                 expression.span,
                 assignments,
-            )?);
+            );
+            lowered_fields[index] = Some(converted);
         }
+        let arguments = lowered_fields
+            .into_iter()
+            .map(|value| {
+                value.ok_or_else(|| {
+                    record_error(
+                        expression.span,
+                        "record expression is missing a typed field",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
@@ -80,27 +122,60 @@ impl FunctionLowerer<'_> {
                 message,
             )]
         })?;
+        let canonical_labels =
+            record_labels(self.representations, representation, expression.span)?;
         let base = self.lower_value(record, assignments)?;
         let mut updates = Vec::with_capacity(fields.len());
         for (label, value) in fields {
-            let value = self.lower_value(value, assignments)?;
-            updates.push((label, value));
+            let Some(field_layout) = layout.field(label) else {
+                return Err(record_error(
+                    expression.span,
+                    "updated record field is missing from its checked class layout",
+                ));
+            };
+            let value_id = self.lower_value(value, assignments)?;
+            let source_shape = self.value_shape(value.ty, value.span)?;
+            let target_shape = self.value_shape(field_layout.ty, expression.span)?;
+            updates.push((label, value_id, value.ty, source_shape, target_shape));
         }
 
-        let mut arguments = Vec::with_capacity(layout.fields().len());
-        for field in layout.fields() {
+        let mut arguments = Vec::with_capacity(canonical_labels.len());
+        for (field_index, label) in canonical_labels.iter().enumerate() {
+            let Some(field_layout) = layout.field(label) else {
+                return Err(record_error(
+                    expression.span,
+                    "canonical record field is missing from its checked class layout",
+                ));
+            };
             let stored = product_field_shape(
                 self.representations.representation(representation),
-                field.index as usize,
+                field_index,
                 expression.span,
             )?;
-            if let Some((_, value)) = updates.iter().find(|(name, _)| *name == &field.label) {
-                arguments.push(self.adapt_to_storage_shape(
+            if let Some((_, value, source_type, source_shape, target_shape)) =
+                updates.iter().find(|(name, ..)| *name == label)
+            {
+                if *target_shape != stored {
+                    return Err(record_error(
+                        expression.span,
+                        "updated field does not match its canonical record layout",
+                    ));
+                }
+                let conversion = self.typed_conversion(
+                    *source_type,
+                    field_layout.ty,
+                    *source_shape,
+                    *target_shape,
+                    expression.span,
+                )?;
+                arguments.push(self.emit_conversion(
                     *value,
+                    *source_shape,
                     stored,
+                    conversion,
                     expression.span,
                     assignments,
-                )?);
+                ));
                 continue;
             }
             let value = self.fresh(stored);
@@ -109,7 +184,7 @@ impl FunctionLowerer<'_> {
                 kind: AssignmentKind::ProductGet {
                     destination: value,
                     representation,
-                    field: field.index,
+                    field: field_index as u32,
                     value: base,
                 },
                 span: expression.span,
@@ -158,27 +233,19 @@ impl FunctionLowerer<'_> {
                 "record field is not present in its type",
             )]);
         };
-        let stored = product_field_shape(
-            self.representations.representation(representation),
-            field_layout.index as usize,
-            expression.span,
-        )?;
-        if let Some(family) = erased_field_recovery_family(
-            self.module,
-            field_layout.ty,
-            stored,
-            ty,
-            self.array_types,
-            self.record_types,
-        ) {
+        let labels = record_labels(self.representations, representation, expression.span)?;
+        let Some(field_index) = labels.iter().position(|label| label == field) else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
-                format!(
-                    "unsupported generic {family} field recovery: its nominal runtime layout depends on a type variable"
-                ),
+                "record field has no canonical product index",
             )]);
-        }
+        };
+        let stored = product_field_shape(
+            self.representations.representation(representation),
+            field_index,
+            expression.span,
+        )?;
         let record = self.lower_value(record, assignments)?;
         let projected = self.fresh(stored);
         assignments.push(Assignment {
@@ -186,13 +253,46 @@ impl FunctionLowerer<'_> {
             kind: AssignmentKind::ProductGet {
                 destination: projected,
                 representation,
-                field: field_layout.index,
+                field: field_index as u32,
                 value: record,
             },
             span: expression.span,
         });
-        self.adapt_to_storage_shape(projected, ty, expression.span, assignments)
+        let target_type = expression.ty;
+        let target_shape = self.value_shape(target_type, expression.span)?;
+        let conversion = self.typed_conversion(
+            field_layout.ty,
+            target_type,
+            stored,
+            target_shape,
+            expression.span,
+        )?;
+        Ok(self.emit_conversion(
+            projected,
+            stored,
+            ty,
+            conversion,
+            expression.span,
+            assignments,
+        ))
     }
+}
+
+fn record_labels(
+    representations: &RepresentationTable,
+    representation: ReprId,
+    span: psrs_span::TextRange,
+) -> Result<Vec<String>, Vec<BackendError>> {
+    representations
+        .product_labels(representation)
+        .map(<[String]>::to_vec)
+        .ok_or_else(|| {
+            vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "record representation has no canonical field labels",
+            )]
+        })
 }
 
 fn product_field_shape(
@@ -214,4 +314,8 @@ fn product_field_shape(
             "record field has no storage shape",
         )]
     })
+}
+
+fn record_error(span: psrs_span::TextRange, message: &'static str) -> Vec<BackendError> {
+    vec![BackendError::new("P8 closure conversion", span, message)]
 }

@@ -8,6 +8,17 @@ impl FunctionLowerer<'_> {
     ) -> Result<BlockId, Vec<BackendError>> {
         for assignment in assignments {
             match &assignment.kind {
+                AssignmentKind::AggregateConvert {
+                    value, conversion, ..
+                } => {
+                    current = self.lower_aggregate_convert(
+                        current,
+                        *value,
+                        assignment.destination,
+                        conversion,
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::Constant(value) => self.append_instruction(
                     current,
                     Instruction::Constant {

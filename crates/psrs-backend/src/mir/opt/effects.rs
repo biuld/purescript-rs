@@ -41,6 +41,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         | I::StructGet { .. }
         | I::ClosureGetCapture { .. }
         | I::ArrayNew { .. }
+        | I::ArrayNewDefault { .. }
         | I::ArrayGet { .. }
         | I::ArrayClone { .. }
         | I::ArrayLen { .. } => InstructionEffects {
@@ -55,7 +56,10 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             ),
             writes_memory: matches!(
                 instruction,
-                I::StructNew { .. } | I::ArrayNew { .. } | I::ArrayClone { .. }
+                I::StructNew { .. }
+                    | I::ArrayNew { .. }
+                    | I::ArrayNewDefault { .. }
+                    | I::ArrayClone { .. }
             ),
             ..InstructionEffects::default()
         },

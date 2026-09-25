@@ -4,7 +4,7 @@ use psrs_core::{ConstructorInfo, Module, Type, TypeConstructor};
 use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
 #[test]
-fn parameter_dependent_record_constructor_field_uses_erased_storage() {
+fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot() {
     let module_id = ModuleId(0);
     let wrap_type = HirTypeId::new(module_id, 0);
     let wrap = SymbolId::new(module_id, 0);
@@ -40,16 +40,35 @@ fn parameter_dependent_record_constructor_field_uses_erased_storage() {
     assert!(aggregates.contains(&wrap_type));
     let layout = type_layout(&module, &enums, &aggregates, &newtypes)
         .expect("parameterized record field layout should be supported");
+    let array_repr = layout.array_types[&array_a];
+    let record_repr = layout.record_types[&record_a];
+    let erased_shape = ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Erased,
+    });
+    let canonical_array_shape = ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(array_repr),
+    });
+    assert_eq!(
+        layout.representations.representation(array_repr),
+        Some(&Representation::Array {
+            element: erased_shape,
+        })
+    );
+    assert_eq!(
+        layout.representations.representation(record_repr),
+        Some(&Representation::Product {
+            fields: vec![canonical_array_shape],
+        })
+    );
     let representation = layout.constructor_types[&wrap];
     assert_eq!(
         layout.representations.representation(representation),
         Some(&Representation::Variant {
             cases: vec![VariantCase {
                 tag: 0,
-                fields: vec![ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                })],
+                fields: vec![erased_shape],
             }],
         })
     );

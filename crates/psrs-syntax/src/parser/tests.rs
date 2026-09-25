@@ -77,6 +77,26 @@ fn parses_lambdas_conditionals_and_operator_precedence() {
 }
 
 #[test]
+fn distinguishes_lowercase_record_fields_from_uppercase_qualified_values() {
+    let module =
+        parse("module Main where\nfieldAccess record = record.value\nqualified = Data.Array.map\n")
+            .unwrap();
+
+    let field_access = plain_value(as_value(&module.declarations[0]));
+    let ExprKind::FieldAccess {
+        expression, field, ..
+    } = &field_access.kind
+    else {
+        panic!("expected lowercase dotted expression to be a record field access");
+    };
+    assert_eq!(field.text, "value");
+    assert!(matches!(&expression.kind, ExprKind::Name(name) if name.text == "record"));
+
+    let qualified = plain_value(as_value(&module.declarations[1]));
+    assert!(matches!(&qualified.kind, ExprKind::Name(name) if name.text == "Data.Array.map"));
+}
+
+#[test]
 fn parses_single_line_let_blocks() {
     let module = parse("module Main where\nmain = let x = 1 in x\n").unwrap();
     assert!(matches!(

@@ -163,6 +163,7 @@ pub(super) fn verify_function(
         }
         verify_terminator(function, terminator, &blocks, &definitions)?;
     }
+    super::array_map::verify_array_maps(function)?;
     Ok(())
 }
 
