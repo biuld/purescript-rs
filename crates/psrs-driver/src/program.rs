@@ -5,13 +5,22 @@ use super::prelude;
 use super::{Artifact, ProgramDiagnostic, coded_diagnostic, diagnostic, lower_source_to_ast};
 use std::collections::HashMap;
 
+mod effects;
+
 /// Compiles a whole program to a single Wasm component. Every module is type
 /// checked in dependency order and lowered to Core; the modules are then linked
 /// into one before the backend runs.
 pub fn compile_program_sources(
     sources: &[(&str, &str)],
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let core = lower_program_to_core(sources)?;
+    compile_program_sources_with_trusted_prefix(sources, 0)
+}
+
+fn compile_program_sources_with_trusted_prefix(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<Artifact, Vec<ProgramDiagnostic>> {
+    let core = lower_program_to_core_with_trusted_prefix(sources, trusted_prefix)?;
     let output = psrs_backend::compile(core).map_err(|errors| {
         errors
             .into_iter()
@@ -36,21 +45,31 @@ pub fn compile_program_sources_with_prelude(
     let mut all_sources = Vec::with_capacity(sources.len() + prelude::SOURCES.len());
     all_sources.extend_from_slice(prelude::SOURCES);
     all_sources.extend_from_slice(sources);
-    compile_program_sources(&all_sources).map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|mut error| {
-                error.source = error.source.saturating_sub(prelude::SOURCES.len());
-                error
-            })
-            .collect()
-    })
+    compile_program_sources_with_trusted_prefix(&all_sources, prelude::SOURCES.len()).map_err(
+        |errors| {
+            errors
+                .into_iter()
+                .map(|mut error| {
+                    error.source = error.source.saturating_sub(prelude::SOURCES.len());
+                    error
+                })
+                .collect()
+        },
+    )
 }
 
+#[cfg(test)]
 pub(crate) fn lower_program_to_core(
     sources: &[(&str, &str)],
 ) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
-    let typed = typecheck_program_sources(sources)?;
+    lower_program_to_core_with_trusted_prefix(sources, 0)
+}
+
+pub(crate) fn lower_program_to_core_with_trusted_prefix(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
+    let typed = typecheck_program_sources_with_trusted_prefix(sources, trusted_prefix)?;
     let entry = select_entry(&typed)?;
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
@@ -194,18 +213,45 @@ pub fn check_program(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnost
     typecheck_program_sources(sources).map(|_| ())
 }
 
+pub(crate) fn check_program_with_trusted_prefix(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<(), Vec<ProgramDiagnostic>> {
+    typecheck_program_sources_with_trusted_prefix(sources, trusted_prefix).map(|_| ())
+}
+
 /// Resolves a program and type checks every module in dependency order,
 /// returning the typed modules in input order.
 pub fn typecheck_program_sources(
     sources: &[(&str, &str)],
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
+    typecheck_program_sources_with_trusted_prefix(sources, 0)
+}
+
+pub(crate) fn typecheck_program_sources_with_trusted_prefix(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
     let modules = resolve_program_sources(sources)?;
-    typecheck_program(modules)
+    typecheck_program(modules, trusted_prefix)
 }
 
 fn typecheck_program(
     modules: Vec<psrs_hir::Module>,
+    trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
+    effects::check_run_effect_scope(&modules, trusted_prefix)?;
+    let effect_type = modules
+        .iter()
+        .take(trusted_prefix)
+        .find(|module| module.name == "Prelude")
+        .and_then(|module| {
+            module
+                .types
+                .iter()
+                .find(|declaration| declaration.name == "Effect")
+                .map(|declaration| declaration.id)
+        });
     let exported = modules.iter().map(exported_signatures).collect::<Vec<_>>();
     let order = typecheck_order(&modules);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
@@ -243,7 +289,18 @@ fn typecheck_program(
             continue;
         }
         let imported = imported_signatures(&module, &exported);
-        match psrs_typecheck::typecheck_module_with_imports(module, &imported) {
+        let trusted_effect_representation = index < trusted_prefix
+            && matches!(
+                module.name.as_str(),
+                "Prelude" | "WASI.Console" | "WASI.Clock"
+            );
+        let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
+            module,
+            &imported,
+            effect_type,
+            trusted_effect_representation,
+        );
+        match check {
             Ok(module) => typed[index] = Some(module),
             Err(module_errors) => {
                 for error in module_errors {

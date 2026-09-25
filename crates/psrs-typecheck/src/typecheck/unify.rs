@@ -104,6 +104,7 @@ impl Checker {
             InferType::Char => "Char".into(),
             InferType::Unit => "Unit".into(),
             InferType::Constructor(TypeConstructor::Array) => "Array".into(),
+            InferType::Constructor(TypeConstructor::Effect) => "Effect".into(),
             InferType::Constructor(TypeConstructor::User(id)) => self
                 .type_names
                 .get(&id)
@@ -267,10 +268,26 @@ impl Checker {
             InferType::Constructor(TypeConstructor::Array) => {
                 Some(interner.intern(Type::Constructor(thir::TypeConstructor::Array)))
             }
+            InferType::Constructor(TypeConstructor::Effect) => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedType,
+                    span,
+                    "Effect must be applied to exactly one type argument",
+                ));
+                None
+            }
             InferType::Constructor(TypeConstructor::User(id)) => {
                 Some(interner.intern(Type::Constructor(thir::TypeConstructor::User(id))))
             }
             InferType::Application(function, argument) => {
+                if matches!(
+                    self.resolve_type(*function.clone()),
+                    InferType::Constructor(TypeConstructor::Effect)
+                ) {
+                    let parameter = interner.intern(Type::I32);
+                    let result = self.finalize_type(&argument, span, interner, generics)?;
+                    return Some(interner.intern(Type::Function { parameter, result }));
+                }
                 let function = self.finalize_type(&function, span, interner, generics);
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))

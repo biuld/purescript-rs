@@ -357,16 +357,35 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Implementation notes
 
-In progress. The embedded `Prelude` defines
-`type Effect a = Boolean -> a` with `pure`, `bind`, and `runEffect` as ordinary
-source functions, and the checker expands `Effect a` to a `Boolean -> a`
-function type. This currently violates the abstract-source-type boundary above:
-source code can forge and run effects through the alias. Partial application of a
-top-level function is implemented in `cc/lower/call.rs`; the generated function
-is verified like any other. Construct/run/order behavior is covered by the
-`psrs-driver` effect tests under `wasmtime`. The Boolean token is explicitly a
-placeholder. The design requires the source boundary and optimizer rule above
-before treating this implementation as complete.
+The embedded `Prelude` declares `Effect` as a data type with no constructors,
+so its imported source identity is abstract. During unification, ordinary
+modules keep `Effect a` nominal and cannot pass a function such as
+`Int -> a` to `runEffect`; after checking, the type checker maps the imported
+`Effect a` identity to the internal `Int -> a` closure shape. Only the embedded
+`Prelude` and platform modules are checked directly against that closure shape
+to implement `pure`, `bind`, `runEffect`, and WASI operations. The source
+language does not expose the token type through the `Effect` signature. The
+driver passes the resolved `Effect` type identity from its trusted embedded
+Prelude to every module, so a signature that carries it through another module
+keeps the same closure representation even when the importing module does not
+import Prelude itself. A user-supplied module named `Prelude` does not establish
+this identity; its `Effect` declaration remains an ordinary user type.
+
+The driver resolves the trusted `Prelude.runEffect` symbol and rejects
+references outside the selected command entry before type inference. The
+synchronous runner currently supplies the internal integer value `0`; it is a
+runtime placeholder, not a source-level capability. The design's dedicated
+runtime token and explicit `foreign import data` declaration still require
+foreign type support. Partial application of a top-level function is
+implemented in `cc/lower/call.rs`; the generated function is verified like any
+other. Construct/run/order behavior, function-forgery rejection, the entry-only
+runner rule, transitive cross-module effect forwarding, and an untrusted
+user-defined `Prelude.Effect` remaining nominal are covered by `psrs-driver`
+tests. CC treats a top-level function-typed binding with no
+source parameters as a value-producing call, preserving returned effect
+closures across a global alias. The optimizer's general effectful-call
+preservation rules remain specified in the Core and MIR optimization
+documents; those passes are tracked separately from this topic.
 
 ## References
 
