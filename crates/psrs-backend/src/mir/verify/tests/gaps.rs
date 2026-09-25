@@ -364,3 +364,117 @@ fn accepts_a_conversion_helper_that_rebuilds_the_aggregate() {
     crate::mir::verify_module(&custom_module(function, convertible_types()))
         .expect("a rebuilding conversion helper is legal");
 }
+
+fn get_capture_function(destination_type: ValueType) -> Function {
+    let closure = ValueId(0);
+    let destination = ValueId(1);
+    Function {
+        id: FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "capture_projection".into(),
+        parameters: vec![closure],
+        values: vec![value(0, closure_value_type()), value(1, destination_type)],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::ClosureGetCapture {
+                destination,
+                closure,
+                closure_type: DefinedTypeId(1),
+                capture_array_type: DefinedTypeId(2),
+                boxed_integer_type: None,
+                boxed_f64_type: None,
+                index: 0,
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: destination,
+                span: span(),
+            }),
+        }],
+        result: destination,
+        result_type: destination_type,
+        span: span(),
+    }
+}
+
+#[test]
+fn rejects_a_closure_capture_projection_with_a_non_eq_reference_result() {
+    let errors = crate::mir::verify_module(&custom_module(
+        get_capture_function(reference(HeapType::Func)),
+        closure_types(),
+    ))
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("not eq-compatible")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_closure_capture_projection_with_an_unrepresentable_result() {
+    let errors = crate::mir::verify_module(&custom_module(
+        get_capture_function(ValueType::F32),
+        closure_types(),
+    ))
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("not representable")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_conversion_helper_that_casts_even_with_an_unrelated_rebuild() {
+    let function = helper_function(
+        vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![
+                Instruction::RefCast {
+                    destination: ValueId(1),
+                    value: ValueId(0),
+                    reference: RefType {
+                        nullable: false,
+                        heap: HeapType::Index(DefinedTypeId(1)),
+                    },
+                    span: span(),
+                },
+                Instruction::Constant {
+                    destination: ValueId(3),
+                    value: 0,
+                    span: span(),
+                },
+                Instruction::StructNew {
+                    destination: ValueId(2),
+                    type_index: DefinedTypeId(1),
+                    arguments: vec![ValueId(3), ValueId(3)],
+                    span: span(),
+                },
+            ],
+            terminator: Some(Terminator::Return {
+                value: ValueId(1),
+                span: span(),
+            }),
+        }],
+        vec![
+            value(0, reference(HeapType::Index(DefinedTypeId(0)))),
+            value(1, reference(HeapType::Index(DefinedTypeId(1)))),
+            value(2, reference(HeapType::Index(DefinedTypeId(1)))),
+            value(3, ValueType::I32),
+        ],
+    );
+    let errors =
+        crate::mir::verify_module(&custom_module(function, convertible_types())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("replaces a nominal conversion")),
+        "{errors:?}"
+    );
+}

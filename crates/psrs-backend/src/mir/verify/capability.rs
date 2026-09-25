@@ -133,10 +133,18 @@ fn mark_instruction(instruction: &mir::Instruction, required: &mut RequiredCapab
         }
         Instruction::ClosureNew { .. }
         | Instruction::ClosureCall { .. }
-        | Instruction::ClosureGetCapture { .. }
-        | Instruction::I31New { .. }
-        | Instruction::I31GetS { .. }
-        | Instruction::StructNew { .. }
+        | Instruction::ClosureGetCapture { .. } => {
+            // Closures emit `ref.func`/`call_ref` through a typed function
+            // reference, so they require both reference capabilities and GC.
+            required.reference_types = true;
+            required.function_references = true;
+            required.gc = true;
+        }
+        Instruction::I31New { .. } | Instruction::I31GetS { .. } => {
+            required.reference_types = true;
+            required.gc = true;
+        }
+        Instruction::StructNew { .. }
         | Instruction::StructGet { .. }
         | Instruction::StructSet { .. }
         | Instruction::ArrayNew { .. }
@@ -335,5 +343,83 @@ mod tests {
             entry: Some(SymbolId::new(ModuleId(4), 0)),
             span,
         }
+    }
+
+    fn module_with_instruction(instruction: mir::Instruction) -> mir::Module {
+        let span = TextRange::new(17, 31);
+        mir::Module {
+            name: "capability-instruction-test".into(),
+            types: Vec::new(),
+            imports: Vec::new(),
+            functions: vec![mir::Function {
+                id: crate::types::FunctionId(0),
+                symbol: SymbolId::new(ModuleId(4), 0),
+                name: "capability".into(),
+                parameters: Vec::new(),
+                values: Vec::new(),
+                entry: mir::BlockId(0),
+                blocks: vec![mir::BasicBlock {
+                    id: mir::BlockId(0),
+                    parameters: Vec::new(),
+                    instructions: vec![instruction],
+                    terminator: Some(mir::Terminator::Return {
+                        value: crate::types::ValueId(0),
+                        span,
+                    }),
+                }],
+                result: crate::types::ValueId(0),
+                result_type: ValueType::I32,
+                span,
+            }],
+            entry: Some(SymbolId::new(ModuleId(4), 0)),
+            span,
+        }
+    }
+
+    #[test]
+    fn closure_operations_require_typed_function_references() {
+        let module = module_with_instruction(mir::Instruction::ClosureGetCapture {
+            destination: crate::types::ValueId(0),
+            closure: crate::types::ValueId(1),
+            closure_type: crate::types::DefinedTypeId(0),
+            capture_array_type: crate::types::DefinedTypeId(1),
+            boxed_integer_type: None,
+            boxed_f64_type: None,
+            index: 0,
+            span: TextRange::new(0, 1),
+        });
+        let target = TargetCapabilities {
+            function_references: false,
+            ..TargetCapabilities::default()
+        };
+        let errors = validate_target_capabilities(&module, target)
+            .expect_err("a closure operation requires typed function references");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("typed function references")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn i31_operations_require_reference_types() {
+        let module = module_with_instruction(mir::Instruction::I31GetS {
+            destination: crate::types::ValueId(0),
+            value: crate::types::ValueId(1),
+            span: TextRange::new(0, 1),
+        });
+        let target = TargetCapabilities {
+            reference_types: false,
+            ..TargetCapabilities::default()
+        };
+        let errors = validate_target_capabilities(&module, target)
+            .expect_err("an i31 operation requires reference types");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("reference types")),
+            "{errors:?}"
+        );
     }
 }
