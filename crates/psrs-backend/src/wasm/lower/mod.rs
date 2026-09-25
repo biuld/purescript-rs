@@ -10,7 +10,7 @@ use crate::mir::{self, Function as MirFunction};
 use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use wasm_encoder::{Instruction, ValType};
 
 mod realloc;
@@ -335,7 +335,7 @@ fn lower_function(
         string_offsets,
     };
     let mut body = Body::new();
-    structurer.emit_region(source.entry, None, &mut HashSet::new(), &mut body)?;
+    structurer.emit_control_flow(&mut body)?;
     body.push(Op::Leaf(Instruction::LocalGet(local(
         &structurer.locals,
         source.result,
