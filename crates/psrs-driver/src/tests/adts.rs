@@ -50,14 +50,34 @@ fn lowers_enum_case_to_mir_switch_and_wasm_br_table() {
             )
         });
     assert!(has_tag_switch, "expected a tag switch in CC");
-    assert!(stages.mir.functions.iter().any(|function| {
+    let optimized_switch_is_well_formed = stages.mir.functions.iter().any(|function| {
         function.blocks.iter().any(|block| {
-            matches!(
-                block.terminator,
-                Some(psrs_backend::mir::Terminator::Switch { .. })
-            )
+            let Some(psrs_backend::mir::Terminator::Switch {
+                value,
+                cases,
+                default,
+                ..
+            }) = &block.terminator
+            else {
+                return false;
+            };
+            function.values.iter().any(|decl| decl.id == *value)
+                && cases.iter().all(|(_, target)| {
+                    function
+                        .blocks
+                        .iter()
+                        .any(|candidate| candidate.id == *target)
+                })
+                && function
+                    .blocks
+                    .iter()
+                    .any(|candidate| candidate.id == *default)
         })
-    }));
+    });
+    assert!(
+        optimized_switch_is_well_formed,
+        "P10 must preserve the selector and every MIR Switch successor"
+    );
     assert!(stages.artifact.wat.contains("br_table"));
 }
 
