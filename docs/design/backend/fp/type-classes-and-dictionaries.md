@@ -216,11 +216,12 @@ code map owns class declarations, solving, and THIR evidence. This backend topic
 consumes verified Core dictionary values:
 
 ```text
-crates/psrs-core/src/dictionary.rs               checked dictionary field metadata
-crates/psrs-backend/src/cc/representation.rs     product representation
-crates/psrs-backend/src/cc/lower/record.rs       product construction/projection
-crates/psrs-backend/src/cc/lower/call.rs         dictionary argument calls
-crates/psrs-backend/src/mir/layout/              concrete product layout
+crates/psrs-core/src/dictionary.rs                    checked dictionary field metadata
+crates/psrs-backend/src/cc/representation.rs          product representation
+crates/psrs-backend/src/cc/lower/dictionary/mod.rs    checked dictionary value entry point
+crates/psrs-backend/src/cc/lower/record/mod.rs        product construction/projection
+crates/psrs-backend/src/cc/lower/call/                dictionary argument and method calls
+crates/psrs-backend/src/mir/layout/                   concrete product layout
 ```
 
 The backend entry point `lower_dictionary_value(&core::Expr, &ClassLayout) ->
@@ -234,10 +235,14 @@ layout. No backend module imports class-solving state.
   unique and stable for the class's lifetime.
 - Every dictionary value has exactly the class record's fields, each with the
   declared method or superclass dictionary type; the CC verifier checks product
-  field shapes (`cc/verify/ops.rs`).
+  field shapes (`cc/verify/ops/mod.rs` and `cc/verify/ops/aggregate/mod.rs`).
 - Every method projection names a field in range with the expected shape; the
   MIR verifier checks `StructGet` against the planned concrete type
   (`mir/verify/instruction/mod.rs`).
+- Because the concrete product order is the canonical label order of
+  [data representation](data-representation.md), record and dictionary fields
+  are addressed by label; `ClassLayout`'s logical index is the class's declared
+  order and is not a target offset.
 - No runtime type tag is introduced anywhere; the erased protocol remains the
   only polymorphic mechanism ([polymorphism and erasure](polymorphism-and-erasure.md)).
 - The frontend has verified coherence and selected evidence; CC rejects a
@@ -337,10 +342,22 @@ record type and routes record-typed dictionary values through
 construction path, while superclass and method selection use the existing
 field projection path. P8 plans closure signatures before product fields so
 method closures can occupy dictionary fields; CC and MIR contain only ordinary
-product operations. A focused backend regression starts from typed THIR
-`Given`, `Instance`, and `Superclass` evidence, checks its Core projections,
-then verifies CC `ProductNew`/`ProductGet` and MIR `StructNew`/`StructGet`
-shapes.
+product operations. Because the concrete product order is the canonical
+label order, record and dictionary fields are addressed by label rather than by
+the declared position that `ClassLayout` records. A focused backend regression
+starts from typed THIR `Given`, `Instance`, and `Superclass` evidence, checks
+its Core projections, then verifies CC `ProductNew`/`ProductGet` and MIR
+`StructNew`/`StructGet` shapes.
+
+A method whose type is polymorphic is stored as an erased closure. Selecting
+that method yields an erased closure value, so the indirect call adapts each
+concrete argument to the erased signature and recovers the concrete result
+(`cc/lower/call/application.rs`); recovering a boxed Boolean projects the
+integer box slot and applies `IntToBoolean` (`cc/lower/erased.rs`). The
+fixture-only execution record in the topic checklist exercises contextual
+instances, escaping method closures, superclass projection, ordered dictionary
+parameters, shared dictionaries, defaults, recursive contexts, erased
+dictionary round trips, polymorphic method fields, and the optimizer path.
 
 The source frontend does not yet produce these evidence terms. Instance syntax
 is still rejected by AST lowering, HIR has no instance declarations, and the

@@ -1,7 +1,8 @@
 use super::super::layout::depends_on_type_variable;
 use super::super::layout::function_signature;
 use super::super::{
-    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
+    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, UnaryOp, ValueId,
+    ValueShape,
 };
 use super::call::{persist_reference, restore_reference};
 use super::{FunctionLowerer, LambdaLowering};
@@ -260,18 +261,38 @@ impl FunctionLowerer<'_> {
                     },
                     span,
                 });
-                let result = self.fresh(expected);
+                // The box stores Wasm i32; a Boolean destination is recovered
+                // through an explicit `IntToBoolean` conversion so the product
+                // projection keeps the box field's integer shape.
+                let boxed_destination = if expected == ValueShape::Boolean {
+                    self.fresh(ValueShape::Integer)
+                } else {
+                    self.fresh(expected)
+                };
                 assignments.push(Assignment {
-                    destination: result,
+                    destination: boxed_destination,
                     kind: AssignmentKind::ProductGet {
-                        destination: result,
+                        destination: boxed_destination,
                         representation: boxed_type,
                         field: 0,
                         value: concrete_box,
                     },
                     span,
                 });
-                Ok(result)
+                if expected == ValueShape::Boolean {
+                    let result = self.fresh(ValueShape::Boolean);
+                    assignments.push(Assignment {
+                        destination: result,
+                        kind: AssignmentKind::Unary {
+                            op: UnaryOp::IntToBoolean,
+                            value: boxed_destination,
+                        },
+                        span,
+                    });
+                    Ok(result)
+                } else {
+                    Ok(boxed_destination)
+                }
             }
             ValueShape::Number => {
                 let Some(boxed_type) = self.boxed_number_type else {

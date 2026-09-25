@@ -4,6 +4,7 @@ use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 
 mod adaptation;
+mod dictionary;
 mod structure;
 mod variant;
 
