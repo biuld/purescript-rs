@@ -69,8 +69,16 @@ fn compiles_if_expression_through_cfg_to_structured_wasm() {
     let source =
         "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
     let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(artifact.wat.contains("if (result i32)"));
+    // The unified reducible structurer lowers a diamond to nested `block`
+    // regions with depth-relative branches, not a result-typed `if`.
+    assert!(artifact.wat.contains("block"));
+    assert!(artifact.wat.contains("br_if"));
     assert!(artifact.wasm.len() > 8);
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(9));
 }
 
 #[test]

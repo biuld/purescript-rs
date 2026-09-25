@@ -146,7 +146,7 @@ MIR-08:
 MIR-10:
   Implementation: crates/psrs-backend/src/mir/opt/mod.rs (prune after simplify),
     mir/opt/constants.rs (keep the Branch merge parameter), and the trap-aware
-    Wasm structurer in wasm/lower/structure/{legacy,region,mod}.rs
+    Wasm structurer in wasm/lower/structure/{cfg,region,mod}.rs
   Tests: psrs-driver tests::functions::runs_a_recursive_polymorphic_reference_identity,
            runs_a_recursive_polymorphic_identity_at_integer_types,
            runs_a_branch_with_equal_reference_arms, runs_a_case_that_returns_a_reference
@@ -159,8 +159,8 @@ MIR-10:
     aggregate reconstruction is not yet a single matrix
 
 MIR-11:
-  Implementation: wasm/lower/structure/legacy.rs (RegionExit skips a value read
-    after a trap), region.rs and mod.rs (block_traps); design implementation note
+  Implementation: wasm/lower/structure/region.rs and mod.rs (block_traps skips
+    a value read after a trap); design implementation note
     records why Boolean i31 boxing stays in the encoder
   Tests: psrs-driver tests::functions::runs_a_case_that_returns_a_reference;
          existing wasm::lower::structure and closure execution tests

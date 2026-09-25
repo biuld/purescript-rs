@@ -482,12 +482,14 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 - **Control flow.** MIR `Switch` is implemented for nullary-constructor matches
   with unique constructor tags; duplicate alternatives retain an ordered
   comparison chain. The `Branch`/`Switch` joins are derived from the CFG edges
-  by `mir/cfg.rs`; there is no `merge_block` hint. For acyclic functions, the
-  Wasm structurer derives the diamond and switch join and emits a
-  result-typed `if`. For cyclic CFGs, it computes dominators and natural loops,
-  validates loop nesting, and emits `Loop` regions with continuation `Block`s
-  and depth-relative branches; tests cover loop-carried values, nested loops,
-  and multiple exits. Irreducible CFGs use the dispatcher fallback documented in
+  by `mir/cfg.rs`; there is no `merge_block` hint, and a join is not required to
+  emit a branch. The Wasm structurer builds one region plan for every reducible
+  CFG, with or without loops: it computes dominators and natural loops,
+  validates loop nesting, orders each region into block and loop units, and
+  emits `Loop` regions with continuation `Block`s and depth-relative branches;
+  tests cover loop-carried values, nested loops, multiple exits, loopless
+  diamonds, switches, shared successors, early returns, and traps. Irreducible
+  CFGs use the dispatcher fallback documented in
   [control flow and tail calls](control-flow-and-tail-calls.md). Tail-call
   marking, self-recursion loopification, and lowering to
   `ReturnCall`/`ReturnCallRef` remain future work.
@@ -528,13 +530,14 @@ Current MIR emits `Return`, `Jump`, `Branch`, and `Switch`;
 nullary-constructor cases with unique tags lower to `Switch`, while duplicate
 alternatives keep their source-order comparison chain. P10 preserves and can
 simplify switches. Neither MIR nor the verifier stores a structuring hint: the
-structurer derives each branch and switch join from the CFG edges. Acyclic
-functions use the derived diamond/switch join and a result-typed `if`. For
-cyclic MIR CFGs, P10 computes dominators and natural loops, checks that loop
-regions are nested, and emits Wasm `Loop` regions with continuation `Block`s
-and depth-relative branches. Loop fixtures use direct MIR because CC-to-MIR
-does not yet produce loops. Irreducible CFGs use the dispatcher fallback
-described in [control flow and tail calls](control-flow-and-tail-calls.md).
+structurer derives each branch and switch join from the CFG edges, but a join is
+not required to emit a branch. Every reducible MIR CFG, acyclic or cyclic, goes
+through the same region emitter: P10 computes dominators and natural loops,
+checks that loop regions are nested, and emits Wasm `Loop` regions with
+continuation `Block`s and depth-relative branches. Loop fixtures use direct MIR
+because CC-to-MIR does not yet produce loops. Irreducible CFGs use the
+dispatcher fallback described in
+[control flow and tail calls](control-flow-and-tail-calls.md).
 `ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
 tail-call marking and self-recursion loopification remain unimplemented.
 MIR includes `ArrayNewDefault`; P9 lowers recursive aggregate reconstruction
