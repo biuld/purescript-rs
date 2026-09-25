@@ -13,6 +13,7 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 use wasm_encoder::{Instruction, ValType};
 
+mod extent;
 mod realloc;
 mod runtime;
 mod structure;
@@ -62,6 +63,7 @@ pub fn lower_module_with_capabilities(
     }
 
     let (string_offsets, mut data, data_end) = collect_strings(module);
+    extent::verify_static_access_extents(module, &string_offsets)?;
     // `cabi_realloc` is needed only when an imported function returns a list or
     // string that the host allocates in guest memory.
     let needs_realloc = module

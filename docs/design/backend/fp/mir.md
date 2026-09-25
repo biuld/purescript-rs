@@ -468,8 +468,10 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   meantime.
 - **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
   Unboxing across call boundaries remains a P9 representation decision.
-- **Memory access extents.** The verifier checks memory identity and types, not
-  static offsets; offset validation is deferred to the ABI boundary design.
+- **Memory access extents.** The ABI boundary design defines static address,
+  interval, and region-permission checks. The Wasm verifier implementation is
+  underway; dynamic reads retain runtime bounds traps, while stores require a
+  statically known writable ABI region.
 
 ## Implementation notes
 
