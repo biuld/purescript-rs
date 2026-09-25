@@ -105,7 +105,6 @@ pub fn compile_source_with_dumps(
     source_text: &str,
 ) -> Result<Compilation, Vec<Diagnostic>> {
     let core = lower_source_with_prelude_to_core(source_name, source_text)?;
-    let core_dump = format!("{core:#?}");
     let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
     Ok(Compilation {
         artifact: Artifact {
@@ -113,7 +112,7 @@ pub fn compile_source_with_dumps(
             wat: stages.artifact.wat,
         },
         dumps: IrDumps {
-            core: core_dump,
+            core: format!("{:#?}", stages.core),
             cc: format!("{:#?}", stages.cc),
             mir: format!("{:#?}", stages.mir),
         },

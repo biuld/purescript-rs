@@ -35,7 +35,7 @@ other instantiations.
 ## Model
 
 ```text
-CorePass = Module -> Result<Module, Diagnostics>
+CorePass = Module -> Result<Module, Vec<VerifyError>>
 EffectSummary = { may_call: bool, may_trap: bool }
 Cost = { nodes, duplication, recursion_depth }
 ```
@@ -62,8 +62,10 @@ newly exposed simplifications without creating an optimizer that can diverge.
 - Fold total scalar operations only when the result exactly matches the source
   semantics, including `NaN`, signed zero, 32-bit wrapping, and character
   validity. Do not fold a primitive whose execution would trap.
-- Reduce `if` with a known Boolean and `case` with a known constructor after
-  retaining the required evaluation of the condition or scrutinee.
+- Reduce `if` with a known Boolean and `case` with a known constructor or
+  record only when the selected pattern is decidable without a runtime cast.
+  Preserve the first-match rule and required evaluation of the condition or
+  scrutinee.
 - Inline a small nonrecursive body by capture-avoiding substitution. Bind
   arguments once, in source order, before substituting their values.
 - Project a method from a statically known dictionary when doing so preserves
@@ -103,6 +105,12 @@ inline_call(callee, arguments):
     keep the call if the body is recursive or exceeds the budget
 ```
 
+The local simplifier folds a `case` only when its scrutinee is a known
+constructor or record value and every earlier branch is either disproved by
+that known outer shape or can be matched without testing a nested erased
+field. An unknown local or global scrutinee always remains a case, even when a
+later wildcard branch exists.
+
 External declarations and binding metadata are validated independently of
 reachability; P7 cannot hide a malformed declaration by dropping its last use.
 The final binding side table is checked at the P8 boundary.
@@ -110,12 +118,13 @@ The final binding side table is checked at the P8 boundary.
 ## Code map
 
 `crates/psrs-core/src/opt/` owns P7. `mod.rs` defines
-`optimize(module: Module, budget: Budget) -> Result<Module, Diagnostics>` and
+`optimize(module: Module, budget: Budget) -> Result<Module, Vec<VerifyError>>` and
 the ordered pass driver. `effects.rs` computes conservative evaluation
-summaries. `simplify.rs` owns constants and branch reduction; `inline.rs` owns
-alpha-renaming, fresh local IDs, and budgets; `dictionary.rs` owns projections;
-`dead.rs` owns dead-binding analysis. These modules consume only Core types and
-source utilities, never CC, MIR, or Wasm types.
+summaries. `simplify.rs` owns constants, branch reduction, and statically
+known record and dictionary projections; `inline.rs` owns bounded beta
+reduction and call-site budgets; `dead.rs` owns dead-binding analysis.
+`util.rs` owns scope-aware substitution and fresh-ID support. These modules
+consume only Core types and source utilities, never CC, MIR, or Wasm types.
 
 ## Invariants and verification
 
@@ -159,3 +168,22 @@ specialization needs explicit linkage and invalidation rules.
 - Peyton Jones and Marlow, *Secrets of the Glasgow Haskell Compiler inliner*
   (2002), for bounded inlining and call-site guidance.
 - [D-01 — Frontend and IR boundaries](../../D-01-frontend-and-ir-boundaries.md).
+
+## Implementation notes
+
+P7 is implemented in `crates/psrs-core/src/opt/` and runs in the backend
+compile path immediately before external-binding extraction and P8. The
+current passes fold total `Int` operations, reduce literal conditionals and
+inert known constructor or record cases whose patterns need no nested runtime
+cast, expose record and array projections while sequencing their inputs,
+perform bounded lambda beta reduction, and remove unused inert `let` bindings.
+Dictionary methods are exposed through the same known-record projection rule;
+there is no separate dictionary pass. Global reads and calls remain
+conservatively effectful, and array operations and signed division remain
+potentially trapping unless a rewrite proves the access is in range or the
+division is total.
+
+The current implementation does not inline named global declarations or
+generate specialized declarations. Generic declarations and dictionary-passing
+calls therefore remain available as the correctness path; interprocedural
+purity and cross-module specialization remain future work.

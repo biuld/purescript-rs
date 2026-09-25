@@ -82,6 +82,8 @@ pub(crate) fn validator_for(target: TargetCapabilities) -> wasmparser::Validator
 
 #[derive(Clone, Debug)]
 pub struct Stages {
+    /// Verified Typed Core after P7 and before P8.
+    pub core: psrs_core::Module,
     pub cc: cc::Module,
     pub mir: mir::Module,
     pub wasm: wasm::Module,
@@ -97,6 +99,20 @@ pub fn compile_with_target(
     module: psrs_core::Module,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
+    let owner = module.entry.map(|entry| entry.module);
+    let module =
+        psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()).map_err(|errors| {
+            annotate_errors(
+                errors
+                    .into_iter()
+                    .map(|error| {
+                        BackendError::new("P7 Core optimization", error.span, error.message)
+                    })
+                    .collect(),
+                owner,
+            )
+        })?;
+    let optimized_core = module.clone();
     let external_bindings = ExternalBindings::from_core(&module);
     let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
     let cc = lowered_cc.cc;
@@ -158,6 +174,7 @@ pub fn compile_with_target(
         )
     })?;
     Ok(Stages {
+        core: optimized_core,
         cc,
         mir,
         wasm,
