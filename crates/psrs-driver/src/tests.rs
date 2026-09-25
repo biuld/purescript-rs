@@ -3,6 +3,18 @@ use crate::program::lower_program_to_core;
 
 mod effects;
 
+fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
+    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
+    let backend_input = psrs_backend::cc::lower_module(core).expect("Core should lower to CC");
+    psrs_backend::mir::lower_module_with_bindings(
+        backend_input.cc,
+        backend_input.externals,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("CC should lower to MIR")
+    .0
+}
+
 #[test]
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
     let source = "module Main where\nadd x y = x + y\nmain = add 40 2\n";
@@ -15,15 +27,37 @@ fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
 #[test]
 fn compiles_character_literals_as_integer_valued_scalars() {
     let source = "module Main where\nchoose :: Char -> Int\nchoose x = 42\nmain = choose 'A'\n";
-    let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(artifact.wat.contains("i32.const 65"));
+    let mir = lower_source_to_mir(source);
+    let has_character_value = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .any(|instruction| {
+            matches!(
+                instruction,
+                psrs_backend::mir::Instruction::Constant { value: 65, .. }
+            )
+        });
+    assert!(has_character_value);
 }
 
 #[test]
 fn compiles_number_literals_as_f64_scalars() {
     let source = "module Main where\nchoose :: Number -> Int\nchoose x = 42\nmain = choose 1.5\n";
-    let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(artifact.wat.contains("f64.const"));
+    let mir = lower_source_to_mir(source);
+    let has_number_value = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .any(|instruction| {
+            matches!(
+                instruction,
+                psrs_backend::mir::Instruction::NumberConstant { value, .. } if value == "1.5"
+            )
+        });
+    assert!(has_number_value);
 }
 
 #[test]
@@ -46,18 +80,18 @@ fn captures_number_values_in_closures() {
 
 #[test]
 fn compiles_if_expression_through_cfg_to_structured_wasm() {
-    let source = "module Main where\nmain = if true then 9 else 2\n";
+    let source =
+        "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("if (result i32)"));
     assert!(artifact.wasm.len() > 8);
 }
 
 #[test]
-fn lowers_top_level_scalar_references_to_direct_calls() {
+fn folds_top_level_scalar_references_to_constants() {
     let source = "module Main where\nanswer = 40\nmain = answer + 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
-    assert!(artifact.wat.contains("call 0"));
-    assert!(artifact.wat.contains("i32.add"));
+    assert!(artifact.wat.contains("i32.const 42"));
 }
 
 #[test]
@@ -107,7 +141,7 @@ fn compiles_a_value_imported_from_another_module() {
     let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
     let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
     let artifact = compile_program_sources(&[a, b]).unwrap();
-    assert!(artifact.wat.contains("i32.add"));
+    assert!(artifact.wat.contains("i32.const 42"));
 }
 
 #[test]
@@ -407,7 +441,8 @@ fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
 
 #[test]
 fn structures_wasm_ir_with_an_explicit_if_region() {
-    let source = "module Main where\nmain = if true then 9 else 2\n";
+    let source =
+        "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
     let core = lower_source_to_core("Main.purs", source).unwrap();
     let stages = psrs_backend::compile_with_stages(core).unwrap();
     assert!(
