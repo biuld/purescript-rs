@@ -570,10 +570,12 @@ of a join. Sparse and reordered signed switch tags are mapped to dense unsigned
 indices before `br_table`. Non-parameter reference locals are declared nullable
 and restored with `ref.as_non_null` at each read, because Wasm forbids reading a
 non-defaultable local that was initialized inside an inner structured block.
-Execution coverage includes a loop with loop-carried values, nested loops with
-multiple exits, a diamond and a switch inside a loop, an early-return and a
-trapping arm, and a shared successor with swapped block arguments; generated
-modules pass the Wasm IR verifier and `wasmparser` validation.
+Source self tail recursion is loopified, so source programs now produce natural
+loops as well as direct MIR fixtures. Execution coverage includes a loop with
+loop-carried values, nested loops with multiple exits, a diamond and a switch
+inside a loop, an early-return and a trapping arm, a shared successor with
+swapped block arguments, and deep self-recursion; generated modules pass the
+Wasm IR verifier and `wasmparser` validation.
 
 The implementation remains narrower than the complete design in these
 specific areas:
@@ -593,12 +595,16 @@ specific areas:
   parameterized jumps, branches, and switch cases plus the default path.
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
-- `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR
-  tail-call terminator or `return_call*` emission exists yet. Tail-call marking
-  and self-recursion loopification are still unimplemented, so deep
-  self-recursion is not yet loopified and reference/direct tail calls are not
-  rewritten; see the acceptance record for the remaining work. The stable
-  profile keeps the flag disabled.
+- `TargetCapabilities::tail_call` controls Wasm validation and gates the MIR
+  rewrite. `mir/lower/tail.rs::mark_tail` recognizes calls whose result is
+  returned unchanged through one-parameter joins. A self call becomes a back
+  edge to a fresh loop header, so deep self-recursion runs in constant stack on
+  every profile. A non-self direct call becomes `ReturnCall`; a `CallRef` or
+  closure call becomes `ReturnCallRef` after projecting the code reference and
+  passing the closure as the receiver. When the flag is disabled, the call is
+  left as an ordinary call plus return and the verifier rejects a forced
+  `ReturnCall*`. The stable profile keeps the flag disabled; the enabled path is
+  exercised by driver tests under an explicit `tail_call` profile.
 
 ## References
 

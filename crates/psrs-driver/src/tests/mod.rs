@@ -59,3 +59,5 @@ mod arrays;
 mod records;
 
 mod functions;
+
+mod tail_calls;

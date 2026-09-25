@@ -117,7 +117,7 @@ for the default target and is also `Default::default()`. Its policy is:
 | Reference types, typed function references, GC | Enabled and required when used | Closures, aggregates, casts, and `call_ref` depend on them. |
 | Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. |
 | SIMD, relaxed SIMD | Disabled | Optimization track only. |
-| Tail calls, exceptions, multi-memory, wide arithmetic, threads | Disabled | No lowering may emit them until a profile revision and execution tests land ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). |
+| Tail calls, exceptions, multi-memory, wide arithmetic, threads | Disabled | Tail-call lowering and execution tests now exist but are gated on `tail_call`; enabling it in the stable profile still requires a profile revision ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). Other proposals have no lowering. |
 | Memory64 | Disabled | Deferred; see below. |
 | WASI Preview 1, WASI 0.3 | Disabled | Separate compatibility tracks; neither is the artifact ABI. |
 | Component async/map/implements | Disabled | Not a stable compiler dependency. |
