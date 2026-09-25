@@ -399,6 +399,7 @@ fn value_type(
         CcValueShape::Integer => ValueType::I32,
         CcValueShape::Boolean => ValueType::Boolean,
         CcValueShape::Number => ValueType::F64,
+        CcValueShape::String => ValueType::I32,
         CcValueShape::Reference(reference) => ValueType::Ref(RefType {
             nullable: reference.nullable,
             heap: match reference.heap {

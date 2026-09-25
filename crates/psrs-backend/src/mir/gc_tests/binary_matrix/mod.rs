@@ -45,6 +45,11 @@ fn verifies_and_executes_every_cc_binary_scalar_variant_on_both_targets() {
                 kind: AssignmentKind::Constant(value),
                 span: span(),
             }),
+            ValueShape::String => assignments.push(Assignment {
+                destination,
+                kind: AssignmentKind::StringConstant("text".into()),
+                span: span(),
+            }),
             ValueShape::Reference(_) => unreachable!(),
         }
     }

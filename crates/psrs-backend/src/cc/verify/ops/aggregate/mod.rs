@@ -48,8 +48,10 @@ fn verify_plan(
             };
             let valid = match kind {
                 BoxKind::Integer => {
-                    matches!(source, ValueShape::Integer | ValueShape::Boolean)
-                        && *value == ValueShape::Integer
+                    matches!(
+                        source,
+                        ValueShape::Integer | ValueShape::Boolean | ValueShape::String
+                    ) && *value == ValueShape::Integer
                 }
                 BoxKind::Number => source == ValueShape::Number && *value == ValueShape::Number,
             };
@@ -81,7 +83,10 @@ fn verify_plan(
             match kind {
                 BoxKind::Integer
                     if *value == ValueShape::Integer
-                        && matches!(destination, ValueShape::Integer | ValueShape::Boolean) =>
+                        && matches!(
+                            destination,
+                            ValueShape::Integer | ValueShape::Boolean | ValueShape::String
+                        ) =>
                 {
                     Ok(*destination)
                 }

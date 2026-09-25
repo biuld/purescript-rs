@@ -4,8 +4,8 @@
 
 **Design:** [CC IR](../../design/backend/fp/cc-ir.md)
 
-**Progress:** CC-01, CC-02, CC-04, CC-06..CC-13 Verified; CC-03 Blocked on the
-distinct `ValueShape::String` gap; CC-05 In progress for the same reason.
+**Progress:** CC-01 through CC-13 Verified. CC-03/CC-05 were completed by adding
+the distinct `ValueShape::String`; see the evidence records below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-01 and BE-02.
 
@@ -31,9 +31,9 @@ acceptance. A Blocked row names the dependency and resumption condition.
 | --- | --- | --- | --- |
 | CC-01 | P8 consumes verified Typed Core and emits a separate CC module with stable function symbols, parameters, ordered assignments, and source spans. | Trace a Core fixture through P8; reject missing symbols, duplicate definitions, or misplaced parameters in CC verification. | Verified |
 | CC-02 | ANF names intermediate computations in Core evaluation order, including callee before arguments, strict `let`, and branch-local work. | Side-effecting or trapping operands expose order in source-to-component execution; inspect CC assignment order and branch placement. | Verified |
-| CC-03 | CC values use target-neutral `ValueShape`, `ReprId`, and `SignatureId`; strings retain their semantic shape and nominal identities stay distinct. | Inspect interning and representation tables for equal/different keys, recursive reservations, and absence of Wasm heap indices or ABI pointer details in CC. | Blocked |
+| CC-03 | CC values use target-neutral `ValueShape`, `ReprId`, and `SignatureId`; strings retain their semantic shape and nominal identities stay distinct. | Inspect interning and representation tables for equal/different keys, recursive reservations, and absence of Wasm heap indices or ABI pointer details in CC. | Verified |
 | CC-04 | Function signatures and representation requirements are complete before P9 and stable across linked source modules. | Compile mutually referring modules and recursive declarations; check one canonical handle per equivalent requirement and no unresolved handle. | Verified |
-| CC-05 | The full CC operation vocabulary has exact operand/result shapes and preserved spans. | Exercise constants, primitives, calls, products, variants, arrays, reference tests/casts, conversions, `If`, and unreachable/switch forms that the design permits; malformed fixtures reject wrong shapes. | In progress |
+| CC-05 | The full CC operation vocabulary has exact operand/result shapes and preserved spans. | Exercise constants, primitives, calls, products, variants, arrays, reference tests/casts, conversions, `If`, and unreachable/switch forms that the design permits; malformed fixtures reject wrong shapes. | Verified |
 | CC-06 | Lambda lifting computes ordered, deduplicated free captures and binds lifted parameters before body assignments. | Nested and escaping closures capture scalars, references, and functions; inspect capture order and execute later reads. | Verified |
 | CC-07 | Global function values, partial applications, and recursive function groups have callable wrappers and valid capture environments. | Execute direct and indirect calls, underapplication and overapplication, mutually recursive closures, and an escaping recursive function; check one evaluation of supplied operands. | Verified |
 | CC-08 | Erased/concrete function adapters use exact signatures and capture the adapted value once. | Inspect CC adapters in both directions and execute value-sensitive calls through the same P8-to-Wasm path; coordinate aggregate cases with [generic aggregate erasure](generic-aggregate-erasure.md). | Verified |
@@ -123,33 +123,25 @@ CC-02:
 
 ```text
 CC-03:
-  Implementation: cc/representation.rs (`ValueShape`, `RefShape`, `ReprId`,
-    `SignatureId`, `RepresentationTable::reserve`/`set`/`add_signature`);
-    cc/layout/aggregate.rs canonical keys; cc/layout/functions.rs interning and
-    `canonicalize_signatures`. `StringConstant` still lowers to
-    `ValueShape::Integer`.
+  Implementation: cc/representation.rs (`ValueShape` with its distinct
+    `String` variant, `RefShape`, `ReprId`, `SignatureId`,
+    `RepresentationTable::reserve`/`set`/`add_signature`);
+    cc/layout/scalar.rs and cc/mod.rs map `Type::String`/`SourceType::String`
+    to `ValueShape::String`; cc/layout/aggregate.rs canonical keys;
+    cc/layout/functions.rs interning and `canonicalize_signatures`.
   Tests: cc/layout/tests.rs
     ::canonical_record_keys_sort_labels_and_share_equal_keyed_records,
     ::canonical_arrays_key_by_element_shape,
     ::recursive_aggregate_normalization_terminates,
-    ::equal_normalized_function_signatures_share_one_signature_id; the CC type
+    ::equal_normalized_function_signatures_share_one_signature_id (now asserts
+    `Array Int` and `Array String` keep distinct canonical arrays and
+    signatures while equal `Array Int` keys still share one); the CC type
     model names no Wasm value/type/heap or ABI pointer type.
   Input boundary: verified Typed Core and malformed CC.
   Commands: common commands above.
-  Result: pass for the implemented part; the String distinction is not
-    executed because it does not exist.
-  Revision: 775fafe + uncommitted changes.
-  Gaps: the design requires a distinct `ValueShape::String`; `cc/representation.rs`
-    has none, `cc/layout/scalar.rs` and `cc/mod.rs` map `Type::String`/
-    `SourceType::String` to `ValueShape::Integer`, and
-    cc/verify/ops/mod.rs requires `StringConstant` to produce `Integer`. This is
-    the SP-02 blocker recorded in
-    [scalars and primitives](scalars-and-primitives.md) and the deviation
-    recorded in [polymorphism and erasure](polymorphism-and-erasure.md):
-    adding the variant changes the shared representation model and the erased
-    protocol plus the P9 value-type mapping (`mir/layout`), so it needs the
-    data-representation topic. Resumption: add the variant and its MIR layout,
-    then reject scalar primitives on it.
+  Result: pass.
+  Revision: 775fafe + the String-shape change in this worktree.
+  Gaps: none.
 ```
 
 ```text
@@ -179,8 +171,10 @@ CC-05:
     ops/table.rs, ops/tag_switch.rs; cc/verify/variant.rs;
     cc/verify/ops/aggregate/mod.rs; cc/case/decision/realize.
   Tests: cc/verify/tests/mod.rs (constants, primitives, arrays, boxes,
-    function references, conditionals); ops/aggregate/tests.rs (conversion
-    plans); tests/adaptation.rs (representation adapters);
+    function references, conditionals, `StringConstant` requires the distinct
+    `String` shape, integer arithmetic on `String` operands is rejected);
+    ops/aggregate/tests.rs (conversion plans, String boxes through the shared
+    i32 box); tests/adaptation.rs (representation adapters);
     structure.rs::rejects_a_tag_switch_with_duplicate_tags,
     ::rejects_if_branches_with_different_result_shapes,
     ::rejects_a_direct_call_with_the_wrong_arity;
@@ -190,12 +184,10 @@ CC-05:
     cc/lower/dictionary/tests.rs cover products and records.
   Input boundary: source, verified Typed Core, and malformed CC.
   Commands: common commands above.
-  Result: pass for every implemented operation; `StringConstant` is checked as
-    `Integer`.
-  Revision: 775fafe + uncommitted changes.
-  Gaps: the `StringConstant` result shape follows CC-03; until
-    `ValueShape::String` exists the constant's operand/result shapes cannot
-    match the design. Resumption follows CC-03.
+  Result: pass for every operation, including the distinct `String` constant
+    shape.
+  Revision: 775fafe + the String-shape change in this worktree.
+  Gaps: none.
 ```
 
 ```text
@@ -374,14 +366,13 @@ CC-13:
 
 ## Remaining work and blockers
 
-- **CC-03 / CC-05 — `ValueShape::String`.** The design requires a distinct
-  string shape so the CC verifier rejects arithmetic on string pointers, but CC
-  folds `I32`/`Char`/`String`/`Unit` to `ValueShape::Integer`. Adding the variant
-  changes the shared representation model, the erased protocol, and the P9
-  value-type mapping (`mir/layout`, owned by the data-representation topic), so
-  it is a cross-topic handoff. Resumption: add the variant and its MIR layout,
-  intern string signatures, and tighten `cc/verify/scalar.rs` and
-  `cc/verify/ops/mod.rs`; then re-run CC-03 and CC-05.
+- **`ValueShape::String` cross-topic change (resolved).** The distinct string
+  shape now exists in `cc/representation.rs`; `cc/layout/scalar.rs` and
+  `cc/mod.rs` map `Type::String`/`SourceType::String` to it, the verifier
+  rejects numeric operations on it, and `mir/layout` maps it to `I32` while
+  sharing the one-field i32 box with `Integer`/`Boolean` on the erased path.
+  See CC-03/CC-05 and
+  [scalars and primitives](scalars-and-primitives.md) SP-02.
 - **Design doc alignment.** `docs/design/backend/fp/cc-ir.md` now lists
   `TagSwitch`/`Unreachable` in the operation vocabulary and the tag-switch
   verifier invariant, matching

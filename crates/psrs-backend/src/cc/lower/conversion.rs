@@ -70,7 +70,7 @@ impl FunctionLowerer<'_> {
         let destination = self.module.types.get(destination_type.0 as usize);
         if matches!(destination, Some(Type::Variable(_))) {
             return match source_shape {
-                ValueShape::Integer | ValueShape::Boolean => self
+                ValueShape::Integer | ValueShape::Boolean | ValueShape::String => self
                     .box_plan(BoxKind::Integer, self.boxed_integer_type, span)
                     .map(|boxed| sequence(vec![boxed, ValueConversion::EraseReference])),
                 ValueShape::Number => self
@@ -81,7 +81,7 @@ impl FunctionLowerer<'_> {
         }
         if matches!(source, Some(Type::Variable(_))) {
             return match destination_shape {
-                ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
+                ValueShape::Integer | ValueShape::Boolean | ValueShape::String => self.unbox_plan(
                     BoxKind::Integer,
                     self.boxed_integer_type,
                     destination_shape,

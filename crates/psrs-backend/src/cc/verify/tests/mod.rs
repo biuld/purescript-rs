@@ -136,6 +136,40 @@ fn rejects_boolean_logic_on_integer_operands() {
 }
 
 #[test]
+fn rejects_integer_arithmetic_on_string_operands() {
+    let function = binary_operation_function(
+        super::super::BinaryOp::IntAdd,
+        ValueShape::String,
+        ValueShape::Integer,
+    );
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
+#[test]
+fn string_constant_requires_the_distinct_string_shape() {
+    let value = super::super::ValueId(0);
+    let function = |shape: ValueShape| Function {
+        symbol: symbol(0),
+        name: "string_constant".into(),
+        parameters: Vec::new(),
+        values: vec![ValueDecl {
+            id: value,
+            ty: shape,
+        }],
+        assignments: vec![Assignment {
+            destination: value,
+            kind: AssignmentKind::StringConstant("text".into()),
+            span: TextRange::new(0, 1),
+        }],
+        result: value,
+        result_type: shape,
+        span: TextRange::new(0, 1),
+    };
+    assert!(verify_function(&function(ValueShape::String), &HashMap::new(), &table()).is_ok());
+    assert!(verify_function(&function(ValueShape::Integer), &HashMap::new(), &table()).is_err());
+}
+
+#[test]
 fn rejects_a_comparison_with_an_integer_result() {
     let function = binary_operation_function(
         super::super::BinaryOp::IntLt,
