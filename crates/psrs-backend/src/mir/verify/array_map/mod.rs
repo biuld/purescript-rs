@@ -59,7 +59,38 @@ pub(super) fn verify_conversion_helpers(
             "aggregate conversion helper replaces a nominal conversion with ref.cast",
         ));
     }
+    // A direct cast of the input to the output is never a conversion, even when
+    // the helper also contains an unrelated rebuild. Resolve `Copy` aliases so a
+    // copy of the cast result cannot hide the substitution.
+    if cast_substitutes_input(function, *parameter) {
+        return Err(mir_error(
+            function.span,
+            "aggregate conversion helper replaces a nominal conversion with ref.cast",
+        ));
+    }
     Ok(())
+}
+
+/// Whether the function result is defined by a `RefCast` whose operand is the
+/// input parameter, following `Copy` aliases.
+fn cast_substitutes_input(function: &Function, parameter: crate::types::ValueId) -> bool {
+    let mut current = function.result;
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current) {
+            return false;
+        }
+        let producer = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .find(|instruction| instruction.destination() == Some(current));
+        match producer {
+            Some(Instruction::Copy { value, .. }) => current = *value,
+            Some(Instruction::RefCast { value, .. }) => return *value == parameter,
+            _ => return false,
+        }
+    }
 }
 
 pub(super) fn verify_array_maps(function: &Function) -> Result<(), Vec<BackendError>> {

@@ -6,6 +6,7 @@ use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+mod array;
 mod binary_matrix;
 mod div_mod;
 mod erased;
@@ -35,28 +36,40 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
     crate::validator_for(target)
         .validate_all(&core)
         .expect("the GC module should validate");
-    if std::process::Command::new("wasmtime")
+    let version = std::process::Command::new("wasmtime")
         .arg("--version")
-        .output()
-        .is_ok()
-    {
-        let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
-        let component = crate::component::componentize(&core, &resolve, world)
-            .expect("componentizing the GC module");
-        let path = std::env::temp_dir().join(format!(
-            "psrs-gc-{}-{}.wasm",
-            std::process::id(),
-            next_artifact_id()
-        ));
-        std::fs::write(&path, component).expect("writing GC component");
-        let output = std::process::Command::new("wasmtime")
-            .arg("run")
-            .arg(&path)
-            .output()
-            .expect("running GC component");
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(output.status.code(), Some(expected_code));
+        .output();
+    let required = std::env::var("PSRS_REQUIRE_WASMTIME").as_deref() == Ok("1");
+    let Ok(version) = version else {
+        if required {
+            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
+        }
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    if !version.status.success() {
+        if required {
+            panic!("PSRS_REQUIRE_WASMTIME=1 but `wasmtime --version` failed: {version:?}");
+        }
+        eprintln!("skipping: wasmtime is unusable");
+        return;
     }
+    let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
+    let component = crate::component::componentize(&core, &resolve, world)
+        .expect("componentizing the GC module");
+    let path = std::env::temp_dir().join(format!(
+        "psrs-gc-{}-{}.wasm",
+        std::process::id(),
+        next_artifact_id()
+    ));
+    std::fs::write(&path, component).expect("writing GC component");
+    let output = std::process::Command::new("wasmtime")
+        .arg("run")
+        .arg(&path)
+        .output()
+        .expect("running GC component");
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(output.status.code(), Some(expected_code));
 }
 
 #[test]

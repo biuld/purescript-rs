@@ -94,11 +94,19 @@ pub(super) fn verify_clone(
     definitions: &HashMap<ValueId, ValueType>,
     defined: &[&crate::types::DefinedType],
 ) -> Result<(), Vec<BackendError>> {
-    if !matches!(
-        super::super::util::composite_at(defined, type_index),
-        Some(CompositeType::Array(_))
-    ) {
+    let Some(CompositeType::Array(element)) = composite_at(defined, type_index) else {
         return Err(mir_error(span, "MIR array.clone type is not an array"));
+    };
+    // A clone lowers to `array.new_default` + `array.copy`, so the array must be
+    // mutable and its element storage must have a zero value.
+    if !element.mutable {
+        return Err(mir_error(span, "MIR array.clone requires a mutable array"));
+    }
+    if !is_defaultable_storage(&element.storage) {
+        return Err(mir_error(
+            span,
+            "MIR array.clone element storage is not defaultable",
+        ));
     }
     if !is_array_reference(
         require_value(definitions, value, span)?,
