@@ -3,7 +3,7 @@ use crate::{
     Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind, Primitive, Type,
     TypeConstructor, TypeId,
 };
-use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{ExternalKind, ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 
 fn span(start: u32, end: u32) -> TextRange {
@@ -40,28 +40,15 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
     }
 }
 
-fn with_trace(mut module: Module, function_type: TypeId, int_type: TypeId) -> Module {
-    module.declarations.push(Declaration {
+fn with_trace(mut module: Module) -> Module {
+    module.externals.push(ExternalSymbol {
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "trace".into(),
-        name_span: span(30, 35),
-        quantified: Vec::new(),
-        ty: function_type,
-        value: expression(
-            ExprKind::Lambda {
-                binder: Binder {
-                    id: LocalId(10),
-                    name: "value".into(),
-                    ty: int_type,
-                    span: span(36, 41),
-                },
-                body: Box::new(expression(ExprKind::Local(LocalId(10)), int_type.0, 44, 49)),
-            },
-            function_type.0,
-            36,
-            49,
-        ),
-        span: span(30, 49),
+        kind: ExternalKind::Wit {
+            interface: "test:trace".into(),
+            function: "trace".into(),
+        },
+        signature: None,
     });
     module
 }
@@ -190,21 +177,17 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
         15,
     );
     let result = optimize(
-        with_trace(
-            module(
-                vec![
-                    Type::I32,
-                    Type::Function {
-                        parameter: int_type,
-                        result: int_type,
-                    },
-                ],
-                int_type.0,
-                value,
-            ),
-            function_type,
-            int_type,
-        ),
+        with_trace(module(
+            vec![
+                Type::I32,
+                Type::Function {
+                    parameter: int_type,
+                    result: int_type,
+                },
+            ],
+            int_type.0,
+            value,
+        )),
         Budget::default(),
     )
     .unwrap();
@@ -259,11 +242,7 @@ fn removes_only_inert_unused_bindings() {
         0,
         39,
     );
-    let result = optimize(
-        with_trace(module(types, 0, value), function_type, int_type),
-        Budget::default(),
-    )
-    .unwrap();
+    let result = optimize(with_trace(module(types, 0, value)), Budget::default()).unwrap();
     let ExprKind::Let { bindings, .. } = &result.declarations[0].value.kind else {
         panic!("the observable call should remain sequenced")
     };
@@ -306,7 +285,7 @@ fn beta_reduction_binds_an_effectful_argument_once_and_before_the_body() {
         27,
     );
     let result = optimize(
-        with_trace(module(types, int_type.0, value), function_type, int_type),
+        with_trace(module(types, int_type.0, value)),
         Budget::default(),
     )
     .unwrap();
@@ -340,8 +319,8 @@ fn projection_from_a_known_record_preserves_field_evaluation_order() {
             record: Box::new(expression(
                 ExprKind::Record {
                     fields: vec![
-                        ("first".into(), trace_call(2, 0, 1, 5)),
-                        ("second".into(), trace_call(2, 0, 2, 20)),
+                        ("first".into(), trace_call(function_type.0, 0, 1, 5)),
+                        ("second".into(), trace_call(function_type.0, 0, 2, 20)),
                     ],
                 },
                 record_type.0,
@@ -355,7 +334,7 @@ fn projection_from_a_known_record_preserves_field_evaluation_order() {
         34,
     );
     let result = optimize(
-        with_trace(module(types, int_type.0, value), function_type, int_type),
+        with_trace(module(types, int_type.0, value)),
         Budget::default(),
     )
     .unwrap();
@@ -439,3 +418,5 @@ fn selects_a_known_constructor_case_and_substitutes_its_field() {
 }
 
 mod edge;
+mod global_inline;
+mod specialization;
