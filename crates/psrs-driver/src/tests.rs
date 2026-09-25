@@ -2,6 +2,7 @@ use super::*;
 use crate::program::lower_program_to_core;
 
 mod effects;
+mod scalars;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
     let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
