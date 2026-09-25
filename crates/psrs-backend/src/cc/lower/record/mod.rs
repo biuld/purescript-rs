@@ -4,6 +4,9 @@ use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::{Expr, Type};
 
+#[cfg(test)]
+mod tests;
+
 impl FunctionLowerer<'_> {
     pub(super) fn lower_record(
         &mut self,

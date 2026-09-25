@@ -434,6 +434,4 @@ fn foreign_symbol(module_id: ModuleId, index: usize) -> SymbolId {
 }
 
 #[cfg(test)]
-mod program_tests;
-#[cfg(test)]
 mod tests;

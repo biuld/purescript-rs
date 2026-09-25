@@ -1,4 +1,4 @@
-use super::planner::{GcPlanner, RepresentationPlanner};
+use super::{GcPlanner, RepresentationPlanner};
 use crate::TargetCapabilities;
 use crate::cc::{
     self, Function, Module as CcModule, Reference, ReprId, Representation, Signature, ValueDecl,

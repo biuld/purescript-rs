@@ -6,6 +6,9 @@ use psrs_hir::{self as hir, ImportedSymbol, ImportedType, ModuleId, SymbolId, Ty
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+mod tests;
+
 /// A resolution error tied to one module of a program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramError {

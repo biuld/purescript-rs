@@ -336,5 +336,4 @@ fn trap_if_top(body: &mut Body, span: TextRange) {
 }
 
 #[cfg(test)]
-#[path = "realloc_tests.rs"]
 mod tests;

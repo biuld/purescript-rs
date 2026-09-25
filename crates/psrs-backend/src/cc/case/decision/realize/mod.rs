@@ -24,7 +24,6 @@ struct SwitchContext<'a> {
 }
 
 #[cfg(test)]
-#[path = "realize_tests.rs"]
 mod tests;
 
 impl FunctionLowerer<'_> {

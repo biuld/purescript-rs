@@ -1,4 +1,5 @@
-use super::{ProgramError, ResolveErrorKind, resolve_program};
+use super::super::ResolveErrorKind;
+use super::{ProgramError, resolve_program};
 use psrs_ast as ast;
 use psrs_hir::{ExprKind, ModuleId, SymbolId};
 use psrs_span::TextRange;
