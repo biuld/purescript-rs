@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn structures_wasm_ir_with_an_explicit_if_region() {
+fn structures_wasm_ir_with_a_structured_region() {
     let source =
         "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
     let core = lower_source_to_core("Main.purs", source).unwrap();
@@ -10,8 +10,8 @@ fn structures_wasm_ir_with_an_explicit_if_region() {
         stages.wasm.functions.iter().any(|function| function
             .body
             .iter()
-            .any(|op| matches!(op, psrs_backend::wasm::Op::If { .. }))),
-        "expected a structured if region in the Wasm IR"
+            .any(|op| matches!(op, psrs_backend::wasm::Op::Block { .. }))),
+        "expected a structured block region in the Wasm IR"
     );
 }
 

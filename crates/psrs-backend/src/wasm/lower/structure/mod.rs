@@ -13,8 +13,9 @@ mod helpers;
 mod instructions;
 #[cfg(test)]
 mod irreducible_dispatch_tests;
-mod legacy;
 mod ops;
+#[cfg(test)]
+mod reducible_tests;
 mod region;
 #[cfg(test)]
 mod switch_tests;
@@ -25,10 +26,9 @@ use crate::wasm::FunctionIndex;
 use closure::ClosureOps;
 use dispatcher::DispatcherOps;
 use helpers::ValueOps;
-use legacy::LegacyRegionOps;
 use psrs_hir::SymbolId;
 use region::RegionOps;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use wasm_encoder::Instruction;
 
 /// A block whose instructions contain an `Unreachable` never transfers control
@@ -56,20 +56,41 @@ impl Structurer<'_> {
                 self.emit_dispatcher(&blocks, body)?;
                 Ok(true)
             }
-            cfg::ControlFlowPlan::Reducible(root) if root.contains_loops() => {
+            cfg::ControlFlowPlan::Reducible(root) => {
                 RegionOps::emit_control_flow(self, &root, body)?;
                 Ok(false)
             }
-            cfg::ControlFlowPlan::Reducible(_) => {
-                LegacyRegionOps::emit_linear_region(
-                    self,
-                    self.function.entry,
-                    None,
-                    &mut HashSet::new(),
-                    body,
-                )?;
-                Ok(false)
-            }
         }
+    }
+
+    /// Reads a MIR value from its local. Non-parameter reference values are
+    /// stored in nullable locals (see `lower_function`), so this restores the
+    /// value's non-null type with `ref.as_non_null` at each read. A function
+    /// parameter keeps its declared non-null type and needs no cast.
+    pub(super) fn emit_load(
+        &self,
+        value: ValueId,
+        span: psrs_span::TextRange,
+        body: &mut Body,
+    ) -> Result<(), Vec<BackendError>> {
+        body.push(Op::Leaf(Instruction::LocalGet(local(
+            &self.locals,
+            value,
+            span,
+        )?)));
+        if self.needs_non_null_cast(value) {
+            body.push(Op::Leaf(Instruction::RefAsNonNull));
+        }
+        Ok(())
+    }
+
+    fn needs_non_null_cast(&self, value: ValueId) -> bool {
+        if self.function.parameters.contains(&value) {
+            return false;
+        }
+        matches!(
+            value_type(self.function, value),
+            Some(crate::types::ValueType::Ref(reference)) if !reference.nullable
+        )
     }
 }

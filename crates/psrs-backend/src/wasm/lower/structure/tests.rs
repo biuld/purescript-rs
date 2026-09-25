@@ -54,7 +54,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
     (lowered, bytes)
 }
 
-fn count_loops(body: &[wasm::Op]) -> usize {
+pub(super) fn count_loops(body: &[wasm::Op]) -> usize {
     body.iter()
         .map(|op| match op {
             wasm::Op::Loop { body, .. } => 1 + count_loops(body),
@@ -381,66 +381,4 @@ fn lowers_nested_loops_with_multiple_exit_targets() {
 
     let (lowered, _) = lower_and_validate(&mir);
     assert_eq!(count_loops(&lowered.body), 2);
-}
-
-#[test]
-fn rejects_an_acyclic_branch_without_a_common_join() {
-    // With no `merge_block` hint, the structurer must derive the join from the
-    // edges. Two arms that both return have no common join, so structuring
-    // fails with a diagnostic instead of guessing.
-    let values = vec![
-        ValueDecl {
-            id: ValueId(0),
-            ty: ValueType::Boolean,
-        },
-        ValueDecl {
-            id: ValueId(1),
-            ty: ValueType::I32,
-        },
-    ];
-    let mir = function(
-        "no_join",
-        values,
-        vec![
-            block(
-                0,
-                Vec::new(),
-                Vec::new(),
-                Terminator::Branch {
-                    condition: ValueId(0),
-                    then_block: BlockId(1),
-                    else_block: BlockId(2),
-                    span: span(),
-                },
-            ),
-            block(
-                1,
-                Vec::new(),
-                Vec::new(),
-                Terminator::Return {
-                    value: ValueId(1),
-                    span: span(),
-                },
-            ),
-            block(
-                2,
-                Vec::new(),
-                Vec::new(),
-                Terminator::Return {
-                    value: ValueId(1),
-                    span: span(),
-                },
-            ),
-        ],
-        ValueId(1),
-    );
-
-    let error = lower_function(&mir, TypeIndex(0), &HashMap::new(), &HashMap::new())
-        .expect_err("a branch with no common join must not structure");
-    assert!(
-        error
-            .iter()
-            .any(|error| error.message.contains("no common one-value join")),
-        "{error:?}"
-    );
 }

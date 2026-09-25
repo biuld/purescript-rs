@@ -11,7 +11,7 @@ use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::{Instruction, RefType, ValType};
 
 mod extent;
 mod realloc;
@@ -329,7 +329,7 @@ fn lower_function(
         .values
         .iter()
         .skip(source.parameters.len())
-        .map(|value| val_type(value.ty))
+        .map(|value| defaultable_local_type(val_type(value.ty)))
         .collect::<Vec<_>>();
     let structurer = Structurer {
         function: source,
@@ -344,11 +344,7 @@ fn lower_function(
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
-    body.push(Op::Leaf(Instruction::LocalGet(local(
-        &structurer.locals,
-        source.result,
-        source.span,
-    )?)));
+    structurer.emit_load(source.result, source.span, &mut body)?;
     let mut locals = local_types;
     if uses_dispatcher {
         locals.push(ValType::I32);
@@ -380,6 +376,21 @@ fn local_indices(function: &MirFunction) -> Result<HashMap<ValueId, u32>, Vec<Ba
         }
     }
     Ok(locals)
+}
+
+/// Wasm requires a non-defaultable (non-nullable reference) local to be
+/// initialized in an enclosing scope before a read. The structurer writes MIR
+/// block parameters inside nested structured blocks, so a non-parameter
+/// reference local is declared nullable here and the structurer restores the
+/// non-null type with `ref.as_non_null` at each read.
+fn defaultable_local_type(ty: ValType) -> ValType {
+    match ty {
+        ValType::Ref(reference) if !reference.nullable => ValType::Ref(RefType {
+            nullable: true,
+            ..reference
+        }),
+        other => other,
+    }
 }
 
 pub(super) fn local(

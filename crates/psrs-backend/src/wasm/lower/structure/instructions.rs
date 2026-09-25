@@ -100,11 +100,7 @@ impl Structurer<'_> {
                     span,
                 } => {
                     for argument in arguments {
-                        body.push(Op::Leaf(Instruction::LocalGet(local(
-                            &self.locals,
-                            *argument,
-                            *span,
-                        )?)));
+                        self.load(body, *argument, *span)?;
                     }
                     let index = self
                         .function_indices
