@@ -3,9 +3,14 @@ use crate::BackendError;
 use crate::mir::{BasicBlock, BlockId, Function, Terminator};
 use std::collections::{HashMap, HashSet};
 
+mod irreducible;
+
+use irreducible::has_irreducible_component;
+
 #[derive(Clone, Debug)]
-pub(super) struct ControlFlowPlan {
-    pub(super) root: RegionPlan,
+pub(super) enum ControlFlowPlan {
+    Reducible(RegionPlan),
+    Dispatcher(Vec<BlockId>),
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +59,9 @@ impl ControlFlowPlan {
     ) -> Result<Self, Vec<BackendError>> {
         let reachable = reachable_blocks(function.entry, blocks, function.span)?;
         let predecessors = predecessors(&reachable, blocks);
+        if has_irreducible_component(function.entry, &reachable, &predecessors, blocks) {
+            return Ok(Self::Dispatcher(reachable));
+        }
         let dominators = dominators(function.entry, &reachable, &predecessors);
         let loops = natural_loops(&reachable, &predecessors, &dominators, blocks);
         validate_loop_nesting(&loops, function.span)?;
@@ -78,7 +86,7 @@ impl ControlFlowPlan {
             None,
             function.entry,
         )?;
-        Ok(Self { root })
+        Ok(Self::Reducible(root))
     }
 }
 

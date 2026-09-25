@@ -337,18 +337,22 @@ fn lower_function(
         string_offsets,
     };
     let mut body = Body::new();
-    structurer.emit_control_flow(&mut body)?;
+    let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
     body.push(Op::Leaf(Instruction::LocalGet(local(
         &structurer.locals,
         source.result,
         source.span,
     )?)));
+    let mut locals = local_types;
+    if uses_dispatcher {
+        locals.push(ValType::I32);
+    }
     Ok(Function {
         symbol: source.symbol,
         name: source.name.clone(),
         type_index,
         parameters,
-        locals: local_types,
+        locals,
         body,
         span: source.span,
     })

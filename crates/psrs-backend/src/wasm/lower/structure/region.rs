@@ -1,4 +1,4 @@
-use super::cfg::{ControlFlowPlan, RegionPlan, UnitPlan, unit_span};
+use super::cfg::{RegionPlan, UnitPlan, unit_span};
 use super::{Structurer, local, wasm_error};
 use crate::BackendError;
 use crate::mir::{BlockId, Terminator};
@@ -16,7 +16,7 @@ pub(super) enum Label {
 pub(super) trait RegionOps {
     fn emit_control_flow(
         &self,
-        plan: &ControlFlowPlan,
+        region: &RegionPlan,
         body: &mut Body,
     ) -> Result<(), Vec<BackendError>>;
 
@@ -38,10 +38,10 @@ pub(super) trait RegionOps {
 impl RegionOps for Structurer<'_> {
     fn emit_control_flow(
         &self,
-        plan: &ControlFlowPlan,
+        region: &RegionPlan,
         body: &mut Body,
     ) -> Result<(), Vec<BackendError>> {
-        self.emit_region(&plan.root, &[], body)
+        self.emit_region(region, &[], body)
     }
 
     fn emit_region(
@@ -188,7 +188,7 @@ impl Structurer<'_> {
         Ok(())
     }
 
-    fn emit_jump_arguments(
+    pub(super) fn emit_jump_arguments(
         &self,
         target: BlockId,
         arguments: &[ValueId],
@@ -224,7 +224,7 @@ impl Structurer<'_> {
         Ok(())
     }
 
-    fn require_parameterless_target(
+    pub(super) fn require_parameterless_target(
         &self,
         target: BlockId,
         span: psrs_span::TextRange,
