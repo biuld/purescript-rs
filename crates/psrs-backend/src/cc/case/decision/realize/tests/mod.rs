@@ -12,15 +12,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-#[path = "realize_nested_tests.rs"]
 mod nested_tests;
-#[path = "realize_newtype_tests.rs"]
 mod newtype_tests;
-#[path = "realize_parameterized_tests.rs"]
 mod parameterized_tests;
-#[path = "realize_product_tests.rs"]
 mod product_tests;
-#[path = "realize_record_tests.rs"]
 mod record_tests;
 
 #[test]

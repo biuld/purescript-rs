@@ -12,8 +12,6 @@ mod lower;
 mod numeric;
 pub mod opt;
 mod planner;
-#[cfg(test)]
-mod planner_tests;
 mod reachable;
 mod scalar_helpers;
 mod verify;
