@@ -52,6 +52,8 @@ mod wasi;
 
 mod adts;
 
+mod pattern_matching_audit;
+
 mod arrays;
 
 mod records;

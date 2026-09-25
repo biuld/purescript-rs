@@ -237,3 +237,15 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         .validate_all(&binary)
         .expect("encoded decision module should validate");
 }
+
+#[test]
+fn unbound_decision_column_is_invalid_compiler_ir() {
+    let errors = lookup(&HashMap::new(), &ColumnKey::root(), TextRange::new(0, 1))
+        .expect_err("a DAG that reads a column before binding it is a compiler bug");
+    assert!(
+        errors
+            .iter()
+            .all(|error| error.kind == crate::BackendErrorKind::InvalidCompilerIr),
+        "a realizer invariant violation must be invalid compiler IR: {errors:?}"
+    );
+}

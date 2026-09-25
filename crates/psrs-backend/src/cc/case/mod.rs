@@ -29,7 +29,7 @@ impl FunctionLowerer<'_> {
         } else {
             Some(
                 user_type_id(self.module, scrutinee_type)
-                    .ok_or_else(|| case_error(span, "case scrutinee is not a data type"))?,
+                    .ok_or_else(|| ir_error(span, "case scrutinee is not a data type"))?,
             )
         };
         require_exhaustive(span, branches, &coverage)?;
@@ -39,7 +39,7 @@ impl FunctionLowerer<'_> {
                 && !self.aggregate_types.contains(&type_id)
                 && !self.enum_types.contains(&type_id)
         }) {
-            return Err(case_error(
+            return Err(source_error(
                 span,
                 "case scrutinee type has no runtime representation",
             ));
@@ -51,7 +51,7 @@ impl FunctionLowerer<'_> {
             branches,
             span,
         )
-        .map_err(|message| case_error(span, message))?;
+        .map_err(|message| ir_error(span, message))?;
         self.lower_decision(&dag, branches, scrutinee, result_type, span, assignments)
     }
 
@@ -70,8 +70,19 @@ impl FunctionLowerer<'_> {
     }
 }
 
-fn case_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
+fn source_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
+/// A failure in the decision DAG that a checked program cannot trigger: the
+/// frontend has already rejected the corresponding source, so reaching this is
+/// a compiler defect rather than an unsupported program.
+fn ir_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
+    vec![BackendError::invalid_ir(
+        "P8 closure conversion",
+        span,
+        message,
+    )]
 }
 
 fn require_exhaustive(
@@ -82,7 +93,7 @@ fn require_exhaustive(
     if branches.is_empty() || coverage.exhaustive {
         return Ok(());
     }
-    Err(case_error(
+    Err(source_error(
         span,
         coverage.non_exhaustive_message("non-exhaustive case requires a wildcard alternative"),
     ))

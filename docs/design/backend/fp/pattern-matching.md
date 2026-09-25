@@ -576,6 +576,16 @@ or the exact pseudocode signatures in the Code map. Coverage and compilation
 also still use separate matrix representations, so their agreement is tested
 through behavior rather than guaranteed by sharing one implementation.
 
+Two audit additions strengthen the behavioral contract. An exhaustive
+first-match oracle (`decision/compile/oracle_tests.rs` and
+`oracle_record_tests.rs`) compiles every small sum and closed-record matrix and
+compares the realized DAG and coverage result against a direct interpreter,
+which is the oracle comparison the design requires. A bounded recursive-ADT
+oracle in `coverage/tests.rs` checks termination and witness correctness. The
+realizer now reports an internal DAG invariant violation (an unbound column or
+a missing representation) as `BackendErrorKind::InvalidCompilerIr`, while
+coverage failures remain source-associated `UnsupportedSource` diagnostics.
+
 ## References
 
 - Augustsson, L., *Compiling Pattern Matching* (1985).

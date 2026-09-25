@@ -291,7 +291,11 @@ fn lookup(
 }
 
 fn case_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
-    vec![BackendError::new("P8 closure conversion", span, message)]
+    vec![BackendError::invalid_ir(
+        "P8 closure conversion",
+        span,
+        message,
+    )]
 }
 
 fn variant_field_shape(
