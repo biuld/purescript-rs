@@ -48,6 +48,57 @@ fn resolves_wrapping_i32_arithmetic_before_checking_the_region() {
 }
 
 #[test]
+fn resolves_wrapping_i32_subtraction_through_copy_into_scratch() {
+    let function = function(
+        vec![
+            decl(0, ValueType::I32),
+            decl(1, ValueType::I32),
+            decl(2, ValueType::I32),
+            decl(3, ValueType::I32),
+            decl(4, ValueType::I32),
+        ],
+        Vec::new(),
+        vec![block(
+            vec![
+                Instruction::Constant {
+                    destination: ValueId(0),
+                    value: i32::MIN,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Constant {
+                    destination: ValueId(1),
+                    value: i32::MAX,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Primitive {
+                    destination: ValueId(2),
+                    op: NumericOp::I32Sub,
+                    left: ValueId(0),
+                    right: ValueId(1),
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Copy {
+                    destination: ValueId(3),
+                    value: ValueId(2),
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Load {
+                    destination: ValueId(4),
+                    address: ValueId(3),
+                    memory: crate::types::MemoryId(0),
+                    offset: 0,
+                    span: ACCESS_SPAN,
+                },
+            ],
+            returning(ValueId(4)),
+        )],
+        ValueId(4),
+    );
+
+    verify(function).expect("wrapping subtraction and copy resolve the address to 1");
+}
+
+#[test]
 fn propagates_a_known_address_through_block_parameters() {
     let function = function(
         vec![

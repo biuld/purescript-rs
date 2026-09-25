@@ -351,6 +351,27 @@ fn allows_dynamic_reads_but_rejects_dynamic_stores_without_proof() {
 }
 
 #[test]
+fn allows_dynamic_load8u_at_the_wasm32_fixed_extent_boundary() {
+    let function = function(
+        vec![decl(0, ValueType::I32), decl(1, ValueType::I32)],
+        vec![ValueId(0)],
+        vec![block(
+            vec![Instruction::Load8U {
+                destination: ValueId(1),
+                address: ValueId(0),
+                memory: MemoryId(0),
+                offset: u32::MAX,
+                span: ACCESS_SPAN,
+            }],
+            returning(ValueId(1)),
+        )],
+        ValueId(1),
+    );
+
+    verify(function).expect("offset plus the one-byte width equals 2^32");
+}
+
+#[test]
 fn rejects_offsets_that_always_exceed_the_wasm32_address_space() {
     let function = function(
         vec![decl(0, ValueType::I32), decl(1, ValueType::I32)],
