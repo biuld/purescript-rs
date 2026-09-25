@@ -467,6 +467,7 @@ pub(super) fn verify_assignments(
                 )?;
                 uses.push(*value);
             }
+            AssignmentKind::Unreachable => {}
         }
         if uses.iter().any(|value| !available.contains(value)) {
             return Err(undef_error(assignment.span, function_span));

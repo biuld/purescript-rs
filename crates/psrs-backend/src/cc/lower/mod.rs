@@ -1,4 +1,4 @@
-use super::layout::{depends_on_type_variable, scalar_type};
+use super::layout::scalar_type;
 use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
@@ -12,10 +12,13 @@ use std::rc::Rc;
 
 mod array;
 mod call;
+mod constructor;
 mod erased;
 mod global;
 mod lambda;
 mod record;
+#[cfg(test)]
+mod record_tests;
 mod scalar;
 use call::ApplicationLowering;
 use global::GlobalLowering;
@@ -308,83 +311,13 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            ExprKind::Constructor { symbol, arguments } => {
-                let constructor = self
-                    .module
-                    .constructors
-                    .iter()
-                    .find(|constructor| constructor.symbol == *symbol)
-                    .ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "constructor value has no declaration",
-                        )]
-                    })?;
-                if constructor.field_count != arguments.len() {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "constructor application is not saturated",
-                    )]);
-                }
-                if self.newtype_ids.contains(&constructor.type_id) {
-                    if constructor.field_count != 1 {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "newtype constructor must have exactly one field",
-                        )]);
-                    }
-                    return self.lower_value(&arguments[0], assignments);
-                }
-                let tag = self.constructor_tags.get(symbol).copied().ok_or_else(|| {
-                    vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "constructor value has no known tag",
-                    )]
-                })?;
-                let destination = self.fresh(ty);
-                if self.aggregate_types.contains(&constructor.type_id) {
-                    let mut values = Vec::with_capacity(arguments.len());
-                    for (index, argument) in arguments.iter().enumerate() {
-                        let value = self.lower_value(argument, assignments)?;
-                        if depends_on_type_variable(
-                            self.module,
-                            constructor.field_types[index],
-                        ) {
-                            values.push(self.box_erased_value(value, expression.span, assignments)?);
-                        } else {
-                            values.push(value);
-                        }
-                    }
-                    let Some(representation) = self.constructor_types.get(symbol).copied() else {
-                        return Err(vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "aggregate constructor has no representation requirement",
-                        )]);
-                    };
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::VariantNew {
-                            destination,
-                            representation,
-                            case: tag,
-                            fields: values,
-                        },
-                        span: expression.span,
-                    });
-                } else {
-                    assignments.push(Assignment {
-                        destination,
-                        kind: AssignmentKind::Constant(tag as i32),
-                        span: expression.span,
-                    });
-                }
-                Ok(destination)
-            }
+            ExprKind::Constructor { symbol, arguments } => self.lower_constructor(
+                expression,
+                *symbol,
+                arguments,
+                ty,
+                assignments,
+            ),
             ExprKind::String(text) => {
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {

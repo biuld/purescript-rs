@@ -123,7 +123,8 @@ pub(super) fn remap_instruction(
         I::Constant { destination, .. }
         | I::NumberConstant { destination, .. }
         | I::StringConstant { destination, .. }
-        | I::RefNull { destination, .. } => replace(destination),
+        | I::RefNull { destination, .. }
+        | I::Unreachable { destination, .. } => replace(destination),
         I::Primitive {
             destination,
             left,
