@@ -36,6 +36,10 @@ pub enum ValueShape {
     Integer,
     Boolean,
     Number,
+    /// A string is physically an `i32` ABI pointer on the current target, but
+    /// it keeps a distinct semantic shape so the verifier rejects numeric
+    /// operations on it and the erased protocol boxes it explicitly.
+    String,
     Reference(Reference),
 }
 

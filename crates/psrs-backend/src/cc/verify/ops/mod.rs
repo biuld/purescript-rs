@@ -70,7 +70,7 @@ pub(super) fn verify_assignments(
                 require_destination(
                     declared,
                     assignment,
-                    ValueShape::Integer,
+                    ValueShape::String,
                     "string constant has an incompatible result shape",
                 )?;
             }
@@ -246,9 +246,9 @@ pub(super) fn verify_assignments(
                         "unknown representation handle",
                     ));
                 };
-                let (expected, source) = match representation {
+                let (expected, source, boxed) = match representation {
                     Representation::Box { value: expected } if *field == 0 => {
-                        (*expected, Some(repr_shape(representation_id)))
+                        (*expected, Some(repr_shape(representation_id)), true)
                     }
                     Representation::Product { fields } => {
                         let Some(expected) = fields.get(*field as usize).copied() else {
@@ -257,7 +257,7 @@ pub(super) fn verify_assignments(
                                 "product projection field is out of range",
                             ));
                         };
-                        (expected, None)
+                        (expected, None, false)
                     }
                     Representation::Box { .. } => {
                         return Err(assignment_error(
@@ -277,12 +277,24 @@ pub(super) fn verify_assignments(
                 } else {
                     verify_product_value(declared, *value, representation_id, assignment)?;
                 }
-                require_destination(
-                    declared,
-                    assignment,
-                    expected,
-                    "product projection has an incompatible result shape",
-                )?;
+                // The shared i32 box stores an `Integer` field but is also the
+                // erased home of `Boolean` and `String`. Their checks are
+                // performed explicitly by the boxing/unboxing path, so a
+                // projection may declare any of the i32-family shapes.
+                let destination_shape = declared.get(&assignment.destination).copied();
+                let result_ok = match (boxed, expected) {
+                    (true, ValueShape::Integer) => matches!(
+                        destination_shape,
+                        Some(ValueShape::Integer | ValueShape::Boolean | ValueShape::String)
+                    ),
+                    _ => destination_shape == Some(expected),
+                };
+                if !result_ok {
+                    return Err(assignment_error(
+                        assignment,
+                        "product projection has an incompatible result shape",
+                    ));
+                }
                 uses.push(*value);
             }
             AssignmentKind::VariantNew { .. }

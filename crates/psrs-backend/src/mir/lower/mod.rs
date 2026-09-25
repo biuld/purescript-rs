@@ -14,6 +14,7 @@ use std::collections::HashMap;
 mod aggregate;
 mod assignments;
 mod conversion_helpers;
+mod tail;
 mod variant;
 pub(super) use conversion_helpers::ConversionHelpers;
 #[cfg(test)]
@@ -42,6 +43,7 @@ pub(super) fn lower_function(
     scalar_helpers: &ScalarHelpers,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
+    target: crate::capability::TargetCapabilities,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
@@ -84,7 +86,7 @@ pub(super) fn lower_function(
         },
         source.span,
     )?;
-    Ok(Function {
+    let mut function = Function {
         id,
         symbol: source.symbol,
         name: source.name.clone(),
@@ -97,7 +99,9 @@ pub(super) fn lower_function(
             .value_type(&source.result_type)
             .map_err(|error| layout_error(source.span, error))?,
         span: source.span,
-    })
+    };
+    tail::mark_tail(&mut function, target)?;
+    Ok(function)
 }
 pub(super) struct FunctionLowerer<'a> {
     next_block: u32,

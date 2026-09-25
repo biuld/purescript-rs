@@ -9,6 +9,8 @@ use crate::types::{CompositeType, DefinedType, DefinedTypeId, HeapType, RefType}
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 
+pub(super) mod tail;
+
 pub(super) fn verify_ref_func(
     function: &Function,
     instruction: &Instruction,

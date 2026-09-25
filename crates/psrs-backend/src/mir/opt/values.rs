@@ -102,10 +102,18 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::Switch { value, .. } => vec![*value],
+        Terminator::ReturnCall { arguments, .. } => arguments.clone(),
+        Terminator::ReturnCallRef {
+            function,
+            arguments,
+            ..
+        } => std::iter::once(*function)
+            .chain(arguments.iter().copied())
+            .collect(),
     }
 }
 
-pub(super) fn remap_instruction(
+pub(crate) fn remap_instruction(
     instruction: &mut Instruction,
     mapping: &HashMap<ValueId, ValueId>,
 ) {
@@ -288,7 +296,7 @@ pub(super) fn remap_instruction(
     }
 }
 
-fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<ValueId, ValueId>) {
+pub(crate) fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<ValueId, ValueId>) {
     let replace = |value: &mut ValueId| {
         *value = mapping.get(value).copied().unwrap_or(*value);
     };
@@ -297,6 +305,15 @@ fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<ValueId, Valu
         Terminator::Jump { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Branch { condition, .. } => replace(condition),
         Terminator::Switch { value, .. } => replace(value),
+        Terminator::ReturnCall { arguments, .. } => arguments.iter_mut().for_each(replace),
+        Terminator::ReturnCallRef {
+            function,
+            arguments,
+            ..
+        } => {
+            replace(function);
+            arguments.iter_mut().for_each(replace);
+        }
     }
 }
 

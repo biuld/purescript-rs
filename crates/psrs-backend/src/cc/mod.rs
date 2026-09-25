@@ -347,11 +347,10 @@ fn scalar_source_type(
     record_types: &HashMap<psrs_core::TypeId, ReprId>,
 ) -> Option<ValueShape> {
     Some(match ty {
-        SourceType::Int
-        | SourceType::Char
-        | SourceType::Enum { .. }
-        | SourceType::String
-        | SourceType::Unit => ValueShape::Integer,
+        SourceType::Int | SourceType::Char | SourceType::Enum { .. } | SourceType::Unit => {
+            ValueShape::Integer
+        }
+        SourceType::String => ValueShape::String,
         SourceType::Boolean => ValueShape::Boolean,
         SourceType::Number => ValueShape::Number,
         SourceType::Record { .. } => {
@@ -392,11 +391,10 @@ fn source_shape_matches(
     representations: &RepresentationTable,
 ) -> bool {
     match source {
-        SourceType::Int
-        | SourceType::Char
-        | SourceType::Enum { .. }
-        | SourceType::String
-        | SourceType::Unit => *actual == ValueShape::Integer,
+        SourceType::Int | SourceType::Char | SourceType::Enum { .. } | SourceType::Unit => {
+            *actual == ValueShape::Integer
+        }
+        SourceType::String => *actual == ValueShape::String,
         SourceType::Boolean => *actual == ValueShape::Boolean,
         SourceType::Number => *actual == ValueShape::Number,
         SourceType::Record { fields } => {

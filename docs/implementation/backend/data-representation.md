@@ -87,8 +87,9 @@ DR-01:
   Implementation: mir/layout/mod.rs (PlannedLayout::plan_selected, value_type,
     storage_type, array_storage_type, reference)
   Tests: mir/layout/tests.rs::maps_every_cc_value_shape_to_its_specified_mir_type
-    (Integer->I32, Boolean->Boolean, Number->F64, Repr/Aggregate/Closure/Erased
-    references with copied nullability; product fields I32,I32,F64 immutable);
+    (Integer->I32, Boolean->Boolean, Number->F64, String->I32,
+    Repr/Aggregate/Closure/Erased references with copied nullability; product
+    fields I32,I32,F64 immutable);
     mir/layout/tests.rs::plans_the_uniform_closure_and_capture_array_layout
   Input boundary: CC RepresentationTable
   Commands: cargo test -p psrs-backend mir::layout

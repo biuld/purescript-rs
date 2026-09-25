@@ -161,7 +161,14 @@ pub(super) fn verify_function(
                 ));
             }
         }
-        verify_terminator(function, terminator, &blocks, &definitions)?;
+        verify_terminator(
+            function,
+            terminator,
+            &blocks,
+            &definitions,
+            signatures,
+            defined,
+        )?;
     }
     super::array_map::verify_array_maps(function)?;
     super::array_map::verify_conversion_helpers(function, defined)?;
@@ -263,6 +270,7 @@ fn terminator_successors(terminator: &Terminator) -> Vec<BlockId> {
             .map(|(_, block)| *block)
             .chain(std::iter::once(*default))
             .collect(),
+        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
     }
 }
 
@@ -272,6 +280,14 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::Switch { value, .. } => vec![*value],
+        Terminator::ReturnCall { arguments, .. } => arguments.clone(),
+        Terminator::ReturnCallRef {
+            function,
+            arguments,
+            ..
+        } => std::iter::once(*function)
+            .chain(arguments.iter().copied())
+            .collect(),
     }
 }
 
@@ -280,7 +296,9 @@ fn terminator_span(terminator: &Terminator) -> psrs_span::TextRange {
         Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
         | Terminator::Branch { span, .. }
-        | Terminator::Switch { span, .. } => *span,
+        | Terminator::Switch { span, .. }
+        | Terminator::ReturnCall { span, .. }
+        | Terminator::ReturnCallRef { span, .. } => *span,
     }
 }
 
@@ -289,6 +307,8 @@ fn verify_terminator(
     terminator: &Terminator,
     blocks: &HashMap<BlockId, &BasicBlock>,
     definitions: &HashMap<ValueId, ValueType>,
+    signatures: &HashMap<SymbolId, Option<Signature>>,
+    defined: &[&DefinedType],
 ) -> Result<(), Vec<BackendError>> {
     match terminator {
         Terminator::Return { value, span } => {
@@ -378,6 +398,34 @@ fn verify_terminator(
                     ));
                 }
             }
+        }
+        Terminator::ReturnCall {
+            function: callee,
+            arguments,
+            span,
+        } => {
+            super::call::tail::verify_return_call(
+                function,
+                *callee,
+                arguments,
+                *span,
+                definitions,
+                signatures,
+            )?;
+        }
+        Terminator::ReturnCallRef {
+            function: callee,
+            arguments,
+            span,
+        } => {
+            super::call::tail::verify_return_call_ref(
+                function,
+                *callee,
+                arguments,
+                *span,
+                definitions,
+                defined,
+            )?;
         }
     }
     Ok(())
