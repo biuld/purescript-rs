@@ -1,6 +1,7 @@
 use super::Signature;
 use super::util::{
-    composite_at, is_struct_reference, mir_error, require_value, storage_value_type, value_type,
+    call_value_types_match, composite_at, is_struct_reference, mir_error, require_value,
+    storage_value_type, value_type,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueType};
@@ -36,9 +37,18 @@ pub(super) fn verify_ref_func(
     else {
         return Err(mir_error(*span, "MIR ref.func type is not a function type"));
     };
-    if signature.parameters != *parameters
+    if signature.parameters.len() != parameters.len()
+        || !signature
+            .parameters
+            .iter()
+            .zip(parameters)
+            .all(|(expected, actual)| call_value_types_match(*expected, *actual))
         || results.len() != 1
-        || signature.result != results.first().copied()
+        || signature.result.is_none_or(|result| {
+            results
+                .first()
+                .is_none_or(|actual| !call_value_types_match(result, *actual))
+        })
     {
         return Err(mir_error(
             *span,
@@ -91,12 +101,17 @@ pub(super) fn verify_call_ref(
             .iter()
             .zip(parameters)
             .any(|(argument, expected)| {
-                require_value(definitions, *argument, *span).ok() != Some(*expected)
+                require_value(definitions, *argument, *span)
+                    .ok()
+                    .is_none_or(|actual| !call_value_types_match(actual, *expected))
             })
     {
         return Err(mir_error(*span, "MIR call_ref argument has the wrong type"));
     }
-    if results.len() != 1 || value_type(function, *destination) != results.first().copied() {
+    if results.len() != 1
+        || value_type(function, *destination)
+            .is_none_or(|actual| !call_value_types_match(actual, results[0]))
+    {
         return Err(mir_error(*span, "MIR call_ref result has the wrong type"));
     }
     Ok(())
@@ -133,9 +148,18 @@ pub(super) fn verify_closure_new(
     let Some(Some(signature)) = signatures.get(callee) else {
         return Err(mir_error(*span, "closure code target has no signature"));
     };
-    if signature.parameters != *parameters
+    if signature.parameters.len() != parameters.len()
+        || !signature
+            .parameters
+            .iter()
+            .zip(parameters)
+            .all(|(expected, actual)| call_value_types_match(*expected, *actual))
         || results.len() != 1
-        || signature.result != results.first().copied()
+        || signature.result.is_none_or(|result| {
+            results
+                .first()
+                .is_none_or(|actual| !call_value_types_match(result, *actual))
+        })
     {
         return Err(mir_error(
             *span,
@@ -222,10 +246,13 @@ pub(super) fn verify_closure_call(
             .iter()
             .zip(&parameters[1..])
             .any(|(argument, expected)| {
-                require_value(definitions, *argument, *span).ok() != Some(*expected)
+                require_value(definitions, *argument, *span)
+                    .ok()
+                    .is_none_or(|actual| !call_value_types_match(actual, *expected))
             })
         || results.len() != 1
-        || value_type(function, *destination) != results.first().copied()
+        || value_type(function, *destination)
+            .is_none_or(|actual| !call_value_types_match(actual, results[0]))
     {
         return Err(mir_error(
             *span,

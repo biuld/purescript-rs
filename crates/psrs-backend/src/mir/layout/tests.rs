@@ -27,6 +27,36 @@ fn planner_owns_the_gc_closure_and_capture_layouts() {
     );
 }
 #[test]
+fn signatures_that_lower_to_the_same_wasm_type_share_one_definition() {
+    let mut table = RepresentationTable::default();
+    table.add_signature(Signature {
+        parameters: vec![CcValueShape::Boolean],
+        result: CcValueShape::Boolean,
+    });
+    table.add_signature(Signature {
+        parameters: vec![CcValueShape::Integer],
+        result: CcValueShape::Integer,
+    });
+
+    let layout = PlannedLayout::plan(&table, TargetCapabilities::default())
+        .expect("planning Boolean and Integer signatures");
+    assert_eq!(
+        layout.signature_index(SignatureId(0)).unwrap(),
+        layout.signature_index(SignatureId(1)).unwrap(),
+        "Boolean and Integer both lower to i32 and must share a function type"
+    );
+    let function_types = layout.types[0]
+        .0
+        .iter()
+        .filter(|definition| matches!(definition.composite, CompositeType::Func { .. }))
+        .count();
+    assert_eq!(
+        function_types, 1,
+        "the shared signature emits one function type"
+    );
+}
+
+#[test]
 fn planner_rejects_a_dangling_closure_signature() {
     let table = RepresentationTable {
         representations: vec![Representation::Product {

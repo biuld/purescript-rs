@@ -13,6 +13,9 @@ use crate::types::{
 };
 use std::collections::HashMap;
 
+mod validate;
+use validate::validate_selected;
+
 #[derive(Clone, Debug)]
 pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
@@ -224,11 +227,16 @@ impl PlannedLayout {
             definitions[index.0 as usize].composite = CompositeType::Struct(concrete);
         }
 
+        // Distinct CC signatures can lower to the same concrete Wasm function
+        // type (for example `Boolean -> Boolean` and `Integer -> Integer`, both
+        // `i32 -> i32`). A closure stores an abstract `funcref` and the call site
+        // casts it to the concrete signature type, so two such signatures must
+        // share one type index or the cast traps. Share the definition whenever
+        // the lowered parameter and result types are identical.
         let mut signature_indices = HashMap::new();
+        let mut signature_types = HashMap::<(Vec<ValueType>, Vec<ValueType>), DefinedTypeId>::new();
         for id in signature_ids {
             let signature = table.signature(*id).ok_or(LayoutError::UnknownSignature)?;
-            let index = DefinedTypeId(definitions.len() as u32);
-            signature_indices.insert(*id, index);
             let mut parameters = vec![ValueType::Ref(RefType {
                 nullable: false,
                 heap: HeapType::Struct,
@@ -240,14 +248,32 @@ impl PlannedLayout {
                     .map(|value| value_type(value, &repr_indices, closure_index))
                     .collect::<Result<Vec<_>, _>>()?,
             );
-            definitions.push(DefinedType {
-                final_type: true,
-                supertype: None,
-                composite: CompositeType::Func {
-                    parameters,
-                    results: vec![value_type(&signature.result, &repr_indices, closure_index)?],
-                },
-            });
+            let results = [value_type(&signature.result, &repr_indices, closure_index)?];
+            let key = (
+                parameters
+                    .iter()
+                    .copied()
+                    .map(concrete_value_type)
+                    .collect(),
+                results.iter().copied().map(concrete_value_type).collect(),
+            );
+            let index = match signature_types.get(&key) {
+                Some(index) => *index,
+                None => {
+                    let index = DefinedTypeId(definitions.len() as u32);
+                    definitions.push(DefinedType {
+                        final_type: true,
+                        supertype: None,
+                        composite: CompositeType::Func {
+                            parameters: key.0.clone(),
+                            results: key.1.clone(),
+                        },
+                    });
+                    signature_types.insert(key, index);
+                    index
+                }
+            };
+            signature_indices.insert(*id, index);
         }
 
         Ok(Self {
@@ -341,69 +367,6 @@ impl PlannedLayout {
     }
 }
 
-fn validate_selected(
-    table: &RepresentationTable,
-    repr_ids: &[ReprId],
-    signature_ids: &[SignatureId],
-) -> Result<(), LayoutError> {
-    for id in repr_ids {
-        let representation = table
-            .representation(*id)
-            .ok_or(LayoutError::UnknownRepresentation)?;
-        validate_representation(representation, table)?;
-    }
-    for id in signature_ids {
-        let signature = table.signature(*id).ok_or(LayoutError::UnknownSignature)?;
-        for parameter in &signature.parameters {
-            validate_value_shape(parameter, table)?;
-        }
-        validate_value_shape(&signature.result, table)?;
-    }
-    Ok(())
-}
-
-fn validate_representation(
-    representation: &Representation,
-    table: &RepresentationTable,
-) -> Result<(), LayoutError> {
-    match representation {
-        Representation::Box { value } | Representation::Array { element: value } => {
-            validate_value_shape(value, table)?;
-        }
-        Representation::Product { fields } => {
-            for field in fields {
-                validate_value_shape(field, table)?;
-            }
-        }
-        Representation::Variant { cases } => {
-            for case in cases {
-                for field in &case.fields {
-                    validate_value_shape(field, table)?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_value_shape(
-    value: &CcValueShape,
-    table: &RepresentationTable,
-) -> Result<(), LayoutError> {
-    let CcValueShape::Reference(reference) = value else {
-        return Ok(());
-    };
-    match reference.heap {
-        CcRefShape::Repr(id) if table.representation(id).is_none() => {
-            Err(LayoutError::UnknownRepresentation)
-        }
-        CcRefShape::Closure(id) if table.signature(id).is_none() => {
-            Err(LayoutError::UnknownSignature)
-        }
-        _ => Ok(()),
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(super) enum LayoutError {
     UnknownRepresentation,
@@ -416,6 +379,15 @@ pub(super) enum LayoutError {
     UnsupportedClosureTarget,
     IncompatibleVariant,
     UnsupportedValue,
+}
+
+/// The concrete Wasm value type behind a MIR value type. `Boolean` and `I32`
+/// share `i32`, so signatures that differ only there must share a function type.
+fn concrete_value_type(value: ValueType) -> ValueType {
+    match value {
+        ValueType::Boolean => ValueType::I32,
+        other => other,
+    }
 }
 
 fn value_type(

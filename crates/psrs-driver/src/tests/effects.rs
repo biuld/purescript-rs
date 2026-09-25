@@ -315,6 +315,20 @@ fn a_linked_module_forwards_an_effect_that_runs_only_when_selected() {
     assert_eq!(output.stdout, b"linked\n");
 }
 
+#[test]
+fn a_boolean_effect_runs_through_bind() {
+    // `Boolean` and `Int` both lower to Wasm `i32`, so their closure signatures
+    // must share one concrete function type; otherwise the erased call site's
+    // `ref.cast` traps even though both are representationally identical.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let action = bind (pure true) (\\x -> if x then log \"yes\" else log \"no\") in let result = runEffect action in 0\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"yes\n");
+}
+
 fn run_effect_program(source: &str) -> Option<std::process::Output> {
     if !wasmtime_available() {
         return None;
