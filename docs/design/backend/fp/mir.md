@@ -449,9 +449,12 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 
 ## Open questions and future work
 
-- **Control flow.** `Switch`, loops, and tail calls are designed in
+- **Control flow.** MIR `Switch` is implemented for nullary-constructor matches
+  with unique constructor tags; duplicate alternatives retain an ordered
+  comparison chain. The Wasm structurer lowers acyclic switch regions to
+  `br_table`. Loops and tail calls remain future work in
   [control flow and tail calls](control-flow-and-tail-calls.md); MIR terminators
-  and the structurer change together.
+  and the structurer must change together to add them.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the
   meantime.
@@ -462,10 +465,30 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
 
 ## Implementation notes
 
-The current code has `Return`, `Jump`, and `Branch { merge_block }`; `Switch`
-and `ReturnCall*` are specified here but not yet produced, and the structurer is
-a linear walk that rejects loops. Nothing in this document depends on those
-temporary shapes.
+P9 lowers verified CC to MIR with its concrete type table. The backend then
+runs P10 MIR optimization before P11 Wasm lowering. P10 verifies MIR on entry
+and after each pass. It inlines only internal direct calls to single-block
+callees whose sole basic block has no block parameters, at most 16
+instructions, a `Return` terminator, and no call-like instructions in the body
+(direct, closure, or function-reference calls). This is a per-callee limit;
+the implementation has no separate call-site-count or total code-growth
+budget. Cloned instructions remain in order at the call site, preserving traps
+and memory effects. P10 then iterates unreachable-block pruning, constant
+propagation, and Branch/Switch simplification to a fixed point. It also
+forwards copies, eliminates dead pure-and-total instructions using
+conservative call, memory, and trap effects, and removes imports unused by
+reachable optimized code.
+P9 validates external declarations before import projection. Optimization
+preserves the P9 type table and function signatures; planned types made unused
+by optimization may remain.
+
+Current MIR emits `Return`, `Jump`, `Branch { merge_block }`, and `Switch`;
+nullary-constructor cases with unique tags lower to `Switch`, while duplicate
+alternatives keep their source-order comparison chain. P10 preserves and can
+simplify switches, and the Wasm structurer lowers acyclic branch and switch
+regions. It still rejects loops. `ReturnCall` and `ReturnCallRef` are not in the
+current MIR terminator set; tail-call marking and loopification remain
+unimplemented.
 
 ## References
 
