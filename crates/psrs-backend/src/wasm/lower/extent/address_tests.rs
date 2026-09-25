@@ -214,3 +214,43 @@ fn conflicting_block_parameter_addresses_become_dynamic() {
 
     verify(function).expect("different incoming addresses are treated as dynamic");
 }
+
+#[test]
+fn a_dynamic_offset_from_a_literal_base_remains_a_dynamic_read() {
+    let function = function(
+        vec![
+            decl(0, ValueType::I32),
+            decl(1, ValueType::I32),
+            decl(2, ValueType::I32),
+            decl(3, ValueType::I32),
+        ],
+        vec![ValueId(1)],
+        vec![block(
+            vec![
+                Instruction::StringConstant {
+                    destination: ValueId(0),
+                    bytes: "abc".into(),
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Primitive {
+                    destination: ValueId(2),
+                    op: NumericOp::I32Add,
+                    left: ValueId(0),
+                    right: ValueId(1),
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Load8U {
+                    destination: ValueId(3),
+                    address: ValueId(2),
+                    memory: crate::types::MemoryId(0),
+                    offset: 0,
+                    span: ACCESS_SPAN,
+                },
+            ],
+            returning(ValueId(3)),
+        )],
+        ValueId(3),
+    );
+
+    verify(function).expect("an unknown offset makes the address dynamic");
+}

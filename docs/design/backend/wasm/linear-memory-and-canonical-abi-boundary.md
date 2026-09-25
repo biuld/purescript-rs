@@ -486,12 +486,21 @@ wasm32 address addition before committing allocator state, traps when
 checks its length prefix, and copies the preserved bytes with MVP byte loads and
 stores. Execution coverage checks alignment, growth and shrink reallocation,
 zero-sized frees, invalid alignment, address overflow, old-range bounds, and
-growth failure. Static MIR access-extent verification is a design requirement
-for Wasm lowering and is not yet implemented in the current verifier. Because
-the allocator stores its next
-free byte as an `i32`, it traps if an allocation's exclusive end would be
-`2^32`; the final byte of the wasm32 address space is consequently unavailable
-to allocator payloads. There is still no reclamation.
+growth failure. Static MIR access-extent verification is implemented in P10
+Wasm lowering. After string segments are planned and before MIR instructions are
+structured, it scans every `Load`, `Load8U`, and `Store`, propagates known
+addresses through constants, copies, wrapping `i32.add`/`i32.sub`, and block
+parameters with identical known inputs, then checks byte intervals against the
+scratch and literal regions. Regression tests cover access widths, scratch
+read/write, literal bounds and read-only enforcement, wasm32 fixed and effective
+extents, wrapping arithmetic, block-parameter joins, and unknown addresses.
+Dynamic reads rely on Wasm's current-memory bounds trap. Dynamic MIR stores are
+rejected because no ABI-level writable-buffer proof is represented yet;
+allocation provenance for dynamic pointers remains outside the verifier's
+coverage. The allocator stores its next free byte as an `i32`, so it traps if
+an allocation's exclusive end would be `2^32`; the final byte of the wasm32
+address space is consequently unavailable to allocator payloads. There is
+still no reclamation.
 
 ## References
 
