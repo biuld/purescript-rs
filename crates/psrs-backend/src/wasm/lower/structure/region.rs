@@ -88,6 +88,11 @@ impl RegionOps for Structurer<'_> {
                     .get(block_id)
                     .ok_or_else(|| wasm_error(self.function.span, "MIR block does not exist"))?;
                 self.emit_block_instructions(&block.instructions, body)?;
+                // A trapping block never reaches its terminator; emitting the
+                // terminator would read a local the trap never initialized.
+                if super::block_traps(block) {
+                    return Ok(());
+                }
                 self.emit_terminator(block, labels, body)
             }
             UnitPlan::Loop {

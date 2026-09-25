@@ -14,6 +14,17 @@ pub use capability::TargetCapabilities;
 use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 
+/// Classifies a backend failure so a caller can distinguish a compiler defect
+/// from a valid program the backend does not support (MIR-12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackendErrorKind {
+    /// The backend produced IR that violates its own invariants. This is always
+    /// a compiler bug, never a property of the source program.
+    InvalidCompilerIr,
+    /// Valid source input that the current backend cannot lower.
+    UnsupportedSource,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackendError {
     pub pass: &'static str,
@@ -23,6 +34,8 @@ pub struct BackendError {
     /// pass can identify one. Module IDs are preserved from the frontend so a
     /// multi-module driver can report backend failures against the right file.
     pub module: Option<ModuleId>,
+    /// Whether the failure is invalid compiler IR or unsupported source.
+    pub kind: BackendErrorKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +73,23 @@ impl BackendError {
             span,
             message: message.into(),
             module: None,
+            kind: BackendErrorKind::UnsupportedSource,
+        }
+    }
+
+    /// Builds a failure that reports invalid compiler IR rather than an
+    /// unsupported source program.
+    pub(crate) fn invalid_ir(
+        pass: &'static str,
+        span: TextRange,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            pass,
+            span,
+            message: message.into(),
+            module: None,
+            kind: BackendErrorKind::InvalidCompilerIr,
         }
     }
 

@@ -545,6 +545,14 @@ storage and prevents the private destination from being exposed before full
 initialization. The [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 contains malformed MIR fixtures and required component execution.
 
+Boolean closure captures stay `i31`-encoded in the Wasm encoder rather than
+carrying an explicit MIR boxing flag. The encoding is fixed by the
+[closure representation](#closure-representation), not chosen per module, and
+`i31ref` is a primitive heap type with no `DefinedTypeId` to nominate beside
+`boxed_integer_type` and `boxed_f64_type`. MIR records the Boolean capture's
+value type, and the encoder applies the mandated `ref.i31`/`i31.get_s`
+translation mechanically; this is not a new layout decision at emission.
+
 ## References
 
 - Appel, *SSA is Functional Programming* (1998).

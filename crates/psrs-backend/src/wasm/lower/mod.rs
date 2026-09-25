@@ -402,5 +402,9 @@ fn value_type(function: &MirFunction, value: ValueId) -> Option<ValueType> {
 }
 
 pub(super) fn wasm_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
-    vec![BackendError::new("P10 Wasm structuring", span, message)]
+    vec![BackendError::invalid_ir(
+        "P10 Wasm structuring",
+        span,
+        message,
+    )]
 }

@@ -1,4 +1,4 @@
-use super::{Structurer, local, value_type, wasm_error};
+use super::{Structurer, block_traps, local, value_type, wasm_error};
 use crate::BackendError;
 use crate::mir::{BlockId, Terminator};
 use crate::types::ValueId;
@@ -8,6 +8,14 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use wasm_encoder::{Instruction, ValType};
 
+/// How a structured region handed control back to its caller. `Value` carries
+/// the one result the region produced; `Terminated` means the region already
+/// returned or trapped, so no value flows and no `local.get` may be emitted.
+pub(super) enum RegionExit {
+    Value(ValueId),
+    Terminated,
+}
+
 pub(super) trait LegacyRegionOps {
     fn emit_linear_region(
         &self,
@@ -15,7 +23,7 @@ pub(super) trait LegacyRegionOps {
         stop: Option<BlockId>,
         visited: &mut HashSet<BlockId>,
         body: &mut Body,
-    ) -> Result<Option<ValueId>, Vec<BackendError>>;
+    ) -> Result<RegionExit, Vec<BackendError>>;
 
     fn emit_switch(
         &self,
@@ -35,13 +43,17 @@ impl LegacyRegionOps for Structurer<'_> {
         stop: Option<BlockId>,
         visited: &mut HashSet<BlockId>,
         body: &mut Body,
-    ) -> Result<Option<ValueId>, Vec<BackendError>> {
+    ) -> Result<RegionExit, Vec<BackendError>> {
         loop {
             if stop == Some(current) {
                 let block = self.blocks.get(&current).ok_or_else(|| {
                     wasm_error(self.function.span, "MIR branch merge block is missing")
                 })?;
-                return Ok(block.parameters.first().copied());
+                return Ok(block
+                    .parameters
+                    .first()
+                    .copied()
+                    .map_or(RegionExit::Terminated, RegionExit::Value));
             }
             if !visited.insert(current) {
                 return Err(wasm_error(
@@ -54,6 +66,9 @@ impl LegacyRegionOps for Structurer<'_> {
                 .get(&current)
                 .ok_or_else(|| wasm_error(self.function.span, "MIR block does not exist"))?;
             self.emit_block_instructions(&block.instructions, body)?;
+            if block_traps(block) {
+                return Ok(RegionExit::Terminated);
+            }
             let Some(terminator) = &block.terminator else {
                 return Err(wasm_error(
                     self.function.span,
@@ -61,7 +76,15 @@ impl LegacyRegionOps for Structurer<'_> {
                 ));
             };
             match terminator {
-                Terminator::Return { .. } => return Ok(None),
+                Terminator::Return { value, span } => {
+                    body.push(Op::Leaf(Instruction::LocalGet(local(
+                        &self.locals,
+                        *value,
+                        *span,
+                    )?)));
+                    body.push(Op::Leaf(Instruction::Return));
+                    return Ok(RegionExit::Terminated);
+                }
                 Terminator::Jump {
                     target,
                     arguments,
@@ -74,7 +97,7 @@ impl LegacyRegionOps for Structurer<'_> {
                                 "structured branch must pass one result value to its merge",
                             ));
                         }
-                        return Ok(arguments.first().copied());
+                        return Ok(RegionExit::Value(arguments[0]));
                     }
                     let target_block = self.blocks.get(target).ok_or_else(|| {
                         wasm_error(self.function.span, "MIR jump target is missing")
@@ -128,37 +151,33 @@ impl LegacyRegionOps for Structurer<'_> {
                         *span,
                     )?)));
                     let mut then_body = Body::new();
-                    let then_value = self
-                        .emit_linear_region(
-                            *then_block,
-                            Some(*merge_block),
-                            visited,
-                            &mut then_body,
-                        )?
-                        .ok_or_else(|| {
-                            wasm_error(self.function.span, "then arm does not reach its merge")
-                        })?;
-                    then_body.push(Op::Leaf(Instruction::LocalGet(local(
-                        &self.locals,
-                        then_value,
-                        *span,
-                    )?)));
+                    let then_value = self.emit_linear_region(
+                        *then_block,
+                        Some(*merge_block),
+                        visited,
+                        &mut then_body,
+                    )?;
+                    if let RegionExit::Value(value) = then_value {
+                        then_body.push(Op::Leaf(Instruction::LocalGet(local(
+                            &self.locals,
+                            value,
+                            *span,
+                        )?)));
+                    }
                     let mut else_body = Body::new();
-                    let else_value = self
-                        .emit_linear_region(
-                            *else_block,
-                            Some(*merge_block),
-                            visited,
-                            &mut else_body,
-                        )?
-                        .ok_or_else(|| {
-                            wasm_error(self.function.span, "else arm does not reach its merge")
-                        })?;
-                    else_body.push(Op::Leaf(Instruction::LocalGet(local(
-                        &self.locals,
-                        else_value,
-                        *span,
-                    )?)));
+                    let else_value = self.emit_linear_region(
+                        *else_block,
+                        Some(*merge_block),
+                        visited,
+                        &mut else_body,
+                    )?;
+                    if let RegionExit::Value(value) = else_value {
+                        else_body.push(Op::Leaf(Instruction::LocalGet(local(
+                            &self.locals,
+                            value,
+                            *span,
+                        )?)));
+                    }
                     body.push(Op::If {
                         then_body,
                         else_body,
@@ -234,20 +253,21 @@ impl LegacyRegionOps for Structurer<'_> {
         for (index, (_, target)) in cases.iter().enumerate() {
             let mut arm_body = Body::new();
             let mut arm_visited = base_visited.clone();
-            let result = self
-                .emit_linear_region(*target, Some(join), &mut arm_visited, &mut arm_body)?
-                .ok_or_else(|| wasm_error(span, "MIR switch arm does not reach its join"))?;
+            let exit =
+                self.emit_linear_region(*target, Some(join), &mut arm_visited, &mut arm_body)?;
             emitted_blocks.extend(arm_visited);
-            arm_body.push(Op::Leaf(Instruction::LocalGet(local(
-                &self.locals,
-                result,
-                span,
-            )?)));
-            arm_body.push(Op::Leaf(Instruction::LocalSet(local(
-                &self.locals,
-                join_value,
-                span,
-            )?)));
+            if let RegionExit::Value(value) = exit {
+                arm_body.push(Op::Leaf(Instruction::LocalGet(local(
+                    &self.locals,
+                    value,
+                    span,
+                )?)));
+                arm_body.push(Op::Leaf(Instruction::LocalSet(local(
+                    &self.locals,
+                    join_value,
+                    span,
+                )?)));
+            }
             arm_body.push(Op::Leaf(Instruction::Br(case_count - index as u32)));
 
             let mut wrapped = vec![Op::Block {
@@ -261,20 +281,21 @@ impl LegacyRegionOps for Structurer<'_> {
 
         let mut default_body = Body::new();
         let mut default_visited = base_visited;
-        let result = self
-            .emit_linear_region(default, Some(join), &mut default_visited, &mut default_body)?
-            .ok_or_else(|| wasm_error(span, "MIR switch default does not reach its join"))?;
+        let exit =
+            self.emit_linear_region(default, Some(join), &mut default_visited, &mut default_body)?;
         emitted_blocks.extend(default_visited);
-        default_body.push(Op::Leaf(Instruction::LocalGet(local(
-            &self.locals,
-            result,
-            span,
-        )?)));
-        default_body.push(Op::Leaf(Instruction::LocalSet(local(
-            &self.locals,
-            join_value,
-            span,
-        )?)));
+        if let RegionExit::Value(value) = exit {
+            default_body.push(Op::Leaf(Instruction::LocalGet(local(
+                &self.locals,
+                value,
+                span,
+            )?)));
+            default_body.push(Op::Leaf(Instruction::LocalSet(local(
+                &self.locals,
+                join_value,
+                span,
+            )?)));
+        }
         default_body.push(Op::Leaf(Instruction::Br(0)));
         let mut with_default = vec![Op::Block {
             body: region,

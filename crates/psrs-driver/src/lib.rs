@@ -16,6 +16,9 @@ pub struct Diagnostic {
     /// The official PureScript `errorCode` for this diagnostic, when it maps to
     /// one. Internal or unsupported-syntax diagnostics have no code.
     pub code: Option<&'static str>,
+    /// The backend error category, when this diagnostic comes from the backend.
+    /// It distinguishes invalid compiler IR from unsupported source input.
+    pub kind: Option<psrs_backend::BackendErrorKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,7 +218,13 @@ pub fn parse_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diag
 fn backend_diagnostics(errors: Vec<psrs_backend::BackendError>) -> Vec<Diagnostic> {
     errors
         .into_iter()
-        .map(|error| diagnostic(error.pass, error.span, error.message))
+        .map(|error| Diagnostic {
+            stage: error.pass,
+            span: error.span,
+            message: error.message,
+            code: None,
+            kind: Some(error.kind),
+        })
         .collect()
 }
 
@@ -243,6 +252,7 @@ fn diagnostic(stage: &'static str, span: TextRange, message: impl Into<String>) 
         span,
         message: message.into(),
         code: None,
+        kind: None,
     }
 }
 
@@ -257,6 +267,7 @@ pub(crate) fn coded_diagnostic(
         span,
         message: message.into(),
         code,
+        kind: None,
     }
 }
 

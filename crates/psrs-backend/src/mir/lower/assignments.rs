@@ -200,7 +200,7 @@ impl FunctionLowerer<'_> {
                         .find(|candidate| candidate.id == *destination)
                         .map(|candidate| candidate.ty)
                         .ok_or_else(|| {
-                            vec![BackendError::new(
+                            vec![BackendError::invalid_ir(
                                 "P9 MIR lowering",
                                 assignment.span,
                                 "array.get destination has no value declaration",
