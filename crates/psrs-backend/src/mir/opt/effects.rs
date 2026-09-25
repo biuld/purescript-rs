@@ -64,7 +64,14 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             writes_memory: true,
             ..InstructionEffects::default()
         },
-        I::StructSet { .. } | I::ArraySet { .. } | I::Store { .. } => InstructionEffects {
+        I::StructSet { .. }
+        | I::ArraySet { .. }
+        | I::Store { .. }
+        | I::Store8 { .. }
+        | I::Store16 { .. }
+        | I::StoreI64 { .. }
+        | I::StoreF32 { .. }
+        | I::StoreF64 { .. } => InstructionEffects {
             may_trap: true,
             reads_memory: matches!(instruction, I::StructSet { .. } | I::ArraySet { .. }),
             writes_memory: true,

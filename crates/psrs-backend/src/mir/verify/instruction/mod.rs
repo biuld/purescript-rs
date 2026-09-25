@@ -3,8 +3,8 @@ use super::Signature;
 use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
     call_value_types_match, check_heap, composite_at, is_array_reference, is_ref, is_ref_opt,
-    is_struct_reference, mir_error, require_value, storage_value_type, value_type,
-    value_type_assignable,
+    is_struct_reference, mir_error, require_value, storage_value_type,
+    struct_field_type_compatible, value_type, value_type_assignable,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -266,7 +266,8 @@ pub(super) fn verify_instruction(
                 let expected = storage_value_type(&field.storage).ok_or_else(|| {
                     mir_error(*span, "MIR struct field storage is not representable")
                 })?;
-                if require_value(definitions, *argument, *span)? != expected {
+                let actual = require_value(definitions, *argument, *span)?;
+                if !struct_field_type_compatible(actual, expected) {
                     return Err(mir_error(
                         *span,
                         "MIR struct.new argument has the wrong type",
@@ -310,7 +311,9 @@ pub(super) fn verify_instruction(
             }
             let expected = storage_value_type(&field.storage)
                 .ok_or_else(|| mir_error(*span, "MIR struct field storage is not representable"))?;
-            if value_type(function, *destination) != Some(expected) {
+            if !value_type(function, *destination)
+                .is_some_and(|actual| struct_field_type_compatible(actual, expected))
+            {
                 return Err(mir_error(*span, "MIR struct.get result has the wrong type"));
             }
         }
@@ -345,7 +348,10 @@ pub(super) fn verify_instruction(
             }
             let expected = storage_value_type(&field.storage)
                 .ok_or_else(|| mir_error(*span, "MIR struct field storage is not representable"))?;
-            if require_value(definitions, *new_value, *span)? != expected {
+            if !struct_field_type_compatible(
+                require_value(definitions, *new_value, *span)?,
+                expected,
+            ) {
                 return Err(mir_error(*span, "MIR struct.set value has the wrong type"));
             }
         }
@@ -460,6 +466,11 @@ pub(super) fn verify_instruction(
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }
+        | Instruction::Store8 { .. }
+        | Instruction::Store16 { .. }
+        | Instruction::StoreI64 { .. }
+        | Instruction::StoreF32 { .. }
+        | Instruction::StoreF64 { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
             memory::verify_memory_instruction(function, instruction, definitions)?;

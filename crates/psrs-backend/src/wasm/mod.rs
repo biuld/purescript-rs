@@ -158,8 +158,8 @@ pub struct Module {
     pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,
     pub entry: Option<Entry>,
-    /// A synthesized `cabi_realloc` export, present when the module imports a
-    /// function that returns a `list`/`string`.
+    /// A synthesized `cabi_realloc` export, present when canonical ABI lowering
+    /// needs guest linear-memory allocation.
     pub realloc: Option<Function>,
     pub span: TextRange,
 }

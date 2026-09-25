@@ -92,8 +92,10 @@ lowering.
 - `WasiImport::parameters` is the canonical signature from
   `Resolve::wasm_signature(AbiVariant::GuestImport)`; `param_kinds` is aligned
   with the WIT-level parameter list, including a method's receiver.
-- `param_kinds` flatten to exactly the canonical parameter count plus `retptr`;
-  a mismatch is recorded as an `unsupported` reason, never approximated.
+- For direct parameters, `param_kinds` flatten to the canonical parameter
+  count. When `Resolve::wasm_signature` selects indirect parameters, the core
+  signature contains one pointer, followed by the return pointer when `retptr`
+  is set; any mismatch is recorded as `unsupported`, never approximated.
 - A binding is validated against its source signature before CC or MIR is
   emitted; a mismatched arity or type is a source diagnostic.
 - WIT interface names, function names, and canonical signatures never appear in
@@ -182,6 +184,11 @@ lower_parameters(import, source_signature, args, flat):
     require len(args) == len(source_signature.parameters) == len(import.param_kinds)
     for (arg, source, kind) in zip(args, source_signature.parameters, import.param_kinds):
         lower_parameter(arg, source, kind, flat)
+    if canonical_signature.indirect_params:
+        (pointer, size, align) = layout_parameter_record(import.param_kinds)
+        address = cabi_realloc(0, 0, align, size)
+        store_each_flattened_value(address, pointer, flat)
+        flat = [address]
 
 lower_parameter(arg, source, kind, flat):
     Integer32 | Boolean | Char | Float64 | Handle | Enum
@@ -208,7 +215,18 @@ lower_parameter(arg, source, kind, flat):
                value = project(arg, index)
                lower_parameter(value, source_field, field.kind, flat)
     Unsupported => error
+
+layout_parameter_record(kinds):
+    # Use Canonical ABI SizeAlign in WIT parameter order. Records recurse;
+    # strings/lists occupy pointer and length words; flags use their canonical
+    # integer representation. Each value's store width and alignment match its
+    # in-memory Canonical ABI representation, including padding between fields.
+    return the aligned tuple size, maximum field alignment, and field offsets
 ```
+
+If `retptr` is set, the return-area pointer is appended after this indirect
+parameter pointer. The allocated parameter bytes remain live for the duration
+of the guest import call; the current bump allocator does not reclaim them.
 
 ### Result recovery
 
@@ -286,7 +304,9 @@ backend/src/
   mir/
     wit/
       mod.rs           canonical call lowering and result recovery
-      parameters.rs    parameter flattening, records, flags
+      parameters/
+        mod.rs         direct parameter flattening, records, flags
+        indirect.rs    Canonical ABI parameter-record layout and stores
   component.rs         vendored WIT loading and component packaging
 ```
 
@@ -306,6 +326,8 @@ backend/src/
   - `imports(&self) -> &[WasiImport]`, `symbol_name(&self, symbol: SymbolId) -> Option<(&str, &str)>`,
     and `has_list_result(&self, symbol: SymbolId) -> bool`;
   - `validate_signature(&self, import: &WasiImport, signature: &SourceSignature) -> Result<(), String>`.
+- `WasiImport::has_indirect_parameters()` identifies when the resolved canonical
+  signature requires lowering the WIT parameter tuple through linear memory.
 - `WasiImport`, `WasiParamKind`, `WasiResultKind`, and `WasiField` — the
   resolved canonical descriptor. `param_kinds` must stay aligned with the
   WIT-level parameter list, including a method receiver, and `unsupported` must
@@ -409,25 +431,38 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 ## Open questions and future work
 
 - **Aggregate ABI.** Indirect records and tuples, `option`/`result`/`variant`
-  payloads, and non-byte `list<T>` need memory-layout computation and read-back.
+  results, `option`/`result`/`variant` payloads, and non-byte `list<T>` need
+  result memory-layout computation and read-back. Indirect parameter records
+  are implemented for the currently classified parameter kinds.
 - **Resources.** `own`/`borrow` handles need `drop` insertion and lifetime rules;
   ownership and post-return reclamation are specified but not implemented.
 - **Source integration.** The type checker still rejects record type signatures,
   so the record and flags paths are not yet reachable from source.
-- **Allocator reclamation.** Returned lists and owned resources are currently
-  served by a bump allocator and leak
+- **Allocator reclamation.** Indirect parameter tuples and returned byte lists
+  use the bump allocator and are not reclaimed. Repeated calls can grow linear
+  memory; reusing or reclaiming those areas needs a lifetime design
   ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 - **Filesystem loader.** The standard library is embedded in the driver; a real
   module loader would let it be discovered like any module.
 
 ## Implementation notes
 
-Exact mappings are implemented for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
-`char`, nullary enums, resource handles, byte lists, the unit-success `result`,
-direct records (including nested records with byte-list fields), and flags
-words. Indirect parameters, non-byte lists, aggregate results, `u32` and
-narrower integers, tuples, and `own`/`borrow` drop rules are specified but not
-yet produced. These are coverage gaps in this design, not a change to it.
+Direct mappings are implemented for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
+`char`, nullary enums, resource handles, byte lists, direct records (including
+nested records with byte-list fields), and flags words. When Canonical ABI
+flattening requires indirect parameters, P9 now lays out the complete parameter
+tuple, allocates it through `cabi_realloc`, writes each canonical in-memory
+field representation, and passes the resulting pointer. This includes the
+currently classified scalar, handle, enum, flags, byte-list, and nested-record
+shapes; an artifact regression covers mixed integer, Boolean, 64-bit, and float
+fields. The unit-success `result` and scalar/list result paths remain supported.
+
+Indirect aggregate results, `option`/`result`/`variant` payload read-back,
+non-byte lists, `u32` and narrower integers, tuple source types, and `own`/`borrow`
+drop rules remain specified but are not yet produced. Source-level record
+signatures are still rejected by the type checker, so record parameter support
+is currently reachable through backend IR paths rather than parsed source.
+These are coverage gaps in this design, not a change to its canonical ABI.
 
 ## References
 

@@ -5,8 +5,7 @@ use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
-#[path = "address_tests.rs"]
-mod address_facts;
+mod address;
 
 const ACCESS_SPAN: TextRange = TextRange::new(17, 23);
 const STRING_BASE: u32 = 16;

@@ -2,6 +2,7 @@ use super::*;
 use wit_parser::Type as WitType;
 
 mod capability_gates;
+mod indirect;
 mod records;
 
 fn empty_core_module() -> psrs_core::Module {
