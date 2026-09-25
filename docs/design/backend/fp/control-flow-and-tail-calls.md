@@ -519,9 +519,9 @@ which requires the tail-call capability.
 - **Exceptions and stack switching.** Structured exception regions and stack
   switching are separate proposal families (`BC-08`, `BC-09`); each would add
   its own structured node and capability flag.
-- **Irreducible production inputs.** The dispatcher is specified for
-  completeness; no current frontend lowering produces irreducible control flow,
-  so its fixture and cost model remain to be validated.
+- **Irreducible production inputs.** No current frontend lowering produces
+  irreducible control flow. A direct-MIR execution fixture validates the
+  dispatcher semantics; code-size and runtime costs remain to be measured.
 - **Optimization interaction.** Loop rotation, unrolling, and tail-call
   inlining belong to [MIR optimization](../opt/mir.md) and must preserve the
   structuring invariants.
@@ -551,8 +551,12 @@ specific areas:
   structurer; cyclic functions derive branch depths from their CFG and do not
   use the hint when emitting loop control flow.
 - Reducible natural loops, including nested loops and multiple loop exits, are
-  structured directly. Irreducible control flow is diagnosed; a dispatcher
-  fallback is not implemented.
+  structured directly. A reachable cyclic SCC with multiple entry blocks uses
+  a function-level dispatcher with an `i32` state local, nested dispatch blocks,
+  and `br_table`. Jump arguments are copied before state updates; branches and
+  switches select the next state, including sparse signed switch tags. A
+  direct-MIR Wasmtime fixture exercises parameterized jumps, branches, and
+  switch cases plus the default path.
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR

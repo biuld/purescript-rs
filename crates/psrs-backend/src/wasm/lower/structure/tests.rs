@@ -238,6 +238,11 @@ fn lowers_a_natural_loop_with_a_preheader_and_loop_carried_values() {
 
     let (lowered, bytes) = lower_and_validate(&mir);
     assert_eq!(count_loops(&lowered.body), 1);
+    assert_eq!(
+        lowered.locals.len(),
+        mir.values.len() - mir.parameters.len(),
+        "reducible CFGs should not allocate a dispatcher state local"
+    );
     assert!(contains_branch_to_depth(&lowered.body, 0));
 
     if std::process::Command::new("wasmtime")

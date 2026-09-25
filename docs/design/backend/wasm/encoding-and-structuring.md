@@ -462,9 +462,6 @@ sections in that order. Adding `log "hello"` would add a string data segment
 
 ## Open questions and future work
 
-- **Irreducible CFG structuring.** The structurer handles reducible CFGs and
-  natural loops. A dispatcher for irreducible regions remains future work
-  ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)).
 - **Multi-value.** `FuncType` admits multiple results, but MIR functions and
   calls have one; the encoder is ready when MIR is
   ([MIR](../fp/mir.md) open questions).
@@ -509,6 +506,13 @@ The thin IR and encoder support structured `If`, `Block`, and `Loop` regions.
 Branch-depth verification includes the implicit function label and counts
 these regions plus raw `block`, `loop`, `if`, and `end` instructions in `Leaf`
 sequences; the synthesized `cabi_realloc` uses such a raw block-and-loop copy
-routine. The MIR structurer accepts reducible control flow; irreducible regions
-are diagnosed because the dispatcher fallback is not implemented. Tail calls
-are not lowered, and the active capability profile keeps `tail_call` disabled.
+routine. The MIR structurer accepts reducible control flow through natural-loop
+structuring. A reachable cyclic SCC with multiple entry blocks selects a
+function-level dispatcher: an `i32` local stores the next block index, a
+`br_table` selects a nested block label, and each block body updates the state
+before branching back to the dispatcher loop. Jump arguments are copied to
+target block locals before changing the state; branches and switches update the
+state according to their selected successor, including exact comparisons for
+sparse signed switch tags. The dispatcher uses only core Wasm control
+instructions. Tail calls are not lowered, and the active capability profile
+keeps `tail_call` disabled.
