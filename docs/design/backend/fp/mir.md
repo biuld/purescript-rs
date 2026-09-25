@@ -486,8 +486,9 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   computes dominators and natural loops, validates loop nesting, and emits
   `Loop` regions with continuation `Block`s and depth-relative branches; tests
   cover loop-carried values, nested loops, and multiple exits. Irreducible CFGs
-  are diagnosed, and the dispatcher fallback remains future work. Tail-call
-  marking and lowering to `ReturnCall`/`ReturnCallRef` also remain future work.
+  use the dispatcher fallback documented in
+  [control flow and tail calls](control-flow-and-tail-calls.md). Tail-call
+  marking and lowering to `ReturnCall`/`ReturnCallRef` remain future work.
   Current MIR retains `Branch { merge_block }` and its one-value verifier
   contract.
 - **Multi-value.** The type model admits multiple function results, but functions
@@ -530,10 +531,12 @@ simplify switches. Acyclic functions retain the merge-based diamond and
 switch-join structurer. For cyclic MIR CFGs, P10 computes dominators and natural
 loops, checks that loop regions are nested, and emits Wasm `Loop` regions with
 continuation `Block`s and depth-relative branches. Loop fixtures use direct MIR
-because CC-to-MIR does not yet produce loops. Irreducible CFGs are diagnosed;
-the dispatcher fallback is not implemented. The current MIR and verifier still
-retain `Branch { merge_block }` and its one-value merge contract; cyclic
-structuring follows CFG edges, while the acyclic path uses the merge hint.
+because CC-to-MIR does not yet produce loops. Irreducible CFGs use the
+dispatcher fallback described in
+[control flow and tail calls](control-flow-and-tail-calls.md). The current MIR
+and verifier still retain `Branch { merge_block }` and its one-value merge
+contract; cyclic structuring follows CFG edges, while the acyclic path uses the
+merge hint.
 `ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
 tail-call marking and self-recursion loopification remain unimplemented.
 The current MIR instruction model does not yet include the `ArrayNewDefault`
