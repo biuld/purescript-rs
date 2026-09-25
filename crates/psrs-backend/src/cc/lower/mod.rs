@@ -4,7 +4,7 @@ use super::{
     ValueDecl, ValueId, ValueShape,
 };
 use crate::{BackendError, BackendWarning};
-use psrs_core::{Expr, ExprKind, Module as CoreModule};
+use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -13,6 +13,7 @@ use std::rc::Rc;
 mod array;
 mod call;
 mod constructor;
+mod dictionary;
 mod erased;
 mod global;
 mod lambda;
@@ -216,6 +217,29 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
+        if matches!(
+            self.module.types.get(expression.ty.0 as usize),
+            Some(Type::Record(_))
+        ) {
+            let layout =
+                ClassLayout::from_record_type(self.module, expression.ty).map_err(|message| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        message,
+                    )]
+                })?;
+            return self.lower_dictionary_value(expression, &layout, ty, assignments);
+        }
+        self.lower_value_inner(expression, ty, assignments)
+    }
+
+    pub(super) fn lower_value_inner(
+        &mut self,
+        expression: &Expr,
+        ty: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
         match &expression.kind {
             ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
                 vec![BackendError::new(
@@ -262,7 +286,11 @@ impl FunctionLowerer<'_> {
                 Ok(destination)
             }
             ExprKind::Array { elements } => self.lower_array(expression, elements, ty, assignments),
-            ExprKind::Record { fields } => self.lower_record(expression, fields, ty, assignments),
+            ExprKind::Record { .. } => Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "record value bypassed its checked class layout",
+            )]),
             ExprKind::RecordUpdate { record, fields } => {
                 self.lower_record_update(expression, record, fields, ty, assignments)
             }
