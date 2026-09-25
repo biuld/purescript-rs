@@ -202,8 +202,10 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let string = TypeId(2);
     let array_int = TypeId(3);
     let array_string = TypeId(4);
-    let f_int = TypeId(5);
-    let f_string = TypeId(6);
+    let array_int_b = TypeId(5);
+    let f_int = TypeId(6);
+    let f_string = TypeId(7);
+    let f_int_b = TypeId(8);
     let lambda = |parameter: TypeId, symbol: SymbolId, name: &str| Declaration {
         symbol,
         name: name.into(),
@@ -239,6 +241,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
             Type::String,
             Type::Application(array, int),
             Type::Application(array, string),
+            Type::Application(array, int),
             Type::Function {
                 parameter: array_int,
                 result: array_int,
@@ -247,12 +250,17 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
                 parameter: array_string,
                 result: array_string,
             },
+            Type::Function {
+                parameter: array_int_b,
+                result: array_int_b,
+            },
         ],
         newtype_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             lambda(f_int, SymbolId::new(ModuleId(0), 0), "fInt"),
             lambda(f_string, SymbolId::new(ModuleId(0), 1), "fStr"),
+            lambda(f_int_b, SymbolId::new(ModuleId(0), 2), "fIntB"),
         ],
         entry: None,
         span: psrs_span::TextRange::new(0, 40),
@@ -263,15 +271,23 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let layout = type_layout(&module, &enums, &aggregates, &newtypes)
         .expect("distinct function types should normalize and intern");
 
-    assert_eq!(
+    assert_ne!(
         layout.array_types[&array_int], layout.array_types[&array_string],
-        "Array Int and Array String normalize to the same canonical array"
+        "Array Int and Array String are distinct semantic shapes with distinct canonical arrays"
+    );
+    assert_eq!(
+        layout.array_types[&array_int], layout.array_types[&array_int_b],
+        "equal array element shapes share one canonical array"
     );
     let first = layout.function_types[&f_int];
-    let second = layout.function_types[&f_string];
+    let second = layout.function_types[&f_int_b];
     assert_eq!(
         first, second,
         "function types that are equal after normalization must share one SignatureId"
+    );
+    assert_ne!(
+        layout.function_types[&f_int], layout.function_types[&f_string],
+        "arrays with different semantic element shapes keep distinct signatures"
     );
     let signature = layout
         .representations

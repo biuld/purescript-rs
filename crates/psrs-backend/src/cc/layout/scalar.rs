@@ -51,9 +51,13 @@ pub(crate) fn declaration_shape(
         value = body;
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(Signature {
+        Some(Type::I32 | Type::Char | Type::Unit) => Ok(Signature {
             parameters,
             result: ValueShape::Integer,
+        }),
+        Some(Type::String) => Ok(Signature {
+            parameters,
+            result: ValueShape::String,
         }),
         Some(Type::F64) => Ok(Signature {
             parameters,
@@ -187,7 +191,8 @@ pub(crate) fn scalar_type(
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::String | Type::Unit) => Ok(ValueShape::Integer),
+        Some(Type::I32 | Type::Char | Type::Unit) => Ok(ValueShape::Integer),
+        Some(Type::String) => Ok(ValueShape::String),
         Some(Type::F64) => Ok(ValueShape::Number),
         Some(Type::Boolean) => Ok(ValueShape::Boolean),
         Some(Type::Variable(_)) => Ok(ValueShape::Reference(Reference {
