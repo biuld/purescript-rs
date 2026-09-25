@@ -163,12 +163,12 @@ pub(super) fn type_layout(
         &reserved_aggregates.records,
         &mut representations,
     )?;
-    let aggregate_layouts = aggregate::normalize_aggregate_layouts(
+    let (aggregate_layouts, function_types) = aggregate::normalize_aggregate_layouts(
         module,
         enum_types,
         aggregate_types,
         newtype_ids,
-        &function_layout.function_types,
+        function_layout.function_types,
         reserved_aggregates,
         &mut representations,
     )?;
@@ -207,7 +207,7 @@ pub(super) fn type_layout(
                         newtype_ids,
                         &array_types,
                         &record_types,
-                        &function_layout.function_types,
+                        &function_types,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -226,7 +226,7 @@ pub(super) fn type_layout(
         constructor_types,
         boxed_integer_type,
         boxed_number_type,
-        function_types: function_layout.function_types,
+        function_types,
     })
 }
 

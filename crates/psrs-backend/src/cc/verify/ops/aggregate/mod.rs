@@ -232,23 +232,6 @@ fn verify_plan(
             }
             Ok(repr_shape(*target))
         }
-        ValueConversion::FunctionAdapter {
-            source: from,
-            target,
-        } => {
-            let from_shape = closure_shape(*from);
-            let target_shape = closure_shape(*target);
-            if source != from_shape
-                || table.signature(*from).is_none()
-                || table.signature(*target).is_none()
-            {
-                return Err(assignment_error(
-                    assignment,
-                    "function adapter has incompatible signatures",
-                ));
-            }
-            Ok(target_shape)
-        }
     }
 }
 
@@ -261,13 +244,6 @@ fn erased_reference() -> Reference {
         nullable: false,
         heap: RefShape::Erased,
     }
-}
-
-fn closure_shape(signature: crate::cc::SignatureId) -> ValueShape {
-    ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Closure(signature),
-    })
 }
 
 #[cfg(test)]

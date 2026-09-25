@@ -176,10 +176,6 @@ impl FunctionLowerer<'_> {
                 fields,
                 ..
             } => self.lower_product_map(block, value, *source_repr, *target, fields, span),
-            ValueConversion::FunctionAdapter { .. } => Err(aggregate_error(
-                span,
-                "function adapter conversion has no MIR closure adapter",
-            )),
         }
     }
 

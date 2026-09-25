@@ -183,13 +183,9 @@ fn add_assignments(
                 representation_work,
                 signature_work,
             ),
-            AssignmentKind::AggregateConvert { conversion, .. } => add_conversion(
-                &conversion.plan,
-                representations,
-                signatures,
-                representation_work,
-                signature_work,
-            ),
+            AssignmentKind::AggregateConvert { conversion, .. } => {
+                add_conversion(&conversion.plan, representations, representation_work)
+            }
             AssignmentKind::ProductNew { representation, .. }
             | AssignmentKind::ProductGet { representation, .. }
             | AssignmentKind::VariantNew { representation, .. }
@@ -279,9 +275,7 @@ fn add_assignments(
 fn add_conversion(
     conversion: &ValueConversion,
     representations: &mut HashSet<ReprId>,
-    signatures: &mut HashSet<SignatureId>,
     representation_work: &mut Vec<ReprId>,
-    signature_work: &mut Vec<SignatureId>,
 ) {
     match conversion {
         ValueConversion::Identity => {}
@@ -297,13 +291,7 @@ fn add_conversion(
         }
         ValueConversion::Sequence(steps) => {
             for step in steps {
-                add_conversion(
-                    step,
-                    representations,
-                    signatures,
-                    representation_work,
-                    signature_work,
-                );
+                add_conversion(step, representations, representation_work);
             }
         }
         ValueConversion::ArrayMap {
@@ -313,13 +301,7 @@ fn add_conversion(
         } => {
             add_representation(*source, representations, representation_work);
             add_representation(*target, representations, representation_work);
-            add_conversion(
-                element,
-                representations,
-                signatures,
-                representation_work,
-                signature_work,
-            );
+            add_conversion(element, representations, representation_work);
         }
         ValueConversion::ProductMap {
             source,
@@ -330,18 +312,8 @@ fn add_conversion(
             add_representation(*source, representations, representation_work);
             add_representation(*target, representations, representation_work);
             for field in fields {
-                add_conversion(
-                    field,
-                    representations,
-                    signatures,
-                    representation_work,
-                    signature_work,
-                );
+                add_conversion(field, representations, representation_work);
             }
-        }
-        ValueConversion::FunctionAdapter { source, target } => {
-            add_signature(*source, signatures, signature_work);
-            add_signature(*target, signatures, signature_work);
         }
     }
 }

@@ -48,10 +48,6 @@ pub enum ValueConversion {
         labels: Vec<String>,
         fields: Vec<ValueConversion>,
     },
-    FunctionAdapter {
-        source: super::SignatureId,
-        target: super::SignatureId,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

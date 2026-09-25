@@ -1,7 +1,9 @@
 use super::*;
 use crate::cc::{RefShape, Reference};
-use psrs_core::{ConstructorInfo, Module, Type, TypeConstructor};
-use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
+use psrs_core::{
+    Binder, ConstructorInfo, Declaration, Expr, ExprKind, Module, Type, TypeConstructor,
+};
+use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
 #[test]
 fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot() {
@@ -191,4 +193,159 @@ fn recursive_aggregate_normalization_terminates() {
         first, second,
         "mutually recursive arrays keep distinct canonical handles"
     );
+}
+
+#[test]
+fn equal_normalized_function_signatures_share_one_signature_id() {
+    let array = TypeId(0);
+    let int = TypeId(1);
+    let string = TypeId(2);
+    let array_int = TypeId(3);
+    let array_string = TypeId(4);
+    let f_int = TypeId(5);
+    let f_string = TypeId(6);
+    let lambda = |parameter: TypeId, symbol: SymbolId, name: &str| Declaration {
+        symbol,
+        name: name.into(),
+        name_span: psrs_span::TextRange::new(0, 1),
+        quantified: Vec::new(),
+        ty: parameter,
+        value: Expr {
+            kind: ExprKind::Lambda {
+                binder: Binder {
+                    id: LocalId(0),
+                    name: "values".into(),
+                    ty: parameter,
+                    span: psrs_span::TextRange::new(0, 1),
+                },
+                body: Box::new(Expr {
+                    kind: ExprKind::Local(LocalId(0)),
+                    ty: parameter,
+                    span: psrs_span::TextRange::new(0, 1),
+                }),
+            },
+            ty: parameter,
+            span: psrs_span::TextRange::new(0, 1),
+        },
+        span: psrs_span::TextRange::new(0, 1),
+    };
+    let module = Module {
+        id: ModuleId(0),
+        name: "SignatureInterningTest".into(),
+        externals: Vec::new(),
+        types: vec![
+            Type::Constructor(TypeConstructor::Array),
+            Type::I32,
+            Type::String,
+            Type::Application(array, int),
+            Type::Application(array, string),
+            Type::Function {
+                parameter: array_int,
+                result: array_int,
+            },
+            Type::Function {
+                parameter: array_string,
+                result: array_string,
+            },
+        ],
+        newtype_ids: Vec::new(),
+        constructors: Vec::new(),
+        declarations: vec![
+            lambda(f_int, SymbolId::new(ModuleId(0), 0), "fInt"),
+            lambda(f_string, SymbolId::new(ModuleId(0), 1), "fStr"),
+        ],
+        entry: None,
+        span: psrs_span::TextRange::new(0, 40),
+    };
+    let newtypes = HashSet::new();
+    let enums = enum_type_ids(&module, &newtypes);
+    let aggregates = aggregate_type_ids(&module, &newtypes);
+    let layout = type_layout(&module, &enums, &aggregates, &newtypes)
+        .expect("distinct function types should normalize and intern");
+
+    assert_eq!(
+        layout.array_types[&array_int], layout.array_types[&array_string],
+        "Array Int and Array String normalize to the same canonical array"
+    );
+    let first = layout.function_types[&f_int];
+    let second = layout.function_types[&f_string];
+    assert_eq!(
+        first, second,
+        "function types that are equal after normalization must share one SignatureId"
+    );
+    let signature = layout
+        .representations
+        .signature(first)
+        .expect("the shared signature is present in the table");
+    assert_eq!(signature.parameters.len(), 1);
+    assert_eq!(signature.result, signature.parameters[0]);
+    assert_eq!(
+        signature.parameters[0],
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(layout.array_types[&array_int]),
+        })
+    );
+}
+
+fn integer_capture_module(capture: Type) -> Module {
+    let symbol = SymbolId::new(ModuleId(0), 0);
+    Module {
+        id: ModuleId(0),
+        name: "IntegerCaptureTest".into(),
+        externals: Vec::new(),
+        types: vec![capture, Type::I32],
+        newtype_ids: Vec::new(),
+        constructors: Vec::new(),
+        declarations: vec![Declaration {
+            symbol,
+            name: "captures".into(),
+            name_span: psrs_span::TextRange::new(0, 1),
+            quantified: Vec::new(),
+            ty: TypeId(1),
+            value: Expr {
+                kind: ExprKind::Lambda {
+                    binder: Binder {
+                        id: LocalId(1),
+                        name: "argument".into(),
+                        ty: TypeId(1),
+                        span: psrs_span::TextRange::new(0, 1),
+                    },
+                    body: Box::new(Expr {
+                        kind: ExprKind::Local(LocalId(0)),
+                        ty: TypeId(0),
+                        span: psrs_span::TextRange::new(0, 1),
+                    }),
+                },
+                ty: TypeId(1),
+                span: psrs_span::TextRange::new(0, 1),
+            },
+            span: psrs_span::TextRange::new(0, 1),
+        }],
+        entry: None,
+        span: psrs_span::TextRange::new(0, 40),
+    }
+}
+
+#[test]
+fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
+    for capture in [Type::Char, Type::String, Type::Unit] {
+        let module = integer_capture_module(capture.clone());
+        assert!(
+            !module
+                .types
+                .iter()
+                .any(|ty| matches!(ty, Type::Variable(_))),
+            "the fixture must not contain a type variable"
+        );
+        let newtypes = HashSet::new();
+        let enums = enum_type_ids(&module, &newtypes);
+        let aggregates = aggregate_type_ids(&module, &newtypes);
+        let layout = type_layout(&module, &enums, &aggregates, &newtypes)
+            .expect("an integer-shaped capture should have a layout");
+        assert!(
+            layout.boxed_integer_type.is_some(),
+            "a free {capture:?} capture maps to ValueShape::Integer and needs the integer box"
+        );
+    }
 }
