@@ -92,6 +92,18 @@ pub(super) fn declaration_result_type(
     Some(type_id)
 }
 
+/// The final result type of a (possibly curried) function type. A non-function
+/// type is its own result.
+pub(super) fn function_result_type(
+    module: &CoreModule,
+    mut type_id: psrs_core::TypeId,
+) -> psrs_core::TypeId {
+    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
+        type_id = *result;
+    }
+    type_id
+}
+
 pub(super) fn callable_parameter_types(
     module: &CoreModule,
     symbol: SymbolId,

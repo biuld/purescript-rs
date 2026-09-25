@@ -78,6 +78,22 @@ pub(super) fn append_function_types(
         function_types.insert(id, signature_id);
     }
 
+    // Nested parameters and results were interned with the provisional id of the
+    // function type that produced them. When two structurally identical function
+    // types deduplicate, an outer signature can still name the losing type's
+    // provisional slot, so resolve every nested closure reference to the final
+    // id of the type it came from. `function_types` only ever names a stored
+    // slot, so one pass reaches a fixpoint.
+    let mut resolved = HashMap::new();
+    for (id, provisional) in &provisional_function_types {
+        if let Some(final_id) = function_types.get(id) {
+            resolved.insert(*provisional, *final_id);
+        }
+    }
+    for signature in &mut representations.signatures {
+        remap_nested_signatures(signature, &resolved);
+    }
+
     Ok(FunctionLayouts { function_types })
 }
 
