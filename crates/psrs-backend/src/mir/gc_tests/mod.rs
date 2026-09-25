@@ -73,6 +73,64 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
 }
 
 #[test]
+fn optimized_and_unoptimized_arithmetic_agree_on_an_oracle() {
+    let symbol = SymbolId::new(ModuleId(0), 0);
+    let mut values = Vec::new();
+    for id in 0..6u32 {
+        values.push(crate::cc::ValueDecl {
+            id: ValueId(id),
+            ty: ValueShape::Integer,
+        });
+    }
+    let binary = |destination: u32, op: crate::cc::BinaryOp, left: u32, right: u32| Assignment {
+        destination: ValueId(destination),
+        kind: AssignmentKind::Primitive {
+            op,
+            left: ValueId(left),
+            right: ValueId(right),
+        },
+        span: span(),
+    };
+    let constant = |destination: u32, value: i32| Assignment {
+        destination: ValueId(destination),
+        kind: AssignmentKind::Constant(value),
+        span: span(),
+    };
+    let module = CcModule {
+        name: "ArithmeticDifferential".into(),
+        externals: Vec::new(),
+        representations: RepresentationTable::default(),
+        functions: vec![CcFunction {
+            symbol,
+            name: "main".into(),
+            parameters: Vec::new(),
+            values,
+            assignments: vec![
+                constant(0, 7),
+                constant(1, 5),
+                binary(2, crate::cc::BinaryOp::IntAdd, 0, 1),
+                constant(3, 3),
+                binary(4, crate::cc::BinaryOp::IntMul, 2, 3),
+                binary(5, crate::cc::BinaryOp::IntSub, 4, 2),
+            ],
+            result: ValueId(5),
+            result_type: ValueShape::Integer,
+            span: span(),
+        }],
+        entry: Some(symbol),
+        span: span(),
+    };
+    let target = crate::TargetCapabilities::default();
+    let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
+        .expect("arithmetic should lower to MIR");
+    // `(7 + 5) * 3 - (7 + 5)` with wrapping i32 semantics.
+    let oracle = ((7i32.wrapping_add(5)).wrapping_mul(3)).wrapping_sub(7i32.wrapping_add(5));
+    run_gc(&mir, oracle);
+    let optimized = crate::mir::opt::optimize(mir, target).expect("optimization should succeed");
+    run_gc(&optimized, oracle);
+}
+
+#[test]
 fn lowers_a_cc_product_through_the_gc_planner() {
     let mut representations = RepresentationTable::default();
     let product = representations.reserve();

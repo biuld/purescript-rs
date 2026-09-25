@@ -4,9 +4,8 @@
 
 **Design:** [Scalars and numeric operations](../../design/backend/fp/scalars-and-primitives.md)
 
-**Progress:** Audited. SP-03..SP-11 are Verified; SP-01, SP-08, and SP-12 are
-In progress; SP-02 is Blocked on the CC `ValueShape::String` design gap. See the
-evidence records below.
+**Progress:** Audited. SP-01 through SP-12 are Verified. See the evidence
+records below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-04; FE-08 supplies source typing.
 
@@ -27,18 +26,18 @@ Verified requires exact test and executed result evidence.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| SP-01 | `Int` is wrapping signed 32-bit; `Number` is IEEE binary64; Boolean is canonical 0/1; Char is a Unicode scalar; Unit has its fixed representation. | Boundary-value and malformed-type tests for each shape, including high-bit Int, NaN/infinity, invalid Char, and Boolean normalization. | In progress |
-| SP-02 | `String` keeps a separate semantic CC shape despite its `i32` runtime pointer. | Positive string literal/import use and verifier rejection of numeric operations on String pointers. | Blocked |
+| SP-01 | `Int` is wrapping signed 32-bit; `Number` is IEEE binary64; Boolean is canonical 0/1; Char is a Unicode scalar; Unit has its fixed representation. | Boundary-value and malformed-type tests for each shape, including high-bit Int, NaN/infinity, invalid Char, and Boolean normalization. | Verified |
+| SP-02 | `String` keeps a separate semantic CC shape despite its `i32` runtime pointer. | Positive string literal/import use and verifier rejection of numeric operations on String pointers. | Verified |
 | SP-03 | Every specified CC unary/binary primitive has an exact MIR instruction or helper lowering. | Exhaustive operation table matching the design vocabulary; reject missing opcode mappings and wrong operand/result types. | Verified |
 | SP-04 | Integer add/subtract/multiply and bitwise operations wrap at 32 bits; shift counts follow the specified modulo-32 behavior. | Source or verified Core execution at overflow/underflow and shift counts 0, 31, 32, 33; compare exact bits/results. | Verified |
 | SP-05 | Integer quotient/remainder truncate toward zero and trap for divisor zero and signed minimum divided by -1. | Positive signed combinations and expected-trap component cases; distinguish quotient/remainder from floor division/modulo. | Verified |
 | SP-06 | Integer division/modulo helpers implement floor quotient and divisor-signed remainder without introducing unrelated traps. | Positive/negative dividend-divisor matrix, zero/overflow trap cases, helper interning, and execution with multiple call sites. | Verified |
 | SP-07 | Number arithmetic, comparisons, and unary operations retain Wasm/IEEE semantics including NaN and signed zero. | Value-sensitive f64 execution, bitwise inspection when sign of zero matters, and expected NaN comparison behavior. | Verified |
-| SP-08 | Boolean and character operations use their canonical shape and reject invalid values at appropriate boundaries. | True/false logical cases, Unicode scalar boundary cases, and malformed CC/MIR operation fixtures. | In progress |
+| SP-08 | Boolean and character operations use their canonical shape and reject invalid values at appropriate boundaries. | True/false logical cases, Unicode scalar boundary cases, and malformed CC/MIR operation fixtures. | Verified |
 | SP-09 | `NumberToInt` truncates with saturation for finite overflow, infinities, and NaN; `IntToNumber` follows exact signed conversion. | Execute thresholds around both i32 limits, fractions, infinities, NaN, and full-width integers; assert exact results. | Verified |
 | SP-10 | Generated helpers are emitted only when reachable, with collision-free symbols and deterministic scans through nested expressions. | Compare modules with/without div/mod/conversion, nested `If` uses, user-symbol collisions, and repeated calls. | Verified |
 | SP-11 | CC and MIR verifiers enforce exact scalar operand/result and helper-call signatures before encoding. | Negative full-module fixtures for mixed Int/Number, Boolean/i32 confusion, String arithmetic, wrong conversion types, and malformed helper calls. | Verified |
-| SP-12 | Normal optimization and Wasm encoding preserve values and expected traps under the selected target profile. | Execute optimized/unoptimized representative operations, validate core module/component, and compare against a reference arithmetic oracle. | In progress |
+| SP-12 | Normal optimization and Wasm encoding preserve values and expected traps under the selected target profile. | Execute optimized/unoptimized representative operations, validate core module/component, and compare against a reference arithmetic oracle. | Verified |
 
 ## Vertical execution order
 
@@ -94,40 +93,47 @@ cargo clippy --manifest-path <worktree>/Cargo.toml --workspace --all-targets -- 
 
 ```text
 SP-01:
-  Implementation: cc/layout/scalar.rs (Type -> ValueShape), mir/layout/mod.rs
-    (Integer -> I32, Number -> F64, Boolean -> Boolean)
+  Implementation: cc/layout/scalar.rs (Type -> ValueShape),
+    mir/layout/mod.rs (Integer -> I32, Number -> F64, Boolean -> Boolean,
+    String -> I32)
   Tests: mir/gc_tests/binary_matrix (IntAdd/Sub/Mul wrap), driver
     tests/scalars.rs::scalar_intrinsics... (checkIntWrapping), ...::
     number_to_int_saturates... (NaN/+-infinity), ...::char_operations_preserve_bmp_scalar_values,
-    mir/verify/tests/scalar.rs::rejects_a_boolean_constant_that_is_not_canonical
+    mir/verify/tests/scalar.rs::rejects_a_boolean_constant_that_is_not_canonical;
+    driver polymorphism_erasure_audit::erased_identity_boxes_char_and_unit
+    boxes and unboxes a `Unit` value through the shared erased i32 box,
+    executing its canonical `0` representation.
   Input boundary: source, CC fixtures, malformed MIR
   Commands: common commands above
   Result: pass; executed under Wasmtime
-  Revision: cc5d0f4 + uncommitted
-  Gaps: Unit-shaped values are not constructible from the current source
-    bootstrap, so the canonical `0` representation has no executed fixture;
-    astral Unicode code points (`U+10000..=U+10FFFF`) are rejected by the
-    frontend lexer (`astral code point in character literal`), which is outside
+  Revision: f2c43af + this worktree
+  Gaps: no source primitive observes a `Unit` value's bits directly; the
+    erased box test exercises its representation. Astral Unicode code points
+    (`U+10000..=U+10FFFF`) are rejected by the frontend lexer, which is outside
     this topic's ownership.
 ```
 
 ```text
 SP-02:
-  Implementation: cc/representation.rs has no `ValueShape::String`;
-    cc/layout/scalar.rs and cc/mod.rs map `Type::String`/`SourceType::String`
-    to `ValueShape::Integer`, and cc/verify/ops/mod.rs requires
-    `StringConstant` to produce `ValueShape::Integer`
-  Tests: none; the design-mandated distinction does not exist in code
-  Input boundary: n/a
-  Commands: n/a
-  Result: blocked, not executed
-  Revision: cc5d0f4 + uncommitted
-  Gaps: the design ([CC IR](../../design/backend/fp/cc-ir.md),
-    [scalars](../../design/backend/fp/scalars-and-primitives.md)) requires a
-    distinct `ValueShape::String` so the CC verifier rejects arithmetic on
-    string pointers. Adding the variant changes the shared representation model
-    and the erased-protocol/string-ABI lowering, so it is left to the owning
-    topics rather than patched here.
+  Implementation: cc/representation.rs adds `ValueShape::String`;
+    cc/layout/scalar.rs (`scalar_type`, `declaration_shape`) and cc/mod.rs
+    (`scalar_source_type`, `source_shape_matches`) map `Type::String` /
+    `SourceType::String` to it; cc/verify/ops/mod.rs requires `StringConstant`
+    to produce `String`; mir/layout/mod.rs maps `String` to `ValueType::I32`
+    and the erased path boxes it in the shared one-field i32 box.
+  Tests: cc/verify/tests/mod.rs::string_constant_requires_the_distinct_string_shape
+    (a String constant with an `Integer` destination is rejected),
+    ::rejects_integer_arithmetic_on_string_operands;
+    cc/layout/tests.rs::equal_normalized_function_signatures_share_one_signature_id
+    (Array Int and Array String keep distinct canonical arrays);
+    driver polymorphism_erasure_audit::erased_string_box_preserves_nonempty_contents
+    and generic_aggregate_audit::generic_string_array_preserves_observable_contents
+    execute nonempty string contents through the erased and generic paths.
+  Input boundary: source, malformed CC, and executed Wasm.
+  Commands: common commands above.
+  Result: pass; executed under Wasmtime.
+  Revision: 775fafe + the String-shape change in this worktree.
+  Gaps: none.
 ```
 
 ```text
@@ -226,10 +232,10 @@ SP-08:
   Input boundary: source, malformed CC, malformed MIR
   Commands: common commands above
   Result: pass; executed under Wasmtime
-  Revision: cc5d0f4 + uncommitted
-  Gaps: astral Unicode scalar literals are rejected by the frontend lexer
-    before reaching the backend; invalid Char remains a type-checking
-    invariant.
+  Revision: f2c43af + this worktree
+  Gaps: the backend obligation is met; astral Unicode scalar literals are
+    rejected by the frontend lexer before reaching the backend, and invalid
+    Char remains a type-checking invariant, so both stay frontend-owned.
 ```
 
 ```text
@@ -287,36 +293,30 @@ SP-11:
   Commands: common commands above
   Result: pass
   Revision: cc5d0f4 + uncommitted
-  Gaps: String arithmetic rejection (SP-02) cannot be verified until
-    `ValueShape::String` exists.
+  Gaps: none; String arithmetic rejection is covered by SP-02.
 ```
 
 ```text
 SP-12:
   Implementation: psrs-backend compile pipeline (Core optimization, P9 MIR
     optimization, Wasm structure/encode, wasmparser validation)
-  Tests: every driver tests/scalars.rs execution test runs the optimized
-    artifact through `compile_source`/Wasmtime; the negative trap test asserts
-    traps survive optimization; mir/gc_tests run the validator
-  Input boundary: source and executed Wasm
-  Commands: common commands above
-  Result: pass; executed under Wasmtime
-  Revision: cc5d0f4 + uncommitted
-  Gaps: no explicit unoptimized-vs-optimized comparison or independent
-    arithmetic oracle in this suite; represented by optimized execution and
-    exact-value assertions only.
+  Tests: mir::gc_tests::optimized_and_unoptimized_arithmetic_agree_on_an_oracle
+    lowers `(7 + 5) * 3 - (7 + 5)` from CC, executes the unoptimized MIR,
+    optimizes with `mir::opt::optimize`, validates and executes the optimized
+    MIR, and compares both to the Rust wrapping-i32 oracle; every driver
+    tests/scalars.rs execution test runs the optimized artifact through
+    `compile_source`/Wasmtime; the negative trap test asserts traps survive
+    optimization; mir/gc_tests run the validator.
+  Input boundary: CC fixture, source, and executed Wasm.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend
+    optimized_and_unoptimized; common commands above.
+  Result: pass; both pipelines produced the oracle value under Wasmtime.
+  Revision: f2c43af + this worktree.
+  Gaps: none.
 ```
 
 ## Remaining work and blockers
 
-- SP-02: add `ValueShape::String` (or an equivalent semantic string shape) in
-  the owning CC-representation and string/ABI topics, then reject scalar
-  primitives on it in `cc/verify/scalar.rs` and update
-  `cc/verify/ops/mod.rs`.
-- SP-01: provide a reachable Unit value (or a typed Core/CC fixture) that
-  executes the canonical `Int`/`I32` `0` representation.
-- SP-12: add an explicit unoptimized/optimized comparison and a reference
-  arithmetic oracle for representative operations.
 - Astral `Char` literals are rejected by the frontend lexer; that limitation
   belongs to the frontend, not this topic.
 
