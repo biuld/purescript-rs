@@ -10,6 +10,7 @@ mod instruction;
 mod layout;
 mod lower;
 mod numeric;
+pub mod opt;
 mod planner;
 #[cfg(test)]
 mod planner_tests;
