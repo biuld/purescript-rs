@@ -200,6 +200,46 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// `i32.store8`, used for canonical booleans and narrow discriminants.
+    Store8 {
+        address: ValueId,
+        value: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `i32.store16`, used for canonical narrow discriminants.
+    Store16 {
+        address: ValueId,
+        value: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `i64.store`, used by indirect canonical parameters.
+    StoreI64 {
+        address: ValueId,
+        value: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `f32.store`, used by indirect canonical parameters.
+    StoreF32 {
+        address: ValueId,
+        value: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `f64.store`, used by indirect canonical parameters.
+    StoreF64 {
+        address: ValueId,
+        value: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
     /// `i32.wrap_i64`, used to narrow a 64-bit WASI result to `Int`.
     WrapI64 {
         destination: ValueId,
@@ -260,6 +300,11 @@ impl Instruction {
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
+            | Self::Store8 { .. }
+            | Self::Store16 { .. }
+            | Self::StoreI64 { .. }
+            | Self::StoreF32 { .. }
+            | Self::StoreF64 { .. }
             | Self::CallVoid { .. }
             | Self::TrapIf { .. } => None,
         }
@@ -318,7 +363,12 @@ impl Instruction {
                 ..
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
-            Self::Store { address, value, .. } => vec![*address, *value],
+            Self::Store { address, value, .. }
+            | Self::Store8 { address, value, .. }
+            | Self::Store16 { address, value, .. }
+            | Self::StoreI64 { address, value, .. }
+            | Self::StoreF32 { address, value, .. }
+            | Self::StoreF64 { address, value, .. } => vec![*address, *value],
             Self::WrapI64 { value, .. }
             | Self::WidenI64 { value, .. }
             | Self::TrapIf {
@@ -360,6 +410,11 @@ impl Instruction {
             | Self::Load { span, .. }
             | Self::Load8U { span, .. }
             | Self::Store { span, .. }
+            | Self::Store8 { span, .. }
+            | Self::Store16 { span, .. }
+            | Self::StoreI64 { span, .. }
+            | Self::StoreF32 { span, .. }
+            | Self::StoreF64 { span, .. }
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. }
             | Self::TrapIf { span, .. }

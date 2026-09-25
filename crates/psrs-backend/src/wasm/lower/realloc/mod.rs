@@ -1,7 +1,6 @@
 //! The synthesized linear-memory allocator used by canonical ABI lowering.
 
 use super::super::{Body, Function, Op, TypeIndex};
-use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use wasm_encoder::{BlockType, Instruction, MemArg, ValType};
 
@@ -21,8 +20,8 @@ const COPY_SOURCE: u32 = 12;
 const COPY_DESTINATION: u32 = 13;
 const BYTE: u32 = 14;
 
-/// Builds the bump-allocator `cabi_realloc` used to allocate returned
-/// `list`/`string` buffers at the canonical ABI boundary.
+/// Builds the bump-allocator `cabi_realloc` used by canonical ABI boundary
+/// buffers, including indirect parameter records and returned lists/strings.
 pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: TextRange) -> Function {
     let word = || memarg(2);
     let byte = || memarg(0);
@@ -294,7 +293,7 @@ pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: Text
     push(&mut body, Instruction::LocalGet(PAYLOAD));
 
     Function {
-        symbol: SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1),
+        symbol: crate::abi::REALLOC_SYMBOL,
         name: "cabi_realloc".into(),
         type_index,
         parameters: vec![ValType::I32; 4],

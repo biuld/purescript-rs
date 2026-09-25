@@ -320,6 +320,71 @@ impl Structurer<'_> {
                     self.load(body, *value, *span)?;
                     body.push(Op::Leaf(Instruction::I32Store(memory(*offset))));
                 }
+                MirInstruction::Store8 {
+                    address,
+                    value,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Store8(memory_with_align(
+                        *offset, 0,
+                    ))));
+                }
+                MirInstruction::Store16 {
+                    address,
+                    value,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I32Store16(memory_with_align(
+                        *offset, 1,
+                    ))));
+                }
+                MirInstruction::StoreI64 {
+                    address,
+                    value,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::I64Store(memory_with_align(
+                        *offset, 3,
+                    ))));
+                }
+                MirInstruction::StoreF32 {
+                    address,
+                    value,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::F32Store(memory_with_align(
+                        *offset, 2,
+                    ))));
+                }
+                MirInstruction::StoreF64 {
+                    address,
+                    value,
+                    offset,
+                    span,
+                    ..
+                } => {
+                    self.load(body, *address, *span)?;
+                    self.load(body, *value, *span)?;
+                    body.push(Op::Leaf(Instruction::F64Store(memory_with_align(
+                        *offset, 3,
+                    ))));
+                }
                 MirInstruction::WrapI64 {
                     destination,
                     value,

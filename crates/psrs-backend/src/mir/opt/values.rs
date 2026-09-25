@@ -265,7 +265,12 @@ pub(super) fn remap_instruction(
             replace(destination);
             replace(address);
         }
-        I::Store { address, value, .. } => {
+        I::Store { address, value, .. }
+        | I::Store8 { address, value, .. }
+        | I::Store16 { address, value, .. }
+        | I::StoreI64 { address, value, .. }
+        | I::StoreF32 { address, value, .. }
+        | I::StoreF64 { address, value, .. } => {
             replace(address);
             replace(value);
         }

@@ -30,6 +30,8 @@ mod binding_tests;
 #[cfg(test)]
 mod gc_tests;
 #[cfg(test)]
+mod indirect_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -135,12 +137,32 @@ pub fn lower_module_with_bindings(
     target: TargetCapabilities,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
     bindings.validate_cc(&module)?;
-    let mut wasi = WasiRegistry::load_with_capabilities(target).map_err(|message| {
+    let wasi = WasiRegistry::load_with_capabilities(target).map_err(|message| {
         annotate_errors(
             vec![BackendError::new("P9 MIR lowering", module.span, message)],
             module.entry.map(|entry| entry.module),
         )
     })?;
+    lower_module_after_binding_validation(module, bindings, target, wasi)
+}
+
+#[cfg(test)]
+pub(crate) fn lower_module_with_registry(
+    module: cc::Module,
+    bindings: crate::ExternalBindings,
+    target: TargetCapabilities,
+    wasi: WasiRegistry,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
+    bindings.validate_cc(&module)?;
+    lower_module_after_binding_validation(module, bindings, target, wasi)
+}
+
+fn lower_module_after_binding_validation(
+    module: cc::Module,
+    bindings: crate::ExternalBindings,
+    target: TargetCapabilities,
+    mut wasi: WasiRegistry,
+) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
     // Resolve and validate every source-declared WIT binding. A declaration
     // must fail with its ABI diagnostic even when dead code does not call it;
     // the later import projection keeps unused runtime imports out of MIR.
@@ -225,7 +247,7 @@ pub fn lower_module_with_bindings(
     // Keep only the imports a lowered call actually references, so a resolved but
     // unused external does not add a Wasm import.
     let used = referenced_imports(&functions);
-    let imports = wasi
+    let mut imports: Vec<Import> = wasi
         .imports()
         .iter()
         .filter(|import| used.contains(&import.symbol))
@@ -235,6 +257,17 @@ pub fn lower_module_with_bindings(
             result: import.result,
         })
         .collect();
+    if wasi
+        .imports()
+        .iter()
+        .any(|import| used.contains(&import.symbol) && import.has_indirect_parameters())
+    {
+        imports.push(Import {
+            symbol: crate::abi::REALLOC_SYMBOL,
+            parameters: vec![ValueType::I32; 4],
+            result: Some(ValueType::I32),
+        });
+    }
     let mir = Module {
         name: module.name,
         types: layout.types,

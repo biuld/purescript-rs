@@ -460,6 +460,11 @@ pub(super) fn verify_instruction(
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }
+        | Instruction::Store8 { .. }
+        | Instruction::Store16 { .. }
+        | Instruction::StoreI64 { .. }
+        | Instruction::StoreF32 { .. }
+        | Instruction::StoreF64 { .. }
         | Instruction::WrapI64 { .. }
         | Instruction::WidenI64 { .. } => {
             memory::verify_memory_instruction(function, instruction, definitions)?;
