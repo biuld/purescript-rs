@@ -137,6 +137,15 @@ pub(super) fn lower_pattern_lambda(
             body,
         ));
     }
+    // A wildcard parameter always matches, so it needs no case. Lowering it to
+    // a case would demand a data-type scrutinee and reject an ignored
+    // parameter whose type has no pattern-matching representation, such as the
+    // token-taking continuation in an effect `bind`.
+    if let psrs_cst::PatternKind::Wildcard(_) = &pattern.kind {
+        let span = pattern.span;
+        let name = format!("__psrs_wildcard_{}", span.start);
+        return Ok(super::lower_lambda(Binder { name, span }, body));
+    }
     let span = pattern.span;
     let name = format!("__psrs_pattern_{}", span.start);
     let binder = Binder {
