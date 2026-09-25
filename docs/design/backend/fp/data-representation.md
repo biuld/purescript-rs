@@ -2,8 +2,9 @@
 
 **Feature:** F-02  
 **Status:** Stable (design)  
-**Prerequisites:** [CC IR](cc-ir.md), [MIR](mir.md), and
-[polymorphism and erasure](polymorphism-and-erasure.md); the WebAssembly 3.0
+**Prerequisites:** [CC IR](cc-ir.md), [MIR](mir.md),
+[polymorphism and erasure](polymorphism-and-erasure.md), and
+[generic aggregate erasure](generic-aggregate-erasure.md); the WebAssembly 3.0
 type system (structs, arrays, subtyping, `ref.test`/`ref.cast`, `i31`, and
 typed function references). Read [IR boundaries](../00-ir-boundaries.md)
 first.  
@@ -22,10 +23,11 @@ This document owns the concrete GC heap layouts that the P9 GC planner builds
 from CC requirements, the Wasm operations that construct and observe them, and
 the execution-evidence expectations recorded for each capability. It does not
 own the planner contract (see [IR boundaries](../00-ir-boundaries.md)), the
-target-neutral `Variant` model (see [CC IR](cc-ir.md) and
-[CC IR](cc-ir.md)),
+target-neutral `Variant` model (see [CC IR](cc-ir.md)),
 the erased protocol for polymorphic values (see
-[polymorphism and erasure](polymorphism-and-erasure.md)), scalar semantics (see
+[polymorphism and erasure](polymorphism-and-erasure.md)), the normalization and
+conversion between generic and concrete aggregate layouts (see
+[generic aggregate erasure](generic-aggregate-erasure.md)), scalar semantics (see
 [scalars and primitives](scalars-and-primitives.md)), or the byte-oriented
 string and ABI boundary (see
 [linear memory and the canonical ABI
@@ -56,7 +58,9 @@ array before writing.
 ([DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md)),
 so a field or capture whose representation depends on a type parameter is
 stored as a uniform erased reference rather than as the parameter's concrete
-type.
+type. A generic array or closed record has its own canonical aggregate layout;
+converting to or from a specialized concrete layout requires reconstruction,
+as specified by [generic aggregate erasure](generic-aggregate-erasure.md).
 
 **Target-neutral variants.** [CC IR](cc-ir.md)
 makes the sum encoding a P9 decision: CC states one `Variant` requirement per
@@ -113,6 +117,13 @@ not depend on its capture types:
 - a reference capture is stored as-is; and
 - an erased capture is already `eqref`.
 
+Concrete array layouts specialize their element storage. The canonical layout
+for `Array a` is `Array(Erased)` with nullable `eqref` storage; other generic
+array layouts are keyed by their recursively normalized element shape. Closed
+generic records likewise use canonical products of normalized field shapes.
+Their conversions are explicit aggregate reconstruction, not `ref.cast`
+between nominal layouts. See [generic aggregate erasure](generic-aggregate-erasure.md).
+
 ### Type-table invariants
 
 - Every defined type reference resolves within the completed recursion group;
@@ -168,6 +179,15 @@ Two details are load-bearing:
   to the closure struct when its code reference is projected, so the signature
   does not depend on the closure type.
 
+For generic aggregates, P8 supplies canonical `ReprId`s: `Array a` uses
+`Array(Erased)`, other dependent arrays use recursively normalized element
+shapes, and dependent closed records use canonical record keys containing
+sorted labels and normalized field shapes. P9 assigns one `DefinedTypeId` per
+reachable `ReprId`; concrete `Array Int` and canonical `Array(Erased)` remain
+distinct nominal types. An aggregate conversion plan that names distinct layouts is lowered to
+reconstruction by [generic aggregate erasure](generic-aggregate-erasure.md),
+never to an array or struct `ref.cast`.
+
 A profile without `gc`, `reference_types`, or (for closures) `function_references`
 is rejected with `UnsupportedGcTarget`/`UnsupportedClosureTarget` and a
 source-associated diagnostic, never by a silent fallback.
@@ -189,6 +209,7 @@ source-associated diagnostic, never by a silent fallback.
 | `ClosureGetCapture` | `ClosureGetCapture` | `struct.get`, `array.get`, unbox/`ref.cast` |
 | `IndirectCall` | `ClosureCall` | `struct.get`, `ref.cast`, `call_ref` |
 | erased adaptation | `RefTest` / `RefCast` | `ref.test` / `ref.cast` |
+| aggregate layout conversion | `ArrayMap` / `ProductMap` lowering to MIR CFG and GC operations | allocation, element/field conversion, and writes |
 
 Three sequences are worth spelling out:
 
@@ -200,6 +221,11 @@ Three sequences are worth spelling out:
   type yields a nullable reference. When the destination is non-null, P9 emits
   a temporary nullable `ArrayGet` followed by a `RefCast` to the non-null
   element type.
+- **Converting aggregate layouts.** A generic/concrete array boundary lowers
+  to a fresh array and a loop that converts each element; a closed record
+  boundary reads, converts, and rebuilds its fields. The aggregate conversion
+  plan is defined in [generic aggregate erasure](generic-aggregate-erasure.md).
+  No conversion uses a cast between distinct nominal array or struct types.
 - **Closure call.** The closure is loaded, the arguments are loaded, and the
   closure is loaded again, cast to the closure struct, and its field 0 code
   reference is extracted and cast to the signature func type before `call_ref`.
@@ -302,8 +328,12 @@ mir/
     construct.rs       # box/product/variant/array/closure/capture construction
   lower/
     assignments.rs     # StructNew/StructGet, Array*, Closure* lowering
+    aggregate.rs       # generic/concrete ArrayMap and ProductMap reconstruction
     variant.rs         # VariantNew/VariantTag/VariantGet, RefTest/RefCast
   verify/instruction/  # per-instruction checks against PlannedLayout
+cc/
+  layout/normalize.rs  # P8 canonical aggregate shapes from typed Core
+  convert.rs           # source-spanned target-neutral conversion plans
 wasm/lower/structure/
   ops.rs               # struct.get/struct.new and ref.test/ref.cast emission
   arrays.rs            # array.new_fixed/new_default/get/set/len/copy emission
@@ -345,6 +375,9 @@ Required types and entry points:
   `ArrayClone`, and `ClosureNew`/`ClosureCall`/`ClosureGetCapture`;
   `mir/lower/variant.rs` must lower `VariantNew`/`VariantTag`/`VariantGet` and
   the `RefTest`/`RefCast` erased-adaptation operations.
+- `mir/lower/aggregate.rs` must lower `ArrayMap` and `ProductMap` plans to
+  fresh GC values and verified MIR control flow; conversions between distinct
+  nominal layouts must not become direct casts.
 - `wasm/lower/structure/` must emit those MIR instructions as their GC opcodes
   (`struct.new`/`struct.get`, `array.*`, the closure sequence,
   `ref.test`/`ref.cast`) and must not choose or renumber any layout.
@@ -372,6 +405,9 @@ The MIR verifier checks every GC operation against the concrete type table:
 - `ArrayNew`/`ArrayGet`/`ArraySet`/`ArrayLen`/`ArrayClone` element and index
   types, and the nullable temporary used when recovering a non-null reference
   element;
+- aggregate conversion endpoints, exact source and target layouts, nested
+  element/field plans, and full initialization of nullable canonical-array
+  slots before the result escapes;
 - `ClosureNew`/`ClosureCall`/`ClosureGetCapture` capture count and boxing
   against the closure and capture-array types;
 - `RefTest`/`RefCast` operand and target types; and
@@ -484,9 +520,11 @@ one `RecGroup`, and the `Rect` subtype follows its `$variant` supertype.
 - **Unboxed parameterized fields.** DEC-07 allows fields proven independent of
   the parameters to stay unboxed; the layout verifier must decide this, and the
   planner currently does not perform that optimization.
-- **Product and record interning.** Whether equivalent product requirements
-  share one `ReprId` at P8 determines the planned type count; if they do not,
-  interning equal product shapes is a future reduction.
+- **Physical product interning.** P8 canonicalizes record fields by label,
+  keeps the label-to-index mapping for source lowering, and includes labels and
+  normalized field shapes in record keys. P9 preserves the one reachable
+  `ReprId` to one `DefinedTypeId` mapping; broader nominal type sharing is not
+  part of this contract.
 - **Array growth.** The design fixes pure update and clone; any growable array
   operation is a vocabulary addition, not a representation change.
 
@@ -498,7 +536,10 @@ dependent variant payloads and record product fields as erased references.
 Construction boxes to the stored shape. Recovery to scalar fields uses typed
 GC boxes; recovery to a type-dependent nominal array or record layout is
 rejected with a source-spanned backend diagnostic, because each Core type still
-has its own `ReprId`. A source-to-Wasm regression constructs and matches
+has its own `ReprId`. The generic canonical layouts and aggregate conversion
+plans in [generic aggregate erasure](generic-aggregate-erasure.md) are not
+implemented; current diagnostics remain required until reconstruction is
+available. A source-to-Wasm regression constructs and matches
 `Wrap Int` where `data Wrap a = Wrap (Array a)`, and a source-to-CC regression
 rejects a polymorphic `Wrap a` consumer. Synthetic Typed Core backend
 regressions verify generic record construction and update use erased field
