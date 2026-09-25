@@ -494,7 +494,7 @@ Current MIR emits `Return`, `Jump`, `Branch { merge_block }`, and `Switch`;
 nullary-constructor cases with unique tags lower to `Switch`, while duplicate
 alternatives keep their source-order comparison chain. P10 preserves and can
 simplify switches. Acyclic functions retain the merge-based diamond and
-switch-join structurer. For cyclic MIR CFGs, P11 computes dominators and natural
+switch-join structurer. For cyclic MIR CFGs, P10 computes dominators and natural
 loops, checks that loop regions are nested, and emits Wasm `Loop` regions with
 continuation `Block`s and depth-relative branches. Loop fixtures use direct MIR
 because CC-to-MIR does not yet produce loops. Irreducible CFGs are diagnosed;
