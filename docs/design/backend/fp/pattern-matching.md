@@ -558,6 +558,26 @@ matcher fallback; a user-defined type without a runtime representation is
 rejected before DAG realization. Literal, guard, and view patterns remain
 future work as described above.
 
+The regression suite exercises the mapped stage boundaries: coverage unit tests
+check useful/uncovered witnesses and redundant rows; the driver regression
+`reports_a_missing_nested_constructor_as_a_coverage_witness` checks the P8
+diagnostic, nested witness, and exact case-expression span; and
+`exposes_redundant_case_alternatives_as_source_spanned_warnings` checks the
+offending alternative range. Decision-compiler tests preserve the first branch
+for duplicate constructors, while the realizer regression
+`compiled_root_switch_resolves_the_realizer_root_slot` checks the resulting CC
+tag switch, selected branch bodies, and row spans. The driver regression
+`lowers_enum_case_to_mir_switch_and_wasm_br_table` covers the CC-to-MIR-to-Wasm
+switch path.
+
+These regressions enforce the Code map's observable contracts across stages.
+The implementation uses finer nested Rust modules and internal entry points
+(`compile_dag`, `coverage::analyze`, and `FunctionLowerer::lower_decision`);
+there is no structural regression that locks the illustrative file placement
+or the exact pseudocode signatures in the Code map. Coverage and compilation
+also still use separate matrix representations, so their agreement is tested
+through behavior rather than guaranteed by sharing one implementation.
+
 ## References
 
 - Augustsson, L., *Compiling Pattern Matching* (1985).

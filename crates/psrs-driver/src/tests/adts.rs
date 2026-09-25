@@ -31,10 +31,15 @@ main = case Wrap First of
   Wrap First -> 1
 ";
     let errors = compile_source("Main.purs", source).expect_err("non-exhaustive nested case");
-    assert!(errors.iter().any(|error| {
-        error.stage == "P8 closure conversion"
-            && error.message.contains("missing pattern Wrap Second")
-    }));
+    let diagnostic = errors
+        .iter()
+        .find(|error| {
+            error.stage == "P8 closure conversion"
+                && error.message.contains("missing pattern Wrap Second")
+        })
+        .expect("coverage diagnostic should include its missing-pattern witness");
+    let span = &source[diagnostic.span.start as usize..diagnostic.span.end as usize];
+    assert_eq!(span, "case Wrap First of\n  Wrap First -> 1\n");
 }
 
 #[test]
