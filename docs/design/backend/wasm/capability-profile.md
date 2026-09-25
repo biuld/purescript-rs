@@ -185,6 +185,9 @@ for each defined type:
         required.gc = true
         mark each field storage type
 
+for each import:
+    mark each parameter type and optional result type
+
 for each function:
     mark each declared value type
     for each instruction: mark_instruction
@@ -359,7 +362,14 @@ declaration's span.
 but no lowering currently emits multi-value function types or bulk-memory
 instructions; MIR signatures and calls are single-result. `component_implements`
 is recorded but has no wasmparser feature flag in the pinned release. These are
-coverage gaps, not profile changes.
+coverage gaps, not profile changes. The MIR verifier checks import signatures
+as well as defined types and functions. It treats abstract `any` and `eq`
+references as GC requirements alongside `i31`, aggregate, and indexed heap
+types, and attributes capability failures to the MIR span and entry module.
+Regressions cover independent wasmparser flag derivation, rejection by the
+validator when SIMD is disabled, the four MIR-inferred gates, and independent
+gating of each WASI 0.2 service package currently admitted by the component
+world.
 
 ## References
 
