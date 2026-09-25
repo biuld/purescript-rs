@@ -133,6 +133,20 @@ fn function_parameter_types(
     parameters
 }
 
+/// The source parameter and result types of a function-typed value, used to
+/// adapt concrete arguments and results across an erased method call.
+pub(super) fn function_value_types(
+    module: &CoreModule,
+    mut type_id: psrs_core::TypeId,
+) -> (Vec<psrs_core::TypeId>, psrs_core::TypeId) {
+    let mut parameters = Vec::new();
+    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
+        parameters.push(*parameter);
+        type_id = *result;
+    }
+    (parameters, type_id)
+}
+
 pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) -> bool {
     match conversion {
         ValueConversion::ArrayMap { .. } | ValueConversion::ProductMap { .. } => true,

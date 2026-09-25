@@ -289,3 +289,7 @@ mod polymorphism_erasure_audit;
 #[cfg(test)]
 #[path = "tests/cc_ir_audit.rs"]
 mod cc_ir_audit;
+
+#[cfg(test)]
+#[path = "tests/dictionary_audit/mod.rs"]
+mod dictionary_audit;

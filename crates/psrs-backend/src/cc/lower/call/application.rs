@@ -3,8 +3,8 @@ use super::super::super::{Assignment, AssignmentKind, RefShape, Reference, Value
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
     callable_parameter_types, callable_result_type, collect_application,
-    conversion_reconstructs_aggregate, is_erased_value_type, is_function_type,
-    is_generic_function_type, persist_reference, restore_reference,
+    conversion_reconstructs_aggregate, function_value_types, is_erased_value_type,
+    is_function_type, is_generic_function_type, persist_reference, restore_reference,
 };
 use super::partial::PartialApplication;
 use super::{ApplicationLowering, CallShape};
@@ -244,7 +244,12 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        self.check_call_shape(&signature, arguments.len(), result_type, expression.span)?;
+        self.check_call_shape(
+            &signature,
+            arguments.len(),
+            signature.result,
+            expression.span,
+        )?;
         let Some(signature_id) = self.function_types.get(&head.ty).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
@@ -252,6 +257,8 @@ impl FunctionLowerer<'_> {
                 "higher-order call has no runtime function type",
             )]);
         };
+        let generic = is_generic_function_type(self.module, head.ty);
+        let (source_parameters, source_result) = function_value_types(self.module, head.ty);
         let function = self.lower_value(head, assignments)?;
         let function = if let Some(source_type) = self.erased_function_types.get(&function).copied()
             && source_type != head.ty
@@ -266,7 +273,7 @@ impl FunctionLowerer<'_> {
         } else {
             function
         };
-        let function = if is_generic_function_type(self.module, head.ty) {
+        let function = if generic {
             let cast = self.fresh(ValueShape::Reference(Reference {
                 nullable: false,
                 heap: RefShape::Closure(signature_id),
@@ -287,11 +294,50 @@ impl FunctionLowerer<'_> {
         } else {
             function
         };
-        let values = arguments
-            .into_iter()
-            .map(|argument| self.lower_value(argument, assignments))
-            .collect::<Result<Vec<_>, _>>()?;
-        let destination = self.fresh(result_type);
+        let values = if generic {
+            // A generic method value carries erased parameters, so each concrete
+            // argument is adapted to the erased signature shape and the erased
+            // result is recovered at its concrete source type.
+            let mut values = Vec::with_capacity(arguments.len());
+            for (index, argument) in arguments.iter().enumerate() {
+                let value = self.lower_value(argument, assignments)?;
+                let source_parameter = source_parameters.get(index).copied().ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        argument.span,
+                        "generic call parameter has no source type",
+                    )]
+                })?;
+                let argument_shape = self.value_shape(argument.ty, argument.span)?;
+                let expected = signature.parameters[index];
+                if argument_shape == expected {
+                    values.push(value);
+                    continue;
+                }
+                let conversion = self.typed_conversion(
+                    argument.ty,
+                    source_parameter,
+                    argument_shape,
+                    expected,
+                    expression.span,
+                )?;
+                values.push(self.emit_conversion(
+                    value,
+                    argument_shape,
+                    expected,
+                    conversion,
+                    expression.span,
+                    assignments,
+                ));
+            }
+            values
+        } else {
+            arguments
+                .into_iter()
+                .map(|argument| self.lower_value(argument, assignments))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let destination = self.fresh(signature.result);
         assignments.push(Assignment {
             destination,
             kind: AssignmentKind::IndirectCall {
@@ -301,7 +347,32 @@ impl FunctionLowerer<'_> {
             },
             span: expression.span,
         });
-        Ok(destination)
+        if signature.result == result_type {
+            return Ok(destination);
+        }
+        let result = if is_erased_value_type(signature.result) {
+            self.unbox_erased_value(destination, result_type, expression.span, assignments)?
+        } else {
+            let conversion = self.typed_conversion(
+                source_result,
+                expression.ty,
+                signature.result,
+                result_type,
+                expression.span,
+            )?;
+            self.emit_conversion(
+                destination,
+                signature.result,
+                result_type,
+                conversion,
+                expression.span,
+                assignments,
+            )
+        };
+        if is_function_type(self.module, expression.ty) {
+            self.erased_function_types.insert(result, expression.ty);
+        }
+        Ok(result)
     }
 }
 
