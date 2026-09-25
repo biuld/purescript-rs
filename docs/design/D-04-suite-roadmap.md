@@ -249,15 +249,14 @@ data values, and `Number`. Closed concrete record literals, field reads,
 updates, and record patterns lower to Wasm GC structs.
 Nested constructor and record field patterns use conditional matching. These
 patterns are currently limited to concrete record types with no open row tail.
-Generic direct calls and erased higher-order adapters now work for the tested
-scalar and parameterized-value cases. Generic records and arrays remain open:
-when an erased field projection or direct access would recover a type-dependent
-nominal array or record layout, CC reports a source-spanned limitation instead
-of emitting a cast that may trap at runtime. The design target for generic
-array and closed-record reconstruction is
-[generic aggregate erasure](backend/fp/generic-aggregate-erasure.md); that
-conversion design is not current implementation coverage. Open rows and richer
-heap or tagged aggregate layouts remain open. The parameterized ADT representation is
+Generic direct calls and erased higher-order adapters work for the tested
+scalar and parameterized-value cases. Canonical generic arrays and closed
+records now reconstruct their elements and fields across concrete/generic
+boundaries, including dependent ADT fields, calls, adapters, and captures.
+The [generic aggregate erasure acceptance record](../implementation/backend/generic-aggregate-erasure.md)
+separates source tests from verified Typed Core backend fixtures. Open rows,
+unknown foreign aggregate layouts, and richer heap or tagged aggregate layouts
+remain open. The parameterized ADT representation is
 fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by
@@ -447,9 +446,9 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-05 | Nullary ADT tags and case lowering | Nullary constructors use integer tags; enum-style case dispatch lowers through verified MIR `Switch` to Wasm `br_table` and is validated and executed under WASI. | Partial | Extend case lowering beyond nullary enums, integrate with the complete pattern model, and pass the L6/M7 gate. |
 | BE-06 | Field-bearing ADTs and constructor-pattern lowering | Non-parameterized constructors use Wasm GC structs; nested constructor patterns lower in a restricted form. CC coverage analysis handles constructor and record matrices, including nested fields and recursive ADTs, reports non-exhaustive witnesses, and exposes source-spanned redundancy warnings. | Partial | Complete shared decision lowering and recursive, polymorphic, and mixed-field layouts. |
 | BE-07 | Newtype erasure | Single-field newtype construction and matching erase without allocation. | Partial | Connect erasure to coercions, roles, derived instances, and the relevant L6/M7 cases. |
-| BE-08 | Parameterized ADT representation and erasure | Parameter-dependent `Int`/`Boolean`/`Number` fields use typed GC boxes and recover through `eqref`; dependent array and record payloads use erased storage, while recovery to their type-dependent nominal layouts is rejected with a named diagnostic. | Partial | Implement canonical generic layouts and boundary conversions from [generic aggregate erasure](backend/fp/generic-aggregate-erasure.md), then verify all instantiations. |
-| BE-09 | Records and row values | Closed concrete records, field reads, updates, and restricted patterns use GC structs; dependent generic fields can be stored erased, but generic nominal record/array recovery is diagnosed. | Partial | Implement closed generic product layouts and field conversions per [generic aggregate erasure](backend/fp/generic-aggregate-erasure.md); open rows and variants remain separate work. |
-| BE-10 | Arrays and aggregate values | Concrete scalar and aggregate arrays support literals, length, indexing, and updates through Wasm GC arrays, including nested arrays, records, ADTs, and `Number`; polymorphic element layouts remain unsupported. | Partial | Implement canonical generic arrays and element conversion per [generic aggregate erasure](backend/fp/generic-aggregate-erasure.md), then collect runtime evidence. |
+| BE-08 | Parameterized ADT representation and erasure | Parameter-dependent scalar fields use typed GC boxes; dependent array and closed-record payloads reconstruct across generic/concrete boundaries. [GA-01..GA-20](../implementation/backend/generic-aggregate-erasure.md) have focused verifier and runtime evidence. | Partial | Extend parameterized ADT coverage beyond the accepted generic aggregate slice and pass the relevant official-suite gate. |
+| BE-09 | Records and row values | Closed concrete and canonical generic records support field conversion, access, patterns, and pure updates in the accepted backend slice. | Partial | Add open rows and variants, expand source-path coverage, and pass the relevant official-suite gate. |
+| BE-10 | Arrays and aggregate values | Concrete and canonical generic arrays support recursive element conversion, literals, length, indexing, and pure updates through Wasm GC arrays; required aggregate cases have runtime evidence. | Partial | Expand source-path coverage and the official-suite gate; the source frontend still rejects empty array literals, which have backend fixture coverage. |
 | BE-11 | Strings, linear memory, data segments, and allocation | String literals use length-prefixed UTF-8 data; the bump `cabi_realloc` supports returned byte lists/strings, passing returned strings to another WIT import, and repeated allocations. It checks alignment, the old range and stored length prefix, address overflow, and growth failure, and copies preserved bytes on reallocation. | Partial | Add static memory-access extent checks, broaden returned aggregate handling, and define allocator ownership and reclamation. |
 | BE-12 | Core optimization and MIR optimization | P7 Typed Core performs local simplification, bounded lambda inlining, field projection from statically known records (including dictionary-shaped records), and inert dead-binding elimination. P10 MIR performs small direct inlining, unreachable-block pruning, constant propagation, terminator simplification, value forwarding, dead pure-instruction elimination, and reachable-import projection; both verify transformed IR. Focused optimizer and compiler/runtime tests exist, but official optimize/CoreFn compatibility and broader pass coverage remain incomplete. | Partial | Connect both optimization stages to M8-O, add broader semantics-preservation evidence, and extend named-global inlining and specialization only with explicit linkage rules. |
 | BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`; the current branch subset includes `if` and enum-tag switches encoded with `br_table`. | Partial | Cover the remaining MIR instruction and control-flow forms and pass the L6/M7 gate. |
@@ -477,6 +476,15 @@ acceptance result.
 
 | Topic | Related rows | Acceptance status | Execution checklist |
 | --- | --- | --- | --- |
+| CC IR | BE-01, BE-02 | Unverified; implementation and runtime evidence audit pending. | [CC-01..CC-12](../implementation/backend/cc-ir.md) |
+| MIR | BE-03; supporting BE-13, BE-15 | Unverified; implementation and runtime evidence audit pending. | [MIR-01..MIR-12](../implementation/backend/mir.md) |
+| Control flow and tail calls | BE-03, BE-05, BE-13, BE-16 | Unverified; implementation and runtime evidence audit pending. | [CF-01..CF-11](../implementation/backend/control-flow-and-tail-calls.md) |
+| Data representation | BE-05..BE-10, BE-15 | Unverified; implementation and runtime evidence audit pending. | [DR-01..DR-12](../implementation/backend/data-representation.md) |
+| Polymorphism and erasure | BE-02, BE-08; FE-09 input | Unverified; implementation and runtime evidence audit pending. | [PE-01..PE-11](../implementation/backend/polymorphism-and-erasure.md) |
+| Scalars and primitives | BE-04; FE-08 input | Unverified; implementation and runtime evidence audit pending. | [SP-01..SP-12](../implementation/backend/scalars-and-primitives.md) |
+| Pattern matching | BE-05, BE-06; supporting BE-08, BE-09 | Unverified; implementation and runtime evidence audit pending. | [PM-01..PM-11](../implementation/backend/pattern-matching.md) |
+| Effects | BE-21; supporting BE-02, BE-26 | Unverified; implementation and runtime evidence audit pending. | [EF-01..EF-11](../implementation/backend/effects.md) |
+| Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Unverified; implementation and runtime evidence audit pending. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
 | Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
 
 The backend landing order is:

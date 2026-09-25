@@ -496,8 +496,8 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   meantime.
 - **Generic aggregate conversion.** Canonical generic arrays, closed records,
   and their explicit reconstruction helpers are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md), but current P9
-  reports a source-spanned diagnostic for unsupported nominal recovery.
+  [generic aggregate erasure](generic-aggregate-erasure.md). Open rows and
+  unknown foreign aggregate layouts require separate contracts.
 - **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
   Scalar unboxing across call boundaries remains a P9 representation decision.
 - **Memory access extents.** The ABI boundary design defines static address,
@@ -539,11 +539,11 @@ contract; cyclic structuring follows CFG edges, while the acyclic path uses the
 merge hint.
 `ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
 tail-call marking and self-recursion loopification remain unimplemented.
-The current MIR instruction model does not yet include the `ArrayNewDefault`
-operation or generated `ArrayMap`/`ProductMap` helpers required by
-[generic aggregate erasure](generic-aggregate-erasure.md). The design rules
-above are targets; current unsupported generic aggregate paths remain
-diagnosed before MIR conversion.
+MIR includes `ArrayNewDefault`; P9 lowers recursive aggregate reconstruction
+and interns helpers by complete conversion plan. The verifier checks defaultable
+storage and prevents the private destination from being exposed before full
+initialization. The [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
+contains malformed MIR fixtures and required component execution.
 
 ## References
 

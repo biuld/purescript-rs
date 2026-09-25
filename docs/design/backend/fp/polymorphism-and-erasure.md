@@ -493,10 +493,9 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 - **Dictionaries end to end.** Type-class elaboration must produce the
   dictionary values this design assumes and feed them through the normal
   aggregate path.
-- **Generic aggregate implementation.** Canonical generic arrays, closed
-  records, and their explicit conversion plans are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md), but remain
-  unimplemented. Open-row records remain unsupported.
+- **Open-row aggregates.** Canonical generic arrays and closed records use the
+  conversion contract in [generic aggregate erasure](generic-aggregate-erasure.md).
+  Open-row records still need a separate representation and conversion contract.
 - **Higher-order acceptance breadth.** Direct generic calls, concrete arguments
   to generic parameters, and returned polymorphic functions are the remaining
   adapter cases to exercise end to end.
@@ -514,9 +513,11 @@ lowering, but no current lowering pass generates it; only `RepresentationCast`
 is produced. The erased execution fixture covers scalars and a concrete
 reference through identity; higher-order adapter execution fixtures and
 type-class dictionaries are not yet wired to the frontend. Generic arrays and
-closed generic records still receive source-spanned diagnostics when a nominal
-layout recovery is unsupported; the conversion design is documented in
-[generic aggregate erasure](generic-aggregate-erasure.md), not implemented.
+closed generic records now reconstruct across nominal layouts through explicit
+conversion plans. The
+[acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
+distinguishes source programs from verified Typed Core backend fixtures and
+records the remaining source limitation for empty array literals.
 
 ## References
 

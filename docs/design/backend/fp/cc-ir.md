@@ -582,8 +582,7 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 - **Open rows.** Closed records only; row polymorphism needs a separate
   representation contract. Canonical closed generic aggregates and explicit
   conversion plans are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md), but are not
-  implemented yet.
+  [generic aggregate erasure](generic-aggregate-erasure.md).
 
 ## Implementation notes
 
@@ -610,9 +609,11 @@ same-`Let` value appearing after that point still receives a source-spanned
 diagnostic: strict source-order evaluation has not produced a value for the
 explicit closure environment at the point the recursive closure is formed.
 Recursive non-function bindings still receive source-spanned diagnostics.
-`AggregateConvert` and its recursive plans are design requirements only;
-unsupported generic array and record recovery still receives a source-spanned
-diagnostic.
+`AggregateConvert` and its recursive plans are implemented and verified for
+canonical generic arrays and closed records. The
+[acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
+documents the source and verified Typed Core paths, including cases for which
+source lowering does not yet provide the corresponding backend input.
 
 ## References
 
