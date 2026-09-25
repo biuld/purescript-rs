@@ -155,8 +155,7 @@ Compile each `case` by the matrix algorithm of Maranget (2008):
 Records and single-constructor data types specialize immediately with a
 projection and no tag test. Nullary sum types specialize to a `Switch` whose
 edges carry no projections. Newtypes erase to their field; a newtype pattern is
-compiled as the field pattern against the scrutinee itself
-(`cc/case/mod.rs::lower_newtype_case`).
+compiled as the field pattern against the scrutinee itself.
 
 ### Coverage and diagnostics
 
@@ -526,15 +525,24 @@ warning for each redundant row. The driver exposes warnings on compiled
 artifacts with their source index, and the CLI prints them for `build` and
 `wat` commands.
 
-Nullary enum cases with unique constructor rows lower through CC `TagSwitch`,
-MIR `Terminator::Switch`, and Wasm `br_table`. Duplicate rows preserve
-first-match behavior through ordered CC `If` diamonds. Field-bearing and nested
-constructor matching also uses ordered CC `If` diamonds;
-`cc/case/decision.rs` records top-level branch order and a trailing irrefutable
-fallback rather than constructing the specified shared decision DAG.
-Exhaustive nested record matrices are analyzed correctly, but the current
-record lowerer can still require a trailing irrefutable fallback to realize
-them.
+`cc/case/decision/` compiles `SurfacePattern` rows and typed columns into a
+hash-consed DAG. It alpha-normalizes residual column slots before memoization,
+preserves source-order first-match behavior, and retains branch and test spans.
+The CC realizer routes nullary enums, single- and multi-constructor products,
+records, newtypes, and nested combinations through this DAG. It emits only
+needed field projections; an impossible missing-tag edge becomes CC
+`Unreachable`, then a typed MIR `Unreachable` instruction and Wasm `unreachable`.
+Nullary enum dispatch lowers through CC `TagSwitch`, MIR
+`Terminator::Switch`, and Wasm `br_table`. Field-bearing sums extract their tag
+once and realize the selected edges with CC `If` assignments.
+
+Coverage and DAG compilation currently use separate internal matrix types and
+recursions. They implement the same constructor specialization and row-order
+rules, with regressions covering redundant duplicate rows, first-match
+selection, spans, and binding projections. `lower_case` has no production
+matcher fallback; a user-defined type without a runtime representation is
+rejected before DAG realization. Literal, guard, and view patterns remain
+future work as described above.
 
 ## References
 

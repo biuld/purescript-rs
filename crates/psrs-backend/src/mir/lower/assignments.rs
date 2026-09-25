@@ -451,6 +451,14 @@ impl FunctionLowerer<'_> {
                     )?;
                     current = merge;
                 }
+                AssignmentKind::Unreachable => self.append_instruction(
+                    current,
+                    Instruction::Unreachable {
+                        destination: assignment.destination,
+                        span: assignment.span,
+                    },
+                    assignment.span,
+                )?,
             }
         }
         Ok(current)
