@@ -18,6 +18,7 @@ pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
     product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
+    array_elements: HashMap<ReprId, CcValueShape>,
     variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
@@ -74,11 +75,15 @@ impl PlannedLayout {
         }
         let mut repr_indices = HashMap::new();
         let mut product_fields = HashMap::new();
+        let mut array_elements = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len());
         for (index, id) in repr_ids.iter().enumerate() {
             repr_indices.insert(*id, DefinedTypeId(index as u32));
             if let Some(Representation::Product { fields }) = table.representation(*id) {
                 product_fields.insert(DefinedTypeId(index as u32), fields.clone());
+            }
+            if let Some(Representation::Array { element }) = table.representation(*id) {
+                array_elements.insert(*id, *element);
             }
             definitions.push(DefinedType {
                 final_type: true,
@@ -253,6 +258,7 @@ impl PlannedLayout {
             },
             repr_indices,
             product_fields,
+            array_elements,
             variant_indices,
             signature_indices,
             closure_index,
@@ -277,6 +283,12 @@ impl PlannedLayout {
             .and_then(|fields| fields.get(field as usize))
             .copied()
             .ok_or(LayoutError::UnknownField)
+    }
+    pub(super) fn array_element(&self, id: ReprId) -> Result<CcValueShape, LayoutError> {
+        self.array_elements
+            .get(&id)
+            .copied()
+            .ok_or(LayoutError::UnknownRepresentation)
     }
     pub(super) fn variant_index(
         &self,

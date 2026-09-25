@@ -5,7 +5,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
 #[test]
-fn typed_core_generic_record_build_and_update_use_erased_storage() {
+fn typed_core_generic_record_build_and_update_use_canonical_array_storage() {
     let module = generic_record_module(false, true);
     assert!(
         module
@@ -23,16 +23,34 @@ fn typed_core_generic_record_build_and_update_use_erased_storage() {
     let backend = crate::cc::lower_module(module)
         .expect("synthetic Typed Core generic record build and update should lower");
     let erased = erased_reference();
+    let generic_array = backend
+        .cc
+        .representations
+        .representations
+        .iter()
+        .position(|representation| {
+            matches!(representation, Representation::Array { element } if *element == erased)
+        })
+        .map(|index| crate::cc::ReprId(index as u32))
+        .expect("Array a should have a canonical Array(Erased) layout");
+    let array_shape = ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(generic_array),
+    });
     let record_repr = backend
         .cc
         .representations
         .representations
         .iter()
         .position(|representation| {
-            matches!(representation, Representation::Product { fields } if fields == &[ValueShape::Integer, erased])
+            matches!(representation, Representation::Product { fields } if fields == &[ValueShape::Integer, array_shape])
         })
         .map(|index| crate::cc::ReprId(index as u32))
-        .expect("dependent record layout should store its Array a field as erased");
+        .expect("dependent record layout should preserve its canonical Array a field");
+    assert_eq!(
+        backend.cc.representations.product_labels(record_repr),
+        Some(["count".to_string(), "values".to_string()].as_slice())
+    );
 
     let build = backend
         .cc
@@ -47,7 +65,7 @@ fn typed_core_generic_record_build_and_update_use_erased_storage() {
                 if representation == record_repr
                     && arguments.len() == 2
                     && value_shape(build, arguments[0]) == Some(ValueShape::Integer)
-                    && value_shape(build, arguments[1]) == Some(erased)
+                    && value_shape(build, arguments[1]) == Some(array_shape)
         )
     }));
 
@@ -71,13 +89,13 @@ fn typed_core_generic_record_build_and_update_use_erased_storage() {
                 if representation == record_repr
                     && arguments.len() == 2
                     && value_shape(update, arguments[0]) == Some(ValueShape::Integer)
-                    && value_shape(update, arguments[1]) == Some(erased)
+                    && value_shape(update, arguments[1]) == Some(array_shape)
         )
     }));
 }
 
 #[test]
-fn typed_core_generic_record_array_access_reports_named_backend_error() {
+fn typed_core_generic_record_array_access_uses_its_canonical_layout() {
     let module = generic_record_module(true, false);
     assert!(
         module
@@ -85,19 +103,29 @@ fn typed_core_generic_record_array_access_reports_named_backend_error() {
             .iter()
             .any(|declaration| declaration.name == "read")
     );
-    let expected_span = TextRange::new(24, 39);
-    let errors = crate::cc::lower_module(module)
-        .expect_err("dependent nominal Array a recovery should be rejected in CC");
-    assert!(
-        errors.iter().any(|error| {
-            error.pass == "P8 closure conversion"
-                && error.span == expected_span
-                && error
-                    .message
-                    .contains("unsupported generic array field recovery")
-        }),
-        "expected the read function's field access to receive a source-spanned backend error; got {errors:#?}"
-    );
+    let backend = crate::cc::lower_module(module)
+        .expect("dependent Array a field access should use its canonical representation");
+    let read = backend
+        .cc
+        .functions
+        .iter()
+        .find(|function| function.name == "read")
+        .expect("read should have a CC function");
+    let projected = read
+        .assignments
+        .iter()
+        .find_map(|assignment| match &assignment.kind {
+            AssignmentKind::ProductGet {
+                field: 1,
+                destination,
+                ..
+            } => Some(*destination),
+            _ => None,
+        })
+        .expect("the values field should be projected");
+    assert!(read.assignments.iter().any(|assignment| {
+        matches!(assignment.kind, AssignmentKind::ArrayLen { value, .. } if value == projected)
+    }));
 }
 
 fn generic_record_module(include_read: bool, include_build_update: bool) -> Module {

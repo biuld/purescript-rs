@@ -19,13 +19,12 @@ impl Checker {
             }
             inferred.push((label.clone(), self.infer_expr(value)?));
         }
-        inferred.sort_by(|left, right| left.0.cmp(&right.0));
-        let ty = InferType::Record(
-            inferred
-                .iter()
-                .map(|(label, value)| (label.clone(), value.ty.clone()))
-                .collect(),
-        );
+        let mut record_fields = inferred
+            .iter()
+            .map(|(label, value)| (label.clone(), value.ty.clone()))
+            .collect::<Vec<_>>();
+        record_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let ty = InferType::Record(record_fields);
         Some((InferredExprKind::Record(inferred), ty))
     }
 

@@ -51,6 +51,19 @@ impl Structurer<'_> {
         self.store(body, destination, span)
     }
 
+    pub(super) fn emit_array_new_default(
+        &self,
+        body: &mut Body,
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        length: ValueId,
+        span: psrs_span::TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.load(body, length, span)?;
+        body.push(Op::Leaf(Instruction::ArrayNewDefault(type_index.0)));
+        self.store(body, destination, span)
+    }
+
     pub(super) fn emit_array_get(
         &self,
         body: &mut Body,

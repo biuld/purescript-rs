@@ -195,6 +195,16 @@ pub(super) fn remap_instruction(
             replace(destination);
             captures.iter_mut().for_each(replace);
         }
+        I::ArrayNewDefault {
+            destination,
+            length,
+            source,
+            ..
+        } => {
+            replace(destination);
+            replace(length);
+            replace(source);
+        }
         I::CallRef {
             destination,
             function,

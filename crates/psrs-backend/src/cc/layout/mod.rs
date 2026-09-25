@@ -6,6 +6,7 @@ use psrs_hir::{SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod aggregate;
 mod captures;
 mod functions;
 mod scalar;
@@ -149,83 +150,30 @@ pub(super) fn type_layout(
         None
     };
 
-    let array_ids = module
-        .types
-        .iter()
-        .enumerate()
-        .filter_map(|(index, _)| {
-            let id = TypeId(index as u32);
-            array_element_type(module, id).map(|_| id)
-        })
-        .collect::<Vec<_>>();
-    let mut array_types = HashMap::new();
-    for id in &array_ids {
-        array_types.insert(*id, representations.reserve());
-    }
-
-    let record_ids = module
-        .types
-        .iter()
-        .enumerate()
-        .filter_map(|(index, ty)| matches!(ty, Type::Record(_)).then_some(TypeId(index as u32)))
-        .collect::<Vec<_>>();
-    let mut record_types = HashMap::new();
-    for id in &record_ids {
-        record_types.insert(*id, representations.reserve());
-    }
-
-    // Function signatures can refer to record and array references, so reserve
-    // those logical layouts first. Product fields can then use the completed
-    // closure signature table, including dictionary methods stored as fields.
+    // Reserve aggregate handles before signatures so closure types can refer
+    // to them. Normalize afterward and rewrite signature references to the
+    // canonical handles.
+    let reserved_aggregates = aggregate::reserve_aggregate_layouts(module, &mut representations);
     let function_layout = functions::append_function_types(
         module,
         enum_types,
         aggregate_types,
         newtype_ids,
-        &array_types,
-        &record_types,
+        &reserved_aggregates.arrays,
+        &reserved_aggregates.records,
         &mut representations,
     )?;
-
-    for id in &array_ids {
-        let Some(element) = array_element_type(module, *id) else {
-            continue;
-        };
-        let element = scalar_type(
-            module,
-            element,
-            module.span,
-            enum_types,
-            aggregate_types,
-            newtype_ids,
-            &array_types,
-            &record_types,
-            &function_layout.function_types,
-        )?;
-        representations.set(array_types[id], Representation::Array { element });
-    }
-    for id in &record_ids {
-        let Type::Record(fields) = &module.types[id.0 as usize] else {
-            continue;
-        };
-        let fields = fields
-            .iter()
-            .map(|(_, field)| {
-                field_storage_shape(
-                    module,
-                    *field,
-                    module.span,
-                    enum_types,
-                    aggregate_types,
-                    newtype_ids,
-                    &array_types,
-                    &record_types,
-                    &function_layout.function_types,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        representations.set(record_types[id], Representation::Product { fields });
-    }
+    let aggregate_layouts = aggregate::normalize_aggregate_layouts(
+        module,
+        enum_types,
+        aggregate_types,
+        newtype_ids,
+        &function_layout.function_types,
+        reserved_aggregates,
+        &mut representations,
+    )?;
+    let array_types = aggregate_layouts.arrays;
+    let record_types = aggregate_layouts.records;
 
     let mut constructor_types = HashMap::new();
     let mut aggregate_ids = aggregate_types.iter().copied().collect::<Vec<_>>();
@@ -318,7 +266,7 @@ pub(super) fn layout_error(span: TextRange, message: &'static str) -> Vec<Backen
     vec![BackendError::new("P8 closure conversion", span, message)]
 }
 
-fn array_element_type(module: &CoreModule, id: TypeId) -> Option<TypeId> {
+pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<TypeId> {
     let Type::Application(function, element) = module.types.get(id.0 as usize)? else {
         return None;
     };
@@ -350,37 +298,4 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
     }
 
     visit(module, id, &mut HashSet::new())
-}
-
-pub(super) fn erased_field_recovery_family(
-    module: &CoreModule,
-    id: TypeId,
-    stored: ValueShape,
-    expected: ValueShape,
-    array_types: &HashMap<TypeId, ReprId>,
-    record_types: &HashMap<TypeId, ReprId>,
-) -> Option<&'static str> {
-    if !matches!(
-        stored,
-        ValueShape::Reference(crate::cc::Reference {
-            heap: crate::cc::RefShape::Erased,
-            ..
-        })
-    ) || !depends_on_type_variable(module, id)
-    {
-        return None;
-    }
-    let ValueShape::Reference(reference) = expected else {
-        return None;
-    };
-    let crate::cc::RefShape::Repr(representation) = reference.heap else {
-        return None;
-    };
-    if array_types.get(&id) == Some(&representation) {
-        Some("array")
-    } else if record_types.get(&id) == Some(&representation) {
-        Some("record")
-    } else {
-        None
-    }
 }

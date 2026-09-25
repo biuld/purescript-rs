@@ -137,6 +137,14 @@ impl ResolveError {
         }
     }
 
+    fn resolution_failure(span: TextRange, detail: &str) -> Self {
+        Self {
+            kind: ResolveErrorKind::InvalidHir,
+            span,
+            message: format!("name resolution failed without a diagnostic: {detail}"),
+        }
+    }
+
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -276,14 +284,37 @@ pub(crate) fn resolve_ast_module(
         );
     }
 
-    let declarations = module
+    let declarations: Vec<hir::Declaration> = module
         .declarations
         .into_iter()
         .enumerate()
         .filter_map(|(index, declaration)| {
-            let value = resolver.resolve_expr(declaration.value)?;
+            let declaration_name = declaration.name.text.clone();
+            let declaration_span = declaration.span;
+            let errors_before_value = resolver.errors.len();
+            let Some(value) = resolver.resolve_expr(declaration.value) else {
+                if resolver.errors.len() == errors_before_value {
+                    resolver.errors.push(ResolveError::resolution_failure(
+                        declaration_span,
+                        &format!("value declaration `{declaration_name}`"),
+                    ));
+                }
+                return None;
+            };
+            let errors_before_signature = resolver.errors.len();
             let signature = match declaration.annotation {
-                Some(annotation) => Some(resolver.resolve_type(annotation)?),
+                Some(annotation) => match resolver.resolve_type(annotation) {
+                    Some(signature) => Some(signature),
+                    None => {
+                        if resolver.errors.len() == errors_before_signature {
+                            resolver.errors.push(ResolveError::resolution_failure(
+                                declaration_span,
+                                &format!("type signature for `{declaration_name}`"),
+                            ));
+                        }
+                        return None;
+                    }
+                },
                 None => None,
             };
             Some(Declaration {

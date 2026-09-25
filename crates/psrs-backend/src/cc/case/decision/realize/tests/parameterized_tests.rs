@@ -1,7 +1,7 @@
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{
-    Function, RefShape, Reference, ReprId, Representation, RepresentationTable, ValueDecl,
-    ValueShape, VariantCase,
+    AssignmentKind, Function, RefShape, Reference, ReprId, Representation, RepresentationTable,
+    ValueDecl, ValueShape, VariantCase,
 };
 use psrs_core::{
     CaseBranch, ConstructorInfo, Expr, ExprKind, Module, Pattern, PatternKind, Type,
@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[test]
-fn parameterized_array_field_recovery_reports_a_named_backend_error() {
+fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
     let module_id = ModuleId(0);
     let wrap_type = HirTypeId::new(module_id, 0);
     let wrap = SymbolId::new(module_id, 0);
@@ -101,22 +101,26 @@ fn parameterized_array_field_recovery_reports_a_named_backend_error() {
         record_types: &record_types,
         constructor_types: &constructor_types,
     };
-    assert_recovery_error(
-        lower_and_verify(
-            &module,
-            wrap_a,
-            reference_shape(RefShape::Aggregate),
-            &branches,
-            array_shape,
-            &context,
-        ),
-        "array",
-        TextRange::new(1, 14),
+    let function = lower_and_verify(
+        &module,
+        wrap_a,
+        reference_shape(RefShape::Aggregate),
+        &branches,
+        array_shape,
+        &context,
+    )
+    .expect("generic array fields should recover through their canonical layout");
+    assert_eq!(function.result_type, array_shape);
+    assert!(
+        function.assignments.iter().any(|assignment| matches!(
+            assignment.kind,
+            AssignmentKind::VariantGet { field: 0, .. }
+        ))
     );
 }
 
 #[test]
-fn nested_parameterized_array_projection_reports_a_named_backend_error() {
+fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
     let module_id = ModuleId(0);
     let inner_type = HirTypeId::new(module_id, 0);
     let outer_type = HirTypeId::new(module_id, 1);
@@ -235,22 +239,28 @@ fn nested_parameterized_array_projection_reports_a_named_backend_error() {
         record_types: &record_types,
         constructor_types: &constructor_types,
     };
-    assert_recovery_error(
-        lower_and_verify(
-            &module,
-            outer_a,
-            reference_shape(RefShape::Aggregate),
-            &branches,
-            array_shape,
-            &context,
-        ),
-        "array",
-        TextRange::new(7, 21),
+    let function = lower_and_verify(
+        &module,
+        outer_a,
+        reference_shape(RefShape::Aggregate),
+        &branches,
+        array_shape,
+        &context,
+    )
+    .expect("nested generic array fields should recover through canonical layouts");
+    assert_eq!(function.result_type, array_shape);
+    assert_eq!(
+        function
+            .assignments
+            .iter()
+            .filter(|assignment| matches!(assignment.kind, AssignmentKind::VariantGet { .. }))
+            .count(),
+        2
     );
 }
 
 #[test]
-fn generic_record_pattern_array_recovery_reports_a_named_backend_error() {
+fn generic_record_pattern_projects_its_canonical_array_field() {
     let module_id = ModuleId(0);
     let array_a = psrs_core::TypeId(2);
     let record_a = psrs_core::TypeId(3);
@@ -310,9 +320,10 @@ fn generic_record_pattern_array_recovery_reports_a_named_backend_error() {
     representations.set(
         record_repr,
         Representation::Product {
-            fields: vec![reference_shape(RefShape::Erased)],
+            fields: vec![array_shape],
         },
     );
+    representations.set_product_labels(record_repr, vec!["values".into()]);
     let enum_types = HashSet::new();
     let aggregate_types = HashSet::new();
     let array_types = HashMap::from([(array_a, array_repr)]);
@@ -326,35 +337,22 @@ fn generic_record_pattern_array_recovery_reports_a_named_backend_error() {
         record_types: &record_types,
         constructor_types: &constructor_types,
     };
-    assert_recovery_error(
-        lower_and_verify(
-            &module,
-            record_a,
-            reference_shape(RefShape::Repr(record_repr)),
-            &branches,
-            array_shape,
-            &context,
-        ),
-        "array",
-        TextRange::new(1, 19),
+    let function = lower_and_verify(
+        &module,
+        record_a,
+        reference_shape(RefShape::Repr(record_repr)),
+        &branches,
+        array_shape,
+        &context,
+    )
+    .expect("generic record fields should project using the canonical array layout");
+    assert_eq!(function.result_type, array_shape);
+    assert!(
+        function.assignments.iter().any(|assignment| matches!(
+            assignment.kind,
+            AssignmentKind::ProductGet { field: 0, .. }
+        ))
     );
-}
-
-fn assert_recovery_error(
-    result: Result<Function, Vec<crate::BackendError>>,
-    family: &str,
-    span: TextRange,
-) {
-    let errors = match result {
-        Ok(_) => panic!("polymorphic nominal {family} recovery should be rejected"),
-        Err(errors) => errors,
-    };
-    assert!(errors.iter().any(|error| {
-        error.pass == "P8 closure conversion"
-            && error.span == span
-            && error.message.contains("unsupported generic")
-            && error.message.contains(family)
-    }));
 }
 
 struct LoweringContext<'a> {

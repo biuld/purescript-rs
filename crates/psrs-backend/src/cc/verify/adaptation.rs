@@ -17,10 +17,12 @@ pub(super) fn verify_erased_adaptation(
             ..
         })
     );
-    if !source_erased && target.heap != RefShape::Erased {
+    let same_heap =
+        matches!(source, ValueShape::Reference(reference) if reference.heap == target.heap);
+    if !source_erased && target.heap != RefShape::Erased && !same_heap {
         return Err(assignment_error(
             assignment,
-            "representation test or cast is reserved for erased-value adaptation",
+            "representation cast must preserve a reference heap or adapt an erased value",
         ));
     }
     Ok(())

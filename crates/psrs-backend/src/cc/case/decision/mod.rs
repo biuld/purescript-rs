@@ -16,6 +16,7 @@ pub(super) struct ColumnKey(Vec<PathStep>);
 enum PathStep {
     Slot(u32),
     ConstructorField(SymbolId, u32),
+    /// Field index in the canonical, label-sorted product representation.
     RecordField(u32),
 }
 
@@ -131,6 +132,7 @@ pub(super) enum Action {
     Project {
         source: ColumnKey,
         target: ColumnKey,
+        /// Constructor ordinal or canonical record field index.
         field: u32,
         source_type: TypeId,
         declared_type: TypeId,

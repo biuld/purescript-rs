@@ -87,6 +87,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
             },
         ],
         signatures: Vec::new(),
+        product_labels: Default::default(),
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

@@ -419,7 +419,10 @@ impl Resolver {
         member: &str,
         span: TextRange,
     ) -> Option<SymbolId> {
-        let candidates = self.qualified.get(qualifier)?;
+        let Some(candidates) = self.qualified.get(qualifier) else {
+            self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
+            return None;
+        };
         let mut found: Option<(ModuleId, SymbolId)> = None;
         let mut conflict = false;
         for candidate in candidates {

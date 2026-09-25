@@ -11,6 +11,7 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
+mod aggregate;
 mod assignments;
 mod variant;
 #[cfg(test)]

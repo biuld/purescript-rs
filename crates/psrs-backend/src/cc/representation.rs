@@ -69,6 +69,9 @@ pub enum Representation {
 pub struct RepresentationTable {
     pub representations: Vec<Representation>,
     pub signatures: Vec<Signature>,
+    /// Canonical logical labels for record products; positional products do
+    /// not have an entry here.
+    pub product_labels: std::collections::HashMap<ReprId, Vec<String>>,
 }
 
 impl RepresentationTable {
@@ -83,6 +86,14 @@ impl RepresentationTable {
 
     pub fn set(&mut self, id: ReprId, representation: Representation) {
         self.representations[id.0 as usize] = representation;
+    }
+
+    pub fn set_product_labels(&mut self, id: ReprId, labels: Vec<String>) {
+        self.product_labels.insert(id, labels);
+    }
+
+    pub fn product_labels(&self, id: ReprId) -> Option<&[String]> {
+        self.product_labels.get(&id).map(Vec::as_slice)
     }
 
     pub fn add_signature(&mut self, signature: Signature) -> SignatureId {

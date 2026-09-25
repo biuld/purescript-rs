@@ -126,6 +126,19 @@ impl Checker {
             hir::TypeKind::Constrained { body, .. } => {
                 self.elaborate_type_mode(body, variables, rigid_variables)
             }
+            hir::TypeKind::Record { fields, tail } if tail.is_none() => {
+                let mut fields = fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.label.clone(),
+                            self.elaborate_type_mode(&field.ty, variables, rigid_variables),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                fields.sort_by(|left, right| left.0.cmp(&right.0));
+                InferType::Record(fields)
+            }
             hir::TypeKind::Row { .. }
             | hir::TypeKind::Record { .. }
             | hir::TypeKind::Integer(_)

@@ -1,5 +1,5 @@
-use super::super::super::layout::{scalar_type, user_type_id};
-use super::super::super::lower::FunctionLowerer;
+use super::super::super::layout::user_type_id;
+use super::super::super::lower::{ErasedFieldRecovery, FunctionLowerer};
 use super::{Action, ColumnKey, Decision, DecisionDag, DecisionEdge, NodeId, Test};
 use crate::BackendError;
 use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
@@ -162,7 +162,7 @@ impl FunctionLowerer<'_> {
                 target,
                 field,
                 source_type,
-                declared_type: _,
+                declared_type,
                 target_type,
                 constructor,
                 newtype,
@@ -187,17 +187,7 @@ impl FunctionLowerer<'_> {
                     *field as usize,
                     *span,
                 )?;
-                let target_shape = scalar_type(
-                    self.module,
-                    *target_type,
-                    *span,
-                    self.enum_types,
-                    self.aggregate_types,
-                    self.newtype_ids,
-                    self.array_types,
-                    self.record_types,
-                    self.function_types,
-                )?;
+                let target_shape = self.value_shape(*target_type, *span)?;
                 let projected = self.fresh(stored_shape);
                 assignments.push(Assignment {
                     destination: projected,
@@ -210,54 +200,62 @@ impl FunctionLowerer<'_> {
                     },
                     span: *span,
                 });
-                self.adapt_projected_field(
+                let conversion = self.erased_field_recovery(ErasedFieldRecovery {
+                    variant: representation,
+                    tag: *tag,
+                    field: *field,
+                    template_type: *declared_type,
+                    target_type: *target_type,
+                    target_shape,
+                    stored_shape,
+                    span: *span,
+                })?;
+                self.emit_conversion(
                     projected,
                     stored_shape,
                     target_shape,
-                    *target_type,
+                    conversion,
                     *span,
                     &mut assignments,
-                )?
+                )
             } else {
                 let representation =
                     self.record_types.get(source_type).copied().ok_or_else(|| {
                         case_error(*span, "record pattern has no representation requirement")
                     })?;
+                let canonical_field = *field as usize;
                 let stored_shape = product_field_shape(
                     self.representations.representation(representation),
-                    *field as usize,
+                    canonical_field,
                     *span,
                 )?;
-                let target_shape = scalar_type(
-                    self.module,
-                    *target_type,
-                    *span,
-                    self.enum_types,
-                    self.aggregate_types,
-                    self.newtype_ids,
-                    self.array_types,
-                    self.record_types,
-                    self.function_types,
-                )?;
+                let target_shape = self.value_shape(*target_type, *span)?;
                 let projected = self.fresh(stored_shape);
                 assignments.push(Assignment {
                     destination: projected,
                     kind: AssignmentKind::ProductGet {
                         destination: projected,
                         representation,
-                        field: *field,
+                        field: canonical_field as u32,
                         value: source_value,
                     },
                     span: *span,
                 });
-                self.adapt_projected_field(
+                let conversion = self.typed_conversion(
+                    *declared_type,
+                    *target_type,
+                    stored_shape,
+                    target_shape,
+                    *span,
+                )?;
+                self.emit_conversion(
                     projected,
                     stored_shape,
                     target_shape,
-                    *target_type,
+                    conversion,
                     *span,
                     &mut assignments,
-                )?
+                )
             };
             projected.insert(target.clone(), value);
         }

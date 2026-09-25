@@ -294,23 +294,22 @@ pub(super) fn field_storage_shape(
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
     if depends_on_type_variable(module, id) {
-        Ok(ValueShape::Reference(Reference {
+        return Ok(ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Erased,
-        }))
-    } else {
-        scalar_type(
-            module,
-            id,
-            span,
-            enum_types,
-            aggregate_types,
-            newtype_ids,
-            array_types,
-            record_types,
-            function_types,
-        )
+        }));
     }
+    scalar_type(
+        module,
+        id,
+        span,
+        enum_types,
+        aggregate_types,
+        newtype_ids,
+        array_types,
+        record_types,
+        function_types,
+    )
 }
 
 fn aggregate_value_type() -> ValueShape {

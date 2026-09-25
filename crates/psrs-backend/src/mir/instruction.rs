@@ -1,3 +1,4 @@
+use super::BlockId;
 use super::NumericOp;
 use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_hir::SymbolId;
@@ -151,6 +152,17 @@ pub enum Instruction {
         elements: Vec<ValueId>,
         span: TextRange,
     },
+    ArrayNewDefault {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        length: ValueId,
+        source: ValueId,
+        header: BlockId,
+        body: BlockId,
+        exit: BlockId,
+        index: ValueId,
+        span: TextRange,
+    },
     ArrayGet {
         destination: ValueId,
         type_index: DefinedTypeId,
@@ -289,6 +301,7 @@ impl Instruction {
             | Self::StructNew { destination, .. }
             | Self::StructGet { destination, .. }
             | Self::ArrayNew { destination, .. }
+            | Self::ArrayNewDefault { destination, .. }
             | Self::ArrayGet { destination, .. }
             | Self::ArrayClone { destination, .. }
             | Self::ArrayLen { destination, .. }
@@ -351,6 +364,7 @@ impl Instruction {
                 elements: arguments,
                 ..
             } => arguments.clone(),
+            Self::ArrayNewDefault { length, source, .. } => vec![*length, *source],
             Self::StructSet {
                 value, new_value, ..
             } => vec![*value, *new_value],
@@ -403,6 +417,7 @@ impl Instruction {
             | Self::StructGet { span, .. }
             | Self::StructSet { span, .. }
             | Self::ArrayNew { span, .. }
+            | Self::ArrayNewDefault { span, .. }
             | Self::ArrayGet { span, .. }
             | Self::ArrayClone { span, .. }
             | Self::ArraySet { span, .. }

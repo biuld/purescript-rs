@@ -1,5 +1,6 @@
 use super::*;
 
+mod expected;
 mod intrinsics;
 mod pattern;
 mod records;

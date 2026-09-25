@@ -3,7 +3,7 @@
 use super::layout::LayoutError;
 use crate::cc::{
     Assignment, AssignmentKind, Module as CcModule, RefShape, Reference, ReprId, Representation,
-    RepresentationTable, Signature, SignatureId, ValueShape,
+    RepresentationTable, Signature, SignatureId, ValueConversion, ValueShape,
 };
 use crate::types::ValueId;
 use psrs_hir::SymbolId;
@@ -183,6 +183,13 @@ fn add_assignments(
                 representation_work,
                 signature_work,
             ),
+            AssignmentKind::AggregateConvert { conversion, .. } => add_conversion(
+                &conversion.plan,
+                representations,
+                signatures,
+                representation_work,
+                signature_work,
+            ),
             AssignmentKind::ProductNew { representation, .. }
             | AssignmentKind::ProductGet { representation, .. }
             | AssignmentKind::VariantNew { representation, .. }
@@ -265,6 +272,76 @@ fn add_assignments(
                 *needs_number_box |=
                     value_types.get(&assignment.destination) == Some(&ValueShape::Number);
             }
+        }
+    }
+}
+
+fn add_conversion(
+    conversion: &ValueConversion,
+    representations: &mut HashSet<ReprId>,
+    signatures: &mut HashSet<SignatureId>,
+    representation_work: &mut Vec<ReprId>,
+    signature_work: &mut Vec<SignatureId>,
+) {
+    match conversion {
+        ValueConversion::Identity => {}
+        ValueConversion::BoxScalar { representation, .. }
+        | ValueConversion::UnboxScalar { representation, .. } => {
+            add_representation(*representation, representations, representation_work)
+        }
+        ValueConversion::EraseReference => {}
+        ValueConversion::RecoverReference { evidence, .. } => {
+            if let crate::cc::RecoveryEvidence::ErasedVariantField { variant, .. } = evidence {
+                add_representation(*variant, representations, representation_work);
+            }
+        }
+        ValueConversion::Sequence(steps) => {
+            for step in steps {
+                add_conversion(
+                    step,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                );
+            }
+        }
+        ValueConversion::ArrayMap {
+            source,
+            target,
+            element,
+        } => {
+            add_representation(*source, representations, representation_work);
+            add_representation(*target, representations, representation_work);
+            add_conversion(
+                element,
+                representations,
+                signatures,
+                representation_work,
+                signature_work,
+            );
+        }
+        ValueConversion::ProductMap {
+            source,
+            target,
+            fields,
+            ..
+        } => {
+            add_representation(*source, representations, representation_work);
+            add_representation(*target, representations, representation_work);
+            for field in fields {
+                add_conversion(
+                    field,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                );
+            }
+        }
+        ValueConversion::FunctionAdapter { source, target } => {
+            add_signature(*source, signatures, signature_work);
+            add_signature(*target, signatures, signature_work);
         }
     }
 }

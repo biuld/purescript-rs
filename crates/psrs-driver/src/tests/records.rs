@@ -13,6 +13,51 @@ fn runs_a_record_field_access_through_a_gc_struct() {
 }
 
 #[test]
+fn evaluates_record_fields_in_source_order_before_canonical_layout() {
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let record = { z: runEffect (log \"z\"), a: runEffect (log \"a\") } in 0\n";
+    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
+    let main = core
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .expect("Core should retain main");
+    let psrs_core::ExprKind::Let { bindings, .. } = &main.value.kind else {
+        panic!("main should retain its record binding in Core");
+    };
+    let record = bindings
+        .iter()
+        .find(|binding| binding.binder.name == "record")
+        .map(|binding| &binding.value)
+        .expect("Core should retain the record value");
+    let psrs_core::ExprKind::Record { fields } = &record.kind else {
+        panic!("binding should be a record expression");
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(label, _)| label.as_str())
+            .collect::<Vec<_>>(),
+        ["z", "a"]
+    );
+    let psrs_core::Type::Record(record_type_fields) = &core.types[record.ty.0 as usize] else {
+        panic!("record binding type should be a closed record");
+    };
+    assert_eq!(
+        record_type_fields
+            .iter()
+            .map(|(label, _)| label.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "z"]
+    );
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"z\na\n");
+}
+
+#[test]
 fn runs_a_number_record_field_through_a_gc_struct() {
     let source = "module Main where\nuse :: Number -> Int\nuse x = 42\nmain = use ({ answer: 1.5 }.answer)\n";
     let artifact = compile_source("Main.purs", source).expect("lowering a Number record field");

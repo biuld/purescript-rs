@@ -544,8 +544,6 @@ does not need an array map because the declared template is the bare variable
 
 ## Open questions and future work
 
-- Implement the P8 canonical-shape normalizer and conversion-plan verifier,
-  then lower array and product reconstruction to MIR with execution evidence.
 - Define a safe conversion protocol for open-row records if row-polymorphic
   values become a backend feature.
 - If pointer identity, mutation, or cyclic aggregate graphs become observable,
@@ -565,11 +563,22 @@ does not need an array map because the declared template is the bare variable
 
 ## Implementation notes
 
-The current implementation has not added the canonical generic array or record
-layouts, `AggregateConvert`, or `ArrayMap`/`ProductMap` lowering. P8 reports
-source-spanned diagnostics for unsupported recovery from dependent nominal
-array and record layouts. Concrete `Wrap Int` construction and matching remain
-supported by a source-to-Wasm regression; generic `Wrap a` consumers that
-require an unsupported aggregate conversion are rejected. Existing synthetic
-typed-Core record tests are not source-to-CC coverage for generic record
-consumers. The conversion design above remains future implementation work.
+The implementation now follows the normative canonical-shape and conversion
+model above for generic arrays, closed generic records, and dependent aggregate
+fields in parameterized ADTs. CC interns canonical layouts and records typed,
+source-spanned `AggregateConvert` plans; P8 lowers those plans to `ArrayMap` and
+`ProductMap`; P9 lowers the maps to verified MIR allocation/copy paths, which
+the Wasm encoder emits as GC operations and structured loops.
+
+Source-to-Wasm regressions cover concrete/generic array boundaries, arrays in
+parameterized ADTs, recursively nested arrays, higher-order array adapters, and
+a closed generic record update containing a nested array across concrete
+instantiations. Since P7 can specialize these same-module call sites and remove
+runtime conversions, the tests inspect conversion plans from source Core lowered
+directly to CC before P7, then compile through the normal pipeline and inspect
+the resulting layouts/WAT. They assert runtime results when Wasmtime is
+installed. Parser and resolver regressions also cover lowercase record-field
+syntax and source-spanned qualified-name failures. Open-row conversion,
+cycle/sharing preservation for aggregate graphs, and nominal GC type sharing
+across independently compiled Wasm artifacts remain outside the implemented
+coverage described by this topic.

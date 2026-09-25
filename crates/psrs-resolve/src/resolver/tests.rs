@@ -224,6 +224,26 @@ fn reports_unknown_names_with_the_name_span() {
 }
 
 #[test]
+fn reports_a_missing_qualified_module_instead_of_dropping_the_declaration() {
+    let qualified_name = "Missing.value";
+    let module = module(vec![declaration(
+        "main",
+        19,
+        expression(
+            AstExprKind::Name(name(qualified_name, 26)),
+            26,
+            26 + qualified_name.len() as u32,
+        ),
+    )]);
+
+    let errors = resolve_module(module, ModuleId(0)).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, ResolveErrorKind::UnknownName);
+    assert_eq!(errors[0].span, TextRange::new(26, 39));
+    assert!(errors[0].message().contains("Missing.value"));
+}
+
+#[test]
 fn rejects_duplicate_top_level_names() {
     let module = module(vec![
         declaration(

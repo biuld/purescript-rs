@@ -286,6 +286,10 @@ impl<'a> Parser<'a> {
 
     fn parse_qualified_value_name(&mut self) -> Result<CstName, ParseError> {
         let token = self.current().clone();
+        let allow_qualification = matches!(
+            &token.kind,
+            LayoutTokenKind::Raw(RawTokenKind::UpperIdent(_))
+        );
         let (text, _) = match &token.kind {
             LayoutTokenKind::Raw(RawTokenKind::LowerIdent(text))
             | LayoutTokenKind::Raw(RawTokenKind::UpperIdent(text)) => (text.clone(), token.span),
@@ -296,7 +300,7 @@ impl<'a> Parser<'a> {
         };
         self.bump();
         let mut name = CstName::new(text, token.span);
-        while self.at_raw(&RawTokenKind::Dot) {
+        while allow_qualification && self.at_raw(&RawTokenKind::Dot) {
             let dot_span = self.current().span;
             if dot_span.start != name.span.end {
                 break;
@@ -317,7 +321,7 @@ impl<'a> Parser<'a> {
                 TextRange::new(name.span.start, span.end),
             );
         }
-        if self.at_raw(&RawTokenKind::Dot) {
+        if allow_qualification && self.at_raw(&RawTokenKind::Dot) {
             let dot_span = self.current().span;
             if dot_span.start == name.span.end
                 && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::LParen)

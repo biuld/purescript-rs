@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 mod case;
+mod convert;
 mod layout;
 mod lower;
 mod representation;
@@ -18,6 +19,7 @@ use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
+pub use convert::{AggregateConvert, BoxKind, RecoveryEvidence, ValueConversion};
 pub use representation::{
     RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueShape, VariantCase,
@@ -106,6 +108,11 @@ pub enum AssignmentKind {
         destination: ValueId,
         value: ValueId,
         reference: Reference,
+    },
+    AggregateConvert {
+        destination: ValueId,
+        value: ValueId,
+        conversion: AggregateConvert,
     },
     ProductNew {
         destination: ValueId,
