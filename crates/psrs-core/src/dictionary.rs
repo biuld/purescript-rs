@@ -196,6 +196,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn layout_rejects_a_dictionary_field_with_the_wrong_type() {
+        let module = method_layout_module();
+        let layout = ClassLayout::from_record_type(&module, TypeId(2)).unwrap();
+        let values = vec![("method".into(), integer(0)), ("super".into(), integer(0))];
+        assert_eq!(
+            layout.validate_record_value(&module, &values).unwrap_err(),
+            "dictionary value field type differs from its class layout"
+        );
+    }
+
+    #[test]
+    fn layout_rejects_a_dictionary_missing_a_field() {
+        let module = method_layout_module();
+        let layout = ClassLayout::from_record_type(&module, TypeId(2)).unwrap();
+        let values = vec![("method".into(), integer(0))];
+        assert_eq!(
+            layout.validate_record_value(&module, &values).unwrap_err(),
+            "dictionary value field count differs from its class layout"
+        );
+    }
+
+    #[test]
+    fn layout_rejects_a_non_record_dictionary_type() {
+        let module = method_layout_module();
+        assert_eq!(
+            ClassLayout::from_record_type(&module, TypeId(0)).unwrap_err(),
+            "class dictionary type is not a Core record"
+        );
+    }
+
+    fn integer(value: i32) -> Expr {
+        Expr {
+            kind: crate::ExprKind::Integer(value),
+            ty: TypeId(0),
+            span: TextRange::new(0, 1),
+        }
+    }
+
+    fn method_layout_module() -> Module {
+        module(vec![
+            Type::I32,
+            Type::Function {
+                parameter: TypeId(0),
+                result: TypeId(0),
+            },
+            Type::Record(vec![
+                ("method".into(), TypeId(1)),
+                ("super".into(), TypeId(1)),
+            ]),
+        ])
+    }
+
     fn module(types: Vec<Type>) -> Module {
         Module {
             id: ModuleId(0),
