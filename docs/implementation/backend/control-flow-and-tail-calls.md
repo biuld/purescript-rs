@@ -108,15 +108,17 @@ CF-13:
     mir/scalar_helpers.rs (producers no longer set it); mir/cfg.rs
     (common_join/join_blocks derive joins from CFG edges); mir/verify/function.rs
     (merge check removed, target-parameter check kept); mir/opt/constants.rs
-    (join parameters preserved); wasm/lower/structure/legacy.rs (derives the
-    diamond/switch join).
+    (join parameters preserved); wasm/lower/structure/cfg/mod.rs and
+    wasm/lower/structure/region.rs (derive no join; emit every reducible block
+    once by label).
   Tests: mir/cfg.rs::tests::{derives_a_diamond_join_from_the_edges,
     derives_the_nearest_common_join,
     reports_no_join_when_arms_terminate_independently};
-    wasm::lower::structure::tests::rejects_an_acyclic_branch_without_a_common_join
-    (missing-edge fixture fails with "no common one-value join");
-    driver functions.rs::runs_a_branch_with_equal_reference_arms executes a
-    derived join under Wasmtime.
+    wasm::lower::structure::reducible_tests::acyclic::
+    rejects_an_acyclic_branch_to_a_missing_target (missing-edge fixture fails
+    with a missing-target diagnostic); driver
+    functions.rs::runs_a_branch_with_equal_reference_arms executes a derived
+    join under Wasmtime.
   Input boundary: malformed/direct MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace;
     cargo fmt --all --check; cargo clippy --workspace --all-targets -- -D warnings.
@@ -147,22 +149,39 @@ CF-02:
 
 ```text
 CF-03:
-  Implementation: wasm/lower/structure/region.rs, cfg/mod.rs; acyclic diamonds
-    use the derived join and a result-typed `if` in legacy.rs; the dispatcher is
-    selected only when cfg::has_irreducible_component is true.
-  Tests: structure::tests::
-    lowers_a_natural_loop_with_a_preheader_and_loop_carried_values asserts
-    lowered.locals.len() == values.len() - parameters.len() (no dispatcher state
-    local) and executes to 15 under Wasmtime;
-    lowers_nested_loops_with_multiple_exit_targets asserts two loops;
+  Implementation: wasm/lower/structure/cfg/mod.rs builds one RegionPlan for
+    every reducible CFG, with or without loops; wasm/lower/structure/region.rs
+    is the single emitter for that plan (nested `Block`s, `Loop` at natural-loop
+    headers, depth-relative `br`/`br_if`/`br_table`, jump-argument copies). The
+    dispatcher is selected only when cfg::has_irreducible_component is true, and
+    `emit_control_flow` no longer branches on `contains_loops`. Non-parameter
+    reference locals are nullable and read back with `ref.as_non_null`
+    (wasm/lower/mod.rs, structure/mod.rs).
+  Tests: structure::reducible_tests::loops::
+    structures_and_executes_a_diamond_inside_a_loop,
+    structures_and_executes_a_switch_inside_a_loop,
+    structures_and_executes_a_branch_with_an_early_return_inside_a_loop,
+    structures_and_executes_a_trapping_arm_inside_a_loop (each asserts one loop,
+    no dispatcher local, and executes; the trap arm traps);
+    reducible_tests::acyclic::
+    structures_and_executes_an_acyclic_branch_without_a_common_join (both arms
+    return; no join, no dispatcher, executes 20/10),
+    structures_and_executes_a_shared_successor_with_swapped_block_arguments
+    (permuted block parameters execute 1020/2010);
+    structure::tests::lowers_a_natural_loop_with_a_preheader_and_loop_carried_values
+    (no dispatcher local, executes to 15);
+    lowers_nested_loops_with_multiple_exit_targets (two loops);
     switch_tests::structures_sparse_negative_switch_tags_and_executes_the_default
-    executes a reducible diamond/switch; driver functions.rs runs source
+    (dense `br_table`, executes -7/100/default); driver functions.rs runs source
     diamonds and cases.
   Input boundary: direct MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend structure;
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass; Wasmtime executed the loop, nested-loop, sparse-switch, and
-    source diamond cases.
+  Result: pass; Wasmtime executed the acyclic no-join branch, the shared
+    successor with swapped parameters, the loop with an inner diamond, the loop
+    with an inner switch, the early-return loop, the trapping loop arm, the
+    loop-carried-value loop, the nested loops, the sparse switch, and the source
+    diamond/case cases. Every reducible case asserts no dispatcher state local.
   Revision: as above.
   Gaps: none observed for reducible input.
 ```
@@ -184,9 +203,9 @@ CF-04:
 
 ```text
 CF-05:
-  Implementation: legacy.rs::switch_index and region.rs::switch_index (compare
-    each sparse signed tag, map to a dense index); Switch verification in
-    mir/verify/function.rs; Jump argument/type checks.
+  Implementation: region.rs::switch_index (compare each sparse signed tag, map
+    to a dense index); Switch verification in mir/verify/function.rs; Jump
+    argument/type checks.
   Tests: switch_tests::structures_sparse_negative_switch_tags_and_executes_the_default
     (negative -7, sparse 100, default 5 -> 11/22/33 via br_table);
     irreducible_dispatch_tests sparse switch; verifier tests
@@ -265,7 +284,7 @@ design specifies but that is not implemented. The precise remaining work is:
    `ReturnCallRef { function: ValueId, type_index, arguments, span }` to
    `mir::Terminator`, and extend `mir/cfg.rs::successors`, the verifier's
    operand/type checks, the optimizer's successors, and the structurer's
-   terminator emission (`region.rs`, `legacy.rs`, `dispatcher.rs`).
+   terminator emission (`region.rs`, `dispatcher.rs`).
 2. Implement `mir/lower/tail.rs::mark_tail(function, target)`, invoked from
    `mir/lower` before verification. Tail position must be computed over the
    real lowered CFG, not a single block: the CC lowerer emits a recursive call

@@ -127,22 +127,39 @@ block parameters are still lowered as locals copied at each jump.
 
 `Branch { merge_block }` is a temporary hint: it lets a linear structurer emit
 an `if`/`else`/`end` without discovering the join. It cannot express a loop and
-over-constrains MIR. The `merge_block` field is removed. The structurer instead
-computes the join (the nearest common descendant of the branch targets) from
-the dominator tree and emits an `if` whose result is the join's value, then
-continues at the join. Existing expression-level `if` diamonds keep working,
-but they are now derived, not declared.
+over-constrains MIR. The `merge_block` field is removed. MIR carries no
+structuring decision: the structurer derives every control shape from the CFG
+edges. The nearest common descendant of a branch or switch (`common_join`) is
+still computed for analyses and optimizations that need a join, but it is not
+an emission precondition. A branch whose arms terminate independently has no
+join and is still structured: each arm becomes its own region unit and the
+branch targets the arms' labels directly.
 
 ### Reducible structuring
 
-For reducible input the structurer is a stackifier over the dominator tree:
+Every reducible CFG — with or without loops — is reduced to the same
+`RegionPlan`: a dominator and natural-loop analysis partitions the reachable
+blocks into nested regions, and each region is a topologically ordered list of
+units, where a unit is a basic block or a nested natural loop. One emitter
+(`RegionOps`) walks that plan for every reducible function, so loops and
+acyclic diamonds, switches, shared successors, early returns, and traps all
+share the same emission path. The dispatcher is the only other path and is
+selected solely for irreducible input.
 
-1. Compute dominators, back edges, and natural loops.
-2. Walk the dominator tree. A loop header opens a `Loop`; the branch that ends
-   the loop body targets the header (continue). A node that is a join or an
-   exit opens a `Block`; a branch out of the region targets its end (break).
-3. Emit each terminator as `if`/`br`/`br_table` with label depths resolved
-   against the active-label stack, copying jump arguments into target locals.
+The plan is built and emitted as a stackifier over the dominator tree:
+
+1. Compute reachability, predecessors, dominators, back edges, and natural
+   loops, and check that the natural loops nest.
+2. Partition each region's members into units: a natural loop becomes a `Loop`
+   unit with its own nested region, and every remaining block becomes a `Block`
+   unit. Topologically order the units after removing back edges, so each block
+   is emitted exactly once and every forward edge targets a later unit's
+   `Block` label.
+3. Emit each unit inside nested `Block` regions: a `Loop` unit opens a Wasm
+   `loop`, and later units are enclosed by `Block`s so a forward branch to a
+   unit exits to its label. Emit each terminator as `br`/`br_if`/`br_table`
+   with label depths resolved against the active-label stack, copying jump
+   arguments into target locals.
 
 This handles nested loops, multiple exits, and `Switch` uniformly.
 
@@ -239,40 +256,47 @@ from outside its own loop body); such regions are routed to the dispatcher.
 ### Reducible stackifier
 
 ```text
-emit(node, labels):
-    if node is a loop header:
-        labels.push(Loop(node))
-        emit_body(node, labels)       // emits the loop body; back edges target node
-        labels.pop()
-        return
+build_region(members, header, entry):
+    partition members into units:
+        each natural loop whose header != header -> Loop(header, build_region(loop.blocks, header, header))
+        each remaining block                         -> Block(block)
+    topologically order units after removing back edges (entry unit first)
+    return RegionPlan { header, units, span }
 
-    // A node with more than one predecessor is a join: open a block so
-    // forward branches can leave it.
-    if predecessors(node).len() > 1:
-        labels.push(Block(node))
-        emit_body(node, labels)
-        labels.pop()
-    else:
-        emit_body(node, labels)
+emit_region(region, labels):
+    // Emit units in order. Wrap the body accumulated so far in a Block for the
+    // current unit so a forward branch to a later unit exits to its label.
+    for (i, unit) in region.units:
+        sequence = [Block(body = sequence, span = unit.span)]
+        active = labels + [Loop(region.header)] + [Block(u.entry) for u in region.units[i+1..].rev()]
+        emit_unit(unit, active, sequence)
 
-emit_body(node, labels):
+emit_unit(unit, labels, body):
+    match unit:
+        Block(b)            -> emit_body(b, labels, body)
+        Loop{header, body=r} -> emit_region(r, labels, loop_body); body.push(Loop(loop_body))
+
+emit_body(node, labels, body):
     emit instructions of node
-    terminator = node.terminator
-    match terminator:
-        Return v            -> emit return (v)
-        Jump(t, args)       -> move args into t's locals; emit br(depth(t, labels))
-        Branch(c, t, f)     -> emit if c { move args; br(depth(t,labels)) }
-                                   else { move args; br(depth(f,labels)) }
-        Switch(v, cases, d) -> emit br_table(v, [depth(b,labels) for b in cases],
-                                             depth(d, labels))
+    match node.terminator:
+        Return v            -> emit load v; return
+        Jump(t, args)       -> read all args; write t's locals; emit br(depth(t, labels))
+        Branch(c, t, f)     -> emit load c; br_if(depth(t, labels)); br(depth(f, labels))
+        Switch(v, cases, d) -> emit load v; br_table([depth(b,labels) for b in cases],
+                                                     depth(d, labels))
         ReturnCall(f, args)    -> emit return_call f(args)        if profile allows
         ReturnCallRef(f, args) -> emit return_call_ref f(args)    if profile allows
 ```
 
-`depth(label, labels)` is the number of active labels strictly inside `label`,
-i.e. the distance from the top of the stack to the matching entry. The stack
-invariant is checked before each emission: a target not present in `labels` is
-a structuring bug and is rejected with a source-associated diagnostic.
+Every basic block is a unit and appears exactly once, so no block is duplicated
+and no join is required for emission: two arms that both return become sibling
+units and the branch targets their labels. A `Loop` unit's own region repeats
+the partition for the loop body. `depth(label, labels)` is the number of active
+labels strictly inside `label`, i.e. the distance from the top of the stack to
+the matching entry. The stack invariant is checked before each emission: a
+target not present in `labels` is a structuring bug and is rejected with a
+source-associated diagnostic. Jump arguments are all read before any target
+local is written, so a jump that swaps two block parameters stays correct.
 
 ### Irreducible dispatcher
 
@@ -363,9 +387,8 @@ wasm/
   lower/
     structure.rs      # structure_module entry, label stack, emission
     structure/
-      cfg.rs          # dominators, natural loops, and reducible region plan
-      region.rs       # stackifier emission for reducible input
-      legacy.rs       # existing acyclic diamonds and switch joins
+      cfg.rs          # dominators, natural loops, and the reducible region plan
+      region.rs       # emission for every reducible region plan
       dispatcher.rs   # Relooper-style fallback for irreducible regions
       instructions.rs # leaf emission and jump-argument copies
       ops.rs          # br/br_table/return_call* opcode emission
@@ -407,10 +430,13 @@ Required types and entry points:
 
   It must maintain the label stack and reject any `br`/`br_table` whose target
   is not an enclosing `Block`/`Loop` label.
-- `wasm/lower/structure/region.rs` must implement the reducible stackifier over
-  the dominator tree, opening `Op::Loop` at a loop header and `Op::Block` at a
-  join or exit; `wasm/lower/structure/dispatcher.rs` must implement the
-  irreducible fallback. `wasm/mod.rs` must provide `Op::Block` and `Op::Loop`
+- `wasm/lower/structure/region.rs` must implement one emitter for every
+  reducible region plan, opening `Op::Loop` at a natural-loop header and
+  `Op::Block` for each region unit, and targeting them with depth-relative
+  branches; it must not consult `common_join` to decide whether a branch or
+  switch can be emitted. `wasm/lower/structure/dispatcher.rs` must implement
+  the irreducible fallback, and the entry point must select it only for
+  irreducible input. `wasm/mod.rs` must provide `Op::Block` and `Op::Loop`
   alongside `Op::Leaf` and `Op::If`, each carrying an optional result type and a
   span.
 - `wasm/encode.rs` must encode structured bodies and depth-relative branches,
@@ -496,8 +522,9 @@ which requires the tail-call capability.
   field tests become projections plus `If` diamonds
   ([pattern matching](pattern-matching.md)).
 - **From MIR lowering.** `Branch` no longer carries a merge block; the structurer
-  derives joins. CC's expression-level `If` and `case` still lower to diamonds,
-  but the structuring hint is gone.
+  derives every control shape from the CFG edges, and a branch or switch whose
+  arms have no join is still emitted. CC's expression-level `If` and `case`
+  still lower to diamonds, but the structuring hint is gone.
 - **To encoding.** `Block`, `Loop`, and depth-resolved `br`/`br_table` are
   emitted as structured `Op`s; leaf opcodes remain
   `wasm_encoder::Instruction` under the thin-encoding rule of
@@ -529,37 +556,41 @@ which requires the tail-call capability.
 ## Implementation notes
 
 CC now preserves a constructor-only, unique-tag case as `TagSwitch`, which P9
-lowers to a `Switch` with parameter-free successor blocks and a one-value join.
-The MIR verifier checks the `i32` selector, unique tags, and successor shape.
-For cyclic functions, P10 analyzes the reachable CFG, computes dominators and
-natural loops, checks that loop regions are nested, and topologically orders
-each region after removing its back edges. It emits `Loop` at each natural-loop
-header and continuation `Block`s for forward targets; `Jump`, `Branch`, and
-`Switch` branches use depths resolved against the active label stack. Acyclic
-functions retain the existing structured diamond and switch-join lowering so
-their one-value merge semantics stay unchanged. Sparse and reordered signed
-switch tags are mapped to dense unsigned indices before `br_table`. Execution
-coverage includes a loop with loop-carried values and nested loops with
-multiple exits; generated modules pass the Wasm IR verifier and
-`wasmparser` validation.
+lowers to a `Switch` with parameter-free successor blocks. The MIR verifier
+checks the `i32` selector, unique tags, and successor shape. P10 analyzes the
+reachable CFG for every function, computes reachability, predecessors,
+dominators, back edges, and natural loops, checks that loop regions nest, and
+partitions each region into an ordered list of block and loop units. The same
+emitter handles every reducible function, with or without loops: it emits
+`Loop` at each natural-loop header, encloses each unit in a `Block` for forward
+targets, and resolves `Jump`, `Branch`, and `Switch` depths against the active
+label stack. A branch or switch whose arms terminate independently has no
+`common_join` and is still emitted, so a valid CFG is never rejected for lack
+of a join. Sparse and reordered signed switch tags are mapped to dense unsigned
+indices before `br_table`. Non-parameter reference locals are declared nullable
+and restored with `ref.as_non_null` at each read, because Wasm forbids reading a
+non-defaultable local that was initialized inside an inner structured block.
+Execution coverage includes a loop with loop-carried values, nested loops with
+multiple exits, a diamond and a switch inside a loop, an early-return and a
+trapping arm, and a shared successor with swapped block arguments; generated
+modules pass the Wasm IR verifier and `wasmparser` validation.
 
 The implementation remains narrower than the complete design in these
 specific areas:
 
 - The `merge_block` hint has been removed. `Branch` carries only its condition
-  and two targets, and joins are derived from the CFG edges. The derivation
-  lives in `mir/cfg.rs` (`common_join`, `join_blocks`) and is shared by the
-  MIR verifier's replacement, the constant-parameter optimizer, and the
-  structurer's acyclic `if`/switch lowering. Acyclicity is no longer the
-  discriminator for join derivation: the structurer computes the join whenever
-  it emits a result-typed diamond.
-- Reducible natural loops, including nested loops and multiple loop exits, are
-  structured directly. A reachable cyclic SCC with multiple entry blocks uses
-  a function-level dispatcher with an `i32` state local, nested dispatch blocks,
-  and `br_table`. Jump arguments are copied before state updates; branches and
-  switches select the next state, including sparse signed switch tags. A
-  direct-MIR Wasmtime fixture exercises parameterized jumps, branches, and
-  switch cases plus the default path.
+  and two targets, and the nearest common join is derived from the CFG edges.
+  The derivation lives in `mir/cfg.rs` (`common_join`, `join_blocks`) and is
+  used by analyses and optimizations such as the constant-parameter optimizer.
+  It is not an emission precondition: the structurer emits every reducible
+  block once and targets it by label, so no branch or switch needs a join.
+- Every reducible CFG, including nested loops and multiple loop exits, is
+  structured directly by the region emitter. Only a reachable cyclic SCC with
+  multiple entry blocks uses a function-level dispatcher with an `i32` state
+  local, nested dispatch blocks, and `br_table`. Jump arguments are copied
+  before state updates; branches and switches select the next state, including
+  sparse signed switch tags. A direct-MIR Wasmtime fixture exercises
+  parameterized jumps, branches, and switch cases plus the default path.
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR

@@ -133,11 +133,7 @@ impl Structurer<'_> {
         };
         match terminator {
             Terminator::Return { value, span } => {
-                body.push(Op::Leaf(Instruction::LocalGet(local(
-                    &self.locals,
-                    *value,
-                    *span,
-                )?)));
+                self.emit_load(*value, *span, body)?;
                 body.push(Op::Leaf(Instruction::Return));
             }
             Terminator::Jump {
@@ -160,11 +156,7 @@ impl Structurer<'_> {
                 self.require_parameterless_target(*else_block, *span)?;
                 let then_depth = branch_depth(*then_block, labels, *span)?;
                 let else_depth = branch_depth(*else_block, labels, *span)?;
-                body.push(Op::Leaf(Instruction::LocalGet(local(
-                    &self.locals,
-                    *condition,
-                    *span,
-                )?)));
+                self.emit_load(*condition, *span, body)?;
                 body.push(Op::Leaf(Instruction::BrIf(then_depth)));
                 body.push(Op::Leaf(Instruction::Br(else_depth)));
             }
@@ -213,11 +205,7 @@ impl Structurer<'_> {
         // Read all arguments before writing any target parameter. This keeps
         // loop-carried permutations correct when a jump swaps block values.
         for argument in arguments {
-            body.push(Op::Leaf(Instruction::LocalGet(local(
-                &self.locals,
-                *argument,
-                span,
-            )?)));
+            self.emit_load(*argument, span, body)?;
         }
         for parameter in target_block.parameters.iter().rev() {
             body.push(Op::Leaf(Instruction::LocalSet(local(

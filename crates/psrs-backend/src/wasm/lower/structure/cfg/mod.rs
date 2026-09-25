@@ -20,15 +20,6 @@ pub(super) struct RegionPlan {
     pub(super) span: psrs_span::TextRange,
 }
 
-impl RegionPlan {
-    pub(super) fn contains_loops(&self) -> bool {
-        self.units.iter().any(|unit| match unit {
-            UnitPlan::Block(_) => false,
-            UnitPlan::Loop { .. } => true,
-        })
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(super) enum UnitPlan {
     Block(BlockId),

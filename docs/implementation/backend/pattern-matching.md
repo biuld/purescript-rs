@@ -188,7 +188,7 @@ PM-05:
 PM-06:
   Implementation: realize/switch.rs `lower_nullary_switch` (CC TagSwitch);
     mir/lower/assignments.rs TagSwitch -> `Terminator::Switch`;
-    wasm/lower/structure/legacy.rs and region.rs switch -> `br_table`.
+    wasm/lower/structure/region.rs switch -> `br_table`.
   Tests: pattern_matching_audit::nullary_sum_dispatch_lowers_through_all_three_stages
     asserts a CC TagSwitch, a MIR Switch, a Wasm `br_table`, and Wasm
     `unreachable`, then executes Blue -> 30;

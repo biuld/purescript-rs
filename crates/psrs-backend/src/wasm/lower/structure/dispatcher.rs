@@ -107,11 +107,7 @@ impl Structurer<'_> {
         let span = terminator_span(terminator);
         match terminator {
             Terminator::Return { value, .. } => {
-                body.push(Op::Leaf(Instruction::LocalGet(local(
-                    &self.locals,
-                    *value,
-                    span,
-                )?)));
+                self.emit_load(*value, span, body)?;
                 body.push(Op::Leaf(Instruction::Return));
                 return Ok(());
             }
@@ -129,11 +125,7 @@ impl Structurer<'_> {
             } => {
                 self.require_parameterless_target(*then_block, span)?;
                 self.require_parameterless_target(*else_block, span)?;
-                body.push(Op::Leaf(Instruction::LocalGet(local(
-                    &self.locals,
-                    *condition,
-                    span,
-                )?)));
+                self.emit_load(*condition, span, body)?;
                 body.push(Op::If {
                     then_body: self.state_update(*then_block, state, span)?,
                     else_body: self.state_update(*else_block, state, span)?,

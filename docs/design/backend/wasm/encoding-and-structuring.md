@@ -84,8 +84,10 @@ Function = { symbol: SymbolId, name: String, type_index: TypeIndex,
 
 Body = [Op]
 Op   = Leaf(wasm_encoder::Instruction)
-     | If { then_body: Body, else_body: Body, result: Option(ValType),
-            span: TextRange }
+     | If    { then_body: Body, else_body: Body, result: Option(ValType),
+               span: TextRange }
+     | Block { body: Body, result: Option(ValType), span: TextRange }
+     | Loop  { body: Body, result: Option(ValType), span: TextRange }
 
 Entry        = { type_index: TypeIndex, body: Body }
 Memory       = { id: MemoryId, index: MemoryIndex,
@@ -131,31 +133,37 @@ MIR already fixed every runtime layout and calling convention. P10 performs only
 three jobs: recover structure, assign final indices mechanically, and build the
 module skeleton. It must not create types, change a sum or closure encoding,
 introduce ABI adaptation, or infer a missing layout
-([IR boundaries](../00-ir-boundaries.md)). The thin IR therefore has exactly two
-`Op` shapes: a `Leaf` that carries a raw `wasm_encoder::Instruction`, and an
-`If` region. `wasm-encoder` owns the opcode set; the encoding grows with the
-language's control shapes, not with the WebAssembly instruction count.
+([IR boundaries](../00-ir-boundaries.md)). The thin IR therefore has a `Leaf`
+that carries a raw `wasm_encoder::Instruction` plus the structured regions the
+language's control shapes need: `If`, `Block`, and `Loop`. `wasm-encoder` owns
+the opcode set; the encoding grows with the language's control shapes, not with
+the WebAssembly instruction count.
 
 ### Structuring
 
-The structurer consumes a MIR function and produces one `Body`. It walks the
-block graph from the entry block. Each MIR instruction is emitted as leaf
-opcodes with an explicit `LocalSet` (MIR values are Wasm locals). Each
-terminator decides the control shape:
+The structurer consumes a MIR function and produces one `Body`. It has exactly
+two paths, chosen by the CFG analysis in
+[control flow and tail calls](../fp/control-flow-and-tail-calls.md):
 
-- `Return` ends the region;
-- `Jump` copies the jump arguments into the target block's parameters and
-  continues into the target (a fall-through inside the enclosing region);
-- `Branch` emits the condition, then an `Op::If` whose arms recursively emit the
-  then and else blocks up to the join block, and stores the join's parameter.
+- **Reducible.** Every reducible CFG, with or without loops, is reduced to one
+  `RegionPlan`: reachable blocks are partitioned into nested regions, each a
+  topologically ordered list of block and loop units. A single emitter walks
+  that plan and emits each unit once inside nested `Op::Block`s, opens an
+  `Op::Loop` at each natural-loop header, and resolves `Jump`, `Branch`, and
+  `Switch` targets to depth-relative `br`/`br_if`/`br_table`. A join is not
+  required for emission: a branch whose arms both return targets their labels
+  directly.
+- **Irreducible.** Only a cycle with more than one entry cannot be nested
+  statically; it uses the dispatcher fallback over an `i32` state local.
 
-The structurer derives the join of a `Branch` or `Switch` from the CFG edges
-(the shared derivation in `mir/cfg.rs`); MIR carries no structuring hint. The
-reducible path also handles loops through the stackifier that adds `Block`,
-`Loop`, and `br_table`, and the tail-call lowering that reuses it, both
-specified in
-[control flow and tail calls](../fp/control-flow-and-tail-calls.md). Structuring
-is the only place that knows about Wasm region shape; MIR stays structure-free.
+Each MIR instruction is emitted as leaf opcodes with an explicit `LocalSet`
+(MIR values are Wasm locals). Each terminator decides the control shape:
+`Return` ends the region; `Jump` reads the jump arguments, writes the target
+block's parameter locals, and branches to the target unit's label; `Branch` and
+`Switch` load their selector and branch to the selected unit's label. MIR
+carries no structuring hint, and `common_join` is an analysis aid, not an
+emission precondition. Structuring is the only place that knows about Wasm
+region shape; MIR stays structure-free.
 
 ### Index allocation
 
@@ -230,35 +238,46 @@ component lift and world are described in [WASI platform library](wasi-platform-
 ```text
 lower_function(mir_fn):
     body = []
-    emit_region(entry_block, stop = None, visited = {}, body)
+    match ControlFlowPlan::build(mir_fn):        // analysis in the CFG topic
+        Reducible(region) -> emit_region(region, labels = [], body)
+        Dispatcher(blocks) -> emit_dispatcher(blocks, body)
     body.push(LocalGet(mir_fn.result))
     return Function { parameters, locals, body }
 
-emit_region(block, stop, visited, body):
-    loop:
-        if block == stop: return stop_block.parameters[0]
-        if block in visited: error("loop not yet supported")
-        visited.insert(block)
-        emit each instruction of block as leaf ops
-        match block.terminator:
-            Return  => return
-            Jump(t, args) =>
-                for (arg, param) in reverse(zip(args, t.parameters)):
-                    body.push(LocalGet(local(arg))); body.push(LocalSet(local(param)))
-                block = t
-            Branch(cond, then, else, merge) =>
-                body.push(LocalGet(local(cond)))
-                then_val = emit_region(then, stop = merge, ...)
-                else_val = emit_region(else, stop = merge, ...)
-                body.push(If { then: [.., LocalGet(then_val)],
-                               else: [.., LocalGet(else_val)],
-                               result: merge_type })
-                body.push(LocalSet(local(merge.parameters[0])))
-                block = merge
+emit_region(region, labels, body):
+    for (i, unit) in region.units:
+        body = [Block { body, span: unit.span }]        // forward-branch target
+        active = labels + [Loop(region.header)]
+                          + [Block(u.entry) for u in region.units[i+1..].rev()]
+        emit_unit(unit, active, body)
+
+emit_unit(unit, labels, body):
+    Block(b)             -> emit_body(b, labels, body)
+    Loop{header, body=r} -> emit_region(r, labels, loop_body); body.push(Loop(loop_body))
+
+emit_body(node, labels, body):
+    emit each instruction of node as leaf ops
+    match node.terminator:
+        Return  => emit load value; Return
+        Jump(t, args) =>
+            read all args; for (arg, param) in reverse(zip(args, t.parameters)):
+                body.push(LocalGet(local(arg))); body.push(LocalSet(local(param)))
+            body.push(Br(depth(t, labels)))
+        Branch(cond, then, else) =>
+            body.push(LocalGet(local(cond)))
+            body.push(BrIf(depth(then, labels))); body.push(Br(depth(else, labels)))
+        Switch(v, cases, d) => body.push(BrTable([depth(b,labels) for b in cases],
+                                                 depth(d, labels)))
 ```
 
-The general algorithm replaces the `stop`-based diamond recognition with a
-dominator/loop analysis and a reducible stackifier, as specified in
+Every block is a unit and is emitted exactly once, so no join is required and a
+branch whose arms terminate independently is still structured. All jump
+arguments are read before any target local is written, which keeps block
+parameter permutations correct. Because Wasm forbids reading a non-defaultable
+local that was initialized inside an inner structured block, non-parameter
+reference locals are declared nullable and the emitter appends
+`ref.as_non_null` after each read to restore the MIR value's non-null type. The
+full analysis and emission are specified in
 [control flow and tail calls](../fp/control-flow-and-tail-calls.md).
 
 ### Index assignment
@@ -343,9 +362,9 @@ these types:
   defined types, functions, memories, data segments, exports, optional entry,
   and optional `realloc`.
 - `Op` — the structured operation set: `Leaf(wasm_encoder::Instruction)` plus
-  structured regions. Every region shape this design names, including `If` and
-  the future `Block` and `Loop`, is an `Op` variant; the encoding must not
-  mirror the WebAssembly opcode set.
+  the structured regions `If`, `Block`, and `Loop`. Every region shape this
+  design names is an `Op` variant; the encoding must not mirror the WebAssembly
+  opcode set.
 - `Function` — a defined function: symbol, name, final type index, parameter and
   local `ValType`s, body, and span.
 - `Export`, with `ExportKind` and `ExportIndex` — the export table, including
@@ -491,23 +510,26 @@ sections in that order. Adding `log "hello"` would add a string data segment
 
 ## Implementation notes
 
-For cyclic functions, the structurer computes dominators and natural loops over
-the entry-reachable MIR graph, checks loop nesting, then orders each loop and
-the function region after removing back edges. It emits a `Loop` at each
-natural-loop header and `Block` continuations for forward targets, including
-multiple loop exits. `Jump`, `Branch`, and `Switch` edges in these functions
-branch to active labels using computed depths. Acyclic functions derive the
-diamond and switch join from the CFG edges and keep the result-typed `if`/switch
-lowering; MIR carries no `merge_block`. A switch maps sparse signed
-tags to dense unsigned indices before `br_table`; duplicate constructor
-patterns still use the source-order comparison chain.
+For every function, the structurer computes reachability, dominators, and
+natural loops over the entry-reachable MIR graph, checks loop nesting, and
+partitions each region into an ordered list of block and loop units after
+removing back edges. One emitter handles every reducible function, with or
+without loops: it emits a `Loop` at each natural-loop header and `Block`
+continuations for forward targets, including multiple loop exits, and resolves
+`Jump`, `Branch`, and `Switch` targets against active labels using computed
+depths. MIR carries no `merge_block`, and a branch or switch whose arms have no
+common join is still emitted; `common_join` remains only an analysis aid for the
+optimizer. Non-parameter reference locals are declared nullable and restored
+with `ref.as_non_null` at each read so Wasm accepts values initialized inside
+inner structured blocks. A switch maps sparse signed tags to dense unsigned
+indices before `br_table`; duplicate constructor patterns still use the
+source-order comparison chain.
 
 The thin IR and encoder support structured `If`, `Block`, and `Loop` regions.
 Branch-depth verification includes the implicit function label and counts
 these regions plus raw `block`, `loop`, `if`, and `end` instructions in `Leaf`
 sequences; the synthesized `cabi_realloc` uses such a raw block-and-loop copy
-routine. The MIR structurer accepts reducible control flow through natural-loop
-structuring. A reachable cyclic SCC with multiple entry blocks selects a
+routine. A reachable cyclic SCC with multiple entry blocks selects a
 function-level dispatcher: an `i32` local stores the next block index, a
 `br_table` selects a nested block label, and each block body updates the state
 before branching back to the dispatcher loop. Jump arguments are copied to

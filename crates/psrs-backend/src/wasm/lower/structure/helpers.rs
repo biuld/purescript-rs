@@ -29,12 +29,7 @@ impl ValueOps for Structurer<'_> {
         value: ValueId,
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
-        body.push(Op::Leaf(Instruction::LocalGet(local(
-            &self.locals,
-            value,
-            span,
-        )?)));
-        Ok(())
+        self.emit_load(value, span, body)
     }
 
     fn store(
