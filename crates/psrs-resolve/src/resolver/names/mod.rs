@@ -1,8 +1,8 @@
 use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
-    self as hir, BuiltinType, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding, LocalId,
-    ModuleId, SymbolId, TypeId,
+    self as hir, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding, LocalId, ModuleId,
+    SymbolId, TypeId,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -466,37 +466,6 @@ impl Resolver {
     }
 }
 
-pub(super) fn split_qualified(text: &str) -> Option<(&str, &str)> {
-    if let Some(index) = text.rfind(".(")
-        && text.ends_with(')')
-    {
-        return Some((&text[..index], &text[index + 2..text.len() - 1]));
-    }
-    let index = text.rfind('.')?;
-    Some((&text[..index], &text[index + 1..]))
-}
+mod util;
 
-pub(super) fn is_uppercase(name: &str) -> bool {
-    name.chars()
-        .next()
-        .is_some_and(|first| first.is_uppercase())
-}
-
-pub(super) fn builtin_type(name: &str) -> Option<BuiltinType> {
-    Some(match name {
-        "Int" => BuiltinType::Int,
-        "Number" => BuiltinType::Number,
-        "Boolean" => BuiltinType::Boolean,
-        "String" => BuiltinType::String,
-        "Char" => BuiltinType::Char,
-        "Unit" => BuiltinType::Unit,
-        "Type" => BuiltinType::Type,
-        "Constraint" => BuiltinType::Constraint,
-        "Symbol" => BuiltinType::Symbol,
-        "Row" => BuiltinType::Row,
-        "Record" => BuiltinType::Record,
-        "Array" => BuiltinType::Array,
-        "Function" | "->" | "~>" => BuiltinType::Function,
-        _ => return None,
-    })
-}
+pub(super) use util::{builtin_type, is_uppercase, split_qualified};

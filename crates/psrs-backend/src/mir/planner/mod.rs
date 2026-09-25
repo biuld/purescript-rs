@@ -7,6 +7,9 @@ use super::layout::{LayoutError, PlannedLayout};
 use crate::TargetCapabilities;
 use crate::cc::Module as CcModule;
 
+#[cfg(test)]
+mod tests;
+
 /// A P9 planner consumes target-neutral CC requirements and produces a
 /// target-specific layout description. CC never depends on this trait or on a
 /// concrete planner.

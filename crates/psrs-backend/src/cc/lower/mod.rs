@@ -17,8 +17,6 @@ mod erased;
 mod global;
 mod lambda;
 mod record;
-#[cfg(test)]
-mod record_tests;
 mod scalar;
 use call::ApplicationLowering;
 use global::GlobalLowering;

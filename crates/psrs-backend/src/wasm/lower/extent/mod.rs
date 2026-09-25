@@ -479,5 +479,4 @@ fn extent_error(
 }
 
 #[cfg(test)]
-#[path = "extent_tests.rs"]
 mod tests;
