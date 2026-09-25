@@ -92,9 +92,7 @@ identity :: forall a. a -> a
 identity value = value
 main = identity 42
 "#;
-    let artifact = compile_source("Main.purs", source).expect("lowering a polymorphic identity");
-    assert!(artifact.wat.contains("struct.new"));
-    assert!(artifact.wat.contains("struct.get"));
+    let _artifact = compile_source("Main.purs", source).expect("lowering a polymorphic identity");
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

@@ -121,10 +121,14 @@ The final binding side table is checked at the P8 boundary.
 `optimize(module: Module, budget: Budget) -> Result<Module, Vec<VerifyError>>` and
 the ordered pass driver. `effects.rs` computes conservative evaluation
 summaries. `simplify.rs` owns constants, branch reduction, and statically
-known record and dictionary projections; `inline.rs` owns bounded beta
-reduction and call-site budgets; `dead.rs` owns dead-binding analysis.
-`util.rs` owns scope-aware substitution and fresh-ID support. These modules
-consume only Core types and source utilities, never CC, MIR, or Wasm types.
+known record and dictionary projections; `inline/` owns bounded lambda and
+named-global inlining. Its local reducer and global call-graph analysis are
+separate from capture-avoiding cloning and call-site construction.
+`specialize/` owns the bounded specialization cache, call redirection, and
+structural type substitution. `dead.rs` owns dead-binding analysis; `util.rs`
+owns scope-aware substitution, node counting, and fresh-ID support. These
+modules consume only Core types and source utilities, never CC, MIR, or Wasm
+types.
 
 ## Invariants and verification
 
@@ -178,12 +182,35 @@ inert known constructor or record cases whose patterns need no nested runtime
 cast, expose record and array projections while sequencing their inputs,
 perform bounded lambda beta reduction, and remove unused inert `let` bindings.
 Dictionary methods are exposed through the same known-record projection rule;
-there is no separate dictionary pass. Global reads and calls remain
-conservatively effectful, and array operations and signed division remain
-potentially trapping unless a rewrite proves the access is in range or the
-division is total.
+there is no separate dictionary pass. Array operations and signed division
+remain potentially trapping unless a rewrite proves the access is in range or
+the division is total.
 
-The current implementation does not inline named global declarations or
-generate specialized declarations. Generic declarations and dictionary-passing
-calls therefore remain available as the correctness path; interprocedural
-purity and cross-module specialization remain future work.
+Bounded named-global inlining applies to statically available, non-polymorphic
+declarations whose body is below the node limit and whose call-graph path is
+nonrecursive. It currently requires a fully applied direct global call with
+one matching leading lambda per argument and skips candidate bodies containing
+`Case`, so P8 source-spanned redundancy warnings are not duplicated. Each
+argument is bound once in source order; cloned local and pattern binders receive
+fresh IDs, call-site spans are used for generated bindings, and source spans
+inside the cloned body are retained. The default limits are 24 body nodes
+and 128 inlining sites per optimization round. The regression compares an
+effect trace and a trap before and after inlining, and checks recursive calls
+remain calls.
+
+Concrete specialization currently applies to applied direct named-global
+heads within the declaration's owning module when the use-site function type
+contains no unresolved type variables. It structurally deduplicates instances,
+substitutes types throughout the cloned declaration, clears the clone's
+quantifiers, and redirects eligible calls while retaining the original generic
+declaration. Its default limits are 32 generated declarations and 1,024 copied
+Core expression nodes per P7 run. Calls with unresolved type variables,
+cross-module calls, and calls beyond either budget keep the generic target.
+Generated specializations that become unreferenced after later optimization
+rounds are removed. Regressions cover concrete and nested aggregate types,
+deduplication, generic fallback, same-module eligibility, budgets, and the
+generic declaration surviving inlining of a small specialization.
+
+Unknown calls remain conservatively observable to simplification and dead
+binding elimination; inlining preserves calls and traps inside a known body.
+Interprocedural purity and cross-module specialization remain future work.
