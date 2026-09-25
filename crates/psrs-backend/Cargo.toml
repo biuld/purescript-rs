@@ -13,3 +13,6 @@ wasmparser.workspace = true
 wasmprinter.workspace = true
 wit-component = "=0.245.1"
 wit-parser = "=0.245.1"
+
+[dev-dependencies]
+psrs-thir.workspace = true
