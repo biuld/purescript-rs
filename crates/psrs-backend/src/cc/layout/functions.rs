@@ -16,12 +16,19 @@ pub(super) fn append_function_types(
 ) -> Result<FunctionLayouts, Vec<BackendError>> {
     let needs_function_types = module.declarations.iter().any(|declaration| {
         let mut value = &declaration.value;
+        let mut result_type = declaration.ty;
         let mut function_parameter = false;
         while let ExprKind::Lambda { binder, body } = &value.kind {
             function_parameter |= is_function_type(module, binder.ty);
+            match module.types.get(result_type.0 as usize) {
+                Some(Type::Function { result, .. }) => result_type = *result,
+                _ => break,
+            }
             value = body;
         }
-        function_parameter || contains_function_value(value, module)
+        function_parameter
+            || contains_function_value(value, module)
+            || is_function_type(module, result_type)
     });
     if !needs_function_types {
         return Ok(FunctionLayouts {

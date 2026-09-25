@@ -93,7 +93,10 @@ fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering" && error.message.contains("non-byte WIT list results")
+        error.stage == "P9 MIR lowering"
+            && error.message.contains("non-byte WIT list results")
+            && error.span.start < error.span.end
+            && error.span.end <= source.len() as u32
     }));
 }
 

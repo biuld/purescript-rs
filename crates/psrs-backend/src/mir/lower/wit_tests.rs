@@ -22,6 +22,7 @@ fn gc_wit_record_projection_uses_the_planned_product_type() {
     });
     let lowerer_span = TextRange::new(0, 1);
     let mut lowerer = FunctionLowerer {
+        conversion_helpers: None,
         next_block: 1,
         blocks: vec![BasicBlock {
             id: BlockId(0),

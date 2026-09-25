@@ -11,13 +11,30 @@ impl FunctionLowerer<'_> {
                 AssignmentKind::AggregateConvert {
                     value, conversion, ..
                 } => {
-                    current = self.lower_aggregate_convert(
-                        current,
-                        *value,
-                        assignment.destination,
-                        conversion,
-                        assignment.span,
-                    )?;
+                    let helper = self
+                        .conversion_helpers
+                        .as_mut()
+                        .and_then(|helpers| helpers.intern(conversion, assignment.span));
+                    if let Some(helper) = helper {
+                        self.append_instruction(
+                            current,
+                            Instruction::Call {
+                                destination: assignment.destination,
+                                function: helper,
+                                arguments: vec![*value],
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                    } else {
+                        current = self.lower_aggregate_convert(
+                            current,
+                            *value,
+                            assignment.destination,
+                            conversion,
+                            assignment.span,
+                        )?;
+                    }
                 }
                 AssignmentKind::Constant(value) => self.append_instruction(
                     current,

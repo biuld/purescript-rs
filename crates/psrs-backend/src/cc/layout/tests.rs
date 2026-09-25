@@ -73,3 +73,122 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
         })
     );
 }
+
+fn empty_module(types: Vec<Type>) -> Module {
+    Module {
+        id: ModuleId(0),
+        name: "LayoutKeysTest".into(),
+        externals: Vec::new(),
+        types,
+        newtype_ids: Vec::new(),
+        constructors: Vec::new(),
+        declarations: Vec::new(),
+        entry: None,
+        span: psrs_span::TextRange::new(0, 1),
+    }
+}
+
+fn layout_for(module: &Module) -> TypeLayout {
+    let newtypes = HashSet::new();
+    let enums = enum_type_ids(module, &newtypes);
+    let aggregates = aggregate_type_ids(module, &newtypes);
+    type_layout(module, &enums, &aggregates, &newtypes).expect("layout should succeed")
+}
+
+#[test]
+fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
+    let module = empty_module(vec![
+        Type::Variable(TypeVariableId(0)),
+        Type::I32,
+        Type::Record(vec![("x".into(), TypeId(0)), ("y".into(), TypeId(1))]),
+        Type::Record(vec![("y".into(), TypeId(1)), ("x".into(), TypeId(0))]),
+    ]);
+    let layout = layout_for(&module);
+    let first = layout.record_types[&TypeId(2)];
+    let second = layout.record_types[&TypeId(3)];
+    assert_eq!(
+        first, second,
+        "records with the same canonical field set must share a handle"
+    );
+    assert_eq!(
+        layout.representations.product_labels(first),
+        Some(["x".to_owned(), "y".to_owned()].as_slice())
+    );
+    assert_eq!(
+        layout.representations.representation(first),
+        Some(&Representation::Product {
+            fields: vec![
+                ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Erased,
+                }),
+                ValueShape::Integer,
+            ],
+        })
+    );
+}
+
+#[test]
+fn canonical_arrays_key_by_element_shape() {
+    let module = empty_module(vec![
+        Type::Variable(TypeVariableId(0)),
+        Type::Constructor(TypeConstructor::Array),
+        Type::Application(TypeId(1), TypeId(0)),
+        Type::I32,
+        Type::Application(TypeId(1), TypeId(3)),
+        Type::Application(TypeId(1), TypeId(2)),
+    ]);
+    let layout = layout_for(&module);
+    let generic = layout.array_types[&TypeId(2)];
+    let concrete = layout.array_types[&TypeId(4)];
+    let nested = layout.array_types[&TypeId(5)];
+    assert_ne!(generic, concrete, "Array a and Array Int must differ");
+    assert_eq!(
+        layout.representations.representation(generic),
+        Some(&Representation::Array {
+            element: ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Erased,
+            }),
+        })
+    );
+    assert_eq!(
+        layout.representations.representation(concrete),
+        Some(&Representation::Array {
+            element: ValueShape::Integer,
+        })
+    );
+    assert_eq!(
+        layout.representations.representation(nested),
+        Some(&Representation::Array {
+            element: ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(generic),
+            }),
+        })
+    );
+}
+
+#[test]
+fn recursive_aggregate_normalization_terminates() {
+    let module = empty_module(vec![
+        Type::Application(TypeId(2), TypeId(1)),
+        Type::Application(TypeId(2), TypeId(0)),
+        Type::Constructor(TypeConstructor::Array),
+    ]);
+    let layout = layout_for(&module);
+    let first = layout.array_types[&TypeId(0)];
+    let second = layout.array_types[&TypeId(1)];
+    assert!(matches!(
+        layout.representations.representation(first),
+        Some(Representation::Array { .. })
+    ));
+    assert!(matches!(
+        layout.representations.representation(second),
+        Some(Representation::Array { .. })
+    ));
+    assert_ne!(
+        first, second,
+        "mutually recursive arrays keep distinct canonical handles"
+    );
+}

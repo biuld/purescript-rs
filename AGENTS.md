@@ -20,6 +20,18 @@ uncommitted work.
   decision. Keep documentation proportional to the change.
 - Review the local diff and run the validation relevant to the files changed.
 
+### Backend topic implementation
+
+- When a backend topic has an execution checklist under
+  `docs/implementation/backend/`, use it together with the normative design.
+  Audit existing code, maintain requirement-to-test evidence, and continue
+  through all required vertical slices before declaring the topic complete.
+- Passing existing tests or completing one slice does not establish topic
+  completion. Required runtime evidence must actually execute; skipped tests
+  leave the relevant requirement unverified. Record blockers and precise
+  remaining work for continuation, and keep D-04 consistent with verified
+  coverage. Do not narrow the design to close implementation gaps.
+
 ## Documentation
 
 - Write all documentation in English.

@@ -280,11 +280,15 @@ fn contains_canonical_record_array_map(conversion: &psrs_backend::cc::ValueConve
 }
 
 fn run_wasmtime(source: &str) -> Option<std::process::Output> {
+    let required = std::env::var("PSRS_REQUIRE_WASMTIME").as_deref() == Ok("1");
     if std::process::Command::new("wasmtime")
         .arg("--version")
         .output()
         .is_err()
     {
+        if required {
+            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
+        }
         return None;
     }
     use std::sync::atomic::{AtomicU32, Ordering};

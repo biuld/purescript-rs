@@ -4,6 +4,42 @@ use crate::types::{DefinedTypeId, FunctionId, HeapType, RefType, ValueDecl, Valu
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 
+fn verified_array_map_module(mut function: Function) -> crate::mir::Module {
+    use crate::types::{CompositeType, DefinedType, FieldType, RecGroup, StorageType};
+    function.parameters.push(ValueId(8));
+    if let Some(Terminator::Branch { merge_block, .. }) = &mut function.blocks[1].terminator {
+        *merge_block = BlockId(1);
+    }
+    if let Some(Terminator::Branch { merge_block, .. }) = &mut function.blocks[2].terminator {
+        *merge_block = BlockId(1);
+    }
+    crate::mir::Module {
+        name: "ArrayMapVerifier".into(),
+        types: vec![
+            RecGroup(vec![DefinedType {
+                final_type: true,
+                supertype: None,
+                composite: CompositeType::Array(FieldType {
+                    storage: StorageType::I32,
+                    mutable: true,
+                }),
+            }]),
+            RecGroup(vec![DefinedType {
+                final_type: true,
+                supertype: None,
+                composite: CompositeType::Array(FieldType {
+                    storage: StorageType::I32,
+                    mutable: true,
+                }),
+            }]),
+        ],
+        imports: Vec::new(),
+        entry: Some(function.symbol),
+        functions: vec![function],
+        span: span(),
+    }
+}
+
 const fn span() -> TextRange {
     TextRange::new(0, 1)
 }
@@ -172,6 +208,70 @@ fn accepts_a_complete_array_map_loop() {
 }
 
 #[test]
+fn rejects_an_exit_after_storing_only_the_current_element() {
+    let mut function = array_map_function();
+    let increment = function.blocks[2].instructions.split_off(1);
+    let backedge = function.blocks[2].terminator.take();
+    function.blocks[2].terminator = Some(Terminator::Branch {
+        condition: ValueId(4),
+        then_block: BlockId(3),
+        else_block: BlockId(4),
+        merge_block: BlockId(3),
+        span: span(),
+    });
+    function.blocks.push(BasicBlock {
+        id: BlockId(4),
+        parameters: Vec::new(),
+        instructions: increment,
+        terminator: backedge,
+    });
+    let errors = verify_array_maps(&function).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("without initializing")),
+        "{errors:?}"
+    );
+    let errors = crate::mir::verify_module(&verified_array_map_module(function)).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("without initializing")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_reading_the_destination_before_its_loop() {
+    let mut function = array_map_function();
+    function.blocks[0].instructions.push(Instruction::ArrayGet {
+        destination: ValueId(9),
+        type_index: DefinedTypeId(1),
+        value: ValueId(1),
+        index: ValueId(5),
+        span: span(),
+    });
+    let errors = verify_array_maps(&function).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("escapes before initialization")),
+        "{errors:?}"
+    );
+    function.values.push(crate::types::ValueDecl {
+        id: ValueId(9),
+        ty: crate::types::ValueType::I32,
+    });
+    let errors = crate::mir::verify_module(&verified_array_map_module(function)).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("escapes before initialization")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_a_loop_that_does_not_initialize_each_element() {
     let mut function = array_map_function();
     function.blocks[2].instructions.remove(0);
@@ -196,5 +296,67 @@ fn rejects_a_loop_that_does_not_advance_by_one() {
         errors
             .iter()
             .any(|error| error.message.contains("advance its index by one"))
+    );
+}
+
+#[test]
+fn rejects_a_loop_iteration_that_can_escape_before_storing() {
+    let mut function = array_map_function();
+    let init = BlockId(4);
+    let moved = std::mem::take(&mut function.blocks[2].instructions);
+    function.blocks[2].terminator = Some(Terminator::Branch {
+        condition: ValueId(4),
+        then_block: init,
+        else_block: BlockId(3),
+        merge_block: BlockId(1),
+        span: span(),
+    });
+    function.blocks.push(BasicBlock {
+        id: init,
+        parameters: Vec::new(),
+        instructions: moved,
+        terminator: Some(Terminator::Jump {
+            target: BlockId(1),
+            arguments: vec![ValueId(7)],
+            span: span(),
+        }),
+    });
+
+    let errors = verify_array_maps(&function).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("without initializing")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_store_that_happens_outside_the_loop() {
+    let mut function = array_map_function();
+    let escaped = BlockId(4);
+    let instruction = function.blocks[2].instructions.remove(0);
+    function.blocks[2].instructions.push(Instruction::Constant {
+        destination: ValueId(5),
+        value: 0,
+        span: span(),
+    });
+    function.blocks.push(BasicBlock {
+        id: escaped,
+        parameters: Vec::new(),
+        instructions: vec![instruction],
+        terminator: Some(Terminator::Return {
+            value: ValueId(1),
+            span: span(),
+        }),
+    });
+
+    let errors = verify_array_maps(&function).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("never initializes")
+                || error.message.contains("outside its loop")),
+        "{errors:?}"
     );
 }

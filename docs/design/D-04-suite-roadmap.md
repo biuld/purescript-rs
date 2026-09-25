@@ -469,6 +469,16 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice; full official passing-suite execution is not complete. | Partial | Track per-feature runtime cases and then expand the passing-suite scoreboard. |
 | BE-28 | JavaScript/Node.js FFI compatibility | Not emitted or executed by this backend. | Excluded | No work planned under this decision. |
 
+### Topic implementation acceptance
+
+Detailed topic checklists refine the feature rows without replacing their
+broader landing gates. A stable design or existing implementation is not an
+acceptance result.
+
+| Topic | Related rows | Acceptance status | Execution checklist |
+| --- | --- | --- | --- |
+| Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
+
 The backend landing order is:
 
 ```text
