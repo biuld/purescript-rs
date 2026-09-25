@@ -209,6 +209,7 @@ dependencies = [
  "psrs-core",
  "psrs-hir",
  "psrs-span",
+ "psrs-thir",
  "wasm-encoder",
  "wasmparser",
  "wasmprinter",

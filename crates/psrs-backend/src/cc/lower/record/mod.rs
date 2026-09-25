@@ -2,7 +2,7 @@ use super::super::layout::erased_field_recovery_family;
 use super::super::{Assignment, AssignmentKind, Representation, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
-use psrs_core::{Expr, Type};
+use psrs_core::{Expr, dictionary::ClassLayout};
 
 #[cfg(test)]
 mod tests;
@@ -12,32 +12,20 @@ impl FunctionLowerer<'_> {
         &mut self,
         expression: &Expr,
         fields: &[(String, Expr)],
+        layout: &ClassLayout,
         ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(representation) = self.record_types.get(&expression.ty).copied() else {
+        let Some(representation) = self.record_types.get(&layout.dictionary_type()).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
                 "record expression has no representation requirement",
             )]);
         };
-        let labels = match self.module.types.get(expression.ty.0 as usize) {
-            Some(Type::Record(fields)) => fields
-                .iter()
-                .map(|(label, _)| label.clone())
-                .collect::<Vec<_>>(),
-            _ => {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    expression.span,
-                    "record expression has no record type",
-                )]);
-            }
-        };
-        let mut arguments = Vec::with_capacity(labels.len());
-        for (index, label) in labels.into_iter().enumerate() {
-            let Some((_, value)) = fields.iter().find(|(field, _)| field == &label) else {
+        let mut arguments = Vec::with_capacity(layout.fields().len());
+        for field in layout.fields() {
+            let Some((_, value)) = fields.iter().find(|(label, _)| label == &field.label) else {
                 return Err(vec![BackendError::new(
                     "P8 closure conversion",
                     expression.span,
@@ -47,7 +35,7 @@ impl FunctionLowerer<'_> {
             let value = self.lower_value(value, assignments)?;
             let stored = product_field_shape(
                 self.representations.representation(representation),
-                index,
+                field.index as usize,
                 expression.span,
             )?;
             arguments.push(self.adapt_to_storage_shape(
@@ -85,16 +73,13 @@ impl FunctionLowerer<'_> {
                 "record update has no representation requirement",
             )]);
         };
-        let labels = match self.module.types.get(record.ty.0 as usize) {
-            Some(Type::Record(fields)) => fields.clone(),
-            _ => {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    expression.span,
-                    "record update has no record type",
-                )]);
-            }
-        };
+        let layout = ClassLayout::from_record_type(self.module, record.ty).map_err(|message| {
+            vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                message,
+            )]
+        })?;
         let base = self.lower_value(record, assignments)?;
         let mut updates = Vec::with_capacity(fields.len());
         for (label, value) in fields {
@@ -102,14 +87,14 @@ impl FunctionLowerer<'_> {
             updates.push((label, value));
         }
 
-        let mut arguments = Vec::with_capacity(labels.len());
-        for (field_index, (label, _)) in labels.iter().enumerate() {
+        let mut arguments = Vec::with_capacity(layout.fields().len());
+        for field in layout.fields() {
             let stored = product_field_shape(
                 self.representations.representation(representation),
-                field_index,
+                field.index as usize,
                 expression.span,
             )?;
-            if let Some((_, value)) = updates.iter().find(|(name, _)| *name == label) {
+            if let Some((_, value)) = updates.iter().find(|(name, _)| *name == &field.label) {
                 arguments.push(self.adapt_to_storage_shape(
                     *value,
                     stored,
@@ -124,7 +109,7 @@ impl FunctionLowerer<'_> {
                 kind: AssignmentKind::ProductGet {
                     destination: value,
                     representation,
-                    field: field_index as u32,
+                    field: field.index,
                     value: base,
                 },
                 span: expression.span,
@@ -159,19 +144,14 @@ impl FunctionLowerer<'_> {
                 "record field access has no representation requirement",
             )]);
         };
-        let Some((field_index, field_type)) =
-            self.module
-                .types
-                .get(record.ty.0 as usize)
-                .and_then(|ty| match ty {
-                    Type::Record(fields) => fields
-                        .iter()
-                        .enumerate()
-                        .find(|(_, (label, _))| label == field)
-                        .map(|(index, (_, field_type))| (index, *field_type)),
-                    _ => None,
-                })
-        else {
+        let layout = ClassLayout::from_record_type(self.module, record.ty).map_err(|message| {
+            vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                message,
+            )]
+        })?;
+        let Some(field_layout) = layout.field(field) else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
@@ -180,12 +160,12 @@ impl FunctionLowerer<'_> {
         };
         let stored = product_field_shape(
             self.representations.representation(representation),
-            field_index,
+            field_layout.index as usize,
             expression.span,
         )?;
         if let Some(family) = erased_field_recovery_family(
             self.module,
-            field_type,
+            field_layout.ty,
             stored,
             ty,
             self.array_types,
@@ -206,7 +186,7 @@ impl FunctionLowerer<'_> {
             kind: AssignmentKind::ProductGet {
                 destination: projected,
                 representation,
-                field: field_index as u32,
+                field: field_layout.index,
                 value: record,
             },
             span: expression.span,

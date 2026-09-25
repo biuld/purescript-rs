@@ -174,6 +174,19 @@ pub(super) fn type_layout(
         record_types.insert(*id, representations.reserve());
     }
 
+    // Function signatures can refer to record and array references, so reserve
+    // those logical layouts first. Product fields can then use the completed
+    // closure signature table, including dictionary methods stored as fields.
+    let function_layout = functions::append_function_types(
+        module,
+        enum_types,
+        aggregate_types,
+        newtype_ids,
+        &array_types,
+        &record_types,
+        &mut representations,
+    )?;
+
     for id in &array_ids {
         let Some(element) = array_element_type(module, *id) else {
             continue;
@@ -187,7 +200,7 @@ pub(super) fn type_layout(
             newtype_ids,
             &array_types,
             &record_types,
-            &HashMap::new(),
+            &function_layout.function_types,
         )?;
         representations.set(array_types[id], Representation::Array { element });
     }
@@ -207,7 +220,7 @@ pub(super) fn type_layout(
                     newtype_ids,
                     &array_types,
                     &record_types,
-                    &HashMap::new(),
+                    &function_layout.function_types,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -246,7 +259,7 @@ pub(super) fn type_layout(
                         newtype_ids,
                         &array_types,
                         &record_types,
-                        &HashMap::new(),
+                        &function_layout.function_types,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -257,16 +270,6 @@ pub(super) fn type_layout(
         }
         representations.set(id, Representation::Variant { cases });
     }
-
-    let function_layout = functions::append_function_types(
-        module,
-        enum_types,
-        aggregate_types,
-        newtype_ids,
-        &array_types,
-        &record_types,
-        &mut representations,
-    )?;
 
     Ok(TypeLayout {
         representations,

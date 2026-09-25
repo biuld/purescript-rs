@@ -1,3 +1,4 @@
+pub mod dictionary;
 mod link;
 mod lower;
 pub mod opt;

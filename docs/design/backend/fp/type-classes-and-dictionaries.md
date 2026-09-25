@@ -331,20 +331,16 @@ no runtime check of `a`.
 
 ## Implementation notes
 
-The typed-evidence handoff and its erasure are implemented as a current
-coverage path: THIR can retain `Given`, `Global`, `Instance`, and `Superclass`
-evidence; its verifier checks instance-context arrows and superclass record
-fields. Core lowering expands those derivations into ordinary local/global
-values, applications, and field projections, and Core verification checks the
-resulting expression types. A focused regression exercises an instance
-constructor applied to a given dictionary followed by a superclass and method
-projection.
-
-This is an implementation deviation from the backend Code map above. The
-handoff currently lives at the THIR-to-Core boundary and uses existing Core
-record operations; the planned backend `lower_dictionary_value` entry point and
-`ClassLayout` abstraction are not implemented. The Code map remains the design
-target for the backend representation API.
+The backend now builds a checked `ClassLayout` from each dictionary's Core
+record type and routes record-typed dictionary values through
+`lower_dictionary_value`. Instance dictionaries use the existing product
+construction path, while superclass and method selection use the existing
+field projection path. P8 plans closure signatures before product fields so
+method closures can occupy dictionary fields; CC and MIR contain only ordinary
+product operations. A focused backend regression starts from typed THIR
+`Given`, `Instance`, and `Superclass` evidence, checks its Core projections,
+then verifies CC `ProductNew`/`ProductGet` and MIR `StructNew`/`StructGet`
+shapes.
 
 The source frontend does not yet produce these evidence terms. Instance syntax
 is still rejected by AST lowering, HIR has no instance declarations, and the
