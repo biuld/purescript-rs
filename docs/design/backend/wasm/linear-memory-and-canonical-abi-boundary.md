@@ -84,6 +84,9 @@ known constant added by the leaf `MemArg`, and `Load8U` reads one byte. The
   declared ABI region. Accesses with dynamic addresses rely on WebAssembly's
   runtime linear-memory bounds check and trap when the accessed bytes are out
   of bounds.
+- The scratch region is readable and writable by canonical return handling.
+  String-literal segments are read-only to MIR; a statically known `Store` into
+  one is rejected even when its byte interval is otherwise in bounds.
 - A nonzero `cabi_realloc` result is aligned to the requested alignment, its
   payload is preceded by a 4-byte length prefix, and reallocation preserves
   `min(old_len, new_len)` bytes. A zero result is never read as a prefix.
@@ -158,8 +161,10 @@ the memory's current byte length, which may be less than `2^32`.
 For an address the verifier cannot resolve statically, `o + w` must still be
 at most `2^32`. A larger value makes the access trap for every possible
 wasm32 base and is rejected as an invalid MIR access. When that fixed part fits,
-an unknown base is permitted: the WebAssembly load or store performs the
-current-memory bounds check and traps if `a + o + w` exceeds memory. This is a
+an unknown base is permitted for extent checking: the WebAssembly instruction
+performs the current-memory bounds check and traps if `a + o + w` exceeds
+memory. An unknown-base `Store` also needs a separate ABI-level writable-buffer
+guarantee; the current ABI lowering emits no such MIR store. This is a
 deliberate boundary between compile-time checks and runtime checks; the
 compiler does not reject a dynamic canonical pointer just because it cannot
 prove its runtime value.
@@ -172,8 +177,11 @@ The allocator's heap-pointer segment is allocator-owned and is not a MIR
 addressable region. A resolved constant address must belong to one of the
 MIR-addressable regions, and its entire effective interval must remain within
 that same region; an access into a gap, across a region boundary, or into
-allocator metadata is rejected. This checks the bytes the MIR operation can
-touch without adding memory provenance or object-layout fields to MIR.
+allocator metadata is rejected. The scratch region permits reads and writes;
+string literal segments permit reads only. A statically resolved `Store` into a
+literal segment is rejected even when it stays within the segment. This checks
+the bytes the MIR operation can touch without adding memory provenance or
+object-layout fields to MIR.
 
 Static address analysis follows `Constant`, `StringConstant`, and `Copy` values,
 the `i32.add` and `i32.sub` operations when their operands are statically
@@ -194,7 +202,10 @@ metadata or ABI checks, while rejecting them would reject valid canonical
 calls. They therefore use the WebAssembly runtime's linear-memory bounds trap.
 That runtime check proves only that an access is inside the current memory; it
 does not prove that a dynamic pointer stays within a particular allocation or
-string object.
+string object. It also does not prove write permission. The current ABI
+lowering emits no `Store` through an unknown dynamic address; any future
+dynamic store must establish writable-buffer provenance in ABI lowering or be
+rejected, because a runtime bounds check alone cannot protect literal bytes.
 
 ### Rejected alternative
 
@@ -261,7 +272,8 @@ the `String` boundary cannot represent it.
 
 ```text
 verify_static_access_extents(module, layout):
-    regions = [scratch interval] + [each length-prefixed string segment]
+    regions = [{scratch interval, permissions: read/write}]
+              + [{string interval, permissions: read} for each literal]
     require regions are disjoint and each lies within the wasm32 address space
 
     for each function:
@@ -275,9 +287,12 @@ verify_static_access_extents(module, layout):
                 require end <= 2^32
                 region = the unique MIR-addressable region containing base
                 require region exists and end <= region.end
+                access = read for Load/Load8U, write for Store
+                require access in region.permissions
             else:
                 # Wasm checks the actual address against current memory.
-                accept
+                accept dynamic reads; require separate writable-buffer proof
+                        for dynamic stores
 
 solve_address_facts(function, layout):
     initialize function parameters and unsupported results as Unknown
@@ -307,6 +322,9 @@ it rejects only an instruction that is out of range for every possible base.
 Static diagnostics use the memory instruction's source span. Segment-region
 checks intentionally end at the extent of the string segment, including its
 four-byte prefix and payload, and exclude alignment padding after that segment.
+The permission check allows a 4-byte `Store` at address `0` in the scratch
+region, but rejects a 4-byte `Store` at a string segment's base even when the
+whole write fits inside that segment.
 
 ### Edge cases
 
@@ -368,16 +386,20 @@ Responsibilities and required entry points:
   `lower/extent.rs` against the MIR module and resulting ABI memory layout.
 - `wasm/lower/extent.rs` must resolve statically known MIR addresses, compute
   checked access intervals, and reject known accesses outside the scratch and
-  string-literal regions or beyond the wasm32 address space. Unknown dynamic
-  addresses pass this static check when their fixed `offset + width` fits the
-  wasm32 space; the emitted WebAssembly instruction supplies the runtime
-  current-memory bounds trap. Required entry point:
+  string-literal regions, reject known stores into read-only string-literal
+  regions, and reject accesses beyond the wasm32 address space. Unknown dynamic
+  addresses pass this static extent check when their fixed `offset + width`
+  fits the wasm32 space; dynamic stores also require an ABI-level
+  writable-buffer guarantee. The emitted WebAssembly instruction supplies the
+  runtime current-memory bounds trap. Required entry point:
   `fn verify_static_access_extents(module, layout) -> Result<(), Vec<BackendError>>`.
 - `wasm/lower/structure/instructions.rs` must lower the MIR boundary
   instructions to leaf Wasm load/store/convert instructions carrying a `MemArg`.
 - `mir/wit/mod.rs` and `mir/wit/parameters.rs` must adapt strings and byte lists
   to and from the `(pointer, length)` exchange format; a non-byte list must be
-  rejected before this layer.
+  rejected before this layer. They must not emit a dynamic `Store` without an
+  ABI-level writable-buffer guarantee; current lowering emits no dynamic MIR
+  store.
 
 **No language objects in linear memory.** The module tree must not allocate
 language aggregates, closures, variants, arrays, or erased values in linear
@@ -427,7 +449,9 @@ and is also contained. A 4-byte `Load` at offset `8` reads `[24, 28)` and is
 rejected because it crosses the segment end. Independently, a `Load8U` with a
 dynamic base and offset `0xffff_ffff` passes the fixed-part check because its
 maximum interval ends at `2^32`; it traps at runtime unless the memory has all
-`2^32` bytes and the base is zero.
+`2^32` bytes and the base is zero. A 4-byte `Store` at scratch address `0`
+with offset `0` is allowed, while a 4-byte `Store` at `v_string` with offset
+`0` is rejected: its range fits the literal, but that region is read-only.
 
 ## Boundaries and interfaces
 
