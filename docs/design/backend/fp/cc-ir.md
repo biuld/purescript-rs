@@ -601,12 +601,18 @@ external free locals; each function reconstructs the group's function values
 from those captures, so recursive calls and closures that escape through a
 nested lambda use ordinary `FunctionRef`, `ClosureGetCapture`, and
 `IndirectCall` operations. Regressions cover mutually recursive functions and
-an escaping closure that captures a recursive function, including preserved
-source ranges, and verify that both outputs lower through P9. Recursive
-non-function bindings and recursive function captures that depend on a later
-same-`Let` value still receive source-spanned diagnostics. `AggregateConvert`
-and its recursive plans are design requirements only; unsupported generic
-array and record recovery still receives a source-spanned diagnostic.
+a recursive function that captures an earlier non-recursive value from the
+same `Let` and escapes through a nested closure. They check source-order
+assignments and preserved source ranges, and verify that both outputs lower
+through P9. Captures are resolved when lowering reaches the first recursive
+binding, after earlier bindings have been lowered. A capture that depends on a
+same-`Let` value appearing after that point still receives a source-spanned
+diagnostic: strict source-order evaluation has not produced a value for the
+explicit closure environment at the point the recursive closure is formed.
+Recursive non-function bindings still receive source-spanned diagnostics.
+`AggregateConvert` and its recursive plans are design requirements only;
+unsupported generic array and record recovery still receives a source-spanned
+diagnostic.
 
 ## References
 

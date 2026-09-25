@@ -41,7 +41,7 @@ fn mutually_recursive_local_functions_lower_to_explicit_closures() {
 }
 
 #[test]
-fn escaping_closure_captures_a_recursive_local_function() {
+fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
     let backend = crate::cc::lower_module(escaping_recursive_module())
         .expect("a closure may escape while capturing a recursive local function");
     let main = backend
@@ -63,17 +63,47 @@ fn escaping_closure_captures_a_recursive_local_function() {
         .find(|function| function.name.starts_with("lambda_"))
         .expect("lifted escaping closure");
 
-    let recursive_value = main
+    let seed_value = main
         .assignments
         .iter()
         .find_map(|assignment| match assignment.kind {
-            AssignmentKind::FunctionRef { function, .. } if function == recursive.symbol => {
+            AssignmentKind::Constant(17) => {
+                assert_eq!(assignment.span, TextRange::new(22, 23));
+                Some(assignment.destination)
+            }
+            _ => None,
+        })
+        .expect("main evaluates the same-Let seed before the recursive function");
+    let recursive_value = main
+        .assignments
+        .iter()
+        .find_map(|assignment| match &assignment.kind {
+            AssignmentKind::FunctionRef {
+                function, captures, ..
+            } if *function == recursive.symbol => {
+                assert_eq!(captures, &[seed_value]);
                 assert_eq!(assignment.span, TextRange::new(30, 92));
                 Some(assignment.destination)
             }
             _ => None,
         })
         .expect("main creates the recursive function value");
+    let seed_index = main
+        .assignments
+        .iter()
+        .position(|assignment| matches!(assignment.kind, AssignmentKind::Constant(17)))
+        .expect("seed assignment exists");
+    let recursive_index = main
+        .assignments
+        .iter()
+        .position(|assignment| {
+            matches!(
+                assignment.kind,
+                AssignmentKind::FunctionRef { function, .. } if function == recursive.symbol
+            )
+        })
+        .expect("recursive function reference exists");
+    assert!(seed_index < recursive_index);
     let escaping_reference = main
         .assignments
         .iter()
@@ -116,7 +146,7 @@ fn escaping_closure_captures_a_recursive_local_function() {
             AssignmentKind::ClosureGetCapture { index: 0, .. } => Some(assignment.destination),
             _ => None,
         })
-        .expect("recursive closure restores its external capture");
+        .expect("recursive closure restores its same-Let seed capture");
     assert!(recursive.assignments.iter().any(|assignment| {
         matches!(
             &assignment.kind,
@@ -212,13 +242,13 @@ fn escaping_recursive_module() -> Module {
     let int = TypeId(0);
     let boolean = TypeId(1);
     let int_function = TypeId(2);
-    let outer_function = TypeId(3);
     let module_id = ModuleId(0);
     let main_symbol = SymbolId::new(module_id, 0);
     let loop_id = LocalId(10);
     let seed_id = LocalId(11);
     let loop_arg = LocalId(12);
     let escaped_arg = LocalId(13);
+    let seed = binding("seed", seed_id, int, integer(17, int, 22), 20, 23);
     let recursive = binding(
         "loop",
         loop_id,
@@ -263,37 +293,23 @@ fn escaping_recursive_module() -> Module {
     );
     let let_expression = expression(
         ExprKind::Let {
-            bindings: vec![recursive],
+            bindings: vec![seed, recursive],
             body: Box::new(escaping),
         },
         int_function,
-        25,
+        19,
         125,
     );
-    let declaration_value = lambda(
-        "seed",
-        seed_id,
-        int,
-        let_expression,
-        outer_function,
-        10,
-        130,
-    );
     module(
-        vec![
-            Type::I32,
-            Type::Boolean,
-            function_type(int, int),
-            function_type(int, int_function),
-        ],
+        vec![Type::I32, Type::Boolean, function_type(int, int)],
         Declaration {
             symbol: main_symbol,
             name: "main".into(),
             name_span: range(0, 4),
             quantified: Vec::new(),
-            ty: outer_function,
-            value: declaration_value,
-            span: range(0, 130),
+            ty: int_function,
+            value: let_expression,
+            span: range(0, 125),
         },
         main_symbol,
     )

@@ -29,7 +29,7 @@ impl LetLowering for FunctionLowerer<'_> {
         &mut self,
         bindings: &[Binding],
         body: &Expr,
-        span: TextRange,
+        _span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let recursive = recursive_indices(bindings);
@@ -47,40 +47,44 @@ impl LetLowering for FunctionLowerer<'_> {
             .collect::<HashSet<_>>();
         let functions = self.recursive_functions(bindings, &recursive)?;
         let captures = recursive_captures(bindings, &recursive, &recursive_ids);
-        let capture_values = captures
-            .iter()
-            .map(|local| {
-                self.locals.get(local).copied().ok_or_else(|| {
-                    vec![BackendError::new(
-                        "P8 closure conversion",
-                        span,
-                        "recursive local function captures a local value that is not initialized yet",
-                    )]
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let capture_shapes = capture_values
-            .iter()
-            .map(|value| self.value_shape(*value, span))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        for function in &functions {
-            self.lower_recursive_function(function, &functions, &captures, &capture_shapes)?;
-        }
-
         let function_by_local = functions
             .iter()
             .map(|function| (function.binding.binder.id, function))
             .collect::<HashMap<_, _>>();
+        let mut capture_values = None;
         for (index, binding) in bindings.iter().enumerate() {
             if recursive.contains(&index) {
+                if capture_values.is_none() {
+                    let values = captures
+                        .iter()
+                        .map(|local| {
+                            self.locals.get(local).copied().ok_or_else(|| {
+                                vec![BackendError::new(
+                                    "P8 closure conversion",
+                                    binding.span,
+                                    "recursive local function capture is not initialized at this binding",
+                                )]
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let shapes = values
+                        .iter()
+                        .map(|value| self.value_shape(*value, binding.span))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for function in &functions {
+                        self.lower_recursive_function(function, &functions, &captures, &shapes)?;
+                    }
+                    capture_values = Some(values);
+                }
                 let function = function_by_local[&binding.binder.id];
                 let value = emit_function_ref(
                     self,
                     function.binding,
                     function.symbol,
                     function.signature_id,
-                    &capture_values,
+                    capture_values
+                        .as_deref()
+                        .expect("recursive captures are initialized at the first group member"),
                     binding.span,
                     assignments,
                 )?;
