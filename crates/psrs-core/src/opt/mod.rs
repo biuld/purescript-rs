@@ -4,6 +4,7 @@ mod dead;
 mod effects;
 mod inline;
 mod simplify;
+mod specialize;
 mod util;
 
 use crate::{Module, VerifyError};
@@ -13,10 +14,14 @@ use crate::{Module, VerifyError};
 pub struct Budget {
     /// Maximum complete simplification rounds.
     pub max_iterations: usize,
-    /// Maximum Core nodes in a lambda body eligible for beta reduction.
+    /// Maximum Core nodes in a local lambda or named-global body to inline.
     pub max_inline_nodes: usize,
-    /// Maximum beta reductions in a single round.
+    /// Maximum local and named-global inlining sites in a single round.
     pub max_inline_sites: usize,
+    /// Maximum specialized declarations produced by one P7 run.
+    pub max_specializations: usize,
+    /// Maximum aggregate Core nodes copied into specialized declarations.
+    pub max_specialized_nodes: usize,
 }
 
 impl Default for Budget {
@@ -25,6 +30,8 @@ impl Default for Budget {
             max_iterations: 4,
             max_inline_nodes: 24,
             max_inline_sites: 128,
+            max_specializations: 32,
+            max_specialized_nodes: 1024,
         }
     }
 }
@@ -34,6 +41,7 @@ impl Default for Budget {
 /// observable, so their evaluation is never removed by dead-binding cleanup.
 pub fn optimize(mut module: Module, budget: Budget) -> Result<Module, Vec<VerifyError>> {
     module.verify()?;
+    let mut specializations = specialize::State::new(&module, budget);
     for _ in 0..budget.max_iterations {
         let before = module.clone();
 
@@ -43,6 +51,9 @@ pub fn optimize(mut module: Module, budget: Budget) -> Result<Module, Vec<Verify
         module = inline::run(module, budget);
         module.verify()?;
 
+        module = specialize::run(module, &mut specializations);
+        module.verify()?;
+
         module = dead::run(module);
         module.verify()?;
 
@@ -50,6 +61,8 @@ pub fn optimize(mut module: Module, budget: Budget) -> Result<Module, Vec<Verify
             break;
         }
     }
+    module = specialize::retain_live(module, specializations.generated_symbols());
+    module.verify()?;
     Ok(module)
 }
 

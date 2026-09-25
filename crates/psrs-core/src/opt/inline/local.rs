@@ -1,20 +1,18 @@
-use super::Budget;
-use super::util::{FreshLocals, count_nodes, next_locals, substitute_locals};
+use super::super::util::{FreshLocals, count_nodes, next_locals, substitute_locals};
 use crate::{Binding, Expr, ExprKind, Module};
 use std::collections::HashMap;
 
-pub(super) fn run(mut module: Module, budget: Budget) -> Module {
-    if budget.max_inline_nodes == 0 || budget.max_inline_sites == 0 {
+pub(super) fn run(mut module: Module, max_inline_nodes: usize, sites_left: &mut usize) -> Module {
+    if max_inline_nodes == 0 || *sites_left == 0 {
         return module;
     }
     let mut fresh = next_locals(&module);
-    let mut sites_left = budget.max_inline_sites;
     for (declaration, fresh) in module.declarations.iter_mut().zip(&mut fresh) {
         declaration.value = inline_expr(
             declaration.value.clone(),
             fresh,
-            &mut sites_left,
-            budget.max_inline_nodes,
+            sites_left,
+            max_inline_nodes,
         );
     }
     module
