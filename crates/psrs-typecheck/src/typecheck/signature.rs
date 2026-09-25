@@ -58,8 +58,7 @@ impl Checker {
                 | hir::BuiltinType::Symbol
                 | hir::BuiltinType::Function
                 | hir::BuiltinType::Row
-                | hir::BuiltinType::Record
-                | hir::BuiltinType::Effect => {
+                | hir::BuiltinType::Record => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::UnsupportedType,
                         ty.span,
@@ -71,6 +70,8 @@ impl Checker {
             hir::TypeKind::Named(id) => {
                 if self.synonyms.contains_key(id) {
                     self.expand_synonym(*id, Vec::new(), ty.span)
+                } else if Some(*id) == self.effect_type {
+                    InferType::Constructor(TypeConstructor::Effect)
                 } else {
                     InferType::Constructor(TypeConstructor::User(*id))
                 }
@@ -88,10 +89,7 @@ impl Checker {
                         .collect();
                     return self.expand_synonym(*id, arguments, ty.span);
                 }
-                if matches!(
-                    head.kind,
-                    hir::TypeKind::Constructor(hir::BuiltinType::Effect)
-                ) {
+                if matches!(&head.kind, hir::TypeKind::Named(id) if Some(*id) == self.effect_type) {
                     let Some(argument) = arguments.first() else {
                         return self.fresh();
                     };
@@ -103,10 +101,15 @@ impl Checker {
                         ));
                         return self.fresh();
                     }
-                    return InferType::Function(
-                        Box::new(InferType::Boolean),
-                        Box::new(self.elaborate_type_mode(argument, variables, rigid_variables)),
-                    );
+                    let argument = self.elaborate_type_mode(argument, variables, rigid_variables);
+                    return if self.effect_runtime_representation {
+                        InferType::Function(Box::new(InferType::I32), Box::new(argument))
+                    } else {
+                        InferType::Application(
+                            Box::new(InferType::Constructor(TypeConstructor::Effect)),
+                            Box::new(argument),
+                        )
+                    };
                 }
                 InferType::Application(
                     Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),

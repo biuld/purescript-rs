@@ -34,6 +34,109 @@ fn a_stored_effect_runs_each_time_it_is_explicitly_run() {
     assert_eq!(output.stdout, b"again\nagain\n");
 }
 
+#[test]
+fn a_function_cannot_be_passed_to_run_effect_as_an_effect() {
+    let source = "module Main where\nimport Prelude\nmain = runEffect (\\token -> 42)\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.stage == "P5 typecheck" && error.message.contains("type mismatch")
+        })
+    );
+}
+
+#[test]
+fn run_effect_is_only_available_from_the_selected_entry() {
+    let helper = (
+        "Helper.purs",
+        "module Helper where\nimport Prelude\nrun = runEffect (pure 42)\n",
+    );
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Helper\nmain = run\n",
+    );
+    let errors = compile_program_sources_with_prelude(&[helper, main]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.stage == "P7 entry selection"
+            && error
+                .diagnostic
+                .message
+                .contains("runEffect` binding may only be referenced")
+    }));
+}
+
+#[test]
+fn transitive_effect_types_keep_their_closure_representation() {
+    let library_source = (
+        "Library.purs",
+        "module Library where\nimport Prelude\nimport WASI.Clock\naction :: Effect Int\naction = now\n",
+    );
+    let main_source = (
+        "Main.purs",
+        "module Main where\nimport Library\nforward = action\nmain = let ignored = forward in 0\n",
+    );
+    let mut sources = prelude::SOURCES.to_vec();
+    sources.extend([library_source, main_source]);
+    let typed = crate::program::typecheck_program_sources_with_trusted_prefix(
+        &sources,
+        prelude::SOURCES.len(),
+    )
+    .unwrap();
+    let library = typed
+        .iter()
+        .find(|module| module.name == "Library")
+        .unwrap();
+    let main = typed.iter().find(|module| module.name == "Main").unwrap();
+    let action = library
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "action")
+        .unwrap();
+    let forward = main
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "forward")
+        .unwrap();
+    assert!(matches!(
+        library.types.get(action.ty.0 as usize),
+        Some(psrs_thir::Type::Function { .. })
+    ));
+    assert_eq!(
+        main.types.get(forward.ty.0 as usize),
+        library.types.get(action.ty.0 as usize)
+    );
+    let artifact = compile_program_sources_with_prelude(&[library_source, main_source]);
+    assert!(artifact.is_ok(), "{artifact:?}");
+}
+
+#[test]
+fn an_untrusted_prelude_effect_remains_an_ordinary_user_type() {
+    let prelude_source = (
+        "Prelude.purs",
+        "module Prelude where\ndata Effect a = MkEffect a\nidentity :: Effect Int\nidentity = MkEffect 42\n",
+    );
+    let main_source = (
+        "Main.purs",
+        "module Main where\nimport Prelude\nforward :: Effect Int\nforward = identity\nmain = 0\n",
+    );
+    let typed = crate::program::typecheck_program_sources(&[prelude_source, main_source]).unwrap();
+    let main = typed.iter().find(|module| module.name == "Main").unwrap();
+    let forward = main
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "forward")
+        .unwrap();
+    let psrs_thir::Type::Application(effect_constructor, _) = &main.types[forward.ty.0 as usize]
+    else {
+        panic!("untrusted Prelude.Effect should remain an applied user type");
+    };
+    assert!(matches!(
+        main.types[effect_constructor.0 as usize],
+        psrs_thir::Type::Constructor(psrs_thir::TypeConstructor::User(_))
+    ));
+    assert!(compile_program_sources(&[prelude_source, main_source]).is_ok());
+}
+
 fn run_effect_program(source: &str) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")
