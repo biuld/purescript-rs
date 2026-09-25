@@ -365,6 +365,7 @@ wasm/
     structure/
       cfg.rs          # dominators, natural loops, and reducible region plan
       region.rs       # stackifier emission for reducible input
+      legacy.rs       # existing acyclic diamonds and switch joins
       dispatcher.rs   # Relooper-style fallback for irreducible regions
       instructions.rs # leaf emission and jump-argument copies
       ops.rs          # br/br_table/return_call* opcode emission
@@ -530,22 +531,25 @@ which requires the tail-call capability.
 CC now preserves a constructor-only, unique-tag case as `TagSwitch`, which P9
 lowers to a `Switch` with parameter-free successor blocks and a one-value join.
 The MIR verifier checks the `i32` selector, unique tags, and successor shape.
-P10 analyzes the reachable CFG, computes dominators and natural loops, checks
-that loop regions are nested, and topologically orders each region after
-removing its back edges. It emits `Loop` at each natural-loop header and
-continuation `Block`s for forward targets; `Jump`, `Branch`, and `Switch`
-branches use depths resolved against the active label stack. Sparse and
-reordered signed switch tags are mapped to dense unsigned indices before
-`br_table`. Execution coverage includes a loop with loop-carried values and
-nested loops with multiple exits; generated modules pass both the Wasm IR
-verifier and `wasmparser` validation.
+For cyclic functions, P10 analyzes the reachable CFG, computes dominators and
+natural loops, checks that loop regions are nested, and topologically orders
+each region after removing its back edges. It emits `Loop` at each natural-loop
+header and continuation `Block`s for forward targets; `Jump`, `Branch`, and
+`Switch` branches use depths resolved against the active label stack. Acyclic
+functions retain the existing structured diamond and switch-join lowering so
+their one-value merge semantics stay unchanged. Sparse and reordered signed
+switch tags are mapped to dense unsigned indices before `br_table`. Execution
+coverage includes a loop with loop-carried values and nested loops with
+multiple exits; generated modules pass the Wasm IR verifier and
+`wasmparser` validation.
 
 The implementation remains narrower than the complete design in these
 specific areas:
 
 - `Branch` still stores `merge_block`, and the MIR verifier still validates its
-  one-value merge contract. The structurer derives branch depths from the CFG
-  and does not use that hint when emitting control flow.
+  one-value merge contract. Acyclic functions retain the merge-based region
+  structurer; cyclic functions derive branch depths from their CFG and do not
+  use the hint when emitting loop control flow.
 - Reducible natural loops, including nested loops and multiple loop exits, are
   structured directly. Irreducible control flow is diagnosed; a dispatcher
   fallback is not implemented.

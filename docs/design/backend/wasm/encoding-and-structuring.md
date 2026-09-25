@@ -494,15 +494,16 @@ sections in that order. Adding `log "hello"` would add a string data segment
 
 ## Implementation notes
 
-The structurer computes dominators and natural loops over the entry-reachable
-MIR graph, checks loop nesting, then orders each loop and the function region
-after removing back edges. It emits a `Loop` at each natural-loop header and
-`Block` continuations for forward targets, including multiple loop exits.
-`Jump`, `Branch`, and `Switch` all branch to active labels using computed
-depths. A switch maps sparse signed tags to dense unsigned indices before its
-`br_table`; duplicate constructor patterns still use the source-order
-comparison chain. The MIR `Branch` retains its `merge_block` field and verifier
-contract, but the structurer derives control flow from the CFG edges.
+For cyclic functions, the structurer computes dominators and natural loops over
+the entry-reachable MIR graph, checks loop nesting, then orders each loop and
+the function region after removing back edges. It emits a `Loop` at each
+natural-loop header and `Block` continuations for forward targets, including
+multiple loop exits. `Jump`, `Branch`, and `Switch` edges in these functions
+branch to active labels using computed depths. Acyclic functions keep the
+existing merge-based diamond and switch lowering. A switch maps sparse signed
+tags to dense unsigned indices before `br_table`; duplicate constructor
+patterns still use the source-order comparison chain. The MIR `Branch` retains
+its `merge_block` field and verifier contract.
 
 The thin IR and encoder support structured `If`, `Block`, and `Loop` regions.
 Branch-depth verification includes the implicit function label and counts

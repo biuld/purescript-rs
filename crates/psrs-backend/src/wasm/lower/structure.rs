@@ -10,6 +10,7 @@ mod cfg;
 mod closure;
 mod helpers;
 mod instructions;
+mod legacy;
 mod ops;
 mod region;
 #[cfg(test)]
@@ -18,9 +19,10 @@ mod unary;
 use crate::wasm::FunctionIndex;
 use closure::ClosureOps;
 use helpers::ValueOps;
+use legacy::LegacyRegionOps;
 use psrs_hir::SymbolId;
 use region::RegionOps;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use wasm_encoder::Instruction;
 
 pub(super) struct Structurer<'a> {
@@ -33,6 +35,17 @@ pub(super) struct Structurer<'a> {
 impl Structurer<'_> {
     pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<(), Vec<BackendError>> {
         let plan = cfg::ControlFlowPlan::build(self.function, &self.blocks)?;
-        RegionOps::emit_control_flow(self, &plan, body)
+        if plan.root.contains_loops() {
+            RegionOps::emit_control_flow(self, &plan, body)
+        } else {
+            LegacyRegionOps::emit_linear_region(
+                self,
+                self.function.entry,
+                None,
+                &mut HashSet::new(),
+                body,
+            )?;
+            Ok(())
+        }
     }
 }
