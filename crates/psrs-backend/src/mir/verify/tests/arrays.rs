@@ -209,3 +209,94 @@ fn rejects_array_new_default_with_a_non_array_source() {
         "{errors:?}"
     );
 }
+
+/// A clone lowers to `array.new_default` + `array.copy`, so its element storage
+/// must be defaultable. A non-null reference has no default and would emit an
+/// invalid `array.new_default`.
+fn clone_function(element_storage: crate::types::StorageType) -> (Function, Vec<RecGroup>) {
+    use crate::types::{DefinedTypeId, FieldType, HeapType, RefType};
+
+    let array = ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Index(DefinedTypeId(0)),
+    });
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "array_clone".into(),
+        parameters: vec![ValueId(0)],
+        values: vec![
+            ValueDecl {
+                id: ValueId(0),
+                ty: array,
+            },
+            ValueDecl {
+                id: ValueId(1),
+                ty: array,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::ArrayClone {
+                destination: ValueId(1),
+                type_index: DefinedTypeId(0),
+                value: ValueId(0),
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: ValueId(1),
+                span: span(),
+            }),
+        }],
+        result: ValueId(1),
+        result_type: array,
+        span: span(),
+    };
+    let types = vec![RecGroup(vec![DefinedType {
+        final_type: true,
+        supertype: None,
+        composite: CompositeType::Array(FieldType {
+            storage: element_storage,
+            mutable: true,
+        }),
+    }])];
+    (function, types)
+}
+
+#[test]
+fn rejects_array_clone_with_non_defaultable_element_storage() {
+    use crate::types::{HeapType, RefType, StorageType};
+
+    let (function, types) = clone_function(StorageType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Eq,
+    }));
+    let errors = verify_module(&module_with_function(function, types)).unwrap_err();
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("array.clone element storage is not defaultable")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_array_clone_of_an_immutable_array() {
+    use crate::types::StorageType;
+
+    let (mut function, mut types) = clone_function(StorageType::I32);
+    let CompositeType::Array(field) = &mut types[0].0[0].composite else {
+        panic!("fixture must define an array");
+    };
+    field.mutable = false;
+    function.name = "array_clone_immutable".into();
+    let errors = verify_module(&module_with_function(function, types)).unwrap_err();
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("array.clone requires a mutable array")),
+        "{errors:?}"
+    );
+}

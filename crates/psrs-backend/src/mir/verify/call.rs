@@ -280,10 +280,26 @@ pub(super) fn verify_closure_get_capture(
     let Some(destination_type) = value_type(function, *destination) else {
         return Err(mir_error(*span, "closure capture result has no value type"));
     };
-    if destination_type == ValueType::I32 {
-        verify_integer_box(*boxed_integer_type, defined, *span)?;
-    } else if destination_type == ValueType::F64 {
-        verify_f64_box(*boxed_f64_type, defined, *span)?;
+    match destination_type {
+        ValueType::I32 => verify_integer_box(*boxed_integer_type, defined, *span)?,
+        ValueType::F64 => verify_f64_box(*boxed_f64_type, defined, *span)?,
+        ValueType::Boolean => {}
+        // Projection casts the nullable `eqref` slot back to the capture's
+        // reference type, so the capture must inhabit the `eq` hierarchy.
+        ValueType::Ref(reference) => {
+            if !super::subtype::heap_subtype(reference.heap, HeapType::Eq, defined) {
+                return Err(mir_error(
+                    *span,
+                    "closure capture reference result is not eq-compatible",
+                ));
+            }
+        }
+        _ => {
+            return Err(mir_error(
+                *span,
+                "closure capture result type is not representable",
+            ));
+        }
     }
     Ok(())
 }
