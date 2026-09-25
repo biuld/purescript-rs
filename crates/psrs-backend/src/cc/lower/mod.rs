@@ -20,7 +20,7 @@ mod scalar;
 use call::ApplicationLowering;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
-use scalar::lower_binary_op;
+use scalar::{lower_binary_op, lower_unary_op};
 
 /// Allocates generated callable symbols without relying on source offsets.
 ///
@@ -397,6 +397,19 @@ impl FunctionLowerer<'_> {
                         op: lower_binary_op(*op),
                         left,
                         right,
+                    },
+                    span: expression.span,
+                });
+                Ok(destination)
+            }
+            ExprKind::UnaryPrimitive { op, value } => {
+                let value = self.lower_value(value, assignments)?;
+                let destination = self.fresh(ty);
+                assignments.push(Assignment {
+                    destination,
+                    kind: AssignmentKind::Unary {
+                        op: lower_unary_op(*op),
+                        value,
                     },
                     span: expression.span,
                 });

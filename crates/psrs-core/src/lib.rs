@@ -105,39 +105,137 @@ pub struct Expr {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnaryPrimitive {
+    IntNeg,
+    IntComplement,
+    NumberNeg,
+    BooleanNot,
+    IntToNumber,
+    NumberToInt,
+    BooleanToInt,
+    IntToBoolean,
+    CharToInt,
+    IntToChar,
+}
+
+impl UnaryPrimitive {
+    fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
+        Some(match intrinsic {
+            Intrinsic::IntNeg => Self::IntNeg,
+            Intrinsic::IntComplement => Self::IntComplement,
+            Intrinsic::NumberNeg => Self::NumberNeg,
+            Intrinsic::BooleanNot => Self::BooleanNot,
+            Intrinsic::IntToNumber => Self::IntToNumber,
+            Intrinsic::NumberToInt => Self::NumberToInt,
+            Intrinsic::BooleanToInt => Self::BooleanToInt,
+            Intrinsic::IntToBoolean => Self::IntToBoolean,
+            Intrinsic::CharToInt => Self::CharToInt,
+            Intrinsic::IntToChar => Self::IntToChar,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Primitive {
-    Add,
-    Sub,
-    Mul,
-    DivS,
-    RemS,
-    Eq,
-    Ne,
-    LtS,
-    LeS,
-    GtS,
-    GeS,
+    IntAdd,
+    IntSub,
+    IntMul,
+    IntQuot,
+    IntRem,
+    IntDiv,
+    IntMod,
+    IntAnd,
+    IntOr,
+    IntXor,
+    IntShl,
+    IntShr,
+    IntZshr,
+    IntEq,
+    IntNe,
+    IntLt,
+    IntLe,
+    IntGt,
+    IntGe,
+    NumberAdd,
+    NumberSub,
+    NumberMul,
+    NumberDiv,
+    NumberEq,
+    NumberNe,
+    NumberLt,
+    NumberLe,
+    NumberGt,
+    NumberGe,
+    BooleanAnd,
+    BooleanOr,
+    BooleanEq,
+    BooleanNe,
+    CharEq,
+    CharNe,
+    CharLt,
+    CharLe,
+    CharGt,
+    CharGe,
 }
 
 impl Primitive {
     fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
         Some(match intrinsic {
-            Intrinsic::I32Add => Self::Add,
-            Intrinsic::I32Sub => Self::Sub,
-            Intrinsic::I32Mul => Self::Mul,
-            Intrinsic::I32DivS => Self::DivS,
-            Intrinsic::I32RemS => Self::RemS,
-            Intrinsic::I32Eq => Self::Eq,
-            Intrinsic::I32Ne => Self::Ne,
-            Intrinsic::I32LtS => Self::LtS,
-            Intrinsic::I32LeS => Self::LeS,
-            Intrinsic::I32GtS => Self::GtS,
-            Intrinsic::I32GeS => Self::GeS,
+            Intrinsic::I32Add => Self::IntAdd,
+            Intrinsic::I32Sub => Self::IntSub,
+            Intrinsic::I32Mul => Self::IntMul,
+            Intrinsic::I32DivS => Self::IntQuot,
+            Intrinsic::I32RemS => Self::IntRem,
+            Intrinsic::I32Eq => Self::IntEq,
+            Intrinsic::I32Ne => Self::IntNe,
+            Intrinsic::I32LtS => Self::IntLt,
+            Intrinsic::I32LeS => Self::IntLe,
+            Intrinsic::I32GtS => Self::IntGt,
+            Intrinsic::I32GeS => Self::IntGe,
+            Intrinsic::IntDiv => Self::IntDiv,
+            Intrinsic::IntMod => Self::IntMod,
+            Intrinsic::IntAnd => Self::IntAnd,
+            Intrinsic::IntOr => Self::IntOr,
+            Intrinsic::IntXor => Self::IntXor,
+            Intrinsic::IntShl => Self::IntShl,
+            Intrinsic::IntShr => Self::IntShr,
+            Intrinsic::IntZshr => Self::IntZshr,
+            Intrinsic::NumberAdd => Self::NumberAdd,
+            Intrinsic::NumberSub => Self::NumberSub,
+            Intrinsic::NumberMul => Self::NumberMul,
+            Intrinsic::NumberDiv => Self::NumberDiv,
+            Intrinsic::NumberEq => Self::NumberEq,
+            Intrinsic::NumberNe => Self::NumberNe,
+            Intrinsic::NumberLt => Self::NumberLt,
+            Intrinsic::NumberLe => Self::NumberLe,
+            Intrinsic::NumberGt => Self::NumberGt,
+            Intrinsic::NumberGe => Self::NumberGe,
+            Intrinsic::BooleanAnd => Self::BooleanAnd,
+            Intrinsic::BooleanOr => Self::BooleanOr,
+            Intrinsic::BooleanEq => Self::BooleanEq,
+            Intrinsic::BooleanNe => Self::BooleanNe,
+            Intrinsic::CharEq => Self::CharEq,
+            Intrinsic::CharNe => Self::CharNe,
+            Intrinsic::CharLt => Self::CharLt,
+            Intrinsic::CharLe => Self::CharLe,
+            Intrinsic::CharGt => Self::CharGt,
+            Intrinsic::CharGe => Self::CharGe,
             Intrinsic::BoolTrue
             | Intrinsic::BoolFalse
             | Intrinsic::ArrayLength
             | Intrinsic::ArrayIndex
-            | Intrinsic::ArrayUpdate => return None,
+            | Intrinsic::ArrayUpdate
+            | Intrinsic::IntNeg
+            | Intrinsic::IntComplement
+            | Intrinsic::NumberNeg
+            | Intrinsic::BooleanNot
+            | Intrinsic::IntToNumber
+            | Intrinsic::NumberToInt
+            | Intrinsic::BooleanToInt
+            | Intrinsic::IntToBoolean
+            | Intrinsic::CharToInt
+            | Intrinsic::IntToChar => return None,
         })
     }
 }
@@ -184,6 +282,10 @@ pub enum ExprKind {
         op: Primitive,
         left: Box<Expr>,
         right: Box<Expr>,
+    },
+    UnaryPrimitive {
+        op: UnaryPrimitive,
+        value: Box<Expr>,
     },
     Application(Box<Expr>, Box<Expr>),
     Lambda {

@@ -181,6 +181,10 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
             left: Box::new(shift_expr(*left, offset)),
             right: Box::new(shift_expr(*right, offset)),
         },
+        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
+            op,
+            value: Box::new(shift_expr(*value, offset)),
+        },
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(shift_expr(*function, offset)),
             Box::new(shift_expr(*argument, offset)),
@@ -328,6 +332,7 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
             collect_references(left, out);
             collect_references(right, out);
         }
+        ExprKind::UnaryPrimitive { value, .. } => collect_references(value, out),
         ExprKind::Lambda { body, .. } => collect_references(body, out),
         ExprKind::Let { bindings, body } => {
             for binding in bindings {

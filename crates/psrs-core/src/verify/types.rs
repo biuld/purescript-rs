@@ -1,5 +1,5 @@
 use super::Locals;
-use crate::{Module, Primitive, Type, TypeConstructor, TypeId, VerifyError};
+use crate::{Module, Primitive, Type, TypeConstructor, TypeId, UnaryPrimitive, VerifyError};
 use psrs_hir::TypeId as HirTypeId;
 use psrs_hir::{LocalId, ModuleId};
 use psrs_span::TextRange;
@@ -22,17 +22,66 @@ pub(super) fn verify_type(
 }
 
 pub(super) fn primitive_types(op: Primitive, module: &Module) -> (TypeId, TypeId) {
-    let operand = type_id_for(module, &Type::I32);
-    let result = match op {
-        Primitive::Eq
-        | Primitive::Ne
-        | Primitive::LtS
-        | Primitive::LeS
-        | Primitive::GtS
-        | Primitive::GeS => type_id_for(module, &Type::Boolean),
-        _ => operand,
+    let (operand_type, result_type) = match op {
+        Primitive::IntAdd
+        | Primitive::IntSub
+        | Primitive::IntMul
+        | Primitive::IntQuot
+        | Primitive::IntRem
+        | Primitive::IntDiv
+        | Primitive::IntMod
+        | Primitive::IntAnd
+        | Primitive::IntOr
+        | Primitive::IntXor
+        | Primitive::IntShl
+        | Primitive::IntShr
+        | Primitive::IntZshr => (Type::I32, Type::I32),
+        Primitive::IntEq
+        | Primitive::IntNe
+        | Primitive::IntLt
+        | Primitive::IntLe
+        | Primitive::IntGt
+        | Primitive::IntGe => (Type::I32, Type::Boolean),
+        Primitive::CharEq
+        | Primitive::CharNe
+        | Primitive::CharLt
+        | Primitive::CharLe
+        | Primitive::CharGt
+        | Primitive::CharGe => (Type::Char, Type::Boolean),
+        Primitive::NumberAdd
+        | Primitive::NumberSub
+        | Primitive::NumberMul
+        | Primitive::NumberDiv => (Type::F64, Type::F64),
+        Primitive::NumberEq
+        | Primitive::NumberNe
+        | Primitive::NumberLt
+        | Primitive::NumberLe
+        | Primitive::NumberGt
+        | Primitive::NumberGe => (Type::F64, Type::Boolean),
+        Primitive::BooleanAnd
+        | Primitive::BooleanOr
+        | Primitive::BooleanEq
+        | Primitive::BooleanNe => (Type::Boolean, Type::Boolean),
     };
-    (operand, result)
+    (
+        type_id_for(module, &operand_type),
+        type_id_for(module, &result_type),
+    )
+}
+
+pub(super) fn unary_primitive_types(op: UnaryPrimitive, module: &Module) -> (TypeId, TypeId) {
+    let (operand, result) = match op {
+        UnaryPrimitive::IntNeg | UnaryPrimitive::IntComplement => (Type::I32, Type::I32),
+        UnaryPrimitive::NumberNeg => (Type::F64, Type::F64),
+        UnaryPrimitive::BooleanNot => (Type::Boolean, Type::Boolean),
+        UnaryPrimitive::IntToNumber => (Type::I32, Type::F64),
+        UnaryPrimitive::NumberToInt => (Type::F64, Type::I32),
+        UnaryPrimitive::BooleanToInt => (Type::Boolean, Type::I32),
+        UnaryPrimitive::IntToBoolean => (Type::I32, Type::Boolean),
+        UnaryPrimitive::CharToInt => (Type::Char, Type::I32),
+        UnaryPrimitive::IntToChar => (Type::I32, Type::Char),
+    };
+    (type_id_for(module, &operand), type_id_for(module, &result))
 }
 
 pub(super) fn type_id_for(module: &Module, shape: &Type) -> TypeId {

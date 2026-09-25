@@ -111,6 +111,56 @@ fn verifier_rejects_a_declaration_body_with_the_wrong_type() {
 }
 
 #[test]
+fn verifier_checks_exact_types_for_scalar_intrinsics() {
+    let wrong_conversion = single_declaration(
+        vec![Type::I32, Type::F64],
+        TypeId(0),
+        Expr {
+            kind: ExprKind::UnaryPrimitive {
+                op: UnaryPrimitive::NumberToInt,
+                value: Box::new(Expr {
+                    kind: ExprKind::Integer(1),
+                    ty: TypeId(0),
+                    span: TextRange::new(0, 1),
+                }),
+            },
+            ty: TypeId(0),
+            span: TextRange::new(0, 1),
+        },
+    );
+    assert!(has_message(
+        &wrong_conversion,
+        "Core expression type is inconsistent with its context"
+    ));
+
+    let wrong_character_comparison = single_declaration(
+        vec![Type::I32, Type::Boolean, Type::Char],
+        TypeId(1),
+        Expr {
+            kind: ExprKind::Primitive {
+                op: Primitive::CharEq,
+                left: Box::new(Expr {
+                    kind: ExprKind::Integer(65),
+                    ty: TypeId(0),
+                    span: TextRange::new(0, 2),
+                }),
+                right: Box::new(Expr {
+                    kind: ExprKind::Integer(65),
+                    ty: TypeId(0),
+                    span: TextRange::new(3, 5),
+                }),
+            },
+            ty: TypeId(1),
+            span: TextRange::new(0, 5),
+        },
+    );
+    assert!(has_message(
+        &wrong_character_comparison,
+        "Core expression type is inconsistent with its context"
+    ));
+}
+
+#[test]
 fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
     let module = single_declaration(
         vec![
