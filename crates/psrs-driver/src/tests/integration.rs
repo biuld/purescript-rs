@@ -202,10 +202,7 @@ fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
 
 #[test]
 fn attributes_backend_errors_to_their_declaring_module() {
-    let a = (
-        "A.purs",
-        "module A where\nidentity :: forall a. a -> a\nidentity value = value\nmain = identity (\\value -> value) 42\n",
-    );
+    let a = ("A.purs", "module A where\nmain = let x = x in x\n");
     let b = ("B.purs", "module B where\nanswer = 0\n");
     let errors = compile_program_sources(&[a, b]).unwrap_err();
     assert!(errors.iter().any(|error| {
@@ -214,7 +211,7 @@ fn attributes_backend_errors_to_their_declaring_module() {
             && error
                 .diagnostic
                 .message
-                .contains("call expects 1 arguments but received 2")
+                .contains("recursive local binding is not a function")
     }));
 }
 

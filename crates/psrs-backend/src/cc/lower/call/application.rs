@@ -41,6 +41,20 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     assignments,
                 );
             }
+            if arguments.len() > signature.parameters.len() {
+                // A global declaration and its callable type can disagree on
+                // arity when the declaration evaluates to a function value
+                // rather than binding every parameter syntactically. The global
+                // then behaves as a function value, so call it indirectly after
+                // evaluating it, exactly like any other higher-order callee.
+                return self.lower_indirect_application(
+                    expression,
+                    head,
+                    arguments,
+                    result_type,
+                    assignments,
+                );
+            }
             self.check_call_shape(
                 &signature,
                 arguments.len(),
@@ -203,76 +217,91 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 Ok(result)
             }
         } else {
-            let signature = function_signature(
-                self.module,
+            self.lower_indirect_application(expression, head, arguments, result_type, assignments)
+        }
+    }
+}
+
+impl FunctionLowerer<'_> {
+    /// Evaluates a callee expression to a closure value and calls it with the
+    /// supplied arguments. Used for every callee that is not a saturated
+    /// top-level direct call, including over-applied globals.
+    fn lower_indirect_application(
+        &mut self,
+        expression: &Expr,
+        head: &Expr,
+        arguments: Vec<&Expr>,
+        result_type: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let signature = function_signature(
+            self.module,
+            head.ty,
+            self.enum_types,
+            self.aggregate_types,
+            self.newtype_ids,
+            self.array_types,
+            self.record_types,
+            self.function_types,
+        )?;
+        self.check_call_shape(&signature, arguments.len(), result_type, expression.span)?;
+        let Some(signature_id) = self.function_types.get(&head.ty).copied() else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "higher-order call has no runtime function type",
+            )]);
+        };
+        let function = self.lower_value(head, assignments)?;
+        let function = if let Some(source_type) = self.erased_function_types.get(&function).copied()
+            && source_type != head.ty
+        {
+            self.adapt_erased_function_value(
+                function,
+                source_type,
                 head.ty,
-                self.enum_types,
-                self.aggregate_types,
-                self.newtype_ids,
-                self.array_types,
-                self.record_types,
-                self.function_types,
-            )?;
-            self.check_call_shape(&signature, arguments.len(), result_type, expression.span)?;
-            let Some(signature_id) = self.function_types.get(&head.ty).copied() else {
-                return Err(vec![BackendError::new(
-                    "P8 closure conversion",
-                    expression.span,
-                    "higher-order call has no runtime function type",
-                )]);
-            };
-            let function = self.lower_value(head, assignments)?;
-            let function = if let Some(source_type) =
-                self.erased_function_types.get(&function).copied()
-                && source_type != head.ty
-            {
-                self.adapt_erased_function_value(
-                    function,
-                    source_type,
-                    head.ty,
-                    expression.span,
-                    assignments,
-                )?
-            } else {
-                function
-            };
-            let function = if is_generic_function_type(self.module, head.ty) {
-                let cast = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Closure(signature_id),
-                }));
-                assignments.push(Assignment {
-                    destination: cast,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: cast,
-                        value: function,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Closure(signature_id),
-                        },
-                    },
-                    span: expression.span,
-                });
-                cast
-            } else {
-                function
-            };
-            let values = arguments
-                .into_iter()
-                .map(|argument| self.lower_value(argument, assignments))
-                .collect::<Result<Vec<_>, _>>()?;
-            let destination = self.fresh(result_type);
+                expression.span,
+                assignments,
+            )?
+        } else {
+            function
+        };
+        let function = if is_generic_function_type(self.module, head.ty) {
+            let cast = self.fresh(ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Closure(signature_id),
+            }));
             assignments.push(Assignment {
-                destination,
-                kind: AssignmentKind::IndirectCall {
-                    function,
-                    signature: signature_id,
-                    arguments: values,
+                destination: cast,
+                kind: AssignmentKind::RepresentationCast {
+                    destination: cast,
+                    value: function,
+                    reference: Reference {
+                        nullable: false,
+                        heap: RefShape::Closure(signature_id),
+                    },
                 },
                 span: expression.span,
             });
-            Ok(destination)
-        }
+            cast
+        } else {
+            function
+        };
+        let values = arguments
+            .into_iter()
+            .map(|argument| self.lower_value(argument, assignments))
+            .collect::<Result<Vec<_>, _>>()?;
+        let destination = self.fresh(result_type);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::IndirectCall {
+                function,
+                signature: signature_id,
+                arguments: values,
+            },
+            span: expression.span,
+        });
+        Ok(destination)
     }
 }
 

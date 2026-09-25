@@ -28,7 +28,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                     .map(|value| value.ty)
                     .ok_or_else(|| {
                         vec![
-                            BackendError::new(
+                            BackendError::invalid_ir(
                                 "P8 CC verification",
                                 function.span,
                                 "function parameter has no value declaration",
@@ -49,7 +49,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             .is_some()
         {
             return Err(vec![
-                BackendError::new(
+                BackendError::invalid_ir(
                     "P8 CC verification",
                     function.span,
                     "CC function symbol is defined more than once",
@@ -59,7 +59,18 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         }
         functions_by_symbol.insert(function.symbol, function);
     }
+    let mut external_symbols = HashSet::new();
     for external in &module.externals {
+        if !external_symbols.insert(external.symbol) {
+            return Err(vec![
+                BackendError::invalid_ir(
+                    "P8 CC verification",
+                    module.span,
+                    "CC external symbol is defined more than once",
+                )
+                .with_module(external.symbol.module),
+            ]);
+        }
         if let Some(signature) = &external.signature {
             for shape in signature
                 .parameters
@@ -80,7 +91,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                 .is_some()
             {
                 return Err(vec![
-                    BackendError::new(
+                    BackendError::invalid_ir(
                         "P8 CC verification",
                         module.span,
                         "CC external symbol conflicts with another callable symbol",
@@ -88,6 +99,15 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                     .with_module(external.symbol.module),
                 ]);
             }
+        } else if signatures.contains_key(&external.symbol) {
+            return Err(vec![
+                BackendError::invalid_ir(
+                    "P8 CC verification",
+                    module.span,
+                    "CC external symbol conflicts with another callable symbol",
+                )
+                .with_module(external.symbol.module),
+            ]);
         }
     }
     for function in &module.functions {
@@ -128,7 +148,7 @@ fn verify_function_inner(
     for value in &function.values {
         verify_value_shape(&value.ty, representations, function.span)?;
         if declared.insert(value.id, value.ty).is_some() {
-            return Err(vec![BackendError::new(
+            return Err(vec![BackendError::invalid_ir(
                 "P8 CC verification",
                 function.span,
                 "CC value ID is defined more than once",
@@ -138,19 +158,31 @@ fn verify_function_inner(
     let mut parameters = HashSet::new();
     for parameter in &function.parameters {
         if !declared.contains_key(parameter) {
-            return Err(vec![BackendError::new(
+            return Err(vec![BackendError::invalid_ir(
                 "P8 CC verification",
                 function.span,
                 "function parameter has no value declaration",
             )]);
         }
         if !parameters.insert(*parameter) {
-            return Err(vec![BackendError::new(
+            return Err(vec![BackendError::invalid_ir(
                 "P8 CC verification",
                 function.span,
                 "function parameter is listed more than once",
             )]);
         }
+    }
+    let declared_parameters = function
+        .values
+        .iter()
+        .take(function.parameters.len())
+        .map(|value| value.id);
+    if !declared_parameters.eq(function.parameters.iter().copied()) {
+        return Err(vec![BackendError::invalid_ir(
+            "P8 CC verification",
+            function.span,
+            "function parameters must be the first value declarations",
+        )]);
     }
     verify_capture_layout(function)?;
     let mut available = function.parameters.iter().copied().collect::<HashSet<_>>();
@@ -164,14 +196,14 @@ fn verify_function_inner(
         function.span,
     )?;
     if !available.contains(&function.result) {
-        return Err(vec![BackendError::new(
+        return Err(vec![BackendError::invalid_ir(
             "P8 CC verification",
             function.span,
             "function result is not defined",
         )]);
     }
     if declared.get(&function.result).copied() != Some(function.result_type) {
-        return Err(vec![BackendError::new(
+        return Err(vec![BackendError::invalid_ir(
             "P8 CC verification",
             function.span,
             "function result type differs from its value declaration",

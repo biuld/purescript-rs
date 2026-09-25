@@ -174,10 +174,10 @@ impl FunctionLowerer<'_> {
             span: expression.span,
         });
 
-        let symbol = SymbolId::new(
-            self.module.id,
-            u32::MAX - 0x1000_0000 - expression.span.start - self.generated.len() as u32,
-        );
+        // Allocate from the shared, collision-free symbol space. Deriving the
+        // symbol from the span and the linked module id collided across linked
+        // source modules whose partial applications share a source offset.
+        let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let generated = Function {
             symbol,
             name: format!("partial_{}", expression.span.start),
