@@ -22,6 +22,15 @@ pub struct Diagnostic {
 pub struct Artifact {
     pub wasm: Vec<u8>,
     pub wat: String,
+    pub warnings: Vec<Warning>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Warning {
+    /// Index into the source list passed to the compile function. Single-file
+    /// compilation uses source index zero.
+    pub source: usize,
+    pub diagnostic: Diagnostic,
 }
 
 /// A diagnostic attributed to one source in a multi-module program.
@@ -59,9 +68,11 @@ pub struct Compilation {
 pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, Vec<Diagnostic>> {
     let core = lower_source_with_prelude_to_core(source_name, source_text)?;
     let output = psrs_backend::compile(core).map_err(backend_diagnostics)?;
+    let warnings = backend_warnings(output.warnings, prelude::SOURCES.len());
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
+        warnings,
     })
 }
 
@@ -106,10 +117,12 @@ pub fn compile_source_with_dumps(
 ) -> Result<Compilation, Vec<Diagnostic>> {
     let core = lower_source_with_prelude_to_core(source_name, source_text)?;
     let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
+    let warnings = backend_warnings(stages.artifact.warnings, prelude::SOURCES.len());
     Ok(Compilation {
         artifact: Artifact {
             wasm: stages.artifact.wasm,
             wat: stages.artifact.wat,
+            warnings,
         },
         dumps: IrDumps {
             core: format!("{:#?}", stages.core),
@@ -203,6 +216,24 @@ fn backend_diagnostics(errors: Vec<psrs_backend::BackendError>) -> Vec<Diagnosti
     errors
         .into_iter()
         .map(|error| diagnostic(error.pass, error.span, error.message))
+        .collect()
+}
+
+pub(crate) fn backend_warnings(
+    warnings: Vec<psrs_backend::BackendWarning>,
+    hidden_sources: usize,
+) -> Vec<Warning> {
+    warnings
+        .into_iter()
+        .filter_map(|warning| {
+            let source = warning
+                .module
+                .map_or(hidden_sources, |module| module.0 as usize);
+            (source >= hidden_sources).then(|| Warning {
+                source: source - hidden_sources,
+                diagnostic: diagnostic(warning.pass, warning.span, warning.message),
+            })
+        })
         .collect()
 }
 

@@ -110,7 +110,13 @@ impl LambdaLowering for FunctionLowerer<'_> {
             self.signatures,
             self.representations,
         )?;
-        self.generated.extend(nested.generated);
+        let FunctionLowerer {
+            generated: nested_generated,
+            warnings: nested_warnings,
+            ..
+        } = nested;
+        self.generated.extend(nested_generated);
+        self.warnings.extend(nested_warnings);
         self.generated.push(nested_function);
         let closure_result = self.fresh(ValueShape::Reference(Reference {
             nullable: false,
@@ -172,6 +178,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             function_wrappers: self.function_wrappers,
             generated_symbols: std::rc::Rc::clone(&self.generated_symbols),
             owner: self.owner,
+            warnings: Vec::new(),
             erased_function_types: HashMap::new(),
             generated: Vec::new(),
         }

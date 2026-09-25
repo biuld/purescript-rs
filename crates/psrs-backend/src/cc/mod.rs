@@ -288,15 +288,18 @@ pub fn lower_module_with_bindings(
         function_wrappers: &function_wrappers,
         generated_symbols,
     };
+    let mut warnings = Vec::new();
     for declaration in &module.declarations {
-        let (lowered, generated) = lower_function(declaration, &context).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|error| error.with_module(declaration.symbol.module))
-                .collect::<Vec<_>>()
-        })?;
+        let (lowered, generated, function_warnings) = lower_function(declaration, &context)
+            .map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(|error| error.with_module(declaration.symbol.module))
+                    .collect::<Vec<_>>()
+            })?;
         functions.push(lowered);
         functions.extend(generated);
+        warnings.extend(function_warnings);
     }
     let cc = Module {
         name: module.name,
@@ -310,6 +313,7 @@ pub fn lower_module_with_bindings(
     Ok(BackendInput {
         cc,
         externals: bindings,
+        warnings,
     })
 }
 

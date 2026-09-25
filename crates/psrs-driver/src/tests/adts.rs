@@ -38,6 +38,25 @@ main = case Wrap First of
 }
 
 #[test]
+fn exposes_redundant_case_alternatives_as_source_spanned_warnings() {
+    let source = "module Main where\ndata Choice = First | Second\nchoose input = case input of\n  First -> 1\n  First -> 2\n  _ -> 3\nmain = choose First\n";
+    let artifact = compile_source("Main.purs", source).expect("redundancy is a warning");
+    assert_eq!(artifact.warnings.len(), 1);
+    let warning = &artifact.warnings[0];
+    assert_eq!(warning.source, 0);
+    assert_eq!(warning.diagnostic.stage, "P8 closure conversion");
+    assert!(
+        warning
+            .diagnostic
+            .message
+            .contains("redundant case alternative")
+    );
+    let warned_source =
+        &source[warning.diagnostic.span.start as usize..warning.diagnostic.span.end as usize];
+    assert_eq!(warned_source, "First -> 2");
+}
+
+#[test]
 fn compiles_a_wildcard_case_over_a_recursive_adt() {
     let source = "\
 module Main where
