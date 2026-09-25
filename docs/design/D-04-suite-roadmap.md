@@ -484,7 +484,7 @@ acceptance result.
 | Scalars and primitives | BE-04; FE-08 input | Unverified; implementation and runtime evidence audit pending. | [SP-01..SP-12](../implementation/backend/scalars-and-primitives.md) |
 | Pattern matching | BE-05, BE-06; supporting BE-08, BE-09 | Unverified; implementation and runtime evidence audit pending. | [PM-01..PM-11](../implementation/backend/pattern-matching.md) |
 | Effects | BE-21; supporting BE-02, BE-26 | Unverified; implementation and runtime evidence audit pending. | [EF-01..EF-11](../implementation/backend/effects.md) |
-| Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Unverified; implementation and runtime evidence audit pending. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
+| Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Backend acceptance complete from verified Typed Core fixtures: DICT-01..DICT-11 have implementation, verifier, and required execution evidence. The source FE-14/15 elaboration gate remains unfinished and is tracked separately. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
 | Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
 
 The backend landing order is:
