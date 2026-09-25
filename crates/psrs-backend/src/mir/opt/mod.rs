@@ -7,6 +7,8 @@ mod imports;
 mod inline;
 mod values;
 
+pub(crate) use values::{remap_instruction, remap_terminator};
+
 #[cfg(test)]
 mod tests;
 

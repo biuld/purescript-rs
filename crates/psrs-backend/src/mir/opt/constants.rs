@@ -159,8 +159,11 @@ fn incoming_values(function: &Function, reachable: &HashSet<crate::mir::BlockId>
                 }
             }
             // Switch successors cannot carry block parameters, so there are no
-            // incoming values to add to the block-parameter lattice.
-            Terminator::Switch { .. } => {}
+            // incoming values to add to the block-parameter lattice. A tail
+            // call passes its arguments to a callee, not to a block.
+            Terminator::Switch { .. }
+            | Terminator::ReturnCall { .. }
+            | Terminator::ReturnCallRef { .. } => {}
             Terminator::Return { .. } => {}
         }
     }

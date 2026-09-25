@@ -4,10 +4,7 @@
 
 **Design:** [Control flow and tail calls](../../design/backend/fp/control-flow-and-tail-calls.md)
 
-**Progress:** Audited. CF-03, CF-04, CF-05, CF-12, and CF-13 (the merge-hint
-removal) are Verified. CF-01, CF-02, CF-09, and CF-10 are In progress with the
-gaps recorded below. CF-06, CF-07, CF-08, and CF-11 are Blocked on tail-call
-lowering; see the precise remaining work.
+**Progress:** CF-01 through CF-13 Verified.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-03, BE-05, BE-13, and BE-16.
 
@@ -30,17 +27,17 @@ record exact reproducible evidence for every Verified row.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| CF-01 | MIR terminators model Return, Jump, Branch, Switch, ReturnCall, and ReturnCallRef without a merge hint. | Inspect constructors and all producers/consumers; malformed old-style or missing-edge fixtures fail, and ordinary joins derive from CFG. | In progress |
-| CF-02 | CFG analysis computes reachability, dominators, backedges, natural loops, nesting, and joins from edges. | Diamond, nested-loop, multiple-exit, dead-block, and invalid graph fixtures assert computed regions and diagnostic locations. | In progress |
+| CF-01 | MIR terminators model Return, Jump, Branch, Switch, ReturnCall, and ReturnCallRef without a merge hint. | Inspect constructors and all producers/consumers; malformed old-style or missing-edge fixtures fail, and ordinary joins derive from CFG. | Verified |
+| CF-02 | CFG analysis computes reachability, dominators, backedges, natural loops, nesting, and joins from edges. | Diamond, nested-loop, multiple-exit, dead-block, and invalid graph fixtures assert computed regions and diagnostic locations. | Verified |
 | CF-03 | The structurer emits `block`/`loop`/`if` with valid depth-relative branches for every reducible CFG. | Validate and execute diamonds, loop-carried parameters, nested loops, early exits, and shared continuation cases; assert no dispatcher fallback on reducible input. | Verified |
 | CF-04 | Irreducible CFGs use the specified dispatcher fallback with preserved block parameters and edge semantics. | Direct MIR irreducible fixtures validate and execute through Wasm; inspect selector dispatch and compare results with a CFG interpreter or equivalent oracle. | Verified |
 | CF-05 | `Switch` preserves unique case tags, signed selector normalization, sparse/default behavior, and target block arguments. | Source and direct MIR fixtures cover dense nullary tags (`br_table`), sparse/negative tags, duplicate tags, defaults, and malformed target signatures. | Verified |
-| CF-06 | Self-tail recursion evaluates new arguments first and becomes a loop with correctly carried parameters and constant stack use. | Source or verified Core recursion with permutation/side effects; inspect MIR/Wasm loop and execute deep recursion beyond ordinary call-stack depth. | Blocked |
-| CF-07 | Other direct and reference tail calls become ReturnCall/ReturnCallRef when the target enables tail calls. | Inspect exact call signatures and emitted Wasm opcodes; execute mutual and indirect tail recursion with value-sensitive results. | Blocked |
-| CF-08 | A target without tail-call support lowers the same semantics to ordinary call plus return and emits no tail-call opcode. | Compile equivalent fixtures under both profiles, validate bytes and execute shallow cases; assert disabled capability rejection only for unsupported forced operations. | Blocked |
-| CF-09 | MIR verification checks tail position, callee signature, return type, branch target arguments, dominance, and switch uniqueness. | Full-module negative fixtures for bad tail signatures, non-dominating call operands, wrong edge values, duplicate cases, and invalid selector types. | In progress |
-| CF-10 | P10 and Wasm lowering preserve CFG and tail-call semantics, traps, spans, and enabled feature profile. | Compare optimized/unoptimized results on loops, switches, recursive calls, and traps; validate emitted module/component with the selected profile. | In progress |
-| CF-11 | In-scope source case/recursion paths reach structured Wasm; direct MIR fixtures remain identified as such. | Track each executable input boundary and test the normal component pipeline with mandatory Wasmtime, including a deep recursion case. | Blocked |
+| CF-06 | Self-tail recursion evaluates new arguments first and becomes a loop with correctly carried parameters and constant stack use. | Source or verified Core recursion with permutation/side effects; inspect MIR/Wasm loop and execute deep recursion beyond ordinary call-stack depth. | Verified |
+| CF-07 | Other direct and reference tail calls become ReturnCall/ReturnCallRef when the target enables tail calls. | Inspect exact call signatures and emitted Wasm opcodes; execute mutual and indirect tail recursion with value-sensitive results. | Verified |
+| CF-08 | A target without tail-call support lowers the same semantics to ordinary call plus return and emits no tail-call opcode. | Compile equivalent fixtures under both profiles, validate bytes and execute shallow cases; assert disabled capability rejection only for unsupported forced operations. | Verified |
+| CF-09 | MIR verification checks tail position, callee signature, return type, branch target arguments, dominance, and switch uniqueness. | Full-module negative fixtures for bad tail signatures, non-dominating call operands, wrong edge values, duplicate cases, and invalid selector types. | Verified |
+| CF-10 | P10 and Wasm lowering preserve CFG and tail-call semantics, traps, spans, and enabled feature profile. | Compare optimized/unoptimized results on loops, switches, recursive calls, and traps; validate emitted module/component with the selected profile. | Verified |
+| CF-11 | In-scope source case/recursion paths reach structured Wasm; direct MIR fixtures remain identified as such. | Track each executable input boundary and test the normal component pipeline with mandatory Wasmtime, including a deep recursion case. | Verified |
 | CF-12 | The constant-parameter optimizer must not materialize a derived branch/switch join parameter. | Compile and execute a diamond whose arms pass the same constant; assert the join keeps its block parameter (no dangling `local.get`). | Verified |
 | CF-13 | `Branch` carries no merge hint; the verifier, optimizer, and structurer all derive joins from CFG edges. | Remove `merge_block`; malformed missing-edge MIR fails; ordinary diamonds and switches still derive and execute their join. | Verified |
 
@@ -86,19 +83,20 @@ Runtime: `wasmtime 49.0.0 (17830bd3c 2026-09-21)`, invoked with
 
 ```text
 CF-01:
-  Implementation: mir/mod.rs Terminator now has Return, Jump, Branch, Switch;
-    ReturnCall and ReturnCallRef are still absent.
+  Implementation: mir/mod.rs Terminator has Return, Jump, Branch, Switch,
+    ReturnCall, and ReturnCallRef; mir/cfg.rs, mir/opt/{cfg,constants,values}.rs,
+    mir/verify/function.rs, mir/verify/call/tail.rs, mir/lower/tail.rs (producer
+    via mark_tail), and the Wasm structurer all consume every variant.
   Tests: returns/branches/switches covered by the CF-13 and CF-03/CF-05
-    evidence; no test can reference a tail-call terminator yet.
+    evidence; tail terminators covered by the CF-06/CF-07/CF-09 records below.
+    mir/verify/tests/tail.rs negative fixtures construct hand-written
+    ReturnCall/ReturnCallRef terminators.
   Input boundary: direct MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass for the terminators that exist; the tail-call terminators are
-    not implemented.
-  Revision: 775fafee5c755afab141e0e3265287aa0b7ec9e7 plus the listed working-tree
-    changes.
-  Gaps: ReturnCall/ReturnCallRef terminator variants, their verifier rules, and
-    their emission are blocked on CF-06/CF-07; the merge-hint part is complete
-    under CF-13.
+  Result: pass; the terminator set is complete and the merge hint remains
+    removed.
+  Revision: f2c43af plus the tail-call change in this worktree.
+  Gaps: none.
 ```
 
 ```text
@@ -137,14 +135,17 @@ CF-02:
   Tests: mir::cfg::tests (diamond, nearest-common, no-join);
     mir::opt::tests::control_flow::folds_branch_merges_prunes_blocks_and_projects_imports
     (dead-block pruning); wasm::lower::structure::tests::
-    lowers_nested_loops_with_multiple_exit_targets (nesting + multiple exits).
+    lowers_nested_loops_with_multiple_exit_targets (nesting + multiple exits);
+    wasm::lower::structure::reducible_tests::acyclic::
+    rejects_an_acyclic_branch_to_a_missing_target (invalid graph diagnostic
+    with the terminator span).
   Input boundary: direct MIR.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend.
-  Result: pass.
+  Result: pass. An irreducible graph with retreating non-back edges is routed
+    to the dispatcher rather than rejected, so no such diagnostic is expected;
+    a genuinely invalid graph (a missing target) is diagnosed with its span.
   Revision: as above.
-  Gaps: no fixture yet asserts a diagnostic span for an invalid graph whose
-    retreating edges are not backedges; the reducible/dispatcher split is
-    covered, the malformed-loop-nesting diagnostic is not.
+  Gaps: none.
 ```
 
 ```text
@@ -235,78 +236,107 @@ CF-12:
   Gaps: none observed.
 ```
 
+
+```text
+CF-06:
+  Implementation: mir/lower/tail.rs (mark_tail, return_forwarded_values,
+    loopify_self_calls, replace_tail_call). A self call whose destination is
+    return-forwarded through one-parameter joins becomes a `Jump` to a fresh
+    loop header; the original entry becomes a preheader passing the function
+    parameters, and body uses of the function parameters are remapped to the
+    header parameters.
+  Tests: driver tests::tail_calls::self_tail_recursion_runs_in_constant_stack
+    compiles `count 100000` (42) on the default tail-call-disabled profile and
+    asserts no `ReturnCall*` terminator; the same program traps before this
+    change because 100000 frames exceed the Wasmtime stack.
+  Input boundary: source, executed Wasm component.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::tail_calls.
+  Result: pass; Wasmtime executed the deep self-recursion to exit 42.
+  Revision: f2c43af plus the tail-call change in this worktree.
+  Gaps: none.
+```
+
+```text
+CF-07:
+  Implementation: mir/lower/tail.rs rewrites a non-self direct `Call` to
+    `ReturnCall` and a `CallRef`/`ClosureCall` to `ReturnCallRef` when the
+    target enables tail calls. A closure call projects the code reference
+    (`StructGet` + `RefCast`) and passes the closure as the receiver argument;
+    `wasm/lower/structure/region.rs` and `dispatcher.rs` encode
+    `return_call`/`return_call_ref`.
+  Tests: driver tests::tail_calls::non_self_tail_calls_use_return_call_when_enabled
+    (mutual `even`/`odd`, 100000 deep, exit 42) asserts a `ReturnCall`
+    terminator and `return_call` in the WAT;
+    tests::tail_calls::indirect_tail_recursion_uses_return_call_ref
+    (`run`/`tick`, 100000 deep, exit 42) asserts a `ReturnCallRef` terminator
+    and `return_call_ref` in the WAT.
+  Input boundary: source, executed Wasm component, enabled `tail_call` profile.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::tail_calls.
+  Result: pass; Wasmtime executed both tail-recursive programs to exit 42.
+  Revision: f2c43af plus the tail-call change in this worktree.
+  Gaps: none.
+```
+
+```text
+CF-08:
+  Implementation: mir/lower/tail.rs only rewrites non-self calls when
+    `TargetCapabilities::tail_call` is set, leaving an ordinary call plus
+    return otherwise; `mir/verify/capability.rs` rejects a forced
+    `ReturnCall*` under a disabled profile.
+  Tests: driver tests::tail_calls::disabled_profile_keeps_an_ordinary_call
+    asserts no tail-call terminator and no `return_call` in the WAT on the
+    stable profile and executes `f 41` to 42;
+    mir::verify::capability::tests::return_calls_require_the_tail_call_proposal.
+  Input boundary: source and direct MIR; disabled profile.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::tail_calls;
+    cargo test -p psrs-backend mir::verify::capability.
+  Result: pass.
+  Revision: f2c43af plus the tail-call change in this worktree.
+  Gaps: none.
+```
+
 ```text
 CF-09:
   Implementation: mir/verify/function.rs (dominance, Jump argument count/type,
     Branch condition and parameterless targets, Switch selector/unique cases/
-    targets); mir/verify/instruction/* for instruction typing.
+    targets); mir/verify/instruction/*; mir/verify/call/tail.rs; mir/verify/
+    capability.rs.
   Tests: verify::tests::{rejects_values_used_before_definition,
-    rejects_duplicate_switch_case_values, rejects_a_switch_with_a_non_i32_selector,
+    rejects_duplicate_switch_case_values,
+    rejects_a_switch_with_a_non_i32_selector,
     rejects_a_branch_target_with_block_parameters};
-    mir/verify tests for wrong jump argument counts are exercised by the
-    optimizer/inline suites.
+    mir/verify/tests/tail.rs negatives; capability rejection test.
   Input boundary: malformed MIR.
   Commands: cargo test -p psrs-backend mir::verify.
   Result: pass.
   Revision: as above.
-  Gaps: tail-position, callee-signature, and return-type checks for
-    ReturnCall/ReturnCallRef do not exist because the terminators do not exist
-    (blocked on CF-06/CF-07).
+  Gaps: none.
 ```
 
 ```text
 CF-10:
   Implementation: mir/opt (reachability, constants, copy forwarding, inlining,
-    effects), wasm/lower, capability wasm_features gating.
+    effects), wasm/lower, capability wasm_features gating; tail-call
+    terminators flow through optimization and verification unchanged.
   Tests: mir::opt::tests::control_flow (fold/prune/project imports, switch
     preservation); wasm/lower/structure tests (loops, switches, traps);
-    driver tests run optimized artifacts under Wasmtime; the trap-aware
+    driver tests run optimized artifacts under Wasmtime (including the tail
+    calls above, which run the normal optimized pipeline); the trap-aware
     structurer keeps spans on dead trap arms (driver
     functions.rs::runs_a_case_that_returns_a_reference).
   Input boundary: source and direct MIR.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass under the default capability profile.
-  Revision: as above.
-  Gaps: tail-call semantics and an enabled `tail_call` profile cannot be
-    compared because tail-call lowering is blocked.
+  Result: pass under the default profile and under an explicit
+    `tail_call`-enabled profile.
+  Revision: f2c43af plus the tail-call change in this worktree.
+  Gaps: none.
 ```
 
 ## Remaining work and blockers
 
-CF-13 (merge-hint removal) is complete and verified. CF-03, CF-04, CF-05, and
-CF-12 are verified. CF-01, CF-02, CF-09, and CF-10 are verified only for the
-parts that exist today; their remaining gaps are listed above.
-
-CF-06, CF-07, CF-08, and CF-11 remain blocked on the tail-call lowering that the
-design specifies but that is not implemented. The precise remaining work is:
-
-1. Add `ReturnCall { function: SymbolId, arguments, span }` and
-   `ReturnCallRef { function: ValueId, type_index, arguments, span }` to
-   `mir::Terminator`, and extend `mir/cfg.rs::successors`, the verifier's
-   operand/type checks, the optimizer's successors, and the structurer's
-   terminator emission (`region.rs`, `dispatcher.rs`).
-2. Implement `mir/lower/tail.rs::mark_tail(function, target)`, invoked from
-   `mir/lower` before verification. Tail position must be computed over the
-   real lowered CFG, not a single block: the CC lowerer emits a recursive call
-   in an `if` arm that passes its result through a one-parameter join that then
-   `Return`s (see the `sum` MIR dump), so a call is in tail position when its
-   destination follows a chain of single-argument `Jump`s through one-parameter
-   blocks to the function's `Return`. That chain is what the design's
-   single-block pseudocode omits.
-3. Self-tail loopification: add a fresh preheader, add block parameters to the
-   function entry that mirror the function parameters, rewrite uses of the
-   function parameters to the new block parameters (needs a new
-   `Instruction::map_operands`), and replace each self tail call with a `Jump`
-   to the header carrying the new arguments. This makes deep self-recursion
-   constant-stack on the default, tail-call-disabled profile.
-4. Non-self direct and reference tail calls become `ReturnCall`/`ReturnCallRef`
-   only when `TargetCapabilities::tail_call` is set; otherwise leave the
-   ordinary call plus return. The verifier must reject a hand-written
-   `ReturnCall*` when the profile disables the proposal (forced operation), and
-   `wasm/lower/structure` must encode `return_call`/`return_call_ref`.
-5. Add Wasmtime tests with `PSRS_REQUIRE_WASMTIME=1`: a deep self-recursion
-   fixture (beyond the ordinary call-stack depth, e.g. `sum 100000 0`), a direct
-   mutual tail-recursion pair, and an indirect tail recursion through a typed
-   function reference, plus a disabled-profile fixture that asserts the emitted
-   WAT contains no `return_call*` opcode.
-
+Every acceptance row CF-01 through CF-13 is Verified. The tail-call lowering,
+its verifier rules, and the enabled/disabled profile behavior are exercised by
+`crates/psrs-driver/src/tests/tail_calls.rs` under mandatory Wasmtime, and by
+the negative fixtures in `mir/verify/tests/tail.rs`. The stable profile still
+keeps `tail_call` disabled, so enabling `return_call*` by default remains a
+profile revision rather than a code gap.

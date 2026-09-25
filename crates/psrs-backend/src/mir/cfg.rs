@@ -23,6 +23,7 @@ pub(crate) fn successors(terminator: &Terminator) -> Vec<BlockId> {
             .map(|(_, target)| *target)
             .chain(std::iter::once(*default))
             .collect(),
+        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
     }
 }
 
@@ -86,7 +87,10 @@ pub(crate) fn join_blocks(function: &Function) -> HashSet<BlockId> {
                 .map(|(_, target)| *target)
                 .chain(std::iter::once(*default))
                 .collect(),
-            Terminator::Return { .. } | Terminator::Jump { .. } => continue,
+            Terminator::Return { .. }
+            | Terminator::Jump { .. }
+            | Terminator::ReturnCall { .. }
+            | Terminator::ReturnCallRef { .. } => continue,
         };
         if let Some(join) = common_join(&function.blocks, &targets) {
             joins.insert(join);

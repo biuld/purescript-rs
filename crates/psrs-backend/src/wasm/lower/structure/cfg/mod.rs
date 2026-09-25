@@ -408,6 +408,7 @@ fn successors(terminator: &Terminator) -> Vec<BlockId> {
             .map(|(_, target)| *target)
             .chain(std::iter::once(*default))
             .collect(),
+        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
     }
 }
 
@@ -419,7 +420,9 @@ fn block_span(block: &BasicBlock, fallback: psrs_span::TextRange) -> psrs_span::
             Terminator::Return { span, .. }
             | Terminator::Jump { span, .. }
             | Terminator::Branch { span, .. }
-            | Terminator::Switch { span, .. } => *span,
+            | Terminator::Switch { span, .. }
+            | Terminator::ReturnCall { span, .. }
+            | Terminator::ReturnCallRef { span, .. } => *span,
         })
 }
 

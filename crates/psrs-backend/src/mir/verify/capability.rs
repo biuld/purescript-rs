@@ -10,6 +10,7 @@ struct RequiredCapabilities {
     function_references: bool,
     gc: bool,
     multi_value: bool,
+    tail_call: bool,
 }
 
 /// Checks the capabilities that the current MIR module actually requires.
@@ -59,6 +60,12 @@ pub(super) fn validate_target_capabilities(
             for instruction in &block.instructions {
                 mark_instruction(instruction, &mut required);
             }
+            if let Some(
+                mir::Terminator::ReturnCall { .. } | mir::Terminator::ReturnCallRef { .. },
+            ) = &block.terminator
+            {
+                required.tail_call = true;
+            }
         }
     }
 
@@ -85,6 +92,12 @@ pub(super) fn validate_target_capabilities(
         errors.extend(mir_error(
             module.span,
             "the selected target does not support multi-value function types required by this module",
+        ));
+    }
+    if required.tail_call && !target.tail_call {
+        errors.extend(mir_error(
+            module.span,
+            "the selected target does not support the WebAssembly tail-call proposal required by this module",
         ));
     }
     if errors.is_empty() {
@@ -419,6 +432,51 @@ mod tests {
             errors
                 .iter()
                 .any(|error| error.message.contains("reference types")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn return_calls_require_the_tail_call_proposal() {
+        let span = TextRange::new(17, 31);
+        let module = mir::Module {
+            name: "capability-tail-test".into(),
+            types: Vec::new(),
+            imports: Vec::new(),
+            functions: vec![mir::Function {
+                id: crate::types::FunctionId(0),
+                symbol: SymbolId::new(ModuleId(4), 0),
+                name: "tail".into(),
+                parameters: Vec::new(),
+                values: Vec::new(),
+                entry: mir::BlockId(0),
+                blocks: vec![mir::BasicBlock {
+                    id: mir::BlockId(0),
+                    parameters: Vec::new(),
+                    instructions: Vec::new(),
+                    terminator: Some(mir::Terminator::ReturnCall {
+                        function: SymbolId::new(ModuleId(4), 1),
+                        arguments: Vec::new(),
+                        span,
+                    }),
+                }],
+                result: crate::types::ValueId(0),
+                result_type: ValueType::I32,
+                span,
+            }],
+            entry: Some(SymbolId::new(ModuleId(4), 0)),
+            span,
+        };
+        let target = TargetCapabilities {
+            tail_call: false,
+            ..TargetCapabilities::default()
+        };
+        let errors = validate_target_capabilities(&module, target)
+            .expect_err("a tail call requires the tail-call proposal");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("tail-call")),
             "{errors:?}"
         );
     }

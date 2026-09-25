@@ -425,5 +425,6 @@ fn successors(terminator: &Terminator) -> Vec<BlockId> {
             .map(|(_, target)| *target)
             .chain(std::iter::once(*default))
             .collect(),
+        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
     }
 }
