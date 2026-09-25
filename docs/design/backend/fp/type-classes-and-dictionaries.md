@@ -216,11 +216,11 @@ code map owns class declarations, solving, and THIR evidence. This backend topic
 consumes verified Core dictionary values:
 
 ```text
-crates/psrs-core/src/dictionary.rs       checked dictionary field metadata
-crates/psrs-backend/src/cc/representation.rs  product representation
-crates/psrs-backend/src/cc/lower/record.rs     product construction/projection
-crates/psrs-backend/src/cc/lower/call.rs       dictionary argument calls
-crates/psrs-backend/src/mir/layout/            concrete product layout
+crates/psrs-core/src/dictionary.rs               checked dictionary field metadata
+crates/psrs-backend/src/cc/representation.rs     product representation
+crates/psrs-backend/src/cc/lower/record.rs       product construction/projection
+crates/psrs-backend/src/cc/lower/call.rs         dictionary argument calls
+crates/psrs-backend/src/mir/layout/              concrete product layout
 ```
 
 The backend entry point `lower_dictionary_value(&core::Expr, &ClassLayout) ->
@@ -331,13 +331,29 @@ no runtime check of `a`.
 
 ## Implementation notes
 
-Planned, not implemented. Class and instance syntax is represented in the CST,
-and class members and superclasses reach HIR as `TypeDeclaration`/`ClassMember`,
-but there is no instance companion in HIR, no class environment, and no
-constraint solving. `psrs-typecheck` drops `TypeKind::Constrained` and rejects
-polymorphic declarations, so CC and MIR never receive dictionaries and
-currently accept monomorphic and rank-1 polymorphic programs only. Nothing in
-this document depends on a current implementation.
+The typed-evidence handoff and its erasure are implemented as a current
+coverage path: THIR can retain `Given`, `Global`, `Instance`, and `Superclass`
+evidence; its verifier checks instance-context arrows and superclass record
+fields. Core lowering expands those derivations into ordinary local/global
+values, applications, and field projections, and Core verification checks the
+resulting expression types. A focused regression exercises an instance
+constructor applied to a given dictionary followed by a superclass and method
+projection.
+
+This is an implementation deviation from the backend Code map above. The
+handoff currently lives at the THIR-to-Core boundary and uses existing Core
+record operations; the planned backend `lower_dictionary_value` entry point and
+`ClassLayout` abstraction are not implemented. The Code map remains the design
+target for the backend representation API.
+
+The source frontend does not yet produce these evidence terms. Instance syntax
+is still rejected by AST lowering, HIR has no instance declarations, and the
+type checker currently erases `TypeKind::Constrained` instead of solving it.
+Consequently ordinary source programs still cannot use class methods or
+instances, and this vertical path is currently exercised with typed THIR input.
+Implementing the class environment and selected-evidence producer remains the
+frontend class topic's responsibility; dictionary records need no additional
+CC, MIR, or Wasm representation.
 
 ## References
 

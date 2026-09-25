@@ -6,6 +6,8 @@ use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
+mod dictionary;
+
 fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -26,9 +28,10 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         .iter()
         .map(|constructor| (constructor.symbol, constructor.clone()))
         .collect::<HashMap<_, _>>();
-    let types = module
-        .types
-        .into_iter()
+    let source_types = module.types;
+    let types = source_types
+        .iter()
+        .cloned()
         .map(|ty| match ty {
             psrs_thir::Type::Variable(variable) => Type::Variable(variable),
             psrs_thir::Type::I32 => Type::I32,
@@ -58,7 +61,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         .collect();
     let mut declarations = Vec::with_capacity(module.declarations.len());
     for declaration in module.declarations {
-        let value = lower_expr(declaration.value, &externals, &constructors)
+        let value = lower_expr(declaration.value, &externals, &constructors, &source_types)
             .map_err(|error| vec![error])?;
         declarations.push(Declaration {
             symbol: declaration.symbol,
@@ -124,13 +127,14 @@ fn lower_expr(
     expression: TypedExpr,
     externals: &HashMap<SymbolId, ExternalKind>,
     constructors: &HashMap<SymbolId, psrs_thir::ConstructorInfo>,
+    source_types: &[psrs_thir::Type],
 ) -> Result<Expr, LowerError> {
     let span = expression.span;
     let ty = TypeId(expression.ty.0);
     if let Some((symbol, arguments)) = constructor_application(&expression, constructors) {
         let arguments = arguments
             .into_iter()
-            .map(|argument| lower_expr(argument.clone(), externals, constructors))
+            .map(|argument| lower_expr(argument.clone(), externals, constructors, source_types))
             .collect::<Result<Vec<_>, _>>()?;
         return Ok(Expr {
             kind: ExprKind::Constructor { symbol, arguments },
@@ -164,29 +168,52 @@ fn lower_expr(
         TypedExprKind::Array(elements) => ExprKind::Array {
             elements: elements
                 .into_iter()
-                .map(|element| lower_expr(element, externals, constructors))
+                .map(|element| lower_expr(element, externals, constructors, source_types))
                 .collect::<Result<Vec<_>, _>>()?,
         },
         TypedExprKind::Record(fields) => ExprKind::Record {
             fields: fields
                 .into_iter()
-                .map(|(label, value)| Ok((label, lower_expr(value, externals, constructors)?)))
+                .map(|(label, value)| {
+                    Ok((
+                        label,
+                        lower_expr(value, externals, constructors, source_types)?,
+                    ))
+                })
                 .collect::<Result<Vec<_>, LowerError>>()?,
         },
         TypedExprKind::RecordUpdate { expression, fields } => ExprKind::RecordUpdate {
-            record: Box::new(lower_expr(*expression, externals, constructors)?),
+            record: Box::new(lower_expr(
+                *expression,
+                externals,
+                constructors,
+                source_types,
+            )?),
             fields: fields
                 .into_iter()
-                .map(|(label, value)| Ok((label, lower_expr(value, externals, constructors)?)))
+                .map(|(label, value)| {
+                    Ok((
+                        label,
+                        lower_expr(value, externals, constructors, source_types)?,
+                    ))
+                })
                 .collect::<Result<Vec<_>, LowerError>>()?,
         },
         TypedExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
-            record: Box::new(lower_expr(*expression, externals, constructors)?),
+            record: Box::new(lower_expr(
+                *expression,
+                externals,
+                constructors,
+                source_types,
+            )?),
             field,
         },
+        TypedExprKind::Evidence(evidence) => {
+            return dictionary::lower_evidence(&evidence, source_types);
+        }
         TypedExprKind::Application(function, argument) => {
-            let function = lower_expr(*function, externals, constructors)?;
-            let argument = lower_expr(*argument, externals, constructors)?;
+            let function = lower_expr(*function, externals, constructors, source_types)?;
+            let argument = lower_expr(*argument, externals, constructors, source_types)?;
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 2
                 && matches!(
@@ -275,7 +302,7 @@ fn lower_expr(
                 ty: TypeId(binder.ty.0),
                 span: binder.span,
             },
-            body: Box::new(lower_expr(*body, externals, constructors)?),
+            body: Box::new(lower_expr(*body, externals, constructors, source_types)?),
         },
         TypedExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
@@ -289,33 +316,53 @@ fn lower_expr(
                             span: binding.binder.span,
                         },
                         quantified: binding.quantified,
-                        value: lower_expr(binding.value, externals, constructors)?,
+                        value: lower_expr(binding.value, externals, constructors, source_types)?,
                         span: binding.span,
                     })
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,
-            body: Box::new(lower_expr(*body, externals, constructors)?),
+            body: Box::new(lower_expr(*body, externals, constructors, source_types)?),
         },
         TypedExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition, externals, constructors)?),
-            then_branch: Box::new(lower_expr(*then_branch, externals, constructors)?),
-            else_branch: Box::new(lower_expr(*else_branch, externals, constructors)?),
+            condition: Box::new(lower_expr(
+                *condition,
+                externals,
+                constructors,
+                source_types,
+            )?),
+            then_branch: Box::new(lower_expr(
+                *then_branch,
+                externals,
+                constructors,
+                source_types,
+            )?),
+            else_branch: Box::new(lower_expr(
+                *else_branch,
+                externals,
+                constructors,
+                source_types,
+            )?),
         },
         TypedExprKind::Case {
             scrutinee,
             branches,
         } => ExprKind::Case {
-            scrutinee: Box::new(lower_expr(*scrutinee, externals, constructors)?),
+            scrutinee: Box::new(lower_expr(
+                *scrutinee,
+                externals,
+                constructors,
+                source_types,
+            )?),
             branches: branches
                 .into_iter()
                 .map(|branch| {
                     Ok(crate::CaseBranch {
                         pattern: lower_pattern(branch.pattern)?,
-                        value: lower_expr(branch.value, externals, constructors)?,
+                        value: lower_expr(branch.value, externals, constructors, source_types)?,
                         span: branch.span,
                     })
                 })
