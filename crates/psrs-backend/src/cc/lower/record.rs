@@ -1,4 +1,5 @@
-use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
+use super::super::layout::erased_field_recovery_family;
+use super::super::{Assignment, AssignmentKind, Representation, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::{Expr, Type};
@@ -32,7 +33,7 @@ impl FunctionLowerer<'_> {
             }
         };
         let mut arguments = Vec::with_capacity(labels.len());
-        for label in labels {
+        for (index, label) in labels.into_iter().enumerate() {
             let Some((_, value)) = fields.iter().find(|(field, _)| field == &label) else {
                 return Err(vec![BackendError::new(
                     "P8 closure conversion",
@@ -40,7 +41,18 @@ impl FunctionLowerer<'_> {
                     "record expression is missing a typed field",
                 )]);
             };
-            arguments.push(self.lower_value(value, assignments)?);
+            let value = self.lower_value(value, assignments)?;
+            let stored = product_field_shape(
+                self.representations.representation(representation),
+                index,
+                expression.span,
+            )?;
+            arguments.push(self.adapt_to_storage_shape(
+                value,
+                stored,
+                expression.span,
+                assignments,
+            )?);
         }
         let destination = self.fresh(ty);
         assignments.push(Assignment {
@@ -88,23 +100,22 @@ impl FunctionLowerer<'_> {
         }
 
         let mut arguments = Vec::with_capacity(labels.len());
-        for (field_index, (label, field_ty)) in labels.iter().enumerate() {
+        for (field_index, (label, _)) in labels.iter().enumerate() {
+            let stored = product_field_shape(
+                self.representations.representation(representation),
+                field_index,
+                expression.span,
+            )?;
             if let Some((_, value)) = updates.iter().find(|(name, _)| *name == label) {
-                arguments.push(*value);
+                arguments.push(self.adapt_to_storage_shape(
+                    *value,
+                    stored,
+                    expression.span,
+                    assignments,
+                )?);
                 continue;
             }
-            let value_ty = super::super::layout::scalar_type(
-                self.module,
-                *field_ty,
-                expression.span,
-                self.enum_types,
-                self.aggregate_types,
-                self.newtype_ids,
-                self.array_types,
-                self.record_types,
-                self.function_types,
-            )?;
-            let value = self.fresh(value_ty);
+            let value = self.fresh(stored);
             assignments.push(Assignment {
                 destination: value,
                 kind: AssignmentKind::ProductGet {
@@ -145,12 +156,16 @@ impl FunctionLowerer<'_> {
                 "record field access has no representation requirement",
             )]);
         };
-        let Some(field_index) =
+        let Some((field_index, field_type)) =
             self.module
                 .types
                 .get(record.ty.0 as usize)
                 .and_then(|ty| match ty {
-                    Type::Record(fields) => fields.iter().position(|(label, _)| label == field),
+                    Type::Record(fields) => fields
+                        .iter()
+                        .enumerate()
+                        .find(|(_, (label, _))| label == field)
+                        .map(|(index, (_, field_type))| (index, *field_type)),
                     _ => None,
                 })
         else {
@@ -160,18 +175,60 @@ impl FunctionLowerer<'_> {
                 "record field is not present in its type",
             )]);
         };
+        let stored = product_field_shape(
+            self.representations.representation(representation),
+            field_index,
+            expression.span,
+        )?;
+        if let Some(family) = erased_field_recovery_family(
+            self.module,
+            field_type,
+            stored,
+            ty,
+            self.array_types,
+            self.record_types,
+        ) {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                format!(
+                    "unsupported generic {family} field recovery: its nominal runtime layout depends on a type variable"
+                ),
+            )]);
+        }
         let record = self.lower_value(record, assignments)?;
-        let destination = self.fresh(ty);
+        let projected = self.fresh(stored);
         assignments.push(Assignment {
-            destination,
+            destination: projected,
             kind: AssignmentKind::ProductGet {
-                destination,
+                destination: projected,
                 representation,
                 field: field_index as u32,
                 value: record,
             },
             span: expression.span,
         });
-        Ok(destination)
+        self.adapt_to_storage_shape(projected, ty, expression.span, assignments)
     }
+}
+
+fn product_field_shape(
+    representation: Option<&Representation>,
+    field: usize,
+    span: psrs_span::TextRange,
+) -> Result<ValueShape, Vec<BackendError>> {
+    let Some(Representation::Product { fields }) = representation else {
+        return Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "record has no product representation",
+        )]);
+    };
+    fields.get(field).copied().ok_or_else(|| {
+        vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "record field has no storage shape",
+        )]
+    })
 }

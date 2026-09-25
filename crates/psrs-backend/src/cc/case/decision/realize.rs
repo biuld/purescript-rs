@@ -1,12 +1,13 @@
-use super::super::super::layout::{depends_on_type_variable, scalar_type, user_type_id};
+use super::super::super::layout::{scalar_type, user_type_id};
 use super::super::super::lower::FunctionLowerer;
-use super::super::erased::VariantField;
 use super::{Action, ColumnKey, Decision, DecisionDag, DecisionEdge, NodeId, Test};
 use crate::BackendError;
-use crate::cc::{Assignment, AssignmentKind, BinaryOp, TagCase, ValueId, ValueShape};
+use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
 use psrs_core::CaseBranch;
 use psrs_span::TextRange;
 use std::collections::HashMap;
+
+mod switch;
 
 type ActionResult = (Vec<Assignment>, HashMap<ColumnKey, ValueId>);
 
@@ -131,189 +132,6 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn lower_nullary_switch(
-        &mut self,
-        switch: SwitchContext<'_>,
-    ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let SwitchContext {
-            dag,
-            edges,
-            default_actions,
-            default,
-            branches,
-            values,
-            scrutinee,
-            result_type,
-            span,
-        } = switch;
-        let mut cases = Vec::with_capacity(edges.len());
-        for edge in edges {
-            let Test::Constructor { tag, .. } = edge.test else {
-                return Err(case_error(
-                    edge.span,
-                    "nullary switch contains a non-constructor edge",
-                ));
-            };
-            let (mut arm_assignments, arm_values) = self.apply_actions(edge, values)?;
-            let (mut body_assignments, value) = self.lower_decision_node(
-                dag,
-                edge.target,
-                branches,
-                &arm_values,
-                result_type,
-                edge.span,
-            )?;
-            arm_assignments.append(&mut body_assignments);
-            cases.push(TagCase {
-                tag: i32::try_from(tag)
-                    .map_err(|_| case_error(edge.span, "constructor tag exceeds i32"))?,
-                assignments: arm_assignments,
-                value,
-            });
-        }
-        let (default_assignments, default_value) = if let Some(default) = default {
-            let (mapping, default_values) = self.apply_action_list(default_actions, values)?;
-            let (mut body, value) = self.lower_decision_node(
-                dag,
-                default,
-                branches,
-                &default_values,
-                result_type,
-                span,
-            )?;
-            let mut mapping = mapping;
-            mapping.append(&mut body);
-            (mapping, value)
-        } else {
-            self.unreachable_value(result_type, span)
-        };
-        let destination = self.fresh(result_type);
-        Ok((
-            vec![Assignment {
-                destination,
-                kind: AssignmentKind::TagSwitch {
-                    value: scrutinee,
-                    cases,
-                    default_assignments,
-                    default_value,
-                },
-                span,
-            }],
-            destination,
-        ))
-    }
-
-    fn lower_variant_switch(
-        &mut self,
-        switch: SwitchContext<'_>,
-    ) -> Result<(Vec<Assignment>, ValueId), Vec<BackendError>> {
-        let SwitchContext {
-            dag,
-            edges,
-            default_actions,
-            default,
-            branches,
-            values,
-            scrutinee,
-            result_type,
-            span,
-        } = switch;
-        let Some(first_symbol) = edges.iter().find_map(|edge| match edge.test {
-            Test::Constructor { symbol, .. } => Some(symbol),
-            Test::Irrefutable => None,
-        }) else {
-            return Err(case_error(
-                span,
-                "constructor switch has no constructor edges",
-            ));
-        };
-        let representation = self
-            .constructor_types
-            .get(&first_symbol)
-            .copied()
-            .ok_or_else(|| case_error(span, "case constructor has no representation"))?;
-        let actual_tag = self.fresh(ValueShape::Integer);
-        let mut prefix = vec![Assignment {
-            destination: actual_tag,
-            kind: AssignmentKind::VariantTag {
-                destination: actual_tag,
-                representation,
-                value: scrutinee,
-            },
-            span,
-        }];
-        let mut conditions = Vec::with_capacity(edges.len());
-        for edge in edges {
-            let Test::Constructor { tag, .. } = edge.test else {
-                return Err(case_error(
-                    edge.span,
-                    "variant switch contains a product edge",
-                ));
-            };
-            let expected = self.fresh(ValueShape::Integer);
-            prefix.push(Assignment {
-                destination: expected,
-                kind: AssignmentKind::Constant(tag as i32),
-                span: edge.span,
-            });
-            let condition = self.fresh(ValueShape::Boolean);
-            prefix.push(Assignment {
-                destination: condition,
-                kind: AssignmentKind::Primitive {
-                    op: BinaryOp::IntEq,
-                    left: actual_tag,
-                    right: expected,
-                },
-                span: edge.span,
-            });
-            conditions.push(condition);
-        }
-        let (default_assignments, default_value) = if let Some(default) = default {
-            let (mapping, default_values) = self.apply_action_list(default_actions, values)?;
-            let (mut body, value) = self.lower_decision_node(
-                dag,
-                default,
-                branches,
-                &default_values,
-                result_type,
-                span,
-            )?;
-            let mut mapping = mapping;
-            mapping.append(&mut body);
-            (mapping, value)
-        } else {
-            self.unreachable_value(result_type, span)
-        };
-        let mut tail = (default_assignments, default_value);
-        for (edge, condition) in edges.iter().zip(conditions).rev() {
-            let (mut then_assignments, arm_values) = self.apply_actions(edge, values)?;
-            let (mut body_assignments, then_value) = self.lower_decision_node(
-                dag,
-                edge.target,
-                branches,
-                &arm_values,
-                result_type,
-                edge.span,
-            )?;
-            then_assignments.append(&mut body_assignments);
-            let destination = self.fresh(result_type);
-            let assignment = Assignment {
-                destination,
-                kind: AssignmentKind::If {
-                    condition,
-                    then_assignments,
-                    then_value,
-                    else_assignments: tail.0,
-                    else_value: tail.1,
-                },
-                span: edge.span,
-            };
-            tail = (vec![assignment], destination);
-        }
-        prefix.append(&mut tail.0);
-        Ok((prefix, tail.1))
-    }
-
     fn apply_actions(
         &mut self,
         edge: &DecisionEdge,
@@ -345,7 +163,7 @@ impl FunctionLowerer<'_> {
                 target,
                 field,
                 source_type,
-                declared_type,
+                declared_type: _,
                 target_type,
                 constructor,
                 newtype,
@@ -364,50 +182,13 @@ impl FunctionLowerer<'_> {
                     self.constructor_types.get(symbol).copied().ok_or_else(|| {
                         case_error(*span, "case constructor has no representation")
                     })?;
-                if depends_on_type_variable(self.module, *declared_type) {
-                    self.lower_erased_field(
-                        *target_type,
-                        source_value,
-                        VariantField {
-                            representation,
-                            case: *tag,
-                            field: *field,
-                        },
-                        *span,
-                        &mut assignments,
-                    )?
-                } else {
-                    let shape = scalar_type(
-                        self.module,
-                        *target_type,
-                        *span,
-                        self.enum_types,
-                        self.aggregate_types,
-                        self.newtype_ids,
-                        self.array_types,
-                        self.record_types,
-                        self.function_types,
-                    )?;
-                    let value = self.fresh(shape);
-                    assignments.push(Assignment {
-                        destination: value,
-                        kind: AssignmentKind::VariantGet {
-                            destination: value,
-                            representation,
-                            case: *tag,
-                            field: *field,
-                            value: source_value,
-                        },
-                        span: *span,
-                    });
-                    value
-                }
-            } else {
-                let representation =
-                    self.record_types.get(source_type).copied().ok_or_else(|| {
-                        case_error(*span, "record pattern has no representation requirement")
-                    })?;
-                let shape = scalar_type(
+                let stored_shape = variant_field_shape(
+                    self.representations.representation(representation),
+                    *tag,
+                    *field as usize,
+                    *span,
+                )?;
+                let target_shape = scalar_type(
                     self.module,
                     *target_type,
                     *span,
@@ -418,18 +199,66 @@ impl FunctionLowerer<'_> {
                     self.record_types,
                     self.function_types,
                 )?;
-                let value = self.fresh(shape);
+                let projected = self.fresh(stored_shape);
                 assignments.push(Assignment {
-                    destination: value,
+                    destination: projected,
+                    kind: AssignmentKind::VariantGet {
+                        destination: projected,
+                        representation,
+                        case: *tag,
+                        field: *field,
+                        value: source_value,
+                    },
+                    span: *span,
+                });
+                self.adapt_projected_field(
+                    projected,
+                    stored_shape,
+                    target_shape,
+                    *target_type,
+                    *span,
+                    &mut assignments,
+                )?
+            } else {
+                let representation =
+                    self.record_types.get(source_type).copied().ok_or_else(|| {
+                        case_error(*span, "record pattern has no representation requirement")
+                    })?;
+                let stored_shape = product_field_shape(
+                    self.representations.representation(representation),
+                    *field as usize,
+                    *span,
+                )?;
+                let target_shape = scalar_type(
+                    self.module,
+                    *target_type,
+                    *span,
+                    self.enum_types,
+                    self.aggregate_types,
+                    self.newtype_ids,
+                    self.array_types,
+                    self.record_types,
+                    self.function_types,
+                )?;
+                let projected = self.fresh(stored_shape);
+                assignments.push(Assignment {
+                    destination: projected,
                     kind: AssignmentKind::ProductGet {
-                        destination: value,
+                        destination: projected,
                         representation,
                         field: *field,
                         value: source_value,
                     },
                     span: *span,
                 });
-                value
+                self.adapt_projected_field(
+                    projected,
+                    stored_shape,
+                    target_shape,
+                    *target_type,
+                    *span,
+                    &mut assignments,
+                )?
             };
             projected.insert(target.clone(), value);
         }
@@ -466,4 +295,38 @@ fn lookup(
 
 fn case_error(span: TextRange, message: impl Into<String>) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
+}
+
+fn variant_field_shape(
+    representation: Option<&crate::cc::Representation>,
+    tag: u32,
+    field: usize,
+    span: TextRange,
+) -> Result<ValueShape, Vec<BackendError>> {
+    let Some(crate::cc::Representation::Variant { cases }) = representation else {
+        return Err(case_error(
+            span,
+            "constructor has no variant representation",
+        ));
+    };
+    cases
+        .iter()
+        .find(|case| case.tag == tag)
+        .and_then(|case| case.fields.get(field))
+        .copied()
+        .ok_or_else(|| case_error(span, "constructor field has no storage shape"))
+}
+
+fn product_field_shape(
+    representation: Option<&crate::cc::Representation>,
+    field: usize,
+    span: TextRange,
+) -> Result<ValueShape, Vec<BackendError>> {
+    let Some(crate::cc::Representation::Product { fields }) = representation else {
+        return Err(case_error(span, "record has no product representation"));
+    };
+    fields
+        .get(field)
+        .copied()
+        .ok_or_else(|| case_error(span, "record field has no storage shape"))
 }

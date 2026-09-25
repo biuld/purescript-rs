@@ -16,6 +16,8 @@ use std::rc::Rc;
 mod nested_tests;
 #[path = "realize_newtype_tests.rs"]
 mod newtype_tests;
+#[path = "realize_parameterized_tests.rs"]
+mod parameterized_tests;
 #[path = "realize_product_tests.rs"]
 mod product_tests;
 #[path = "realize_record_tests.rs"]

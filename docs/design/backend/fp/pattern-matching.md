@@ -536,6 +536,20 @@ Nullary enum dispatch lowers through CC `TagSwitch`, MIR
 `Terminator::Switch`, and Wasm `br_table`. Field-bearing sums extract their tag
 once and realize the selected edges with CC `If` assignments.
 
+CC derives erased projection behavior from the stored slot shape. Constructor
+and record layouts mark fields whose types depend on a type variable as
+`Reference(Erased)`, and construction boxes to that shape. Recovery to an erased
+scalar uses its typed GC box. If recovery would cast an erased field to a
+nominal array or record representation whose Core type depends on a type
+variable, CC reports a source-spanned backend diagnostic instead of emitting a
+cast that can trap. Concrete `Wrap Int` construction and matching remains
+supported. Source regressions cover that concrete path and reject a polymorphic
+`Wrap a` array consumer. Synthetic Typed Core regressions reject generic record
+pattern projection and direct generic record field access to nominal arrays;
+generic record cases are backend tests because current source lowering does not
+retain these generic record consumer shapes in backend input. Generic arrays and
+records across instantiations remain open work.
+
 Coverage and DAG compilation currently use separate internal matrix types and
 recursions. They implement the same constructor specialization and row-order
 rules, with regressions covering redundant duplicate rows, first-match

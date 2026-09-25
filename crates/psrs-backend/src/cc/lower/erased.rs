@@ -414,6 +414,50 @@ impl FunctionLowerer<'_> {
         }
         Ok(erased)
     }
+
+    pub(super) fn adapt_to_storage_shape(
+        &mut self,
+        value: ValueId,
+        expected: ValueShape,
+        span: psrs_span::TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let actual = self
+            .values
+            .iter()
+            .find(|declaration| declaration.id == value)
+            .map(|declaration| declaration.ty)
+            .ok_or_else(|| {
+                vec![BackendError::new(
+                    "P8 closure conversion",
+                    span,
+                    "stored field uses an unknown value",
+                )]
+            })?;
+        if actual == expected {
+            return Ok(value);
+        }
+        let is_erased = |shape| {
+            matches!(
+                shape,
+                ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Erased,
+                })
+            )
+        };
+        if is_erased(expected) {
+            self.box_erased_value(value, span, assignments)
+        } else if is_erased(actual) {
+            self.unbox_erased_value(value, expected, span, assignments)
+        } else {
+            Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "field runtime representation does not match its storage shape",
+            )])
+        }
+    }
 }
 
 fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> Vec<TypeId> {

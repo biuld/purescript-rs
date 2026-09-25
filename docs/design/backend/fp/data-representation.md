@@ -492,13 +492,22 @@ one `RecGroup`, and the `Rect` subtype follows its `$variant` supertype.
 
 ## Implementation notes
 
-The layouts and operation lowerings in this document are implemented for the GC
-planner, including the unified variant representation, records, arrays,
-closures, and boxes. Parameterized-ADT erased field construction and recovery
-have a lowering and fixture but are not yet reachable end to end through the
-frontend for the full aggregate case. These are capability-coverage gaps
-tracked by the matrix above and the feature matrix, not deviations from the
-design.
+The GC planner and operation lowerings implement the unified variant
+representation, records, arrays, closures, and boxes. CC stores parameter-
+dependent variant payloads and record product fields as erased references.
+Construction boxes to the stored shape. Recovery to scalar fields uses typed
+GC boxes; recovery to a type-dependent nominal array or record layout is
+rejected with a source-spanned backend diagnostic, because each Core type still
+has its own `ReprId`. A source-to-Wasm regression constructs and matches
+`Wrap Int` where `data Wrap a = Wrap (Array a)`, and a source-to-CC regression
+rejects a polymorphic `Wrap a` consumer. Synthetic Typed Core backend
+regressions verify generic record construction and update use erased field
+storage, while record pattern projection and direct field access to a
+type-dependent nominal array produce named diagnostics. The generic record
+cases are Typed Core tests, not source-to-CC coverage; current source lowering
+does not retain these generic record consumer shapes in backend input. Generic
+array and record representations across concrete instantiations remain
+unsupported.
 
 ## References
 

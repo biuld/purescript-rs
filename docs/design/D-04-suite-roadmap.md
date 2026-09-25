@@ -240,18 +240,22 @@ and matching pass through the field value, with no GC allocation; nested
 constructor patterns are lowered against that erased field. A first
 concrete parameterized ADT slice also uses the selected erased representation:
 fields that depend on a type parameter are boxed and recovered through `eqref`,
-as demonstrated by `Maybe Int` and `Maybe Number`, whose erased fields use
-typed GC boxes before being recovered through `eqref`. Concrete scalar and aggregate array literals,
-length, indexing, and updates now also lower to Wasm GC arrays, including
-nested arrays, records, field-bearing data values, and `Number`. Closed
-concrete record literals, field reads, updates, and record patterns lower to
-Wasm GC structs.
+as demonstrated by `Maybe Int` and `Maybe Number`, whose erased scalar fields
+use typed GC boxes before being recovered through `eqref`. A `Wrap Int` case
+with an `Array Int` payload also constructs and matches through an erased field.
+Concrete scalar and aggregate array literals, length, indexing, and updates
+now lower to Wasm GC arrays, including nested arrays, records, field-bearing
+data values, and `Number`. Closed concrete record literals, field reads,
+updates, and record patterns lower to Wasm GC structs.
 Nested constructor and record field patterns use conditional matching. These
 patterns are currently limited to concrete record types with no open row tail.
 Generic direct calls and erased higher-order adapters now work for the tested
-scalar and parameterized-value cases. Generic records and arrays, open rows,
-and richer heap or tagged aggregate layouts are still open, and
-the backend reports them as named limitations. The parameterized ADT representation is
+scalar and parameterized-value cases. Generic records and arrays remain open:
+when an erased field projection or direct access would recover a type-dependent
+nominal array or record layout, CC reports a source-spanned limitation instead
+of emitting a cast that may trap at runtime. Generic record/array operations
+across type instantiations, open rows, and richer heap or tagged aggregate
+layouts are still open. The parameterized ADT representation is
 fixed by
 [DEC-07](../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 Supported non-parameterized fields use Wasm GC objects under the runtime baseline fixed by
@@ -441,9 +445,9 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-05 | Nullary ADT tags and case lowering | Nullary constructors use integer tags; enum-style case dispatch lowers through verified MIR `Switch` to Wasm `br_table` and is validated and executed under WASI. | Partial | Extend case lowering beyond nullary enums, integrate with the complete pattern model, and pass the L6/M7 gate. |
 | BE-06 | Field-bearing ADTs and constructor-pattern lowering | Non-parameterized constructors use Wasm GC structs; nested constructor patterns lower in a restricted form. CC coverage analysis handles constructor and record matrices, including nested fields and recursive ADTs, reports non-exhaustive witnesses, and exposes source-spanned redundancy warnings. | Partial | Complete shared decision lowering and recursive, polymorphic, and mixed-field layouts. |
 | BE-07 | Newtype erasure | Single-field newtype construction and matching erase without allocation. | Partial | Connect erasure to coercions, roles, derived instances, and the relevant L6/M7 cases. |
-| BE-08 | Parameterized ADT representation and erasure | Parameter-dependent `Int`/`Boolean`/`Number` fields use typed GC boxes and recover references through `eqref`; direct generic calls and generic higher-order adapters use the same erased protocol. | Partial | Generalize erased layouts to generic records/arrays and verify all instantiations. |
-| BE-09 | Records and row values | Closed concrete records, field reads, updates, and restricted patterns use GC structs. | Partial | Add open rows, polymorphic records, variants, and generic field operations. |
-| BE-10 | Arrays and aggregate values | Concrete scalar and aggregate arrays support literals, length, indexing, and updates through Wasm GC arrays, including nested arrays, records, ADTs, and `Number`. | Partial | Support polymorphic element representations and the official runtime gate. |
+| BE-08 | Parameterized ADT representation and erasure | Parameter-dependent `Int`/`Boolean`/`Number` fields use typed GC boxes and recover through `eqref`; dependent array and record payloads use erased storage, while recovery to their type-dependent nominal layouts is rejected with a named diagnostic. | Partial | Generalize erased layouts to generic records/arrays and verify all instantiations. |
+| BE-09 | Records and row values | Closed concrete records, field reads, updates, and restricted patterns use GC structs; dependent generic fields can be stored erased, but generic nominal record/array recovery is diagnosed. | Partial | Add open rows, polymorphic record layouts, variants, and generic field operations. |
+| BE-10 | Arrays and aggregate values | Concrete scalar and aggregate arrays support literals, length, indexing, and updates through Wasm GC arrays, including nested arrays, records, ADTs, and `Number`; polymorphic element layouts remain unsupported. | Partial | Support polymorphic element representations and the official runtime gate. |
 | BE-11 | Strings, linear memory, data segments, and allocation | String literals use length-prefixed UTF-8 data; the bump `cabi_realloc` supports returned byte lists/strings, passing returned strings to another WIT import, and repeated allocations. It checks alignment, the old range and stored length prefix, address overflow, and growth failure, and copies preserved bytes on reallocation. | Partial | Add static memory-access extent checks, broaden returned aggregate handling, and define allocator ownership and reclamation. |
 | BE-12 | Core optimization and MIR optimization | P7 Typed Core performs local simplification, bounded lambda inlining, field projection from statically known records (including dictionary-shaped records), and inert dead-binding elimination. P10 MIR performs small direct inlining, unreachable-block pruning, constant propagation, terminator simplification, value forwarding, dead pure-instruction elimination, and reachable-import projection; both verify transformed IR. Focused optimizer and compiler/runtime tests exist, but official optimize/CoreFn compatibility and broader pass coverage remain incomplete. | Partial | Connect both optimization stages to M8-O, add broader semantics-preservation evidence, and extend named-global inlining and specialization only with explicit linkage rules. |
 | BE-13 | Structured Wasm encoding and binary emission | Thin structured control-flow encoding delegates leaf instructions to `wasm-encoder`; the current branch subset includes `if` and enum-tag switches encoded with `br_table`. | Partial | Cover the remaining MIR instruction and control-flow forms and pass the L6/M7 gate. |
