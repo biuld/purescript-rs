@@ -248,6 +248,24 @@ impl FunctionLowerer<'_> {
                 else_assignments: self.clone_list(else_assignments, mapping),
                 else_value: remap(*else_value, mapping),
             },
+            AssignmentKind::TagSwitch {
+                value,
+                cases,
+                default_assignments,
+                default_value,
+            } => AssignmentKind::TagSwitch {
+                value: remap(*value, mapping),
+                cases: cases
+                    .iter()
+                    .map(|case| super::super::TagCase {
+                        tag: case.tag,
+                        assignments: self.clone_list(&case.assignments, mapping),
+                        value: remap(case.value, mapping),
+                    })
+                    .collect(),
+                default_assignments: self.clone_list(default_assignments, mapping),
+                default_value: remap(*default_value, mapping),
+            },
         }
     }
 }

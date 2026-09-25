@@ -401,6 +401,56 @@ impl FunctionLowerer<'_> {
                     )?;
                     current = merge;
                 }
+                AssignmentKind::TagSwitch {
+                    value,
+                    cases,
+                    default_assignments,
+                    default_value,
+                } => {
+                    let case_blocks = cases
+                        .iter()
+                        .map(|_| self.new_block(Vec::new()))
+                        .collect::<Vec<_>>();
+                    let default_block = self.new_block(Vec::new());
+                    let merge = self.new_block(vec![assignment.destination]);
+                    self.set_terminator(
+                        current,
+                        Terminator::Switch {
+                            value: *value,
+                            cases: cases
+                                .iter()
+                                .zip(&case_blocks)
+                                .map(|(case, block)| (case.tag, *block))
+                                .collect(),
+                            default: default_block,
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?;
+                    for (case, block) in cases.iter().zip(case_blocks) {
+                        let end = self.lower_assignments(&case.assignments, block)?;
+                        self.set_terminator(
+                            end,
+                            Terminator::Jump {
+                                target: merge,
+                                arguments: vec![case.value],
+                                span: assignment.span,
+                            },
+                            assignment.span,
+                        )?;
+                    }
+                    let end = self.lower_assignments(default_assignments, default_block)?;
+                    self.set_terminator(
+                        end,
+                        Terminator::Jump {
+                            target: merge,
+                            arguments: vec![*default_value],
+                            span: assignment.span,
+                        },
+                        assignment.span,
+                    )?;
+                    current = merge;
+                }
             }
         }
         Ok(current)

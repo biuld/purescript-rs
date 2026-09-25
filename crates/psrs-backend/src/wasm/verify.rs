@@ -5,6 +5,10 @@ use psrs_span::TextRange;
 use std::collections::HashSet;
 use wasm_encoder::Instruction;
 
+// A function body contributes an implicit label which branches can target to
+// return from the function, even when there is no explicit block or loop.
+const FUNCTION_LABEL_DEPTH: u32 = 1;
+
 /// Checks the structural invariants of the thin Wasm IR before encoding.
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
@@ -75,6 +79,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             function.span,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
@@ -91,6 +96,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             0,
             function_count,
             module.span,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
@@ -108,6 +114,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             realloc.span,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
@@ -124,8 +131,11 @@ fn verify_body(
     local_count: u32,
     function_count: u32,
     span: TextRange,
+    label_depth: u32,
     errors: &mut Vec<BackendError>,
 ) {
+    let mut current_label_depth = label_depth;
+    let mut raw_label_depth = 0;
     for op in body {
         match op {
             Op::Leaf(instruction) => {
@@ -135,18 +145,69 @@ fn verify_body(
                     local_count,
                     function_count,
                     span,
+                    current_label_depth,
                     errors,
                 );
+                match instruction {
+                    Instruction::Block(_) | Instruction::Loop(_) | Instruction::If(_) => {
+                        current_label_depth += 1;
+                        raw_label_depth += 1;
+                    }
+                    Instruction::End if raw_label_depth > 0 => {
+                        current_label_depth -= 1;
+                        raw_label_depth -= 1;
+                    }
+                    Instruction::End => {
+                        errors.push(wasm_error(
+                            span,
+                            "Wasm end does not close a raw structured label",
+                        ));
+                    }
+                    _ => {}
+                }
             }
             Op::If {
                 then_body,
                 else_body,
                 ..
             } => {
-                verify_body(then_body, module, local_count, function_count, span, errors);
-                verify_body(else_body, module, local_count, function_count, span, errors);
+                verify_body(
+                    then_body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    current_label_depth + 1,
+                    errors,
+                );
+                verify_body(
+                    else_body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    current_label_depth + 1,
+                    errors,
+                );
+            }
+            Op::Block { body, .. } | Op::Loop { body, .. } => {
+                verify_body(
+                    body,
+                    module,
+                    local_count,
+                    function_count,
+                    span,
+                    current_label_depth + 1,
+                    errors,
+                );
             }
         }
+    }
+    if raw_label_depth > 0 {
+        errors.push(wasm_error(
+            span,
+            "Wasm raw structured control label is not closed",
+        ));
     }
 }
 
@@ -156,6 +217,7 @@ fn verify_instruction(
     local_count: u32,
     function_count: u32,
     span: TextRange,
+    label_depth: u32,
     errors: &mut Vec<BackendError>,
 ) {
     match instruction {
@@ -174,6 +236,23 @@ fn verify_instruction(
         }
         Instruction::CallRef(index) if !valid_function_type(module, *index) => {
             errors.push(wasm_error(span, "Wasm call_ref type index is out of range"));
+        }
+        Instruction::Br(depth) | Instruction::BrIf(depth) if *depth >= label_depth => {
+            errors.push(wasm_error(
+                span,
+                "Wasm branch depth does not target an enclosing label",
+            ));
+        }
+        Instruction::BrTable(targets, default)
+            if targets
+                .iter()
+                .chain(std::iter::once(default))
+                .any(|depth| *depth >= label_depth) =>
+        {
+            errors.push(wasm_error(
+                span,
+                "Wasm br_table depth does not target an enclosing label",
+            ));
         }
         Instruction::CallIndirect { type_index, .. }
             if !valid_function_type(module, *type_index) =>

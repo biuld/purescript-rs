@@ -101,6 +101,7 @@ fn terminator_operands(terminator: &Terminator) -> Vec<ValueId> {
         Terminator::Return { value, .. } => vec![*value],
         Terminator::Jump { arguments, .. } => arguments.clone(),
         Terminator::Branch { condition, .. } => vec![*condition],
+        Terminator::Switch { value, .. } => vec![*value],
     }
 }
 
@@ -279,6 +280,7 @@ fn remap_terminator(terminator: &mut Terminator, mapping: &HashMap<ValueId, Valu
         Terminator::Return { value, .. } => replace(value),
         Terminator::Jump { arguments, .. } => arguments.iter_mut().for_each(replace),
         Terminator::Branch { condition, .. } => replace(condition),
+        Terminator::Switch { value, .. } => replace(value),
     }
 }
 
