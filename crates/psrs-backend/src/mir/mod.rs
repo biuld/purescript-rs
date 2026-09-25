@@ -6,6 +6,7 @@ use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+pub(crate) mod cfg;
 mod instruction;
 mod layout;
 mod lower;
@@ -98,11 +99,13 @@ pub enum Terminator {
         arguments: Vec<ValueId>,
         span: TextRange,
     },
+    /// A two-way branch. It carries no structuring hint: the structurer
+    /// derives the join from the CFG edges (the nearest common descendant of
+    /// `then_block` and `else_block`).
     Branch {
         condition: ValueId,
         then_block: BlockId,
         else_block: BlockId,
-        merge_block: BlockId,
         span: TextRange,
     },
     /// Selects a basic block using a closed integer tag. Case values are

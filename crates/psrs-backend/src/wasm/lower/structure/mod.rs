@@ -17,6 +17,8 @@ mod legacy;
 mod ops;
 mod region;
 #[cfg(test)]
+mod switch_tests;
+#[cfg(test)]
 mod tests;
 mod unary;
 use crate::wasm::FunctionIndex;

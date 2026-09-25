@@ -7,12 +7,6 @@ use psrs_span::TextRange;
 fn verified_array_map_module(mut function: Function) -> crate::mir::Module {
     use crate::types::{CompositeType, DefinedType, FieldType, RecGroup, StorageType};
     function.parameters.push(ValueId(8));
-    if let Some(Terminator::Branch { merge_block, .. }) = &mut function.blocks[1].terminator {
-        *merge_block = BlockId(1);
-    }
-    if let Some(Terminator::Branch { merge_block, .. }) = &mut function.blocks[2].terminator {
-        *merge_block = BlockId(1);
-    }
     crate::mir::Module {
         name: "ArrayMapVerifier".into(),
         types: vec![
@@ -152,7 +146,6 @@ fn array_map_function() -> Function {
                     condition,
                     then_block: BlockId(2),
                     else_block: BlockId(3),
-                    merge_block: BlockId(3),
                     span: span(),
                 }),
             },
@@ -216,7 +209,6 @@ fn rejects_an_exit_after_storing_only_the_current_element() {
         condition: ValueId(4),
         then_block: BlockId(3),
         else_block: BlockId(4),
-        merge_block: BlockId(3),
         span: span(),
     });
     function.blocks.push(BasicBlock {
@@ -308,7 +300,6 @@ fn rejects_a_loop_iteration_that_can_escape_before_storing() {
         condition: ValueId(4),
         then_block: init,
         else_block: BlockId(3),
-        merge_block: BlockId(1),
         span: span(),
     });
     function.blocks.push(BasicBlock {

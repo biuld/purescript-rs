@@ -322,7 +322,6 @@ fn verify_terminator(
             condition,
             then_block,
             else_block,
-            merge_block,
             span,
         } => {
             if require_value(definitions, *condition, *span)? != ValueType::Boolean {
@@ -344,15 +343,6 @@ fn verify_terminator(
                         "MIR branch targets cannot have block parameters",
                     ));
                 }
-            }
-            if blocks
-                .get(merge_block)
-                .is_none_or(|block| block.parameters.len() != 1)
-            {
-                return Err(mir_error(
-                    *span,
-                    "MIR branch merge must have one result parameter",
-                ));
             }
         }
         Terminator::Switch {

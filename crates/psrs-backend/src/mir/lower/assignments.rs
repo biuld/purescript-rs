@@ -402,7 +402,6 @@ impl FunctionLowerer<'_> {
                             condition: *condition,
                             then_block,
                             else_block,
-                            merge_block: merge,
                             span: assignment.span,
                         },
                         assignment.span,

@@ -546,10 +546,13 @@ multiple exits; generated modules pass the Wasm IR verifier and
 The implementation remains narrower than the complete design in these
 specific areas:
 
-- `Branch` still stores `merge_block`, and the MIR verifier still validates its
-  one-value merge contract. Acyclic functions retain the merge-based region
-  structurer; cyclic functions derive branch depths from their CFG and do not
-  use the hint when emitting loop control flow.
+- The `merge_block` hint has been removed. `Branch` carries only its condition
+  and two targets, and joins are derived from the CFG edges. The derivation
+  lives in `mir/cfg.rs` (`common_join`, `join_blocks`) and is shared by the
+  MIR verifier's replacement, the constant-parameter optimizer, and the
+  structurer's acyclic `if`/switch lowering. Acyclicity is no longer the
+  discriminator for join derivation: the structurer computes the join whenever
+  it emits a result-typed diamond.
 - Reducible natural loops, including nested loops and multiple loop exits, are
   structured directly. A reachable cyclic SCC with multiple entry blocks uses
   a function-level dispatcher with an `i32` state local, nested dispatch blocks,
@@ -560,8 +563,11 @@ specific areas:
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR
-  tail-call terminator or `return_call*` emission exists yet. The stable profile
-  keeps the flag disabled; setting it does not enable tail-call lowering.
+  tail-call terminator or `return_call*` emission exists yet. Tail-call marking
+  and self-recursion loopification are still unimplemented, so deep
+  self-recursion is not yet loopified and reference/direct tail calls are not
+  rewritten; see the acceptance record for the remaining work. The stable
+  profile keeps the flag disabled.
 
 ## References
 
