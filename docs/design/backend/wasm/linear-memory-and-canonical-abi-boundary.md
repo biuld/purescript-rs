@@ -73,10 +73,17 @@ known constant added by the leaf `MemArg`, and `Load8U` reads one byte. The
 
 - Every boundary access names `MemoryId(0)`; an address and every loaded or
   stored value are `i32`.
+- A `Load` and `Store` access 4 bytes; a `Load8U` accesses 1 byte. Static
+  access intervals use checked, unsigned wasm32 address arithmetic and never
+  wrap into low memory.
 - The scratch region `[0, SCRATCH_END)` is never used by data segments or by
   language data; it holds only canonical return areas.
 - Data segments are active at constant `i32` offsets, aligned to 4 bytes, and do
   not overlap each other or the scratch region.
+- An access whose address is statically known must fit wholly inside one
+  declared ABI region. Accesses with dynamic addresses rely on WebAssembly's
+  runtime linear-memory bounds check and trap when the accessed bytes are out
+  of bounds.
 - A nonzero `cabi_realloc` result is aligned to the requested alignment, its
   payload is preceded by a 4-byte length prefix, and reallocation preserves
   `min(old_len, new_len)` bytes. A zero result is never read as a prefix.
@@ -136,6 +143,58 @@ the Canonical ABI requires a copy. Language array updates and clones use GC
 `array.set`/`array.copy`, not linear instructions. `WrapI64`/`WidenI64` narrow or
 widen a 64-bit WASI scalar, and `TrapIf` rejects a nonzero canonical status
 instead of silently succeeding.
+
+### Static access extents
+
+The access width is 4 bytes for `Load` and `Store`, and 1 byte for `Load8U`.
+For an address value with unsigned wasm32 value `a`, the instruction's `u32`
+immediate offset `o`, and access width `w`, its half-open effective interval is
+`[a + o, a + o + w)`. The verifier calculates this in a wider checked integer;
+it must not apply `i32` wrapping to the effective address. A statically known
+interval must end at or before `2^32`, the end of the wasm32 address space.
+The separate WebAssembly runtime check verifies that the interval also fits in
+the memory's current byte length, which may be less than `2^32`.
+
+For an address the verifier cannot resolve statically, `o + w` must still be
+at most `2^32`. A larger value makes the access trap for every possible
+wasm32 base and is rejected as an invalid MIR access. When that fixed part fits,
+an unknown base is permitted: the WebAssembly load or store performs the
+current-memory bounds check and traps if `a + o + w` exceeds memory. This is a
+deliberate boundary between compile-time checks and runtime checks; the
+compiler does not reject a dynamic canonical pointer just because it cannot
+prove its runtime value.
+
+The verifier resolves static addresses after data-segment planning, while the
+MIR instructions and their source spans are still available. It recognizes the
+scratch interval `[0, SCRATCH_END)` and each string literal's complete
+length-prefixed data interval `[segment_offset, segment_offset + 4 + utf8_len)`.
+The allocator's heap-pointer segment is allocator-owned and is not a MIR
+addressable region. A resolved constant address must belong to one of the
+MIR-addressable regions, and its entire effective interval must remain within
+that same region; an access into a gap, across a region boundary, or into
+allocator metadata is rejected. This checks the bytes the MIR operation can
+touch without adding memory provenance or object-layout fields to MIR.
+
+Static address analysis follows `Constant`, `StringConstant`, and `Copy` values,
+the `i32.add` and `i32.sub` operations when their operands are statically
+known, and block parameters whose incoming values all resolve to the same
+address. Other operations, function parameters, imported results, and loaded
+values are unknown. A known value whose arithmetic wraps as an `i32` remains a
+known numeric address, so the verifier applies the region and effective-range
+checks to the resulting address. Conflicting block inputs become unknown. If a
+known symbolic literal base is combined with an unknown operand, the result is
+unknown; this checker does not infer dynamic object bounds or add runtime
+instrumentation.
+
+This scope is conservative for the current ABI. Scratch and literal offsets are
+owned by the compiler and can be checked exactly once the data layout is
+known. Returned pointers, function parameters, and other host-provided values
+are dynamic `i32`s; proving their allocation provenance would require new MIR
+metadata or ABI checks, while rejecting them would reject valid canonical
+calls. They therefore use the WebAssembly runtime's linear-memory bounds trap.
+That runtime check proves only that an access is inside the current memory; it
+does not prove that a dynamic pointer stays within a particular allocation or
+string object.
 
 ### Rejected alternative
 
@@ -198,6 +257,57 @@ read_returned_string(retptr):
 A returned list whose element type is not a byte is rejected before MIR, because
 the `String` boundary cannot represent it.
 
+### Verifying static access extents
+
+```text
+verify_static_access_extents(module, layout):
+    regions = [scratch interval] + [each length-prefixed string segment]
+    require regions are disjoint and each lies within the wasm32 address space
+
+    for each function:
+        facts = solve_address_facts(function, layout)
+        for each Load, Load8U, or Store instruction:
+            width = 1 if instruction is Load8U else 4
+            require u64(offset) + width <= 2^32
+            if facts[address] is Known(base):
+                start = checked_add(u64(base), u64(offset))
+                end = checked_add(start, width)
+                require end <= 2^32
+                region = the unique MIR-addressable region containing base
+                require region exists and end <= region.end
+            else:
+                # Wasm checks the actual address against current memory.
+                accept
+
+solve_address_facts(function, layout):
+    initialize function parameters and unsupported results as Unknown
+    initialize block parameters as Pending
+    repeat until facts stop changing:
+        Constant(v)       => Known(u32_bit_pattern(v))
+        StringConstant(s) => Known(layout.string_offset(s))
+        Copy(v)            => facts[v]
+        I32Add(a, b)       => Known(wrapping_add(a, b)) if both are Known
+        I32Sub(a, b)       => Known(wrapping_sub(a, b)) if both are Known
+        I32Add/I32Sub      => Unknown if any operand is Unknown
+                              Pending if no operand is Unknown and one is Pending
+                              Unknown otherwise
+        block parameter    => Known(v) if every incoming argument is Known(v)
+                              Unknown if there are no incoming arguments, facts
+                              conflict, or any fact is Unknown
+                              Pending otherwise
+        all other results  => Unknown
+    treat any remaining Pending fact as Unknown
+```
+
+`Known` values are interpreted as unsigned wasm32 addresses when used as a
+memory base. `Pending` only means that a loop or unresolved predecessor has not
+provided a fixed-point fact yet; treating it as `Unknown` keeps the analysis
+conservative. The fixed `offset + width` check also applies to `Unknown` bases;
+it rejects only an instruction that is out of range for every possible base.
+Static diagnostics use the memory instruction's source span. Segment-region
+checks intentionally end at the extent of the string segment, including its
+four-byte prefix and payload, and exclude alignment padding after that segment.
+
 ### Edge cases
 
 - A string literal and a returned buffer use the same length-prefixed layout, so
@@ -224,6 +334,7 @@ crates/psrs-backend/src/
     wit/parameters.rs
   wasm/
     lower/mod.rs
+    lower/extent.rs
     lower/realloc.rs
     lower/runtime.rs
     lower/structure/instructions.rs
@@ -252,7 +363,16 @@ Responsibilities and required entry points:
   it only when the module imports a function that returns a string or byte list.
   Required entry point: `fn synthesize_realloc(layout) -> Function`.
 - `wasm/lower/mod.rs` must assemble the memory (minimum pages), the data
-  segments, and the allocator export into the thin Wasm module.
+  segments, and the allocator export into the thin Wasm module. After planning
+  those segments and before structuring instructions, it must run
+  `lower/extent.rs` against the MIR module and resulting ABI memory layout.
+- `wasm/lower/extent.rs` must resolve statically known MIR addresses, compute
+  checked access intervals, and reject known accesses outside the scratch and
+  string-literal regions or beyond the wasm32 address space. Unknown dynamic
+  addresses pass this static check when their fixed `offset + width` fits the
+  wasm32 space; the emitted WebAssembly instruction supplies the runtime
+  current-memory bounds trap. Required entry point:
+  `fn verify_static_access_extents(module, layout) -> Result<(), Vec<BackendError>>`.
 - `wasm/lower/structure/instructions.rs` must lower the MIR boundary
   instructions to leaf Wasm load/store/convert instructions carrying a `MemArg`.
 - `mir/wit/mod.rs` and `mir/wit/parameters.rs` must adapt strings and byte lists
@@ -271,12 +391,12 @@ Any module needing a language-heap operation must depend on the GC lowering path
 The MIR memory verifier checks that each `Load`/`Load8U`/`Store` names
 `MemoryId(0)`, that the address is `i32`, and that the loaded, stored, or
 converted value has the required `i32`/`i64` type; `WrapI64` and `WidenI64` are
-checked for the matching `i64`/`i32` operand and result. The thin-IR verifier and
-the WebAssembly validator then check the emitted leaf instructions and the
-allocator body ([Wasm encoding](encoding-and-structuring.md)). The verifier does
-not currently validate static access extents; offset validation remains deferred
-([MIR](../fp/mir.md) open questions). Execution tests run returned buffers
-through the ordinary `writeStdout` import and exercise repeated allocator calls.
+checked for the matching `i64`/`i32` operand and result. The static extent pass
+runs after the data layout is known and checks each resolvable address against
+the wasm32 address space and its declared ABI region. Dynamic addresses remain
+valid and rely on the WebAssembly instruction's runtime bounds check. The
+thin-IR verifier and WebAssembly validator then check the emitted leaf
+instructions and allocator body ([Wasm encoding](encoding-and-structuring.md)).
 
 ## Worked example
 
@@ -299,6 +419,16 @@ The host writes the 5 bytes at `[48, 53)`. The return area at address `0` holds
 subsequent `writeStdout` reads the length from `[44]` and the bytes from `[48]`,
 exactly as it would for a string literal.
 
+For a static extent example, let a string literal occupy `[16, 25)` and let
+`v_string` resolve to its segment address `16`. `Load { address: v_string,
+offset: 0 }` has interval `[16, 20)` and is contained in the literal's
+length-prefix region. `Load8U { address: v_string, offset: 8 }` reads `[24, 25)`
+and is also contained. A 4-byte `Load` at offset `8` reads `[24, 28)` and is
+rejected because it crosses the segment end. Independently, a `Load8U` with a
+dynamic base and offset `0xffff_ffff` passes the fixed-part check because its
+maximum interval ends at `2^32`; it traps at runtime unless the memory has all
+`2^32` bytes and the base is zero.
+
 ## Boundaries and interfaces
 
 - **Input:** MIR byte operations and canonical ABI adaptation produced by P9;
@@ -318,7 +448,11 @@ exactly as it would for a string literal.
   variants beside the current scalar/byte shapes.
 - **Memory64.** Revisited only when the component toolchain and WASI host support
   it ([capability profile](capability-profile.md)).
-- **Extent verification.** Static access-extent checking at the boundary.
+- **Dynamic pointer provenance.** The static extent pass does not prove that a
+  dynamic host or allocator pointer stays within its allocation or string
+  object. Add stronger provenance or ABI validation only if the canonical ABI
+  contract requires an object-bound guarantee in addition to WebAssembly's
+  current-memory bounds trap.
 
 ## Implementation notes
 
@@ -328,12 +462,12 @@ wasm32 address addition before committing allocator state, traps when
 checks its length prefix, and copies the preserved bytes with MVP byte loads and
 stores. Execution coverage checks alignment, growth and shrink reallocation,
 zero-sized frees, invalid alignment, address overflow, old-range bounds, and
-growth failure. Because the allocator stores its next
+growth failure. Static MIR access-extent verification is a design requirement
+for Wasm lowering and is not yet implemented in the current verifier. Because
+the allocator stores its next
 free byte as an `i32`, it traps if an allocation's exclusive end would be
 `2^32`; the final byte of the wasm32 address space is consequently unavailable
-to allocator payloads. There is still no reclamation, and the MIR verifier does
-not statically check memory access extents; these remain coverage gaps rather
-than changes to the boundary design.
+to allocator payloads. There is still no reclamation.
 
 ## References
 
