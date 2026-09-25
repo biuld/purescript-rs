@@ -22,6 +22,33 @@ main = toInt (next Red)
 ";
 
 #[test]
+fn reports_a_missing_nested_constructor_as_a_coverage_witness() {
+    let source = "\
+module Main where
+data Inner = First | Second
+data Outer = Wrap Inner
+main = case Wrap First of
+  Wrap First -> 1
+";
+    let errors = compile_source("Main.purs", source).expect_err("non-exhaustive nested case");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P8 closure conversion"
+            && error.message.contains("missing pattern Wrap Second")
+    }));
+}
+
+#[test]
+fn compiles_a_wildcard_case_over_a_recursive_adt() {
+    let source = "\
+module Main where
+data List = Cons List | Nil
+main = case Cons Nil of
+  _ -> 42
+";
+    compile_source("Main.purs", source).expect("wildcard coverage over a recursive ADT");
+}
+
+#[test]
 fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(ENUM_SOURCE) else {
         eprintln!("skipping: wasmtime is not installed");
