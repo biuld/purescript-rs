@@ -25,19 +25,24 @@ impl FunctionLowerer<'_> {
             )]);
         };
         let labels = record_labels(self.representations, representation, expression.span)?;
-        let mut arguments = Vec::with_capacity(labels.len());
-        for (index, label) in labels.iter().enumerate() {
+        let mut lowered_fields = vec![None; labels.len()];
+        for (label, expression_value) in fields {
+            let Some(index) = labels.iter().position(|canonical| canonical == label) else {
+                return Err(record_error(
+                    expression.span,
+                    "typed record field has no canonical product index",
+                ));
+            };
+            if lowered_fields[index].is_some() {
+                return Err(record_error(
+                    expression.span,
+                    "typed record expression contains a duplicate field",
+                ));
+            }
             let Some(field_layout) = layout.field(label) else {
                 return Err(record_error(
                     expression.span,
                     "canonical record field is missing from its checked class layout",
-                ));
-            };
-            let Some((_, expression_value)) = fields.iter().find(|(field, _)| field == label)
-            else {
-                return Err(record_error(
-                    expression.span,
-                    "record expression is missing a typed field",
                 ));
             };
             let value = self.lower_value(expression_value, assignments)?;
@@ -61,15 +66,27 @@ impl FunctionLowerer<'_> {
                 template_shape,
                 expression.span,
             )?;
-            arguments.push(self.emit_conversion(
+            let converted = self.emit_conversion(
                 value,
                 source_shape,
                 stored,
                 conversion,
                 expression.span,
                 assignments,
-            ));
+            );
+            lowered_fields[index] = Some(converted);
         }
+        let arguments = lowered_fields
+            .into_iter()
+            .map(|value| {
+                value.ok_or_else(|| {
+                    record_error(
+                        expression.span,
+                        "record expression is missing a typed field",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let destination = self.fresh(ty);
         assignments.push(Assignment {
             destination,
