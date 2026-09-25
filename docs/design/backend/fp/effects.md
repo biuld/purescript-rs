@@ -387,6 +387,16 @@ closures across a global alias. The optimizer's general effectful-call
 preservation rules remain specified in the Core and MIR optimization
 documents; those passes are tracked separately from this topic.
 
+Partial application converts the declaration's erased result to the partially
+applied expression's instantiated result, so a polymorphic effect operation
+applied to fewer arguments produces the closure shape its call site expects.
+One cross-topic gap remains: `Effect Boolean` reaches a continuation that
+inspects the value, and the MIR closure-type table currently assigns distinct
+Wasm function types to structurally identical `Boolean` and `Integer` closure
+signatures, which traps at runtime. That identity issue belongs to the MIR /
+data-representation topic; the effect representation and sequencing contracts
+above hold for Int, Number, String, and aggregate results.
+
 ## References
 
 - Moggi, E., *Notions of Computation and Monads* (1991).

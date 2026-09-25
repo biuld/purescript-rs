@@ -4,6 +4,7 @@ use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 
 mod adaptation;
+mod effects;
 mod structure;
 
 fn symbol(index: u32) -> SymbolId {
