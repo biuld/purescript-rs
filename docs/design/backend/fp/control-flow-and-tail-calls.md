@@ -363,7 +363,8 @@ wasm/
   lower/
     structure.rs      # structure_module entry, label stack, emission
     structure/
-      region.rs       # stackifier over the dominator tree (reducible input)
+      cfg.rs          # dominators, natural loops, and reducible region plan
+      region.rs       # stackifier emission for reducible input
       dispatcher.rs   # Relooper-style fallback for irreducible regions
       instructions.rs # leaf emission and jump-argument copies
       ops.rs          # br/br_table/return_call* opcode emission
@@ -529,25 +530,25 @@ which requires the tail-call capability.
 CC now preserves a constructor-only, unique-tag case as `TagSwitch`, which P9
 lowers to a `Switch` with parameter-free successor blocks and a one-value join.
 The MIR verifier checks the `i32` selector, unique tags, and successor shape.
-P10 discovers the nearest common one-value join for these arms and emits a
-`br_table` dispatcher. Since `br_table` indexes a dense unsigned table, P10
-first maps the actual signed tag values to dense arm indices with a structured
-`if` expression; reordered and sparse source patterns therefore retain their
-tag semantics. The structured Wasm IR and encoder support `Block` and `Loop`,
-and the verifier checks every `br`, `br_if`, and `br_table` depth against the
-active label depth. Wasmtime execution coverage includes a reordered enum case
-whose final constructor is dispatched through the default label.
+P10 analyzes the reachable CFG, computes dominators and natural loops, checks
+that loop regions are nested, and topologically orders each region after
+removing its back edges. It emits `Loop` at each natural-loop header and
+continuation `Block`s for forward targets; `Jump`, `Branch`, and `Switch`
+branches use depths resolved against the active label stack. Sparse and
+reordered signed switch tags are mapped to dense unsigned indices before
+`br_table`. Execution coverage includes a loop with loop-carried values and
+nested loops with multiple exits; generated modules pass both the Wasm IR
+verifier and `wasmparser` validation.
 
 The implementation remains narrower than the complete design in these
 specific areas:
 
-- `Branch` still stores `merge_block`; the general dominator-based join
-  discovery and reducible stackifier are not implemented. Existing `If`
-  lowering continues to rely on the merge hint.
-- The structurer accepts `Switch` only when every arm reaches a common
-  one-value join. Other CFG shapes, loops, and irreducible regions still report
-  a structuring error; `Loop` is currently an encodable Wasm node, not a node
-  emitted by MIR structuring.
+- `Branch` still stores `merge_block`, and the MIR verifier still validates its
+  one-value merge contract. The structurer derives branch depths from the CFG
+  and does not use that hint when emitting control flow.
+- Reducible natural loops, including nested loops and multiple loop exits, are
+  structured directly. Irreducible control flow is diagnosed; a dispatcher
+  fallback is not implemented.
 - Duplicate constructor alternatives retain source-order first-match behavior
   by using the existing chain of `If` decisions instead of `TagSwitch`.
 - `TargetCapabilities::tail_call` controls Wasm validation features, but no MIR

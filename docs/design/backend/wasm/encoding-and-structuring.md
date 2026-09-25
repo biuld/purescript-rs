@@ -462,10 +462,8 @@ sections in that order. Adding `log "hello"` would add a string data segment
 
 ## Open questions and future work
 
-- **General loop and multi-way CFG structuring.** The thin IR supports
-  `Op::Block` and `Op::Loop`; the current lowering uses `Block` and `br_table`
-  for the bounded `Switch` form described in the implementation notes.
-  Lowering general MIR loops and arbitrary multi-way CFGs remains future work
+- **Irreducible CFG structuring.** The structurer handles reducible CFGs and
+  natural loops. A dispatcher for irreducible regions remains future work
   ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)).
 - **Multi-value.** `FuncType` admits multiple results, but MIR functions and
   calls have one; the encoder is ready when MIR is
@@ -496,22 +494,20 @@ sections in that order. Adding `log "hello"` would add a string data segment
 
 ## Implementation notes
 
-The structurer still walks MIR regions linearly, uses `merge_block` to recover
-`Branch` diamonds, and rejects a revisited MIR block as an unsupported loop.
-For nullary data-constructor cases with unique tags, CC lowers them to a
-`TagSwitch` assignment, which MIR lowers to `Switch`; duplicate constructor
-patterns retain their source-order comparison chain. The Wasm structurer
-supports this bounded switch form when all successor arms reach a common join
-with one result parameter. It maps arbitrary `i32` tags to dense selector
-indices, emits `br_table`, and uses nested `Block` regions and depth-relative
-branches to store each selected arm's value at the join. MIR switch successor
-blocks remain parameter-free.
+The structurer computes dominators and natural loops over the entry-reachable
+MIR graph, checks loop nesting, then orders each loop and the function region
+after removing back edges. It emits a `Loop` at each natural-loop header and
+`Block` continuations for forward targets, including multiple loop exits.
+`Jump`, `Branch`, and `Switch` all branch to active labels using computed
+depths. A switch maps sparse signed tags to dense unsigned indices before its
+`br_table`; duplicate constructor patterns still use the source-order
+comparison chain. The MIR `Branch` retains its `merge_block` field and verifier
+contract, but the structurer derives control flow from the CFG edges.
 
 The thin IR and encoder support structured `If`, `Block`, and `Loop` regions.
 Branch-depth verification includes the implicit function label and counts
 these regions plus raw `block`, `loop`, `if`, and `end` instructions in `Leaf`
 sequences; the synthesized `cabi_realloc` uses such a raw block-and-loop copy
-routine. This support does not make the MIR structurer a general stackifier:
-it does not lower general MIR loops or arbitrary reducible and irreducible
-CFGs. Tail calls are not lowered, and the active capability profile keeps
-`tail_call` disabled.
+routine. The MIR structurer accepts reducible control flow; irreducible regions
+are diagnosed because the dispatcher fallback is not implemented. Tail calls
+are not lowered, and the active capability profile keeps `tail_call` disabled.

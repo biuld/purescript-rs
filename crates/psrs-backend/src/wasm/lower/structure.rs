@@ -6,18 +6,21 @@ use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
 use ops::{memory, memory_with_align, primitive, ref_cast, ref_test};
 mod arrays;
+mod cfg;
 mod closure;
 mod helpers;
 mod instructions;
 mod ops;
 mod region;
+#[cfg(test)]
+mod tests;
 mod unary;
 use crate::wasm::FunctionIndex;
 use closure::ClosureOps;
 use helpers::ValueOps;
 use psrs_hir::SymbolId;
 use region::RegionOps;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use wasm_encoder::Instruction;
 
 pub(super) struct Structurer<'a> {
@@ -28,13 +31,8 @@ pub(super) struct Structurer<'a> {
     pub(super) string_offsets: &'a HashMap<String, u32>,
 }
 impl Structurer<'_> {
-    pub(super) fn emit_region(
-        &self,
-        current: BlockId,
-        stop: Option<BlockId>,
-        visited: &mut HashSet<BlockId>,
-        body: &mut Body,
-    ) -> Result<Option<ValueId>, Vec<BackendError>> {
-        RegionOps::emit_region(self, current, stop, visited, body)
+    pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<(), Vec<BackendError>> {
+        let plan = cfg::ControlFlowPlan::build(self.function, &self.blocks)?;
+        RegionOps::emit_control_flow(self, &plan, body)
     }
 }
