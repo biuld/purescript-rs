@@ -10,8 +10,12 @@ mod captures;
 mod functions;
 mod scalar;
 
+#[cfg(test)]
+mod tests;
+
 use captures::module_has_integer_capture;
 pub(crate) use functions::function_signature;
+use scalar::field_storage_shape;
 pub(super) use scalar::{declaration_shape, scalar_type};
 
 pub(super) fn enum_type_ids(
@@ -194,7 +198,7 @@ pub(super) fn type_layout(
         let fields = fields
             .iter()
             .map(|(_, field)| {
-                scalar_type(
+                field_storage_shape(
                     module,
                     *field,
                     module.span,
@@ -233,7 +237,7 @@ pub(super) fn type_layout(
                 .field_types
                 .iter()
                 .map(|field| {
-                    scalar_type(
+                    field_storage_shape(
                         module,
                         *field,
                         module.span,
@@ -333,6 +337,9 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
                 parameter: function,
                 result: argument,
             }) => visit(module, *function, visiting) || visit(module, *argument, visiting),
+            Some(Type::Record(fields)) => fields
+                .iter()
+                .any(|(_, field)| visit(module, *field, visiting)),
             _ => false,
         };
         visiting.remove(&id);
@@ -340,4 +347,37 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
     }
 
     visit(module, id, &mut HashSet::new())
+}
+
+pub(super) fn erased_field_recovery_family(
+    module: &CoreModule,
+    id: TypeId,
+    stored: ValueShape,
+    expected: ValueShape,
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+) -> Option<&'static str> {
+    if !matches!(
+        stored,
+        ValueShape::Reference(crate::cc::Reference {
+            heap: crate::cc::RefShape::Erased,
+            ..
+        })
+    ) || !depends_on_type_variable(module, id)
+    {
+        return None;
+    }
+    let ValueShape::Reference(reference) = expected else {
+        return None;
+    };
+    let crate::cc::RefShape::Repr(representation) = reference.heap else {
+        return None;
+    };
+    if array_types.get(&id) == Some(&representation) {
+        Some("array")
+    } else if record_types.get(&id) == Some(&representation) {
+        Some("record")
+    } else {
+        None
+    }
 }

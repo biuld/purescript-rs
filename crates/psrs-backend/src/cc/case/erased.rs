@@ -1,51 +1,51 @@
-use super::super::layout::scalar_type;
+use super::super::layout::erased_field_recovery_family;
 use super::super::lower::FunctionLowerer;
-use super::super::{Assignment, AssignmentKind, RefShape, Reference, ReprId, ValueId, ValueShape};
+use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::case_error;
 use crate::BackendError;
+use psrs_core::TypeId;
 use psrs_span::TextRange;
 
-pub(super) struct VariantField {
-    pub(super) representation: ReprId,
-    pub(super) case: u32,
-    pub(super) field: u32,
-}
-
 impl FunctionLowerer<'_> {
-    pub(super) fn lower_erased_field(
+    pub(super) fn adapt_projected_field(
         &mut self,
-        expected_type: psrs_core::TypeId,
-        constructor: ValueId,
-        selector: VariantField,
+        value: ValueId,
+        stored: ValueShape,
+        expected: ValueShape,
+        target_type: TypeId,
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let boxed_value = self.fresh(ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        }));
-        assignments.push(Assignment {
-            destination: boxed_value,
-            kind: AssignmentKind::VariantGet {
-                destination: boxed_value,
-                representation: selector.representation,
-                case: selector.case,
-                field: selector.field,
-                value: constructor,
-            },
-            span,
-        });
-        let expected = scalar_type(
+        if stored == expected {
+            return Ok(value);
+        }
+        if !matches!(
+            stored,
+            ValueShape::Reference(Reference {
+                heap: RefShape::Erased,
+                ..
+            })
+        ) {
+            return Err(case_error(
+                span,
+                "pattern field runtime representation does not match its target type",
+            ));
+        }
+        if let Some(family) = erased_field_recovery_family(
             self.module,
-            expected_type,
-            span,
-            self.enum_types,
-            self.aggregate_types,
-            self.newtype_ids,
+            target_type,
+            stored,
+            expected,
             self.array_types,
             self.record_types,
-            self.function_types,
-        )?;
+        ) {
+            return Err(case_error(
+                span,
+                format!(
+                    "unsupported generic {family} field recovery: its nominal runtime layout depends on a type variable"
+                ),
+            ));
+        }
         match expected {
             ValueShape::Integer | ValueShape::Boolean => {
                 let Some(boxed_type) = self.boxed_integer_type else {
@@ -59,7 +59,7 @@ impl FunctionLowerer<'_> {
                     destination: concrete_box,
                     kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
-                        value: boxed_value,
+                        value,
                         reference: Reference {
                             nullable: false,
                             heap: RefShape::Repr(boxed_type),
@@ -95,7 +95,7 @@ impl FunctionLowerer<'_> {
                     destination: concrete_box,
                     kind: AssignmentKind::RepresentationCast {
                         destination: concrete_box,
-                        value: boxed_value,
+                        value,
                         reference: Reference {
                             nullable: false,
                             heap: RefShape::Repr(boxed_type),
@@ -116,17 +116,14 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(value)
             }
-            ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }) => Ok(boxed_value),
             ValueShape::Reference(reference) => {
+                let projected = value;
                 let value = self.fresh(ValueShape::Reference(reference));
                 assignments.push(Assignment {
                     destination: value,
                     kind: AssignmentKind::RepresentationCast {
                         destination: value,
-                        value: boxed_value,
+                        value: projected,
                         reference,
                     },
                     span,

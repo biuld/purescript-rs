@@ -70,9 +70,12 @@ wildcard, and nested constructor or record field bindings, function values inclu
 higher-order calls, and the
 implemented effect-based WASI console and clock libraries plus random imports.
 The selected entry must be a zero-argument integer `main` function. Rank-1 generic direct calls
-and the supported higher-order generic adapters are lowered; generic
-aggregates, open rows, and unsupported WIT shapes receive source-oriented
-diagnostics.
+and the supported higher-order generic adapters are lowered. Generic arrays
+and records remain unsupported across type instantiations. In particular,
+recovering a type-dependent array or record field through a nominal runtime
+layout receives a source-spanned backend diagnostic instead of emitting a cast
+that can fail at runtime. Open rows and unsupported WIT shapes also receive
+source-oriented diagnostics.
 
 `arrayUpdate` is a pure operation: it returns an updated array without changing
 the input array or any aliases of it. Repeated updates from the same input are

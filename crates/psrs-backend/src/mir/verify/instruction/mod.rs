@@ -71,6 +71,7 @@ pub(super) fn verify_instruction(
                 return Err(mir_error(*span, "MIR trap condition must be Boolean"));
             }
         }
+        Instruction::Unreachable { .. } => {}
         Instruction::Call {
             destination,
             function: callee,

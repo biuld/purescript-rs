@@ -281,6 +281,38 @@ pub(crate) fn scalar_type(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn field_storage_shape(
+    module: &CoreModule,
+    id: TypeId,
+    span: TextRange,
+    enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    function_types: &HashMap<TypeId, SignatureId>,
+) -> Result<ValueShape, Vec<BackendError>> {
+    if depends_on_type_variable(module, id) {
+        Ok(ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        }))
+    } else {
+        scalar_type(
+            module,
+            id,
+            span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            array_types,
+            record_types,
+            function_types,
+        )
+    }
+}
+
 fn aggregate_value_type() -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,

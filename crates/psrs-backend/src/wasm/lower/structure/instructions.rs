@@ -90,6 +90,9 @@ impl Structurer<'_> {
                     span,
                 } => self.emit_unary_primitive(*destination, *op, *value, *span, body)?,
                 instruction @ MirInstruction::TrapIf { .. } => self.trap_if(body, instruction)?,
+                MirInstruction::Unreachable { .. } => {
+                    body.push(Op::Leaf(Instruction::Unreachable));
+                }
                 MirInstruction::Call {
                     destination,
                     function,

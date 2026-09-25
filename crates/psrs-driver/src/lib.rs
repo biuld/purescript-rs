@@ -262,3 +262,7 @@ pub(crate) fn coded_diagnostic(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/parameterized_shapes.rs"]
+mod parameterized_shapes;

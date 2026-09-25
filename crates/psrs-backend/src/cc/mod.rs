@@ -178,6 +178,8 @@ pub enum AssignmentKind {
         default_assignments: Vec<Assignment>,
         default_value: ValueId,
     },
+    /// An explicit trap result used by impossible decision-DAG edges.
+    Unreachable,
 }
 
 /// One selected arm of a tag switch, with its branch-local computations.

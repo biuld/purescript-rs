@@ -257,7 +257,8 @@ fn add_assignments(
             | AssignmentKind::StringConstant(_)
             | AssignmentKind::Primitive { .. }
             | AssignmentKind::Unary { .. }
-            | AssignmentKind::ArrayLen { .. } => {}
+            | AssignmentKind::ArrayLen { .. }
+            | AssignmentKind::Unreachable => {}
             AssignmentKind::ClosureGetCapture { .. } => {
                 *needs_integer_box |=
                     value_types.get(&assignment.destination) == Some(&ValueShape::Integer);

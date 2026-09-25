@@ -75,7 +75,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             reads_memory: true,
             ..InstructionEffects::default()
         },
-        I::TrapIf { .. } => InstructionEffects {
+        I::TrapIf { .. } | I::Unreachable { .. } => InstructionEffects {
             may_trap: true,
             ..InstructionEffects::default()
         },

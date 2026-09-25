@@ -216,6 +216,12 @@ pub enum Instruction {
     },
     /// Trap when a canonical ABI status value is nonzero.
     TrapIf { condition: ValueId, span: TextRange },
+    /// Produce a typed result on an unreachable path; Wasm's stack-polymorphic
+    /// `unreachable` instruction supplies the result type to the verifier.
+    Unreachable {
+        destination: ValueId,
+        span: TextRange,
+    },
 }
 
 impl Instruction {
@@ -249,7 +255,8 @@ impl Instruction {
             | Self::Load { destination, .. }
             | Self::Load8U { destination, .. }
             | Self::WrapI64 { destination, .. }
-            | Self::WidenI64 { destination, .. } => Some(*destination),
+            | Self::WidenI64 { destination, .. }
+            | Self::Unreachable { destination, .. } => Some(*destination),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -317,6 +324,7 @@ impl Instruction {
             | Self::TrapIf {
                 condition: value, ..
             } => vec![*value],
+            Self::Unreachable { .. } => Vec::new(),
         }
     }
 
@@ -354,7 +362,8 @@ impl Instruction {
             | Self::Store { span, .. }
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. }
-            | Self::TrapIf { span, .. } => *span,
+            | Self::TrapIf { span, .. }
+            | Self::Unreachable { span, .. } => *span,
         }
     }
 }
