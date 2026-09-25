@@ -122,6 +122,16 @@ fn contains_operation(assignments: &[cc::Assignment], needle: BinaryOp) -> bool 
             contains_operation(then_assignments, needle)
                 || contains_operation(else_assignments, needle)
         }
+        AssignmentKind::TagSwitch {
+            cases,
+            default_assignments,
+            ..
+        } => {
+            cases
+                .iter()
+                .any(|case| contains_operation(&case.assignments, needle))
+                || contains_operation(default_assignments, needle)
+        }
         _ => false,
     })
 }

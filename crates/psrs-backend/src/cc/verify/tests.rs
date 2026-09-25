@@ -62,6 +62,116 @@ fn rejects_a_direct_call_with_the_wrong_result_shape() {
     assert!(verify_function(&function, &signatures, &table()).is_err());
 }
 
+fn binary_operation_function(
+    op: super::super::BinaryOp,
+    operand: ValueShape,
+    result: ValueShape,
+) -> Function {
+    let left = super::super::ValueId(0);
+    let right = super::super::ValueId(1);
+    let destination = super::super::ValueId(2);
+    Function {
+        symbol: symbol(0),
+        name: "binary_operation".into(),
+        parameters: vec![left, right],
+        values: vec![
+            ValueDecl {
+                id: left,
+                ty: operand,
+            },
+            ValueDecl {
+                id: right,
+                ty: operand,
+            },
+            ValueDecl {
+                id: destination,
+                ty: result,
+            },
+        ],
+        assignments: vec![Assignment {
+            destination,
+            kind: AssignmentKind::Primitive { op, left, right },
+            span: TextRange::new(0, 1),
+        }],
+        result: destination,
+        result_type: result,
+        span: TextRange::new(0, 1),
+    }
+}
+
+#[test]
+fn rejects_integer_arithmetic_on_number_operands() {
+    let function = binary_operation_function(
+        super::super::BinaryOp::IntAdd,
+        ValueShape::Number,
+        ValueShape::Integer,
+    );
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
+#[test]
+fn rejects_number_comparisons_on_integer_operands() {
+    let function = binary_operation_function(
+        super::super::BinaryOp::NumberEq,
+        ValueShape::Integer,
+        ValueShape::Boolean,
+    );
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
+#[test]
+fn rejects_boolean_logic_on_integer_operands() {
+    let function = binary_operation_function(
+        super::super::BinaryOp::BooleanAnd,
+        ValueShape::Integer,
+        ValueShape::Boolean,
+    );
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
+#[test]
+fn rejects_a_comparison_with_an_integer_result() {
+    let function = binary_operation_function(
+        super::super::BinaryOp::IntLt,
+        ValueShape::Integer,
+        ValueShape::Integer,
+    );
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
+#[test]
+fn rejects_int_to_number_on_a_number_operand() {
+    let input = super::super::ValueId(0);
+    let destination = super::super::ValueId(1);
+    let function = Function {
+        symbol: symbol(0),
+        name: "wrong_conversion_operand".into(),
+        parameters: vec![input],
+        values: vec![
+            ValueDecl {
+                id: input,
+                ty: ValueShape::Number,
+            },
+            ValueDecl {
+                id: destination,
+                ty: ValueShape::Number,
+            },
+        ],
+        assignments: vec![Assignment {
+            destination,
+            kind: AssignmentKind::Unary {
+                op: super::super::UnaryOp::IntToNumber,
+                value: input,
+            },
+            span: TextRange::new(0, 1),
+        }],
+        result: destination,
+        result_type: ValueShape::Number,
+        span: TextRange::new(0, 1),
+    };
+    assert!(verify_function(&function, &HashMap::new(), &table()).is_err());
+}
+
 #[test]
 fn rejects_a_unary_operation_with_the_wrong_operand_shape() {
     let input = super::super::ValueId(0);
