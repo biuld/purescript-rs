@@ -257,20 +257,13 @@ fn instruction_fact(
 
 fn materialize_block_parameters(function: &mut Function, facts: &HashMap<ValueId, Fact>) -> bool {
     let mut changed = false;
-    // A `Branch` still carries a `merge_block` whose one-value contract the
-    // verifier enforces. Materializing that parameter away would leave the
-    // branch pointing at a parameterless block, so keep those parameters.
-    let merge_blocks = function
-        .blocks
-        .iter()
-        .filter_map(|block| match block.terminator.as_ref() {
-            Some(Terminator::Branch { merge_block, .. }) => Some(*merge_block),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
+    // A branch or switch join has a one-value contract the structurer enforces
+    // when it derives the join from the CFG edges. Materializing that parameter
+    // away would leave the join parameterless, so keep those parameters.
+    let join_blocks = crate::mir::cfg::join_blocks(function);
     let mut removals = HashMap::<crate::mir::BlockId, Vec<(usize, Instruction)>>::new();
     for block in &function.blocks {
-        if merge_blocks.contains(&block.id) {
+        if join_blocks.contains(&block.id) {
             continue;
         }
         let span = block

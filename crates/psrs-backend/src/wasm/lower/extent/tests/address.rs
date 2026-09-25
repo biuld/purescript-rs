@@ -172,7 +172,6 @@ fn conflicting_block_parameter_addresses_become_dynamic() {
                     condition: ValueId(2),
                     then_block: BlockId(1),
                     else_block: BlockId(2),
-                    merge_block: BlockId(3),
                     span: ACCESS_SPAN,
                 }),
             },
