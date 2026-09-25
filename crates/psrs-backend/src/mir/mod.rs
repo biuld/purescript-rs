@@ -226,6 +226,7 @@ fn lower_module_after_binding_validation(
     })?;
     let (scalar_helpers, generated_helpers) =
         lower_scalar_helpers(&module, module.functions.len() as u32);
+    let mut conversion_helpers = lower::ConversionHelpers::new(&module, &generated_helpers);
     let mut functions = Vec::with_capacity(module.functions.len());
     for (id, function) in module.functions.iter().enumerate() {
         let lowered = lower_function(
@@ -234,6 +235,7 @@ fn lower_module_after_binding_validation(
             &wit_imports,
             &scalar_helpers,
             &layout,
+            Some(&mut conversion_helpers),
         )
         .map_err(|errors| {
             errors
@@ -244,6 +246,18 @@ fn lower_module_after_binding_validation(
         functions.push(lowered);
     }
     functions.extend(generated_helpers);
+    let first_helper_id = functions.len() as u32;
+    for (offset, helper) in conversion_helpers.into_functions().iter().enumerate() {
+        let lowered = lower_function(
+            helper,
+            FunctionId(first_helper_id + offset as u32),
+            &wit_imports,
+            &scalar_helpers,
+            &layout,
+            None,
+        )?;
+        functions.push(lowered);
+    }
     // Keep only the imports a lowered call actually references, so a resolved but
     // unused external does not add a Wasm import.
     let used = referenced_imports(&functions);

@@ -266,3 +266,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tests/parameterized_shapes.rs"]
 mod parameterized_shapes;
+
+#[cfg(test)]
+#[path = "tests/generic_aggregate_audit.rs"]
+mod generic_aggregate_audit;

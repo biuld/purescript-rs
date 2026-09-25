@@ -13,7 +13,9 @@ use std::collections::HashMap;
 
 mod aggregate;
 mod assignments;
+mod conversion_helpers;
 mod variant;
+pub(super) use conversion_helpers::ConversionHelpers;
 #[cfg(test)]
 mod wit_tests;
 
@@ -39,6 +41,7 @@ pub(super) fn lower_function(
     wit_imports: &HashMap<SymbolId, BoundWasiImport>,
     scalar_helpers: &ScalarHelpers,
     layout: &PlannedLayout,
+    conversion_helpers: Option<&mut ConversionHelpers>,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
     let mut lowerer = FunctionLowerer {
@@ -70,6 +73,7 @@ pub(super) fn lower_function(
         wit_imports,
         scalar_helpers,
         layout,
+        conversion_helpers,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -103,6 +107,7 @@ pub(super) struct FunctionLowerer<'a> {
     wit_imports: &'a HashMap<SymbolId, BoundWasiImport>,
     scalar_helpers: &'a ScalarHelpers,
     layout: &'a PlannedLayout,
+    conversion_helpers: Option<&'a mut ConversionHelpers>,
 }
 
 impl FunctionLowerer<'_> {

@@ -410,7 +410,9 @@ pub(super) fn verify_instruction(
             let expected = storage_value_type(&element.storage).ok_or_else(|| {
                 mir_error(*span, "MIR array element storage is not representable")
             })?;
-            if value_type(function, *destination) != Some(expected) {
+            if !value_type(function, *destination)
+                .is_some_and(|destination_type| value_type_assignable(expected, destination_type))
+            {
                 return Err(mir_error(*span, "MIR array.get result has the wrong type"));
             }
         }

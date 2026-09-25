@@ -31,6 +31,9 @@ pub(super) fn value_type_assignable(actual: ValueType, expected: ValueType) -> b
         (ValueType::Ref(actual), ValueType::Ref(expected)) => {
             actual.heap == expected.heap && (expected.nullable || !actual.nullable)
         }
+        // A logical `Boolean` value uses Wasm's `i32` storage, exactly as in a
+        // struct field, so it is assignable to and from `i32` array slots.
+        (ValueType::Boolean, ValueType::I32) | (ValueType::I32, ValueType::Boolean) => true,
         _ => actual == expected,
     }
 }

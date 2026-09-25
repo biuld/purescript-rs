@@ -269,3 +269,6 @@ fn closure_shape(signature: crate::cc::SignatureId) -> ValueShape {
         heap: RefShape::Closure(signature),
     })
 }
+
+#[cfg(test)]
+mod tests;

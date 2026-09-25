@@ -5,7 +5,7 @@ use super::super::util::{
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
-use crate::types::{CompositeType, DefinedType, DefinedTypeId, HeapType};
+use crate::types::{CompositeType, DefinedType, DefinedTypeId, HeapType, StorageType};
 use std::collections::HashMap;
 
 pub(super) fn verify_array_new_default(
@@ -33,6 +33,15 @@ pub(super) fn verify_array_new_default(
         return Err(mir_error(
             *span,
             "MIR array.new_default type is not an array",
+        ));
+    }
+    let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+        unreachable!("array type was checked above")
+    };
+    if !is_defaultable_storage(&element.storage) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_default element storage is not defaultable",
         ));
     }
     if require_value(definitions, *length, *span)? != ValueType::I32 {
@@ -113,6 +122,22 @@ pub(super) fn verify_clone(
         ));
     }
     Ok(())
+}
+
+/// `array.new_default` needs a zero value: numeric and vector storage default
+/// to zero and nullable references default to null. A non-null reference has no
+/// default, so it is rejected.
+fn is_defaultable_storage(storage: &StorageType) -> bool {
+    match storage {
+        StorageType::Ref(reference) => reference.nullable,
+        StorageType::I8
+        | StorageType::I16
+        | StorageType::I32
+        | StorageType::I64
+        | StorageType::F32
+        | StorageType::F64
+        | StorageType::V128 => true,
+    }
 }
 
 pub(super) fn verify_len(

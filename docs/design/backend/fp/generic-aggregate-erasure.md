@@ -18,11 +18,10 @@ specified by [polymorphism and erasure](polymorphism-and-erasure.md); concrete
 GC objects and pure array update remain specified by
 [data representation](data-representation.md).
 
-The current implementation does not implement these generic aggregate
-conversions. Its source-spanned P8 diagnostics for unsupported dependent
-nominal recovery remain the implementation contract until this design is
-implemented and validated. This document is a design target, not a claim of
-current coverage.
+Implementation acceptance is tracked in the
+[topic execution checklist](../../../implementation/backend/generic-aggregate-erasure.md).
+Existing code and regression tests are evidence candidates; this stable design
+status does not claim that every requirement has been implemented or verified.
 
 ## Background
 
@@ -563,22 +562,11 @@ does not need an array map because the declared template is the bare variable
 
 ## Implementation notes
 
-The implementation now follows the normative canonical-shape and conversion
-model above for generic arrays, closed generic records, and dependent aggregate
-fields in parameterized ADTs. CC interns canonical layouts and records typed,
-source-spanned `AggregateConvert` plans; P8 lowers those plans to `ArrayMap` and
-`ProductMap`; P9 lowers the maps to verified MIR allocation/copy paths, which
-the Wasm encoder emits as GC operations and structured loops.
-
-Source-to-Wasm regressions cover concrete/generic array boundaries, arrays in
-parameterized ADTs, recursively nested arrays, higher-order array adapters, and
-a closed generic record update containing a nested array across concrete
-instantiations. Since P7 can specialize these same-module call sites and remove
-runtime conversions, the tests inspect conversion plans from source Core lowered
-directly to CC before P7, then compile through the normal pipeline and inspect
-the resulting layouts/WAT. They assert runtime results when Wasmtime is
-installed. Parser and resolver regressions also cover lowercase record-field
-syntax and source-spanned qualified-name failures. Open-row conversion,
-cycle/sharing preservation for aggregate graphs, and nominal GC type sharing
-across independently compiled Wasm artifacts remain outside the implemented
-coverage described by this topic.
+The [implementation acceptance checklist](../../../implementation/backend/generic-aggregate-erasure.md)
+records the GA-01 through GA-20 evidence and the independent review repairs.
+P9 now interns complete conversion plans into shared MIR helpers, and MIR
+verification rejects nullable array loads declared non-null and aggregate
+conversion paths that can expose incompletely initialized arrays. Optimized
+components execute the array, record, ADT, adapter, and capture cases under
+required Wasmtime. Empty array backend coverage uses a Typed Core fixture;
+source empty literals remain unsupported at P5.
