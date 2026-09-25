@@ -351,6 +351,7 @@ fn rejects_a_load_from_an_unknown_memory_id() {
 
 mod arrays;
 mod dictionary;
+mod effects;
 mod gaps;
 mod scalar;
 mod switch;

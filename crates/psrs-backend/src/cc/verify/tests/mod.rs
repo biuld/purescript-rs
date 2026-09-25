@@ -5,6 +5,7 @@ use psrs_span::TextRange;
 
 mod adaptation;
 mod dictionary;
+mod effects;
 mod structure;
 mod variant;
 

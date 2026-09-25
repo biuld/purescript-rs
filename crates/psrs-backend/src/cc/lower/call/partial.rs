@@ -1,10 +1,12 @@
-use super::super::super::{Assignment, AssignmentKind, Function, RefShape, Reference, ValueId};
+use super::super::super::{
+    Assignment, AssignmentKind, Function, RefShape, Reference, ValueConversion, ValueId,
+};
 use super::super::lambda::LambdaLowering;
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
-    callable_parameter_types, closure_value_type, closure_value_type_for,
-    conversion_reconstructs_aggregate, is_function_type, is_generic_function_type,
-    persist_reference, restore_reference,
+    callable_parameter_types, callable_result_type, closure_value_type, closure_value_type_for,
+    conversion_reconstructs_aggregate, function_result_type, is_function_type,
+    is_generic_function_type, persist_reference, restore_reference,
 };
 use crate::BackendError;
 use psrs_core::Expr;
@@ -173,6 +175,39 @@ impl FunctionLowerer<'_> {
             },
             span: expression.span,
         });
+        // The callee's declaration result is the un-instantiated shape, but the
+        // closure signature is the partially applied expression's result. A
+        // polymorphic declaration such as `pure :: a -> Effect a` returns an
+        // erased value while the expression's result is concrete, so convert
+        // before the generated function returns.
+        let result_conversion = if source_signature.result == target_signature.result {
+            ValueConversion::Identity
+        } else {
+            let source_result_type = callable_result_type(self.module, function, callable_type)
+                .ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "partial application callee has no declaration result type",
+                    )]
+                })?;
+            let destination_result_type = function_result_type(self.module, expression.ty);
+            self.typed_conversion(
+                source_result_type,
+                destination_result_type,
+                source_signature.result,
+                target_signature.result,
+                expression.span,
+            )?
+        };
+        let converted_result = nested.emit_conversion(
+            result,
+            source_signature.result,
+            target_signature.result,
+            result_conversion,
+            expression.span,
+            &mut nested_assignments,
+        );
 
         // Allocate from the shared, collision-free symbol space. Deriving the
         // symbol from the span and the linked module id collided across linked
@@ -184,8 +219,8 @@ impl FunctionLowerer<'_> {
             parameters,
             values: nested.values,
             assignments: nested_assignments,
-            result,
-            result_type: source_signature.result,
+            result: converted_result,
+            result_type: target_signature.result,
             span: expression.span,
         };
         crate::cc::verify::verify_function(&generated, self.signatures, self.representations)?;
