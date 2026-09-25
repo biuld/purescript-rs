@@ -164,6 +164,7 @@ pub(super) fn verify_function(
         verify_terminator(function, terminator, &blocks, &definitions)?;
     }
     super::array_map::verify_array_maps(function)?;
+    super::array_map::verify_conversion_helpers(function, defined)?;
     Ok(())
 }
 
@@ -329,6 +330,20 @@ fn verify_terminator(
             }
             if !blocks.contains_key(then_block) || !blocks.contains_key(else_block) {
                 return Err(mir_error(*span, "MIR branch target does not exist"));
+            }
+            // `Branch` carries no arguments, so a target with parameters could
+            // never receive them. This is the arity rule the structurer relies
+            // on when it rewrites a constant branch into a parameterless jump.
+            for target in [then_block, else_block] {
+                if blocks
+                    .get(target)
+                    .is_some_and(|block| !block.parameters.is_empty())
+                {
+                    return Err(mir_error(
+                        *span,
+                        "MIR branch targets cannot have block parameters",
+                    ));
+                }
             }
             if blocks
                 .get(merge_block)

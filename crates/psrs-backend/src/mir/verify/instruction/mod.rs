@@ -181,8 +181,14 @@ pub(super) fn verify_instruction(
             span,
         } => {
             check_heap(reference.heap, defined, *span)?;
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            let ValueType::Ref(operand) = require_value(definitions, *value, *span)? else {
                 return Err(mir_error(*span, "MIR ref.test operand must be a reference"));
+            };
+            if !super::subtype::heap_related(operand.heap, reference.heap, defined) {
+                return Err(mir_error(
+                    *span,
+                    "MIR ref.test operand and target heaps are unrelated",
+                ));
             }
             if value_type(function, *destination) != Some(ValueType::Boolean) {
                 return Err(mir_error(*span, "MIR ref.test result must be Boolean"));
@@ -195,8 +201,14 @@ pub(super) fn verify_instruction(
             span,
         } => {
             check_heap(reference.heap, defined, *span)?;
-            if !is_ref(require_value(definitions, *value, *span)?) {
+            let ValueType::Ref(operand) = require_value(definitions, *value, *span)? else {
                 return Err(mir_error(*span, "MIR ref.cast operand must be a reference"));
+            };
+            if !super::subtype::heap_related(operand.heap, reference.heap, defined) {
+                return Err(mir_error(
+                    *span,
+                    "MIR ref.cast operand and target heaps are unrelated",
+                ));
             }
             if value_type(function, *destination) != Some(ValueType::Ref(*reference)) {
                 return Err(mir_error(

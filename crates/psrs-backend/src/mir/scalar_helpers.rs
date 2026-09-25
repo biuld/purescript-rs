@@ -35,7 +35,7 @@ impl ScalarHelpers {
             });
         }
         let op = mir::NumericOp::try_from(op).map_err(|unlowered| {
-            vec![BackendError::new(
+            vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 format!("missing MIR helper for scalar operation {unlowered:?}"),
@@ -121,6 +121,16 @@ fn contains_operation(assignments: &[cc::Assignment], needle: BinaryOp) -> bool 
         } => {
             contains_operation(then_assignments, needle)
                 || contains_operation(else_assignments, needle)
+        }
+        AssignmentKind::TagSwitch {
+            cases,
+            default_assignments,
+            ..
+        } => {
+            cases
+                .iter()
+                .any(|case| contains_operation(&case.assignments, needle))
+                || contains_operation(default_assignments, needle)
         }
         _ => false,
     })

@@ -1,11 +1,66 @@
-use super::util::mir_error;
+use super::util::{mir_error, value_type};
 use crate::BackendError;
-use crate::mir::{BlockId, Function, Instruction, Terminator};
-use crate::types::ValueId;
+use crate::mir::{BlockId, Function, Instruction, Terminator, ValueType};
+use crate::types::{DefinedType, HeapType, ValueId};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 mod tests;
+
+/// Verifies the compiler-generated `aggregate_convert_*` helpers. Their input
+/// and output must be references, and a conversion between two distinct
+/// nominal aggregate types must rebuild the value rather than `ref.cast` it.
+pub(super) fn verify_conversion_helpers(
+    function: &Function,
+    _defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    if !function.name.starts_with("aggregate_convert_") {
+        return Ok(());
+    }
+    let Some(parameter) = function.parameters.first() else {
+        return Err(mir_error(
+            function.span,
+            "aggregate conversion helper has no input parameter",
+        ));
+    };
+    let input = value_type(function, *parameter).ok_or_else(|| {
+        mir_error(
+            function.span,
+            "aggregate conversion helper input has no value type",
+        )
+    })?;
+    let output = function.result_type;
+    let (ValueType::Ref(input), ValueType::Ref(output)) = (input, output) else {
+        return Err(mir_error(
+            function.span,
+            "aggregate conversion helper input and output must be references",
+        ));
+    };
+    let distinct_nominal = matches!(
+        (input.heap, output.heap),
+        (HeapType::Index(source), HeapType::Index(target)) if source != target
+    );
+    if !distinct_nominal {
+        return Ok(());
+    }
+    let rebuilds = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.instructions)
+        .any(|instruction| {
+            matches!(
+                instruction,
+                Instruction::StructNew { .. } | Instruction::ArrayNewDefault { .. }
+            )
+        });
+    if !rebuilds {
+        return Err(mir_error(
+            function.span,
+            "aggregate conversion helper replaces a nominal conversion with ref.cast",
+        ));
+    }
+    Ok(())
+}
 
 pub(super) fn verify_array_maps(function: &Function) -> Result<(), Vec<BackendError>> {
     for block in &function.blocks {

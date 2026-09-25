@@ -32,6 +32,11 @@ pub fn optimize(
         verify(&module, target)?;
 
         changed |= cfg::simplify_terminators(&mut module);
+        // Removing an untaken successor can leave the other successor
+        // unreachable while it still names values from the rewritten block.
+        // Drop unreachable blocks before verifying; the verifier intentionally
+        // requires dominance over every block it sees.
+        changed |= cfg::prune_unreachable(&mut module);
         verify(&module, target)?;
 
         if !changed {
