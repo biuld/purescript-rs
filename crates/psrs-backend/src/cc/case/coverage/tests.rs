@@ -2,6 +2,7 @@ use super::*;
 use psrs_core::{CaseBranch, Expr, ExprKind};
 use psrs_hir::{LocalId, ModuleId};
 use psrs_span::TextRange;
+use std::rc::Rc;
 
 fn symbol(index: u32) -> SymbolId {
     SymbolId::new(ModuleId(0), index)
@@ -231,4 +232,118 @@ fn recursive_adt_analysis_finds_a_finite_uncovered_witness() {
     ));
     let report = analyze(&module, TypeId(0), &[cons_nil]);
     assert_eq!(report.witness.as_deref(), Some("Cons (Cons Nil)"));
+}
+
+#[derive(Clone, Debug)]
+enum Rec {
+    Nil,
+    Any,
+    Cons(Rc<Rec>),
+}
+
+fn recursive_module() -> Module {
+    module(
+        vec![
+            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+            Type::I32,
+        ],
+        vec![
+            constructor(0, "Cons", 0, vec![TypeId(0)]),
+            constructor(1, "Nil", 0, Vec::new()),
+        ],
+    )
+}
+
+fn rec_pattern(rec: Rec) -> Pattern {
+    match rec {
+        Rec::Any => pat(0, PatternKind::Wildcard),
+        Rec::Nil => nullary(1, 0),
+        Rec::Cons(inner) => pat(
+            0,
+            PatternKind::Constructor {
+                symbol: symbol(0),
+                arguments: vec![rec_pattern((*inner).clone())],
+            },
+        ),
+    }
+}
+
+fn rec_trees(depth: usize) -> Vec<Rec> {
+    if depth == 0 {
+        return vec![Rec::Nil];
+    }
+    let mut trees = vec![Rec::Nil];
+    for inner in rec_trees(depth - 1) {
+        trees.push(Rec::Cons(Rc::new(inner)));
+    }
+    trees
+}
+
+fn rec_matches(pattern: Rec, tree: Rec) -> bool {
+    match pattern {
+        Rec::Any => true,
+        Rec::Nil => matches!(tree, Rec::Nil),
+        Rec::Cons(inner) => {
+            matches!(tree, Rec::Cons(tree_inner) if rec_matches((*inner).clone(), (*tree_inner).clone()))
+        }
+    }
+}
+
+fn rec_patterns() -> Vec<Rec> {
+    let nil = Rec::Nil;
+    let any = Rec::Any;
+    let cons_nil = Rec::Cons(Rc::new(Rec::Nil));
+    let cons_any = Rec::Cons(Rc::new(Rec::Any));
+    let cons_cons_nil = Rec::Cons(Rc::new(Rec::Cons(Rc::new(Rec::Nil))));
+    let cons_cons_any = Rec::Cons(Rc::new(Rec::Cons(Rc::new(Rec::Any))));
+    vec![nil, any, cons_nil, cons_any, cons_cons_nil, cons_cons_any]
+}
+
+#[test]
+fn recursive_coverage_agrees_with_a_bounded_first_match_oracle() {
+    let module = recursive_module();
+    let patterns = rec_patterns();
+    let trees = rec_trees(3);
+    let mut matrices = Vec::new();
+    for first in &patterns {
+        matrices.push(vec![first.clone()]);
+        for second in &patterns {
+            matrices.push(vec![first.clone(), second.clone()]);
+            for third in &patterns {
+                matrices.push(vec![first.clone(), second.clone(), third.clone()]);
+            }
+        }
+    }
+    for matrix in matrices {
+        let branches = matrix
+            .iter()
+            .map(|rec| branch(rec_pattern(rec.clone())))
+            .collect::<Vec<_>>();
+        let report = analyze(&module, TypeId(0), &branches);
+        let covered = trees.iter().all(|tree| {
+            matrix
+                .iter()
+                .any(|pattern| rec_matches(pattern.clone(), tree.clone()))
+        });
+        assert_eq!(
+            report.exhaustive, covered,
+            "exhaustiveness disagreed for {matrix:?}"
+        );
+        let mut redundant = Vec::new();
+        for index in 0..matrix.len() {
+            let useful = trees.iter().any(|tree| {
+                rec_matches(matrix[index].clone(), tree.clone())
+                    && !matrix[..index]
+                        .iter()
+                        .any(|prior| rec_matches(prior.clone(), tree.clone()))
+            });
+            if !useful {
+                redundant.push(index);
+            }
+        }
+        assert_eq!(
+            report.redundant_branches, redundant,
+            "redundancy disagreed for {matrix:?}"
+        );
+    }
 }

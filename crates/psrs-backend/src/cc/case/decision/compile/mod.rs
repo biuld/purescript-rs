@@ -7,6 +7,10 @@ use std::collections::{HashMap, HashSet};
 mod constructors;
 mod matrix;
 #[cfg(test)]
+mod oracle_record_tests;
+#[cfg(test)]
+mod oracle_tests;
+#[cfg(test)]
 mod tests;
 use matrix::{
     available_inputs, canonicalize, choose_column, map_actions, pattern_type, surface_pattern,

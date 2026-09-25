@@ -5,6 +5,7 @@ use psrs_span::TextRange;
 
 mod adaptation;
 mod structure;
+mod variant;
 
 fn symbol(index: u32) -> SymbolId {
     SymbolId::new(ModuleId(0), index)
