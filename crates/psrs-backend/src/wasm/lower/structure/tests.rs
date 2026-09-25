@@ -11,11 +11,11 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 use wasm_encoder::{Instruction as WasmInstruction, ValType};
 
-fn span() -> TextRange {
+pub(super) fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
-fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
+pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
     crate::mir::verify_module(&crate::mir::Module {
         name: source.name.clone(),
         types: Vec::new(),
@@ -92,7 +92,7 @@ fn contains_branch_to_depth(body: &[wasm::Op], expected: u32) -> bool {
     })
 }
 
-fn function(
+pub(super) fn function(
     name: &str,
     values: Vec<ValueDecl>,
     blocks: Vec<BasicBlock>,
@@ -112,7 +112,7 @@ fn function(
     }
 }
 
-fn block(
+pub(super) fn block(
     id: u32,
     parameters: Vec<ValueId>,
     instructions: Vec<Instruction>,
@@ -184,7 +184,6 @@ fn lowers_a_natural_loop_with_a_preheader_and_loop_carried_values() {
                     condition: ValueId(4),
                     then_block: BlockId(3),
                     else_block: BlockId(2),
-                    merge_block: BlockId(4),
                     span: span(),
                 },
             ),
@@ -304,7 +303,6 @@ fn lowers_nested_loops_with_multiple_exit_targets() {
                     condition: ValueId(0),
                     then_block: BlockId(6),
                     else_block: BlockId(1),
-                    merge_block: BlockId(7),
                     span: span(),
                 },
             ),
@@ -316,7 +314,6 @@ fn lowers_nested_loops_with_multiple_exit_targets() {
                     condition: ValueId(0),
                     then_block: BlockId(3),
                     else_block: BlockId(2),
-                    merge_block: BlockId(7),
                     span: span(),
                 },
             ),
@@ -338,7 +335,6 @@ fn lowers_nested_loops_with_multiple_exit_targets() {
                     condition: ValueId(0),
                     then_block: BlockId(4),
                     else_block: BlockId(5),
-                    merge_block: BlockId(7),
                     span: span(),
                 },
             ),
@@ -385,4 +381,66 @@ fn lowers_nested_loops_with_multiple_exit_targets() {
 
     let (lowered, _) = lower_and_validate(&mir);
     assert_eq!(count_loops(&lowered.body), 2);
+}
+
+#[test]
+fn rejects_an_acyclic_branch_without_a_common_join() {
+    // With no `merge_block` hint, the structurer must derive the join from the
+    // edges. Two arms that both return have no common join, so structuring
+    // fails with a diagnostic instead of guessing.
+    let values = vec![
+        ValueDecl {
+            id: ValueId(0),
+            ty: ValueType::Boolean,
+        },
+        ValueDecl {
+            id: ValueId(1),
+            ty: ValueType::I32,
+        },
+    ];
+    let mir = function(
+        "no_join",
+        values,
+        vec![
+            block(
+                0,
+                Vec::new(),
+                Vec::new(),
+                Terminator::Branch {
+                    condition: ValueId(0),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                    span: span(),
+                },
+            ),
+            block(
+                1,
+                Vec::new(),
+                Vec::new(),
+                Terminator::Return {
+                    value: ValueId(1),
+                    span: span(),
+                },
+            ),
+            block(
+                2,
+                Vec::new(),
+                Vec::new(),
+                Terminator::Return {
+                    value: ValueId(1),
+                    span: span(),
+                },
+            ),
+        ],
+        ValueId(1),
+    );
+
+    let error = lower_function(&mir, TypeIndex(0), &HashMap::new(), &HashMap::new())
+        .expect_err("a branch with no common join must not structure");
+    assert!(
+        error
+            .iter()
+            .any(|error| error.message.contains("no common one-value join")),
+        "{error:?}"
+    );
 }

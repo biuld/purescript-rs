@@ -5,7 +5,7 @@ use crate::types::ValueId;
 use crate::wasm::convert::val_type;
 use crate::wasm::{Body, Op};
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use wasm_encoder::{Instruction, ValType};
 
 /// How a structured region handed control back to its caller. `Value` carries
@@ -128,22 +128,32 @@ impl LegacyRegionOps for Structurer<'_> {
                     condition,
                     then_block,
                     else_block,
-                    merge_block,
                     span,
                 } => {
+                    // The branch carries no merge hint. Derive the join as the
+                    // nearest common one-value descendant of both arms; the
+                    // structured `if` produces that value and control resumes
+                    // at the join.
+                    let join_block = crate::mir::cfg::common_join(
+                        &self.function.blocks,
+                        &[*then_block, *else_block],
+                    )
+                    .ok_or_else(|| {
+                        wasm_error(*span, "MIR branch arms have no common one-value join")
+                    })?;
                     let merge = self
                         .blocks
-                        .get(merge_block)
-                        .ok_or_else(|| wasm_error(*span, "MIR merge block is missing"))?;
+                        .get(&join_block)
+                        .ok_or_else(|| wasm_error(*span, "MIR branch join is missing"))?;
                     if merge.parameters.len() != 1 {
                         return Err(wasm_error(
                             *span,
-                            "MIR branch merge must have one result value",
+                            "MIR branch join must have one result value",
                         ));
                     }
                     let merge_value = merge.parameters[0];
                     let merge_type = value_type(self.function, merge_value).ok_or_else(|| {
-                        wasm_error(*span, "MIR merge parameter has no value type")
+                        wasm_error(*span, "MIR branch join parameter has no value type")
                     })?;
                     body.push(Op::Leaf(Instruction::LocalGet(local(
                         &self.locals,
@@ -153,7 +163,7 @@ impl LegacyRegionOps for Structurer<'_> {
                     let mut then_body = Body::new();
                     let then_value = self.emit_linear_region(
                         *then_block,
-                        Some(*merge_block),
+                        Some(join_block),
                         visited,
                         &mut then_body,
                     )?;
@@ -167,7 +177,7 @@ impl LegacyRegionOps for Structurer<'_> {
                     let mut else_body = Body::new();
                     let else_value = self.emit_linear_region(
                         *else_block,
-                        Some(*merge_block),
+                        Some(join_block),
                         visited,
                         &mut else_body,
                     )?;
@@ -189,7 +199,7 @@ impl LegacyRegionOps for Structurer<'_> {
                         merge_value,
                         *span,
                     )?)));
-                    current = *merge_block;
+                    current = join_block;
                 }
                 Terminator::Switch {
                     value,
@@ -217,7 +227,8 @@ impl LegacyRegionOps for Structurer<'_> {
             .map(|(_, target)| *target)
             .chain(std::iter::once(default))
             .collect::<Vec<_>>();
-        let join = find_switch_join(self, &targets, span)?;
+        let join = crate::mir::cfg::common_join(&self.function.blocks, &targets)
+            .ok_or_else(|| wasm_error(span, "MIR switch arms have no common one-value join"))?;
         if targets.contains(&join) {
             return Err(wasm_error(
                 span,
@@ -347,84 +358,4 @@ fn switch_index(
         result: Some(ValType::I32),
         span,
     })
-}
-
-fn find_switch_join(
-    structurer: &Structurer<'_>,
-    targets: &[crate::mir::BlockId],
-    span: psrs_span::TextRange,
-) -> Result<crate::mir::BlockId, Vec<BackendError>> {
-    let distances = targets
-        .iter()
-        .map(|target| block_distances(structurer, *target))
-        .collect::<Vec<_>>();
-    let first = distances
-        .first()
-        .ok_or_else(|| wasm_error(span, "MIR switch has no targets"))?;
-    let mut candidates = first
-        .keys()
-        .filter(|candidate| {
-            structurer
-                .blocks
-                .get(candidate)
-                .is_some_and(|block| block.parameters.len() == 1)
-                && distances
-                    .iter()
-                    .all(|reachable| reachable.contains_key(candidate))
-        })
-        .copied()
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|candidate| {
-        let mut depths = distances
-            .iter()
-            .map(|reachable| reachable.get(candidate).copied().unwrap_or(u32::MAX))
-            .collect::<Vec<_>>();
-        depths.sort_unstable();
-        (
-            depths.last().copied().unwrap_or(u32::MAX),
-            depths.iter().sum::<u32>(),
-        )
-    });
-    candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| wasm_error(span, "MIR switch arms have no common one-value join"))
-}
-
-fn block_distances(
-    structurer: &Structurer<'_>,
-    entry: crate::mir::BlockId,
-) -> HashMap<crate::mir::BlockId, u32> {
-    let mut distances = HashMap::from([(entry, 0)]);
-    let mut pending = VecDeque::from([entry]);
-    while let Some(current) = pending.pop_front() {
-        let Some(block) = structurer.blocks.get(&current) else {
-            continue;
-        };
-        let Some(terminator) = &block.terminator else {
-            continue;
-        };
-        let next_distance = distances[&current] + 1;
-        let successors = match terminator {
-            Terminator::Return { .. } => Vec::new(),
-            Terminator::Jump { target, .. } => vec![*target],
-            Terminator::Branch {
-                then_block,
-                else_block,
-                ..
-            } => vec![*then_block, *else_block],
-            Terminator::Switch { cases, default, .. } => cases
-                .iter()
-                .map(|(_, target)| *target)
-                .chain(std::iter::once(*default))
-                .collect(),
-        };
-        for successor in successors {
-            if let std::collections::hash_map::Entry::Vacant(entry) = distances.entry(successor) {
-                entry.insert(next_distance);
-                pending.push_back(successor);
-            }
-        }
-    }
-    distances
 }
