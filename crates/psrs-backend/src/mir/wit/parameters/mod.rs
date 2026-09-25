@@ -7,6 +7,8 @@ use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
+mod indirect;
+
 pub(super) fn lower_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
@@ -25,12 +27,33 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
             "WIT parameter count disagrees with the source call signature",
         )]);
     }
+    let mut flattened = Vec::new();
     for ((argument, source), kind) in arguments
         .iter()
         .zip(&source_signature.parameters)
         .zip(&import.param_kinds)
     {
-        lower_parameter(lowerer, *argument, source, kind, flat, current, span)?;
+        lower_parameter(
+            lowerer,
+            *argument,
+            source,
+            kind,
+            &mut flattened,
+            current,
+            span,
+        )?;
+    }
+    if import.has_indirect_parameters() {
+        indirect::write_parameter_record(
+            lowerer,
+            &import.param_kinds,
+            &flattened,
+            flat,
+            current,
+            span,
+        )?;
+    } else {
+        flat.extend(flattened);
     }
     Ok(())
 }

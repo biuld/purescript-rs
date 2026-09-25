@@ -64,12 +64,12 @@ pub fn lower_module_with_capabilities(
 
     let (string_offsets, mut data, data_end) = collect_strings(module);
     extent::verify_static_access_extents(module, &string_offsets)?;
-    // `cabi_realloc` is needed only when an imported function returns a list or
-    // string that the host allocates in guest memory.
+    // The host allocates returned lists through `cabi_realloc`; indirect
+    // parameter records use the same allocator from inside the guest.
     let needs_realloc = module
         .imports
         .iter()
-        .any(|import| wasi.has_list_result(import.symbol));
+        .any(|import| import.symbol == abi::REALLOC_SYMBOL || wasi.has_list_result(import.symbol));
 
     let type_defs = module.types.clone();
     let defined = type_defs
@@ -83,6 +83,9 @@ pub fn lower_module_with_capabilities(
     let mut imports = Vec::new();
     let mut import_indices = HashMap::<SymbolId, FunctionIndex>::new();
     for import in &module.imports {
+        if import.symbol == abi::REALLOC_SYMBOL {
+            continue;
+        }
         let type_index = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: import.parameters.iter().map(|ty| val_type(*ty)).collect(),
@@ -147,6 +150,9 @@ pub fn lower_module_with_capabilities(
     for (symbol, index) in &import_indices {
         function_indices.insert(*symbol, *index);
     }
+    if needs_realloc {
+        function_indices.insert(abi::REALLOC_SYMBOL, FunctionIndex(entry_index.0 + 1));
+    }
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
@@ -167,11 +173,11 @@ pub fn lower_module_with_capabilities(
 
     let main_index = FunctionIndex(import_count + entry_function.id.0);
 
-    // An imported function that returns a list/string has the host allocate the
-    // buffer in guest memory, so the module must export `cabi_realloc`. The
-    // allocator is a bump allocator whose free pointer lives in a data segment
-    // after the string data. It prefixes each allocation with its length, so a
-    // returned `(pointer, length)` can be a length-prefixed string value.
+    // `cabi_realloc` backs guest allocations for indirect parameter records and
+    // host allocations for returned lists/strings. Export it so the component
+    // host can allocate returned buffers. The bump allocator's free pointer
+    // lives after string data, and each allocation has a four-byte length
+    // prefix before its returned payload pointer.
     let mut exports = vec![
         Export {
             name: abi::RUN_CORE_EXPORT.into(),

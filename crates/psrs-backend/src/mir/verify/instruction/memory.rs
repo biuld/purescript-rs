@@ -44,6 +44,41 @@ pub(super) fn verify_memory_instruction(
             memory,
             span,
             ..
+        }
+        | Instruction::Store8 {
+            address,
+            value,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::Store16 {
+            address,
+            value,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::StoreI64 {
+            address,
+            value,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::StoreF32 {
+            address,
+            value,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::StoreF64 {
+            address,
+            value,
+            memory,
+            span,
+            ..
         } => {
             if *memory != MemoryId(0) {
                 return Err(mir_error(*span, "MIR store references an unknown memory"));
@@ -51,8 +86,22 @@ pub(super) fn verify_memory_instruction(
             if require_value(definitions, *address, *span)? != ValueType::I32 {
                 return Err(mir_error(*span, "MIR store address must be i32"));
             }
-            if require_value(definitions, *value, *span)? != ValueType::I32 {
-                return Err(mir_error(*span, "MIR store value must be i32"));
+            let actual = require_value(definitions, *value, *span)?;
+            let valid = match instruction {
+                Instruction::Store { .. } => actual == ValueType::I32,
+                Instruction::Store8 { .. } | Instruction::Store16 { .. } => {
+                    matches!(actual, ValueType::I32 | ValueType::Boolean)
+                }
+                Instruction::StoreI64 { .. } => actual == ValueType::I64,
+                Instruction::StoreF32 { .. } => actual == ValueType::F32,
+                Instruction::StoreF64 { .. } => actual == ValueType::F64,
+                _ => unreachable!("store verifier received another instruction"),
+            };
+            if !valid {
+                return Err(mir_error(
+                    *span,
+                    "MIR store value has the wrong type for its access width",
+                ));
             }
         }
         Instruction::WrapI64 {
