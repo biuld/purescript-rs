@@ -80,7 +80,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
             cc::Representation::Product {
                 // Source record fields are sorted alphabetically. WIT declares
                 // `text` before `state`, so lowering must project by field name.
-                fields: vec![ValueShape::Integer, ValueShape::Integer],
+                fields: vec![ValueShape::Integer, ValueShape::String],
             },
             cc::Representation::Product {
                 fields: vec![flags_shape, details_shape, ValueShape::Integer],
@@ -114,7 +114,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     let text = ValueId(14);
     values.push(ValueDecl {
         id: text,
-        ty: ValueShape::Integer,
+        ty: ValueShape::String,
     });
     assignments.push(Assignment {
         destination: text,

@@ -165,9 +165,12 @@ fn add_assignments(
                 ..
             } => {
                 add_signature(*signature, signatures, signature_work);
-                *needs_integer_box |= captures
-                    .iter()
-                    .any(|capture| value_types.get(capture) == Some(&ValueShape::Integer));
+                *needs_integer_box |= captures.iter().any(|capture| {
+                    matches!(
+                        value_types.get(capture),
+                        Some(&ValueShape::Integer | &ValueShape::String)
+                    )
+                });
                 *needs_number_box |= captures
                     .iter()
                     .any(|capture| value_types.get(capture) == Some(&ValueShape::Number));
@@ -263,8 +266,10 @@ fn add_assignments(
             | AssignmentKind::ArrayLen { .. }
             | AssignmentKind::Unreachable => {}
             AssignmentKind::ClosureGetCapture { .. } => {
-                *needs_integer_box |=
-                    value_types.get(&assignment.destination) == Some(&ValueShape::Integer);
+                *needs_integer_box |= matches!(
+                    value_types.get(&assignment.destination),
+                    Some(&ValueShape::Integer | &ValueShape::String)
+                );
                 *needs_number_box |=
                     value_types.get(&assignment.destination) == Some(&ValueShape::Number);
             }

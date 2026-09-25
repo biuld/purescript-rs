@@ -116,6 +116,22 @@ pub enum Terminator {
         default: BlockId,
         span: TextRange,
     },
+    /// A direct tail call. The arguments are evaluated and control transfers to
+    /// `function`, whose result becomes this function's result.
+    ReturnCall {
+        function: SymbolId,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    },
+    /// A tail call through a typed function reference. `function` is a value of
+    /// typed function-reference type; a closure tail call projects its code
+    /// reference and passes the receiver as the first argument before forming
+    /// this terminator.
+    ReturnCallRef {
+        function: ValueId,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    },
 }
 
 /// Lowers a CC module to MIR, returning the module and the ABI registry that
@@ -239,6 +255,7 @@ fn lower_module_after_binding_validation(
             &scalar_helpers,
             &layout,
             Some(&mut conversion_helpers),
+            target,
         )
         .map_err(|errors| {
             errors
@@ -258,6 +275,7 @@ fn lower_module_after_binding_validation(
             &scalar_helpers,
             &layout,
             None,
+            target,
         )?;
         functions.push(lowered);
     }

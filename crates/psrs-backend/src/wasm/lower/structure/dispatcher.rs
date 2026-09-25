@@ -139,6 +139,22 @@ impl Structurer<'_> {
                 default,
                 ..
             } => self.emit_switch_state(*value, cases, *default, state, span, body)?,
+            Terminator::ReturnCall {
+                function,
+                arguments,
+                ..
+            } => {
+                self.emit_return_call(*function, arguments, span, body)?;
+                return Ok(());
+            }
+            Terminator::ReturnCallRef {
+                function,
+                arguments,
+                ..
+            } => {
+                self.emit_return_call_ref(*function, arguments, span, body)?;
+                return Ok(());
+            }
         }
         body.push(Op::Leaf(Instruction::Br(index as u32 + 1)));
         Ok(())
@@ -223,6 +239,8 @@ fn terminator_span(terminator: &Terminator) -> TextRange {
         Terminator::Return { span, .. }
         | Terminator::Jump { span, .. }
         | Terminator::Branch { span, .. }
-        | Terminator::Switch { span, .. } => *span,
+        | Terminator::Switch { span, .. }
+        | Terminator::ReturnCall { span, .. }
+        | Terminator::ReturnCallRef { span, .. } => *span,
     }
 }

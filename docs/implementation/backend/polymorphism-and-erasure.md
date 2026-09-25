@@ -102,12 +102,13 @@ PE-02:
     cc/layout/aggregate.rs (calls it after aggregate handle remapping),
     cc/layout/mod.rs (returns the canonical function_types map).
   Tests: cc::layout::tests::equal_normalized_function_signatures_share_one_signature_id
-    asserts `function_types[f_int] == function_types[f_string]` and one shared
-    signature; driver
+    asserts equal `Array Int` function types share one signature while
+    `Array Int` and `Array String` keep distinct canonical arrays and
+    signatures; driver
     polymorphism_erasure_audit::equal_normalized_function_signatures_allocate_one_mir_function_type
     compiles `fInt :: Array Int -> Array Int`, `fStr :: Array String -> Array String`,
-    `useInt`, `useStr` and asserts `mir.types` has no two equal Func composites,
-    then executes to 4.
+    `useInt`, `useStr`, asserts `keys.len() == distinct.len()` over `mir.types`
+    (no duplicate concrete function types), then executes to 4.
   Input boundary: verified Typed Core layout fixture and source.
   Commands: cargo test -p psrs-backend cc::layout::tests::equal_normalized_function_signatures_share_one_signature_id;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib polymorphism_erasure_audit::equal_normalized_function_signatures_allocate_one_mir_function_type.
@@ -271,13 +272,12 @@ PE-11:
   the cast target heap and destination type but does not reject a nullable
   operand or mismatched operand/target nullability; tightening it is owned by
   the MIR topic. CC now rejects these shapes before lowering.
-- **`String` is not a distinct `ValueShape`.** The design model lists `String`
-  as its own shape, but CC maps `I32`, `Char`, `String`, and `Unit` to
-  `ValueShape::Integer`. A distinct `String` shape would touch more than twenty
-  match sites across `cc/` and `mir/`, and it would prevent `Array Int` and
-  `Array String` from sharing the canonical array (the PE-02 example). The code
-  is therefore recorded as a deviation from the model with identical runtime
-  behavior, not forced.
+- **`String` is now a distinct `ValueShape`.** The design model lists `String`
+  as its own shape; CC maps `Type::String` to `ValueShape::String`, the CC
+  verifier rejects numeric operations on it, and P9 maps it to `i32` while
+  sharing the one-field integer box on the erased path. `Array Int` and
+  `Array String` therefore keep distinct canonical arrays and signatures; the
+  PE-02 evidence was updated accordingly.
 - **Dead `FunctionAdapter` variant removed.** The design grammar in
   [generic aggregate erasure](../../design/backend/fp/generic-aggregate-erasure.md)
   still lists `FunctionAdapter`; CC performs function adaptation through

@@ -162,6 +162,7 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
         (CcValueShape::Integer, ValueType::I32),
         (CcValueShape::Boolean, ValueType::Boolean),
         (CcValueShape::Number, ValueType::F64),
+        (CcValueShape::String, ValueType::I32),
     ];
     for (shape, expected) in scalar_cases {
         assert_eq!(layout.value_type(&shape).unwrap(), expected, "{shape:?}");

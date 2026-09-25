@@ -120,8 +120,9 @@ Terminator = Return    { value: ValueId }
 verifier carry no structuring hint; the shared join derivation in
 `mir/cfg.rs` is used by the optimizer and structurer. `Switch` dispatches on an
 `i32` tag and is the target lowering for constructor matches.
-`ReturnCall`/`ReturnCallRef` are tail calls in the target model and remain
-future work (see the implementation notes).
+`ReturnCall`/`ReturnCallRef` are tail calls in the target model, produced by
+P9's tail analysis and gated on the target's `tail_call` flag
+([control flow and tail calls](control-flow-and-tail-calls.md)).
 
 ### Instructions
 
@@ -491,8 +492,9 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   diamonds, switches, shared successors, early returns, and traps. Irreducible
   CFGs use the dispatcher fallback documented in
   [control flow and tail calls](control-flow-and-tail-calls.md). Tail-call
-  marking, self-recursion loopification, and lowering to
-  `ReturnCall`/`ReturnCallRef` remain future work.
+  marking (including self-recursion loopification) and lowering to
+  `ReturnCall`/`ReturnCallRef` are implemented in `mir/lower/tail.rs` and gated
+  on the target's `tail_call` flag.
 - **Multi-value.** The type model admits multiple function results, but functions
   and calls currently have one. Tuples are represented as products in the
   meantime.
@@ -538,8 +540,10 @@ continuation `Block`s and depth-relative branches. Loop fixtures use direct MIR
 because CC-to-MIR does not yet produce loops. Irreducible CFGs use the
 dispatcher fallback described in
 [control flow and tail calls](control-flow-and-tail-calls.md).
-`ReturnCall` and `ReturnCallRef` are not in the current MIR terminator set;
-tail-call marking and self-recursion loopification remain unimplemented.
+`ReturnCall` and `ReturnCallRef` are part of the MIR terminator set; P9's
+`mark_tail` rewrites return-forwarded calls, loopifies self tail calls, and
+emits `return_call`/`return_call_ref` only when the target enables the
+tail-call proposal.
 MIR includes `ArrayNewDefault`; P9 lowers recursive aggregate reconstruction
 and interns helpers by complete conversion plan. The verifier checks defaultable
 storage and prevents the private destination from being exposed before full

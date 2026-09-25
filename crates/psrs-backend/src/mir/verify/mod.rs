@@ -76,14 +76,19 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
         for value in &function.values {
             verify_value_type(&value.ty, defined_types, module.span, &mut errors);
         }
-        function::verify_function(function, &signatures, &defined).map_err(|function_errors| {
-            function_errors
-                .into_iter()
-                .map(|error| error.with_module(function.symbol.module))
-                .collect::<Vec<_>>()
-        })?;
+        if let Err(function_errors) = function::verify_function(function, &signatures, &defined) {
+            errors.extend(
+                function_errors
+                    .into_iter()
+                    .map(|error| error.with_module(function.symbol.module)),
+            );
+        }
     }
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Verifies structural MIR invariants and legality under the profile used by P9.

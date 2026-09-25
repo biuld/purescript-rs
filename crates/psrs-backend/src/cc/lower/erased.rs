@@ -237,7 +237,7 @@ impl FunctionLowerer<'_> {
                 nullable: false,
                 heap: RefShape::Erased,
             }) => Ok(value),
-            ValueShape::Integer | ValueShape::Boolean => {
+            ValueShape::Integer | ValueShape::Boolean | ValueShape::String => {
                 let Some(boxed_type) = self.boxed_integer_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",

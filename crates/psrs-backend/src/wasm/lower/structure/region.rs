@@ -181,7 +181,70 @@ impl Structurer<'_> {
                     default_depth,
                 )));
             }
+            Terminator::ReturnCall {
+                function,
+                arguments,
+                span,
+            } => {
+                self.emit_return_call(*function, arguments, *span, body)?;
+            }
+            Terminator::ReturnCallRef {
+                function,
+                arguments,
+                span,
+            } => {
+                self.emit_return_call_ref(*function, arguments, *span, body)?;
+            }
         }
+        Ok(())
+    }
+
+    /// Emits a direct tail call. The arguments are pushed first and the callee
+    /// reuses the current frame; no `return` is needed.
+    pub(super) fn emit_return_call(
+        &self,
+        function: psrs_hir::SymbolId,
+        arguments: &[ValueId],
+        span: psrs_span::TextRange,
+        body: &mut Body,
+    ) -> Result<(), Vec<BackendError>> {
+        for argument in arguments {
+            self.emit_load(*argument, span, body)?;
+        }
+        let index = self
+            .function_indices
+            .get(&function)
+            .copied()
+            .ok_or_else(|| wasm_error(span, "MIR tail call target has no Wasm function index"))?;
+        body.push(Op::Leaf(Instruction::ReturnCall(index.0)));
+        Ok(())
+    }
+
+    /// Emits a tail call through a typed function reference.
+    pub(super) fn emit_return_call_ref(
+        &self,
+        function: ValueId,
+        arguments: &[ValueId],
+        span: psrs_span::TextRange,
+        body: &mut Body,
+    ) -> Result<(), Vec<BackendError>> {
+        let type_index = match super::value_type(self.function, function) {
+            Some(crate::types::ValueType::Ref(crate::types::RefType {
+                heap: crate::types::HeapType::Index(index),
+                ..
+            })) => index,
+            _ => {
+                return Err(wasm_error(
+                    span,
+                    "MIR tail call_ref target has no function type index",
+                ));
+            }
+        };
+        for argument in arguments {
+            self.emit_load(*argument, span, body)?;
+        }
+        self.emit_load(function, span, body)?;
+        body.push(Op::Leaf(Instruction::ReturnCallRef(type_index.0)));
         Ok(())
     }
 

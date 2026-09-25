@@ -54,7 +54,10 @@ pub(super) fn simplify_terminators(module: &mut Module) -> bool {
                             .unwrap_or(*default);
                         (target, *span)
                     }
-                    Terminator::Return { .. } | Terminator::Jump { .. } => return None,
+                    Terminator::Return { .. }
+                    | Terminator::Jump { .. }
+                    | Terminator::ReturnCall { .. }
+                    | Terminator::ReturnCallRef { .. } => return None,
                 };
                 Some((block.id, (target, span)))
             })
@@ -110,5 +113,6 @@ pub(super) fn successors(terminator: &Terminator) -> Vec<BlockId> {
             .map(|(_, target)| *target)
             .chain(std::iter::once(*default))
             .collect(),
+        Terminator::ReturnCall { .. } | Terminator::ReturnCallRef { .. } => Vec::new(),
     }
 }
