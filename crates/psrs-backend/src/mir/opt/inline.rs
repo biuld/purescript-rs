@@ -7,6 +7,8 @@ use crate::types::ValueId;
 use std::collections::HashMap;
 
 const MAX_INLINE_INSTRUCTIONS: usize = 16;
+const MAX_INLINE_CALL_SITES: usize = 128;
+const MAX_INLINE_CODE_GROWTH: usize = 1024;
 
 pub(super) fn inline_small_functions(module: &mut Module) -> bool {
     let candidates = module
@@ -20,6 +22,8 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
     }
 
     let mut changed = false;
+    let mut inlined_call_sites = 0usize;
+    let mut cloned_instructions = 0usize;
     for caller in &mut module.functions {
         let mut next_id = caller
             .values
@@ -41,6 +45,12 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
                     } if *function != caller_symbol => candidates
                         .get(function)
                         .filter(|candidate| candidate.parameters.len() == arguments.len())
+                        .filter(|candidate| {
+                            inlined_call_sites < MAX_INLINE_CALL_SITES
+                                && cloned_instructions
+                                    .checked_add(candidate.blocks[0].instructions.len())
+                                    .is_some_and(|growth| growth <= MAX_INLINE_CODE_GROWTH)
+                        })
                         .cloned(),
                     _ => None,
                 };
@@ -54,6 +64,7 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
                     .iter()
                     .filter(|instruction| instruction.destination().is_some())
                     .count();
+                let body_instruction_count = callee.blocks[0].instructions.len();
                 let allocation_start = next_id;
                 if destination_count > 0 {
                     let Some(start) = next_id else {
@@ -80,6 +91,8 @@ pub(super) fn inline_small_functions(module: &mut Module) -> bool {
                 else {
                     unreachable!("only direct calls are inlined")
                 };
+                inlined_call_sites += 1;
+                cloned_instructions += body_instruction_count;
                 let mut mapping = callee
                     .parameters
                     .iter()

@@ -181,3 +181,101 @@ fn inlining_uses_the_callee_function_result_value() {
             .any(|instruction| matches!(instruction, Instruction::Constant { value: 10, .. }))
     );
 }
+
+mod budgets;
+mod effects;
+
+fn caller_with_calls(
+    id: FunctionId,
+    symbol: SymbolId,
+    callee: SymbolId,
+    call_count: usize,
+) -> Function {
+    caller_with_targets(id, symbol, &vec![callee; call_count])
+}
+
+fn caller_with_targets(id: FunctionId, symbol: SymbolId, targets: &[SymbolId]) -> Function {
+    let values = (0..targets.len())
+        .map(|id| value(id as u32, ValueType::I32))
+        .collect::<Vec<_>>();
+    let instructions = targets
+        .iter()
+        .enumerate()
+        .map(|(id, callee)| Instruction::Call {
+            destination: ValueId(id as u32),
+            function: *callee,
+            arguments: Vec::new(),
+            span: span(),
+        })
+        .collect::<Vec<_>>();
+    let result = ValueId((targets.len() - 1) as u32);
+    Function {
+        id,
+        symbol,
+        name: "caller".into(),
+        parameters: Vec::new(),
+        values,
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions,
+            terminator: Some(Terminator::Return {
+                value: result,
+                span: span(),
+            }),
+        }],
+        result,
+        result_type: ValueType::I32,
+        span: span(),
+    }
+}
+
+fn constant_callee(id: FunctionId, symbol: SymbolId, constants: Vec<i32>) -> Function {
+    let values = (0..constants.len())
+        .map(|id| value(id as u32, ValueType::I32))
+        .collect::<Vec<_>>();
+    let instructions = constants
+        .into_iter()
+        .enumerate()
+        .map(|(id, value)| Instruction::Constant {
+            destination: ValueId(id as u32),
+            value,
+            span: span(),
+        })
+        .collect::<Vec<_>>();
+    let result = ValueId((values.len() - 1) as u32);
+    Function {
+        id,
+        symbol,
+        name: "constant".into(),
+        parameters: Vec::new(),
+        values,
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions,
+            terminator: Some(Terminator::Return {
+                value: result,
+                span: span(),
+            }),
+        }],
+        result,
+        result_type: ValueType::I32,
+        span: span(),
+    }
+}
+
+fn call_count(function: &Function) -> usize {
+    function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.instructions)
+        .filter(|instruction| matches!(instruction, Instruction::Call { .. }))
+        .count()
+}
+
+fn span_at(start: u32) -> TextRange {
+    TextRange::new(start, start + 1)
+}

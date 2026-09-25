@@ -71,11 +71,18 @@ without changing the dictionary's ABI; source-type-dependent specialization
 belongs to P7.
 
 The bounded inliner accepts only a single-block callee with no block parameters,
-at most 16 instructions, and no nested call instruction. It clones the body at
-the original call position, gives every cloned definition a fresh value ID,
-and keeps the cloned operations' spans, traps, and memory effects in order.
-Multi-block control flow, block parameters, and recursive call expansion remain
-as calls.
+at most 16 instructions, and no nested call instruction. Across one module it
+inlines at most 128 call sites and clones at most 1024 callee instructions in
+total. These module-wide budgets are charged in function, block, and instruction
+order. The growth charge is the number of body instructions cloned: replacing a
+call with those instructions and one result copy increases the instruction
+count by exactly the body length. If the next callee does not fit the remaining
+growth budget, its call stays intact and later candidates are still considered;
+once the call-site budget is exhausted, remaining calls stay intact. It clones
+the body at the original call position, gives every cloned definition a fresh
+value ID, and keeps the cloned operations' spans, traps, and memory effects in
+order. Multi-block control flow, block parameters, and recursive call expansion
+remain as calls.
 
 P9 validates every external declaration before optimization. After the final
 MIR pass, import projection uses direct calls, function references, and closure
@@ -191,3 +198,16 @@ representation and signatures.
 - [MIR](../fp/mir.md), [effects](../fp/effects.md),
   [control flow](../fp/control-flow-and-tail-calls.md), and
   [Wasm encoding](../wasm/encoding-and-structuring.md).
+
+## Implementation notes
+
+P10 runs verified MIR optimization in `crates/psrs-backend/src/mir/opt/` and
+re-verifies after each pass. Its direct inliner enforces the 16-instruction
+per-callee limit, the 128-call-site module limit, and the 1024-instruction
+module-wide growth limit in deterministic function/block/instruction order.
+Focused tests exercise both aggregate budget boundaries and verify that an
+inlined body retains memory writes, a potentially trapping operation, memory
+reads, and their source spans in order. The optimizer keeps calls whose bodies
+are recursive, multi-block, over the per-callee limit, or do not fit the
+remaining growth budget. Profile-guided profitability and optimized-versus-
+unoptimized execution comparisons remain future verification work.

@@ -512,10 +512,12 @@ and after each pass. It inlines only internal direct calls to single-block
 callees whose sole basic block has no block parameters, at most 16
 instructions, a `Return` terminator, and no call-like instructions in the body
 (direct, closure, or function-reference calls). This is a per-callee limit;
-the implementation has no separate call-site-count or total code-growth
-budget. Cloned instructions remain in order at the call site, preserving traps
-and memory effects. P10 then iterates unreachable-block pruning, constant
-propagation, and Branch/Switch simplification to a fixed point. It also
+the P10 contract also caps inlining at 128 call sites and 1024 cloned body
+instructions per module. The budgets are charged in function, block, and
+instruction order. Cloned instructions remain in order at the call site,
+preserving traps and memory effects. P10 then iterates unreachable-block
+pruning, constant propagation, and Branch/Switch simplification to a fixed
+point. It also
 forwards copies, eliminates dead pure-and-total instructions using
 conservative call, memory, and trap effects, and removes imports unused by
 reachable optimized code.
