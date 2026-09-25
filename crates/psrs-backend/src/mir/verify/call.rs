@@ -160,7 +160,18 @@ pub(super) fn verify_closure_new(
             ValueType::F64 => {
                 verify_f64_box(*boxed_f64_type, defined, *span)?;
             }
-            ValueType::Boolean | ValueType::Ref(_) => {}
+            ValueType::Boolean => {}
+            // The capture array is `(array (mut (ref null eq)))`. A reference
+            // outside the `eq` hierarchy (a function or extern reference) could
+            // never be stored, so reject it here rather than at Wasm validation.
+            ValueType::Ref(reference) => {
+                if !super::subtype::heap_subtype(reference.heap, HeapType::Eq, defined) {
+                    return Err(mir_error(
+                        *span,
+                        "closure capture reference is not eq-compatible",
+                    ));
+                }
+            }
             _ => {
                 return Err(mir_error(
                     *span,

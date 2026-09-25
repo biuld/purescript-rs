@@ -22,6 +22,9 @@ fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
         .output()
         .is_err()
     {
+        if std::env::var("PSRS_REQUIRE_WASMTIME").as_deref() == Ok("1") {
+            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
+        }
         return None;
     }
     use std::sync::atomic::{AtomicU32, Ordering};

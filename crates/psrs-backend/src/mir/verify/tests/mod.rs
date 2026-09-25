@@ -1,4 +1,5 @@
 use super::verify_module;
+use crate::BackendErrorKind;
 use crate::mir::{BasicBlock, BlockId, Function, Instruction, Module, Terminator};
 use crate::types::{CompositeType, DefinedType, MemoryId, RecGroup, ValueDecl, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
@@ -349,3 +350,106 @@ fn rejects_a_load_from_an_unknown_memory_id() {
 }
 
 mod arrays;
+mod gaps;
+
+#[test]
+fn rejects_a_branch_target_with_block_parameters() {
+    let condition = ValueId(0);
+    let value = ValueId(1);
+    let then_parameter = ValueId(2);
+    let merge_parameter = ValueId(3);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "bad_branch_target".into(),
+        parameters: vec![condition, value],
+        values: vec![
+            ValueDecl {
+                id: condition,
+                ty: ValueType::Boolean,
+            },
+            ValueDecl {
+                id: value,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: then_parameter,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: merge_parameter,
+                ty: ValueType::I32,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Branch {
+                    condition,
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                    merge_block: BlockId(3),
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                parameters: vec![then_parameter],
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Jump {
+                    target: BlockId(3),
+                    arguments: vec![then_parameter],
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Jump {
+                    target: BlockId(3),
+                    arguments: vec![value],
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(3),
+                parameters: vec![merge_parameter],
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Return {
+                    value: merge_parameter,
+                    span: span(),
+                }),
+            },
+        ],
+        result: merge_parameter,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    let error = errors
+        .iter()
+        .find(|error| {
+            error
+                .message
+                .contains("branch targets cannot have block parameters")
+        })
+        .expect("a parameterized branch target must be rejected");
+    assert_eq!(error.kind, BackendErrorKind::InvalidCompilerIr);
+    assert_eq!(error.span, span());
+}
+
+#[test]
+fn backend_error_kinds_distinguish_invalid_ir_from_unsupported_source() {
+    assert_eq!(
+        crate::BackendError::invalid_ir("pass", span(), "message").kind,
+        BackendErrorKind::InvalidCompilerIr
+    );
+    assert_eq!(
+        crate::BackendError::new("pass", span(), "message").kind,
+        BackendErrorKind::UnsupportedSource
+    );
+}

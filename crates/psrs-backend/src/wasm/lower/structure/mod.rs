@@ -29,6 +29,17 @@ use region::RegionOps;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::Instruction;
 
+/// A block whose instructions contain an `Unreachable` never transfers control
+/// through its terminator: the trap and everything after it are dead. The
+/// structurer must not read the trap destination local, which is never
+/// initialized for a reference result.
+pub(super) fn block_traps(block: &mir::BasicBlock) -> bool {
+    block
+        .instructions
+        .iter()
+        .any(|instruction| matches!(instruction, MirInstruction::Unreachable { .. }))
+}
+
 pub(super) struct Structurer<'a> {
     pub(super) function: &'a MirFunction,
     pub(super) blocks: HashMap<BlockId, &'a mir::BasicBlock>,
