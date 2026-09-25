@@ -35,6 +35,12 @@ pub(super) fn value_type_assignable(actual: ValueType, expected: ValueType) -> b
     }
 }
 
+/// Boolean values retain their MIR type while using Wasm's `i32` struct
+/// storage. This compatibility applies to product fields at the GC boundary.
+pub(super) fn struct_field_type_compatible(actual: ValueType, expected: ValueType) -> bool {
+    actual == expected || matches!((actual, expected), (ValueType::Boolean, ValueType::I32))
+}
+
 pub(super) fn value_type(function: &Function, value: ValueId) -> Option<ValueType> {
     function
         .values

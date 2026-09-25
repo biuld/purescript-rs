@@ -111,6 +111,8 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     (module, bindings, resolve)
 }
 
+mod composite;
+
 #[test]
 fn indirect_canonical_parameters_lower_to_an_artifact() {
     let (cc, bindings, resolve) = indirect_fixture();
