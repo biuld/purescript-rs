@@ -184,3 +184,75 @@ main = let f = identity in f 42
     };
     assert_eq!(output.status.code(), Some(42));
 }
+
+#[test]
+fn runs_a_recursive_polymorphic_reference_identity() {
+    // P10 can rewrite the `if` into a jump that leaves the other arm
+    // unreachable while it still names the entry block's array value. The
+    // optimizer must prune that dead arm before verifying.
+    let source = r#"module Main where
+lastArr :: forall a. Int -> Array a -> Array a
+lastArr n x = if n == 0 then x else lastArr (n - 1) x
+main = arrayIndex (lastArr 3 [40, 42]) 1
+"#;
+    let _artifact =
+        compile_source("Main.purs", source).expect("lowering a recursive reference arm");
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_recursive_polymorphic_identity_at_integer_types() {
+    let source = r#"module Main where
+f :: forall a. Int -> a -> a
+f n x = if n == 0 then x else f (n - 1) x
+main = f 1 42 + f 2 0
+"#;
+    let _artifact = compile_source("Main.purs", source).expect("lowering a recursive identity");
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_branch_with_equal_reference_arms() {
+    // Both arms pass the same reference, so constant propagation can
+    // materialize the merge parameter. The one-value merge contract must be
+    // preserved.
+    let source = r#"module Main where
+g :: forall a. Int -> a -> a
+g n x = if n == 0 then x else x
+main = g 1 42
+"#;
+    let _artifact = compile_source("Main.purs", source).expect("lowering equal reference arms");
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn runs_a_case_that_returns_a_reference() {
+    // The unreachable default arm traps; the structurer must not read the
+    // trap destination local, which is uninitialized for a reference result.
+    let source = r#"module Main where
+data Maybe a = Nothing | Just a
+fromJust :: forall a. Maybe a -> a -> a
+fromJust m d = case m of
+  Nothing -> d
+  Just x -> x
+main = fromJust (Just 42) 0
+"#;
+    let _artifact = compile_source("Main.purs", source).expect("lowering a reference case");
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}

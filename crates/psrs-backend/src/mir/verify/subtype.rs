@@ -115,7 +115,22 @@ fn reference_subtype(child: RefType, parent: RefType, definitions: &[&DefinedTyp
     (parent.nullable || !child.nullable) && heap_subtype(child.heap, parent.heap, definitions)
 }
 
-fn heap_subtype(child: HeapType, parent: HeapType, definitions: &[&DefinedType]) -> bool {
+/// Whether two heap types are related by the Wasm subtype hierarchy in either
+/// direction. A `ref.cast`/`ref.test` between unrelated heaps (for example a
+/// struct and a function reference) can never succeed and is a compiler bug.
+pub(super) fn heap_related(
+    child: HeapType,
+    parent: HeapType,
+    definitions: &[&DefinedType],
+) -> bool {
+    heap_subtype(child, parent, definitions) || heap_subtype(parent, child, definitions)
+}
+
+pub(super) fn heap_subtype(
+    child: HeapType,
+    parent: HeapType,
+    definitions: &[&DefinedType],
+) -> bool {
     if child == parent {
         return true;
     }

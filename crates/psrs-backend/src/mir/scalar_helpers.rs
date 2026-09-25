@@ -35,7 +35,7 @@ impl ScalarHelpers {
             });
         }
         let op = mir::NumericOp::try_from(op).map_err(|unlowered| {
-            vec![BackendError::new(
+            vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 format!("missing MIR helper for scalar operation {unlowered:?}"),

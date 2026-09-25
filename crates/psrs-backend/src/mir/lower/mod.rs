@@ -136,7 +136,7 @@ impl FunctionLowerer<'_> {
     ) -> Result<(), Vec<BackendError>> {
         let target = self.find_block_mut(block, span)?;
         if target.terminator.is_some() {
-            return Err(vec![BackendError::new(
+            return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 "cannot append an instruction after a terminator",
@@ -195,7 +195,7 @@ impl FunctionLowerer<'_> {
     ) -> Result<(), Vec<BackendError>> {
         let target = self.find_block_mut(block, span)?;
         if target.terminator.replace(terminator).is_some() {
-            return Err(vec![BackendError::new(
+            return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 "basic block already has a terminator",
@@ -213,7 +213,7 @@ impl FunctionLowerer<'_> {
             .iter_mut()
             .find(|block| block.id == id)
             .ok_or_else(|| {
-                vec![BackendError::new(
+                vec![BackendError::invalid_ir(
                     "P9 MIR lowering",
                     span,
                     "basic block ID was not allocated",

@@ -288,3 +288,26 @@ fn truncated_and_floor_division_trap_on_zero_divisor_and_signed_overflow() {
         "integer overflow",
     );
 }
+
+#[test]
+fn runs_division_and_modulo_inside_a_case_arm() {
+    // Floor division and modulo are lowered through generated helpers. The
+    // primitive operations only appear inside the match arms, so helper
+    // detection must walk the tag switch.
+    let source = r#"module Main where
+data Tag = A | B
+compute t = case t of
+  A -> intDiv 7 3
+  B -> intMod 7 3
+main = compute A + compute B + 39
+"#;
+    let compilation = compile_source_with_dumps("Main.purs", source)
+        .expect("lowering division and modulo inside a case arm");
+    assert!(compilation.dumps.mir.contains("__psrs_euclidean_int_div"));
+    assert!(compilation.dumps.mir.contains("__psrs_euclidean_int_mod"));
+    let Some(output) = super::run_with_wasmtime(source) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}

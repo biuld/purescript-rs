@@ -280,5 +280,5 @@ fn valid_function_type(module: &Module, index: u32) -> bool {
 }
 
 fn wasm_error(span: TextRange, message: &'static str) -> BackendError {
-    BackendError::new("P11 Wasm verification", span, message)
+    BackendError::invalid_ir("P11 Wasm verification", span, message)
 }

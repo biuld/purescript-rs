@@ -117,12 +117,25 @@ fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
         foreign import \"wasi:random/insecure#get-insecure-random-u64\" random :: Int\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
-    assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering"
-            && error
-                .message
-                .contains("not in the current component capability profile")
-    }));
+    let error = errors
+        .iter()
+        .find(|error| {
+            error.stage == "P9 MIR lowering"
+                && error
+                    .message
+                    .contains("not in the current component capability profile")
+        })
+        .expect("an unsupported capability profile must be rejected");
+    // A valid program the backend cannot support is classified as unsupported
+    // source, and the diagnostic keeps the foreign import's source span.
+    assert_eq!(
+        error.kind,
+        Some(psrs_backend::BackendErrorKind::UnsupportedSource)
+    );
+    assert_eq!(
+        &source[error.span.start as usize..error.span.end as usize],
+        "Int"
+    );
 }
 
 #[test]
