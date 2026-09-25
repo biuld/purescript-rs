@@ -194,7 +194,10 @@ CC operations are semantic operations over `ReprId`s, spelled by
 - generic aggregate adaptation: `AggregateConvert` with a target-neutral
   recursive conversion plan (`Identity`, scalar box/unbox, reference erasure or
   recovery, `ArrayMap`, `ProductMap`, or a function adapter);
-- structured control: `If`, which nests a then and an else assignment list.
+- structured control: `If`, which nests a then and an else assignment list;
+- closed tag dispatch: `TagSwitch`, a multi-way choice over an integer-tagged
+  value with branch-local assignment lists and a default arm, plus `Unreachable`
+  for an impossible decision-DAG edge.
 
 An operation may refer to a `ReprId`, `SignatureId`, logical field, capture
 slot, or variant tag. It may not refer to a physical field offset or a Wasm type
@@ -210,9 +213,11 @@ source and destination `ValueShape`s, and recursive conversion plan. P8 builds
 the plan from typed Core substitutions; P9 resolves abstract representation
 handles. It carries no Wasm type or physical field offset.
 
-`If` is the only control construct in CC. It is not a CFG: the branch
-assignment lists are nested and produce a value, and P9 converts them into
-basic blocks. This is deliberate — CC stays expression-shaped until the last
+`If` and the closed tag switch `TagSwitch` are the only control constructs in
+CC. Neither is a CFG: the branch assignment lists are nested and produce a
+value, and P9 converts them into basic blocks. `Unreachable` marks a branch
+that cannot be taken, such as an impossible decision-DAG edge. This is
+deliberate — CC stays expression-shaped until the last
 moment so that evaluation order and capture structure can be verified before
 control becomes a graph.
 
@@ -498,7 +503,8 @@ The CC verifier (`verify_module`, `verify_table`, `verify_function_inner`,
 - `ArraySet`'s destination is a fresh array value; its source array remains
   available and unchanged;
 - both branches of a value-producing conditional yield the declared
-  representation; and
+  representation, and every `TagSwitch` arm (including the default) does too;
+  `TagSwitch` cases have unique tags; and
 - no target type, physical layout, numeric Wasm index, or platform name occurs
   in the module.
 

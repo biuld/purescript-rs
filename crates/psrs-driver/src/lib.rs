@@ -285,3 +285,7 @@ mod generic_aggregate_audit;
 #[cfg(test)]
 #[path = "tests/polymorphism_erasure_audit.rs"]
 mod polymorphism_erasure_audit;
+
+#[cfg(test)]
+#[path = "tests/cc_ir_audit.rs"]
+mod cc_ir_audit;

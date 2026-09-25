@@ -206,3 +206,6 @@ pub struct ExternalBinding {
     pub function: String,
     pub signature: Option<SourceSignature>,
 }
+
+#[cfg(test)]
+mod tests;

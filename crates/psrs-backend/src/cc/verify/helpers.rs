@@ -82,7 +82,7 @@ fn capture_shapes(function: &Function) -> Result<Vec<ValueShape>, Vec<BackendErr
     (0..=max)
         .map(|index| {
             captures.get(&index).copied().ok_or_else(|| {
-                vec![BackendError::new(
+                vec![BackendError::invalid_ir(
                     "P8 CC verification",
                     function.span,
                     "closure capture indices must be contiguous",
@@ -104,7 +104,7 @@ fn collect_capture_shapes(
                     .get(&assignment.destination)
                     .copied()
                     .ok_or_else(|| {
-                        vec![BackendError::new(
+                        vec![BackendError::invalid_ir(
                             "P8 CC verification",
                             assignment.span,
                             "closure capture destination has no value declaration",
@@ -114,7 +114,7 @@ fn collect_capture_shapes(
                     .insert(*index, shape)
                     .is_some_and(|previous| previous != shape)
                 {
-                    return Err(vec![BackendError::new(
+                    return Err(vec![BackendError::invalid_ir(
                         "P8 CC verification",
                         assignment.span,
                         "closure capture index is read with incompatible duplicate shapes",
@@ -380,11 +380,15 @@ pub(super) fn repr_shape(representation: ReprId) -> ValueShape {
 }
 
 pub(super) fn table_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
-    vec![BackendError::new("P8 CC verification", span, message)]
+    vec![BackendError::invalid_ir(
+        "P8 CC verification",
+        span,
+        message,
+    )]
 }
 
 pub(super) fn undef_error(span: TextRange, fallback: TextRange) -> Vec<BackendError> {
-    vec![BackendError::new(
+    vec![BackendError::invalid_ir(
         "P8 CC verification",
         if span == TextRange::new(0, 0) {
             fallback
@@ -399,7 +403,7 @@ pub(super) fn assignment_error(
     assignment: &Assignment,
     message: &'static str,
 ) -> Vec<BackendError> {
-    vec![BackendError::new(
+    vec![BackendError::invalid_ir(
         "P8 CC verification",
         assignment.span,
         message,
