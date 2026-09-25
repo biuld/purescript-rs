@@ -140,6 +140,7 @@ fn mark_instruction(instruction: &mir::Instruction, required: &mut RequiredCapab
         | Instruction::StructGet { .. }
         | Instruction::StructSet { .. }
         | Instruction::ArrayNew { .. }
+        | Instruction::ArrayNewDefault { .. }
         | Instruction::ArrayGet { .. }
         | Instruction::ArrayClone { .. }
         | Instruction::ArraySet { .. }

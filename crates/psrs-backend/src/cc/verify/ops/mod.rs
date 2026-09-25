@@ -13,46 +13,11 @@ use super::scalar::{verify_binary_operation, verify_unary_operation};
 use super::variant::verify_variant_assignment;
 use tag_switch::verify_tag_switch;
 
+mod aggregate;
+mod table;
 mod tag_switch;
 
-pub(super) fn verify_table(
-    table: &RepresentationTable,
-    span: TextRange,
-) -> Result<(), Vec<BackendError>> {
-    for representation in &table.representations {
-        match representation {
-            Representation::Box { value } | Representation::Array { element: value } => {
-                verify_value_shape(value, table, span)?;
-            }
-            Representation::Product { fields } => {
-                for field in fields {
-                    verify_value_shape(field, table, span)?;
-                }
-            }
-            Representation::Variant { cases } => {
-                if cases.is_empty() {
-                    return Err(table_error(span, "CC variant has no cases"));
-                }
-                let mut tags = HashSet::new();
-                for case in cases {
-                    if !tags.insert(case.tag) {
-                        return Err(table_error(span, "CC variant tags must be unique"));
-                    }
-                    for field in &case.fields {
-                        verify_value_shape(field, table, span)?;
-                    }
-                }
-            }
-        }
-    }
-    for signature in &table.signatures {
-        for parameter in &signature.parameters {
-            verify_value_shape(parameter, table, span)?;
-        }
-        verify_value_shape(&signature.result, table, span)?;
-    }
-    Ok(())
-}
+pub(super) use table::verify_table;
 
 pub(super) fn verify_assignments(
     assignments: &[Assignment],
@@ -66,6 +31,22 @@ pub(super) fn verify_assignments(
     for assignment in assignments {
         let mut uses = Vec::new();
         match &assignment.kind {
+            AssignmentKind::AggregateConvert {
+                destination,
+                value,
+                conversion,
+            } => {
+                if assignment.destination != *destination {
+                    return Err(assignment_error(
+                        assignment,
+                        "aggregate conversion destination disagrees with its assignment",
+                    ));
+                }
+                let source = declared_shape(declared, *value, assignment)?;
+                let target = declared_shape(declared, *destination, assignment)?;
+                aggregate::verify_conversion(assignment, conversion, source, target, table)?;
+                uses.push(*value);
+            }
             AssignmentKind::Constant(value) => {
                 let destination = declared_shape(declared, assignment.destination, assignment)?;
                 if !matches!(destination, ValueShape::Integer | ValueShape::Boolean)

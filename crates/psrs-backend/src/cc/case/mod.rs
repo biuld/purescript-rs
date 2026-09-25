@@ -7,7 +7,6 @@ use psrs_span::TextRange;
 
 mod coverage;
 mod decision;
-mod erased;
 
 impl FunctionLowerer<'_> {
     /// Compiles a checked case matrix into a shared decision DAG and realizes it in CC.

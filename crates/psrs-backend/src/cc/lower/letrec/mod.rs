@@ -69,7 +69,7 @@ impl LetLowering for FunctionLowerer<'_> {
                         .collect::<Result<Vec<_>, _>>()?;
                     let shapes = values
                         .iter()
-                        .map(|value| self.value_shape(*value, binding.span))
+                        .map(|value| self.local_value_shape(*value, binding.span))
                         .collect::<Result<Vec<_>, _>>()?;
                     for function in &functions {
                         self.lower_recursive_function(function, &functions, &captures, &shapes)?;
@@ -252,7 +252,7 @@ impl FunctionLowerer<'_> {
         Ok(())
     }
 
-    fn value_shape(
+    fn local_value_shape(
         &self,
         value: ValueId,
         span: TextRange,

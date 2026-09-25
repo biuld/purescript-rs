@@ -117,7 +117,11 @@ pub fn typecheck_module_with_imports_and_effect_context(
         }
         for &index in component {
             let declaration = &module.declarations[index];
-            let Some(value) = checker.infer_expr(&declaration.value) else {
+            let expected = declaration
+                .signature
+                .as_ref()
+                .map(|_| checker.globals[&declaration.symbol].ty.clone());
+            let Some(value) = checker.infer_expr_with_expected(&declaration.value, expected) else {
                 continue;
             };
             let scheme = checker.globals[&declaration.symbol].clone();

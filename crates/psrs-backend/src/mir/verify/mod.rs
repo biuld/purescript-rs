@@ -8,6 +8,7 @@ use crate::{BackendError, TargetCapabilities};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod array_map;
 mod call;
 mod capability;
 mod function;

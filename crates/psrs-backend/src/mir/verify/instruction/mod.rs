@@ -381,6 +381,9 @@ pub(super) fn verify_instruction(
                 return Err(mir_error(*span, "MIR array.new result must be a reference"));
             }
         }
+        Instruction::ArrayNewDefault { .. } => {
+            arrays::verify_array_new_default(function, instruction, definitions, defined)?;
+        }
         Instruction::ArrayGet {
             destination,
             type_index,

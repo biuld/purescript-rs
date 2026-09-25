@@ -24,7 +24,10 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
         name: "RecordDecisionTest".into(),
         externals: Vec::new(),
         types: vec![
-            Type::Record(vec![("active".into(), psrs_core::TypeId(1))]),
+            Type::Record(vec![
+                ("z".into(), psrs_core::TypeId(2)),
+                ("active".into(), psrs_core::TypeId(1)),
+            ]),
             Type::Constructor(TypeConstructor::User(bool_type)),
             Type::I32,
         ],
@@ -94,9 +97,10 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     representations.set(
         record_repr,
         Representation::Product {
-            fields: vec![ValueShape::Integer],
+            fields: vec![ValueShape::Integer, ValueShape::Integer],
         },
     );
+    representations.set_product_labels(record_repr, vec!["active".into(), "z".into()]);
     let signatures = HashMap::new();
     let enum_types = HashSet::from([bool_type]);
     let aggregate_types = HashSet::new();
@@ -172,6 +176,12 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
             .filter(|assignment| matches!(assignment.kind, AssignmentKind::ProductGet { .. }))
             .count(),
         1
+    );
+    assert!(
+        function.assignments.iter().any(|assignment| matches!(
+            assignment.kind,
+            AssignmentKind::ProductGet { field: 0, .. }
+        ))
     );
     assert_eq!(function.assignments[0].span, branches[0].pattern.span);
     assert!(

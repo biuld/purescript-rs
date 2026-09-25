@@ -3,7 +3,7 @@ use super::super::layout::function_signature;
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
 };
-use super::call::is_erased_value_type;
+use super::call::{persist_reference, restore_reference};
 use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
 use psrs_core::{Type, TypeId};
@@ -95,28 +95,60 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
+        let concrete_function_shape = closure_value_type_for(source_signature_id);
+        let (persistent_function, restore_function_shape) = persist_reference(
+            &mut adapter,
+            concrete_function,
+            concrete_function_shape,
+            span,
+            &mut adapter_assignments,
+        );
         let mut concrete_arguments = Vec::with_capacity(adapter_arguments.len());
         for (index, argument) in adapter_arguments.into_iter().enumerate() {
             let source_parameter = source_shape.parameters[index];
             let target_parameter = target_shape.parameters[index];
-            let argument = if is_erased_value_type(source_parameter)
-                && !is_erased_value_type(target_parameter)
-            {
-                adapter.box_erased_value(argument, span, &mut adapter_assignments)?
-            } else if !is_erased_value_type(source_parameter)
-                && is_erased_value_type(target_parameter)
-            {
-                adapter.unbox_erased_value(
-                    argument,
-                    source_parameter,
-                    span,
-                    &mut adapter_assignments,
-                )?
-            } else {
-                argument
-            };
-            concrete_arguments.push(argument);
+            let conversion = adapter.typed_conversion(
+                target_parameters[index],
+                source_parameters[index],
+                target_parameter,
+                source_parameter,
+                span,
+            )?;
+            let converted = adapter.emit_conversion(
+                argument,
+                target_parameter,
+                source_parameter,
+                conversion,
+                span,
+                &mut adapter_assignments,
+            );
+            concrete_arguments.push(persist_reference(
+                &mut adapter,
+                converted,
+                source_parameter,
+                span,
+                &mut adapter_assignments,
+            ));
         }
+        let concrete_function = match restore_function_shape {
+            Some(shape) => restore_reference(
+                &mut adapter,
+                persistent_function,
+                shape,
+                span,
+                &mut adapter_assignments,
+            ),
+            None => persistent_function,
+        };
+        let concrete_arguments = concrete_arguments
+            .into_iter()
+            .map(|(value, shape)| match shape {
+                Some(shape) => {
+                    restore_reference(&mut adapter, value, shape, span, &mut adapter_assignments)
+                }
+                None => value,
+            })
+            .collect();
         let concrete_result = adapter.fresh(source_shape.result);
         adapter_assignments.push(Assignment {
             destination: concrete_result,
@@ -127,22 +159,23 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        let result = if is_erased_value_type(source_shape.result)
-            && !is_erased_value_type(target_shape.result)
-        {
-            adapter.unbox_erased_value(
-                concrete_result,
-                target_shape.result,
-                span,
-                &mut adapter_assignments,
-            )?
-        } else if !is_erased_value_type(source_shape.result)
-            && is_erased_value_type(target_shape.result)
-        {
-            adapter.box_erased_value(concrete_result, span, &mut adapter_assignments)?
-        } else {
-            concrete_result
-        };
+        let source_result_type = function_result_type(self.module, source_type);
+        let target_result_type = function_result_type(self.module, target_type);
+        let conversion = adapter.typed_conversion(
+            source_result_type,
+            target_result_type,
+            source_shape.result,
+            target_shape.result,
+            span,
+        )?;
+        let result = adapter.emit_conversion(
+            concrete_result,
+            source_shape.result,
+            target_shape.result,
+            conversion,
+            span,
+            &mut adapter_assignments,
+        );
         let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let adapter_function = Function {
             symbol,
@@ -292,172 +325,6 @@ impl FunctionLowerer<'_> {
             }
         }
     }
-
-    pub(super) fn box_erased_value(
-        &mut self,
-        value: ValueId,
-        span: psrs_span::TextRange,
-        assignments: &mut Vec<Assignment>,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        let value_type = self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == value)
-            .map(|declaration| declaration.ty)
-            .ok_or_else(|| {
-                vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "erased constructor field uses an unknown value",
-                )]
-            })?;
-        let erased = match value_type {
-            ValueShape::Integer | ValueShape::Boolean => {
-                let Some(boxed_type) = self.boxed_integer_type else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        span,
-                        "parameterized constructor has no integer box representation",
-                    )]);
-                };
-                let boxed = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(boxed_type),
-                }));
-                assignments.push(Assignment {
-                    destination: boxed,
-                    kind: AssignmentKind::ProductNew {
-                        destination: boxed,
-                        representation: boxed_type,
-                        arguments: vec![value],
-                    },
-                    span,
-                });
-                boxed
-            }
-            ValueShape::Number => {
-                let Some(boxed_type) = self.boxed_number_type else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        span,
-                        "parameterized constructor has no number box representation",
-                    )]);
-                };
-                let boxed = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(boxed_type),
-                }));
-                assignments.push(Assignment {
-                    destination: boxed,
-                    kind: AssignmentKind::ProductNew {
-                        destination: boxed,
-                        representation: boxed_type,
-                        arguments: vec![value],
-                    },
-                    span,
-                });
-                boxed
-            }
-            ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }) => value,
-            ValueShape::Reference(_) => {
-                let cast = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                }));
-                assignments.push(Assignment {
-                    destination: cast,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: cast,
-                        value,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Erased,
-                        },
-                    },
-                    span,
-                });
-                cast
-            }
-        };
-        let erased_type = self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == erased)
-            .map(|declaration| declaration.ty)
-            .expect("erased value was just allocated or already exists");
-        if erased_type
-            != ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            })
-        {
-            let cast = self.fresh(ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }));
-            assignments.push(Assignment {
-                destination: cast,
-                kind: AssignmentKind::RepresentationCast {
-                    destination: cast,
-                    value: erased,
-                    reference: Reference {
-                        nullable: false,
-                        heap: RefShape::Erased,
-                    },
-                },
-                span,
-            });
-            return Ok(cast);
-        }
-        Ok(erased)
-    }
-
-    pub(super) fn adapt_to_storage_shape(
-        &mut self,
-        value: ValueId,
-        expected: ValueShape,
-        span: psrs_span::TextRange,
-        assignments: &mut Vec<Assignment>,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        let actual = self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == value)
-            .map(|declaration| declaration.ty)
-            .ok_or_else(|| {
-                vec![BackendError::new(
-                    "P8 closure conversion",
-                    span,
-                    "stored field uses an unknown value",
-                )]
-            })?;
-        if actual == expected {
-            return Ok(value);
-        }
-        let is_erased = |shape| {
-            matches!(
-                shape,
-                ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                })
-            )
-        };
-        if is_erased(expected) {
-            self.box_erased_value(value, span, assignments)
-        } else if is_erased(actual) {
-            self.unbox_erased_value(value, expected, span, assignments)
-        } else {
-            Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "field runtime representation does not match its storage shape",
-            )])
-        }
-    }
 }
 
 fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> Vec<TypeId> {
@@ -467,6 +334,13 @@ fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> 
         type_id = *result;
     }
     parameters
+}
+
+fn function_result_type(module: &psrs_core::Module, mut type_id: TypeId) -> TypeId {
+    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
+        type_id = *result;
+    }
+    type_id
 }
 
 fn erased_reference_type() -> ValueShape {
