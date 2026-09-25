@@ -5,6 +5,10 @@ use psrs_span::TextRange;
 use std::collections::HashSet;
 use wasm_encoder::Instruction;
 
+// A function body contributes an implicit label which branches can target to
+// return from the function, even when there is no explicit block or loop.
+const FUNCTION_LABEL_DEPTH: u32 = 1;
+
 /// Checks the structural invariants of the thin Wasm IR before encoding.
 pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let mut errors = Vec::new();
@@ -75,7 +79,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             function.span,
-            0,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
@@ -92,7 +96,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             0,
             function_count,
             module.span,
-            0,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
@@ -110,7 +114,7 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             realloc.span,
-            0,
+            FUNCTION_LABEL_DEPTH,
             &mut errors,
         );
     }
