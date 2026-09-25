@@ -417,3 +417,5 @@ fn verifier_rejects_a_constructor_annotated_as_an_unrelated_type() {
         "constructor result type does not match its parent type"
     ));
 }
+
+mod dictionaries;
