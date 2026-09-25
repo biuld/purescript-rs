@@ -16,11 +16,13 @@ mod constructor;
 mod erased;
 mod global;
 mod lambda;
+mod letrec;
 mod record;
 mod scalar;
 use call::ApplicationLowering;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
+use letrec::LetLowering;
 use scalar::{lower_binary_op, lower_unary_op};
 
 /// Allocates generated callable symbols without relying on source offsets.
@@ -219,12 +221,10 @@ impl FunctionLowerer<'_> {
                 vec![BackendError::new(
                     "P8 closure conversion",
                     expression.span,
-                    "local value is unavailable; recursive or escaping local functions are unsupported",
+                    "local value is unavailable before its binding is lowered",
                 )]
             }),
-            ExprKind::Global(function) => {
-                self.lower_global(expression, *function, ty, assignments)
-            }
+            ExprKind::Global(function) => self.lower_global(expression, *function, ty, assignments),
             ExprKind::Integer(value) => {
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {
@@ -261,9 +261,7 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            ExprKind::Array { elements } => {
-                self.lower_array(expression, elements, ty, assignments)
-            }
+            ExprKind::Array { elements } => self.lower_array(expression, elements, ty, assignments),
             ExprKind::Record { fields } => self.lower_record(expression, fields, ty, assignments),
             ExprKind::RecordUpdate { record, fields } => {
                 self.lower_record_update(expression, record, fields, ty, assignments)
@@ -309,13 +307,9 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
-            ExprKind::Constructor { symbol, arguments } => self.lower_constructor(
-                expression,
-                *symbol,
-                arguments,
-                ty,
-                assignments,
-            ),
+            ExprKind::Constructor { symbol, arguments } => {
+                self.lower_constructor(expression, *symbol, arguments, ty, assignments)
+            }
             ExprKind::String(text) => {
                 let destination = self.fresh(ty);
                 assignments.push(Assignment {
@@ -355,11 +349,7 @@ impl FunctionLowerer<'_> {
             }
             ExprKind::Application(_, _) => self.lower_application(expression, ty, assignments),
             ExprKind::Let { bindings, body } => {
-                for binding in bindings {
-                    let value = self.lower_value(&binding.value, assignments)?;
-                    self.locals.insert(binding.binder.id, value);
-                }
-                self.lower_value(body, assignments)
+                self.lower_let(bindings, body, expression.span, assignments)
             }
             ExprKind::If {
                 condition,
