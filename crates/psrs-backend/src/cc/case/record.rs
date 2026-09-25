@@ -39,7 +39,7 @@ impl FunctionLowerer<'_> {
                         let Some(else_case) = fallback.take() else {
                             return Err(case_error(
                                 branch.pattern.span,
-                                "non-exhaustive record case requires a wildcard alternative",
+                                "nested record patterns require a trailing irrefutable alternative in the current lowering",
                             ));
                         };
                         fallback = Some(self.build_record_branch(

@@ -43,7 +43,7 @@ impl ExternalBindings {
                     signature: external
                         .signature
                         .as_ref()
-                        .and_then(crate::abi::source_signature),
+                        .and_then(|signature| crate::abi::source_signature(module, signature)),
                 })
             })
             .collect();
@@ -86,7 +86,7 @@ impl ExternalBindings {
             let expected_signature = external
                 .signature
                 .as_ref()
-                .and_then(crate::abi::source_signature);
+                .and_then(|signature| crate::abi::source_signature(module, signature));
             if !same_source_signature(binding.signature.as_ref(), expected_signature.as_ref()) {
                 errors.push(BackendError::new(
                     "P8 external binding validation",
@@ -153,8 +153,15 @@ impl ExternalBindings {
                 ));
                 continue;
             };
-            let abstract_signature = binding.signature.as_ref().and_then(cc::abstract_signature);
-            if abstract_signature.as_ref() != external.signature.as_ref() {
+            let signature_matches = binding
+                .signature
+                .as_ref()
+                .zip(external.signature.as_ref())
+                .is_some_and(|(source, actual)| {
+                    cc::signature_matches_source(source, actual, &module.representations)
+                })
+                || binding.signature.is_none() && external.signature.is_none();
+            if !signature_matches {
                 errors.push(BackendError::new(
                     "P9 external binding validation",
                     binding

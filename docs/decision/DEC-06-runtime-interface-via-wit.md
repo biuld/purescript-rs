@@ -5,7 +5,7 @@
 
 ## Context
 
-[D-02](../design/D-02-wasm-lowering.md) separates three layers: a
+[wasm encoding](../design/backend/wasm/encoding-and-structuring.md) separates three layers: a
 PureScript-facing library, a compiler runtime ABI, and the WASI host interface.
 The bootstrap collapsed the last two: the backend synthesizes `ps_rt_log`, hand
 codes the WASI Preview 1 `fd_write` convention, and lays out an iovec and
@@ -34,8 +34,9 @@ library is built on top of WASI; the project does not define its own host ABI.
 - The artifact is a component whose world exports `wasi:cli/run@0.2.12` and
   imports only the WASI interfaces the program uses. Because WASI is provided
   by the host, no custom adapter is needed for the interfaces we target.
-- WIT, the canonical ABI, and reference types never appear in Typed Core, THIR,
-  or MIR; only the lowest lowering knows the WASI import names and signatures.
+- WIT and canonical ABI details never appear in Typed Core or THIR. MIR may
+  carry target reference and memory types; the ABI lowering owns WASI import
+  names and signatures.
 
 ## Consequences
 

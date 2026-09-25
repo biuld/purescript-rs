@@ -1,24 +1,22 @@
 use super::convert::val_type;
 use super::{
     Body, DataIndex, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType, Function,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, Table, TableIndex, TypeIndex,
+    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, DataId, MemoryId, TableId, ValueId, ValueType};
+use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 use wasm_encoder::{Instruction, ValType};
 
-mod capability;
 mod realloc;
 mod runtime;
 mod structure;
 
-use capability::validate_target_capabilities;
 use realloc::build_realloc;
 use runtime::collect_strings;
 use structure::Structurer;
@@ -38,8 +36,7 @@ pub fn lower_module_with_capabilities(
     wasi: &mut abi::WasiRegistry,
     target: TargetCapabilities,
 ) -> Result<Module, Vec<BackendError>> {
-    mir::verify_module(module)?;
-    validate_target_capabilities(module, target)?;
+    mir::verify_module_with_capabilities(module, target)?;
     let Some(entry_symbol) = module.entry else {
         return Err(wasm_error(
             module.span,
@@ -65,67 +62,19 @@ pub fn lower_module_with_capabilities(
     }
 
     let (string_offsets, mut data, data_end) = collect_strings(module);
+    // `cabi_realloc` is needed only when an imported function returns a list or
+    // string that the host allocates in guest memory.
     let needs_realloc = module
         .imports
         .iter()
-        .any(|import| wasi.has_list_result(import.symbol))
-        || module.functions.iter().any(|function| {
-            function.blocks.iter().any(|block| {
-                block.instructions.iter().any(|instruction| {
-                    matches!(
-                        instruction,
-                        mir::Instruction::LinearAlloc { .. }
-                            | mir::Instruction::LinearClosureNew { .. }
-                    )
-                })
-            })
-        });
-    let needs_table = module.functions.iter().any(|function| {
-        function.blocks.iter().any(|block| {
-            block
-                .instructions
-                .iter()
-                .any(|instruction| matches!(instruction, mir::Instruction::LinearClosureNew { .. }))
-        })
-    });
+        .any(|import| wasi.has_list_result(import.symbol));
 
-    // MVP tables use ordinary function types. Keep linear closure signatures
-    // out of the GC rec-group section so the core module remains MVP-valid;
-    // the MIR IDs still identify those signatures before this final mapping.
-    let (type_defs, initial_types) = if !target.gc
-        && module
-            .types
-            .iter()
-            .flat_map(|group| group.0.iter())
-            .all(|definition| matches!(definition.composite, CompositeType::Func { .. }))
-    {
-        let types = module
-            .types
-            .iter()
-            .flat_map(|group| group.0.iter())
-            .filter_map(|definition| {
-                let CompositeType::Func {
-                    parameters,
-                    results,
-                } = &definition.composite
-                else {
-                    return None;
-                };
-                Some(FuncType {
-                    parameters: parameters.iter().copied().map(val_type).collect(),
-                    results: results.iter().copied().map(val_type).collect(),
-                })
-            })
-            .collect::<Vec<_>>();
-        (Vec::new(), types)
-    } else {
-        (module.types.clone(), Vec::new())
-    };
+    let type_defs = module.types.clone();
     let defined = type_defs
         .iter()
         .map(|group| group.0.len() as u32)
         .sum::<u32>();
-    let (mut types, function_types) = collect_function_types(module, defined, initial_types)?;
+    let (mut types, function_types) = collect_function_types(module, defined, Vec::new())?;
 
     // Core imports: the WASI imports MIR declared, then `exit-with-code` used
     // by the synthesized `run` entry when the target exposes WASI CLI.
@@ -187,7 +136,6 @@ pub fn lower_module_with_capabilities(
     });
 
     let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
-    let linear_allocator = needs_realloc.then_some(FunctionIndex(entry_index.0 + 1));
 
     let mut function_indices = module
         .functions
@@ -205,7 +153,6 @@ pub fn lower_module_with_capabilities(
             function_types[index],
             &function_indices,
             &string_offsets,
-            linear_allocator,
         )
         .map_err(|errors| {
             errors
@@ -217,15 +164,6 @@ pub fn lower_module_with_capabilities(
     }
 
     let main_index = FunctionIndex(import_count + entry_function.id.0);
-    let table_elements = if needs_table {
-        module
-            .functions
-            .iter()
-            .map(|function| FunctionIndex(import_count + function.id.0))
-            .collect()
-    } else {
-        Vec::new()
-    };
 
     // An imported function that returns a list/string has the host allocate the
     // buffer in guest memory, so the module must export `cabi_realloc`. The
@@ -282,17 +220,6 @@ pub fn lower_module_with_capabilities(
             minimum,
             maximum: None,
         }],
-        tables: if needs_table {
-            vec![Table {
-                id: TableId(0),
-                index: TableIndex(0),
-                minimum: module.functions.len() as u32,
-                maximum: None,
-            }]
-        } else {
-            Vec::new()
-        },
-        table_elements,
         data,
         exports,
         entry: Some(Entry {
@@ -379,7 +306,6 @@ fn lower_function(
     type_index: TypeIndex,
     function_indices: &HashMap<SymbolId, FunctionIndex>,
     string_offsets: &HashMap<String, u32>,
-    linear_allocator: Option<FunctionIndex>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -407,7 +333,6 @@ fn lower_function(
         locals,
         function_indices,
         string_offsets,
-        linear_allocator,
     };
     let mut body = Body::new();
     structurer.emit_region(source.entry, None, &mut HashSet::new(), &mut body)?;

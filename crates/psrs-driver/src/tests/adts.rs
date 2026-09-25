@@ -22,7 +22,36 @@ main = toInt (next Red)
 ";
 
 #[test]
+fn reports_a_missing_nested_constructor_as_a_coverage_witness() {
+    let source = "\
+module Main where
+data Inner = First | Second
+data Outer = Wrap Inner
+main = case Wrap First of
+  Wrap First -> 1
+";
+    let errors = compile_source("Main.purs", source).expect_err("non-exhaustive nested case");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P8 closure conversion"
+            && error.message.contains("missing pattern Wrap Second")
+    }));
+}
+
+#[test]
+fn compiles_a_wildcard_case_over_a_recursive_adt() {
+    let source = "\
+module Main where
+data List = Cons List | Nil
+main = case Cons Nil of
+  _ -> 42
+";
+    compile_source("Main.purs", source).expect("wildcard coverage over a recursive ADT");
+}
+
+#[test]
 fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
+    let artifact = compile_source("Main.purs", ENUM_SOURCE).expect("lowering enum cases");
+    assert!(artifact.wat.contains("br_table"));
     let Some(output) = run_with_wasmtime(ENUM_SOURCE) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -32,11 +61,11 @@ fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
 }
 
 #[test]
-fn lowers_enum_case_to_tag_comparisons() {
+fn lowers_enum_case_to_mir_switch_and_wasm_br_table() {
     let stages =
         psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", ENUM_SOURCE).unwrap())
             .unwrap();
-    let has_primitive = stages
+    let has_tag_switch = stages
         .cc
         .functions
         .iter()
@@ -44,10 +73,57 @@ fn lowers_enum_case_to_tag_comparisons() {
         .any(|assignment| {
             matches!(
                 assignment.kind,
-                psrs_backend::cc::AssignmentKind::Primitive { .. }
+                psrs_backend::cc::AssignmentKind::TagSwitch { .. }
             )
         });
-    assert!(has_primitive, "expected tag comparison assignments");
+    assert!(has_tag_switch, "expected a tag switch in CC");
+    let optimized_switch_is_well_formed = stages.mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            let Some(psrs_backend::mir::Terminator::Switch {
+                value,
+                cases,
+                default,
+                ..
+            }) = &block.terminator
+            else {
+                return false;
+            };
+            function.values.iter().any(|decl| decl.id == *value)
+                && cases.iter().all(|(_, target)| {
+                    function
+                        .blocks
+                        .iter()
+                        .any(|candidate| candidate.id == *target)
+                })
+                && function
+                    .blocks
+                    .iter()
+                    .any(|candidate| candidate.id == *default)
+        })
+    });
+    assert!(
+        optimized_switch_is_well_formed,
+        "P10 must preserve the selector and every MIR Switch successor"
+    );
+    assert!(stages.artifact.wat.contains("br_table"));
+}
+
+#[test]
+fn dispatches_reordered_enum_tags_and_the_default_arm_correctly() {
+    let source = "\
+module Main where
+data Color = Red | Green | Blue
+toInt color = case color of
+  Blue -> 30
+  Red -> 10
+  Green -> 20
+main = toInt Green
+";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(20));
 }
 
 #[test]

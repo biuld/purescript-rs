@@ -1,3 +1,4 @@
+use super::VariantCase;
 use super::{ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape};
 use crate::BackendError;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
@@ -210,42 +211,47 @@ pub(super) fn type_layout(
     }
 
     let mut constructor_types = HashMap::new();
-    for constructor in &module.constructors {
-        if !aggregate_types.contains(&constructor.type_id) {
-            continue;
-        }
-        if constructor.field_types.len() != constructor.field_count {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                module.span,
-                "constructor field metadata is inconsistent",
-            )]);
-        }
+    let mut aggregate_ids = aggregate_types.iter().copied().collect::<Vec<_>>();
+    aggregate_ids.sort_by_key(|id| (id.module.0, id.index));
+    for type_id in aggregate_ids {
         let id = representations.reserve();
-        constructor_types.insert(constructor.symbol, id);
-        let fields = constructor
-            .field_types
+        let mut cases = Vec::new();
+        for constructor in module
+            .constructors
             .iter()
-            .map(|field| {
-                scalar_type(
-                    module,
-                    *field,
+            .filter(|constructor| constructor.type_id == type_id)
+        {
+            if constructor.field_types.len() != constructor.field_count {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
                     module.span,
-                    enum_types,
-                    aggregate_types,
-                    newtype_ids,
-                    &array_types,
-                    &record_types,
-                    &HashMap::new(),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        representations.set(
-            id,
-            Representation::Product {
-                fields: std::iter::once(ValueShape::Integer).chain(fields).collect(),
-            },
-        );
+                    "constructor field metadata is inconsistent",
+                )]);
+            }
+            constructor_types.insert(constructor.symbol, id);
+            let fields = constructor
+                .field_types
+                .iter()
+                .map(|field| {
+                    scalar_type(
+                        module,
+                        *field,
+                        module.span,
+                        enum_types,
+                        aggregate_types,
+                        newtype_ids,
+                        &array_types,
+                        &record_types,
+                        &HashMap::new(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            cases.push(VariantCase {
+                tag: constructor.tag,
+                fields,
+            });
+        }
+        representations.set(id, Representation::Variant { cases });
     }
 
     let function_layout = functions::append_function_types(

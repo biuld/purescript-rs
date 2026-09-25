@@ -5,7 +5,12 @@ mod pattern;
 mod records;
 
 impl Checker {
-    pub(super) fn new(module: &hir::Module, imported: &HashMap<SymbolId, hir::Type>) -> Self {
+    pub(super) fn new(
+        module: &hir::Module,
+        imported: &HashMap<SymbolId, hir::Type>,
+        effect_type: Option<hir::TypeId>,
+        effect_runtime_representation: bool,
+    ) -> Self {
         let mut checker = Self {
             globals: HashMap::new(),
             external_kinds: module
@@ -49,6 +54,10 @@ impl Checker {
                     ))
                 })
                 .collect(),
+            // The driver supplies this identity only for its embedded Prelude.
+            // A module name or imported type name is not enough to establish trust.
+            effect_type,
+            effect_runtime_representation,
             constructor_info: module
                 .types
                 .iter()

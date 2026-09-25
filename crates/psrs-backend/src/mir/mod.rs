@@ -1,6 +1,6 @@
 use crate::abi::WasiRegistry;
 use crate::capability::TargetCapabilities;
-use crate::types::{FunctionId, RecGroup, TableSlot, ValueDecl, ValueId, ValueType};
+use crate::types::{FunctionId, RecGroup, ValueDecl, ValueId, ValueType};
 use crate::{BackendError, annotate_errors, cc};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -9,40 +9,40 @@ use std::collections::{HashMap, HashSet};
 mod instruction;
 mod layout;
 mod lower;
-mod lower_linear;
+mod numeric;
+pub mod opt;
 mod planner;
+#[cfg(test)]
+mod planner_tests;
 mod reachable;
+mod scalar_helpers;
 mod verify;
 mod wit;
 
-use layout::PlannedLayout;
 use lower::lower_function;
-use lower_linear::lower_function as lower_linear_function;
-use planner::{GcPlanner, LinearMemoryLayout, LinearMemoryPlanner, RepresentationPlanner};
+use planner::{GcPlanner, RepresentationPlanner};
+use scalar_helpers::lower_scalar_helpers;
 
 pub use instruction::Instruction;
-pub use verify::verify_module;
+pub use numeric::{NumericOp, UnaryOp};
+pub use verify::{verify_module, verify_module_with_capabilities};
 
 #[cfg(test)]
 mod binding_tests;
 #[cfg(test)]
-mod linear_tests;
+mod gc_tests;
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
 
-enum PlannedLayoutKind {
-    Gc(PlannedLayout),
-    Linear(LinearMemoryLayout),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub name: String,
     /// Defined GC types owned by MIR. The Wasm encoding emits them after the
-    /// function types at a fixed base; see `docs/design/D-06`.
+    /// function types at a fixed base; see
+    /// `docs/design/backend/00-ir-boundaries.md`.
     pub types: Vec<RecGroup>,
     /// Runtime ABI imports the module may call. Their canonical signatures come
     /// from the WIT runtime ABI; see `docs/decision/DEC-06`.
@@ -103,6 +103,14 @@ pub enum Terminator {
         then_block: BlockId,
         else_block: BlockId,
         merge_block: BlockId,
+        span: TextRange,
+    },
+    /// Selects a basic block using a closed integer tag. Case values are
+    /// required to be unique; the default target makes the dispatch total.
+    Switch {
+        value: ValueId,
+        cases: Vec<(i32, BlockId)>,
+        default: BlockId,
         span: TextRange,
     },
 }
@@ -178,53 +186,35 @@ pub fn lower_module_with_bindings(
                         .with_module(external.symbol.module),
                 ]
             })?;
-        wit_imports.insert(external.symbol, import);
+        wit_imports.insert(
+            external.symbol,
+            crate::abi::BoundWasiImport {
+                import,
+                signature: signature.clone(),
+            },
+        );
     }
-    let planned_layout = if target.gc {
-        let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
-            annotate_errors(
-                vec![BackendError::new(
-                    "P9 MIR lowering",
-                    module.span,
-                    format!("invalid representation table: {error:?}"),
-                )],
-                module.entry.map(|entry| entry.module),
-            )
-        })?;
-        PlannedLayoutKind::Gc(layout)
-    } else {
-        let layout = LinearMemoryPlanner.plan_module(&module).map_err(|error| {
-            annotate_errors(
-                vec![BackendError::new(
-                    "P9 MIR lowering",
-                    module.span,
-                    format!("invalid linear-memory layout request: {error:?}"),
-                )],
-                module.entry.map(|entry| entry.module),
-            )
-        })?;
-        PlannedLayoutKind::Linear(layout)
-    };
+    let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
+        annotate_errors(
+            vec![BackendError::new(
+                "P9 MIR lowering",
+                module.span,
+                format!("invalid representation table: {error:?}"),
+            )],
+            module.entry.map(|entry| entry.module),
+        )
+    })?;
+    let (scalar_helpers, generated_helpers) =
+        lower_scalar_helpers(&module, module.functions.len() as u32);
     let mut functions = Vec::with_capacity(module.functions.len());
-    let table_slots = module
-        .functions
-        .iter()
-        .enumerate()
-        .map(|(id, function)| (function.symbol, TableSlot(id as u32)))
-        .collect::<HashMap<_, _>>();
     for (id, function) in module.functions.iter().enumerate() {
-        let lowered = match &planned_layout {
-            PlannedLayoutKind::Gc(layout) => {
-                lower_function(function, FunctionId(id as u32), &wit_imports, layout)
-            }
-            PlannedLayoutKind::Linear(layout) => lower_linear_function(
-                function,
-                FunctionId(id as u32),
-                layout,
-                &wit_imports,
-                &table_slots,
-            ),
-        }
+        let lowered = lower_function(
+            function,
+            FunctionId(id as u32),
+            &wit_imports,
+            &scalar_helpers,
+            &layout,
+        )
         .map_err(|errors| {
             errors
                 .into_iter()
@@ -233,6 +223,7 @@ pub fn lower_module_with_bindings(
         })?;
         functions.push(lowered);
     }
+    functions.extend(generated_helpers);
     // Keep only the imports a lowered call actually references, so a resolved but
     // unused external does not add a Wasm import.
     let used = referenced_imports(&functions);
@@ -248,16 +239,13 @@ pub fn lower_module_with_bindings(
         .collect();
     let mir = Module {
         name: module.name,
-        types: match planned_layout {
-            PlannedLayoutKind::Gc(layout) => layout.types,
-            PlannedLayoutKind::Linear(layout) => layout.types,
-        },
+        types: layout.types,
         imports,
         functions,
         entry: module.entry,
         span: module.span,
     };
-    verify_module(&mir)?;
+    verify_module_with_capabilities(&mir, target)?;
     Ok((mir, wasi))
 }
 

@@ -307,6 +307,7 @@ fn collect_captures(expression: &Expr, bound: &mut HashSet<LocalId>, captures: &
             collect_captures(left, bound, captures);
             collect_captures(right, bound, captures);
         }
+        ExprKind::UnaryPrimitive { value, .. } => collect_captures(value, bound, captures),
         ExprKind::If {
             condition,
             then_branch,

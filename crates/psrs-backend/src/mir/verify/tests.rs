@@ -58,6 +58,110 @@ fn rejects_constants_with_incompatible_result_types() {
 }
 
 #[test]
+fn rejects_a_unary_primitive_with_mistyped_operands() {
+    let input = ValueId(0);
+    let output = ValueId(1);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "bad_unary".into(),
+        parameters: vec![input],
+        values: vec![
+            ValueDecl {
+                id: input,
+                ty: ValueType::I32,
+            },
+            ValueDecl {
+                id: output,
+                ty: ValueType::I32,
+            },
+        ],
+        entry: BlockId(0),
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            parameters: Vec::new(),
+            instructions: vec![Instruction::UnaryPrimitive {
+                destination: output,
+                op: crate::mir::UnaryOp::F64Neg,
+                value: input,
+                span: span(),
+            }],
+            terminator: Some(Terminator::Return {
+                value: output,
+                span: span(),
+            }),
+        }],
+        result: output,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("unary operand or result type")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_duplicate_switch_case_values() {
+    let selector = ValueId(0);
+    let function = Function {
+        id: crate::types::FunctionId(0),
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "duplicate_switch_cases".into(),
+        parameters: vec![selector],
+        values: vec![ValueDecl {
+            id: selector,
+            ty: ValueType::I32,
+        }],
+        entry: BlockId(0),
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Switch {
+                    value: selector,
+                    cases: vec![(7, BlockId(1)), (7, BlockId(2))],
+                    default: BlockId(2),
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Return {
+                    value: selector,
+                    span: span(),
+                }),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                parameters: Vec::new(),
+                instructions: Vec::new(),
+                terminator: Some(Terminator::Return {
+                    value: selector,
+                    span: span(),
+                }),
+            },
+        ],
+        result: selector,
+        result_type: ValueType::I32,
+        span: span(),
+    };
+    let errors = verify_module(&module_with_function(function, Vec::new())).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("case values are not unique")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_values_used_before_definition() {
     let function = Function {
         id: crate::types::FunctionId(0),
@@ -81,7 +185,7 @@ fn rejects_values_used_before_definition() {
             instructions: vec![
                 Instruction::Primitive {
                     destination: ValueId(0),
-                    op: psrs_core::Primitive::Add,
+                    op: crate::mir::NumericOp::I32Add,
                     left: ValueId(1),
                     right: ValueId(1),
                     span: span(),

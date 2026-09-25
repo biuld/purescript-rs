@@ -5,13 +5,17 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{BuiltinType, ModuleId, SymbolId, Type as HirType, TypeKind as HirTypeKind};
+use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
-use wit_parser::abi::{AbiVariant, WasmType};
-use wit_parser::{Resolve, Type as WitType, TypeDefKind};
+use wit_parser::Resolve;
+use wit_parser::abi::AbiVariant;
 
+mod classification;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use classification::source_signature;
+use classification::{param_kind, result_kind, unsupported_shape, value_type};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -45,27 +49,56 @@ pub mod names {
 /// The shape of one WIT-level parameter, which decides how a declared argument
 /// maps to canonical parameters. Several shapes flatten to the same canonical
 /// types, so the shape is kept for the lowering to adapt arguments.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WasiParamKind {
-    /// A scalar flattened to one canonical `i32` parameter.
-    Scalar,
+    /// A WIT `s32` flattened to one canonical `i32` parameter.
+    Integer32,
+    /// A WIT `bool` flattened to one canonical `i32` parameter.
+    Boolean,
+    /// A WIT character flattened to one canonical `i32` parameter.
+    Char,
     /// A 64-bit scalar flattened to one canonical `i64`. `signed` selects
     /// sign- or zero-extension when an `Int` argument is widened to it.
     Scalar64 { signed: bool },
+    /// A WIT `f32` parameter; source `Number` values are narrowed in P9.
+    Float32,
+    /// A WIT `f64` parameter represented directly by source `Number`.
+    Float64,
+    /// A WIT enum with cases that must match a nullary source data type.
+    Enum { cases: Vec<String> },
+    /// WIT flags represented by a closed source record of Booleans and
+    /// flattened to one or more canonical `i32` words.
+    Flags { names: Vec<String> },
+    /// A closed record whose fields each flatten directly to scalar values.
+    Record { fields: Vec<WasiField> },
     /// A resource handle flattened to one canonical `i32` handle.
     Handle,
     /// A string or list flattened to a `(pointer, length)` pair.
     List,
+    /// A WIT shape with no source representation in the current ABI subset.
+    Unsupported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WasiField {
+    pub name: String,
+    pub kind: WasiParamKind,
 }
 
 /// How a WIT import's result is represented, which decides how the lowering
 /// consumes it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WasiResultKind {
     /// No result.
     None,
     /// A scalar returned directly in a register.
     Scalar,
+    /// A WIT `bool` result represented by the source `Boolean` type.
+    Boolean,
+    /// A WIT enum with cases that must match a nullary source data type.
+    Enum { cases: Vec<String> },
+    /// A WIT character returned directly as a canonical `i32`.
+    Char,
     /// A `list`/`string` returned indirectly through a return pointer as a
     /// `(pointer, length)` pair.
     List,
@@ -82,11 +115,20 @@ pub enum WasiResultKind {
 /// The small source-level type vocabulary understood by the current WIT ABI
 /// adapter. It is produced while crossing the Core boundary so CC/MIR do not
 /// retain HIR type nodes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceType {
     Int,
     Boolean,
     Number,
+    Char,
+    /// A nullary data type whose cases correspond in order to WIT enum cases.
+    Enum {
+        cases: Vec<String>,
+    },
+    /// A closed PureScript record, kept structurally for ABI validation.
+    Record {
+        fields: Vec<(String, Box<SourceType>)>,
+    },
     String,
     Unit,
 }
@@ -122,6 +164,14 @@ pub struct WasiImport {
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
     pub retptr: bool,
+}
+
+/// A P9-resolved import pairs WIT's ABI description with the exact source
+/// signature needed to recover record field order after CC lowering.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundWasiImport {
+    pub import: WasiImport,
+    pub signature: SourceSignature,
 }
 
 /// Resolves WASI imports against the vendored WIT, interning each distinct
@@ -189,7 +239,7 @@ impl WasiRegistry {
         let signature = self
             .resolve
             .wasm_signature(AbiVariant::GuestImport, wit_function);
-        let param_kinds = wit_function
+        let param_kinds: Vec<WasiParamKind> = wit_function
             .params
             .iter()
             .map(|param| param_kind(&self.resolve, &param.ty))
@@ -204,6 +254,21 @@ impl WasiRegistry {
                     format!(
                         "WASI interface `{module}` is not in the current component capability profile"
                     )
+                })
+            })
+            .or_else(|| {
+                signature.indirect_params.then(|| {
+                    "WIT imports with indirectly passed parameters are not supported yet".into()
+                })
+            })
+            .or_else(|| {
+                let flattened = param_kinds
+                    .iter()
+                    .map(flattened_parameter_count)
+                    .sum::<usize>()
+                    + usize::from(signature.retptr);
+                (flattened != signature.params.len()).then(|| {
+                    "WIT parameter shapes do not match the supported direct canonical ABI".into()
                 })
             })
             .or_else(|| {
@@ -286,39 +351,33 @@ impl WasiRegistry {
             ));
         }
         for (parameter, kind) in signature.parameters.iter().zip(&import.param_kinds) {
-            let valid = match kind {
-                WasiParamKind::Scalar => {
-                    matches!(
-                        parameter,
-                        SourceType::Int | SourceType::Boolean | SourceType::Number
-                    )
-                }
-                WasiParamKind::Scalar64 { .. } | WasiParamKind::Handle => {
-                    matches!(parameter, SourceType::Int)
-                }
-                WasiParamKind::List => matches!(parameter, SourceType::String),
-            };
-            if !valid {
+            if !source_parameter_matches(parameter, kind) {
                 return Err(format!(
                     "WIT import `{}` has a source parameter with an incompatible type",
                     import.name
                 ));
             }
         }
-        let valid_result = match import.result_kind {
-            WasiResultKind::None => matches!(signature.result, SourceType::Unit),
+        let valid_result = match &import.result_kind {
+            WasiResultKind::None => matches!(&signature.result, SourceType::Unit),
             WasiResultKind::Scalar => match import.result {
                 Some(ValueType::I64) => {
-                    matches!(signature.result, SourceType::Int)
+                    matches!(&signature.result, SourceType::Int)
                 }
-                Some(ValueType::I32) => {
-                    matches!(signature.result, SourceType::Int | SourceType::Boolean)
+                Some(ValueType::I32) => matches!(&signature.result, SourceType::Int),
+                Some(ValueType::F32 | ValueType::F64) => {
+                    matches!(&signature.result, SourceType::Number)
                 }
-                Some(ValueType::F64) => matches!(signature.result, SourceType::Number),
                 _ => false,
             },
-            WasiResultKind::List => matches!(signature.result, SourceType::String),
-            WasiResultKind::Result => matches!(signature.result, SourceType::Unit),
+            WasiResultKind::Boolean => matches!(&signature.result, SourceType::Boolean),
+            WasiResultKind::Enum { cases } => matches!(
+                &signature.result,
+                SourceType::Enum { cases: source } if source == cases
+            ),
+            WasiResultKind::Char => matches!(&signature.result, SourceType::Char),
+            WasiResultKind::List => matches!(&signature.result, SourceType::String),
+            WasiResultKind::Result => matches!(&signature.result, SourceType::Unit),
             WasiResultKind::Discarded => false,
         };
         if !valid_result {
@@ -328,6 +387,81 @@ impl WasiRegistry {
             ));
         }
         Ok(())
+    }
+}
+
+fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind) -> bool {
+    match wit {
+        WasiParamKind::Integer32 => matches!(source, SourceType::Int),
+        WasiParamKind::Boolean => matches!(source, SourceType::Boolean),
+        WasiParamKind::Char => matches!(source, SourceType::Char),
+        WasiParamKind::Float32 | WasiParamKind::Float64 => matches!(source, SourceType::Number),
+        WasiParamKind::Enum { cases } => {
+            matches!(source, SourceType::Enum { cases: source } if source == cases)
+        }
+        WasiParamKind::Flags { names } => {
+            let SourceType::Record { fields } = source else {
+                return false;
+            };
+            names.len() == fields.len()
+                && names.iter().all(|name| {
+                    let source_name = source_field_name(name);
+                    fields.iter().any(|(label, ty)| {
+                        label == &source_name && matches!(ty.as_ref(), SourceType::Boolean)
+                    })
+                })
+        }
+        WasiParamKind::Scalar64 { .. } | WasiParamKind::Handle => {
+            matches!(source, SourceType::Int)
+        }
+        WasiParamKind::List => matches!(source, SourceType::String),
+        WasiParamKind::Record { fields } => {
+            let SourceType::Record {
+                fields: source_fields,
+            } = source
+            else {
+                return false;
+            };
+            if fields.len() != source_fields.len() {
+                return false;
+            }
+            fields.iter().all(|field| {
+                source_fields
+                    .iter()
+                    .find(|(label, _)| source_field_name(&field.name) == *label)
+                    .is_some_and(|(_, source)| source_parameter_matches(source, &field.kind))
+            })
+        }
+        WasiParamKind::Unsupported => false,
+    }
+}
+
+pub(crate) fn source_field_name(wit_name: &str) -> String {
+    let mut source_name = String::with_capacity(wit_name.len());
+    let mut uppercase_next = false;
+    for character in wit_name.chars() {
+        if character == '-' {
+            uppercase_next = true;
+        } else if uppercase_next {
+            source_name.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            source_name.push(character);
+        }
+    }
+    source_name
+}
+
+fn flattened_parameter_count(kind: &WasiParamKind) -> usize {
+    match kind {
+        WasiParamKind::List => 2,
+        WasiParamKind::Record { fields } => fields
+            .iter()
+            .map(|field| flattened_parameter_count(&field.kind))
+            .sum(),
+        WasiParamKind::Flags { names } => names.len().div_ceil(32),
+        WasiParamKind::Unsupported => 0,
+        _ => 1,
     }
 }
 
@@ -349,129 +483,4 @@ fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {
         "wasi:tls" => target.wasi_tls,
         _ => false,
     }
-}
-
-/// Converts a resolved HIR foreign-import type into the source-level subset
-/// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
-/// declarations remain `None` and are rejected by the ABI validation pass.
-pub(crate) fn source_signature(signature: &HirType) -> Option<SourceSignature> {
-    let mut parameters = Vec::new();
-    let mut result = signature;
-    while let HirTypeKind::Function {
-        parameter,
-        result: next,
-    } = &result.kind
-    {
-        parameters.push(source_type(parameter)?);
-        result = next.as_ref();
-    }
-    Some(SourceSignature {
-        parameters,
-        result: source_type(result)?,
-        span: signature.span,
-    })
-}
-
-fn source_type(ty: &HirType) -> Option<SourceType> {
-    match ty.kind {
-        HirTypeKind::Constructor(BuiltinType::Int) => Some(SourceType::Int),
-        HirTypeKind::Constructor(BuiltinType::Boolean) => Some(SourceType::Boolean),
-        HirTypeKind::Constructor(BuiltinType::Number) => Some(SourceType::Number),
-        HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
-        HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
-        _ => None,
-    }
-}
-
-fn unsupported_shape(
-    resolve: &Resolve,
-    function: &wit_parser::Function,
-    result_kind: &WasiResultKind,
-) -> Option<String> {
-    if function.params.iter().any(|parameter| {
-        matches!(param_kind(resolve, &parameter.ty), WasiParamKind::List)
-            && !list_is_bytes(resolve, &parameter.ty)
-    }) {
-        return Some("non-byte WIT lists are not supported by the String ABI".into());
-    }
-    if matches!(result_kind, WasiResultKind::List)
-        && let Some(result) = &function.result
-        && !list_is_bytes(resolve, result)
-    {
-        return Some("non-byte WIT list results are not supported by the String ABI".into());
-    }
-    if matches!(result_kind, WasiResultKind::Discarded) {
-        return Some(
-            "record, tuple, result, and other aggregate WIT results are not supported".into(),
-        );
-    }
-    None
-}
-
-fn list_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
-    match ty {
-        WitType::String | WitType::U8 => true,
-        WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(inner) | TypeDefKind::FixedLengthList(inner, ..) => {
-                list_element_is_bytes(resolve, inner)
-            }
-            TypeDefKind::Type(inner) => list_is_bytes(resolve, inner),
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-fn list_element_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
-    match ty {
-        WitType::U8 => true,
-        WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::Type(inner) => list_element_is_bytes(resolve, inner),
-            _ => false,
-        },
-        _ => false,
-    }
-}
-
-/// Classifies a WIT-level parameter so the lowering knows how many canonical
-/// parameters a declared argument produces. Aliases are followed.
-fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
-    match ty {
-        WitType::String => WasiParamKind::List,
-        WitType::U64 => WasiParamKind::Scalar64 { signed: false },
-        WitType::S64 => WasiParamKind::Scalar64 { signed: true },
-        WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
-            TypeDefKind::Handle(_) => WasiParamKind::Handle,
-            TypeDefKind::Type(inner) => param_kind(resolve, inner),
-            _ => WasiParamKind::Scalar,
-        },
-        _ => WasiParamKind::Scalar,
-    }
-}
-
-/// Classifies a WIT-level result so the lowering knows whether it comes back in
-/// a register, through a return pointer, or is discarded. Aliases are followed.
-fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
-    match ty {
-        WitType::String => WasiResultKind::List,
-        WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
-            TypeDefKind::Handle(_) => WasiResultKind::Scalar,
-            TypeDefKind::Result(_) => WasiResultKind::Result,
-            TypeDefKind::Enum(_) | TypeDefKind::Flags(_) => WasiResultKind::Scalar,
-            TypeDefKind::Type(inner) => result_kind(resolve, inner),
-            _ => WasiResultKind::Discarded,
-        },
-        _ => WasiResultKind::Scalar,
-    }
-}
-
-fn value_type(ty: WasmType) -> Result<ValueType, String> {
-    Ok(match ty {
-        WasmType::I32 | WasmType::Pointer | WasmType::Length => ValueType::I32,
-        WasmType::I64 | WasmType::PointerOrI64 => ValueType::I64,
-        WasmType::F32 => ValueType::F32,
-        WasmType::F64 => ValueType::F64,
-    })
 }

@@ -1,5 +1,5 @@
 //! The language-agnostic WebAssembly 3.0 value and type model shared by the
-//! low-level IRs. See `docs/design/D-06-low-level-ir-and-wasm-types.md`.
+//! low-level IRs. See `docs/design/backend/00-ir-boundaries.md`.
 
 /// A WebAssembly value type. `Boolean` is a logical convenience that the
 /// low-level IRs represent as `i32`; every other variant is a Wasm value type.
@@ -51,13 +51,6 @@ pub struct DefinedTypeId(pub u32);
 /// indices, which are assigned by P10 after all MIR resources are known.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionId(pub u32);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TableId(pub u32);
-
-/// A module-local slot in the linear closure function table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TableSlot(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MemoryId(pub u32);

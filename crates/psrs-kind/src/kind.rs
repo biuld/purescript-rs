@@ -77,9 +77,7 @@ pub fn builtin_type_kind(builtin: BuiltinType) -> Kind {
             Box::new(Kind::App(Box::new(Kind::Row), Box::new(Kind::Type))),
             Box::new(Kind::Type),
         ),
-        BuiltinType::Array | BuiltinType::Effect => {
-            Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type))
-        }
+        BuiltinType::Array => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
     }
 }
 

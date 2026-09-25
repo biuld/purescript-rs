@@ -15,20 +15,9 @@ pub(super) struct ReachableHandles {
 }
 
 impl ReachableHandles {
+    /// Computes reachability for the GC planner, whose closure environments box
+    /// integer and number captures for the `eqref` capture array.
     pub(super) fn from_module(module: &CcModule) -> Result<Self, LayoutError> {
-        Self::from_module_with_gc_boxes(module, true)
-    }
-
-    /// Computes reachability for a planner whose closure environments store
-    /// numbers directly instead of boxing them for an `eqref` capture array.
-    pub(super) fn from_module_without_gc_boxes(module: &CcModule) -> Result<Self, LayoutError> {
-        Self::from_module_with_gc_boxes(module, false)
-    }
-
-    fn from_module_with_gc_boxes(
-        module: &CcModule,
-        require_number_box: bool,
-    ) -> Result<Self, LayoutError> {
         let mut representations = HashSet::new();
         let mut signatures = HashSet::new();
         let mut representation_work = Vec::new();
@@ -71,7 +60,7 @@ impl ReachableHandles {
                 &mut signature_work,
             );
         }
-        if require_number_box && needs_integer_box {
+        if needs_integer_box {
             let id = module
                 .representations
                 .representations
@@ -88,7 +77,7 @@ impl ReachableHandles {
                 .ok_or(LayoutError::MissingIntegerBox)?;
             add_representation(id, &mut representations, &mut representation_work);
         }
-        if require_number_box && needs_number_box {
+        if needs_number_box {
             let id = module
                 .representations
                 .representations
@@ -196,6 +185,9 @@ fn add_assignments(
             ),
             AssignmentKind::ProductNew { representation, .. }
             | AssignmentKind::ProductGet { representation, .. }
+            | AssignmentKind::VariantNew { representation, .. }
+            | AssignmentKind::VariantTag { representation, .. }
+            | AssignmentKind::VariantGet { representation, .. }
             | AssignmentKind::ArrayNew { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
             | AssignmentKind::ArrayClone { representation, .. }
@@ -230,10 +222,41 @@ fn add_assignments(
                     signature_work,
                 );
             }
+            AssignmentKind::TagSwitch {
+                cases,
+                default_assignments,
+                ..
+            } => {
+                add_assignments(
+                    default_assignments,
+                    direct_calls,
+                    value_types,
+                    needs_integer_box,
+                    needs_number_box,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                );
+                for case in cases {
+                    add_assignments(
+                        &case.assignments,
+                        direct_calls,
+                        value_types,
+                        needs_integer_box,
+                        needs_number_box,
+                        representations,
+                        signatures,
+                        representation_work,
+                        signature_work,
+                    );
+                }
+            }
             AssignmentKind::Constant(_)
             | AssignmentKind::NumberConstant(_)
             | AssignmentKind::StringConstant(_)
             | AssignmentKind::Primitive { .. }
+            | AssignmentKind::Unary { .. }
             | AssignmentKind::ArrayLen { .. } => {}
             AssignmentKind::ClosureGetCapture { .. } => {
                 *needs_integer_box |=
