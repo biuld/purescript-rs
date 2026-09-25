@@ -66,8 +66,9 @@ fn captures_number_values_in_closures() {
     let source = "module Main where\n\
         use :: Number -> Int\n\
         use x = 42\n\
+        apply f y = f y\n\
         make :: Number -> Number -> Int\n\
-        make x y = (\\z -> use x) y\n\
+        make x y = apply (\\z -> use x) y\n\
         main = make 1.5 2.0\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("struct.new"));
@@ -108,6 +109,19 @@ fn exposes_readable_core_and_backend_ir_dumps() {
         );
     }
     assert!(compilation.dumps.get("wasm").is_none());
+}
+
+#[test]
+fn backend_stages_expose_core_after_p7() {
+    let core = lower_source_to_core("Main.purs", "module Main where\nmain = 1 + 2\n").unwrap();
+    let stages = psrs_backend::compile_with_stages(core).unwrap();
+    let main = stages
+        .core
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .expect("linked Core retains main");
+    assert_eq!(main.value.kind, psrs_core::ExprKind::Integer(3));
 }
 
 #[test]

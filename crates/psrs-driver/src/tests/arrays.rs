@@ -27,7 +27,7 @@ fn runs_a_concrete_number_array_literal() {
 
 #[test]
 fn runs_array_length_through_the_gc_array() {
-    let source = "module Main where\nmain = arrayLength [10, 20, 30]\n";
+    let source = "module Main where\nvalues = [10, 20, 30]\nmain = arrayLength values\n";
     let artifact = compile_source("Main.purs", source).expect("lowering array length");
     assert!(artifact.wat.contains("array.len"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -39,7 +39,7 @@ fn runs_array_length_through_the_gc_array() {
 
 #[test]
 fn runs_number_array_length_through_the_gc_array() {
-    let source = "module Main where\nmain = arrayLength [10.0, 20.0, 30.0]\n";
+    let source = "module Main where\nvalues = [10.0, 20.0, 30.0]\nmain = arrayLength values\n";
     let artifact = compile_source("Main.purs", source).expect("lowering Number array length");
     assert!(artifact.wat.contains("array.len"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -51,7 +51,7 @@ fn runs_number_array_length_through_the_gc_array() {
 
 #[test]
 fn runs_array_index_through_the_gc_array() {
-    let source = "module Main where\nmain = arrayIndex [10, 20, 30] 1\n";
+    let source = "module Main where\nvalues = [10, 20, 30]\nmain = arrayIndex values 1\n";
     let artifact = compile_source("Main.purs", source).expect("lowering array index");
     assert!(artifact.wat.contains("array.get"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -63,7 +63,7 @@ fn runs_array_index_through_the_gc_array() {
 
 #[test]
 fn runs_number_array_index_through_the_gc_array() {
-    let source = "module Main where\nuse :: Number -> Int\nuse x = 42\nmain = use (arrayIndex [10.0, 20.0, 30.0] 1)\n";
+    let source = "module Main where\nvalues = [10.0, 20.0, 30.0]\nuse :: Number -> Int\nuse x = 42\nmain = use (arrayIndex values 1)\n";
     let artifact = compile_source("Main.purs", source).expect("lowering Number array index");
     assert!(artifact.wat.contains("array.get"));
     assert!(artifact.wat.contains("f64.const"));
@@ -147,7 +147,7 @@ fn updates_an_array_of_non_null_references() {
 
 #[test]
 fn runs_an_array_of_records_through_the_gc_array() {
-    let source = "module Main where\nmain = case arrayIndex [{ answer: 42 }] 0 of\n  { answer: result } -> result\n";
+    let source = "module Main where\nvalues = [{ answer: 42 }]\nzero = 0\nmain = case arrayIndex values zero of\n  { answer: result } -> result\n";
     let artifact = compile_source("Main.purs", source).expect("lowering an array of records");
     assert!(artifact.wat.contains("array.new_fixed"));
     assert!(artifact.wat.contains("struct.new"));
@@ -160,7 +160,7 @@ fn runs_an_array_of_records_through_the_gc_array() {
 
 #[test]
 fn runs_an_array_of_data_values_through_the_gc_array() {
-    let source = "module Main where\ndata Box = Box Int\nmain = case arrayIndex [Box 42] 0 of\n  Box result -> result\n";
+    let source = "module Main where\ndata Box = Box Int\nvalues = [Box 42]\nzero = 0\nmain = case arrayIndex values zero of\n  Box result -> result\n";
     let artifact = compile_source("Main.purs", source).expect("lowering an array of data values");
     assert!(artifact.wat.contains("array.new_fixed"));
     assert!(artifact.wat.contains("struct.new"));
@@ -173,7 +173,7 @@ fn runs_an_array_of_data_values_through_the_gc_array() {
 
 #[test]
 fn runs_a_record_containing_an_array() {
-    let source = "module Main where\nmain = case { values: [40, 42] } of\n  { values: values } -> arrayIndex values 1\n";
+    let source = "module Main where\ninput = { values: [40, 42] }\nmain = case input of\n  { values: values } -> arrayIndex values 1\n";
     let artifact =
         compile_source("Main.purs", source).expect("lowering a record containing an array");
     assert!(artifact.wat.contains("array.new_fixed"));

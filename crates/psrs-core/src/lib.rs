@@ -1,5 +1,6 @@
 mod link;
 mod lower;
+pub mod opt;
 mod pattern;
 mod verify;
 
