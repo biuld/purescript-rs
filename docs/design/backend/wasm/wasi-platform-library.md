@@ -97,8 +97,8 @@ pruned so an unused service adds no import.
   application world. An import outside the enabled set is rejected during ABI
   resolution.
 - The core↔component bridge uses UTF-8 string encoding
-  (`StringEncoding::UTF8`), matching the length-prefixed UTF-8 string
-  representation ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+  (`StringEncoding::UTF8`); the canonical ABI linearizes GC strings as UTF-8
+  bytes ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 - A built component validates as a component before it is written.
 
 ## Design

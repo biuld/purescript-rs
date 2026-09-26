@@ -9,7 +9,7 @@
 
 This document owns the thin Wasm IR, the structuring of MIR control flow into
 structured regions, final index allocation, the declared element segment for
-`ref.func`, active data segments, the synthesized command entry, and binary
+`ref.func`, passive literal segments, the synthesized command entry, and binary
 emission. It does not own:
 
 - the MIR model or its CFG, which is specified in [MIR](../fp/mir.md);
@@ -50,11 +50,12 @@ import count. Types are defined types first (in the GC case, recursion groups),
 then function types. `ref.func` may only reference a function that is *declared*
 somewhere in the module, which an active or declared element segment provides.
 
-**Data segments.** Active data segments initialize linear memory at a constant
-offset. They carry the string literals and the allocator's state that the
-canonical ABI boundary needs; they are not a language object heap
+**Data segments.** Passive data segments carry the string literals, which P9
+materializes into GC strings with `array.new_data`; an active segment
+initializes the allocator's heap-state region. Together they service the
+canonical ABI boundary and are not a language object heap
 ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
-[DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)).
+[DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 
 ## Model
 
@@ -92,7 +93,8 @@ Op   = Leaf(wasm_encoder::Instruction)
 Entry        = { type_index: TypeIndex, body: Body }
 Memory       = { id: MemoryId, index: MemoryIndex,
                  minimum: u64, maximum: Option<u64> }
-DataSegment  = { id: DataId, index: DataIndex, offset: u32, bytes: [u8] }
+DataSegment  = { id: DataId, index: DataIndex,
+                 mode: Active(offset: u32) | Passive, bytes: [u8] }
 Export       = { name: String, kind: ExportKind, index: ExportIndex }
 ExportKind   = Function | Memory
 ExportIndex  = Function(FunctionIndex) | Memory(MemoryIndex)
@@ -195,15 +197,15 @@ table is installed; the segment exists only to satisfy the declaration rule.
 ### Data segments and the allocator
 
 String literals are collected once, deduplicated by content, and placed in
-active data segments. A string is an `i32` pointer to a length-prefixed UTF-8
-buffer: a 4-byte little-endian length followed by the bytes. The first 16 bytes
-of memory are a reserved scratch region (`SCRATCH_SIZE`) that holds the return
-pointer area of canonical ABI calls; string data begins after it and is
-4-aligned. When a program imports a function that returns a `list`/`string`, P10
-also emits and exports P9's specified `cabi_realloc` contract, a bump allocator
-whose free pointer
-lives in one further data segment after the string data
-([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+passive data segments; P9 materializes each into a GC string with
+`array.new_data`, so a literal is never addressed by MIR and needs no linear
+buffer ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
+The first 16 bytes of memory are a reserved scratch region (`SCRATCH_SIZE`) that
+holds the return pointer area of canonical ABI calls; the heap-state segment
+follows. When a program imports a function that returns a `list`/`string` or
+passes indirect parameters, P10 also emits and exports P9's specified
+`cabi_realloc` contract, a general allocator that allocates, frees, and reuses
+aligned blocks ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 
 ### Command entry synthesis
 
@@ -322,7 +324,7 @@ encode_module(module):
     if any defined functions:
         CodeSection: one body per function, entry, realloc (each ends with `end`)
     if data non-empty:
-        DataSection: active segments at constant i32 offsets
+        DataSection: passive literal segments and the active heap-state segment
     return module bytes
 ```
 
@@ -369,7 +371,7 @@ these types:
   local `ValType`s, body, and span.
 - `Export`, with `ExportKind` and `ExportIndex` — the export table, including
   the `memory` export and the synthesized `run` entry.
-- `DataSegment` — an active data segment at a constant offset.
+- `DataSegment` — a passive literal segment or the active heap-state segment.
 - `TypeIndex`, `FunctionIndex`, `MemoryIndex`, and `DataIndex` — the four
   distinct final index domains. They must not be interchangeable with each other
   or with any MIR identity.

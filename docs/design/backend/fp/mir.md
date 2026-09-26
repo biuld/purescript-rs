@@ -204,9 +204,11 @@ A product is a GC struct whose fields are the product's elements. A sum is an
 abstract, non-final struct carrying the tag plus one final struct per case, per
 [CC IR](cc-ir.md); a
 sum whose cases are all nullary is an immediate `i32` tag and allocates nothing.
-Arrays are GC arrays with a mutable element type. Strings are `i32` pointers to
-length-prefixed UTF-8 buffers at the canonical ABI boundary
-([linear memory boundary](../wasm/linear-memory-and-canonical-abi-boundary.md)).
+Arrays are GC arrays with a mutable element type. Strings are GC byte
+sequences, linearized into a transient buffer only at the canonical ABI
+boundary
+([linear memory boundary](../wasm/linear-memory-and-canonical-abi-boundary.md),
+[DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 Concrete arrays retain specialized element types; `Array a` uses the canonical
 generic array layout, and other dependent arrays use an array of recursively
 normalized element shapes. Dependent closed records likewise use canonical
