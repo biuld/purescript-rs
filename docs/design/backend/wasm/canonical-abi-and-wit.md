@@ -137,12 +137,12 @@ never invents source values.
 | `s64`, `u64` | `Int` | widened to/from `i64`; `Int` keeps the low 32 bits on return. |
 | `f32`, `f64` | `Number` | `f32` narrows/widens at the boundary. |
 | `char` | `Char` | both are canonical `i32`; an `Int` is rejected. |
-| `string`, `list<u8>` | `String` | length-prefixed byte buffer. |
+| `string`, `list<u8>` | `String` | a GC byte-sequence value; copied to and from a transient linear `(pointer, length)` buffer at the boundary. |
 | other `list<T>` | `Array(T)` | element-wise; not a byte list. |
 | `record` | `Record` | canonical field order by label. |
 | nullary `enum` | `Enum` | case order must match. |
 | `flags` | `Record` of `Boolean` | packed least-significant first. |
-| resource handle | opaque handle | `own`/`borrow` drop rules are future work. |
+| resource handle | opaque handle | `own<T>` transfers ownership with a drop obligation; `borrow<T>` is a call-scoped non-owning reference. |
 | `option`, `result`, non-unit `variant`, tuple | none | rejected until the standard library provides matching source types. |
 
 Two rules follow from the source language having no unsigned or narrowed integer
@@ -190,19 +190,40 @@ values, appends a return pointer when `retptr` is set, emits the call, and
 recovers the result. All adaptation instructions are ordinary MIR operations:
 
 - **Parameters.** Scalars and handles push directly; `Float32` narrows
-  (`f64 -> f32`); `Scalar64` widens (`i64.extend_i32_s/u` by WIT signedness); a
-  `String`/`list` pushes its data pointer and length; a `Record` projects fields
-  in WIT order and recurses; `Flags` packs Boolean fields into one or more `i32`
-  words in WIT declaration order.
+  (`f64 -> f32`); `Scalar64` widens (`i64.extend_i32_s/u` by WIT signedness);
+  `IntegerNarrow` masks to its width; a `String`/`list` copies its bytes into a
+  transient linear buffer and pushes `(pointer, length)`; a `Record` projects
+  fields in WIT order and recurses; `Flags` packs Boolean fields into one or
+  more `i32` words in WIT declaration order. The buffer is freed when the call
+  returns.
 - **Return pointer.** A scratch address (`PRINT_SCRATCH = 0`, inside the 16-byte
   reserved scratch region) is passed as the last argument.
 - **Results.** A scalar `i64` is wrapped to `Int`, an `f32` widened to `Number`,
   an `i32`/`f64` used directly, and a `list`/`string` read from the return area
-  as `(pointer, length)`, checked against the guest allocator's prefix, and
-  converted to the internal string pointer. A zero-length null result uses the
-  static empty-string buffer. A
+  as `(pointer, length)`, copied into a fresh GC value, and the linear buffer
+  freed. A
   `result<_, _>` with a unit success payload reads the one-byte discriminant and
   traps on a nonzero status rather than silently succeeding.
+
+### Exports and `post-return`
+
+A guest export that returns a non-scalar value is lifted through the same
+canonical ABI in reverse: the guest writes the value into its linear memory
+through `cabi_realloc`, returns the return-area pointer, and the host reads and
+copies the value. The compiler then synthesizes a `cabi_post_<name>` function
+for that export that frees the return area and every buffer it owns. The
+`wasi:cli/run` entry returns no aggregate, so it needs no `post-return`, but any
+future list-returning export does.
+
+### Resources and handles
+
+A resource handle is an index into a guest-owned resource table. `own<T>`
+transfers ownership: the receiver must eventually `resource.drop` it, and the
+lowering inserts that drop when the owning value is consumed. `borrow<T>` is a
+non-owning reference whose borrow must not outlive the call; the lowering
+releases the borrow when the call returns. A handle owned by an export result is
+released by the export's `post-return`. Handle types are declared in source with
+`foreign import data`, which mirrors a WIT resource.
 
 ### Rejected alternatives
 
@@ -277,7 +298,8 @@ layout_parameter_record(kinds):
 
 If `retptr` is set, the return-area pointer is appended after this indirect
 parameter pointer. The allocated parameter bytes remain live for the duration
-of the guest import call; the current bump allocator does not reclaim them.
+of the guest import call and are freed when the call returns
+([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 
 ### Result recovery
 
@@ -496,8 +518,10 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   integers and non-byte lists of scalars now have a source mapping
   ([Source type mapping](#source-type-mapping)); indirect parameter records are
   implemented for the currently classified parameter kinds.
-- **Resources.** `own`/`borrow` handles need `drop` insertion and lifetime rules;
-  ownership and post-return reclamation are specified but not implemented.
+- **Resources.** `own`/`borrow` handles are designed
+  ([Resources and handles](#resources-and-handles)) but not yet lowered:
+  `resource.drop` insertion, borrow scope release, and `post-return` release
+  remain implementation work.
 - **Source integration.** Parsed source can declare `Array` foreign signatures
   and reaches the ABI boundary, but non-byte lists are not lowered yet.
   Record and flags foreign signatures are not known to be reachable from
@@ -505,10 +529,6 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 - **No source type for option/result/variant/tuple.** `option`/`result`
   payloads, non-unit `variant`s, and tuples stay rejected until the standard
   library defines `Maybe`, `Either`, and tuple types the compiler can map.
-- **Allocator reclamation.** Indirect parameter tuples and returned byte lists
-  use the bump allocator and are not reclaimed. Repeated calls can grow linear
-  memory; reusing or reclaiming those areas needs a lifetime design
-  ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 - **Filesystem loader.** The standard library remains embedded; the driver's
   loader discovers user modules from the entry files' directories and follows
   the import graph ([WASI platform library](wasi-platform-library.md)). Loading
@@ -516,24 +536,24 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 ## Implementation notes
 
-Direct mappings are implemented for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
-`char`, nullary enums, resource handles, byte lists, direct records (including
-nested records with byte-list fields), and flags words. When Canonical ABI
-flattening requires indirect parameters, P9 now lays out the complete parameter
-tuple, allocates it through `cabi_realloc`, writes each canonical in-memory
-field representation, and passes the resulting pointer. This includes the
-currently classified scalar, handle, enum, flags, byte-list, and nested-record
-shapes; an artifact regression covers mixed integer, Boolean, 64-bit, and float
-fields. The unit-success `result` and scalar/list result paths remain supported.
+The current code deviates from the complete design in these ways; the gaps are
+tracked on BE-11 and BE-17..BE-20 in [D-04](../../D-04-suite-roadmap.md) and are
+implementation coverage, not design choices:
 
-The [Source type mapping](#source-type-mapping) now defines the source types for
-narrowed and unsigned WIT integers (`Int`, bit-preserving) and non-byte
-`list<T>` (`Array`). Indirect aggregate results, `option`/`result`/`variant`
-payload read-back, tuple source types, and `own`/`borrow` drop rules remain
-specified but not produced. Non-byte `Array` signatures from parsed source
-reach the ABI boundary but are not lowered; record and flags signatures remain
-reachable through backend IR fixtures. These are coverage gaps in this design,
-not a change to its canonical ABI.
+- A source `String` is still an `i32` linear pointer to a length-prefixed
+  buffer, not a GC byte-sequence value.
+- `cabi_realloc` is a bump allocator with no reclamation, and no `post-return`
+  is synthesized.
+- `own`/`borrow` handles are classified but not lowered: there is no
+  `resource.drop` insertion or borrow release.
+- Non-byte `list<T>`, `option`/`result`/`variant` payload read-back, and tuple
+  source types are not lowered.
+
+Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
+`char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct
+records with nested byte-list fields, and flags words; indirect parameter tuples
+through `cabi_realloc`; the unit-success `result` and scalar/list result paths.
+Regression tests cover those shapes.
 
 ## References
 
@@ -542,6 +562,7 @@ not a change to its canonical ABI.
 - WASI 0.2 WIT interfaces (`wasi:cli`, `wasi:io`, `wasi:clocks`, `wasi:random`).
 - `wit-parser` `Resolve::wasm_signature`, `AbiVariant`.
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md),
+  [DEC-10 — Canonical ABI Buffer Ownership and Lifetime](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
   [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
 - [MIR](../fp/mir.md), [capability profile](capability-profile.md),
   [linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
