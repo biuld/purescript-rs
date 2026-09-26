@@ -12,20 +12,24 @@ now GC `(array (mut i16))` values, each distinct literal is a passive data
 segment materialized once with `array.new_data` and interned in a lazily
 initialized module global, and the ABI adapter transcodes UTF-16 to
 and from the component's UTF-8. LM-02, LM-05, ABI-01, ABI-06, and ABI-07 are
-Verified. LM-01, LM-03, LM-04, and ABI-02..ABI-05 implement that representation
-and are In progress because `cabi_realloc` is still a bump allocator, transient
-buffers are not yet freed, and `own`/`borrow` handles are not lowered. ABI-08 is
-Blocked on source types.
+Verified. LM-01 and LM-04 implement that representation and are In progress
+because the profile still fixes one wasm32 memory and does not yet model the
+heap-state region. ABI-02 and ABI-03 are In progress for GC byte lists and
+handles. ABI-08 is Blocked on source types. The reclaiming allocator, transient
+buffer free, `post-return`, and buffer ownership moved to
+[canonical buffer allocation](canonical-buffer-allocation.md).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
 ## Scope and dependencies
 
-Complete the one-memory canonical ABI boundary, string/data segments, the bump
-allocator, static access-extent verification, and the canonical ABI lowering and
-WIT registry. The thin encoder/validator is owned by
-[Wasm encoding](wasm-encoding.md); WASI service wiring by the
-[WASI platform](wasi-platform.md). This topic owns the bytes, the allocator, and
+Complete the one-memory canonical ABI boundary: string/data segments, the static
+access-extent verification, and the canonical ABI lowering and WIT registry for
+byte lists and scalar shapes. The reclaiming allocator, buffer free, and
+`post-return` are owned by
+[canonical buffer allocation](canonical-buffer-allocation.md). The thin
+encoder/validator is owned by [Wasm encoding](wasm-encoding.md); WASI service
+wiring by the [WASI platform](wasi-platform.md). This topic owns the bytes and
 WIT adaptation.
 
 ## Acceptance matrix
@@ -36,14 +40,11 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | --- | --- | --- | --- |
 | LM-01 | The target profile selects the pointer width and the ABI memory; the stable profile uses one wasm32 memory at index 0 with deterministic memory/data index order. | Encoded modules validate; driver components run; memory64/multi-memory remain. | In progress |
 | LM-02 | Strings are GC byte sequences; each distinct literal is a passive data segment materialized once with `array.new_data` and interned in a lazily initialized module global, and the ABI linearizes strings transiently. | GC-string construction, crossing, literal interning, and execution tests. | Verified |
-| LM-03 | `cabi_realloc` is a general aligned allocator with alloc/free/realloc, reuse, alignment, overflow, and growth checks. | Allocator tests covering allocation, free, reuse, alignment, and failure. | In progress |
 | LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | In progress |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
 | ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | In progress |
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | In progress |
-| ABI-04 | Indirect parameter tuples are laid out and allocated through `cabi_realloc` and freed when the call returns. | Indirect composite parameter lowering/artifact tests plus buffer-free evidence. | In progress |
-| ABI-05 | Unit-success, scalar, and byte-list results are recovered into GC values, freeing the transient buffer. | Driver string/list result cases and multiple returned strings. | In progress |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
 | ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
@@ -101,13 +102,7 @@ LM-02:
 
 ```text
 LM-03:
-  Implementation: crates/psrs-backend/src/wasm/lower/realloc/.
-  Tests: wasm::lower::realloc::tests::
-    realloc_checks_alignment_overflow_and_growth_and_copies_old_bytes.
-  Input boundary: synthesized core module.
-  Commands: cargo test -p psrs-backend wasm::lower::realloc.
-  Result: pass.
-  Gaps: none.
+  Moved to canonical buffer allocation (ALC-01..ALC-03).
 ```
 
 ```text
@@ -119,9 +114,10 @@ LM-04:
   Input boundary: verified MIR with memory operations.
   Commands: cargo test -p psrs-backend wasm::lower::extent.
   Result: pass. GC string literals are not MIR-addressable and define no
-    region, matching the design.
-  Gaps: the heap-state region and allocator provenance for dynamic pointers
-    are not yet modeled; dynamic reads rely on the Wasm bounds trap.
+    region, matching the design; a dynamic store through a `cabi_realloc`
+    pointer is accepted and an unproven dynamic store is rejected.
+  Gaps: the heap-state region is not yet modeled; dynamic reads rely on the
+    Wasm bounds trap.
 ```
 
 ```text
@@ -179,28 +175,13 @@ ABI-03:
 
 ```text
 ABI-04:
-  Implementation: crates/psrs-backend/src/mir/wit/ (indirect parameter tuple
-    layout and cabi_realloc allocation).
-  Tests: mir::indirect_tests::composite::
-    indirect_composite_parameters_lower_to_the_canonical_layout,
-    mir::indirect_tests::indirect_canonical_parameters_lower_to_an_artifact.
-  Input boundary: verified MIR and WIT signatures.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend mir::indirect_tests.
-  Result: pass.
-  Gaps: none.
+  Moved to canonical buffer allocation (ALC-04); the indirect parameter layout
+  remains covered by ABI-03 and the canonical ABI/WIT topic.
 ```
 
 ```text
 ABI-05:
-  Implementation: crates/psrs-backend/src/mir/wit/ result recovery.
-  Tests: psrs-driver tests::wasi::
-    lowers_a_list_returning_import_with_an_allocator,
-    keeps_multiple_returned_wit_strings_in_distinct_allocations,
-    passes_a_returned_wit_string_to_another_import.
-  Input boundary: source and executed components.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: pass.
-  Gaps: indirect aggregate results remain part of ABI-06.
+  Moved to canonical buffer allocation (ALC-05).
 ```
 
 ```text
@@ -256,9 +237,10 @@ ABI-08:
 ## Remaining work and blockers
 
 Migration to the DEC-10 target: GC string representation and `array.new_data`
-literals (LM-02), the reclaiming allocator (LM-03), the re-scoped extent
-regions (LM-04), GC byte-list recovery (ABI-03/ABI-05), buffer freeing after
-calls (ABI-04), and `own`/`borrow` handles (ABI-02). ABI-08 (aggregates,
-`option`/`result`/`variant`, tuples, `post-return`) is Blocked on source types
-and frontend support for aggregate foreign signatures. These are tracked on
-BE-11 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).
+literals (LM-02), the re-scoped extent regions (LM-04), GC byte-list recovery
+(ABI-02/ABI-03), and `own`/`borrow` handles (ABI-02). The reclaiming allocator,
+buffer free, and `post-return` are tracked by
+[canonical buffer allocation](canonical-buffer-allocation.md). ABI-08
+(aggregates, `option`/`result`/`variant`, tuples) is Blocked on source types and
+frontend support for aggregate foreign signatures. These are tracked on BE-11
+and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

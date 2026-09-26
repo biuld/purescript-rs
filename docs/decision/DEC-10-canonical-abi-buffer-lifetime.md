@@ -102,5 +102,8 @@ one owner and is freed when its lifetime ends.
 - Implementation notes record the remaining deviation: strings are GC
   `(array (mut i16))` values materialized from passive segments and transcoded
   at the boundary, but `cabi_realloc` is still a bump allocator, `post-return`
-  is not synthesized, and resource handles are not lowered; feature-row
-  coverage stays in [D-04](../design/D-04-suite-roadmap.md).
+  is not synthesized, and resource handles are not lowered. The allocator,
+  buffer lifetime, and `post-return` contract is designed and tracked by
+  [canonical buffer allocation and lifetime](../design/backend/wasm/canonical-buffer-allocation-and-lifetime.md)
+  and its [checklist](../implementation/backend/canonical-buffer-allocation.md);
+  feature-row coverage stays in [D-04](../design/D-04-suite-roadmap.md).
