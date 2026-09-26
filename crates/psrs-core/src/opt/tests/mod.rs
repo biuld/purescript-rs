@@ -25,6 +25,7 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 1),

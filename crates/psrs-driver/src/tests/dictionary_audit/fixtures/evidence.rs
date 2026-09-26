@@ -160,6 +160,7 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
             thir::Type::I32,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -334,6 +335,7 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
             thir::Type::I32,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

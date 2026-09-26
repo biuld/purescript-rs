@@ -46,6 +46,7 @@ fn module_with(bad: thir::Declaration, span: TextRange) -> thir::Module {
         externals: Vec::new(),
         types: types.list(),
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(

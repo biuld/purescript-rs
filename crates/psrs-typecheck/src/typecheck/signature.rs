@@ -73,6 +73,8 @@ impl Checker {
                 } else if Some(*id) == self.effect_type {
                     InferType::Constructor(TypeConstructor::Effect)
                 } else {
+                    // Foreign data stays a nominal user constructor. Opacity is
+                    // `Module.opaque_ids`, not a separate type node and not `Int`.
                     InferType::Constructor(TypeConstructor::User(*id))
                 }
             }

@@ -63,6 +63,10 @@ pub struct Module {
     /// checker keeps these types distinct; later lowering uses this metadata
     /// to pass their field value through without allocating a wrapper.
     pub newtype_ids: Vec<HirTypeId>,
+    /// Foreign data declarations. Their type node is still
+    /// `Constructor(User(id))`; this set, with an empty constructor list, is
+    /// what keeps the type opaque. It is not a runtime layout.
+    pub opaque_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     pub span: TextRange,
@@ -195,6 +199,14 @@ impl Module {
                     }
                 }
                 _ => {}
+            }
+        }
+        for constructor in &self.constructors {
+            if self.opaque_ids.contains(&constructor.type_id) {
+                errors.push(VerifyError {
+                    span: self.span,
+                    message: "an opaque type has no constructors",
+                });
             }
         }
         for declaration in &self.declarations {
