@@ -138,9 +138,10 @@ the entry its declared `i32` result
 
 ### The platform library
 
-The platform library is source code, embedded in the driver because there is no
-filesystem module loader yet, but resolved, type-checked, and linked like any
-module. `WASI.Console` defines `log` over `writeStdout`/`getStdout`, and
+The platform library is source code under `stdlib/lib`, read from disk and
+resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
+the trusted prefix order (`Prelude`, `WASI.Console`, `WASI.Clock`).
+`WASI.Console` defines `log` over `writeStdout`/`getStdout`, and
 `WASI.Clock` defines `now` over the monotonic clock. Each WIT import is declared
 with a binding string and lowered by the generic Canonical ABI adapter
 ([canonical ABI and WIT](canonical-abi-and-wit.md)); the compiler has no
@@ -248,9 +249,9 @@ Responsibilities and required entry points:
   encode, call `command_world` and `componentize`, validate with the target's
   features, and return the component and its WAT form.
 - The WASI library must be ordinary PureScript source resolved, type-checked,
-  and linked like any other module. `psrs-driver/src/wasi.rs` must embed it and
-  define `log`, `error`, `now`, and the random operations over WIT imports; the
-  portable `Prelude` must not import WASI.
+  and linked like any other module. The driver loads it from `stdlib/lib`
+  rather than embedding it, and defines `log`, `error`, `now`, and the random
+  operations over WIT imports; the portable `Prelude` must not import WASI.
 - `psrs-cli/src/main.rs` must expose `psrs build`, `psrs wat`, and `psrs dump`.
 - `wit/psrs-app.wit` and `wit/deps/` own the vendored WASI 0.2.12 WIT sources.
 
@@ -295,8 +296,6 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 
 - **More services.** Arguments, environment, and filesystem, then sockets, HTTP,
   and TLS, each behind its own capability flag and source library.
-- **A filesystem module loader**, so libraries are discovered rather than
-  embedded in the driver.
 - **WASI 0.3 / async components**, once the language has async features and the
   runtime target is revised.
 - **Reclamation**, so returned lists and resources do not leak
@@ -307,11 +306,13 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 Console (stdout and stderr), monotonic clock, random, and exit are implemented
 and have execution tests. Filesystem, arguments, environment, sockets, HTTP, and
 TLS are specified but not implemented; their capability flags are disabled in
-the default profile. The standard library remains embedded, but the driver
-discovers user modules from the entry files' directories
-(`psrs_driver::load_program_files`): it indexes sibling `.purs` files by module
-name and follows the `import` graph, never searching names the embedded library
-provides. Resolution, duplicate-module, and cycle checks remain in P3.
+the default profile. The standard library is read from `stdlib/lib` at runtime
+(`stdlib/lib/trusted` lists `Prelude`, `WASI.Console`, and `WASI.Clock` in
+trusted-prefix order). The driver discovers user modules from the entry files'
+directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
+files by module name and follows the `import` graph, never searching names the
+on-disk library provides. Resolution, duplicate-module, and cycle checks remain
+in P3.
 
 ## References
 

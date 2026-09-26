@@ -1,11 +1,11 @@
 //! Filesystem discovery for the transitive source graph.
 //!
-//! The embedded standard library ships with the compiler; user modules are
-//! discovered from the filesystem. Given the entry files, this loader scans
-//! their directories for `.purs` files, indexes them by declared module name,
-//! and follows the `import` graph until it closes. Modules supplied by the
-//! embedded standard library are never searched. Resolution, duplicate-module
-//! checks, and cycle checks remain in P3.
+//! The standard library is read from `stdlib/lib`; user modules are discovered
+//! from the filesystem. Given the entry files, this loader scans their
+//! directories for `.purs` files, indexes them by declared module name, and
+//! follows the `import` graph until it closes. Modules supplied by the
+//! standard library are never searched. Resolution, duplicate-module checks,
+//! and cycle checks remain in P3.
 
 use crate::lower_source_to_ast;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 pub fn load_program_files(entry_paths: &[String]) -> Result<Vec<(String, String)>, String> {
     let directories = search_directories(entry_paths);
     let index = index_modules(&directories);
-    let prelude_names = embedded_module_names();
+    let prelude_names = crate::prelude::module_names()?;
 
     let mut loaded = Vec::new();
     let mut loaded_names = HashSet::new();
@@ -96,13 +96,4 @@ fn index_modules(directories: &[PathBuf]) -> HashMap<String, String> {
         }
     }
     index
-}
-
-/// The module names provided by the embedded standard library.
-fn embedded_module_names() -> HashSet<String> {
-    crate::prelude::SOURCES
-        .iter()
-        .filter_map(|(name, text)| lower_source_to_ast(name, text).ok())
-        .map(|module| module.name.text)
-        .collect()
 }
