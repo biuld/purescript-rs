@@ -10,11 +10,14 @@ with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 buffer allocation and lifetime are tracked on their own. `cabi_realloc` is now a
 reclaiming aligned allocator with free-list reuse and coalescing; call-local and
 import-result buffers are freed at the boundary; the heap-state region and
-allocator provenance are modeled. ALC-06 (`post-return` for a non-scalar
-export result) remains Blocked because `wasi:cli/run` returns a scalar and no
-list-returning export exists. An export whose result is `own<T>` does
-synthesize `cabi_post_<name>` to drop that handle; that release is the
-canonical ABI handle rule, not ALC-06's buffer free.
+allocator provenance are modeled. ALC-06 is implemented and Verified for the
+buffer-owning case: a generic `cabi_post_<name>` reads a returned `(pointer,
+length)` pair out of the canonical return area, frees the result's data buffer
+through `cabi_realloc`, then frees the return area itself, and a synthesized
+`string` export is componentized and run under Wasmtime. No source
+export can yet name a non-scalar result, so the production path does not trigger
+it; an export whose result is `own<T>` still synthesizes a `cabi_post_<name>`
+that drops that handle, which is the canonical ABI handle rule.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix),
 primarily BE-11 and BE-17..BE-20.
@@ -40,7 +43,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ALC-03 | Allocation grows memory with `memory.grow`; a failed grow and any representable-address overflow trap before allocator state is committed. | Grow-failure and overflow trap tests, plus bad-alignment and mismatched-length traps. | Verified |
 | ALC-04 | Call-local buffers — indirect parameter records and string transcode buffers — are freed when the canonical call returns. | MIR lowering plus execution evidence that repeated indirect/string calls do not grow linear memory. | Verified |
 | ALC-05 | Import-result buffers are freed after their bytes are copied into a fresh GC value. | Result-recovery lowering plus an execution test that repeatedly returns a string without growth. | Verified |
-| ALC-06 | A guest export whose lift needs linear memory gets a synthesized `cabi_post_<name>` that frees its return area and owned buffers. | Post-return synthesis test, or the precise blocker when no export has a non-scalar result. | Blocked |
+| ALC-06 | A guest export whose lift needs linear memory gets a synthesized `cabi_post_<name>` that frees its return area and owned buffers. | Post-return synthesis test, or the precise blocker when no export has a non-scalar result. | Verified |
 | ALC-07 | A dynamic MIR store is admitted only when its address is proven to come from `cabi_realloc`; other dynamic stores are rejected. | Extent fixtures for allocator-proven and unproven dynamic stores, and the heap-state region. | Verified |
 
 ## Evidence record and completion rule
@@ -53,8 +56,9 @@ commands, runtime, executed/skipped cases, revision, and gaps. Runtime cases use
 
 ## Recorded evidence
 
-Revision: the `backend/gc-string` worktree on top of `5b331c4`.
-Runtime: `wasmtime 49.0.0` under `PSRS_REQUIRE_WASMTIME=1`.
+Revision: the `backend/gc-string` worktree on top of `5b331c4`, plus the
+ALC-06 buffer post-return on top of `59d3ab2`.
+Runtime: `wasmtime 49.0.1` under `PSRS_REQUIRE_WASMTIME=1`.
 
 ```text
 ALC-01..ALC-03:
@@ -118,14 +122,45 @@ ALC-07:
     pointer; arbitrary interior arithmetic is not.
 ```
 
+```text
+ALC-06:
+  Implementation: crates/psrs-backend/src/wasm/lower/post_return/mod.rs
+    (synthesize_buffer_post_return, append_buffer_post_returns,
+    assert_no_known_post_returns); the production lowerer in
+    wasm/lower/mod.rs calls assert_no_known_post_returns because no source
+    export has a non-scalar result yet.
+  Tests: wasm::lower::post_return::tests::
+    buffer_post_return_frees_the_returned_string and
+    component_attaches_the_buffer_post_return. The first builds a core module
+    exporting `get-string` (a `string` result written through a return area) and
+    its synthesized `cabi_post_get-string`, then runs 1,000 export/post-return
+    cycles and asserts `memory.size == 1`; the second componentizes the same
+    module against `world guest { export get-string: func() -> string; }`,
+    validates it, prints it, and invokes the export under Wasmtime.
+  Input boundary: synthesized core module and component executed under
+    Wasmtime; `wit-component` attaches the post-return.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend wasm::lower::post_return.
+  Result: pass; the post-return frees the returned data buffer and the return
+    area (`cabi_realloc(ptr, len, align, 0)` for each), memory does not grow
+    across repeated calls, and `wit-component` records `post-return` on the
+    lifted export and runs it.
+  Gaps: no source-level export can name a non-scalar result, so the production
+    descriptor lists stay empty; the case is verified with a synthesized export
+    fixture (the acceptance's post-return synthesis test). Only a single
+    `(pointer, length)` result is laid out; general aggregate results remain
+    ABI-08.
+```
+
 ## Remaining work and blockers
 
-- ALC-06: the only current export, `wasi:cli/run`, returns no aggregate, so
-  there is no non-scalar export to attach a `post-return` to. Synthesis is
-  blocked until a list-returning export exists (the `SourceType::Array` /
-  aggregate source-type work tracked by ABI-08 and BE-19).
+- ALC-06 outcome is a fixture-verified synthesis path. The only current
+  production export, `wasi:cli/run`, returns no aggregate, and no source
+  construct names a non-scalar export, so `assert_no_known_post_returns` keeps
+  the descriptor lists empty. Wiring a real export (the `SourceType::Array` /
+  aggregate source-type work tracked by ABI-08 and BE-19, or a component export
+  declaration) will populate those lists, at which point the synthesis already
+  tested here runs on the production path.
 - `own<T>` / `borrow<T>` lowering lives with the canonical ABI adapter, not
   this allocator. An export whose result is an owned handle synthesizes
-  `cabi_post_<name>` to `resource.drop` that handle. ALC-06 stays blocked for
-  list and other non-scalar export results: `wasi:cli/run` still returns a
-  scalar, and no list-returning export is synthesized.
+  `cabi_post_<name>` to `resource.drop` that handle.
+

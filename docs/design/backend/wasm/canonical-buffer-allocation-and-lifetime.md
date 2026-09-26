@@ -387,8 +387,10 @@ crates/psrs-backend/src/
     wit/parameters/indirect.rs  parameter record: allocate and free around the call
   wasm/
     lower/mod.rs             heap-state data segment, memory minimum,
-                             cabi_realloc export, cabi_post_<name> synthesis
+                             cabi_realloc export, post-return wiring
     lower/realloc/mod.rs     synthesize_realloc: the aligned allocator
+    lower/post_return/mod.rs cabi_post_<name> synthesis (buffer free and
+                             owned-handle drop)
     lower/extent/mod.rs      scratch + heap-state regions
     lower/extent/access.rs   dynamic-store allocator provenance
     lower/extent/address.rs  Allocated(size) fact from a cabi_realloc call
@@ -408,9 +410,14 @@ Responsibilities and required entry points:
 - `mir/wit/mod.rs` and `mir/wit/parameters.rs` must free each call-local and
   import-result buffer at the documented point; they must not free a static
   buffer or one owned by a different class.
+- `wasm/lower/post_return/mod.rs` must synthesize `cabi_post_<name>` for an
+  export whose lift needs linear memory (free the return area and each owned
+  buffer) or whose flat result is an owned handle (drop it). Required entry
+  points: `fn synthesize_buffer_post_return(...)` and
+  `fn synthesize_owned_handle_post_return(...)`.
 - `wasm/lower/mod.rs` must place the heap-state words, set the memory minimum
-  to cover the initial heap, and synthesize `cabi_post_<name>` for every export
-  whose lift needs linear memory.
+  to cover the initial heap, and wire the export descriptors to the post-return
+  synthesis.
 - `wasm/lower/extent.rs` must resolve the scratch and heap-state regions and
   require `cabi_realloc` provenance for a dynamic store; a store through an
   unproven dynamic pointer is rejected.
@@ -486,19 +493,30 @@ otherwise the whole block is handed out.
 
 ## Implementation notes
 
-The allocator and buffer-free path match this design. The remaining deviations
-are coverage, not choices:
+The allocator and buffer-free path match this design. `post-return`
+synthesis is implemented for both result shapes: an export whose flat result is
+a single owned handle gets a `(i32) -> ()` function that calls `resource.drop`
+on it, and an export whose result is lifted through a return area gets a
+`(i32 ret_area) -> ()` function that frees the result's data buffer and then
+the return area through `cabi_realloc`. The remaining deviation is coverage, not
+a choice:
 
-- `cabi_post_<name>` is not synthesized for a list or other non-scalar buffer
-  result, because `wasi:cli/run` returns no aggregate and no list-returning
-  export exists. An export whose result is `own<T>` does get `cabi_post_<name>`,
-  and that function calls `resource.drop` on the returned handle.
+- No source construct names a non-scalar export, and the only production
+  export, `wasi:cli/run`, returns no aggregate, so the lowerer's
+  `assert_no_known_post_returns` keeps both descriptor lists empty. The
+  synthesis is verified with a synthesized `string`-returning export fixture:
+  its core module is run under Wasmtime for 1,000 export/post-return cycles
+  without growing linear memory, and `wit-component` attaches the post-return
+  when the fixture is componentized. A component export declaration or the
+  aggregate source-type work populates the lists on the production path.
+- Only a single `(pointer, length)` result is laid out. General aggregate
+  results remain ABI-08.
 - Handle drop and borrow release are lowered by the canonical ABI adapter.
   An owned handle returned as `Int` from a non-export function is not tracked
   in the caller.
 
-The synthesized allocator body lives in
-`wasm/lower/realloc/` and shares the `wasm/lower/asm.rs` structured-instruction
+The synthesized post-return functions live in
+`wasm/lower/post_return/` and share the `wasm/lower/asm.rs` structured-instruction
 builder with the string codec. Coverage is tracked by ALC-01..ALC-07 in the
 [implementation checklist](../../implementation/backend/canonical-buffer-allocation.md).
 

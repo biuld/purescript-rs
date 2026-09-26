@@ -599,7 +599,11 @@ implementation coverage, not design choices. The allocator, buffer free, and
 - `cabi_realloc` is a reclaiming allocator. `wasi:cli/run` still returns a
   scalar, so that export has no `post-return`. An export whose canonical
   result is `own<T>` gets `cabi_post_<name>`, which calls `resource.drop` on
-  the returned handle.
+  the returned handle. An export whose result is lifted through a return area
+  gets a `cabi_post_<name>` that frees the result's data buffer and the return
+  area; the synthesis is implemented and verified with a synthesized
+  `string`-returning export because no source construct names a non-scalar
+  export yet.
 - An owned handle that a non-export function returns as `Int` is not dropped
   in that function and is not tracked after the return. Handles nested inside
   an unsupported aggregate are not dropped. A borrow result is released by
