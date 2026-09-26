@@ -1,4 +1,3 @@
-use crate::abi::{SourceSignature, SourceType};
 use crate::cc::{self, Assignment, AssignmentKind, External, Signature, ValueDecl, ValueShape};
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -34,40 +33,6 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     resolve
         .push_str("indirect-composite.wit", &wit)
         .expect("the composite indirect WIT fixture should resolve");
-
-    let cases = vec!["Red".into(), "Green".into(), "Blue".into()];
-    let flag_source = SourceType::Record {
-        fields: vec![
-            ("audit".into(), Box::new(SourceType::Boolean)),
-            ("debug".into(), Box::new(SourceType::Boolean)),
-            ("execute".into(), Box::new(SourceType::Boolean)),
-            ("read".into(), Box::new(SourceType::Boolean)),
-            ("write".into(), Box::new(SourceType::Boolean)),
-        ],
-    };
-    let details_source = SourceType::Record {
-        fields: vec![
-            (
-                "state".into(),
-                Box::new(SourceType::Enum {
-                    cases: cases.clone(),
-                }),
-            ),
-            ("text".into(), Box::new(SourceType::String)),
-        ],
-    };
-    let payload_source = SourceType::Record {
-        fields: vec![
-            ("access".into(), Box::new(flag_source)),
-            ("details".into(), Box::new(details_source)),
-            (
-                "shade".into(),
-                Box::new(SourceType::Enum {
-                    cases: cases.clone(),
-                }),
-            ),
-        ],
-    };
 
     let flags_shape = product_shape(0);
     let details_shape = product_shape(1);
@@ -106,7 +71,6 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     let mut assignments = Vec::new();
     let mut call_arguments = Vec::new();
     let mut external_parameters = vec![ValueShape::Integer; 14];
-    let mut source_parameters = vec![SourceType::Int; 14];
     for index in 0..14_u32 {
         let id = ValueId(index);
         values.push(ValueDecl {
@@ -221,7 +185,6 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     });
     call_arguments.push(payload);
     external_parameters.push(payload_shape);
-    source_parameters.push(payload_source);
 
     let call_result = ValueId(25);
     values.push(ValueDecl {
@@ -265,11 +228,6 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
             symbol: external_symbol,
             interface: "wasi:io/streams".into(),
             function: "take-shapes".into(),
-            signature: Some(SourceSignature {
-                parameters: source_parameters,
-                result: SourceType::Unit,
-                span: span(),
-            }),
             type_id: None,
             span: span(),
         }],

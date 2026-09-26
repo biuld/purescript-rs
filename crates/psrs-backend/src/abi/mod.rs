@@ -5,7 +5,9 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
+#[cfg(test)]
+use psrs_hir::TypeId as HirTypeId;
+use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
@@ -19,6 +21,7 @@ mod lists;
 mod tests;
 mod validation;
 
+#[cfg(test)]
 pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
 pub(crate) use flatten::FlatSlot;
@@ -28,7 +31,9 @@ pub use lists::ListElement;
 pub(crate) use lists::{element_layout, from_param as list_element};
 #[cfg(test)]
 use validation::source_parameter_matches;
-use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
+#[cfg(test)]
+use validation::validate_import_signature;
+use validation::{flattened_parameter_count, wasi_interface_enabled};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -187,9 +192,8 @@ pub enum WasiResultKind {
     Discarded,
 }
 
-/// The small source-level type vocabulary understood by the current WIT ABI
-/// adapter. It is produced while crossing the Core boundary so CC/MIR do not
-/// retain HIR type nodes.
+/// The small source-level type vocabulary used by test fixtures.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceType {
     Int,
@@ -217,6 +221,7 @@ pub enum SourceType {
     },
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceSignature {
     pub parameters: Vec<SourceType>,
@@ -461,9 +466,9 @@ impl WasiRegistry {
     }
 
     /// Checks that a source-declared foreign import has a type that can be
-    /// represented by the canonical ABI adapter. This is deliberately done
-    /// before CC/MIR lowering: matching only arity would let an `Int` be used
-    /// for a resource or a non-byte list be treated as a `String`.
+    /// represented by the canonical ABI adapter. Test-only: production
+    /// conformance runs against the resolved Core type.
+    #[cfg(test)]
     #[allow(clippy::unused_self)]
     pub fn validate_signature(
         &self,

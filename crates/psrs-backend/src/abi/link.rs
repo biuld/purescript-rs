@@ -6,7 +6,6 @@
 //! representation of the same type used elsewhere in the module. This replaces
 //! recovering the type by structural search at the CC boundary.
 
-use super::classification::source_enum_type;
 use super::flatten::{self, FlatSlot};
 use super::validation::enum_cases;
 use super::{WasiField, WasiImport, WasiParamKind, WasiResultKind, source_field_name};
@@ -40,7 +39,7 @@ fn intern_into(
         }
         HirTypeKind::Opaque(type_id) => CoreType::Constructor(TypeConstructor::User(*type_id)),
         HirTypeKind::Named(type_id) => {
-            source_enum_type(constructors, *type_id)?;
+            enum_cases(constructors, *type_id)?;
             CoreType::Constructor(TypeConstructor::User(*type_id))
         }
         HirTypeKind::Application(function, argument) => {

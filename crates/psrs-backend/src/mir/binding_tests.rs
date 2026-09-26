@@ -1,5 +1,4 @@
 use super::lower_module_with_bindings;
-use crate::abi::{SourceSignature, SourceType};
 use crate::cc::{self, Assignment, AssignmentKind, External, Signature, ValueDecl, ValueShape};
 use crate::{ExternalBinding, ExternalBindings};
 use psrs_hir::{FOREIGN_SYMBOL_BASE, ModuleId, SymbolId};
@@ -11,11 +10,6 @@ fn span() -> TextRange {
 
 fn input(call: bool) -> (cc::Module, ExternalBindings) {
     let external = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
-    let source_signature = SourceSignature {
-        parameters: Vec::new(),
-        result: SourceType::Int,
-        span: span(),
-    };
     let assignment = if call {
         Assignment {
             destination: crate::types::ValueId(0),
@@ -63,7 +57,6 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
             symbol: external,
             interface: crate::abi::names::STDOUT.into(),
             function: crate::abi::names::GET_STDOUT.into(),
-            signature: Some(source_signature),
             type_id: None,
             span: span(),
         }],
@@ -171,11 +164,6 @@ fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
             symbol: external,
             interface: crate::abi::names::STDOUT.into(),
             function: crate::abi::names::GET_STDOUT.into(),
-            signature: Some(SourceSignature {
-                parameters: Vec::new(),
-                result: SourceType::Int,
-                span: span(),
-            }),
             type_id: None,
             span: span(),
         }],
