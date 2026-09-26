@@ -26,7 +26,14 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         span: span(),
     })
     .expect("the loop fixture should satisfy MIR invariants");
-    let lowered = lower_function(source, TypeIndex(0), &HashMap::new(), &HashMap::new()).unwrap();
+    let lowered = lower_function(
+        source,
+        TypeIndex(0),
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+    )
+    .unwrap();
     let module = Module {
         name: source.name.clone(),
         imports: Vec::new(),
@@ -45,6 +52,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         }],
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     };

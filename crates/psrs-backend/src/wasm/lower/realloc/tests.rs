@@ -217,6 +217,7 @@ fn fixture() -> Module {
         .collect(),
         entry: None,
         realloc: Some(realloc),
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     }

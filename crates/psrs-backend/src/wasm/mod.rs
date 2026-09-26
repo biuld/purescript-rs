@@ -1,6 +1,6 @@
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
-use wasm_encoder::{Instruction, ValType};
+use wasm_encoder::{HeapType, Instruction, ValType};
 
 use crate::types::{DataId, MemoryId};
 
@@ -29,6 +29,26 @@ pub struct MemoryIndex(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DataIndex(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GlobalIndex(pub u32);
+
+/// A module-level global variable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Global {
+    pub index: GlobalIndex,
+    pub mutable: bool,
+    pub ty: ValType,
+    pub init: GlobalInit,
+}
+
+/// A global's constant initializer. Only the forms the backend emits are
+/// modeled; the encoder maps each to a `wasm_encoder::ConstExpr`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlobalInit {
+    /// `ref.null` of the given heap type.
+    RefNull(HeapType),
+}
 
 /// A WebAssembly function signature in the thin Wasm IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,6 +183,7 @@ pub struct Module {
     pub type_defs: Vec<crate::types::RecGroup>,
     pub functions: Vec<Function>,
     pub memories: Vec<Memory>,
+    pub globals: Vec<Global>,
     pub data: Vec<DataSegment>,
     pub exports: Vec<Export>,
     pub entry: Option<Entry>,

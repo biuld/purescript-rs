@@ -1,9 +1,9 @@
-use super::{Body, ExportIndex, ExportKind, Module, Op};
+use super::{Body, ExportIndex, ExportKind, GlobalInit, Module, Op};
 use crate::BackendError;
 use crate::types::CompositeType;
 use psrs_span::TextRange;
 use std::collections::HashSet;
-use wasm_encoder::Instruction;
+use wasm_encoder::{Instruction, RefType, ValType};
 
 // A function body contributes an implicit label which branches can target to
 // return from the function, even when there is no explicit block or loop.
@@ -35,6 +35,27 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             errors.push(wasm_error(
                 module.span,
                 "Wasm memory IDs or indices are not deterministic",
+            ));
+        }
+    }
+    let mut global_indices = HashSet::new();
+    for (position, global) in module.globals.iter().enumerate() {
+        if !global_indices.insert(global.index) || global.index.0 != position as u32 {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm global indices are duplicated or not deterministic",
+            ));
+        }
+        if let GlobalInit::RefNull(heap) = global.init
+            && global.ty
+                != ValType::Ref(RefType {
+                    nullable: true,
+                    heap_type: heap,
+                })
+        {
+            errors.push(wasm_error(
+                module.span,
+                "Wasm global initializer type does not match its value type",
             ));
         }
     }
@@ -249,6 +270,11 @@ fn verify_instruction(
         }
         Instruction::Call(index) if *index >= function_count => {
             errors.push(wasm_error(span, "Wasm function index is out of range"));
+        }
+        Instruction::GlobalGet(index) | Instruction::GlobalSet(index)
+            if *index >= module.globals.len() as u32 =>
+        {
+            errors.push(wasm_error(span, "Wasm global index is out of range"));
         }
         Instruction::RefFunc(index) if *index >= function_count => {
             errors.push(wasm_error(span, "Wasm ref.func index is out of range"));

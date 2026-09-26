@@ -99,7 +99,8 @@ values.
 - The scratch region `[0, SCRATCH_END)` and the heap-state region are owned by
   the canonical allocator; no language value is stored there.
 - Passive data segments hold static literal bytes only; MIR never addresses
-  them. A literal becomes a GC string with `array.new_data`.
+  them. A distinct literal becomes a GC string once with `array.new_data` and is
+  interned in a lazily initialized mutable global shared by every use.
 - An access whose address is statically known must fit wholly inside the
   scratch region, the heap-state region, or a proven allocation. Accesses with
   dynamic addresses rely on WebAssembly's runtime bounds check and trap when out
@@ -128,12 +129,14 @@ is unaffected ([IR boundaries](../00-ir-boundaries.md)).
 ### Strings as GC values and static literals
 
 A source `String` is a GC byte-sequence value. String literals are encoded once
-as passive read-only data segments, deduplicated by content, and materialized
-into GC strings with `array.new_data`; a literal is never addressed by MIR and
-needs no linear buffer. Passing a string to an import copies its bytes into a
-transient linear buffer allocated by `cabi_realloc`, passes `(pointer, length)`,
-and frees the buffer when the call returns. Reading a returned string copies the
-host-written bytes into a fresh GC string and then frees the linear buffer.
+as passive read-only data segments, deduplicated by content, and each distinct
+literal is materialized into a GC string exactly once with `array.new_data` and
+interned in a lazily initialized mutable module global that every use reads; a
+literal is never addressed by MIR and needs no linear buffer. Passing a string
+to an import copies its bytes into a transient linear buffer allocated by
+`cabi_realloc`, passes `(pointer, length)`, and frees the buffer when the call
+returns. Reading a returned string copies the host-written bytes into a fresh GC
+string and then frees the linear buffer.
 
 ### The canonical allocator
 
@@ -407,8 +410,10 @@ Responsibilities and required entry points:
   types. Required entry point:
   `fn verify_memory(instruction, types) -> Result<(), Diagnostic>`.
 - `wasm/lower/runtime.rs` must collect and deduplicate string literals, encode
-  them as passive data segments, materialize each into a GC string with
-  `array.new_data`, and own the heap-state segment. Required entry point:
+  them as passive data segments, allocate one mutable `(ref null $string)` global
+  per distinct used literal for lazy interning, and own the heap-state segment.
+  The structurer emits `array.new_data` once per literal behind that global's
+  `ref.is_null` guard. Required entry point:
   `fn plan_data_segments(strings, layout) -> DataSegments`.
 - `wasm/lower/realloc.rs` must synthesize the general `cabi_realloc` allocator
   with the standard `(old_ptr, old_len, align, new_len) -> i32` signature and
@@ -513,8 +518,9 @@ BE-11 in [D-04](../../D-04-suite-roadmap.md):
   does not yet select a pointer width or additional memories.
 
 Strings and literals match the complete design: a source `String` is the GC
-`(array (mut i16))` type, literals are passive data segments materialized with
-`array.new_data`, and the ABI adapter transcodes UTF-16 to and from the
+`(array (mut i16))` type, literals are passive data segments materialized once
+with `array.new_data` and interned in a lazily initialized mutable global, and
+the ABI adapter transcodes UTF-16 to and from the
 component's UTF-8 (invalid sequences and unpaired surrogates become U+FFFD). The
 static MIR access-extent pass now covers only the scratch region, since GC
 string literals are not MIR-addressable. The thin-IR verifier, the Wasm
