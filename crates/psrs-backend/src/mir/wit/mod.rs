@@ -7,6 +7,7 @@
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
 mod handles;
+mod lists;
 mod parameters;
 
 pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
@@ -41,6 +42,19 @@ pub(super) trait WitCallLowerer {
 
     /// An `own<T>` argument consumes a previously noted handle.
     fn transfer_owned(&mut self, _value: ValueId) {}
+
+    /// The GC array type of a source array value, when this lowerer has layouts.
+    fn wit_array_type(
+        &self,
+        _value: ValueId,
+        span: TextRange,
+    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
+        Err(vec![BackendError::new(
+            "P9 MIR lowering",
+            span,
+            "canonical list lowering has no GC array type",
+        )])
+    }
 }
 
 /// A call-local buffer that must be freed once the canonical call returns. The
@@ -49,6 +63,9 @@ pub(super) struct PendingFree {
     pub pointer: ValueId,
     pub length: ValueId,
     pub align: i32,
+    /// Element count of a `list<string>` parameter whose payloads must be freed
+    /// after the host has copied them. `length` remains the byte size.
+    pub string_elements: Option<ValueId>,
 }
 
 impl WitCallLowerer for FunctionLowerer<'_> {
@@ -81,6 +98,28 @@ impl WitCallLowerer for FunctionLowerer<'_> {
 
     fn transfer_owned(&mut self, value: ValueId) {
         self.transfer_owned_handle(value);
+    }
+
+    fn wit_array_type(
+        &self,
+        value: ValueId,
+        span: TextRange,
+    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
+        match self.value_type(value) {
+            Some(ValueType::Ref(reference)) => match reference.heap {
+                crate::types::HeapType::Index(index) => Ok(index),
+                _ => Err(vec![BackendError::new(
+                    "P9 MIR lowering",
+                    span,
+                    "canonical list value is not a concrete GC array",
+                )]),
+            },
+            _ => Err(vec![BackendError::new(
+                "P9 MIR lowering",
+                span,
+                "canonical list value is not a GC array",
+            )]),
+        }
     }
 }
 
@@ -176,6 +215,18 @@ pub(super) fn lower<L: WitCallLowerer>(
             // The host-allocated import result is copied into the GC string;
             // free it before returning control to source.
             free_buffer(lowerer, pointer, length, 1, current, span)?;
+        }
+        abi::WasiResultKind::ValueList { element } => {
+            lists::read_value_list_result(
+                lowerer,
+                import,
+                element,
+                destination,
+                flat,
+                retptr,
+                current,
+                span,
+            )?;
         }
         abi::WasiResultKind::Scalar
         | abi::WasiResultKind::Handle(_)
@@ -343,6 +394,9 @@ pub(super) fn lower<L: WitCallLowerer>(
     // Call-local buffers (string transcode buffers and indirect parameter
     // records) are owned by this function and freed once the call returns.
     for pending in frees.iter().rev() {
+        if let Some(count) = pending.string_elements {
+            lists::free_string_elements(lowerer, pending.pointer, count, current, span)?;
+        }
         free_buffer(
             lowerer,
             pending.pointer,
@@ -371,7 +425,7 @@ pub(super) fn lower<L: WitCallLowerer>(
 }
 
 /// Frees a transient canonical buffer through `cabi_realloc(ptr, len, align, 0)`.
-fn free_buffer<L: WitCallLowerer>(
+pub(super) fn free_buffer<L: WitCallLowerer>(
     lowerer: &mut L,
     pointer: ValueId,
     length: ValueId,

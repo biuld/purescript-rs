@@ -42,7 +42,11 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
         HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
         HirTypeKind::Opaque(type_id) => Some(SourceType::Resource { type_id: *type_id }),
         HirTypeKind::Named(type_id) => source_enum_type(module, *type_id),
-        HirTypeKind::Application(function, _) => {
+        HirTypeKind::Application(function, argument) => {
+            if is_source_array(function) {
+                let element = source_type(module, argument)?;
+                return array_source(element);
+            }
             let type_id = user_type_id(function)?;
             source_enum_type(module, type_id)
         }
@@ -59,6 +63,25 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
             fields.sort_by(|left, right| left.0.cmp(&right.0));
             Some(SourceType::Record { fields })
         }
+        _ => None,
+    }
+}
+
+fn is_source_array(ty: &HirType) -> bool {
+    matches!(ty.kind, HirTypeKind::Constructor(BuiltinType::Array))
+}
+
+/// Arrays cross the ABI only for elements that already have a scalar or string
+/// lowering. Nested arrays, records, and handles stay unsupported.
+fn array_source(element: SourceType) -> Option<SourceType> {
+    match element {
+        SourceType::Int
+        | SourceType::Boolean
+        | SourceType::Number
+        | SourceType::Char
+        | SourceType::String => Some(SourceType::Array {
+            element: Box::new(element),
+        }),
         _ => None,
     }
 }
@@ -105,7 +128,7 @@ pub(super) fn unsupported_shape(
     if function
         .params
         .iter()
-        .any(|parameter| contains_non_byte_list(resolve, &parameter.ty))
+        .any(|parameter| contains_rejected_list(resolve, &parameter.ty, false))
     {
         return Some("non-byte WIT lists are not supported by the String ABI".into());
     }
@@ -120,8 +143,8 @@ pub(super) fn unsupported_shape(
     }) {
         return Some("WIT parameter shape has no source ABI mapping yet".into());
     }
-    if matches!(result_kind, WasiResultKind::List)
-        && let Some(result) = &function.result
+    if let Some(result) = &function.result
+        && contains_rejected_list(resolve, result, false)
         && !list_is_bytes(resolve, result)
     {
         return Some("non-byte WIT list results are not supported by the String ABI".into());
@@ -163,6 +186,63 @@ fn list_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
     }
 }
 
+/// Classifies the element of a variable-length list. Byte elements stay the
+/// string list. A string or `list<u8>` element is one string inside the outer
+/// list. Another list, a record, a handle, or `option` is unsupported.
+fn classify_variable_list(resolve: &Resolve, inner: &WitType) -> WasiParamKind {
+    if list_element_is_bytes(resolve, inner) {
+        return WasiParamKind::List;
+    }
+    match classify_list_element(resolve, inner) {
+        kind @ (WasiParamKind::Integer32
+        | WasiParamKind::IntegerNarrow { .. }
+        | WasiParamKind::Boolean
+        | WasiParamKind::Char
+        | WasiParamKind::Scalar64 { .. }
+        | WasiParamKind::Float32
+        | WasiParamKind::Float64
+        | WasiParamKind::List) => WasiParamKind::ValueList {
+            element: Box::new(kind),
+        },
+        _ => WasiParamKind::Unsupported,
+    }
+}
+
+fn classify_list_element(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
+    if string_like_element(resolve, ty) {
+        return WasiParamKind::List;
+    }
+    if is_list_type(resolve, ty) {
+        return WasiParamKind::Unsupported;
+    }
+    param_kind(resolve, ty)
+}
+
+fn string_like_element(resolve: &Resolve, ty: &WitType) -> bool {
+    match ty {
+        WitType::String => true,
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::Type(inner) => string_like_element(resolve, inner),
+            TypeDefKind::List(inner) | TypeDefKind::FixedLengthList(inner, _) => {
+                list_element_is_bytes(resolve, inner)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn is_list_type(resolve: &Resolve, ty: &WitType) -> bool {
+    match ty {
+        WitType::Id(id) => match &resolve.types[*id].kind {
+            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => true,
+            TypeDefKind::Type(inner) => is_list_type(resolve, inner),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn list_element_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
     match ty {
         WitType::U8 => true,
@@ -174,42 +254,60 @@ fn list_element_is_bytes(resolve: &Resolve, ty: &WitType) -> bool {
     }
 }
 
-/// Finds lists nested inside records as well as top-level list parameters.
-/// Source records can carry byte-list fields directly, but a non-byte list
-/// would require an element layout the String ABI does not provide.
-fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
+/// A top-level `list<T>` of a supported element is lowered. The same list nested
+/// in a record, tuple, option, result, or variant is still rejected, as is any
+/// list whose element has no scalar or string lowering.
+fn contains_rejected_list(resolve: &Resolve, ty: &WitType, nested: bool) -> bool {
     match ty {
         WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => !list_is_bytes(resolve, ty),
+            TypeDefKind::List(inner) => {
+                !(list_element_is_bytes(resolve, inner)
+                    || (!nested && supported_list_element(resolve, inner)))
+            }
+            TypeDefKind::FixedLengthList(inner, _) => !list_element_is_bytes(resolve, inner),
             TypeDefKind::Record(record) => record
                 .fields
                 .iter()
-                .any(|field| contains_non_byte_list(resolve, &field.ty)),
+                .any(|field| contains_rejected_list(resolve, &field.ty, true)),
             TypeDefKind::Tuple(tuple) => tuple
                 .types
                 .iter()
-                .any(|ty| contains_non_byte_list(resolve, ty)),
-            TypeDefKind::Option(inner) => contains_non_byte_list(resolve, inner),
+                .any(|ty| contains_rejected_list(resolve, ty, true)),
+            TypeDefKind::Option(inner) => contains_rejected_list(resolve, inner, true),
             TypeDefKind::Result(result) => {
                 result
                     .ok
                     .as_ref()
-                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+                    .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
                     || result
                         .err
                         .as_ref()
-                        .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+                        .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
             }
             TypeDefKind::Variant(variant) => variant.cases.iter().any(|case| {
                 case.ty
                     .as_ref()
-                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+                    .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
             }),
-            TypeDefKind::Type(inner) => contains_non_byte_list(resolve, inner),
+            TypeDefKind::Type(inner) => contains_rejected_list(resolve, inner, nested),
             _ => false,
         },
         _ => false,
     }
+}
+
+fn supported_list_element(resolve: &Resolve, ty: &WitType) -> bool {
+    matches!(
+        classify_list_element(resolve, ty),
+        WasiParamKind::Integer32
+            | WasiParamKind::IntegerNarrow { .. }
+            | WasiParamKind::Boolean
+            | WasiParamKind::Char
+            | WasiParamKind::Scalar64 { .. }
+            | WasiParamKind::Float32
+            | WasiParamKind::Float64
+            | WasiParamKind::List
+    )
 }
 
 /// Classifies a WIT-level parameter so lowering knows how many canonical
@@ -241,7 +339,14 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
         WitType::U64 => WasiParamKind::Scalar64 { signed: false },
         WitType::S64 => WasiParamKind::Scalar64 { signed: true },
         WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
+            TypeDefKind::List(inner) => classify_variable_list(resolve, inner),
+            TypeDefKind::FixedLengthList(inner, _) => {
+                if list_element_is_bytes(resolve, inner) {
+                    WasiParamKind::List
+                } else {
+                    WasiParamKind::Unsupported
+                }
+            }
             TypeDefKind::Handle(handle) => classify_handle(resolve, handle),
             TypeDefKind::Enum(enum_) => WasiParamKind::Enum {
                 cases: enum_
@@ -290,7 +395,7 @@ fn direct_parameter(kind: &WasiParamKind) -> bool {
         WasiParamKind::Record { fields } => {
             fields.iter().all(|field| direct_parameter(&field.kind))
         }
-        WasiParamKind::List => true,
+        WasiParamKind::List | WasiParamKind::ValueList { .. } => true,
         WasiParamKind::Unsupported => false,
     }
 }
@@ -302,7 +407,18 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         WitType::String => WasiResultKind::List,
         WitType::Char => WasiResultKind::Char,
         WitType::Id(id) => match &resolve.types[*id].kind {
-            TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
+            TypeDefKind::List(inner) => match classify_variable_list(resolve, inner) {
+                WasiParamKind::List => WasiResultKind::List,
+                WasiParamKind::ValueList { element } => WasiResultKind::ValueList { element },
+                _ => WasiResultKind::Discarded,
+            },
+            TypeDefKind::FixedLengthList(inner, _) => {
+                if list_element_is_bytes(resolve, inner) {
+                    WasiResultKind::List
+                } else {
+                    WasiResultKind::Discarded
+                }
+            }
             TypeDefKind::Handle(handle) => classify_result_handle(resolve, handle),
             TypeDefKind::Result(_) => WasiResultKind::Result,
             TypeDefKind::Enum(enum_) => WasiResultKind::Enum {

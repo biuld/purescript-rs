@@ -307,9 +307,11 @@ newtype Age = Age Int
 unAge (Age number) = number
 main = unAge (Age 42)
 ";
-    let stages =
-        psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", source).unwrap())
-            .unwrap();
+    // Lower without the trusted Prelude so the assertion covers only the
+    // program's own representations; the standard library links unrelated
+    // aggregate types that never appear here.
+    let core = lower_program_to_core(&[("Main.purs", source)]).expect("the newtype program links");
+    let stages = psrs_backend::compile_with_stages(core).unwrap();
     assert!(
         stages
             .cc

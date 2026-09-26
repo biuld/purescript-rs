@@ -3,7 +3,7 @@
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Draft  
 **Prerequisites:** the Canonical ABI's flat signature (`Resolve::wasm_signature`: scalars, `string` as `(pointer, length)`, `option`/`result` as a discriminant plus a payload), and the difference between a PureScript foreign import and the host glue behind it. Read [DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md), [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md), [canonical ABI and WIT](canonical-abi-and-wit.md), and [WASI platform library](wasi-platform-library.md) first.  
-**Summary:** The host interface stays the WASI 0.2 canonical ABI. Foreign imports the lowerer is specified to accept use only primitive source types, and the user-facing standard library is ordinary PureScript that wraps those imports. The compiler does not grow a source type for `Maybe`, `Either`, or tuples. A wrapper may pass a WIT aggregate only as primitive arguments whose flattening matches the canonical signature; a multi-value return stays unavailable.
+**Summary:** The host interface stays the WASI 0.2 canonical ABI. Foreign imports the lowerer is specified to accept use primitive source types and `Array` of a supported element for a non-byte `list<T>`, and the user-facing standard library is ordinary PureScript that wraps those imports. The compiler does not grow a source type for `Maybe`, `Either`, or tuples. A wrapper may pass a WIT aggregate only as primitive arguments whose flattening matches the canonical signature; a multi-value return stays unavailable.
 
 ## Scope
 
@@ -82,6 +82,23 @@ source type for handles.
 `Unit` is a result type. It contributes no canonical parameter, so a `Unit`
 parameter does not validate.
 
+### Non-byte lists
+
+A WIT `list<T>` that is not a byte list lowers to the source type `Array a`,
+where `a` is a supported element type. It is the one parameterized source type a
+foreign import may use:
+
+| Source type | Canonical role |
+| --- | --- |
+| `Array Int`, `Array Boolean`, `Array Number`, `Array Char`, `Array String` (and the narrowed-integer, `s64`/`u64`, and `f32` extensions) | a non-byte `list<T>`: the lowerer copies elements between the GC array and the canonical `(pointer, length)` buffer |
+
+`Array String` is a `list<string>`: its elements are themselves `(pointer,
+length)` pairs, transcoded element-wise and freed after the call. A `list<u8>`
+stays `String`, not `Array Int`. A nested `Array (Array _)`, an array of
+records, handles, tuples, or `option` values has no source mapping and is
+rejected. `Array` is not a compiler encoding of any aggregate; it is the source
+type for a non-byte WIT list of an element that already maps.
+
 ### Two layers
 
 ```text
@@ -114,10 +131,13 @@ that whole result can be expressed as one primitive.
 
 `SourceType` has no `Option`, `Result`, or `Tuple` form. The lowerer does not
 recognize `Maybe`, `Either`, or tuples by constructor name (`Nothing`/`Just`,
-`Left`/`Right`) or by `_1`/`_2` record labels.
+`Left`/`Right`) or by `_1`/`_2` record labels. Its `Array` form is not an
+aggregate encoding either: it exists only for a non-byte WIT `list<T>` whose
+element already maps.
 
 The normative set for a new standard-library foreign import is the primitives
-above. A `Maybe`, `Either`, tuple, `option`, or other new aggregate still
+above, plus `Array` of a supported element for a non-byte `list<T>`. A `Maybe`,
+`Either`, tuple, `option`, or other new aggregate still
 produces no `SourceType` and is rejected.
 
 The existing enum, closed-record, and flags-record lowering still accepts

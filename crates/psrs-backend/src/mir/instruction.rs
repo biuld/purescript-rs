@@ -4,6 +4,17 @@ use crate::types::{DataId, DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
+/// Which way a [`Instruction::ListCopy`] moves elements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListDirection {
+    /// Copy the GC array into the canonical buffer.
+    Store,
+    /// Allocate a GC array and fill it from the canonical buffer.
+    Load,
+    /// Free string payloads stored in a `list<string>` parameter buffer.
+    FreeStrings,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
     Copy {
@@ -269,6 +280,17 @@ pub enum Instruction {
         signed: bool,
         span: TextRange,
     },
+    /// Element-wise copy between a GC array and a canonical `list<T>` buffer.
+    /// P10 emits the loop; the extent checker only checks allocator provenance.
+    ListCopy {
+        direction: ListDirection,
+        array: ValueId,
+        array_type: DefinedTypeId,
+        pointer: ValueId,
+        length: ValueId,
+        element: crate::abi::ListElement,
+        span: TextRange,
+    },
     /// Trap when a canonical ABI status value is nonzero.
     TrapIf { condition: ValueId, span: TextRange },
     /// Produce a typed result on an unreachable path; Wasm's stack-polymorphic
@@ -313,6 +335,11 @@ impl Instruction {
             | Self::WrapI64 { destination, .. }
             | Self::WidenI64 { destination, .. }
             | Self::Unreachable { destination, .. } => Some(*destination),
+            Self::ListCopy {
+                direction: ListDirection::Load,
+                array,
+                ..
+            } => Some(*array),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -322,7 +349,11 @@ impl Instruction {
             | Self::StoreF32 { .. }
             | Self::StoreF64 { .. }
             | Self::CallVoid { .. }
-            | Self::TrapIf { .. } => None,
+            | Self::TrapIf { .. }
+            | Self::ListCopy {
+                direction: ListDirection::Store | ListDirection::FreeStrings,
+                ..
+            } => None,
         }
     }
 
@@ -380,6 +411,19 @@ impl Instruction {
                 ..
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
+            Self::ListCopy {
+                direction: ListDirection::Load | ListDirection::FreeStrings,
+                pointer,
+                length,
+                ..
+            } => vec![*pointer, *length],
+            Self::ListCopy {
+                direction: ListDirection::Store,
+                array,
+                pointer,
+                length,
+                ..
+            } => vec![*array, *pointer, *length],
             Self::Store { address, value, .. }
             | Self::Store8 { address, value, .. }
             | Self::Store16 { address, value, .. }
@@ -436,7 +480,8 @@ impl Instruction {
             | Self::WrapI64 { span, .. }
             | Self::WidenI64 { span, .. }
             | Self::TrapIf { span, .. }
-            | Self::Unreachable { span, .. } => *span,
+            | Self::Unreachable { span, .. }
+            | Self::ListCopy { span, .. } => *span,
         }
     }
 }

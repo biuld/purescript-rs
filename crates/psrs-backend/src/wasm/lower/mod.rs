@@ -176,7 +176,7 @@ pub fn lower_module_with_capabilities(
     // The GC string type index is carried by the reserved helper imports' value
     // types, so the synthesized codec names the same concrete type MIR does.
     let string_type = if needs_helpers {
-        let string_type = string_type_from_imports(module)
+        let string_type = codec::string_type_from_imports(module)
             .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
         function_indices.insert(
             abi::STRING_TO_BYTES_SYMBOL,
@@ -358,26 +358,6 @@ impl SynthesizedIndices {
     }
 }
 
-/// The GC string defined-type index, read from a reserved codec import's value
-/// type. It is present exactly when the adapter needed a string transcode.
-fn string_type_from_imports(module: &mir::Module) -> Option<crate::types::DefinedTypeId> {
-    for import in &module.imports {
-        if import.symbol != abi::STRING_TO_BYTES_SYMBOL
-            && import.symbol != abi::BYTES_TO_STRING_SYMBOL
-        {
-            continue;
-        }
-        for ty in import.parameters.iter().chain(import.result.iter()) {
-            if let ValueType::Ref(reference) = ty
-                && let HeapType::Index(index) = reference.heap
-            {
-                return Some(index);
-            }
-        }
-    }
-    None
-}
-
 fn lower_function(
     source: &MirFunction,
     type_index: TypeIndex,
@@ -386,6 +366,10 @@ fn lower_function(
     literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
+    let list_locals = structure::uses_list_copy(source).then(|| {
+        let index = source.values.len() as u32;
+        (index, index + 1)
+    });
     let parameters = source
         .parameters
         .iter()
@@ -412,11 +396,16 @@ fn lower_function(
         function_indices,
         string_lengths,
         literal_globals,
+        list_locals,
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
     structurer.emit_load(source.result, source.span, &mut body)?;
     let mut locals = local_types;
+    if list_locals.is_some() {
+        locals.push(ValType::I32);
+        locals.push(ValType::I32);
+    }
     if uses_dispatcher {
         locals.push(ValType::I32);
     }
