@@ -239,9 +239,10 @@ SP-08:
   Commands: common commands above
   Result: pass; executed under Wasmtime
   Revision: f2c43af + this worktree
-  Gaps: the backend obligation is met; astral Unicode scalar literals are
-    rejected by the frontend lexer before reaching the backend, and invalid
-    Char remains a type-checking invariant, so both stay frontend-owned.
+  Gaps: none for the backend. Astral scalar literals (`'\x1F600'`) now pass
+    the frontend lexer and type checker; `char_operations_preserve_astral_scalar_values`
+    executes the existing `charToInt` / `charEq` path. Invalid `Char` values
+    remain a type-checking invariant.
 ```
 
 ```text
@@ -323,8 +324,8 @@ SP-12:
 
 ## Remaining work and blockers
 
-- Astral `Char` literals are rejected by the frontend lexer; that limitation
-  belongs to the frontend, not this topic.
+- Astral `Char` literals are accepted by the frontend lexer and type checker.
+  Backend scalar layout is unchanged.
 
 Implementation deviation: the worked example names the helpers
 `__psrs_floor_int_div`/`__psrs_floor_int_mod`, while the code emits
