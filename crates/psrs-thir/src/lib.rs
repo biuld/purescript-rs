@@ -75,6 +75,11 @@ pub struct Module {
     pub opaque_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
+    /// Qualified names of the type declarations this module declares, keyed by
+    /// their stable id. Carried so later stages can recognize well-known
+    /// library types (for example `Data.Maybe.Maybe`) after names are otherwise
+    /// dropped.
+    pub type_names: Vec<(HirTypeId, String)>,
     pub span: TextRange,
 }
 

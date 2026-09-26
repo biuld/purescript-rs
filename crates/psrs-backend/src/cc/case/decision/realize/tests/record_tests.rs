@@ -20,6 +20,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     let true_symbol = SymbolId::new(module_id, 0);
     let false_symbol = SymbolId::new(module_id, 1);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "RecordDecisionTest".into(),
         externals: Vec::new(),

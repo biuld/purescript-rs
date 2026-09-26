@@ -22,6 +22,7 @@ fn symbol(index: u32) -> SymbolId {
 fn module() -> Module {
     let u = HirTypeId::new(ModuleId(0), 1);
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "RecordOracleTest".into(),
         externals: Vec::new(),

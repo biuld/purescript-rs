@@ -19,6 +19,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
     let true_symbol = SymbolId::new(module_id, 1);
     let false_symbol = SymbolId::new(module_id, 2);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "NewtypeDecisionTest".into(),
         externals: Vec::new(),

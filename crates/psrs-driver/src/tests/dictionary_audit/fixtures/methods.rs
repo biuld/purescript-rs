@@ -69,6 +69,7 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
@@ -316,6 +317,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
         signature: None,
     };
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: vec![

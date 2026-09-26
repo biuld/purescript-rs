@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn verifier_rejects_invalid_type_references() {
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
@@ -38,6 +39,7 @@ fn verifier_rejects_invalid_type_references() {
 fn verifier_checks_instance_context_against_constructor_parameters() {
     let dictionary = TypeId(1);
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
@@ -92,6 +94,7 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
 fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
     let dictionary = TypeId(1);
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

@@ -75,6 +75,10 @@ pub struct Module {
     pub opaque_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
+    /// Qualified names of the type declarations in this module, keyed by their
+    /// stable id. Retained from HIR so the backend can recognize well-known
+    /// library types after names are otherwise dropped.
+    pub type_names: Vec<(HirTypeId, String)>,
     /// The declaration used as the program entry point, if one was selected.
     /// The backend lowers this symbol rather than inferring identity from a
     /// source name. See `docs/design/backend/wasm/encoding-and-structuring.md`.

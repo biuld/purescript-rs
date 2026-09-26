@@ -251,6 +251,7 @@ mod tests {
 
     fn module(types: Vec<Type>) -> Module {
         Module {
+            type_names: Vec::new(),
             id: ModuleId(0),
             name: "DictionaryLayout".into(),
             externals: Vec::new(),

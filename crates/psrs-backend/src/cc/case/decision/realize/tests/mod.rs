@@ -25,6 +25,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
     let true_symbol = SymbolId::new(module_id, 0);
     let false_symbol = SymbolId::new(module_id, 1);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "DecisionRealizeTest".into(),
         externals: Vec::new(),

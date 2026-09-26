@@ -12,6 +12,7 @@ mod resources;
 
 fn empty_core_module() -> psrs_core::Module {
     psrs_core::Module {
+        type_names: Vec::new(),
         id: psrs_hir::ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

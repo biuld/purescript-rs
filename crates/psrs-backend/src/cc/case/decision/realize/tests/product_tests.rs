@@ -19,6 +19,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
     let type_id = HirTypeId::new(module_id, 0);
     let constructor = SymbolId::new(module_id, 0);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "ProductDecisionTest".into(),
         externals: Vec::new(),

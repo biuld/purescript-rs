@@ -13,6 +13,7 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
     let array_a = TypeId(3);
     let record_a = TypeId(4);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "RecordPayloadLayoutTest".into(),
         externals: Vec::new(),
@@ -79,6 +80,7 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
 
 fn empty_module(types: Vec<Type>) -> Module {
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "LayoutKeysTest".into(),
         externals: Vec::new(),
@@ -234,6 +236,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         span: psrs_span::TextRange::new(0, 1),
     };
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "SignatureInterningTest".into(),
         externals: Vec::new(),
@@ -310,6 +313,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
 fn integer_capture_module(capture: Type) -> Module {
     let symbol = SymbolId::new(ModuleId(0), 0);
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "IntegerCaptureTest".into(),
         externals: Vec::new(),

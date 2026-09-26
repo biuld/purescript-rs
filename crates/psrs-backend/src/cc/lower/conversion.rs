@@ -356,6 +356,7 @@ mod tests {
     #[test]
     fn unsupported_typed_boundary_reports_its_source_span() {
         let module = psrs_core::Module {
+            type_names: Vec::new(),
             id: ModuleId(0),
             name: "ConversionDiagnostic".into(),
             externals: Vec::new(),

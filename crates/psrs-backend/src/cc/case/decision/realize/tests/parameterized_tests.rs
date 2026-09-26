@@ -22,6 +22,7 @@ fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
     let wrap_a = psrs_core::TypeId(4);
     let local = LocalId(77);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "ParameterizedArrayDecisionTest".into(),
         externals: Vec::new(),
@@ -132,6 +133,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
     let outer_a = psrs_core::TypeId(6);
     let local = LocalId(81);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "NestedParameterizedDecisionTest".into(),
         externals: Vec::new(),
@@ -268,6 +270,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
     let record_a = psrs_core::TypeId(3);
     let local = LocalId(88);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "GenericRecordDecisionTest".into(),
         externals: Vec::new(),

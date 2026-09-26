@@ -134,6 +134,7 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
@@ -313,6 +314,7 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
