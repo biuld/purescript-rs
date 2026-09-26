@@ -224,6 +224,67 @@ fn rejects_a_record_pattern_with_an_unknown_field() {
 }
 
 #[test]
+fn typechecks_an_open_record_row_by_label() {
+    let source = "\
+module Main where
+getX :: forall r. { x :: Int | r } -> Int
+getX record = record.x
+setX :: forall r. { x :: Int | r } -> String -> { x :: String | r }
+setX record value = record { x = value }
+same :: forall r. { y :: Boolean, x :: Int | r } -> Int
+same record = getX record
+swapped :: forall s. { x :: Int, y :: Boolean | s } -> Int
+swapped record = same record
+main = swapped { y: true, x: 1 }
+";
+    check_source("Main.purs", source).expect("open rows should type check");
+    let errors = compile_source("Main.purs", source).expect_err("open rows have no runtime layout");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("open record rows have no runtime layout")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_missing_open_record_field_and_a_duplicate_label() {
+    let missing = "\
+module Main where
+getX :: forall r. { x :: Int | r } -> Int
+getX record = record.x
+main = getX { y: true }
+";
+    let errors = check_source("Main.purs", missing).expect_err("missing label");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck" && error.message.contains("record has no field `x`")
+    }));
+    let hidden = "\
+module Main where
+getY :: forall r. { x :: Int | r } -> Int
+getY record = record.y
+main = 0
+";
+    let errors = check_source("Main.purs", hidden).expect_err("rigid tail");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck" && error.message.contains("record has no field `y`")
+    }));
+    let duplicate = "\
+module Main where
+bad :: { x :: Int, x :: Boolean } -> Int
+bad record = record.x
+main = bad { x: 1 }
+";
+    let errors = check_source("Main.purs", duplicate).expect_err("duplicate label");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck"
+            && error
+                .message
+                .contains("record label `x` occurs more than once")
+    }));
+}
+
+#[test]
 fn rejects_open_record_patterns() {
     let source =
         "module Main where\nmain = case { answer: 1 } of\n  { answer: value ..rest } -> value\n";

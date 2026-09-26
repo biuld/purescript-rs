@@ -53,6 +53,13 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
                     .map(|(label, field)| (label, TypeId(field.0)))
                     .collect(),
             ),
+            psrs_thir::Type::OpenRecord { fields, tail } => Type::OpenRecord {
+                fields: fields
+                    .into_iter()
+                    .map(|(label, field)| (label, TypeId(field.0)))
+                    .collect(),
+                tail: TypeId(tail.0),
+            },
             psrs_thir::Type::Function { parameter, result } => Type::Function {
                 parameter: TypeId(parameter.0),
                 result: TypeId(result.0),

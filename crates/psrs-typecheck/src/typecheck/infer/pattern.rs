@@ -58,15 +58,15 @@ impl Checker {
             hir::PatternKind::Record { fields } => {
                 let expected = self.resolve_type(expected.clone());
                 let record_fields = match &expected {
-                    InferType::Record(fields) => fields.clone(),
+                    InferType::Record(record) => record.fields.clone(),
                     InferType::Variable(_) => {
-                        let mut fields = fields
+                        let fields = fields
                             .iter()
                             .map(|(label, _)| (label.clone(), self.fresh()))
                             .collect::<Vec<_>>();
-                        fields.sort_by(|left, right| left.0.cmp(&right.0));
-                        self.unify(expected.clone(), InferType::Record(fields.clone()), span);
-                        fields
+                        let record = InferRecord::closed(fields);
+                        self.unify(expected.clone(), InferType::Record(record.clone()), span);
+                        record.fields
                     }
                     _ => {
                         self.errors.push(TypeCheckError::new(

@@ -24,7 +24,7 @@ impl Checker {
             .map(|(label, value)| (label.clone(), value.ty.clone()))
             .collect::<Vec<_>>();
         record_fields.sort_by(|left, right| left.0.cmp(&right.0));
-        let ty = InferType::Record(record_fields);
+        let ty = InferType::Record(InferRecord::closed(record_fields));
         Some((InferredExprKind::Record(inferred), ty))
     }
 
@@ -35,29 +35,27 @@ impl Checker {
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
         let expression = self.infer_expr(expression)?;
-        let record_ty = self.resolve_type(expression.ty.clone());
-        let InferType::Record(fields) = record_ty else {
-            self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::UnsupportedExpression,
-                span,
-                "field access requires a concrete record type",
-            ));
-            return None;
+        let field_ty = self.fresh();
+        let tail = match self.fresh() {
+            InferType::Variable(variable) => variable,
+            _ => unreachable!("fresh inference types are variables"),
         };
-        let Some((_, field_ty)) = fields.iter().find(|(label, _)| label == field) else {
-            self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::TypeMismatch,
-                span,
-                format!("record has no field `{field}`"),
-            ));
-            return None;
-        };
+        // `{ field :: a | r }`. A closed record solves `r`; a missing label
+        // cannot extend a closed or rigid tail.
+        self.unify(
+            expression.ty.clone(),
+            InferType::Record(InferRecord {
+                fields: vec![(field.to_owned(), field_ty.clone())],
+                tail: RowTail::Open(tail),
+            }),
+            span,
+        );
         Some((
             InferredExprKind::FieldAccess {
                 expression: Box::new(expression),
                 field: field.to_owned(),
             },
-            field_ty.clone(),
+            field_ty,
         ))
     }
 
@@ -68,17 +66,8 @@ impl Checker {
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
         let expression = self.infer_expr(expression)?;
-        let record_ty = self.resolve_type(expression.ty.clone());
-        let InferType::Record(record_fields) = record_ty.clone() else {
-            self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::UnsupportedExpression,
-                span,
-                "record update requires a concrete record type",
-            ));
-            return None;
-        };
-
         let mut inferred = Vec::with_capacity(fields.len());
+        let mut probed = Vec::with_capacity(fields.len());
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
@@ -89,24 +78,40 @@ impl Checker {
                 ));
                 continue;
             }
-            let Some((_, field_ty)) = record_fields.iter().find(|(name, _)| name == label) else {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::TypeMismatch,
-                    span,
-                    format!("record has no field `{label}`"),
-                ));
-                continue;
-            };
             let value = self.infer_expr(value)?;
-            self.unify(field_ty.clone(), value.ty.clone(), value.span);
+            probed.push((label.clone(), self.fresh()));
             inferred.push((label.clone(), value));
         }
+        probed.sort_by(|left, right| left.0.cmp(&right.0));
+        let tail = match self.fresh() {
+            InferType::Variable(variable) => variable,
+            _ => unreachable!("fresh inference types are variables"),
+        };
+        // The original record must contain the updated labels. Their new types
+        // replace those labels and share the un-updated tail. `Prim.Row.Cons`
+        // would be required to update a label that is only in an unknown tail.
+        self.unify(
+            expression.ty.clone(),
+            InferType::Record(InferRecord {
+                fields: probed,
+                tail: RowTail::Open(tail),
+            }),
+            span,
+        );
+        let mut result_fields = inferred
+            .iter()
+            .map(|(label, value)| (label.clone(), value.ty.clone()))
+            .collect::<Vec<_>>();
+        result_fields.sort_by(|left, right| left.0.cmp(&right.0));
         Some((
             InferredExprKind::RecordUpdate {
                 expression: Box::new(expression),
                 fields: inferred,
             },
-            record_ty,
+            InferType::Record(InferRecord {
+                fields: result_fields,
+                tail: RowTail::Open(tail),
+            }),
         ))
     }
 }

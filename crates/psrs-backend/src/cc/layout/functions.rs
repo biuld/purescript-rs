@@ -463,6 +463,12 @@ fn record_type(
                 record_type(module, *field, visiting, referenced);
             }
         }
+        Some(Type::OpenRecord { fields, tail }) => {
+            record_type(module, *tail, visiting, referenced);
+            for (_, field) in fields {
+                record_type(module, *field, visiting, referenced);
+            }
+        }
         _ => {}
     }
 }

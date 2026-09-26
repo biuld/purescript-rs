@@ -92,6 +92,13 @@ fn shift_type(ty: &Type, offset: u32) -> Type {
                 .map(|(label, field)| (label.clone(), shift_id(*field, offset)))
                 .collect(),
         ),
+        Type::OpenRecord { fields, tail } => Type::OpenRecord {
+            fields: fields
+                .iter()
+                .map(|(label, field)| (label.clone(), shift_id(*field, offset)))
+                .collect(),
+            tail: shift_id(*tail, offset),
+        },
         other => other.clone(),
     }
 }

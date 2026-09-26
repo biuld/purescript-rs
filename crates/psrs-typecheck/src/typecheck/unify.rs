@@ -44,13 +44,8 @@ impl Checker {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
             }
-            (InferType::Record(left), InferType::Record(right))
-                if left.len() == right.len()
-                    && left.iter().zip(&right).all(|((a, _), (b, _))| a == b) =>
-            {
-                for ((_, left), (_, right)) in left.into_iter().zip(right) {
-                    self.unify(left, right, span);
-                }
+            (InferType::Record(left), InferType::Record(right)) => {
+                self.unify_rows(left, right, span);
             }
             (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
                 self.unify(*a1, *a2, span);
@@ -68,7 +63,7 @@ impl Checker {
         }
     }
 
-    fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) {
+    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
             self.errors.push(TypeCheckError::new(
@@ -117,13 +112,23 @@ impl Checker {
                     self.display_type(&argument)
                 )
             }
-            InferType::Record(fields) => {
-                let fields = fields
+            InferType::Record(record) => {
+                let fields = record
+                    .fields
                     .iter()
                     .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{{{fields}}}")
+                match record.tail {
+                    RowTail::Closed => format!("{{{fields}}}"),
+                    RowTail::Open(variable) => {
+                        if fields.is_empty() {
+                            format!("{{ | _T{variable} }}")
+                        } else {
+                            format!("{{{fields} | _T{variable}}}")
+                        }
+                    }
+                }
             }
             InferType::Function(parameter, result) => format!(
                 "({} -> {})",
@@ -144,12 +149,7 @@ impl Checker {
                 Box::new(self.resolve_type(*function)),
                 Box::new(self.resolve_type(*argument)),
             ),
-            InferType::Record(fields) => InferType::Record(
-                fields
-                    .into_iter()
-                    .map(|(label, ty)| (label, self.resolve_type(ty)))
-                    .collect(),
-            ),
+            InferType::Record(record) => self.resolve_record(record),
             InferType::Function(parameter, result) => InferType::Function(
                 Box::new(self.resolve_type(*parameter)),
                 Box::new(self.resolve_type(*result)),
@@ -172,9 +172,12 @@ impl Checker {
                 self.adjust_levels(function, max_level);
                 self.adjust_levels(argument, max_level);
             }
-            InferType::Record(fields) => {
-                for (_, field) in fields {
+            InferType::Record(record) => {
+                for (_, field) in &record.fields {
                     self.adjust_levels(field, max_level);
+                }
+                if let RowTail::Open(variable) = record.tail {
+                    self.adjust_levels(&InferType::Variable(variable), max_level);
                 }
             }
             InferType::I32
@@ -225,9 +228,12 @@ impl Checker {
                 self.collect_generalizable(function, outer_level, out);
                 self.collect_generalizable(argument, outer_level, out);
             }
-            InferType::Record(fields) => {
-                for (_, field) in fields {
+            InferType::Record(record) => {
+                for (_, field) in &record.fields {
                     self.collect_generalizable(field, outer_level, out);
+                }
+                if let RowTail::Open(variable) = record.tail {
+                    self.collect_generalizable(&InferType::Variable(variable), outer_level, out);
                 }
             }
             InferType::I32
@@ -292,15 +298,7 @@ impl Checker {
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
-            InferType::Record(fields) => {
-                let fields = fields
-                    .into_iter()
-                    .map(|(label, field)| {
-                        Some((label, self.finalize_type(&field, span, interner, generics)?))
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                Some(interner.intern(Type::Record(fields)))
-            }
+            InferType::Record(record) => self.finalize_record(record, span, interner, generics),
             InferType::Function(parameter, result) => {
                 let parameter = self.finalize_type(&parameter, span, interner, generics);
                 let result = self.finalize_type(&result, span, interner, generics);
@@ -327,12 +325,26 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
             Box::new(substitute(parameter, mapping)),
             Box::new(substitute(result, mapping)),
         ),
-        InferType::Record(fields) => InferType::Record(
-            fields
+        InferType::Record(record) => InferType::Record(InferRecord {
+            fields: record
+                .fields
                 .iter()
                 .map(|(label, field)| (label.clone(), substitute(field, mapping)))
                 .collect(),
-        ),
+            tail: match record.tail {
+                RowTail::Closed => RowTail::Closed,
+                RowTail::Open(variable) => match mapping.get(&variable) {
+                    Some(InferType::Variable(renamed)) => RowTail::Open(*renamed),
+                    Some(other) => {
+                        // Instantiation replaces a row variable with a fresh
+                        // variable. Any other mapping is a solved row, which
+                        // resolve flattens before generalization.
+                        return substitute(other, mapping);
+                    }
+                    None => RowTail::Open(variable),
+                },
+            },
+        }),
         primitive => primitive.clone(),
     }
 }

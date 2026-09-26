@@ -36,6 +36,12 @@ pub enum Type {
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
     Record(Vec<(String, TypeId)>),
+    /// A record whose row ends in a type variable. Closed records stay
+    /// [`Type::Record`]. This is not a runtime field layout.
+    OpenRecord {
+        fields: Vec<(String, TypeId)>,
+        tail: TypeId,
+    },
     Function {
         parameter: TypeId,
         result: TypeId,

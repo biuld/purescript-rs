@@ -31,6 +31,12 @@ pub enum Type {
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
     Record(Vec<(String, TypeId)>),
+    /// A record whose row ends in a type variable. The tail is not a runtime
+    /// layout; closed records stay [`Type::Record`].
+    OpenRecord {
+        fields: Vec<(String, TypeId)>,
+        tail: TypeId,
+    },
     Function {
         parameter: TypeId,
         result: TypeId,
@@ -197,6 +203,12 @@ impl Module {
                     for (_, field) in fields {
                         verify_type_id(*field, self.types.len(), self.span, &mut errors);
                     }
+                }
+                Type::OpenRecord { fields, tail } => {
+                    for (_, field) in fields {
+                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
+                    }
+                    verify_type_id(*tail, self.types.len(), self.span, &mut errors);
                 }
                 _ => {}
             }
