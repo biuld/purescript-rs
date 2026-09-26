@@ -1,11 +1,11 @@
-use super::{Body, ExportIndex, ExportKind, Module, Op};
+use super::{Body, DataMode, ExportIndex, ExportKind, GlobalInit, Module, Op};
 use crate::BackendError;
 use std::borrow::Cow;
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, DataSection, ElementSection, Elements, EntityType,
-    ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction, FunctionSection,
-    ImportSection, Instruction, MemorySection, MemoryType, Module as EncoderModule, TypeSection,
-    ValType,
+    BlockType, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements,
+    EntityType, ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
+    MemoryType, Module as EncoderModule, TypeSection, ValType,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -48,6 +48,9 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         if let Some(realloc) = &module.realloc {
             functions.function(realloc.type_index.0);
         }
+        for helper in &module.helpers {
+            functions.function(helper.type_index.0);
+        }
         encoder.section(&functions);
     }
 
@@ -63,6 +66,24 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             });
         }
         encoder.section(&memories);
+    }
+
+    if !module.globals.is_empty() {
+        let mut globals = GlobalSection::new();
+        for global in &module.globals {
+            let init = match global.init {
+                GlobalInit::RefNull(heap) => ConstExpr::ref_null(heap),
+            };
+            globals.global(
+                GlobalType {
+                    val_type: global.ty,
+                    mutable: global.mutable,
+                    shared: false,
+                },
+                &init,
+            );
+        }
+        encoder.section(&globals);
     }
 
     if !module.exports.is_empty() {
@@ -88,6 +109,14 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
         encoder.section(&elements);
     }
 
+    // `array.new_data` and other bulk-data instructions require the data count
+    // section before the code section.
+    if !module.data.is_empty() {
+        encoder.section(&DataCountSection {
+            count: module.data.len() as u32,
+        });
+    }
+
     if has_defined_functions(module) {
         let mut code = CodeSection::new();
         for function in &module.functions {
@@ -110,17 +139,30 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             encoded.instruction(&Instruction::End);
             code.function(&encoded);
         }
+        for helper in &module.helpers {
+            let mut encoded = EncoderFunction::new_with_locals_types(helper.locals.iter().copied());
+            emit_body(&helper.body, &mut encoded);
+            encoded.instruction(&Instruction::End);
+            code.function(&encoded);
+        }
         encoder.section(&code);
     }
 
     if !module.data.is_empty() {
         let mut data = DataSection::new();
         for segment in &module.data {
-            data.active(
-                0,
-                &ConstExpr::i32_const(segment.offset as i32),
-                segment.bytes.iter().copied(),
-            );
+            match segment.mode {
+                DataMode::Active { offset } => {
+                    data.active(
+                        0,
+                        &ConstExpr::i32_const(offset as i32),
+                        segment.bytes.iter().copied(),
+                    );
+                }
+                DataMode::Passive => {
+                    data.passive(segment.bytes.iter().copied());
+                }
+            }
         }
         encoder.section(&data);
     }
@@ -138,6 +180,9 @@ fn referenced_functions(module: &Module) -> Vec<u32> {
     }
     if let Some(realloc) = &module.realloc {
         collect_references(&realloc.body, &mut references);
+    }
+    for helper in &module.helpers {
+        collect_references(&helper.body, &mut references);
     }
     references.sort_unstable();
     references.dedup();
@@ -165,7 +210,10 @@ fn collect_references(body: &Body, references: &mut Vec<u32>) {
 }
 
 fn has_defined_functions(module: &Module) -> bool {
-    !module.functions.is_empty() || module.entry.is_some() || module.realloc.is_some()
+    !module.functions.is_empty()
+        || module.entry.is_some()
+        || module.realloc.is_some()
+        || !module.helpers.is_empty()
 }
 
 fn emit_body(body: &Body, function: &mut EncoderFunction) {

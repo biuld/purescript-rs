@@ -297,13 +297,17 @@ PM-12:
     every error kind is `InvalidCompilerIr`; the coverage diagnostics remain
     `UnsupportedSource` through `require_exhaustive`/`source_error` and the
     existing coverage tests.
-  Input boundary: malformed decision DAG.
+  Input boundary: malformed decision DAG and internal class-layout/WIT shapes.
   Commands: common commands.
-  Result: pass.
-  Revision: 95aebe3 + uncommitted changes.
-  Gaps: the wider `cc/lower` (dictionary/effect ownership) still classifies some
-    internal shape failures as `UnsupportedSource`; reported as a cross-topic
-    handoff rather than changed here.
+  Result: pass. The dictionary path (`cc/lower/dictionary/mod.rs`) and the
+    internal WIT result arms (`mir/wit/mod.rs`) now classify inconsistent
+    compiler evidence as `InvalidCompilerIr` rather than `UnsupportedSource`;
+    genuine coverage and unsupported-representation diagnostics stay
+    source-associated.
+  Revision: f2c43af + the classification change in this worktree.
+  Gaps: none. The remaining `BackendError::new` sites in `cc/lower` describe
+    unsupported source shapes or source-span diagnostics, not internal
+    invariants.
 ```
 
 ```text
@@ -326,7 +330,9 @@ PM-13:
 - **PM-12 (typed internal failures).** The audit found that decision-DAG and
   realizer invariant violations were reported as `UnsupportedSource`. They are
   now `InvalidCompilerIr`; the coverage and unsupported-representation
-  diagnostics stay source-associated.
+  diagnostics stay source-associated. The dictionary class-layout path
+  (`cc/lower/dictionary/mod.rs`) and the internal WIT result arms
+  (`mir/wit/mod.rs`) were also reclassified, closing the cross-topic handoff.
 - **PM-13 (projection dominance).** The audit added a MIR negative fixture for a
   projection that outlives its tag test's dominance, complementing the existing
   duplicate-tag and non-i32-selector fixtures.

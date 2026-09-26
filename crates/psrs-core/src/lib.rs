@@ -63,6 +63,10 @@ pub struct Module {
     /// Nominal newtypes that are represented by their single field below Core.
     /// This is representation metadata, not a change to the source type.
     pub newtype_ids: Vec<HirTypeId>,
+    /// Foreign data declarations. The type node stays
+    /// `Constructor(User(HirTypeId))`; this set records that the type is opaque
+    /// and has no constructors. It is not a calling-convention layout.
+    pub opaque_ids: Vec<HirTypeId>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     /// The declaration used as the program entry point, if one was selected.

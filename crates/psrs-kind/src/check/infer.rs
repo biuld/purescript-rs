@@ -119,6 +119,9 @@ impl Checker<'_> {
                         TypeDeclarationKind::Data | TypeDeclarationKind::Newtype => Kind::Type,
                         TypeDeclarationKind::Class => Kind::Constraint,
                         TypeDeclarationKind::TypeSynonym => self.fresh(),
+                        // A foreign data declaration always carries its kind.
+                        // This arm is only the fallback when that kind is absent.
+                        TypeDeclarationKind::Foreign => Kind::Type,
                     };
                     let kind = parameters
                         .into_iter()
@@ -175,7 +178,7 @@ impl Checker<'_> {
                 BuiltinType::Row => Kind::Row,
                 other => Kind::Builtin(*other),
             },
-            TypeKind::Named(id) => Kind::Named(*id),
+            TypeKind::Named(id) | TypeKind::Opaque(id) => Kind::Named(*id),
             TypeKind::Application(..) => {
                 let (head, arguments) = flatten_spine(ty);
                 self.check_partial_synonym(head, arguments.len(), ty.span);
@@ -232,7 +235,7 @@ impl Checker<'_> {
                 }
                 function
             }
-            TypeKind::Named(id) => {
+            TypeKind::Named(id) | TypeKind::Opaque(id) => {
                 self.check_partial_synonym(ty, 0, ty.span);
                 self.instantiate_named(*id)
             }
@@ -246,7 +249,7 @@ impl Checker<'_> {
 
     fn head_kind(&mut self, head: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
         match &head.kind {
-            TypeKind::Named(id) => self.instantiate_named(*id),
+            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
             TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
             TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| self.fresh()),
             _ => self.kind_of_atom(head, scope),
@@ -261,7 +264,7 @@ impl Checker<'_> {
                 kind
             }),
             TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
-            TypeKind::Named(id) => self.instantiate_named(*id),
+            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
             TypeKind::Application(..) => self.kind_of_type(ty, scope),
             TypeKind::Function { parameter, result } => {
                 let parameter_kind = self.kind_of_type(parameter, scope);
@@ -395,6 +398,7 @@ impl Checker<'_> {
                         }
                     }
                 }
+                TypeDeclarationKind::Foreign => {}
             }
         }
     }

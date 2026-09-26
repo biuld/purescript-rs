@@ -41,6 +41,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         | I::StructGet { .. }
         | I::ClosureGetCapture { .. }
         | I::ArrayNew { .. }
+        | I::ArrayNewData { .. }
         | I::ArrayNewDefault { .. }
         | I::ArrayGet { .. }
         | I::ArrayClone { .. }
@@ -58,6 +59,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
                 instruction,
                 I::StructNew { .. }
                     | I::ArrayNew { .. }
+                    | I::ArrayNewData { .. }
                     | I::ArrayNewDefault { .. }
                     | I::ArrayClone { .. }
             ),
@@ -93,7 +95,6 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         I::Copy { .. }
         | I::Constant { .. }
         | I::NumberConstant { .. }
-        | I::StringConstant { .. }
         | I::Primitive { .. }
         | I::UnaryPrimitive { .. }
         | I::RefFunc { .. }

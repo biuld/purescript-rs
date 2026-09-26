@@ -120,9 +120,9 @@ VariantCase  = { tag: u32, fields: [ValueShape] }
 ```
 
 `String` is a semantic CC shape, distinct from numeric `Integer`; P9 alone maps
-it to the current target's linear-memory address. This distinction lets the CC
+it to the target's GC string representation. This distinction lets the CC
 verifier reject arithmetic on strings and verify WIT string arguments without
-putting a pointer layout in CC.
+putting a linear pointer or layout in CC.
 
 `ReprId` describes required behavior, not physical layout. For example,
 `RefShape::Closure(signature)` says a value is callable and has an ordered

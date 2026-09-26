@@ -16,6 +16,7 @@ fn module_with(function: Function) -> Module {
     Module {
         name: "DominanceTest".into(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         entry: Some(function.symbol),
         functions: vec![function],

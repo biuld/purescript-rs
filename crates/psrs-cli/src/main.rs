@@ -190,11 +190,7 @@ fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
         return Err(usage());
     }
 
-    let mut sources = Vec::with_capacity(paths.len());
-    for path in &paths {
-        let text = fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?;
-        sources.push((path.clone(), text));
-    }
+    let sources = psrs_driver::load_program_files(&paths)?;
     let inputs = sources
         .iter()
         .map(|(path, text)| (path.as_str(), text.as_str()))

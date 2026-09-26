@@ -110,6 +110,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
+                TypeDeclarationKind::Foreign => {}
             }
         }
     }
@@ -158,6 +159,7 @@ impl<'a> Checker<'a> {
             }
             TypeKind::Constructor(_)
             | TypeKind::Named(_)
+            | TypeKind::Opaque(_)
             | TypeKind::Integer(_)
             | TypeKind::String(_) => {}
         }

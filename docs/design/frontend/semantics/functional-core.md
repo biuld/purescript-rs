@@ -112,6 +112,11 @@ field below Core. Erasing a newtype is representation metadata, not a change to
 the source type: the type still exists, but Core lowering and later stages do
 not allocate a wrapper for it.
 
+`Module.opaque_ids` records foreign data declarations. Their Core type is still
+`Constructor(User(HirTypeId))`, and they have no `ConstructorInfo`. The set is
+what distinguishes that constructor from an algebraic type and from `I32`. It
+is not a runtime layout. See [foreign imports](foreign-imports.md).
+
 ### Terms
 
 ```text

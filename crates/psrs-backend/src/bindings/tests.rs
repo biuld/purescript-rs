@@ -39,6 +39,7 @@ fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
         externals,
         types: Vec::new(),
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

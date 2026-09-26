@@ -4,8 +4,10 @@
 
 **Design:** [Scalars and numeric operations](../../design/backend/fp/scalars-and-primitives.md)
 
-**Progress:** Audited. SP-01 through SP-12 are Verified. See the evidence
-records below.
+**Progress:** Audited. SP-01 through SP-12 are Verified. SP-02 now matches the
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) GC-string
+target: a `String` is the GC `(array (mut i16))` type, not an `i32` pointer.
+See the evidence records below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-04; FE-08 supplies source typing.
 
@@ -13,8 +15,8 @@ records below.
 
 Implement the linked design's complete scalar value model, CC/MIR operation
 vocabulary, helper generation, verifier rules, and Wasm numeric semantics.
-`String` is an `i32` ABI pointer with a distinct CC semantic shape; byte
-encoding and memory ownership belong to the linear-memory design. The design's
+`String` is a GC `(array (mut i16))` with a distinct CC semantic shape;
+linearization and memory ownership belong to the linear-memory design. The design's
 present-tense rules remain authoritative beyond the matrix. Source operator
 syntax/type checking belongs to the frontend, but this topic must accept all
 valid typed primitive inputs and report unsupported ones accurately.
@@ -27,7 +29,7 @@ Verified requires exact test and executed result evidence.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | SP-01 | `Int` is wrapping signed 32-bit; `Number` is IEEE binary64; Boolean is canonical 0/1; Char is a Unicode scalar; Unit has its fixed representation. | Boundary-value and malformed-type tests for each shape, including high-bit Int, NaN/infinity, invalid Char, and Boolean normalization. | Verified |
-| SP-02 | `String` keeps a separate semantic CC shape despite its `i32` runtime pointer. | Positive string literal/import use and verifier rejection of numeric operations on String pointers. | Verified |
+| SP-02 | `String` keeps a separate semantic CC shape and is a GC byte sequence, linearized only at the canonical ABI boundary. | Positive string literal/import use and verifier rejection of numeric operations on String values. | Verified |
 | SP-03 | Every specified CC unary/binary primitive has an exact MIR instruction or helper lowering. | Exhaustive operation table matching the design vocabulary; reject missing opcode mappings and wrong operand/result types. | Verified |
 | SP-04 | Integer add/subtract/multiply and bitwise operations wrap at 32 bits; shift counts follow the specified modulo-32 behavior. | Source or verified Core execution at overflow/underflow and shift counts 0, 31, 32, 33; compare exact bits/results. | Verified |
 | SP-05 | Integer quotient/remainder truncate toward zero and trap for divisor zero and signed minimum divided by -1. | Positive signed combinations and expected-trap component cases; distinguish quotient/remainder from floor division/modulo. | Verified |
@@ -95,7 +97,7 @@ cargo clippy --manifest-path <worktree>/Cargo.toml --workspace --all-targets -- 
 SP-01:
   Implementation: cc/layout/scalar.rs (Type -> ValueShape),
     mir/layout/mod.rs (Integer -> I32, Number -> F64, Boolean -> Boolean,
-    String -> I32)
+    String -> (ref $string))
   Tests: mir/gc_tests/binary_matrix (IntAdd/Sub/Mul wrap), driver
     tests/scalars.rs::scalar_intrinsics... (checkIntWrapping), ...::
     number_to_int_saturates... (NaN/+-infinity), ...::char_operations_preserve_bmp_scalar_values,
@@ -119,20 +121,24 @@ SP-02:
     cc/layout/scalar.rs (`scalar_type`, `declaration_shape`) and cc/mod.rs
     (`scalar_source_type`, `source_shape_matches`) map `Type::String` /
     `SourceType::String` to it; cc/verify/ops/mod.rs requires `StringConstant`
-    to produce `String`; mir/layout/mod.rs maps `String` to `ValueType::I32`
-    and the erased path boxes it in the shared one-field i32 box.
+    to produce `String`; mir/layout/mod.rs reserves the GC `$string`
+    `(array (mut i16))` and maps `String` to `(ref $string)`;
+    mir/literals.rs plus `ArrayNewData` materialize literals with
+    `array.new_data`; the erased path uses `EraseReference`/`RecoverReference`
+    rather than the integer box.
   Tests: cc/verify/tests/mod.rs::string_constant_requires_the_distinct_string_shape
     (a String constant with an `Integer` destination is rejected),
     ::rejects_integer_arithmetic_on_string_operands;
     cc/layout/tests.rs::equal_normalized_function_signatures_share_one_signature_id
     (Array Int and Array String keep distinct canonical arrays);
+    mir::layout::tests::maps_every_cc_value_shape_to_its_specified_mir_type;
     driver polymorphism_erasure_audit::erased_string_box_preserves_nonempty_contents
     and generic_aggregate_audit::generic_string_array_preserves_observable_contents
     execute nonempty string contents through the erased and generic paths.
   Input boundary: source, malformed CC, and executed Wasm.
   Commands: common commands above.
   Result: pass; executed under Wasmtime.
-  Revision: 775fafe + the String-shape change in this worktree.
+  Revision: cc8cf2c + the GC-string change in this worktree.
   Gaps: none.
 ```
 
@@ -233,9 +239,10 @@ SP-08:
   Commands: common commands above
   Result: pass; executed under Wasmtime
   Revision: f2c43af + this worktree
-  Gaps: the backend obligation is met; astral Unicode scalar literals are
-    rejected by the frontend lexer before reaching the backend, and invalid
-    Char remains a type-checking invariant, so both stay frontend-owned.
+  Gaps: none for the backend. Astral scalar literals (`'\x1F600'`) now pass
+    the frontend lexer and type checker; `char_operations_preserve_astral_scalar_values`
+    executes the existing `charToInt` / `charEq` path. Invalid `Char` values
+    remain a type-checking invariant.
 ```
 
 ```text
@@ -317,8 +324,8 @@ SP-12:
 
 ## Remaining work and blockers
 
-- Astral `Char` literals are rejected by the frontend lexer; that limitation
-  belongs to the frontend, not this topic.
+- Astral `Char` literals are accepted by the frontend lexer and type checker.
+  Backend scalar layout is unchanged.
 
 Implementation deviation: the worked example names the helpers
 `__psrs_floor_int_div`/`__psrs_floor_int_mod`, while the code emits

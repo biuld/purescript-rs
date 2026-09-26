@@ -19,13 +19,21 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
     crate::mir::verify_module(&crate::mir::Module {
         name: source.name.clone(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![source.clone()],
         entry: Some(source.symbol),
         span: span(),
     })
     .expect("the loop fixture should satisfy MIR invariants");
-    let lowered = lower_function(source, TypeIndex(0), &HashMap::new(), &HashMap::new()).unwrap();
+    let lowered = lower_function(
+        source,
+        TypeIndex(0),
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+    )
+    .unwrap();
     let module = Module {
         name: source.name.clone(),
         imports: Vec::new(),
@@ -44,6 +52,8 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         }],
         entry: None,
         realloc: None,
+        globals: Vec::new(),
+        helpers: Vec::new(),
         span: span(),
     };
     wasm::verify::verify_module(&module).unwrap();

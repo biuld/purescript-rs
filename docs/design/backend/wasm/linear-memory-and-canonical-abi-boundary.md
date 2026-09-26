@@ -3,17 +3,20 @@
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Stable (design)  
 **Prerequisites:** the Canonical ABI exchange format (flattened values, the return pointer, `realloc`), WebAssembly linear memory and the wasm32 address model, and Wasm GC as the language heap. Read [canonical ABI and WIT](canonical-abi-and-wit.md), [MIR](../fp/mir.md), and [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md) first.  
-**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: strings, byte lists, the return area of canonical calls, the bump allocator `cabi_realloc`, and active data segments. It is not a general object heap. Language aggregates, closures, variants, arrays, and erased values use Wasm GC.
+**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: GC strings and byte lists transiently linearized, the return area of canonical calls, and passive data segments. It is not a general object heap. Language strings, aggregates, closures, variants, arrays, and erased values use Wasm GC. The allocator that backs transient buffers and their lifetime are owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ## Scope
 
 This document owns the address model, the string and byte-list representation,
-the `cabi_realloc` allocator, the scratch return area, data-segment use, and the
-MIR byte-operation contract at the boundary. It does not own canonical ABI
-adaptation itself ([canonical ABI and WIT](canonical-abi-and-wit.md)), the
-structured encoding of memory instructions ([Wasm encoding](encoding-and-structuring.md)),
-the choice of GC as the heap ([capability profile](capability-profile.md)), or
-the exact GC layouts ([data representation](../fp/data-representation.md)).
+the scratch return area, data-segment use, and the MIR byte-operation contract at
+the boundary. It does not own canonical ABI adaptation itself
+([canonical ABI and WIT](canonical-abi-and-wit.md)), the `cabi_realloc`
+allocator and buffer ownership/lifetime
+([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)),
+the structured encoding of memory instructions
+([Wasm encoding](encoding-and-structuring.md)), the choice of GC as the heap
+([capability profile](capability-profile.md)), or the exact GC layouts
+([data representation](../fp/data-representation.md)).
 
 ## Background
 
@@ -42,100 +45,119 @@ planner.
 
 ## Model
 
-There is exactly one memory, `MemoryId(0)`, at `MemoryIndex(0)`. Its address
-type is `i32`. The boundary instructions are MIR operations that carry the
-memory they address:
+The canonical ABI adapter selects the ABI memory (or memories) from the target
+profile. A wasm32 profile uses `i32` addresses and one ABI memory,
+`MemoryId(0)` at `MemoryIndex(0)`; a memory64 profile uses `i64` addresses; and
+a profile that enables `multi_memory` may name more than one ABI memory. CC
+references stay opaque, so the pointer width and memory count are MIR and
+encoder parameters, not CC concepts. The boundary instructions carry the
+memory and offset they address:
 
 ```text
 Load   { destination: ValueId, address: ValueId, memory: MemoryId,
-         offset: u32, span }
+         offset, span }
 Load8U { destination: ValueId, address: ValueId, memory: MemoryId,
-         offset: u32, span }
+         offset, span }
 Store  { address: ValueId, value: ValueId, memory: MemoryId,
-         offset: u32, span }
+         offset, span }
 WrapI64 { destination: ValueId, value: ValueId, span }
 WidenI64 { destination: ValueId, value: ValueId, signed: bool, span }
 TrapIf { condition: ValueId, span }
 ```
 
-A `String` value is an `i32` pointer to a length-prefixed UTF-8 buffer: a 4-byte
-little-endian length followed by that many bytes. The Canonical ABI consumes a separate `(pointer, length)` pair; the prefix is
-the language's internal representation and is converted at each import call.
-The reserved scratch region is `[0, 16)`:
-`PRINT_SCRATCH = 0` is the return pointer passed to indirect calls and
-`SCRATCH_END = 16` is the first free offset. String data begins after it.
+`address` and `value` take the profile's pointer/value types (`i32`/`i64`);
+`offset` is a constant of the pointer width.
 
-MIR's `Load`/`Load8U`/`Store` read and write only `i32`; `offset` is a statically
-known constant added by the leaf `MemArg`, and `Load8U` reads one byte. The
-`i64` conversions exist only for canonical ABI scalars, not for source values.
+A source `String` is a **GC byte-sequence value**, not a linear pointer, and
+byte lists and every other source value are GC-managed
+([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)). Linear
+memory exists only to carry canonical ABI bytes:
+
+- passive read-only data segments for static literal bytes, materialized into
+  GC strings with `array.new_data`;
+- transient call buffers (indirect parameter records and import return areas);
+  and
+- export return areas.
+
+Every transient buffer has exactly one owner and is freed when its lifetime
+ends; no language value is stored in linear memory between calls. The reserved
+scratch region is `[0, SCRATCH_END)` and holds canonical return areas;
+`PRINT_SCRATCH = 0` is the return pointer passed to indirect calls and
+`SCRATCH_END = 16` is the first free offset. The allocator's free lists, free
+pointer, and buffer ownership rules live in
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+
+MIR's `Load`/`Load8U`/`Store` read and write pointer-width values; `offset` is a
+statically known constant added by the leaf `MemArg`, and `Load8U` reads one
+byte. The `i64` conversions exist only for canonical ABI scalars, not for source
+values.
 
 ### Invariants
 
-- Every boundary access names `MemoryId(0)`; an address and every loaded or
-  stored value are `i32`.
-- A `Load` and `Store` access 4 bytes; a `Load8U` accesses 1 byte. Static
-  access intervals use checked, unsigned wasm32 address arithmetic and never
-  wrap into low memory.
-- The scratch region `[0, SCRATCH_END)` is never used by data segments or by
-  language data; it holds only canonical return areas.
-- Data segments are active at constant `i32` offsets, aligned to 4 bytes, and do
-  not overlap each other or the scratch region.
-- An access whose address is statically known must fit wholly inside one
-  declared ABI region. Accesses with dynamic addresses rely on WebAssembly's
-  runtime linear-memory bounds check and trap when the accessed bytes are out
+- Every boundary access names a memory selected by the target profile; an
+  address is the profile pointer type (`i32` wasm32 / `i64` memory64), and a
+  loaded or stored value has the width of its ABI field.
+- `Load`/`Store` access the field width and `Load8U` accesses one byte. Static
+  access intervals use checked, unsigned pointer-width arithmetic and never wrap
+  into low memory.
+- The scratch region `[0, SCRATCH_END)` and the heap-state region are owned by
+  the canonical allocator; no language value is stored there.
+- Passive data segments hold static literal bytes only; MIR never addresses
+  them. A distinct literal becomes a GC string once with `array.new_data` and is
+  interned in a lazily initialized mutable global shared by every use.
+- An access whose address is statically known must fit wholly inside the
+  scratch region, the heap-state region, or a proven allocation. Accesses with
+  dynamic addresses rely on WebAssembly's runtime bounds check and trap when out
   of bounds.
-- The scratch region is readable and writable by canonical return handling.
-  String-literal segments are read-only to MIR; a statically known `Store` into
-  one is rejected even when its byte interval is otherwise in bounds.
-- A nonzero `cabi_realloc` result is aligned to the requested alignment, its
-  payload is preceded by a 4-byte length prefix, and reallocation preserves
-  `min(old_len, new_len)` bytes. A zero result is never read as a prefix.
-- Language arrays and aggregates never use linear memory; their operations are
-  GC `array.*`/`struct.*`.
+- `cabi_realloc` returns a pointer aligned to the requested alignment and never
+  overlaps a static region. Its alloc/free/resize contract and block layout are
+  owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+- Every canonical buffer is freed by its owner: call buffers when the canonical
+  call returns, import results after the bytes are copied into a GC value, and
+  export results in the export's `post-return`
+  ([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)).
+- Language strings, arrays, and aggregates never use linear memory between
+  calls; their operations are GC `array.*`/`struct.*`.
 
 ## Design
 
-### One memory, gated only by the profile
+### Memory and pointer width
 
-`MemoryId(0)` is the only memory and `multi_memory` is disabled, so a memory
-instruction cannot address the wrong memory. Carrying the `MemoryId` anyway
-keeps the operation's meaning explicit and lets a future profile add memories
-without changing CC. The address type is an ABI detail, not a CC concept: CC
-references are opaque handles owned by the GC planner, so a future memory64
-profile changes `i32` to `i64` only in MIR and the encoder, not in CC
+The target profile chooses the pointer width and the ABI memory. The stable
+profile uses wasm32 (`i32` addresses) and one memory with `multi_memory`
+disabled, so a memory instruction cannot address the wrong memory. Carrying the
+`MemoryId` keeps the meaning explicit and lets a memory64 or multi-memory
+profile change only MIR and the encoder: a memory64 profile widens addresses and
+the allocator's words to `i64`
+([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)).
+CC references are opaque handles, so CC is unaffected
 ([IR boundaries](../00-ir-boundaries.md)).
 
-### Strings and data segments
+### Strings as GC values and static literals
 
-String literals are collected once, deduplicated by content, and placed in
-active data segments after the scratch region at 4-aligned offsets. Each segment
-holds the 4-byte little-endian length followed by the bytes. A `StringConstant`
-lowers to an `i32` constant naming the segment address. Because the same
-length-prefixed buffer is what the boundary consumes, a string literal can be
-passed to a WIT import without copying.
+A source `String` is a GC byte-sequence value. String literals are encoded once
+as passive read-only data segments, deduplicated by content, and each distinct
+literal is materialized into a GC string exactly once with `array.new_data` and
+interned in a lazily initialized mutable module global that every use reads; a
+literal is never addressed by MIR and needs no linear buffer. Passing a string
+to an import copies its bytes into a transient linear buffer allocated by
+`cabi_realloc`, passes `(pointer, length)`, and frees the buffer when the call
+returns. Reading a returned string copies the host-written bytes into a fresh GC
+string and then frees the linear buffer.
 
-### The `cabi_realloc` bump allocator
+### The canonical allocator and buffer lifetime
 
-When the module imports a function that returns a `list`/`string`, canonical
-lowering must be able to allocate in guest memory. P9 fixes the internal buffer
-layout and allocator contract; P10 mechanically synthesizes and exports
-`cabi_realloc`. It is a bump allocator:
-
-- a free pointer lives in one further active data segment, after the string data;
-- the payload pointer is aligned to `max(align, 4)`, with the 4-byte length
-  prefix immediately before it;
-- when `old_ptr` is nonzero, the old payload is copied up to the smaller size;
-- the new byte length is written at the prefix and the free pointer advances;
-- the memory is grown with `memory.grow` (MVP, not `bulk_memory`) when the
-  aligned end crosses the current page count; and
-- the returned pointer points after the prefix; an imported string result is
-  converted back to the internal prefix pointer after checking its length.
-
-There is no reclamation in this design. Repeated imported strings can therefore
-grow linear memory without bound even though the language heap uses GC. The
-artifact must report allocation failure as a trap; reclaiming canonical buffers
-requires a later ownership and lifetime design
-([canonical ABI and WIT](canonical-abi-and-wit.md)).
+`cabi_realloc` is a general aligned allocator, not a bump allocator, and every
+canonical buffer has exactly one owner and is freed when its lifetime ends:
+*static* buffers live for the program, *call-local* buffers are owned by the
+calling function, *import results* are owned by the guest and freed after their
+bytes are copied into a GC value, and *export results* are freed by the export's
+synthesized `post-return`. The allocator's full contract, its block layout and
+free lists, the heap-state region, growth and overflow trapping, `post-return`
+synthesis, and the four ownership classes are owned by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+P9 emits the allocator calls; P10 mechanically synthesizes and exports
+`cabi_realloc`.
 
 ### Byte operations at the boundary
 
@@ -163,27 +185,23 @@ at most `2^32`. A larger value makes the access trap for every possible
 wasm32 base and is rejected as an invalid MIR access. When that fixed part fits,
 an unknown base is permitted for extent checking: the WebAssembly instruction
 performs the current-memory bounds check and traps if `a + o + w` exceeds
-memory. An unknown-base `Store` also needs a separate ABI-level writable-buffer
-guarantee; the current ABI lowering emits no such MIR store. This is a
-deliberate boundary between compile-time checks and runtime checks; the
-compiler does not reject a dynamic canonical pointer just because it cannot
-prove its runtime value.
+memory. An unknown-base `Store` additionally requires a `cabi_realloc`
+provenance proof (the complete design's rule; the current lowering emits no such
+MIR store). This is a deliberate boundary between compile-time checks and
+runtime checks; the compiler does not reject a dynamic canonical pointer just
+because it cannot prove its runtime value.
 
-The verifier resolves static addresses after data-segment planning, while the
-MIR instructions and their source spans are still available. It recognizes the
-scratch interval `[0, SCRATCH_END)` and each string literal's complete
-length-prefixed data interval `[segment_offset, segment_offset + 4 + utf8_len)`.
-The allocator's heap-pointer segment is allocator-owned and is not a MIR
-addressable region. A resolved constant address must belong to one of the
-MIR-addressable regions, and its entire effective interval must remain within
-that same region; an access into a gap, across a region boundary, or into
-allocator metadata is rejected. The scratch region permits reads and writes;
-string literal segments permit reads only. A statically resolved `Store` into a
-literal segment is rejected even when it stays within the segment. This checks
-the bytes the MIR operation can touch without adding memory provenance or
-object-layout fields to MIR.
+The verifier resolves static addresses while the MIR instructions and their
+source spans are available. It recognizes the scratch interval
+`[0, SCRATCH_END)` and the allocator's heap-state region, both allocator-owned
+and read/write. String literals are GC values and are not MIR-addressable, so
+they define no region. A resolved constant address must belong to a known
+region, and its entire effective interval must remain within that same region;
+an access into a gap, across a region boundary, or into allocator metadata is
+rejected. This checks the bytes the MIR operation can touch without adding
+memory provenance or object-layout fields to MIR.
 
-Static address analysis follows `Constant`, `StringConstant`, and `Copy` values,
+Static address analysis follows `Constant` and `Copy` values,
 the `i32.add` and `i32.sub` operations when their operands are statically
 known, and block parameters whose incoming values all resolve to the same
 address. Other operations, function parameters, imported results, and loaded
@@ -194,63 +212,51 @@ known symbolic literal base is combined with an unknown operand, the result is
 unknown; this checker does not infer dynamic object bounds or add runtime
 instrumentation.
 
-This scope is conservative for the current ABI. Scratch and literal offsets are
-owned by the compiler and can be checked exactly once the data layout is
-known. Returned pointers, function parameters, and other host-provided values
-are dynamic `i32`s; proving their allocation provenance would require new MIR
-metadata or ABI checks, while rejecting them would reject valid canonical
-calls. They therefore use the WebAssembly runtime's linear-memory bounds trap.
-That runtime check proves only that an access is inside the current memory; it
-does not prove that a dynamic pointer stays within a particular allocation or
-string object. It also does not prove write permission. The current ABI
-lowering emits no `Store` through an unknown dynamic address; any future
-dynamic store must establish writable-buffer provenance in ABI lowering or be
-rejected, because a runtime bounds check alone cannot protect literal bytes.
+This scope is conservative for the current ABI. Scratch and heap-state offsets
+are owned by the compiler and can be checked exactly. Returned pointers,
+function parameters, and other host-provided values are dynamic pointers;
+proving their allocation provenance requires MIR metadata or ABI checks, while
+rejecting them would reject valid canonical calls. They therefore use the
+WebAssembly runtime's linear-memory bounds trap. That runtime check proves only
+that an access is inside the current memory; it does not prove that a dynamic
+pointer stays within a particular allocation or string object. It also does not
+prove write permission. The complete design accepts a dynamic `Store` only when
+the pointer is proven to come from `cabi_realloc`; the current ABI lowering
+emits no `Store` through an unknown dynamic address. A runtime bounds check
+alone cannot protect allocator metadata or static regions, so a future dynamic
+store must establish writable-buffer provenance in ABI lowering or be rejected.
 
 ### Rejected alternative
 
 - **A linear-memory language heap.** Rejected by
-  [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md): its bump
-  allocator has no reclamation, so a garbage-collected source language would
-  need a hand-written collector (root and stack maps, tracing, compaction) that
-  duplicates the engine's GC, and every new CC operation would need a second
-  linear realization and a pointer-bounds verifier. The former
-  `LinearMemoryPlanner`, its object layouts, its erased boxing path, and the
-  language-object pointer-bounds verifier are removed.
+  [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md): a
+  garbage-collected source language run on linear memory would need a
+  hand-written collector (root and stack maps, tracing, compaction) that
+  duplicates the engine's GC. Reclaiming call-scoped ABI buffers
+  ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)) does not
+  make linear memory a language heap; the former `LinearMemoryPlanner`, its
+  object layouts, its erased boxing path, and the language-object
+  pointer-bounds verifier are removed.
 
 ## Algorithms
 
 ### `cabi_realloc`
 
-```text
-realloc(old_ptr, old_len, align, new_len):
-    require align is a nonzero power of two
-    if new_len == 0: return 0             # free is a no-op
-    require old_ptr == 0 implies old_len == 0
-    validate old range against current memory and verify its stored prefix
-        if old_ptr != 0
-    payload = align_up(checked_add(load(heap_pointer), 4), max(align, 4))
-    end = checked_add(payload, new_len)
-    require end <= 0xffff_ffff       # the next-free pointer must remain representable
-    pages = ceil(end / 65536)
-    if pages > memory.size() and memory.grow(pages - memory.size()) == -1:
-        trap
-    if old_ptr != 0: copy min(old_len, new_len) bytes from old_ptr to payload
-    store_i32(payload - 4, new_len)
-    store(heap_pointer, end)
-    return payload
-```
-
-The allocator accepts canonical reallocations and preserves the old contents.
-Freeing is a no-op, so correctness is maintained at the cost of retained memory.
+The allocator's `realloc`, `allocate`, `free`, and coalescing algorithms are
+owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+This document relies on its contract: an aligned payload pointer with a 4-byte
+length prefix immediately before it, reclamation of freed storage, and a trap on
+growth failure or address overflow.
 
 ### Passing a string argument
 
 ```text
 lower_string_argument(string):
-    length = Load [0] string          # length prefix
-    bytes  = string + 4
-    push (bytes, length)              # canonical (pointer, length)
+    length = StringLength(string)          # GC byte-array length
+    buffer = cabi_realloc(0, 0, 1, length) # transient linear buffer
+    copy StringBytes(string) -> buffer
+    push (buffer, length)                  # canonical (pointer, length)
+    # the caller frees `buffer` after the canonical call returns
 ```
 
 ### Reading a returned string
@@ -259,22 +265,23 @@ lower_string_argument(string):
 read_returned_string(retptr):
     pointer = Load [0] retptr         # returned payload pointer
     length  = Load [4] retptr
-    if length == 0 and pointer == 0: return static_empty_string
-    require pointer >= 4             # canonical lowering validates payload extent
-    require Load [0] (pointer - 4) == length
-    value   = pointer - 4             # internal prefix pointer
+    if length == 0: return empty_gc_string
+    bytes = LoadBytes [pointer, pointer + length)
+    value = StringFromBytes(bytes, length)   # fresh GC string
+    cabi_realloc(pointer, length, 1, 0)      # free the host buffer
+    return value
 ```
 
-A returned list whose element type is not a byte is rejected before MIR, because
-the `String` boundary cannot represent it.
+A returned list whose element type is not a byte is copied element-wise into a
+GC array instead; the byte path above is the `String`/`list<u8>` specialization.
 
 ### Verifying static access extents
 
 ```text
 verify_static_access_extents(module, layout):
-    regions = [{scratch interval, permissions: read/write}]
-              + [{string interval, permissions: read} for each literal]
-    require regions are disjoint and each lies within the wasm32 address space
+    regions = [{scratch interval, permissions: read/write},
+               {heap-state interval, permissions: read/write}]
+    require regions are disjoint and each lies within the pointer-width address space
 
     for each function:
         facts = solve_address_facts(function, layout)
@@ -299,7 +306,6 @@ solve_address_facts(function, layout):
     initialize block parameters as Pending
     repeat until facts stop changing:
         Constant(v)       => Known(u32_bit_pattern(v))
-        StringConstant(s) => Known(layout.string_offset(s))
         Copy(v)            => facts[v]
         I32Add(a, b)       => Known(wrapping_add(a, b)) if both are Known
         I32Sub(a, b)       => Known(wrapping_sub(a, b)) if both are Known
@@ -314,24 +320,22 @@ solve_address_facts(function, layout):
     treat any remaining Pending fact as Unknown
 ```
 
-`Known` values are interpreted as unsigned wasm32 addresses when used as a
-memory base. `Pending` only means that a loop or unresolved predecessor has not
-provided a fixed-point fact yet; treating it as `Unknown` keeps the analysis
-conservative. The fixed `offset + width` check also applies to `Unknown` bases;
-it rejects only an instruction that is out of range for every possible base.
-Static diagnostics use the memory instruction's source span. Segment-region
-checks intentionally end at the extent of the string segment, including its
-four-byte prefix and payload, and exclude alignment padding after that segment.
-The permission check allows a 4-byte `Store` at address `0` in the scratch
-region, but rejects a 4-byte `Store` at a string segment's base even when the
-whole write fits inside that segment.
+`Known` values are interpreted as unsigned pointer-width addresses
+(`i32` wasm32 / `i64` memory64) when used as a memory base. `Pending` only means
+that a loop or unresolved predecessor has not provided a fixed-point fact yet;
+treating it as `Unknown` keeps the analysis conservative. The fixed
+`offset + width` check also applies to `Unknown` bases; it rejects only an
+instruction that is out of range for every possible base. Static diagnostics use
+the memory instruction's source span. String literals are GC values and never
+appear as an address fact; only scratch, heap-state, and proven allocator
+pointers are MIR-addressable.
 
 ### Edge cases
 
-- A string literal and a returned buffer use the same length-prefixed layout, so
-  a literal can be passed through unchanged.
-- A zero-size realloc returns `0`; an imported empty string with a null payload
-  pointer maps to the static empty-string buffer.
+- A GC string is copied into a transient buffer to pass to an import and back
+  into a GC string on return; the buffer is freed in both directions.
+- A zero-size realloc frees and returns `0`; an imported empty string becomes an
+  empty GC string with no linear buffer.
 - `memory.grow` returns `-1` on failure; the allocator tests and traps on it.
 - `Load8U` is used for a one-byte canonical result discriminant; a nonzero
   discriminant traps.
@@ -372,13 +376,16 @@ Responsibilities and required entry points:
   `i32`, and that `WrapI64`/`WidenI64`/`TrapIf` match their operand and result
   types. Required entry point:
   `fn verify_memory(instruction, types) -> Result<(), Diagnostic>`.
-- `wasm/lower/runtime.rs` must collect and deduplicate string literals, lay them
-  out as active 4-aligned data segments after the scratch region, and own the
-  heap-pointer segment. Required entry point:
-  `fn plan_data_segments(strings, layout) -> DataSegments`.
-- `wasm/lower/realloc.rs` must synthesize the `cabi_realloc` bump allocator with
-  the standard `(old_ptr, old_len, align, new_len) -> i32` signature and export
-  it only when the module imports a function that returns a string or byte list.
+- `wasm/lower/runtime.rs` must collect and deduplicate string literals, encode
+  them as passive data segments, and allocate one mutable `(ref null $string)`
+  global per distinct used literal for lazy interning. The structurer emits
+  `array.new_data` once per literal behind that global's `ref.is_null` guard.
+  Required entry point: `fn plan_data_segments(strings, layout) -> DataSegments`.
+- `wasm/lower/realloc.rs` must synthesize the general `cabi_realloc` allocator
+  and export it only when the module crosses the canonical ABI (a returned string
+  or byte list, an indirect parameter record, or an export return area). Its
+  contract, block layout, and free lists are owned by
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
   Required entry point: `fn synthesize_realloc(layout) -> Function`.
 - `wasm/lower/mod.rs` must assemble the memory (minimum pages), the data
   segments, and the allocator export into the thin Wasm module. After planning
@@ -386,20 +393,22 @@ Responsibilities and required entry points:
   `lower/extent.rs` against the MIR module and resulting ABI memory layout.
 - `wasm/lower/extent.rs` must resolve statically known MIR addresses, compute
   checked access intervals, and reject known accesses outside the scratch and
-  string-literal regions, reject known stores into read-only string-literal
-  regions, and reject accesses beyond the wasm32 address space. Unknown dynamic
-  addresses pass this static extent check when their fixed `offset + width`
-  fits the wasm32 space; dynamic stores also require an ABI-level
-  writable-buffer guarantee. The emitted WebAssembly instruction supplies the
-  runtime current-memory bounds trap. Required entry point:
+  heap-state regions, reject known stores into read-only regions, and reject
+  accesses beyond the wasm32 address space. Unknown dynamic addresses pass this
+  static extent check when their fixed `offset + width` fits the wasm32 space;
+  dynamic stores also require a `cabi_realloc` provenance proof. The emitted
+  WebAssembly instruction supplies the runtime current-memory bounds trap.
+  Required entry point:
   `fn verify_static_access_extents(module, layout) -> Result<(), Vec<BackendError>>`.
 - `wasm/lower/structure/instructions.rs` must lower the MIR boundary
   instructions to leaf Wasm load/store/convert instructions carrying a `MemArg`.
 - `mir/wit/mod.rs` and `mir/wit/parameters.rs` must adapt strings and byte lists
-  to and from the `(pointer, length)` exchange format; a non-byte list must be
-  rejected before this layer. They must not emit a dynamic `Store` without an
-  ABI-level writable-buffer guarantee; current lowering emits no dynamic MIR
-  store.
+  to and from the `(pointer, length)` exchange format and free each transient
+  buffer at the point fixed by
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md);
+  a non-byte list must be rejected before this layer. They must not emit a
+  dynamic `Store` without an ABI-level writable-buffer guarantee; current
+  lowering emits no dynamic MIR store.
 
 **No language objects in linear memory.** The module tree must not allocate
 language aggregates, closures, variants, arrays, or erased values in linear
@@ -410,97 +419,80 @@ Any module needing a language-heap operation must depend on the GC lowering path
 
 ## Invariants and verification
 
-The MIR memory verifier checks that each `Load`/`Load8U`/`Store` names
-`MemoryId(0)`, that the address is `i32`, and that the loaded, stored, or
-converted value has the required `i32`/`i64` type; `WrapI64` and `WidenI64` are
-checked for the matching `i64`/`i32` operand and result. The static extent pass
-runs after the data layout is known and checks each resolvable address against
-the wasm32 address space and its declared ABI region. Dynamic addresses remain
-valid and rely on the WebAssembly instruction's runtime bounds check. The
-thin-IR verifier and WebAssembly validator then check the emitted leaf
-instructions and allocator body ([Wasm encoding](encoding-and-structuring.md)).
+The MIR memory verifier checks that each `Load`/`Load8U`/`Store` names a memory
+selected by the target profile, that the address has the profile pointer type,
+and that the loaded, stored, or converted value has the required width and
+`i32`/`i64` type; `WrapI64` and `WidenI64` are checked for the matching
+`i64`/`i32` operand and result. The static extent pass runs after the data layout
+is known and checks each resolvable address against the pointer-width address
+space and its declared ABI region. Dynamic addresses remain valid and rely on
+the WebAssembly instruction's runtime bounds check; a dynamic store additionally
+requires a `cabi_realloc` provenance proof. The thin-IR verifier and WebAssembly
+validator then check the emitted leaf instructions and allocator body
+([Wasm encoding](encoding-and-structuring.md)).
 
 ## Worked example
 
-Suppose string data ends at offset `40` and the heap-pointer segment is
-initialized to `40`. An imported function returns a 5-byte list; the lowering
-calls `cabi_realloc(0, 0, 1, 5)`:
+An imported function returns a 5-byte string. The lowering calls
+`cabi_realloc(0, 0, 1, 5)`; the allocator places the 5-byte payload at an aligned
+address, records its size header and length prefix, and returns the payload
+pointer, say `48`. The return area at address `0` holds `(48, 5)`. The host
+writes the 5 bytes at `[48, 53)`. The lowering then copies those bytes into a
+fresh GC string, frees the buffer with `cabi_realloc(48, 5, 1, 0)`, and makes
+the GC string the source result; no linear buffer remains.
 
-```text
-free    = 40
-aligned = ((40 + 4 + 5 - 1) & -1) - 4 = 44
-end     = 44 + 5 + 4 = 53
-pages   = ceil(53 / 65536) = 1  (no grow)
-store [44] = 5
-store [heap_pointer] = 53
-return 48
-```
-
-The host writes the 5 bytes at `[48, 53)`. The return area at address `0` holds
-`(48, 5)`, and the lowering computes `48 - 4 = 44` as the `String` value. A
-subsequent `writeStdout` reads the length from `[44]` and the bytes from `[48]`,
-exactly as it would for a string literal.
-
-For a static extent example, let a string literal occupy `[16, 25)` and let
-`v_string` resolve to its segment address `16`. `Load { address: v_string,
-offset: 0 }` has interval `[16, 20)` and is contained in the literal's
-length-prefix region. `Load8U { address: v_string, offset: 8 }` reads `[24, 25)`
-and is also contained. A 4-byte `Load` at offset `8` reads `[24, 28)` and is
-rejected because it crosses the segment end. Independently, a `Load8U` with a
-dynamic base and offset `0xffff_ffff` passes the fixed-part check because its
-maximum interval ends at `2^32`; it traps at runtime unless the memory has all
-`2^32` bytes and the base is zero. A 4-byte `Store` at scratch address `0`
-with offset `0` is allowed, while a 4-byte `Store` at `v_string` with offset
-`0` is rejected: its range fits the literal, but that region is read-only.
+For a static extent example the scratch region is `[0, 16)`, followed by the
+heap-state region. A 4-byte `Store` at scratch address `0` is allowed. A
+dynamic `Load8U` with offset `0xffff_ffff` passes the fixed-part check because
+its maximum interval ends at `2^32`; it traps at runtime unless the memory has
+all `2^32` bytes and the base is zero. A dynamic `Store` is accepted only when
+its address is proven to come from `cabi_realloc`.
 
 ## Boundaries and interfaces
 
 - **Input:** MIR byte operations and canonical ABI adaptation produced by P9;
-  string literals from MIR.
-- **Output:** the memory, its data segments, and (conditionally) the
-  `cabi_realloc` export, all carried in the thin Wasm module.
-- **To the Canonical ABI layer:** the string and byte-list representation and the
-  `pointer - 4` convention.
-- **To GC lowering:** no interaction; language objects never cross into linear
-  memory ([DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)).
+  GC string values from MIR.
+- **Output:** the memory, its passive data segments, and the `cabi_realloc`
+  export, all carried in the thin Wasm module.
+- **To the Canonical ABI layer:** the transient buffer convention and the
+  `(pointer, length)` exchange; string/byte-list copy in and out.
+- **To GC lowering:** strings and every other language value are GC-managed;
+  linear memory only carries transient canonical bytes
+  ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 
 ## Open questions and future work
 
-- **Reclamation.** A reclaiming allocator and post-return release for returned
-  lists and owned resources.
 - **Memory layout.** Canonical memory layout for indirect records, tuples, and
-  variants beside the current scalar/byte shapes.
-- **Memory64.** Revisited only when the component toolchain and WASI host support
-  it ([capability profile](capability-profile.md)).
-- **Dynamic pointer provenance.** The static extent pass does not prove that a
-  dynamic host or allocator pointer stays within its allocation or string
-  object. Add stronger provenance or ABI validation only if the canonical ABI
-  contract requires an object-bound guarantee in addition to WebAssembly's
-  current-memory bounds trap.
+  variants beside the scalar/byte shapes.
+- **Memory64 and multi-memory.** Widen addresses and the allocator to `i64`, and
+  select among ABI memories, when a profile and the toolchain/host support it
+  ([capability profile](capability-profile.md)).
+- **Dynamic pointer provenance.** The static extent pass does not yet prove that
+  a dynamic allocator pointer stays within its allocation. The complete design
+  requires a `cabi_realloc` provenance proof for dynamic stores; stronger
+  object-bound guarantees are added only if the canonical ABI requires them
+  beyond WebAssembly's current-memory bounds trap.
 
 ## Implementation notes
 
-The synthesized `cabi_realloc` validates power-of-two alignment, checks each
-wasm32 address addition before committing allocator state, traps when
-`memory.grow` fails, verifies the old range against the pre-growth memory and
-checks its length prefix, and copies the preserved bytes with MVP byte loads and
-stores. Execution coverage checks alignment, growth and shrink reallocation,
-zero-sized frees, invalid alignment, address overflow, old-range bounds, and
-growth failure. Static MIR access-extent verification is implemented in P10
-Wasm lowering. After string segments are planned and before MIR instructions are
-structured, it scans every `Load`, `Load8U`, and `Store`, propagates known
-addresses through constants, copies, wrapping `i32.add`/`i32.sub`, and block
-parameters with identical known inputs, then checks byte intervals against the
-scratch and literal regions. Regression tests cover access widths, scratch
-read/write, literal bounds and read-only enforcement, wasm32 fixed and effective
-extents, wrapping arithmetic, block-parameter joins, and unknown addresses.
-Dynamic reads rely on Wasm's current-memory bounds trap. Dynamic MIR stores are
-rejected because no ABI-level writable-buffer proof is represented yet;
-allocation provenance for dynamic pointers remains outside the verifier's
-coverage. The allocator stores its next free byte as an `i32`, so it traps if
-an allocation's exclusive end would be `2^32`; the final byte of the wasm32
-address space is consequently unavailable to allocator payloads. There is
-still no reclamation.
+The allocator and buffer-lifetime gaps are owned and tracked by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)
+and its [implementation checklist](../../implementation/backend/canonical-buffer-allocation.md):
+`cabi_realloc` is now a reclaiming allocator and transient buffers are freed at
+the boundary, while `post-return` is not synthesized (no current export returns
+a non-scalar) and resource handles are not lowered. The ABI memory here is fixed
+to `MemoryId(0)` with `i32` addresses; the profile does not yet select a pointer
+width or additional memories.
+
+Strings and literals match the complete design: a source `String` is the GC
+`(array (mut i16))` type, literals are passive data segments materialized once
+with `array.new_data` and interned in a lazily initialized mutable global, and
+the ABI adapter transcodes UTF-16 to and from the
+component's UTF-8 (invalid sequences and unpaired surrogates become U+FFFD). The
+static MIR access-extent pass covers the scratch and heap-state regions; GC
+string literals are not MIR-addressable and define no region. The thin-IR
+verifier, the Wasm validator, and the allocator regression suite remain
+implemented against the current representation.
 
 ## References
 
@@ -509,7 +501,9 @@ still no reclamation.
 - [WebAssembly Component Model Canonical ABI](https://github.com/WebAssembly/component-model/blob/main/design/mvp/Explainer.md#canonical-abi):
   `realloc`, return pointer, list and string passing.
 - [DEC-09 — GC-Only Language Heap](../../../decision/DEC-09-gc-only-language-heap.md),
+  [DEC-10 — Canonical ABI Buffer Ownership and Lifetime](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
   [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
 - [canonical ABI and WIT](canonical-abi-and-wit.md),
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md),
   [capability profile](capability-profile.md),
   [data representation](../fp/data-representation.md).

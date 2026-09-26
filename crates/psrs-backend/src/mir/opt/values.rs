@@ -130,7 +130,7 @@ pub(crate) fn remap_instruction(
         }
         I::Constant { destination, .. }
         | I::NumberConstant { destination, .. }
-        | I::StringConstant { destination, .. }
+        | I::ArrayNewData { destination, .. }
         | I::RefNull { destination, .. }
         | I::Unreachable { destination, .. } => replace(destination),
         I::Primitive {

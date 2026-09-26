@@ -1,8 +1,10 @@
 use psrs_span::{SourceFile, TextRange};
 
+mod loader;
 mod prelude;
 mod program;
 
+pub use loader::load_program_files;
 pub use program::{
     check_program, check_program_kinds_lenient, check_program_lenient, compile_program_sources,
     compile_program_sources_with_prelude, resolve_program_sources, typecheck_program_sources,
@@ -69,9 +71,9 @@ pub struct Compilation {
 }
 
 pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, Vec<Diagnostic>> {
-    let core = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let (core, trusted_prefix) = lower_source_with_prelude_to_core(source_name, source_text)?;
     let output = psrs_backend::compile(core).map_err(backend_diagnostics)?;
-    let warnings = backend_warnings(output.warnings, prelude::SOURCES.len());
+    let warnings = backend_warnings(output.warnings, trusted_prefix);
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
@@ -84,12 +86,23 @@ pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, 
 fn lower_source_with_prelude_to_core(
     source_name: &str,
     source_text: &str,
-) -> Result<psrs_core::Module, Vec<Diagnostic>> {
-    let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
-    sources.extend_from_slice(prelude::SOURCES);
-    sources.push((source_name, source_text));
-    program::lower_program_to_core_with_trusted_prefix(&sources, prelude::SOURCES.len())
-        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
+) -> Result<(psrs_core::Module, usize), Vec<Diagnostic>> {
+    let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
+    let module = program::lower_program_to_core_with_trusted_prefix(&sources, trusted_prefix)
+        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, trusted_prefix))?;
+    Ok((module, trusted_prefix))
+}
+
+fn prepend_stdlib<'a>(
+    sources: &[(&'a str, &'a str)],
+) -> Result<prelude::PrefixedSources<'a>, Vec<Diagnostic>> {
+    prelude::prepend(sources).map_err(|message| {
+        vec![diagnostic(
+            "stdlib",
+            psrs_span::TextRange::default(),
+            message,
+        )]
+    })
 }
 
 fn program_diagnostics_from_hidden_prelude(
@@ -111,16 +124,16 @@ pub(crate) fn lower_source_to_core(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_core::Module, Vec<Diagnostic>> {
-    lower_source_with_prelude_to_core(source_name, source_text)
+    lower_source_with_prelude_to_core(source_name, source_text).map(|(module, _)| module)
 }
 
 pub fn compile_source_with_dumps(
     source_name: &str,
     source_text: &str,
 ) -> Result<Compilation, Vec<Diagnostic>> {
-    let core = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let (core, trusted_prefix) = lower_source_with_prelude_to_core(source_name, source_text)?;
     let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
-    let warnings = backend_warnings(stages.artifact.warnings, prelude::SOURCES.len());
+    let warnings = backend_warnings(stages.artifact.warnings, trusted_prefix);
     Ok(Compilation {
         artifact: Artifact {
             wasm: stages.artifact.wasm,
@@ -178,11 +191,9 @@ pub(crate) fn lower_source_to_ast(
 /// Runs the source stages P0 through P5 and reports diagnostics without
 /// lowering to Core or the backend. Useful for checking source acceptance.
 pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
-    let mut sources = Vec::with_capacity(prelude::SOURCES.len() + 1);
-    sources.extend_from_slice(prelude::SOURCES);
-    sources.push((source_name, source_text));
-    program::check_program_with_trusted_prefix(&sources, prelude::SOURCES.len())
-        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, prelude::SOURCES.len()))
+    let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
+    program::check_program_with_trusted_prefix(&sources, trusted_prefix)
+        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, trusted_prefix))
 }
 
 /// Runs lexing, layout, and parsing only (P0–P2). Reports diagnostics and

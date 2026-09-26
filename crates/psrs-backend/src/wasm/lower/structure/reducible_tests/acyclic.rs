@@ -56,6 +56,7 @@ fn rejects_an_acyclic_branch_to_a_missing_target() {
         crate::wasm::TypeIndex(0),
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
     .expect_err("a branch to a missing block must not structure");
     assert!(

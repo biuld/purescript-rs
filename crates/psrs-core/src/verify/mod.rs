@@ -46,6 +46,15 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
             _ => {}
         }
     }
+    for constructor in &module.constructors {
+        if module.opaque_ids.contains(&constructor.type_id) {
+            errors.push(error(
+                module.id,
+                module.span,
+                "an opaque type has no constructors",
+            ));
+        }
+    }
     for declaration in &module.declarations {
         let owner = declaration.symbol.module;
         verify_type(

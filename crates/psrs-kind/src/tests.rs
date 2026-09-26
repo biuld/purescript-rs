@@ -95,6 +95,28 @@ fn reports_a_kind_mismatch_for_a_standalone_signature() {
 }
 
 #[test]
+fn accepts_a_nullary_and_higher_kinded_foreign_data_type() {
+    check_ok(
+        "module Main where\n\
+         foreign import data Handle :: Type\n\
+         foreign import data Effect :: Type -> Type\n\
+         keep :: Handle -> Effect Int\n\
+         keep h = h\n",
+    );
+}
+
+#[test]
+fn rejects_an_unsaturated_foreign_data_constructor() {
+    let errors = check(
+        "module Main where\n\
+         foreign import data Effect :: Type -> Type\n\
+         bad :: Effect\n\
+         bad = 1\n",
+    );
+    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+}
+
+#[test]
 fn reports_a_partially_applied_function_synonym() {
     let errors = check("module Main where\nnewtype N = N ((~>) Array)\n");
     assert!(

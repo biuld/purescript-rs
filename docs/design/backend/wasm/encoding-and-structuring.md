@@ -9,7 +9,7 @@
 
 This document owns the thin Wasm IR, the structuring of MIR control flow into
 structured regions, final index allocation, the declared element segment for
-`ref.func`, active data segments, the synthesized command entry, and binary
+`ref.func`, passive literal segments, the synthesized command entry, and binary
 emission. It does not own:
 
 - the MIR model or its CFG, which is specified in [MIR](../fp/mir.md);
@@ -50,11 +50,13 @@ import count. Types are defined types first (in the GC case, recursion groups),
 then function types. `ref.func` may only reference a function that is *declared*
 somewhere in the module, which an active or declared element segment provides.
 
-**Data segments.** Active data segments initialize linear memory at a constant
-offset. They carry the string literals and the allocator's state that the
-canonical ABI boundary needs; they are not a language object heap
+**Data segments.** Passive data segments carry the string literals, which P10
+materializes into GC strings with `array.new_data`; each distinct literal is
+materialized once through a lazily initialized global. An active segment
+initializes the allocator's heap-state region. Together they service the
+canonical ABI boundary and are not a language object heap
 ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
-[DEC-09](../../../decision/DEC-09-gc-only-language-heap.md)).
+[DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 
 ## Model
 
@@ -69,6 +71,7 @@ Module   = { name: String,
              type_defs: [RecGroup],
              functions: [Function],
              memories: [Memory],
+             globals: [Global],
              data: [DataSegment],
              exports: [Export],
              entry: Option(Entry),
@@ -91,19 +94,23 @@ Op   = Leaf(wasm_encoder::Instruction)
 
 Entry        = { type_index: TypeIndex, body: Body }
 Memory       = { id: MemoryId, index: MemoryIndex,
-                 minimum: u64, maximum: Option<u64> }
-DataSegment  = { id: DataId, index: DataIndex, offset: u32, bytes: [u8] }
+                 minimum: u64, maximum: Option(u64) }
+Global       = { index: GlobalIndex, mutable: bool, ty: ValType,
+                 init: RefNull(HeapType) }
+DataSegment  = { id: DataId, index: DataIndex,
+                 mode: Active(offset: u32) | Passive, bytes: [u8] }
 Export       = { name: String, kind: ExportKind, index: ExportIndex }
 ExportKind   = Function | Memory
 ExportIndex  = Function(FunctionIndex) | Memory(MemoryIndex)
 ```
 
-The four final index domains are `TypeIndex`, `FunctionIndex`, `MemoryIndex`,
-and `DataIndex`. They are distinct types, and distinct from MIR's module-local
-`DefinedTypeId`, `FunctionId`, `MemoryId`, and `DataId`. `Entry` and the
-optional `realloc` function are synthesized by P10 and therefore have no MIR
-identity of their own; `Module::defined_type_count` reports how many entries of
-the type index space are defined (non-function) types.
+The final index domains are `TypeIndex`, `FunctionIndex`, `MemoryIndex`,
+`GlobalIndex`, and `DataIndex`. They are distinct types, and distinct from MIR's
+module-local `DefinedTypeId`, `FunctionId`, `MemoryId`, and `DataId`. `Entry`,
+the optional `realloc` function, and the literal-interning globals are
+synthesized by P10 and therefore have no MIR identity of their own;
+`Module::defined_type_count` reports how many entries of the type index space
+are defined (non-function) types.
 
 ### Invariants
 
@@ -117,6 +124,9 @@ the type index space are defined (non-function) types.
   consistent with that order.
 - `MemoryId(0)` and `DataId`/`DataIndex` are assigned in vector order; data
   segment `index.0` equals its position.
+- Global indices are assigned in vector order, with `index.0` equal to the
+  global's position; a global's `RefNull` initializer names the same nullable
+  reference type as its value type.
 - Every `Op::If` is immediately preceded in its body by the instruction that
   pushes its condition.
 - A `Leaf(Instruction::RefFunc(f))` index is in range and appears in the
@@ -182,6 +192,10 @@ of P10's translation from MIR identities to Wasm indices:
   position ([MIR](../fp/mir.md)).
 - **Memories and data.** The profile has one memory at index `0`. Data segments
   keep their construction order.
+- **Globals.** One mutable `(ref null $string)` global per distinct literal a
+  function actually materializes, allocated in `DataId` order from index `0` and
+  initialized to `ref.null`. No global is emitted when the module uses no
+  literal.
 
 ### Declared element segment
 
@@ -195,15 +209,17 @@ table is installed; the segment exists only to satisfy the declaration rule.
 ### Data segments and the allocator
 
 String literals are collected once, deduplicated by content, and placed in
-active data segments. A string is an `i32` pointer to a length-prefixed UTF-8
-buffer: a 4-byte little-endian length followed by the bytes. The first 16 bytes
-of memory are a reserved scratch region (`SCRATCH_SIZE`) that holds the return
-pointer area of canonical ABI calls; string data begins after it and is
-4-aligned. When a program imports a function that returns a `list`/`string`, P10
-also emits and exports P9's specified `cabi_realloc` contract, a bump allocator
-whose free pointer
-lives in one further data segment after the string data
-([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+passive data segments. Each distinct literal used by the module is interned in
+one mutable `(ref null $string)` global: the first evaluation materializes the
+GC string with `array.new_data` and stores it, and every later use reads the
+same string. A literal is never addressed by MIR and needs no linear buffer
+([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
+The first 16 bytes of memory are a reserved scratch region (`SCRATCH_SIZE`) that
+holds the return pointer area of canonical ABI calls; the heap-state segment
+follows. When a program imports a function that returns a `list`/`string` or
+passes indirect parameters, P10 also emits and exports P9's specified
+`cabi_realloc` contract, a general allocator that allocates, frees, and reuses
+aligned blocks ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 
 ### Command entry synthesis
 
@@ -300,6 +316,9 @@ realloc.type_index = defined + types.push((i32,i32,i32,i32) -> i32)
 function_index(f) = import_count + f.id
 entry_index       = import_count + len(mir.functions)
 realloc_index     = entry_index + 1
+
+globals           = [Global{index: i, mutable, (ref null $string), ref.null}
+                     for (i, id) in enumerate(sorted used DataIds)]
 ```
 
 ### Section emission
@@ -314,6 +333,8 @@ encode_module(module):
         FunctionSection: functions, then entry, then realloc
     if memories non-empty:
         MemorySection
+    if globals non-empty:
+        GlobalSection
     if exports non-empty:
         ExportSection
     refs = sorted-unique RefFunc indices found in all bodies
@@ -322,7 +343,7 @@ encode_module(module):
     if any defined functions:
         CodeSection: one body per function, entry, realloc (each ends with `end`)
     if data non-empty:
-        DataSection: active segments at constant i32 offsets
+        DataSection: passive literal segments and the active heap-state segment
     return module bytes
 ```
 
@@ -359,8 +380,8 @@ wasm/
 these types:
 
 - `Module` — the module skeleton of the Model section: imports, function and
-  defined types, functions, memories, data segments, exports, optional entry,
-  and optional `realloc`.
+  defined types, functions, memories, globals, data segments, exports, optional
+  entry, and optional `realloc`.
 - `Op` — the structured operation set: `Leaf(wasm_encoder::Instruction)` plus
   the structured regions `If`, `Block`, and `Loop`. Every region shape this
   design names is an `Op` variant; the encoding must not mirror the WebAssembly
@@ -369,10 +390,13 @@ these types:
   local `ValType`s, body, and span.
 - `Export`, with `ExportKind` and `ExportIndex` — the export table, including
   the `memory` export and the synthesized `run` entry.
-- `DataSegment` — an active data segment at a constant offset.
-- `TypeIndex`, `FunctionIndex`, `MemoryIndex`, and `DataIndex` — the four
-  distinct final index domains. They must not be interchangeable with each other
-  or with any MIR identity.
+- `DataSegment` — a passive literal segment or the active heap-state segment.
+- `Global` with `GlobalInit` — a module global. The backend only emits mutable
+  nullable-reference globals initialized with `ref.null`, one per interned
+  literal.
+- `TypeIndex`, `FunctionIndex`, `MemoryIndex`, `GlobalIndex`, and `DataIndex` —
+  the distinct final index domains. They must not be interchangeable with each
+  other or with any MIR identity.
 
 `wasm/lower/` owns the translation from verified MIR and must provide:
 
@@ -400,8 +424,9 @@ must not be repeated here ([MIR](../fp/mir.md),
 
 Within `lower/`, `structure/` owns region recovery and leaf instruction
 emission, `realloc.rs` synthesizes and exports `cabi_realloc`, and `runtime.rs`
-collects string literals and builds data segments; `lower/mod.rs` also
-synthesizes the command entry.
+collects string literals, builds data segments, and allocates the one global per
+used literal; `lower/mod.rs` also synthesizes the command entry. The structurer
+emits `ArrayNewData` as a `ref.is_null` guard over the literal's global.
 
 `wasm/encode.rs` must provide:
 
@@ -427,12 +452,15 @@ The thin-IR verifier `wasm::verify_module` checks, before bytes are emitted:
 
 - data segment IDs and indices are unique and each index equals its position;
 - memory IDs and indices are unique and deterministic;
+- global indices are unique and deterministic, and every global's initializer
+  type matches its declared value type;
 - every import, function, entry, and `realloc` type index is in range and names
   a function type;
 - every export index is in range for its kind;
 - every `LocalGet`/`LocalSet`/`LocalTee` is within the function's local count
   (parameters plus locals); every `Call`/`RefFunc` is within the function index
-  space; every `CallRef`/`CallIndirect` type index is in range.
+  space; every `GlobalGet`/`GlobalSet` is within the global index space; every
+  `CallRef`/`CallIndirect` type index is in range.
 
 After `encode_module`, P11 runs an independent WebAssembly validator configured
 from the same capability profile (`validator_for`), then `wasmprinter` produces
@@ -462,8 +490,10 @@ For `main = 7` (a zero-argument `Int` entry), MIR is one function with one block
   as above; no element or data segment is needed.
 
 Encoding therefore emits type, import, function, memory, export, and code
-sections in that order. Adding `log "hello"` would add a string data segment
-(and, because a `list`-returning import is present, the `cabi_realloc` export).
+sections in that order. Adding `log "hello"` would add a string data segment and
+a global, so the global section follows the memory section; the literal is
+materialized once behind a `ref.is_null` guard (and, because a `list`-returning
+import is present, the `cabi_realloc` export is emitted).
 
 ## Boundaries and interfaces
 
@@ -536,5 +566,5 @@ before branching back to the dispatcher loop. Jump arguments are copied to
 target block locals before changing the state; branches and switches update the
 state according to their selected successor, including exact comparisons for
 sparse signed switch tags. The dispatcher uses only core Wasm control
-instructions. Tail calls are not lowered, and the active capability profile
-keeps `tail_call` disabled.
+instructions. `ReturnCall`/`ReturnCallRef` encode `return_call`/`return_call_ref`
+when the target enables `tail_call`; the stable profile keeps the flag disabled.

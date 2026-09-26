@@ -1,25 +1,30 @@
 use super::convert::val_type;
 use super::{
-    Body, DataIndex, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType, Function,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    Body, DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
+    Function, FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
+use crate::types::{DataId, HeapType, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 use wasm_encoder::{Instruction, RefType, ValType};
 
+mod asm;
+mod codec;
 mod extent;
+mod function_types;
+mod post_return;
 mod realloc;
 mod runtime;
 mod structure;
 
+use function_types::collect_function_types;
 use realloc::build_realloc;
-use runtime::collect_strings;
+use runtime::{collect_literal_globals, collect_strings};
 use structure::Structurer;
 
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
@@ -62,14 +67,25 @@ pub fn lower_module_with_capabilities(
         ));
     }
 
-    let (string_offsets, mut data, data_end) = collect_strings(module);
-    extent::verify_static_access_extents(module, &string_offsets)?;
+    let (mut data, string_lengths) = collect_strings(module);
+    let literal_globals = collect_literal_globals(module);
+    if !literal_globals.globals.is_empty() && !target.mutable_globals {
+        return Err(wasm_error(
+            module.span,
+            "string literal interning requires mutable WebAssembly globals",
+        ));
+    }
+    extent::verify_static_access_extents(module)?;
+    let needs_helpers = module.imports.iter().any(|import| {
+        import.symbol == abi::STRING_TO_BYTES_SYMBOL || import.symbol == abi::BYTES_TO_STRING_SYMBOL
+    });
     // The host allocates returned lists through `cabi_realloc`; indirect
-    // parameter records use the same allocator from inside the guest.
-    let needs_realloc = module
-        .imports
-        .iter()
-        .any(|import| import.symbol == abi::REALLOC_SYMBOL || wasi.has_list_result(import.symbol));
+    // parameter records and the string codec use the same allocator from inside
+    // the guest.
+    let needs_realloc = needs_helpers
+        || module.imports.iter().any(|import| {
+            import.symbol == abi::REALLOC_SYMBOL || wasi.has_list_result(import.symbol)
+        });
 
     let type_defs = module.types.clone();
     let defined = type_defs
@@ -83,7 +99,10 @@ pub fn lower_module_with_capabilities(
     let mut imports = Vec::new();
     let mut import_indices = HashMap::<SymbolId, FunctionIndex>::new();
     for import in &module.imports {
-        if import.symbol == abi::REALLOC_SYMBOL {
+        if matches!(
+            import.symbol,
+            abi::REALLOC_SYMBOL | abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
+        ) {
             continue;
         }
         let type_index = TypeIndex(defined + types.len() as u32);
@@ -141,6 +160,7 @@ pub fn lower_module_with_capabilities(
     });
 
     let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
+    let indices = SynthesizedIndices::new(entry_index, needs_realloc, needs_helpers);
 
     let mut function_indices = module
         .functions
@@ -150,9 +170,30 @@ pub fn lower_module_with_capabilities(
     for (symbol, index) in &import_indices {
         function_indices.insert(*symbol, *index);
     }
-    if needs_realloc {
-        function_indices.insert(abi::REALLOC_SYMBOL, FunctionIndex(entry_index.0 + 1));
+    if let Some(realloc) = indices.realloc {
+        function_indices.insert(abi::REALLOC_SYMBOL, realloc);
     }
+    // The GC string type index is carried by the reserved helper imports' value
+    // types, so the synthesized codec names the same concrete type MIR does.
+    let string_type = if needs_helpers {
+        let string_type = string_type_from_imports(module)
+            .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
+        function_indices.insert(
+            abi::STRING_TO_BYTES_SYMBOL,
+            indices
+                .string_to_bytes
+                .expect("a needed codec has a string_to_bytes index"),
+        );
+        function_indices.insert(
+            abi::BYTES_TO_STRING_SYMBOL,
+            indices
+                .bytes_to_string
+                .expect("a needed codec has a bytes_to_string index"),
+        );
+        Some(string_type)
+    } else {
+        None
+    };
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
@@ -160,7 +201,8 @@ pub fn lower_module_with_capabilities(
             source,
             function_types[index],
             &function_indices,
-            &string_offsets,
+            &string_lengths,
+            &literal_globals.indices,
         )
         .map_err(|errors| {
             errors
@@ -193,28 +235,69 @@ pub fn lower_module_with_capabilities(
     let mut minimum = 1;
     let mut realloc = None;
     if needs_realloc {
-        let heap_pointer = data_end.next_multiple_of(4);
-        let heap_start = (heap_pointer + 4).next_multiple_of(16);
         let realloc_type = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: vec![ValType::I32; 4],
             results: vec![ValType::I32],
         });
-        let index = FunctionIndex(entry_index.0 + 1);
+        let index = indices.realloc.expect("a needed realloc has an index");
         exports.push(Export {
             name: "cabi_realloc".into(),
             kind: ExportKind::Function,
             index: ExportIndex::Function(index),
         });
+        // The heap-state segment holds the free-list head (null) and the bump
+        // break (the first allocatable address).
+        let mut state = 0_u32.to_le_bytes().to_vec();
+        state.extend_from_slice(&abi::HEAP_START.to_le_bytes());
         data.push(DataSegment {
             id: DataId(data.len() as u32),
             index: DataIndex(data.len() as u32),
-            offset: heap_pointer,
-            bytes: heap_start.to_le_bytes().to_vec(),
+            mode: DataMode::Active {
+                offset: abi::HEAP_STATE,
+            },
+            bytes: state,
         });
-        minimum = (heap_start as u64).div_ceil(0x10000) + 1;
-        realloc = Some(build_realloc(realloc_type, heap_pointer, module.span));
+        minimum = (u64::from(abi::HEAP_START)).div_ceil(0x10000) + 1;
+        realloc = Some(build_realloc(realloc_type, module.span));
     }
+    let helpers = if needs_helpers {
+        let string_type = string_type.expect("a needed codec has a GC string type");
+        let string_ref = val_type(ValueType::Ref(crate::types::RefType {
+            nullable: false,
+            heap: HeapType::Index(string_type),
+        }));
+        let (stb, bts, step) = codec::signatures(string_ref);
+        let stb_type = TypeIndex(defined + types.len() as u32);
+        types.push(stb);
+        let bts_type = TypeIndex(defined + types.len() as u32);
+        types.push(bts);
+        let step_type = TypeIndex(defined + types.len() as u32);
+        types.push(step);
+        codec::synthesize(
+            string_type,
+            indices.realloc.expect("the codec needs the allocator"),
+            indices.decode_step,
+            stb_type,
+            bts_type,
+            step_type,
+            module.span,
+        )
+    } else {
+        Vec::new()
+    };
+
+    // `wasi:cli/run` returns a scalar, so the command export contributes no
+    // owned-handle post-return. An export of `own<T>` is released here.
+    debug_assert!(
+        post_return::append_owned_handle_post_returns(
+            &[],
+            TypeIndex(0),
+            FunctionIndex(0),
+            module.span,
+        )
+        .is_empty()
+    );
 
     let wasm = Module {
         name: module.name.clone(),
@@ -228,6 +311,7 @@ pub fn lower_module_with_capabilities(
             minimum,
             maximum: None,
         }],
+        globals: literal_globals.globals,
         data,
         exports,
         entry: Some(Entry {
@@ -242,78 +326,71 @@ pub fn lower_module_with_capabilities(
             },
         }),
         realloc,
+        helpers,
         span: module.span,
     };
     super::verify::verify_module(&wasm)?;
     Ok(wasm)
 }
 
-fn collect_function_types(
-    module: &mir::Module,
-    defined: u32,
-    initial_types: Vec<FuncType>,
-) -> Result<(Vec<FuncType>, Vec<TypeIndex>), Vec<BackendError>> {
-    let mut types = initial_types;
-    let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), TypeIndex>::new();
-    for (index, definition) in module
-        .types
-        .iter()
-        .flat_map(|group| group.0.iter())
-        .enumerate()
-    {
-        let CompositeType::Func {
-            parameters,
-            results,
-        } = &definition.composite
-        else {
-            continue;
-        };
-        indices.insert(
-            (
-                parameters.iter().copied().map(val_type).collect(),
-                results.iter().copied().map(val_type).collect(),
-            ),
-            TypeIndex(index as u32),
-        );
-    }
-    let mut function_types = Vec::with_capacity(module.functions.len());
-    for function in &module.functions {
-        if function.parameters.len() > function.values.len() {
-            return Err(wasm_error(
-                function.span,
-                "MIR function has more parameters than values",
-            ));
-        }
-        let mut parameters = Vec::with_capacity(function.parameters.len());
-        for parameter in &function.parameters {
-            let ty = value_type(function, *parameter).ok_or_else(|| {
-                wasm_error(function.span, "MIR function parameter has no value type")
-            })?;
-            parameters.push(val_type(ty));
-        }
-        let key = (parameters, vec![val_type(function.result_type)]);
-        let type_index = match indices.get(&key) {
-            Some(index) => *index,
-            None => {
-                let index = TypeIndex(defined + types.len() as u32);
-                types.push(FuncType {
-                    parameters: key.0.clone(),
-                    results: key.1.clone(),
-                });
-                indices.insert(key, index);
-                index
+/// The final Wasm function indices of the synthesized helpers. The encoder
+/// emits the entry, then `cabi_realloc`, then the codec helpers in their
+/// declared order, so every index has exactly one source here.
+struct SynthesizedIndices {
+    realloc: Option<FunctionIndex>,
+    string_to_bytes: Option<FunctionIndex>,
+    bytes_to_string: Option<FunctionIndex>,
+    decode_step: FunctionIndex,
+}
+
+impl SynthesizedIndices {
+    fn new(entry: FunctionIndex, needs_realloc: bool, needs_helpers: bool) -> Self {
+        let realloc = needs_realloc.then_some(FunctionIndex(entry.0 + 1));
+        let helper_base = entry.0 + 1 + u32::from(needs_realloc);
+        if needs_helpers {
+            Self {
+                realloc,
+                string_to_bytes: Some(FunctionIndex(helper_base)),
+                bytes_to_string: Some(FunctionIndex(helper_base + 1)),
+                decode_step: FunctionIndex(helper_base + 2),
             }
-        };
-        function_types.push(type_index);
+        } else {
+            Self {
+                realloc,
+                string_to_bytes: None,
+                bytes_to_string: None,
+                decode_step: FunctionIndex(helper_base),
+            }
+        }
     }
-    Ok((types, function_types))
+}
+
+/// The GC string defined-type index, read from a reserved codec import's value
+/// type. It is present exactly when the adapter needed a string transcode.
+fn string_type_from_imports(module: &mir::Module) -> Option<crate::types::DefinedTypeId> {
+    for import in &module.imports {
+        if import.symbol != abi::STRING_TO_BYTES_SYMBOL
+            && import.symbol != abi::BYTES_TO_STRING_SYMBOL
+        {
+            continue;
+        }
+        for ty in import.parameters.iter().chain(import.result.iter()) {
+            if let ValueType::Ref(reference) = ty
+                && let HeapType::Index(index) = reference.heap
+            {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn lower_function(
     source: &MirFunction,
     type_index: TypeIndex,
     function_indices: &HashMap<SymbolId, FunctionIndex>,
-    string_offsets: &HashMap<String, u32>,
+    string_lengths: &HashMap<crate::types::DataId, u32>,
+    literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -340,7 +417,8 @@ fn lower_function(
             .collect(),
         locals,
         function_indices,
-        string_offsets,
+        string_lengths,
+        literal_globals,
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;

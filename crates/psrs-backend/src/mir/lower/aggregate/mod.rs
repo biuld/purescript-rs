@@ -1,6 +1,6 @@
 use super::*;
 use crate::cc::{AggregateConvert, RefShape, Reference, ValueConversion, ValueShape};
-use crate::types::RefType;
+use crate::types::{RefType, ValueType};
 
 mod array;
 
@@ -395,15 +395,18 @@ fn reference_type(
     layout: &crate::mir::layout::PlannedLayout,
     span: TextRange,
 ) -> Result<RefType, Vec<BackendError>> {
-    let ValueShape::Reference(reference) = shape else {
-        return Err(aggregate_error(
+    // A `String`'s concrete type is its GC array reference, so resolve the
+    // target through the layout rather than only through `RefShape`.
+    match layout
+        .value_type(shape)
+        .map_err(|error| layout_error(span, error))?
+    {
+        ValueType::Ref(reference) => Ok(reference),
+        _ => Err(aggregate_error(
             span,
             "reference conversion target is not a reference",
-        ));
-    };
-    layout
-        .reference(reference)
-        .map_err(|error| layout_error(span, error))
+        )),
+    }
 }
 
 fn aggregate_error(span: TextRange, message: &'static str) -> Vec<BackendError> {

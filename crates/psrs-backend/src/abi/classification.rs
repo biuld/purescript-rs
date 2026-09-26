@@ -1,11 +1,12 @@
 //! Maps resolved WIT types to the source ABI subset and canonical value types.
 
+use super::flatten::primitive_aggregate_allowed;
 use super::{SourceSignature, SourceType, WasiField, WasiParamKind, WasiResultKind};
 use crate::types::ValueType;
 use psrs_core::Module as CoreModule;
 use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 use wit_parser::abi::WasmType;
-use wit_parser::{Resolve, Type as WitType, TypeDefKind};
+use wit_parser::{Handle, Resolve, Type as WitType, TypeDefKind};
 
 /// Converts a resolved HIR foreign-import type into the source-level subset
 /// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
@@ -39,6 +40,7 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
         HirTypeKind::Constructor(BuiltinType::Char) => Some(SourceType::Char),
         HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
         HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
+        HirTypeKind::Opaque(type_id) => Some(SourceType::Resource { type_id: *type_id }),
         HirTypeKind::Named(type_id) => source_enum_type(module, *type_id),
         HirTypeKind::Application(function, _) => {
             let type_id = user_type_id(function)?;
@@ -103,16 +105,20 @@ pub(super) fn unsupported_shape(
     if function
         .params
         .iter()
-        .any(|parameter| param_kind(resolve, &parameter.ty) == WasiParamKind::Unsupported)
-    {
-        return Some("WIT parameter shape has no source ABI mapping yet".into());
-    }
-    if function
-        .params
-        .iter()
         .any(|parameter| contains_non_byte_list(resolve, &parameter.ty))
     {
         return Some("non-byte WIT lists are not supported by the String ABI".into());
+    }
+    // `option`, tuple, and payload-bearing variant stay `Unsupported` as a WIT
+    // parameter kind. A primitive import of those shapes is checked later,
+    // against the canonical flat slots, so this pass must not reject them
+    // before the source signature is known. Maps and other non-flat shapes
+    // still have no source ABI.
+    if function.params.iter().any(|parameter| {
+        param_kind(resolve, &parameter.ty) == WasiParamKind::Unsupported
+            && !primitive_aggregate_allowed(resolve, &parameter.ty)
+    }) {
+        return Some("WIT parameter shape has no source ABI mapping yet".into());
     }
     if matches!(result_kind, WasiResultKind::List)
         && let Some(result) = &function.result
@@ -179,6 +185,26 @@ fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
                 .fields
                 .iter()
                 .any(|field| contains_non_byte_list(resolve, &field.ty)),
+            TypeDefKind::Tuple(tuple) => tuple
+                .types
+                .iter()
+                .any(|ty| contains_non_byte_list(resolve, ty)),
+            TypeDefKind::Option(inner) => contains_non_byte_list(resolve, inner),
+            TypeDefKind::Result(result) => {
+                result
+                    .ok
+                    .as_ref()
+                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+                    || result
+                        .err
+                        .as_ref()
+                        .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+            }
+            TypeDefKind::Variant(variant) => variant.cases.iter().any(|case| {
+                case.ty
+                    .as_ref()
+                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+            }),
             TypeDefKind::Type(inner) => contains_non_byte_list(resolve, inner),
             _ => false,
         },
@@ -191,7 +217,23 @@ fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
 pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
     match ty {
         WitType::Bool => WasiParamKind::Boolean,
-        WitType::S32 => WasiParamKind::Integer32,
+        WitType::S32 | WitType::U32 => WasiParamKind::Integer32,
+        WitType::U8 => WasiParamKind::IntegerNarrow {
+            bits: 8,
+            signed: false,
+        },
+        WitType::S8 => WasiParamKind::IntegerNarrow {
+            bits: 8,
+            signed: true,
+        },
+        WitType::U16 => WasiParamKind::IntegerNarrow {
+            bits: 16,
+            signed: false,
+        },
+        WitType::S16 => WasiParamKind::IntegerNarrow {
+            bits: 16,
+            signed: true,
+        },
         WitType::F64 => WasiParamKind::Float64,
         WitType::String => WasiParamKind::List,
         WitType::Char => WasiParamKind::Char,
@@ -200,7 +242,7 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
         WitType::S64 => WasiParamKind::Scalar64 { signed: true },
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
-            TypeDefKind::Handle(_) => WasiParamKind::Handle,
+            TypeDefKind::Handle(handle) => classify_handle(resolve, handle),
             TypeDefKind::Enum(enum_) => WasiParamKind::Enum {
                 cases: enum_
                     .cases
@@ -236,6 +278,7 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
 fn direct_parameter(kind: &WasiParamKind) -> bool {
     match kind {
         WasiParamKind::Integer32
+        | WasiParamKind::IntegerNarrow { .. }
         | WasiParamKind::Boolean
         | WasiParamKind::Char
         | WasiParamKind::Scalar64 { .. }
@@ -243,7 +286,7 @@ fn direct_parameter(kind: &WasiParamKind) -> bool {
         | WasiParamKind::Float64
         | WasiParamKind::Enum { .. }
         | WasiParamKind::Flags { .. }
-        | WasiParamKind::Handle => true,
+        | WasiParamKind::Handle(_) => true,
         WasiParamKind::Record { fields } => {
             fields.iter().all(|field| direct_parameter(&field.kind))
         }
@@ -260,7 +303,7 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         WitType::Char => WasiResultKind::Char,
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
-            TypeDefKind::Handle(_) => WasiResultKind::Scalar,
+            TypeDefKind::Handle(handle) => classify_result_handle(resolve, handle),
             TypeDefKind::Result(_) => WasiResultKind::Result,
             TypeDefKind::Enum(enum_) => WasiResultKind::Enum {
                 cases: enum_
@@ -273,11 +316,39 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
             _ => WasiResultKind::Discarded,
         },
         WitType::Bool => WasiResultKind::Boolean,
-        WitType::S32 | WitType::S64 | WitType::U64 | WitType::F32 | WitType::F64 => {
+        WitType::S32 | WitType::U32 | WitType::S64 | WitType::U64 | WitType::F32 | WitType::F64 => {
             WasiResultKind::Scalar
         }
+        WitType::U8 => WasiResultKind::IntegerNarrow {
+            bits: 8,
+            signed: false,
+        },
+        WitType::S8 => WasiResultKind::IntegerNarrow {
+            bits: 8,
+            signed: true,
+        },
+        WitType::U16 => WasiResultKind::IntegerNarrow {
+            bits: 16,
+            signed: false,
+        },
+        WitType::S16 => WasiResultKind::IntegerNarrow {
+            bits: 16,
+            signed: true,
+        },
         _ => WasiResultKind::Discarded,
     }
+}
+
+fn classify_handle(resolve: &Resolve, handle: &Handle) -> WasiParamKind {
+    super::handles::classify(resolve, handle)
+        .map(WasiParamKind::Handle)
+        .unwrap_or(WasiParamKind::Unsupported)
+}
+
+fn classify_result_handle(resolve: &Resolve, handle: &Handle) -> WasiResultKind {
+    super::handles::classify(resolve, handle)
+        .map(WasiResultKind::Handle)
+        .unwrap_or(WasiResultKind::Discarded)
 }
 
 fn source_constructor_name(wit_case: &str) -> String {

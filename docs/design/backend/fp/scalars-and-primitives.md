@@ -6,8 +6,9 @@
 integer arithmetic, IEEE-754 binary64, floor division, and the Wasm numeric
 instruction set. Read [IR boundaries](../00-ir-boundaries.md) first.  
 **Summary:** Scalars are the unboxed Wasm value types the backend uses for
-`Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is an ABI pointer and
-not a scalar. This document fixes the complete unary and binary operation
+`Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is a GC byte sequence,
+linearized only at the canonical ABI boundary, and not a scalar. This document
+fixes the complete unary and binary operation
 vocabulary, the concrete Wasm lowering of every operation, the module-local
 floor division and modulo helpers, and the saturating `Number`-to-`Int`
 conversion. It is the reference a frontend uses to lower every built-in scalar
@@ -65,13 +66,14 @@ the language-level expectation that the conversion is total.
 | `Boolean` | `Boolean` | `Boolean` | `i32` | `0` is false, `1` is true; no other value is produced. |
 | `Char` | `Integer` | `I32` | `i32` | Unicode scalar value. |
 | `Unit` | `Integer` | `I32` | `i32` | No payload; the canonical value is `0`. |
-| `String` | `String` | `I32` | `i32` | Pointer to a length-prefixed UTF-8 buffer; an ABI pointer, not a scalar. |
+| `String` | `String` | `(ref $string)` | `(ref $string)` | GC byte sequence; not a scalar. Linearized into a transient buffer only at the canonical ABI boundary ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)). |
 
 CC has no distinct `Char` or `Unit` shape: the layout classifier maps
 `Type::I32`, `Type::Char`, and `Type::Unit` to `ValueShape::Integer`;
 `Type::String` maps to the distinct `ValueShape::String`. `Boolean` and `F64`
-also have their own shapes. P9 maps `String` to an ABI address while CC can
-reject numeric operations on it. `I64` and `F32` remain MIR
+also have their own shapes. P9 maps `String` to the target's GC string
+representation while CC can reject numeric operations on it. `I64` and `F32`
+remain MIR
 value types reserved for the canonical ABI; a future source type can map to
 them without changing the operation model.
 

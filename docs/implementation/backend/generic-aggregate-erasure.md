@@ -187,11 +187,13 @@ GA-04:
   Input boundary: source and verified Typed Core fixture.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib generic_aggregate_audit;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib parameterized_shapes
-  Result: pass, all cases executed. Source empty-array literals are rejected at
-    P5, so empty coverage comes from the Core fixture; recorded as a missing
-    source path, not source support.
+  Result: pass, all cases executed. A source empty `Array Int` literal now
+    type-checks and runs through the existing array lowering
+    (`runs_an_empty_integer_array_literal`); the Core fixture remains the
+    coverage for the reconstruction adapter.
   Revision: eb43bf9 + audit diff.
-  Gaps: no source-level empty array literal.
+  Gaps: none for a monomorphic empty array. An empty array whose element type
+    stays ambiguous is still rejected at finalization.
 
 GA-05:
   Implementation: cc/layout/aggregate.rs canonical label sort,
@@ -630,10 +632,12 @@ PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib parameterized_shapes
 PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test wasmtime_required
 ```
 
-The source frontend still rejects empty array literals; the verified Typed Core
-fixture covers an empty array through the backend. That source feature belongs
-to frontend work. Independently linked Wasm artifacts and open-row aggregate
-conversion remain outside this design. No acceptance row is blocked.
+A source empty array literal type-checks when its element type is determined,
+and `runs_an_empty_integer_array_literal` executes `arrayLength` on `[] :: Array Int`
+through the existing array lowering. The verified Typed Core fixture still
+covers empty-array reconstruction. Independently linked Wasm artifacts and
+open-row aggregate conversion remain outside this design. No acceptance row is
+blocked.
 
 ## Remaining work and blockers
 

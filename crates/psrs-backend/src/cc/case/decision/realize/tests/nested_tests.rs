@@ -32,6 +32,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             Type::I32,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: pick,

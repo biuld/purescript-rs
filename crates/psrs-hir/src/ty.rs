@@ -33,6 +33,9 @@ pub enum TypeKind {
     Constructor(BuiltinType),
     /// A user-defined type constructor, synonym, or class identified by ID.
     Named(TypeId),
+    /// A nominal opaque type introduced by `foreign import data`. It is not a
+    /// synonym and has no constructors; source cannot build a value of it.
+    Opaque(TypeId),
     Application(Box<Type>, Box<Type>),
     Function {
         parameter: Box<Type>,

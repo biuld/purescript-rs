@@ -12,6 +12,10 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct ReachableHandles {
     pub(super) representations: Vec<ReprId>,
     pub(super) signatures: Vec<SignatureId>,
+    /// Whether any reachable value, field, element, capture, signature
+    /// parameter/result, or constant is a `String`, so the planner reserves the
+    /// GC `$string` type.
+    pub(super) needs_string: bool,
 }
 
 impl ReachableHandles {
@@ -135,11 +139,49 @@ impl ReachableHandles {
         representations.sort_by_key(|id| id.0);
         let mut signatures = signatures.into_iter().collect::<Vec<_>>();
         signatures.sort_by_key(|id| id.0);
+        let needs_string = module.functions.iter().any(|function| {
+            function
+                .values
+                .iter()
+                .any(|value| value.ty == ValueShape::String)
+                || function.result_type == ValueShape::String
+        }) || representations
+            .iter()
+            .any(|id| representation_has_string(&module.representations, *id))
+            || signatures.iter().any(|id| {
+                module
+                    .representations
+                    .signature(*id)
+                    .is_some_and(signature_has_string)
+            });
         Ok(Self {
             representations,
             signatures,
+            needs_string,
         })
     }
+}
+
+fn representation_has_string(table: &RepresentationTable, id: ReprId) -> bool {
+    let Some(representation) = table.representation(id) else {
+        return false;
+    };
+    let mut visit = |value: &ValueShape| *value == ValueShape::String;
+    match representation {
+        Representation::Box { value } | Representation::Array { element: value } => visit(value),
+        Representation::Product { fields } => fields.iter().any(&mut visit),
+        Representation::Variant { cases } => {
+            cases.iter().flat_map(|case| &case.fields).any(&mut visit)
+        }
+    }
+}
+
+fn signature_has_string(signature: &Signature) -> bool {
+    signature
+        .parameters
+        .iter()
+        .any(|value| value == &ValueShape::String)
+        || signature.result == ValueShape::String
 }
 
 #[allow(clippy::too_many_arguments)]

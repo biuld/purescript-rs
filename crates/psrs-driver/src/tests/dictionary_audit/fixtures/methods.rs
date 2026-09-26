@@ -86,6 +86,7 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
             thir::Type::I32,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -356,6 +357,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
             },
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

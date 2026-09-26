@@ -76,15 +76,18 @@ chooses the object layout.
 | `Integer` | `I32` |
 | `Boolean` | `Boolean` (encoded as `i32`) |
 | `Number` | `F64` |
-| `String` | `I32` (ABI address; distinct from numeric `Integer` in CC) |
+| `String` | `(ref $string)` (a GC byte sequence; copied to a transient linear buffer at the canonical ABI boundary) |
 | `Reference(Repr(id))` | `(ref $repr)` or `(ref null $repr)` |
 | `Reference(Aggregate)` | `(ref struct)` or `(ref null struct)` |
 | `Reference(Closure(signature))` | `(ref $closure)` or `(ref null $closure)` |
 | `Reference(Erased)` | `(ref eq)` or `(ref null eq)` |
 
-Nullability is copied from the CC `Reference`. A `String` is not a GC object: it
-stays an `i32` pointer to a length-prefixed UTF-8 buffer so the canonical ABI
-can consume it directly ([linear memory](../wasm/linear-memory-and-canonical-abi-boundary.md)).
+Nullability is copied from the CC `Reference`. A `String` is a GC byte-sequence
+value, not a linear pointer; it is copied into a transient `(pointer, length)`
+linear buffer only while crossing the canonical ABI boundary, and the buffer is
+freed after the call
+([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
+[linear memory](../wasm/linear-memory-and-canonical-abi-boundary.md)).
 
 ### Concrete layouts
 
@@ -111,7 +114,8 @@ runtime tags. A sum type whose constructors are all nullary uses an immediate
 Captures are stored in one uniform `(ref null eq)` array so a closure type does
 not depend on its capture types:
 
-- an `Integer` or `String` capture is boxed in the one-field i32 box;
+- an `Integer` capture is boxed in the one-field i32 box, and a `String`
+  capture is stored as its GC reference;
 - a `Boolean` capture is boxed with `i31.new`;
 - an `f64` capture is boxed in the one-field number box;
 - a reference capture is stored as-is; and

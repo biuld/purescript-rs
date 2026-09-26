@@ -150,8 +150,9 @@ enter it as follows:
 
 | Concrete shape | Erased entry | Erased exit |
 | --- | --- | --- |
-| `Integer`, `Boolean`, `String` | one-field i32 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
+| `Integer`, `Boolean` | one-field i32 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
 | `Number` | one-field f64 `Box` struct | `ref.cast` to the box, then `struct.get` of field 0 |
+| `String` | `ref.cast` to `eqref`, no allocation (a GC string is an `eq` value) | `ref.cast` to the string representation |
 | GC reference (`Repr`, `Aggregate`, `Closure`) | `ref.cast` to `eqref`, no allocation | `ref.cast` to the concrete reference |
 | already erased | identity | identity |
 
@@ -161,8 +162,10 @@ boundary or keeps the same runtime object shape. A value whose type is
 field-wise layout conversion before it can use its canonical generic shape;
 an `eqref` cast alone is not that conversion.
 
-`Boolean` and `String` are boxed in the integer box on the erased path, so all
-32-bit patterns round-trip; the i31 shorthand is used only for closure *captures*, not
+`Boolean` is boxed in the integer box on the erased path, and a `String` is a GC
+`eq` value that erases and recovers by cast, so all patterns round-trip without
+turning a string into an integer. The i31 shorthand is used only for closure
+*captures*, not
 for the general erased protocol (see [data representation](data-representation.md)).
 The empty-erasure case (an erased value used where an erased value is expected)
 is an identity, so nested polymorphic boundaries add no work.
@@ -238,7 +241,8 @@ A closure is a GC struct `{ funref, capture-array }` whose captures live in one
 uniform array of nullable `eqref` (`array (mut (ref null eq))`), so the closure
 type does not depend on capture types. Captures enter the array as follows:
 
-- an `Integer` or `String` capture is boxed in the one-field i32 box;
+- an `Integer` capture is boxed in the one-field i32 box, and a `String`
+  capture is stored as its GC reference;
 - a `Boolean` capture is boxed with `i31.new`;
 - an `f64` capture is boxed in the one-field number box;
 - a reference capture is stored as-is; and

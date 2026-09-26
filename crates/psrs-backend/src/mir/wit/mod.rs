@@ -6,7 +6,10 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod handles;
 mod parameters;
+
+pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
 
 use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
@@ -31,6 +34,21 @@ pub(super) trait WitCallLowerer {
         field: u32,
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>>;
+
+    /// Records an `own<T>` result that this function must drop unless it
+    /// returns the index or passes it to another `own` parameter.
+    fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
+
+    /// An `own<T>` argument consumes a previously noted handle.
+    fn transfer_owned(&mut self, _value: ValueId) {}
+}
+
+/// A call-local buffer that must be freed once the canonical call returns. The
+/// `align` is a compile-time constant; `length` is the payload length value.
+pub(super) struct PendingFree {
+    pub pointer: ValueId,
+    pub length: ValueId,
+    pub align: i32,
 }
 
 impl WitCallLowerer for FunctionLowerer<'_> {
@@ -56,6 +74,14 @@ impl WitCallLowerer for FunctionLowerer<'_> {
     ) -> Result<ValueId, Vec<BackendError>> {
         self.wit_product_field(block, value, field, span)
     }
+
+    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
+        self.note_owned_handle(value, drop_symbol, span);
+    }
+
+    fn transfer_owned(&mut self, value: ValueId) {
+        self.transfer_owned_handle(value);
+    }
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
@@ -73,12 +99,14 @@ pub(super) fn lower<L: WitCallLowerer>(
     current: BlockId,
 ) -> Result<(), Vec<BackendError>> {
     let mut flat = Vec::new();
+    let mut frees = Vec::new();
     parameters::lower_parameters(
         lowerer,
         import,
         source_signature,
         arguments,
         &mut flat,
+        &mut frees,
         current,
         span,
     )?;
@@ -99,8 +127,7 @@ pub(super) fn lower<L: WitCallLowerer>(
     }
     match &import.result_kind {
         // A returned list or string is written through the return pointer as
-        // `(pointer, length)`. `cabi_realloc` prefixes the buffer with its
-        // length, so the string value is the pointer minus that prefix.
+        // `(pointer, length)` of UTF-8 bytes. Decode it into a fresh GC string.
         abi::WasiResultKind::List => {
             let address = retptr.expect("a list result takes a return pointer");
             lowerer.append_wit_instruction(
@@ -124,29 +151,35 @@ pub(super) fn lower<L: WitCallLowerer>(
                 },
                 span,
             )?;
-            let four = lowerer.fresh_wit_value(ValueType::I32);
+            let length = lowerer.fresh_wit_value(ValueType::I32);
             lowerer.append_wit_instruction(
                 current,
-                Instruction::Constant {
-                    destination: four,
-                    value: 4,
+                Instruction::Load {
+                    destination: length,
+                    address,
+                    memory: MemoryId(0),
+                    offset: 4,
                     span,
                 },
                 span,
             )?;
             lowerer.append_wit_instruction(
                 current,
-                Instruction::Primitive {
+                Instruction::Call {
                     destination,
-                    op: NumericOp::I32Sub,
-                    left: pointer,
-                    right: four,
+                    function: crate::abi::BYTES_TO_STRING_SYMBOL,
+                    arguments: vec![pointer, length],
                     span,
                 },
                 span,
             )?;
+            // The host-allocated import result is copied into the GC string;
+            // free it before returning control to source.
+            free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
         abi::WasiResultKind::Scalar
+        | abi::WasiResultKind::Handle(_)
+        | abi::WasiResultKind::IntegerNarrow { .. }
         | abi::WasiResultKind::Boolean
         | abi::WasiResultKind::Enum { .. }
         | abi::WasiResultKind::Char => match import.result {
@@ -206,7 +239,9 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?,
             _ => {
-                return Err(vec![BackendError::new(
+                // Classification rejects shapes with no canonical result
+                // before MIR lowering; reaching here is invalid compiler IR.
+                return Err(vec![BackendError::invalid_ir(
                     "P9 MIR lowering",
                     span,
                     "this WIT import's scalar result type is not supported yet",
@@ -296,14 +331,87 @@ pub(super) fn lower<L: WitCallLowerer>(
             )?;
         }
         abi::WasiResultKind::Discarded => {
-            return Err(vec![BackendError::new(
+            // The ABI classification reports an unsupported shape before MIR
+            // lowering, so a `Discarded` result here is invalid compiler IR.
+            return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 "aggregate WIT results must be rejected before MIR lowering",
             )]);
         }
     }
+    // Call-local buffers (string transcode buffers and indirect parameter
+    // records) are owned by this function and freed once the call returns.
+    for pending in frees.iter().rev() {
+        free_buffer(
+            lowerer,
+            pending.pointer,
+            pending.length,
+            pending.align,
+            current,
+            span,
+        )?;
+    }
+    // A borrow result cannot outlive this call: release it before the caller
+    // can use the index. An owned result stays live until it is transferred
+    // or the function drops it.
+    if let abi::WasiResultKind::Handle(handle) = &import.result_kind {
+        match handle.mode {
+            abi::HandleMode::Borrow => {
+                lowerer.append_wit_instruction(
+                    current,
+                    handles::borrow_release(destination, handle.drop_symbol, span),
+                    span,
+                )?;
+            }
+            abi::HandleMode::Own => lowerer.note_owned(destination, handle.drop_symbol, span),
+        }
+    }
     Ok(())
+}
+
+/// Frees a transient canonical buffer through `cabi_realloc(ptr, len, align, 0)`.
+fn free_buffer<L: WitCallLowerer>(
+    lowerer: &mut L,
+    pointer: ValueId,
+    length: ValueId,
+    align: i32,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let align_value = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: align_value,
+            value: align,
+            span,
+        },
+        span,
+    )?;
+    let zero = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: zero,
+            value: 0,
+            span,
+        },
+        span,
+    )?;
+    // `cabi_realloc` is declared with an `i32` result; the freed pointer is
+    // discarded.
+    let discarded = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Call {
+            destination: discarded,
+            function: abi::REALLOC_SYMBOL,
+            arguments: vec![pointer, length, align_value, zero],
+            span,
+        },
+        span,
+    )
 }
 
 #[cfg(test)]
