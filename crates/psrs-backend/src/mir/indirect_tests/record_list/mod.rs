@@ -7,7 +7,7 @@ mod fixtures;
 use super::lower_module_with_registry;
 use crate::TargetCapabilities;
 use crate::abi;
-use fixtures::{fixture, flags_fixture, result_fixture, string_fixture};
+use fixtures::{fixture, flags_fixture, handle_fixture, result_fixture, string_fixture};
 
 #[test]
 fn record_list_parameters_lower_to_a_canonical_layout() {
@@ -204,4 +204,39 @@ fn flags_list_packs_boolean_fields() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the flags list Wasm should validate");
+}
+
+#[test]
+fn handle_list_parameters_copy_the_indexes() {
+    let (cc, bindings, resolve) = handle_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
+        .expect("P9 should lower a list<own<resource>> parameter");
+
+    let element = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .find_map(|instruction| match instruction {
+            crate::mir::Instruction::ListCopy {
+                direction, element, ..
+            } => Some((*direction, *element)),
+            _ => None,
+        })
+        .expect("a ListCopy should be emitted");
+    assert_eq!(element.0, crate::mir::ListDirection::Store);
+    assert_eq!(element.1, crate::abi::ListElement::Word);
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the handle copy");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the handle list copy");
+    let binary = crate::wasm::encode_module(&wasm).expect("the handle list Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the handle list Wasm should validate");
 }

@@ -117,6 +117,15 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
             span,
         );
     }
+    if matches!(element, abi::WasiParamKind::Handle(_)) {
+        // A returned resource list would need per-element drop or borrow
+        // release; only resource lists passed as parameters are supported.
+        return Err(vec![BackendError::new(
+            "P9 MIR lowering",
+            span,
+            "a resource list result is not supported yet",
+        )]);
+    }
     let element = list_element(element, span)?;
     let address = retptr.ok_or_else(|| {
         vec![BackendError::invalid_ir(
