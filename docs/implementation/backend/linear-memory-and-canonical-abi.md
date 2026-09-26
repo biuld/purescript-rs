@@ -14,9 +14,11 @@ initialized module global, and the ABI adapter transcodes UTF-16 to
 and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
 ABI-07 are Verified. LM-01 is In progress because the profile still fixes one
 wasm32 memory. ABI-02 is Verified, including `own`/`borrow` handle drop;
-scalar, enum, flags, char, and GC string mapping already has tests. ABI-08
-stays Blocked for non-byte `list<T>` / `SourceType::Array`;
-`option`/`result`/`variant` and tuples are not compiler source types
+scalar, enum, flags, char, and GC string mapping already has tests. ABI-08's
+non-byte `list<T>` / `SourceType::Array` is lowered for scalars, `bool`, `char`,
+and `string`/`list<u8>` elements, with an execution test for `list<string>`;
+`option`/`result`/`variant` and tuples remain out because they are not compiler
+source types
 ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
 The reclaiming allocator, transient buffer free, `post-return`, and buffer
 ownership moved to
@@ -28,7 +30,8 @@ ownership moved to
 
 Complete the one-memory canonical ABI boundary: string/data segments, the static
 access-extent verification, and the canonical ABI lowering and WIT registry for
-byte lists and scalar shapes. The reclaiming allocator, buffer free, and
+byte lists, non-byte lists of supported elements, and scalar shapes. The
+reclaiming allocator, buffer free, and
 `post-return` are owned by
 [canonical buffer allocation](canonical-buffer-allocation.md). The thin
 encoder/validator is owned by [Wasm encoding](wasm-encoding.md); WASI service
@@ -50,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, and `string`/`list<u8>` is classified, validated, and lowered with a driver execution test; unsupported shapes are rejected with source diagnostics. `option`/`result`/`variant`/tuple remain non-source types and tuples/aggregates stay unsupported. | In progress |
 
 ## Evidence record and completion rule
 
@@ -263,19 +266,34 @@ ABI-07:
 
 ```text
 ABI-08:
-  Implementation: none for the listed shapes; unsupported shapes are rejected
-    at classification/lowering.
-  Tests: psrs-driver tests::wasi::
+  Implementation: non-byte `list<T>` / `SourceType::Array` classification in
+    crates/psrs-backend/src/abi/lists.rs and
+    crates/psrs-backend/src/abi/classification.rs; MIR lowering in
+    crates/psrs-backend/src/mir/wit/lists.rs and
+    crates/psrs-backend/src/mir/wit/mod.rs; Wasm loops in
+    crates/psrs-backend/src/wasm/lower/structure/lists.rs. Unsupported shapes
+    are still rejected at classification/lowering.
+  Tests: psrs-backend abi::tests::lists::
+    maps_an_array_of_supported_elements_and_rejects_nested_arrays,
+    classifies_scalar_and_string_lists_and_rejects_aggregates;
+    mir::wit::tests::lists::{a_list_of_strings_result_lowers_to_an_array,
+    an_array_of_ints_lowers_to_a_list_parameter};
+    psrs-driver tests::wasi::{
+    lowers_a_list_of_strings_to_an_array,
+    lowers_the_environment_arguments_wrapper_to_an_array,
+    reads_environment_arguments_when_wasmtime_is_available,
     rejects_a_non_byte_wit_list_before_lowering_it_as_a_string,
-    rejects_a_wit_import_when_the_declared_source_type_does_not_match.
-  Input boundary: WIT signatures and source.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
-    not lowered.
-  Gaps: non-byte `list<T>` still needs `SourceType::Array` and its lowering
-    (copy in, read back) for elements that map. That list part of ABI-08 is
-    unchanged. `option`, `result`, non-unit `variant`, and tuple are not
-    compiler source types
+    rejects_a_string_declaration_for_a_list_of_strings,
+    rejects_a_wit_import_when_the_declared_source_type_does_not_match}.
+  Input boundary: WIT signatures, source, and executed component.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
+    cargo test -p psrs-backend --lib abi::tests::lists;
+    cargo test -p psrs-backend --lib mir::wit::tests::lists.
+  Result: pass under Wasmtime 49.0.1. A `list<string>` result is copied into a
+    GC array and `WASI.Environment.arguments` recovers it; non-byte lists of
+    aggregates are rejected with a source diagnostic.
+  Gaps: `option`, `result`, non-unit `variant`, tuple, and lists of aggregates
+    are not compiler source types
     ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
     [primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
     a wrapper may pass primitive arguments whose flattening matches, and
@@ -295,6 +313,7 @@ buffer free, and `post-return` are tracked by
 ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
 [primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
 a wrapper may pass primitive arguments whose flattening matches, and
-multi-value returns stay unsupported. Non-byte `list<T>` / `SourceType::Array`
-is unchanged and is still the list part of ABI-08. These are tracked on BE-11
+multi-value returns stay unsupported. The non-byte `list<T>` /
+`SourceType::Array` part of ABI-08 is lowered for supported elements; its
+remaining gap is lists of aggregates. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

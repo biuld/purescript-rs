@@ -179,7 +179,8 @@ fn consume(parameter: &SourceType, slots: &[FlatSlot], index: &mut usize) -> boo
         SourceType::Unit
         | SourceType::Enum { .. }
         | SourceType::Record { .. }
-        | SourceType::Resource { .. } => {
+        | SourceType::Resource { .. }
+        | SourceType::Array { .. } => {
             return false;
         }
     }

@@ -24,7 +24,7 @@ use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
 use scalar_helpers::lower_scalar_helpers;
 
-pub use instruction::Instruction;
+pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
 pub use verify::{verify_module, verify_module_with_capabilities};
 
@@ -367,6 +367,14 @@ fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
                 match instruction {
                     Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
                         used.insert(*function);
+                    }
+                    Instruction::ListCopy {
+                        element: crate::abi::ListElement::String,
+                        ..
+                    } => {
+                        used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
+                        used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
+                        used.insert(crate::abi::REALLOC_SYMBOL);
                     }
                     _ => {}
                 }

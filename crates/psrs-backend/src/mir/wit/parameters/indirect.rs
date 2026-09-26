@@ -60,6 +60,7 @@ pub(super) fn write_parameter_record<L: WitCallLowerer>(
         pointer: address,
         length: size,
         align: layout.align as i32,
+        string_elements: None,
     });
     output.push(address);
     Ok(())
@@ -106,7 +107,9 @@ fn parameter_layout(
                 .map(|field| parameter_layout(&field.kind, span)),
             span,
         ),
-        abi::WasiParamKind::Unsupported => Err(unsupported_parameter(span)),
+        abi::WasiParamKind::ValueList { .. } | abi::WasiParamKind::Unsupported => {
+            Err(unsupported_parameter(span))
+        }
     }
 }
 

@@ -104,8 +104,14 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     );
 
     let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
-    let abstract_signature = crate::cc::abstract_signature(&source, &core, &record_types)
-        .expect("the record representation should be selected from Core layout metadata");
+    let abstract_signature = crate::cc::abstract_signature(
+        &source,
+        &core,
+        &record_types,
+        &std::collections::HashMap::new(),
+        &mut crate::cc::RepresentationTable::default(),
+    )
+    .expect("the record representation should be selected from Core layout metadata");
     assert_eq!(
         abstract_signature.parameters,
         vec![crate::cc::ValueShape::Reference(crate::cc::Reference {

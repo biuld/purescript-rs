@@ -71,13 +71,13 @@ WasiParamKind = Integer32 | IntegerNarrow { bits: 8 | 16, signed: bool }
               | Enum { cases: [String] }
               | Flags { names: [String] }
               | Record { fields: [WasiField] }
-              | Array { element: Box(WasiParamKind) }
+              | ValueList { element: Box(WasiParamKind) }
               | Handle | List | Unsupported
 
 WasiResultKind = None | Scalar | Boolean | Enum { cases: [String] }
                | Char | List | Result
                | IntegerNarrow { bits: 8 | 16, signed: bool }
-               | Array { element: Box(WasiParamKind) }
+               | ValueList { element: Box(WasiParamKind) }
                | Discarded
 
 WasiField      = { name: String, kind: WasiParamKind }
@@ -90,6 +90,14 @@ HIR signature into `SourceSignature`; a signature the source ABI cannot express
 stays `None` and is rejected. `BoundWasiImport` pairs a resolved `WasiImport`
 with the exact `SourceSignature` so P9 can recover record field order after CC
 lowering.
+
+`List` is a byte list (`string` or `list<u8>`) and flattens to a
+`(pointer, length)` pair of raw bytes. `ValueList { element }` is any other
+`list<T>`: it also flattens to `(pointer, length)`, but the pointer addresses an
+array of canonically laid-out `element` values. The source type for a
+`ValueList` is `SourceType::Array(element)`; the descriptor is named `ValueList`
+rather than `Array` so it is not confused with the GC array that carries the
+source value.
 
 ### Invariants
 
@@ -287,7 +295,7 @@ lower_parameter(arg, source, kind, flat):
         => length = Load(arg)                 # 4-byte length prefix
            bytes  = arg + 4
            flat.push(bytes); flat.push(length)
-    Array { element }
+    ValueList { element }
         => # Non-byte list: copy the source array's elements into a fresh
            # linear-memory buffer via cabi_realloc, then pass (pointer, count).
            address = copy_array_to_memory(arg, element)
@@ -328,7 +336,7 @@ lower_result(import, destination, flat):
                 I64 => destination = WrapI64(Call(import, flat))
                 F32 => destination = F32ToF64(Call(import, flat))
                 I32 | F64 => destination = Call(import, flat)
-        Array { element } =>
+        ValueList { element } =>
             # Non-byte list result: the host writes (pointer, count) into the
             # return area; read it back into a fresh source array element-wise.
             CallVoid(import, flat)
@@ -361,7 +369,7 @@ validate_signature(import, signature):
         Char      => Char
         List      => String (byte list)
         IntegerNarrow { .. } => Int
-        Array { element } => Array(source) whose element matches `element`
+        ValueList { element } => Array(source) whose element matches `element`
         Result    => Unit
         Discarded => always reject
 ```
@@ -523,12 +531,15 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 ## Open questions and future work
 
-- **Aggregate ABI.** Indirect records and tuples, `option`/`result`/`variant`
-  results, `option`/`result`/`variant` payloads, and non-byte `list<T>` need
-  result memory-layout computation and read-back. Narrowed and unsigned WIT
-  integers and non-byte lists of scalars now have a source mapping
+- **Aggregate ABI.** Indirect records and tuples, and
+  `option`/`result`/`variant` results and payloads, need result memory-layout
+  computation and read-back. Narrowed and unsigned WIT integers and non-byte
+  `list<T>` results now have a source mapping and are lowered
   ([Source type mapping](#source-type-mapping)); indirect parameter records are
-  implemented for the currently classified parameter kinds.
+  implemented for the currently classified parameter kinds. A non-byte
+  `list<T>` is copied element-wise between a source GC array and the canonical
+  `(pointer, length)` buffer; `string` and `list<u8>` elements are transcoded and
+  their element buffers freed.
 - **Resources.** `own`/`borrow` handles are lowered
   ([Resources and handles](#resources-and-handles)): an owned import result is
   dropped with `resource.drop` when the receiving function does not return it
@@ -538,7 +549,8 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   function is not tracked in the caller. Handles nested in an unsupported
   aggregate are not dropped.
 - **Source integration.** Parsed source can declare `Array` foreign signatures
-  and reaches the ABI boundary, but non-byte lists are not lowered yet.
+  and reaches the ABI boundary; non-byte lists of supported elements (scalars,
+  `bool`, `char`, and `string`/`list<u8>`) are lowered.
   Record and flags foreign signatures are not known to be reachable from
   parsed source.
 - **No compiler source type for option/result/variant/tuple.** Those WIT forms
@@ -611,13 +623,15 @@ implementation coverage, not design choices. The allocator, buffer free, and
   rejected. An owned handle is dropped once in the function that received it,
   unless that function returns the index or passes it to an `own` parameter.
   A second drop, or a use after the borrow release, is rejected.
-- Non-byte `list<T>`, `option`/`result`/`variant` payload read-back, and tuple
-  source types are not lowered.
+- `option`/`result`/`variant` payload read-back and tuple
+  source types are not lowered. Non-byte `list<T>` of a supported element is
+  lowered.
 
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct
 records with nested byte-list fields, and flags words; indirect parameter tuples
-through `cabi_realloc`; the unit-success `result` and scalar/list result paths.
+through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, and strings;
+the unit-success `result` and scalar/list result paths.
 Regression tests cover those shapes.
 
 ## References

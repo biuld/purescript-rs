@@ -17,6 +17,10 @@ fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
 }
 
 fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
+    run_with_wasmtime_args(source, &[])
+}
+
+fn run_with_wasmtime_args(source: &str, args: &[&str]) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")
         .output()
@@ -33,11 +37,9 @@ fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
-    let output = std::process::Command::new("wasmtime")
-        .arg("run")
-        .arg(&path)
-        .output()
-        .unwrap();
+    let mut command = std::process::Command::new("wasmtime");
+    command.arg("run").arg(&path).args(args);
+    let output = command.output().unwrap();
     let _ = std::fs::remove_file(&path);
     Some(output)
 }

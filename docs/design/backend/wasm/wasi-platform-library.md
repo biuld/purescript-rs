@@ -64,6 +64,7 @@ world command {
     import wasi:cli/exit@0.2.12;
     import wasi:clocks/monotonic-clock@0.2.12;
     import wasi:random/random@0.2.12;
+    import wasi:cli/environment@0.2.12;
     export wasi:cli/run@0.2.12;
 }
 ```
@@ -80,8 +81,10 @@ matches that list exactly and imports only named interfaces. The vendored WASI
 
 The names in **Source-facing operation** are the user-facing wrappers, not the
 types of the foreign imports. `log`, `error`, `now`, `randomBytes`,
-`randomU64`, and `exitWithCode` are ordinary PureScript. The imports underneath
+`randomU64`, `exitWithCode`, and `arguments` are ordinary PureScript. The
+imports underneath
 are primitives (`Int`, `String`, `Unit`, with a handle declared as `Int`) and
+`Array` of a supported element for a non-byte `list<T>`; they
 must not be exported.
 
 | Service | WIT interface | Source-facing operation |
@@ -91,22 +94,24 @@ must not be exported.
 | Process exit | `wasi:cli/exit` | `exitWithCode :: Int -> Effect Unit`. `main`'s integer code is still the synthesized `run` entry's call to `exit-with-code`, not this wrapper |
 | Monotonic clock | `wasi:clocks/monotonic-clock` | `now :: Effect Int` |
 | Random bytes | `wasi:random/random` | `randomBytes :: Int -> Effect String`, `randomU64 :: Effect Int` |
+| Arguments | `wasi:cli/environment` | `arguments :: Effect (Array String)` |
 
 ### Capability matrix
 
-Each intended standard-library feature has one owner. This slice adds only
-`exitWithCode`. It does not move the WIT root, add `stdlib.toml`, or change
-compiler types. The primitive-import contract is
+Each intended standard-library feature has one owner. This slice adds
+`exitWithCode` and `arguments`. It does not move the WIT root, add
+`stdlib.toml`, or change compiler source types beyond the ABI-08 non-byte
+`list<T>` path. The primitive-import contract is
 [primitive FFI and the standard library](primitive-ffi-and-stdlib.md).
 
 | Feature | Owner | State |
 | --- | --- | --- |
 | On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
-| Exported primitive wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | `log`, `error`, `now`, `randomBytes`, `randomU64`, and `exitWithCode`. Raw imports stay unexported. |
+| Exported primitive wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | `log`, `error`, `now`, `randomBytes`, `randomU64`, `exitWithCode`, and `arguments`. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
 | `Effect` as `foreign import data` | Not this slice | Frontend #54 landed the declaration form. `Prelude` still defines `data Effect a`. |
 | `Maybe`, `Either`, and records as wrappers | [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Library types, not compiler types. A canonical result of several values stays unexposed. |
-| Arguments, environment, and filesystem | #59 | Blocked on multi-value or list returns. |
+| **WASI-07 Arguments, environment, and filesystem** | #59 | Partial. `WASI.Environment.arguments :: Effect (Array String)` wraps `get-arguments` and its `list<string>` result; `get-environment` (`list<tuple<string, string>>`) and filesystem remain blocked on lists of aggregates and `option` results. |
 | Resource `own` / `borrow` drop | #55 | Not this branch. |
 | Type classes | #63 | Not this branch. |
 | WIT root move and `stdlib.toml` | #66 | Not done. WIT stays in `crates/psrs-backend/wit/`. There is no `stdlib.toml`. |
@@ -180,12 +185,14 @@ constant, which exists to give the entry its declared `i32` result
 The platform library is source code under `stdlib/lib`, read from disk and
 resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
 the trusted prefix order (`Prelude`, `Data.Maybe`, `Data.Either`,
-`WASI.Console`, `WASI.Clock`, `WASI.Random`, `WASI.Exit`). `Data.Maybe` and
+`WASI.Console`, `WASI.Clock`, `WASI.Random`, `WASI.Exit`, `WASI.Environment`).
+`Data.Maybe` and
 `Data.Either` are ordinary library types; they are not part of the trusted
 `Effect` representation.
 `WASI.Console` defines `log` and `error`, `WASI.Clock` defines `now`,
-`WASI.Random` defines `randomBytes` and `randomU64`, and `WASI.Exit` defines
-`exitWithCode`. Each WIT import is declared with a binding string and lowered
+`WASI.Random` defines `randomBytes` and `randomU64`, `WASI.Exit` defines
+`exitWithCode`, and `WASI.Environment` defines `arguments`. Each WIT import is
+declared with a binding string and lowered
 by the generic Canonical ABI adapter
 ([canonical ABI and WIT](canonical-abi-and-wit.md)); the compiler has no
 per-service host function.
@@ -198,11 +205,13 @@ Each enabled service is two layers
 The raw `foreign import` is unexported and uses only primitive source types.
 The names in the table above are the exported wrappers: `log` and `error` hide
 `writeStdout`, `getStdout`, and `getStderr`, `now` hides `monotonicNow`, the
-random wrappers hide `getRandomBytes` and `getRandomU64`, and `exitWithCode`
-hides `exitWithCodeRaw`. Those raw imports must not be exported. `exit` is not
+random wrappers hide `getRandomBytes` and `getRandomU64`, `exitWithCode`
+hides `exitWithCodeRaw`, and `arguments` hides `getArguments`. Those raw imports
+must not be exported. `exit` is not
 wrapped, as the capability matrix records. Wrappers may use library types such as
 `Maybe` or records; they `case` on those types and pass primitives whose
-flattening matches the WIT function. This document does not move that contract
+flattening matches the WIT function. `arguments` passes the `list<string>`
+result through as an `Array String`. This document does not move that contract
 into the component world.
 
 ### Rejected alternatives
@@ -310,7 +319,8 @@ Responsibilities and required entry points:
 - The WASI library must be ordinary PureScript source resolved, type-checked,
   and linked like any other module. The driver loads it from `stdlib/lib`
   rather than embedding it, and defines `log`, `error`, `now`, `randomBytes`,
-  `randomU64`, and `exitWithCode` over WIT imports; the portable `Prelude` must
+  `randomU64`, `exitWithCode`, and `arguments` over WIT imports; the portable
+  `Prelude` must
   not import WASI.
 - `psrs-cli/src/main.rs` must expose `psrs build`, `psrs wat`, and `psrs dump`.
 - `wit/psrs-app.wit` and `wit/deps/` own the vendored WASI 0.2.12 WIT sources.
@@ -363,15 +373,19 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 
 ## Implementation notes
 
-Console (stdout and stderr), monotonic clock, random, and the synthesized
+Console (stdout and stderr), monotonic clock, random, environment arguments, and
+the synthesized
 command exit are implemented and have execution tests. `exitWithCode` lowers
 and stays inside its effect closure until `runEffect`; there is no execution
 test that calls it, because that terminates the process. `wasi:cli/exit.exit`
-is not wrapped. Filesystem, arguments, environment, sockets, HTTP, and TLS are
+is not wrapped. `WASI.Environment.arguments` wraps `get-arguments` and has an
+execution test. Environment variables (a list of tuples) and filesystem, plus
+sockets, HTTP, and TLS, are
 specified but not implemented; their capability flags are disabled in the
 default profile. The standard library is read from `stdlib/lib` at runtime
 (`stdlib/lib/trusted` lists `Prelude`, `Data.Maybe`, `Data.Either`,
-`WASI.Console`, `WASI.Clock`, `WASI.Random`, and `WASI.Exit` in trusted-prefix
+`WASI.Console`, `WASI.Clock`, `WASI.Random`, `WASI.Exit`, and
+`WASI.Environment` in trusted-prefix
 order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the
