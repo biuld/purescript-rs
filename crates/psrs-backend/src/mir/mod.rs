@@ -24,7 +24,7 @@ use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
 use scalar_helpers::lower_scalar_helpers;
 
-pub use instruction::{Instruction, ListDirection, ListFieldCopy};
+pub use instruction::{Instruction, ListDirection, ListFieldCopy, ListFlagsField};
 pub use numeric::{NumericOp, UnaryOp};
 pub use verify::{verify_module, verify_module_with_capabilities};
 

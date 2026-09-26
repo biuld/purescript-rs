@@ -2,6 +2,9 @@
 
 mod record;
 
+mod flags;
+
+use flags::{read_flags_value_list_result, write_flags_value_list};
 pub(super) use record::free_record_string_elements;
 use record::{read_record_value_list_result, write_record_value_list};
 
@@ -28,6 +31,11 @@ pub(super) fn write_value_list<L: WitCallLowerer>(
 ) -> Result<(), Vec<BackendError>> {
     if matches!(element, abi::WasiParamKind::Record { .. }) {
         return write_record_value_list(
+            lowerer, argument, shape, element, flat, frees, current, span,
+        );
+    }
+    if matches!(element, abi::WasiParamKind::Flags { .. }) {
+        return write_flags_value_list(
             lowerer, argument, shape, element, flat, frees, current, span,
         );
     }
@@ -85,6 +93,19 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
 ) -> Result<(), Vec<BackendError>> {
     if matches!(element, abi::WasiParamKind::Record { .. }) {
         return read_record_value_list_result(
+            lowerer,
+            import,
+            element,
+            shape,
+            destination,
+            arguments,
+            retptr,
+            current,
+            span,
+        );
+    }
+    if matches!(element, abi::WasiParamKind::Flags { .. }) {
+        return read_flags_value_list_result(
             lowerer,
             import,
             element,

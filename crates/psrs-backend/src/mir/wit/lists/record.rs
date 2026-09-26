@@ -222,7 +222,7 @@ fn record_plan<L: WitCallLowerer>(
     Ok((struct_type, plan, layout.size, layout.align))
 }
 
-fn reference_repr(shape: &ValueShape) -> Option<crate::cc::ReprId> {
+pub(super) fn reference_repr(shape: &ValueShape) -> Option<crate::cc::ReprId> {
     let ValueShape::Reference(Reference {
         heap: RefShape::Repr(repr),
         ..
@@ -233,7 +233,7 @@ fn reference_repr(shape: &ValueShape) -> Option<crate::cc::ReprId> {
     Some(*repr)
 }
 
-fn unsupported_list(span: TextRange) -> Vec<BackendError> {
+pub(super) fn unsupported_list(span: TextRange) -> Vec<BackendError> {
     vec![BackendError::new(
         "P9 MIR lowering",
         span,

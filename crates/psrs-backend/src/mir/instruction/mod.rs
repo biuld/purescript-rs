@@ -29,6 +29,14 @@ pub enum ListFieldCopy {
     String { offset: u32, index: u32 },
 }
 
+/// One boolean field of a `list<flags>` element, packed into bit `bit` of the
+/// element's single canonical word.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListFlagsField {
+    pub bit: u32,
+    pub index: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instruction {
     Copy {
@@ -317,6 +325,19 @@ pub enum Instruction {
         length: ValueId,
         size: u32,
         fields: Vec<ListFieldCopy>,
+        span: TextRange,
+    },
+    /// Element-wise copy between a GC array of flags records and a canonical
+    /// `list<flags>` buffer. Each element packs into one canonical word.
+    ListCopyFlags {
+        direction: ListDirection,
+        array: ValueId,
+        array_type: DefinedTypeId,
+        struct_type: DefinedTypeId,
+        pointer: ValueId,
+        length: ValueId,
+        size: u32,
+        fields: Vec<ListFlagsField>,
         span: TextRange,
     },
     /// Trap when a canonical ABI status value is nonzero.

@@ -320,6 +320,9 @@ impl Structurer<'_> {
                 instruction @ MirInstruction::ListCopyRecord { .. } => {
                     body.extend(self.emit_list_copy_record(instruction)?);
                 }
+                instruction @ MirInstruction::ListCopyFlags { .. } => {
+                    body.extend(self.emit_list_copy_flags(instruction)?);
+                }
                 MirInstruction::Load {
                     destination,
                     address,

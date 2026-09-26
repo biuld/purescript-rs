@@ -46,6 +46,11 @@ impl Instruction {
                 array,
                 ..
             } => Some(*array),
+            Self::ListCopyFlags {
+                direction: ListDirection::Load,
+                array,
+                ..
+            } => Some(*array),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -61,6 +66,10 @@ impl Instruction {
                 ..
             }
             | Self::ListCopyRecord {
+                direction: ListDirection::Store | ListDirection::FreeStrings,
+                ..
+            }
+            | Self::ListCopyFlags {
                 direction: ListDirection::Store | ListDirection::FreeStrings,
                 ..
             } => None,
@@ -133,6 +142,12 @@ impl Instruction {
                 length,
                 ..
             } => vec![*pointer, *length],
+            Self::ListCopyFlags {
+                direction: ListDirection::Load | ListDirection::FreeStrings,
+                pointer,
+                length,
+                ..
+            } => vec![*pointer, *length],
             Self::ListCopy {
                 direction: ListDirection::Store,
                 array,
@@ -141,6 +156,13 @@ impl Instruction {
                 ..
             } => vec![*array, *pointer, *length],
             Self::ListCopyRecord {
+                direction: ListDirection::Store,
+                array,
+                pointer,
+                length,
+                ..
+            } => vec![*array, *pointer, *length],
+            Self::ListCopyFlags {
                 direction: ListDirection::Store,
                 array,
                 pointer,
@@ -205,7 +227,8 @@ impl Instruction {
             | Self::TrapIf { span, .. }
             | Self::Unreachable { span, .. }
             | Self::ListCopy { span, .. }
-            | Self::ListCopyRecord { span, .. } => *span,
+            | Self::ListCopyRecord { span, .. }
+            | Self::ListCopyFlags { span, .. } => *span,
         }
     }
 }
