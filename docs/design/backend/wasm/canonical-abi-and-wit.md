@@ -358,10 +358,10 @@ lower_result(import, destination, flat):
 ### Signature validation
 
 ```text
-validate_signature(import, type_id, module):
+validate_import_signature(import, module, type_id):
     require arity(type_id) == len(import.param_kinds)
     for (source, kind) in zip(parameters(type_id), import.param_kinds):
-        require source_parameter_matches(source, kind)
+        require core_matches_kind(module, source, kind)
     match import.result_kind:
         None      => require result(type_id) is Unit
         Scalar    => I64/I32 -> Int, F32/F64 -> Number
@@ -398,11 +398,11 @@ the crate-level tree. The implementation must conform to this organization:
 
 ```text
 backend/src/
-  abi.rs               WasiRegistry, WasiImport, ResolvedExternal,
-                       validate_signature, package gating
+  abi.rs               WasiRegistry, WasiImport, package gating
   abi/
     classification.rs  WIT type classification and value types
-    link.rs            target-aware linking: resolves bindings into ResolvedExternal
+    link.rs            target-aware linking: intern the resolved type and
+                       validate conformance
   bindings.rs          ExternalBindings side table and boundary checks
   mir/
     wit/
