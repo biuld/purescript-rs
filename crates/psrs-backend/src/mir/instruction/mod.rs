@@ -15,15 +15,18 @@ pub enum ListDirection {
     FreeStrings,
 }
 
-/// One scalar field of a `list<record>` element.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ListRecordField {
-    /// Canonical byte offset of the field within one element.
-    pub offset: u32,
-    /// Field index in the element's GC struct.
-    pub index: u32,
-    /// Canonical store/load width and type of the field.
-    pub kind: crate::abi::layout::SlotKind,
+/// One field of a `list<record>` element.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ListFieldCopy {
+    /// A scalar field: a canonical slot at `offset`, GC field `index`.
+    Scalar {
+        offset: u32,
+        index: u32,
+        kind: crate::abi::layout::SlotKind,
+    },
+    /// A string field: canonical `(pointer, length)` at `offset`, GC string
+    /// field `index`.
+    String { offset: u32, index: u32 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -313,7 +316,7 @@ pub enum Instruction {
         pointer: ValueId,
         length: ValueId,
         size: u32,
-        fields: Vec<ListRecordField>,
+        fields: Vec<ListFieldCopy>,
         span: TextRange,
     },
     /// Trap when a canonical ABI status value is nonzero.

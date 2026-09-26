@@ -83,9 +83,23 @@ pub(super) struct PendingFree {
     pub pointer: ValueId,
     pub length: ValueId,
     pub align: i32,
-    /// Element count of a `list<string>` parameter whose payloads must be freed
-    /// after the host has copied them. `length` remains the byte size.
-    pub string_elements: Option<ValueId>,
+    /// Payloads of a `list<string>` or a `list<record>` with string fields that
+    /// must be freed after the host has copied them. `length` remains the byte
+    /// size.
+    pub string_elements: Option<StringFree>,
+}
+
+/// The string payloads a call-local list buffer owns.
+pub(super) enum StringFree {
+    /// One string per element; the value is the element count.
+    Scalars(ValueId),
+    /// Records with string fields; the value is the element count, `size` is the
+    /// element byte stride, and the plan locates each string field.
+    Records {
+        count: ValueId,
+        size: u32,
+        fields: Vec<crate::mir::ListFieldCopy>,
+    },
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
@@ -353,8 +367,26 @@ pub(super) fn lower<L: WitCallLowerer>(
     // Call-local buffers (string transcode buffers and indirect parameter
     // records) are owned by this function and freed once the call returns.
     for pending in frees.iter().rev() {
-        if let Some(count) = pending.string_elements {
-            lists::free_string_elements(lowerer, pending.pointer, count, current, span)?;
+        match &pending.string_elements {
+            Some(StringFree::Scalars(count)) => {
+                lists::free_string_elements(lowerer, pending.pointer, *count, current, span)?;
+            }
+            Some(StringFree::Records {
+                count,
+                size,
+                fields,
+            }) => {
+                lists::free_record_string_elements(
+                    lowerer,
+                    pending.pointer,
+                    *count,
+                    *size,
+                    fields,
+                    current,
+                    span,
+                )?;
+            }
+            None => {}
         }
         free_buffer(
             lowerer,
