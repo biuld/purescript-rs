@@ -228,11 +228,11 @@ ABI-08:
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
   Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
     not lowered.
-  Gaps: the listed shapes have no source type. Resumption: define source
-    `Array` and `Maybe`/`Either`/tuple types (or equivalent canonical
-    encodings), make the type checker accept record, array, and aggregate
-    foreign signatures, and add result memory-layout computation and
-    read-back. This keeps BE-19 `Partial`.
+  Gaps: the listed shapes have no source type. Resumption: add
+    `SourceType::Array` and the non-byte list lowering (copy in, read back) for
+    elements that map, then define `Maybe`/`Either`/tuple source types and make
+    the frontend accept record and aggregate foreign signatures. This keeps
+    BE-19 `Partial`.
 ```
 
 ## Remaining work and blockers
