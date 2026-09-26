@@ -186,3 +186,63 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         crate::abi::link::validate_import_signature(&import, &reversed_core, reversed_id).is_err()
     );
 }
+
+#[test]
+fn validates_a_list_of_nullary_enums() {
+    use crate::types::ValueType;
+    use psrs_core::{ConstructorInfo, TypeConstructor};
+    use psrs_hir::{ModuleId, TypeId as HirTypeId};
+
+    let type_id = HirTypeId::new(ModuleId(0), 0);
+    let cases = vec!["Red".to_string(), "GreenBlue".to_string()];
+    let mut module = empty_core_module();
+    module.constructors = cases
+        .iter()
+        .enumerate()
+        .map(|(tag, name)| ConstructorInfo {
+            symbol: psrs_hir::SymbolId::new(ModuleId(0), tag as u32),
+            name: name.clone(),
+            type_id,
+            tag: tag as u32,
+            field_count: 0,
+            field_types: Vec::new(),
+        })
+        .collect();
+    let enum_id = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(TypeConstructor::User(type_id))],
+    )
+    .pop()
+    .expect("one enum type");
+    let array_ctor = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(TypeConstructor::Array)],
+    )
+    .pop()
+    .expect("one array constructor");
+    let array = intern_all(
+        &mut module,
+        vec![CoreType::Application(array_ctor, enum_id)],
+    )
+    .pop()
+    .expect("one array type");
+    let unit = unit_type(&mut module);
+    let import = WasiImport {
+        symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
+        module: "test:enums".into(),
+        name: "take-list".into(),
+        parameters: vec![ValueType::I32, ValueType::I32],
+        param_kinds: vec![WasiParamKind::ValueList {
+            element: Box::new(WasiParamKind::Enum {
+                cases: cases.clone(),
+            }),
+        }],
+        result: None,
+        result_kind: WasiResultKind::None,
+        unsupported: None,
+        retptr: false,
+        flat_slots: Vec::new(),
+    };
+    validate_against(&import, module, &[array], unit)
+        .expect("list<enum> should validate against the source enum");
+}
