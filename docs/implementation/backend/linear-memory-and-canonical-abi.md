@@ -11,11 +11,12 @@ with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 now GC `(array (mut i16))` values, each distinct literal is a passive data
 segment materialized once with `array.new_data` and interned in a lazily
 initialized module global, and the ABI adapter transcodes UTF-16 to
-and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-06, and ABI-07
-are Verified. LM-01 implements that representation and is In progress because
-the profile still fixes one wasm32 memory. ABI-02 and ABI-03 are In progress for
-GC byte lists and handles. ABI-08 is Blocked on source types. The reclaiming
-allocator, transient buffer free, `post-return`, and buffer ownership moved to
+and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
+ABI-07 are Verified. LM-01 is In progress because the profile still fixes one
+wasm32 memory. ABI-02 is In progress until `own`/`borrow` handle drop exists;
+scalar, enum, flags, char, and GC string mapping already has tests. ABI-08 is
+Blocked on source types. The reclaiming allocator, transient buffer free,
+`post-return`, and buffer ownership moved to
 [canonical buffer allocation](canonical-buffer-allocation.md).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
@@ -43,7 +44,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
 | ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | In progress |
-| ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | In progress |
+| ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
 | ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
@@ -57,8 +58,8 @@ commands, runtime, executed/skipped cases, revision, and gaps. Runtime cases use
 
 ## Recorded evidence
 
-Revision: the `backend/gc-string` worktree on top of `cc8cf2c`.
-Runtime: `wasmtime 49.0.0` under `PSRS_REQUIRE_WASMTIME=1`.
+Revision: `81b2eee` plus the DEC-10 re-verification in this worktree.
+Runtime: `wasmtime 49.0.1` under `PSRS_REQUIRE_WASMTIME=1`.
 
 ```text
 LM-01:
@@ -69,8 +70,10 @@ LM-01:
     wasm::tests::rejects_a_data_index_that_does_not_match_module_order.
   Input boundary: verified MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass.
-  Gaps: none.
+  Result: pass for one wasm32 memory at index 0. Encoded modules validate and
+    driver components run.
+  Gaps: the stable profile still fixes one wasm32 memory. Memory64 and
+    multi-memory are not implemented, so this row stays In progress.
 ```
 
 ```text
@@ -109,13 +112,12 @@ LM-04:
   Implementation: crates/psrs-backend/src/wasm/lower/extent/.
   Tests: wasm::lower::extent::tests::* (scratch/heap-state read/write and
     boundary, wasm32 fixed/effective extents, wrapping arithmetic,
-    block-parameter joins, unknown addresses, allocator-proven dynamic store
-    accepted and unproven dynamic store rejected).
+    block-parameter joins, unknown addresses, and unproven dynamic stores
+    rejected by allows_dynamic_reads_but_rejects_dynamic_stores_without_proof).
   Input boundary: verified MIR with memory operations.
   Commands: cargo test -p psrs-backend wasm::lower::extent.
   Result: pass. GC string literals are not MIR-addressable and define no
-    region, matching the design; a dynamic store through a `cabi_realloc`
-    pointer is accepted and an unproven dynamic store is rejected.
+    region, matching the design, and an unproven dynamic store is rejected.
   Gaps: only the fixed `offset + width <= size` bound is proven for an
     allocator pointer.
 ```
@@ -148,27 +150,55 @@ ABI-01:
 ```text
 ABI-02:
   Implementation: crates/psrs-backend/src/abi/classification.rs and mir/wit/.
-  Tests: mir::wit::tests::scalar::*; mir::wit::tests::flags::*;
+    `WasiParamKind::Handle` classifies a resource handle as one canonical `i32`.
+    No lowering emits `own`/`borrow` drop.
+  Tests: mir::wit::tests::scalar::{scalar_f64_results_are_called_directly,
+    char_arguments_and_results_use_direct_i32_values,
+    enum_arguments_and_results_keep_the_validated_i32_tags,
+    f32_arguments_and_results_are_adapted_to_source_numbers};
+    mir::wit::tests::flags::{flags_arguments_pack_boolean_fields_in_wit_declaration_order,
+    flags_arguments_split_after_thirty_two_bits};
     psrs-driver tests::wasi::{lowers_a_boolean_wit_result_with_a_boolean_source_type,
-    lowers_a_source_foreign_import_with_a_wit_binding}.
+    lowers_a_source_foreign_import_with_a_wit_binding,
+    lowers_string_log_to_wasi_stdout,
+    prints_hello_world_when_wasmtime_is_available,
+    prints_a_non_ascii_literal_when_wasmtime_is_available}.
   Input boundary: WIT signatures and source.
-  Commands: cargo test -p psrs-backend mir::wit;
-    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: pass.
-  Gaps: none.
+  Commands: cargo test -p psrs-backend --lib mir::wit::tests::scalar
+    mir::wit::tests::flags; PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver
+    --lib tests::wasi::lowers_string_log_to_wasi_stdout
+    prints_hello_world_when_wasmtime_is_available
+    prints_a_non_ascii_literal_when_wasmtime_is_available
+    lowers_a_boolean_wit_result_with_a_boolean_source_type
+    lowers_a_source_foreign_import_with_a_wit_binding.
+  Result: pass for scalars, enums, flags, chars, and GC strings. A string
+    literal is a GC `(array (mut i16))` linearized to UTF-8 at the call.
+  Gaps: `own`/`borrow` handle drop is not implemented and has no test. The row
+    stays In progress.
 ```
 
 ```text
 ABI-03:
-  Implementation: crates/psrs-backend/src/mir/wit/records.rs and
+  Implementation: crates/psrs-backend/src/mir/wit/records.rs,
+    mir/wit/mod.rs (a list result calls `bytes_to_string`), and
     abi/classification.rs.
   Tests: mir::wit::tests::records::{record_arguments_flatten_in_wit_field_order,
     nested_records_flatten_byte_lists_in_wit_field_order};
     mir::indirect_tests::composite::
-    indirect_composite_parameters_lower_to_the_canonical_layout.
-  Input boundary: WIT records and verified MIR.
-  Commands: cargo test -p psrs-backend mir::.
-  Result: pass.
+    indirect_composite_parameters_lower_to_the_canonical_layout;
+    mir::wit::tests::buffers::list_results_free_the_import_buffer_after_decoding;
+    psrs-driver tests::wasi::passes_a_returned_wit_string_to_another_import.
+  Input boundary: WIT records, verified MIR, and executed components.
+  Commands: cargo test -p psrs-backend --lib
+    record_arguments_flatten_in_wit_field_order
+    nested_records_flatten_byte_lists_in_wit_field_order
+    indirect_composite_parameters_lower_to_the_canonical_layout
+    list_results_free_the_import_buffer_after_decoding;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    passes_a_returned_wit_string_to_another_import.
+  Result: pass. Direct and nested records flatten in WIT field order, and a
+    returned byte list is decoded into a GC string that another import can
+    print. Re-executed under Wasmtime 49.0.1.
   Gaps: source-level record signatures are rejected by the type checker, so
     record parameters are reachable through backend IR paths only.
 ```
@@ -236,9 +266,10 @@ ABI-08:
 
 ## Remaining work and blockers
 
-Migration to the DEC-10 target: GC string representation and `array.new_data`
-literals (LM-02), the re-scoped extent regions (LM-04), GC byte-list recovery
-(ABI-02/ABI-03), and `own`/`borrow` handles (ABI-02). The reclaiming allocator,
+LM-02, LM-04, and ABI-03 are verified on the GC-string representation. LM-01
+stays In progress because the profile fixes one wasm32 memory. ABI-02 stays In
+progress for `own`/`borrow` handle drop; scalar, enum, flags, char, and GC
+string mapping is tested. The reclaiming allocator,
 buffer free, and `post-return` are tracked by
 [canonical buffer allocation](canonical-buffer-allocation.md). ABI-08
 (aggregates, `option`/`result`/`variant`, tuples) is Blocked on source types and

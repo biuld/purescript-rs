@@ -275,8 +275,9 @@ PE-11:
   the MIR topic. CC now rejects these shapes before lowering.
 - **`String` is now a distinct `ValueShape`.** The design model lists `String`
   as its own shape; CC maps `Type::String` to `ValueShape::String`, the CC
-  verifier rejects numeric operations on it, and P9 maps it to `i32` while
-  sharing the one-field integer box on the erased path. `Array Int` and
+  verifier rejects numeric operations on it, and P9 maps it to `(ref $string)`,
+  the GC `(array (mut i16))`. The erased path stores and recovers that
+  reference; it does not use the integer box. `Array Int` and
   `Array String` therefore keep distinct canonical arrays and signatures; the
   PE-02 evidence was updated accordingly.
 - **Dead `FunctionAdapter` variant removed.** The design grammar in
