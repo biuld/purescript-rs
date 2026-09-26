@@ -130,14 +130,16 @@ fn lowers_a_list_returning_import_with_an_allocator() {
 }
 
 #[test]
-fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
+fn rejects_a_string_declaration_for_a_list_of_tuples() {
     let source = "module Main where\n\
         foreign import \"wasi:cli/environment#get-environment\" env :: String\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
         error.stage == "P8 WIT linking"
-            && error.message.contains("non-byte WIT list results")
+            && error
+                .message
+                .contains("incompatible with its canonical result")
             && error.span.start < error.span.end
             && error.span.end <= source.len() as u32
     }));

@@ -1,6 +1,6 @@
 mod aggregate;
 
-pub(super) use aggregate::{flags_fixture, handle_fixture};
+pub(super) use aggregate::{flags_fixture, handle_fixture, tuple_fixture};
 
 use crate::cc::{self, Assignment, AssignmentKind, External, Signature, ValueDecl, ValueShape};
 use crate::types::ValueId;
