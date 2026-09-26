@@ -378,10 +378,16 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             expression.span = span;
             return Ok(expression);
         }
+        CstExprKind::Tuple { items, .. } => ExprKind::Record(
+            items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| Ok((tuple_label(index), lower_expr(item)?)))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         CstExprKind::Hole(_)
         | CstExprKind::Negate { .. }
         | CstExprKind::Do { .. }
-        | CstExprKind::Tuple { .. }
         | CstExprKind::Typed { .. }
         | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError::new(
@@ -402,6 +408,11 @@ fn lower_lambda(binder: Binder, body: Expr) -> Expr {
         },
         span,
     }
+}
+
+/// Tuple component labels. A tuple is the closed record `{ _1, _2, ... }`.
+pub(crate) fn tuple_label(index: usize) -> String {
+    format!("_{}", index + 1)
 }
 
 pub(crate) fn lower_name(name: cst::CstName) -> Name {

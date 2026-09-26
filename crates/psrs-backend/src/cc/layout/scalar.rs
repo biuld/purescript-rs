@@ -100,6 +100,11 @@ pub(crate) fn declaration_shape(
                 result: aggregate_value_type(),
             })
         }
+        Some(Type::OpenRecord { .. }) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.span,
+            "open record rows have no runtime layout",
+        )]),
         Some(Type::Record(_)) if record_types.contains_key(&ty) => Ok(Signature {
             parameters,
             result: ValueShape::Reference(Reference {
@@ -224,6 +229,11 @@ pub(crate) fn scalar_type(
                 heap: RefShape::Repr(array_types[&id]),
             }))
         }
+        Some(Type::OpenRecord { .. }) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "open record rows have no runtime layout",
+        )]),
         Some(Type::Record(_)) if record_types.contains_key(&id) => {
             Ok(ValueShape::Reference(Reference {
                 nullable: false,

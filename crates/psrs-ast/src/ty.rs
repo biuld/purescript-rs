@@ -119,11 +119,29 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
             parameter: Box::new(lower_type(*left)?),
             result: Box::new(lower_type(*right)?),
         },
+        CstTypeExprKind::Tuple { items, .. } => TypeKind::Record {
+            fields: items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let ty = lower_type(item)?;
+                    let span = ty.span;
+                    Ok(TypeField {
+                        label: Name {
+                            text: super::tuple_label(index),
+                            span,
+                        },
+                        ty,
+                        span,
+                    })
+                })
+                .collect::<Result<_, _>>()?,
+            tail: None,
+        },
         CstTypeExprKind::Wildcard(_)
         | CstTypeExprKind::Hole(_)
         | CstTypeExprKind::Operator { .. }
-        | CstTypeExprKind::PrefixOperator { .. }
-        | CstTypeExprKind::Tuple { .. } => {
+        | CstTypeExprKind::PrefixOperator { .. } => {
             return Err(LowerError::new(
                 span,
                 "this type syntax is not supported yet",
