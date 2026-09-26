@@ -14,8 +14,11 @@ initialized module global, and the ABI adapter transcodes UTF-16 to
 and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-06, and ABI-07
 are Verified. LM-01 implements that representation and is In progress because
 the profile still fixes one wasm32 memory. ABI-02 and ABI-03 are In progress for
-GC byte lists and handles. ABI-08 is Blocked on source types. The reclaiming
-allocator, transient buffer free, `post-return`, and buffer ownership moved to
+GC byte lists and handles. ABI-08 stays Blocked for non-byte `list<T>` /
+`SourceType::Array`; `option`/`result`/`variant` and tuples are not compiler
+source types ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+The reclaiming allocator, transient buffer free, `post-return`, and buffer
+ownership moved to
 [canonical buffer allocation](canonical-buffer-allocation.md).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
@@ -227,11 +230,15 @@ ABI-08:
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
   Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
     not lowered.
-  Gaps: the listed shapes have no source type. Resumption: add
-    `SourceType::Array` and the non-byte list lowering (copy in, read back) for
-    elements that map, then define `Maybe`/`Either`/tuple source types and make
-    the frontend accept record and aggregate foreign signatures. This keeps
-    BE-19 `Partial`.
+  Gaps: non-byte `list<T>` still needs `SourceType::Array` and its lowering
+    (copy in, read back) for elements that map. That list part of ABI-08 is
+    unchanged. `option`, `result`, non-unit `variant`, and tuple are not
+    compiler source types
+    ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
+    [primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
+    a wrapper may pass primitive arguments whose flattening matches, and
+    multi-value returns stay unsupported. Do not define `Maybe`/`Either`/tuple
+    source types. This keeps BE-19 `Partial`.
 ```
 
 ## Remaining work and blockers
@@ -240,7 +247,11 @@ Migration to the DEC-10 target: GC string representation and `array.new_data`
 literals (LM-02), the re-scoped extent regions (LM-04), GC byte-list recovery
 (ABI-02/ABI-03), and `own`/`borrow` handles (ABI-02). The reclaiming allocator,
 buffer free, and `post-return` are tracked by
-[canonical buffer allocation](canonical-buffer-allocation.md). ABI-08
-(aggregates, `option`/`result`/`variant`, tuples) is Blocked on source types and
-frontend support for aggregate foreign signatures. These are tracked on BE-11
+[canonical buffer allocation](canonical-buffer-allocation.md). ABI-08's
+`option`/`result`/`variant` and tuple forms are not compiler source types
+([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
+[primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
+a wrapper may pass primitive arguments whose flattening matches, and
+multi-value returns stay unsupported. Non-byte `list<T>` / `SourceType::Array`
+is unchanged and is still the list part of ABI-08. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

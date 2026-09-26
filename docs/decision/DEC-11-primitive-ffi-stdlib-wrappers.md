@@ -23,9 +23,12 @@ could lower those forms directly. That would make library types part of the
 compiler and would use `SourceType` for something other than primitive
 identity.
 
-Official PureScript puts `Maybe`, `Either`, and tuples in the library. The
-foreign import's type is the library shape; the glue adapts it to the host.
-The same split applies here, with the lowerer as the glue.
+Official PureScript types the foreign import with a PureScript type, and a
+separate foreign file adapts the runtime representation to the host. This
+compiler has no such file. The adaptation of `Maybe`, `Either`, enums, flags,
+and records is ordinary PureScript in the standard library. The foreign import
+the lowerer sees uses only primitive types. The lowerer flattens those
+primitives; it does not adapt `Maybe`.
 
 ## Decision
 

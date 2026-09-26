@@ -114,11 +114,15 @@ that whole result can be expressed as one primitive.
 
 `SourceType` has no `Option`, `Result`, or `Tuple` form. The lowerer does not
 recognize `Maybe`, `Either`, or tuples by constructor name (`Nothing`/`Just`,
-`Left`/`Right`) or by `_1`/`_2` record labels. A foreign import whose declared
-type is not in the primitive set has no source signature and is rejected.
+`Left`/`Right`) or by `_1`/`_2` record labels.
 
-Nullary enums, closed records, and flags records are a current lowering path,
-not part of this set. See Design.
+The normative set for a new standard-library foreign import is the primitives
+above. A `Maybe`, `Either`, tuple, `option`, or other new aggregate still
+produces no `SourceType` and is rejected.
+
+The existing enum, closed-record, and flags-record lowering still accepts
+those declarations and is not deleted. They keep a source signature and still
+lower. They are not the set new standard-library imports use.
 
 ## Design
 
@@ -435,8 +439,10 @@ on a success string it never receives. The function stays unexposed.
 ## Boundaries and interfaces
 
 - **From the frontend:** a typed foreign import and its binding string. This
-  topic does not change how `Maybe` or `Either` are type-checked. A declaration
-  whose type is not in the primitive set simply fails ABI validation.
+  topic does not change how `Maybe` or `Either` are type-checked. A `Maybe`,
+  `Either`, tuple, or other new aggregate fails ABI validation because it has
+  no `SourceType`. An existing nullary enum, closed record, or flags record
+  still validates on the current lowering path.
 - **To CC:** `ExternalBindings` already captured `SourceType`. CC does not gain
   WIT types, HIR types, or a `SourceType` of its own.
 - **To the canonical ABI:** the primitive declaration and the resolved WIT
