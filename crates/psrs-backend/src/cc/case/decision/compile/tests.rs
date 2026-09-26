@@ -15,6 +15,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
         externals: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::User(type_id))],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: true_symbol,

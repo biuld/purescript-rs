@@ -9,6 +9,7 @@ fn verifier_rejects_out_of_range_types() {
         externals: Vec::new(),
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -41,6 +42,7 @@ fn verifier_attributes_declaration_errors_to_their_source_module() {
         externals: Vec::new(),
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(owner, 0),
@@ -70,6 +72,7 @@ fn single_declaration(types: Vec<Type>, declaration_type: TypeId, value: Expr) -
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),

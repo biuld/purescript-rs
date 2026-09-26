@@ -359,4 +359,5 @@ fn rejects_integer_literals_outside_i32() {
     assert_eq!(errors[0].kind, TypeCheckErrorKind::IntegerOutOfRange);
 }
 
+mod foreign_data;
 mod user_types;

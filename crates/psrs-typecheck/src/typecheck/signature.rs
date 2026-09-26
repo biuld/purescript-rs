@@ -67,19 +67,21 @@ impl Checker {
                     self.fresh()
                 }
             },
-            hir::TypeKind::Named(id) => {
+            hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => {
                 if self.synonyms.contains_key(id) {
                     self.expand_synonym(*id, Vec::new(), ty.span)
                 } else if Some(*id) == self.effect_type {
                     InferType::Constructor(TypeConstructor::Effect)
                 } else {
+                    // Foreign data stays a nominal user constructor. Opacity is
+                    // `Module.opaque_ids`, not a separate type node and not `Int`.
                     InferType::Constructor(TypeConstructor::User(*id))
                 }
             }
             hir::TypeKind::Application(function, argument) => {
                 let (head, arguments) = flatten_spine(ty);
-                if let hir::TypeKind::Named(id) = &head.kind
-                    && self.synonyms.contains_key(id)
+                if let Some(id) = nominal_type_id(head)
+                    && self.synonyms.contains_key(&id)
                 {
                     let arguments = arguments
                         .into_iter()
@@ -87,9 +89,9 @@ impl Checker {
                             self.elaborate_type_mode(argument, variables, rigid_variables)
                         })
                         .collect();
-                    return self.expand_synonym(*id, arguments, ty.span);
+                    return self.expand_synonym(id, arguments, ty.span);
                 }
-                if matches!(&head.kind, hir::TypeKind::Named(id) if Some(*id) == self.effect_type) {
+                if nominal_type_id(head).is_some_and(|id| Some(id) == self.effect_type) {
                     let Some(argument) = arguments.first() else {
                         return self.fresh();
                     };
@@ -188,6 +190,13 @@ impl Checker {
         let expanded = self.elaborate_type(&synonym.body, &mut locals);
         self.expanding.remove(&id);
         expanded
+    }
+}
+
+fn nominal_type_id(ty: &hir::Type) -> Option<hir::TypeId> {
+    match &ty.kind {
+        hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => Some(*id),
+        _ => None,
     }
 }
 

@@ -24,6 +24,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         externals: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::User(type_id)), Type::I32],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: constructor,
             name: "Product".into(),

@@ -24,6 +24,7 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
             Type::Record(vec![("values".into(), array_a)]),
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -83,6 +84,7 @@ fn empty_module(types: Vec<Type>) -> Module {
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -256,6 +258,7 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
             },
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             lambda(f_int, SymbolId::new(ModuleId(0), 0), "fInt"),
@@ -312,6 +315,7 @@ fn integer_capture_module(capture: Type) -> Module {
         externals: Vec::new(),
         types: vec![capture, Type::I32],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol,
