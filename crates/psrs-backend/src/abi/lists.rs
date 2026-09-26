@@ -31,6 +31,8 @@ pub enum ListElement {
 pub(crate) fn from_param(kind: &WasiParamKind) -> Option<ListElement> {
     Some(match kind {
         WasiParamKind::Integer32 | WasiParamKind::Char => ListElement::Word,
+        // A resource handle is one canonical i32 index.
+        WasiParamKind::Handle(_) => ListElement::Word,
         WasiParamKind::IntegerNarrow { bits, signed } => ListElement::Narrow {
             bits: *bits,
             signed: *signed,
@@ -54,7 +56,6 @@ pub(crate) fn from_param(kind: &WasiParamKind) -> Option<ListElement> {
         },
         WasiParamKind::ValueList { .. }
         | WasiParamKind::Flags { .. }
-        | WasiParamKind::Handle(_)
         | WasiParamKind::Record { .. }
         | WasiParamKind::Unsupported => return None,
     })
