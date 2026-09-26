@@ -25,7 +25,9 @@ fn run_component(wasm: &[u8]) -> Option<i32> {
         }
         return None;
     }
-    let path = std::env::temp_dir().join(format!("psrs-loader-{}.wasm", std::process::id()));
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("psrs-loader-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, wasm).expect("writing the component");
     let output = std::process::Command::new("wasmtime")
         .arg("run")
@@ -85,5 +87,74 @@ fn loads_only_the_modules_that_are_imported() {
         !loaded.iter().any(|(path, _)| path.ends_with("Unused.purs")),
         "{loaded:?}"
     );
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
+fn loads_the_standard_library_from_disk_in_trusted_order() {
+    let modules = crate::prelude::sources().expect("the standard library should load from disk");
+    let names = modules
+        .iter()
+        .map(|module| module.module_name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Prelude", "WASI.Console", "WASI.Clock"]);
+    for module in modules {
+        let path = std::path::Path::new(&module.path);
+        assert!(
+            path.ends_with("lib/Prelude.purs")
+                || path.ends_with("lib/WASI/Console.purs")
+                || path.ends_with("lib/WASI/Clock.purs"),
+            "{}",
+            module.path
+        );
+        let on_disk =
+            std::fs::read_to_string(path).expect("the standard-library file should exist");
+        assert_eq!(on_disk, module.text, "{}", module.path);
+    }
+    check_source(
+        "Main.purs",
+        "module Main where\nimport Prelude\nimport WASI.Console\nimport WASI.Clock\nmain = let stamp = runEffect now in let action = runEffect (log \"ok\") in stamp\n",
+    )
+    .expect("the on-disk standard library should typecheck with a user module");
+}
+
+#[test]
+fn does_not_discover_a_user_module_shadowing_the_standard_library() {
+    let directory = temp_directory("stdlib-shadow");
+    let local_prelude = directory.join("Prelude.purs");
+    let main = directory.join("Main.purs");
+    std::fs::write(
+        &local_prelude,
+        "module Prelude where\nshadow :: Int\nshadow = 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &main,
+        "module Main where\nimport Prelude\nmain = runEffect (pure 1)\n",
+    )
+    .unwrap();
+
+    let loaded = load_program_files(&[main.to_string_lossy().into_owned()])
+        .expect("the loader should read the entry file");
+    assert_eq!(
+        loaded.len(),
+        1,
+        "the on-disk Prelude is not rediscovered: {loaded:?}"
+    );
+    assert!(
+        !loaded
+            .iter()
+            .any(|(path, _)| path.ends_with("Prelude.purs")),
+        "{loaded:?}"
+    );
+    let inputs = loaded
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect::<Vec<_>>();
+    let artifact = compile_program_sources_with_prelude(&inputs)
+        .expect("the trusted Prelude should still compile");
+    if let Some(code) = run_component(&artifact.wasm) {
+        assert_eq!(code, 1);
+    }
     let _ = std::fs::remove_dir_all(&directory);
 }
