@@ -28,6 +28,14 @@ fn wasi() -> crate::abi::WasiRegistry {
 }
 
 fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
+    if let Some(output) = run_gc_output(mir) {
+        assert_eq!(output.status.code(), Some(expected_code));
+    }
+}
+
+/// Lowers, validates, componentizes, and executes a MIR module, returning the
+/// Wasmtime output, or `None` when Wasmtime is unavailable and not required.
+fn run_gc_output(mir: &crate::mir::Module) -> Option<std::process::Output> {
     let target = crate::TargetCapabilities::default();
     let mut wasi = wasi();
     let wasm = crate::wasm::lower_module_with_capabilities(mir, &mut wasi, target)
@@ -45,14 +53,14 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
             panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
         }
         eprintln!("skipping: wasmtime is not installed");
-        return;
+        return None;
     };
     if !version.status.success() {
         if required {
             panic!("PSRS_REQUIRE_WASMTIME=1 but `wasmtime --version` failed: {version:?}");
         }
         eprintln!("skipping: wasmtime is unusable");
-        return;
+        return None;
     }
     let (resolve, world) = crate::component::command_world().expect("WASI WIT should load");
     let component = crate::component::componentize(&core, &resolve, world)
@@ -69,7 +77,7 @@ fn run_gc(mir: &crate::mir::Module, expected_code: i32) {
         .output()
         .expect("running GC component");
     let _ = std::fs::remove_file(&path);
-    assert_eq!(output.status.code(), Some(expected_code));
+    Some(output)
 }
 
 #[test]
@@ -128,6 +136,74 @@ fn optimized_and_unoptimized_arithmetic_agree_on_an_oracle() {
     run_gc(&mir, oracle);
     let optimized = crate::mir::opt::optimize(mir, target).expect("optimization should succeed");
     run_gc(&optimized, oracle);
+}
+
+#[test]
+fn optimized_and_unoptimized_traps_agree() {
+    // `1 / 0` must trap in both pipelines: the optimizer may not fold a
+    // division whose divisor proves it will trap.
+    let symbol = SymbolId::new(ModuleId(0), 0);
+    let values = (0..3u32)
+        .map(|id| crate::cc::ValueDecl {
+            id: ValueId(id),
+            ty: ValueShape::Integer,
+        })
+        .collect();
+    let module = CcModule {
+        name: "ArithmeticTrap".into(),
+        externals: Vec::new(),
+        representations: RepresentationTable::default(),
+        functions: vec![CcFunction {
+            symbol,
+            name: "main".into(),
+            parameters: Vec::new(),
+            values,
+            assignments: vec![
+                Assignment {
+                    destination: ValueId(0),
+                    kind: AssignmentKind::Constant(1),
+                    span: span(),
+                },
+                Assignment {
+                    destination: ValueId(1),
+                    kind: AssignmentKind::Constant(0),
+                    span: span(),
+                },
+                Assignment {
+                    destination: ValueId(2),
+                    kind: AssignmentKind::Primitive {
+                        op: crate::cc::BinaryOp::IntQuot,
+                        left: ValueId(0),
+                        right: ValueId(1),
+                    },
+                    span: span(),
+                },
+            ],
+            result: ValueId(2),
+            result_type: ValueShape::Integer,
+            span: span(),
+        }],
+        entry: Some(symbol),
+        span: span(),
+    };
+    let target = crate::TargetCapabilities::default();
+    let (mir, _) = crate::mir::lower_module_with_capabilities(module, target)
+        .expect("the division should lower to MIR");
+    let optimized =
+        crate::mir::opt::optimize(mir.clone(), target).expect("optimization should succeed");
+    for candidate in [&mir, &optimized] {
+        let Some(output) = run_gc_output(candidate) else {
+            return;
+        };
+        assert!(
+            !output.status.success(),
+            "a division by zero must trap: {output:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("divide by zero"),
+            "{output:?}"
+        );
+    }
 }
 
 #[test]
