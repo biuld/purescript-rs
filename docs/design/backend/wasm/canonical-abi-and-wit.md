@@ -442,8 +442,10 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   use the bump allocator and are not reclaimed. Repeated calls can grow linear
   memory; reusing or reclaiming those areas needs a lifetime design
   ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
-- **Filesystem loader.** The standard library is embedded in the driver; a real
-  module loader would let it be discovered like any module.
+- **Filesystem loader.** The standard library remains embedded; the driver's
+  loader discovers user modules from the entry files' directories and follows
+  the import graph ([WASI platform library](wasi-platform-library.md)). Loading
+  the standard library from disk stays future work.
 
 ## Implementation notes
 
