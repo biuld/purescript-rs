@@ -536,5 +536,5 @@ before branching back to the dispatcher loop. Jump arguments are copied to
 target block locals before changing the state; branches and switches update the
 state according to their selected successor, including exact comparisons for
 sparse signed switch tags. The dispatcher uses only core Wasm control
-instructions. Tail calls are not lowered, and the active capability profile
-keeps `tail_call` disabled.
+instructions. `ReturnCall`/`ReturnCallRef` encode `return_call`/`return_call_ref`
+when the target enables `tail_call`; the stable profile keeps the flag disabled.
