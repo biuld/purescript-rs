@@ -12,6 +12,7 @@ use wit_parser::abi::AbiVariant;
 
 mod classification;
 mod flatten;
+mod handles;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -19,6 +20,7 @@ mod validation;
 pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
 pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+pub use handles::{HandleMode, HandleResource};
 #[cfg(test)]
 use validation::source_parameter_matches;
 use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
@@ -129,8 +131,9 @@ pub enum WasiParamKind {
     Flags { names: Vec<String> },
     /// A closed record whose fields each flatten directly to scalar values.
     Record { fields: Vec<WasiField> },
-    /// A resource handle flattened to one canonical `i32` handle.
-    Handle,
+    /// A resource handle flattened to one canonical `i32` index.
+    /// `Own` must be dropped; `Borrow` dies when the creating call returns.
+    Handle(HandleResource),
     /// A string or list flattened to a `(pointer, length)` pair.
     List,
     /// A WIT shape with no source representation in the current ABI subset.
@@ -151,8 +154,8 @@ pub enum WasiResultKind {
     None,
     /// A scalar returned directly in a register.
     Scalar,
-    /// A resource handle returned as one canonical `i32`.
-    Handle,
+    /// A resource handle returned as one canonical `i32` index.
+    Handle(HandleResource),
     /// A WIT `s8`/`u8`/`s16`/`u16` result returned as a canonical `i32` whose
     /// bits are already the in-range value.
     IntegerNarrow { bits: u8, signed: bool },
@@ -239,6 +242,11 @@ pub struct WasiImport {
 }
 
 impl WasiImport {
+    /// The handle flattened into `flat_index`, when that slot is a handle.
+    pub(crate) fn handle_at_flat_index(&self, flat_index: usize) -> Option<&HandleResource> {
+        handles::handle_at_flat_index(self, flat_index)
+    }
+
     pub(crate) fn has_indirect_parameters(&self) -> bool {
         let flattened = self
             .param_kinds
@@ -318,7 +326,8 @@ impl WasiRegistry {
         let wit_function = self.resolve.interfaces[interface_id]
             .functions
             .get(function)
-            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?;
+            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
+            .clone();
         let module = self
             .resolve
             .id_of(interface_id)
@@ -329,17 +338,17 @@ impl WasiRegistry {
         }
         let signature = self
             .resolve
-            .wasm_signature(AbiVariant::GuestImport, wit_function);
-        let param_kinds: Vec<WasiParamKind> = wit_function
+            .wasm_signature(AbiVariant::GuestImport, &wit_function);
+        let mut param_kinds: Vec<WasiParamKind> = wit_function
             .params
             .iter()
             .map(|param| param_kind(&self.resolve, &param.ty))
             .collect();
-        let result_kind = match &wit_function.result {
+        let mut result_kind = match &wit_function.result {
             None => WasiResultKind::None,
             Some(ty) => result_kind(&self.resolve, ty),
         };
-        let unsupported = unsupported_shape(&self.resolve, wit_function, &result_kind)
+        let unsupported = unsupported_shape(&self.resolve, &wit_function, &result_kind)
             .or_else(|| {
                 (!crate::component::component_interface_supported(&module)).then(|| {
                     format!(
@@ -383,6 +392,7 @@ impl WasiRegistry {
                     )
                 })
             });
+        self.bind_handle_drops(&mut param_kinds, &mut result_kind);
         let parameters = signature
             .params
             .iter()
@@ -402,7 +412,7 @@ impl WasiRegistry {
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
-        let flat_slots = flatten::flatten_parameters(&self.resolve, wit_function);
+        let flat_slots = flatten::flatten_parameters(&self.resolve, &wit_function);
         self.imports.push(WasiImport {
             symbol,
             module,

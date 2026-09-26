@@ -71,9 +71,9 @@ fn parameter_layout(
 ) -> Result<MemoryLayout, Vec<BackendError>> {
     match kind {
         abi::WasiParamKind::Boolean => scalar_layout(1, SlotKind::Byte),
-        abi::WasiParamKind::Integer32 | abi::WasiParamKind::Char | abi::WasiParamKind::Handle => {
-            scalar_layout(4, SlotKind::Word)
-        }
+        abi::WasiParamKind::Integer32
+        | abi::WasiParamKind::Char
+        | abi::WasiParamKind::Handle(_) => scalar_layout(4, SlotKind::Word),
         abi::WasiParamKind::IntegerNarrow { bits, .. } => {
             let width = u32::from(*bits) / 8;
             scalar_layout(width, slot_for_width(width))

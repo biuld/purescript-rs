@@ -81,8 +81,10 @@ pub(super) fn lower_function(
         layout,
         conversion_helpers,
         literals,
+        owned_handles: Vec::new(),
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
+    lowerer.discharge_owned_handles(end, source.result)?;
     lowerer.set_terminator(
         end,
         Terminator::Return {
@@ -106,6 +108,7 @@ pub(super) fn lower_function(
         span: source.span,
     };
     tail::mark_tail(&mut function, target)?;
+    wit::verify_function(&function, wit_imports)?;
     Ok(function)
 }
 pub(super) struct FunctionLowerer<'a> {
@@ -118,6 +121,7 @@ pub(super) struct FunctionLowerer<'a> {
     layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,
+    owned_handles: Vec<wit::OwnedObligation>,
 }
 
 impl FunctionLowerer<'_> {
@@ -138,6 +142,40 @@ impl FunctionLowerer<'_> {
         });
         id
     }
+    pub(super) fn note_owned_handle(
+        &mut self,
+        value: ValueId,
+        drop_symbol: SymbolId,
+        span: TextRange,
+    ) {
+        self.owned_handles.push(wit::OwnedObligation {
+            value,
+            drop_symbol,
+            span,
+        });
+    }
+
+    pub(super) fn transfer_owned_handle(&mut self, value: ValueId) {
+        self.owned_handles
+            .retain(|obligation| obligation.value != value);
+    }
+
+    /// Inserts `resource.drop` for owned handles this function did not return
+    /// and did not pass to an `own<T>` parameter.
+    fn discharge_owned_handles(
+        &mut self,
+        block: BlockId,
+        returned: ValueId,
+    ) -> Result<(), Vec<BackendError>> {
+        let drops = wit::owned_drops(&self.owned_handles, returned);
+        self.owned_handles.clear();
+        for instruction in drops {
+            let span = instruction.span();
+            self.append_instruction(block, instruction, span)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn append_instruction(
         &mut self,
         block: BlockId,

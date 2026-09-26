@@ -17,6 +17,7 @@ mod asm;
 mod codec;
 mod extent;
 mod function_types;
+mod post_return;
 mod realloc;
 mod runtime;
 mod structure;
@@ -285,6 +286,18 @@ pub fn lower_module_with_capabilities(
     } else {
         Vec::new()
     };
+
+    // `wasi:cli/run` returns a scalar, so the command export contributes no
+    // owned-handle post-return. An export of `own<T>` is released here.
+    debug_assert!(
+        post_return::append_owned_handle_post_returns(
+            &[],
+            TypeIndex(0),
+            FunctionIndex(0),
+            module.span,
+        )
+        .is_empty()
+    );
 
     let wasm = Module {
         name: module.name.clone(),

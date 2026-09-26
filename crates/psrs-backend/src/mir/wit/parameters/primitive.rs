@@ -47,7 +47,11 @@ fn slot_kind(
         abi::SourceType::Int => match import.flat_slots.get(*index) {
             Some(FlatSlot::Int32) => abi::WasiParamKind::Integer32,
             Some(FlatSlot::Int64 { signed }) => abi::WasiParamKind::Scalar64 { signed: *signed },
-            Some(FlatSlot::Handle) => abi::WasiParamKind::Handle,
+            Some(FlatSlot::Handle) => import
+                .handle_at_flat_index(*index)
+                .cloned()
+                .map(abi::WasiParamKind::Handle)
+                .ok_or_else(|| unsupported_parameter(span))?,
             _ => return Err(unsupported_parameter(span)),
         },
         abi::SourceType::Boolean => match import.flat_slots.get(*index) {

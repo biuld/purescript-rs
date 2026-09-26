@@ -529,10 +529,14 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   integers and non-byte lists of scalars now have a source mapping
   ([Source type mapping](#source-type-mapping)); indirect parameter records are
   implemented for the currently classified parameter kinds.
-- **Resources.** `own`/`borrow` handles are designed
-  ([Resources and handles](#resources-and-handles)) but not yet lowered:
-  `resource.drop` insertion, borrow scope release, and `post-return` release
-  remain implementation work.
+- **Resources.** `own`/`borrow` handles are lowered
+  ([Resources and handles](#resources-and-handles)): an owned import result is
+  dropped with `resource.drop` when the receiving function does not return it
+  and does not pass it to an `own` parameter; a borrow result is released when
+  that call returns; an export whose result is `own<T>` releases the handle in
+  `cabi_post_<name>`. An owned handle returned as `Int` from a non-export
+  function is not tracked in the caller. Handles nested in an unsupported
+  aggregate are not dropped.
 - **Source integration.** Parsed source can declare `Array` foreign signatures
   and reaches the ABI boundary, but non-byte lists are not lowered yet.
   Record and flags foreign signatures are not known to be reachable from
@@ -592,10 +596,17 @@ implementation coverage, not design choices. The allocator, buffer free, and
 - A source `String` is now a GC byte-sequence value; the ABI adapter transcodes
   it to and from the component's UTF-8 through the reclaiming `cabi_realloc`,
   and frees the transient buffer at the boundary.
-- `cabi_realloc` is a reclaiming allocator; `post-return` is not synthesized
-  because no current export returns a non-scalar.
-- `own`/`borrow` handles are classified but not lowered: there is no
-  `resource.drop` insertion or borrow release.
+- `cabi_realloc` is a reclaiming allocator. `wasi:cli/run` still returns a
+  scalar, so that export has no `post-return`. An export whose canonical
+  result is `own<T>` gets `cabi_post_<name>`, which calls `resource.drop` on
+  the returned handle.
+- An owned handle that a non-export function returns as `Int` is not dropped
+  in that function and is not tracked after the return. Handles nested inside
+  an unsupported aggregate are not dropped. A borrow result is released by
+  `resource.drop` immediately after the import returns; a later use is
+  rejected. An owned handle is dropped once in the function that received it,
+  unless that function returns the index or passes it to an `own` parameter.
+  A second drop, or a use after the borrow release, is rejected.
 - Non-byte `list<T>`, `option`/`result`/`variant` payload read-back, and tuple
   source types are not lowered.
 

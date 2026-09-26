@@ -489,10 +489,13 @@ otherwise the whole block is handed out.
 The allocator and buffer-free path match this design. The remaining deviations
 are coverage, not choices:
 
-- `cabi_post_<name>` is not yet synthesized because no current export returns a
-  non-scalar; `wasi:cli/run` returns no aggregate.
-- Resource handles (`own<T>` drop and `borrow<T>` release) await the frontend
-  accepting `foreign import data`.
+- `cabi_post_<name>` is not synthesized for a list or other non-scalar buffer
+  result, because `wasi:cli/run` returns no aggregate and no list-returning
+  export exists. An export whose result is `own<T>` does get `cabi_post_<name>`,
+  and that function calls `resource.drop` on the returned handle.
+- Handle drop and borrow release are lowered by the canonical ABI adapter.
+  An owned handle returned as `Int` from a non-export function is not tracked
+  in the caller.
 
 The synthesized allocator body lives in
 `wasm/lower/realloc/` and shares the `wasm/lower/asm.rs` structured-instruction

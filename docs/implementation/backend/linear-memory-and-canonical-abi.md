@@ -13,7 +13,7 @@ segment materialized once with `array.new_data` and interned in a lazily
 initialized module global, and the ABI adapter transcodes UTF-16 to
 and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
 ABI-07 are Verified. LM-01 is In progress because the profile still fixes one
-wasm32 memory. ABI-02 is In progress until `own`/`borrow` handle drop exists;
+wasm32 memory. ABI-02 is Verified, including `own`/`borrow` handle drop;
 scalar, enum, flags, char, and GC string mapping already has tests. ABI-08
 stays Blocked for non-byte `list<T>` / `SourceType::Array`;
 `option`/`result`/`variant` and tuples are not compiler source types
@@ -46,7 +46,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | Verified |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
-| ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | In progress |
+| ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | Verified |
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
@@ -153,8 +153,10 @@ ABI-01:
 ```text
 ABI-02:
   Implementation: crates/psrs-backend/src/abi/classification.rs and mir/wit/.
-    `WasiParamKind::Handle` classifies a resource handle as one canonical `i32`.
-    No lowering emits `own`/`borrow` drop.
+    `WasiParamKind::Handle` classifies `own<T>` and `borrow<T>` as one canonical
+    `i32`. An owned import result is dropped with `[resource-drop]<T>` when the
+    function does not return it; a borrow result is released when the call
+    returns; an owned export result is released in `cabi_post_<name>`.
   Tests: mir::wit::tests::scalar::{scalar_f64_results_are_called_directly,
     char_arguments_and_results_use_direct_i32_values,
     enum_arguments_and_results_keep_the_validated_i32_tags,
@@ -165,7 +167,12 @@ ABI-02:
     lowers_a_source_foreign_import_with_a_wit_binding,
     lowers_string_log_to_wasi_stdout,
     prints_hello_world_when_wasmtime_is_available,
-    prints_a_non_ascii_literal_when_wasmtime_is_available}.
+    prints_a_non_ascii_literal_when_wasmtime_is_available};
+    mir::wit::tests::handles::{a_borrow_result_is_released_when_the_call_returns,
+    the_verifier_rejects_an_owned_handle_dropped_twice,
+    the_verifier_rejects_a_handle_used_after_its_borrow_scope};
+    mir::binding_tests::p9_drops_an_owned_handle_that_the_function_does_not_return;
+    wasm::lower::post_return::tests::post_return_drops_an_owned_export_handle.
   Input boundary: WIT signatures and source.
   Commands: cargo test -p psrs-backend --lib mir::wit::tests::scalar
     mir::wit::tests::flags; PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver
@@ -174,10 +181,15 @@ ABI-02:
     prints_a_non_ascii_literal_when_wasmtime_is_available
     lowers_a_boolean_wit_result_with_a_boolean_source_type
     lowers_a_source_foreign_import_with_a_wit_binding.
-  Result: pass for scalars, enums, flags, chars, and GC strings. A string
-    literal is a GC `(array (mut i16))` linearized to UTF-8 at the call.
-  Gaps: `own`/`borrow` handle drop is not implemented and has no test. The row
-    stays In progress.
+  Result: pass for scalars, enums, flags, chars, GC strings, and handle
+    drop. A string literal is a GC `(array (mut i16))` linearized to UTF-8 at
+    the call. `resource.drop` is inserted for an owned handle the function does
+    not return, a borrow result is released at the call, and the verifier
+    rejects a second drop and a use after the borrow scope.
+  Gaps: an owned handle returned as `Int` from a non-export function is not
+    tracked in the caller. Handles nested in an unsupported aggregate are not
+    dropped. The row is Verified for the scalar and handle mapping that the
+    source ABI lowers.
 ```
 
 ```text
@@ -273,10 +285,10 @@ ABI-08:
 
 ## Remaining work and blockers
 
-LM-02, LM-04, and ABI-03 are verified on the GC-string representation. LM-01
-stays In progress because the profile fixes one wasm32 memory. ABI-02 stays In
-progress for `own`/`borrow` handle drop; scalar, enum, flags, char, and GC
-string mapping is tested. The reclaiming allocator,
+LM-02, LM-04, ABI-02, and ABI-03 are verified on the GC-string representation
+and the `own`/`borrow` drop rules. LM-01 stays In progress because the profile
+fixes one wasm32 memory. An owned handle returned as `Int` from a non-export
+function is not tracked in the caller. The reclaiming allocator,
 buffer free, and `post-return` are tracked by
 [canonical buffer allocation](canonical-buffer-allocation.md). ABI-08's
 `option`/`result`/`variant` and tuple forms are not compiler source types

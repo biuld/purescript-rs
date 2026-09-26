@@ -6,7 +6,10 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod handles;
 mod parameters;
+
+pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
 
 use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
@@ -31,6 +34,13 @@ pub(super) trait WitCallLowerer {
         field: u32,
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>>;
+
+    /// Records an `own<T>` result that this function must drop unless it
+    /// returns the index or passes it to another `own` parameter.
+    fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
+
+    /// An `own<T>` argument consumes a previously noted handle.
+    fn transfer_owned(&mut self, _value: ValueId) {}
 }
 
 /// A call-local buffer that must be freed once the canonical call returns. The
@@ -63,6 +73,14 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>> {
         self.wit_product_field(block, value, field, span)
+    }
+
+    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
+        self.note_owned_handle(value, drop_symbol, span);
+    }
+
+    fn transfer_owned(&mut self, value: ValueId) {
+        self.transfer_owned_handle(value);
     }
 }
 
@@ -160,7 +178,7 @@ pub(super) fn lower<L: WitCallLowerer>(
             free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
         abi::WasiResultKind::Scalar
-        | abi::WasiResultKind::Handle
+        | abi::WasiResultKind::Handle(_)
         | abi::WasiResultKind::IntegerNarrow { .. }
         | abi::WasiResultKind::Boolean
         | abi::WasiResultKind::Enum { .. }
@@ -333,6 +351,21 @@ pub(super) fn lower<L: WitCallLowerer>(
             current,
             span,
         )?;
+    }
+    // A borrow result cannot outlive this call: release it before the caller
+    // can use the index. An owned result stays live until it is transferred
+    // or the function drops it.
+    if let abi::WasiResultKind::Handle(handle) = &import.result_kind {
+        match handle.mode {
+            abi::HandleMode::Borrow => {
+                lowerer.append_wit_instruction(
+                    current,
+                    handles::borrow_release(destination, handle.drop_symbol, span),
+                    span,
+                )?;
+            }
+            abi::HandleMode::Own => lowerer.note_owned(destination, handle.drop_symbol, span),
+        }
     }
     Ok(())
 }
