@@ -1,5 +1,5 @@
 
-module WASI.Clock where
+module WASI.Clock (now) where
 
 import Prelude
 

@@ -369,10 +369,8 @@ log s = \token ->
 `log` is the user-facing function. Its type uses `String`, `Effect`, and
 `Unit`. The effect body calls the raw imports. `getStdout` is a handle
 declared as `Int`. `writeStdout` takes that handle and a `String` and returns
-`Unit`. Neither raw import is part of the public API; the module must export
-`log` and `error` only. The embedded source has no export list yet, so this
-restriction is part of the contract rather than of the text above. The call
-trace does not depend on it.
+`Unit`. Neither raw import is part of the public API. The module exports
+`log` and `error` only. The call trace does not depend on that list.
 
 Before CC, `ExternalBindings::from_core` records `writeStdout` as parameters
 `Int` and `String` and result `Unit`, and records the WIT binding
@@ -392,12 +390,13 @@ in the worked example of
 foreign import; after the two `writeStdout` calls return `Unit`, the effect
 function returns `Unit`.
 
-### A `Maybe` parameter, specified and not implemented
+### A `Maybe` parameter, specified and not added to the library
 
 A WIT function `send : func(m: option<string>)` has no compiler source type.
 The standard library may still expose it. This module is a specification
-example; it is not in the library, and today's classifier still rejects an
-`option` it cannot see as a source type even when the flat types would match.
+example; it is not in the library. The primitive import `Int -> String -> Unit`
+validates and lowers. A declaration written as `Maybe String -> Unit` still
+has no source signature and is rejected.
 
 ```purescript
 module WASI.Example (send) where
@@ -462,21 +461,18 @@ on a success string it never receives. The function stays unexposed.
   function whose result is a discriminant plus a payload stays out of the
   library until that whole result is one primitive. This topic does not choose
   a future representation for that case.
-- **Accepting a primitive import of an `option` parameter.** The validation
-  algorithm above is the contract. The current classifier still marks
-  `option`, payload-bearing `result`, non-unit `variant`, and tuple
-  unsupported, so the `Maybe` example does not lower yet.
-- **Export lists in the embedded modules.** `writeStdout` and the other raw
-  imports are still visible because the embedded modules have no export list.
 
 ## Implementation notes
 
-The embedded `WASI.Console` and `WASI.Clock` sources already call primitive
-imports from `log`, `error`, and `now`. They do not yet restrict the export
-list, so `writeStdout` is still a module export. Nullary enum, closed record,
-and flags-record foreign imports still lower; new library code should not use
-that path. No `SourceType::Option`, `SourceType::Result`, or `SourceType::Tuple`
-exists, and the `Maybe` wrapper above is not implemented.
+`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`.
+`WASI.Random` exports `randomBytes` and `randomU64`. Raw imports
+(`writeStdout`, `getStdout`, `getStderr`, `monotonicNow`, `getRandomBytes`,
+`getRandomU64`) stay in their modules and are not exported. A primitive import
+of an `option` parameter is accepted when the declared primitives flatten to
+the canonical parameter list; `option<string>` is `Int -> String -> Unit`.
+`Maybe` is not in `Prelude`. Nullary enum, closed record, and flags-record
+foreign imports still lower; new library code should not use that path. No
+`SourceType::Option`, `SourceType::Result`, or `SourceType::Tuple` exists.
 
 ## References
 

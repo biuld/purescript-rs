@@ -187,7 +187,7 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: stdlib/lib/{Prelude.purs,WASI/Console.purs,WASI/Clock.purs}
+  Implementation: stdlib/lib/{Prelude.purs,WASI/Console.purs,WASI/Clock.purs,WASI/Random.purs}
     read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
     lists those modules in trusted-prefix order. User discovery in
     crates/psrs-driver/src/loader.rs still skips those module names.
@@ -206,8 +206,9 @@ WASI-10:
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
-  Gaps: none. No modules beyond the previous Prelude, WASI.Console, and
-    WASI.Clock set are loaded.
+  Gaps: none. The loaded set is Prelude, WASI.Console, WASI.Clock, and
+    WASI.Random. WASI.Random uses Effect from Prelude and is not part of the
+    trusted Effect representation.
 ```
 
 ## Remaining work and blockers

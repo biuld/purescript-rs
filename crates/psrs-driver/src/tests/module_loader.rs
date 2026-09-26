@@ -97,13 +97,17 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         .iter()
         .map(|module| module.module_name.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["Prelude", "WASI.Console", "WASI.Clock"]);
+    assert_eq!(
+        names,
+        ["Prelude", "WASI.Console", "WASI.Clock", "WASI.Random"]
+    );
     for module in modules {
         let path = std::path::Path::new(&module.path);
         assert!(
             path.ends_with("lib/Prelude.purs")
                 || path.ends_with("lib/WASI/Console.purs")
-                || path.ends_with("lib/WASI/Clock.purs"),
+                || path.ends_with("lib/WASI/Clock.purs")
+                || path.ends_with("lib/WASI/Random.purs"),
             "{}",
             module.path
         );
