@@ -23,8 +23,9 @@ pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind)
                     })
                 })
         }
-        WasiParamKind::Scalar64 { .. } | WasiParamKind::Handle => {
-            matches!(source, SourceType::Int)
+        WasiParamKind::Scalar64 { .. } => matches!(source, SourceType::Int),
+        WasiParamKind::Handle => {
+            matches!(source, SourceType::Int | SourceType::Resource { .. })
         }
         WasiParamKind::List => matches!(source, SourceType::String),
         WasiParamKind::Record { fields } => {

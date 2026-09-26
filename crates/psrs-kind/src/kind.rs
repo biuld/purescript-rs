@@ -126,7 +126,7 @@ pub fn flatten_spine(ty: &psrs_hir::Type) -> (&psrs_hir::Type, Vec<&psrs_hir::Ty
 /// `forall` binders and rows are included.
 pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
     match &ty.kind {
-        TypeKind::Named(id) => out.push(*id),
+        TypeKind::Named(id) | TypeKind::Opaque(id) => out.push(*id),
         TypeKind::Application(function, argument) => {
             collect_type_ids(function, out);
             collect_type_ids(argument, out);

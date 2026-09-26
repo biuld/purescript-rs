@@ -5,7 +5,7 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId};
+use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
@@ -147,6 +147,8 @@ pub enum WasiResultKind {
     None,
     /// A scalar returned directly in a register.
     Scalar,
+    /// A resource handle returned as one canonical `i32`.
+    Handle,
     /// A WIT `s8`/`u8`/`s16`/`u16` result returned as a canonical `i32` whose
     /// bits are already the in-range value.
     IntegerNarrow { bits: u8, signed: bool },
@@ -188,6 +190,10 @@ pub enum SourceType {
     },
     String,
     Unit,
+    /// A nullary opaque foreign type mapped to a WIT resource handle.
+    Resource {
+        type_id: HirTypeId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -450,6 +456,12 @@ impl WasiRegistry {
                 }
                 _ => false,
             },
+            WasiResultKind::Handle => {
+                matches!(
+                    &signature.result,
+                    SourceType::Int | SourceType::Resource { .. }
+                )
+            }
             WasiResultKind::IntegerNarrow { .. } => matches!(&signature.result, SourceType::Int),
             WasiResultKind::Boolean => matches!(&signature.result, SourceType::Boolean),
             WasiResultKind::Enum { cases } => matches!(

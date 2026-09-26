@@ -39,6 +39,7 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
         HirTypeKind::Constructor(BuiltinType::Char) => Some(SourceType::Char),
         HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
         HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
+        HirTypeKind::Opaque(type_id) => Some(SourceType::Resource { type_id: *type_id }),
         HirTypeKind::Named(type_id) => source_enum_type(module, *type_id),
         HirTypeKind::Application(function, _) => {
             let type_id = user_type_id(function)?;
@@ -277,7 +278,7 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         WitType::Char => WasiResultKind::Char,
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
-            TypeDefKind::Handle(_) => WasiResultKind::Scalar,
+            TypeDefKind::Handle(_) => WasiResultKind::Handle,
             TypeDefKind::Result(_) => WasiResultKind::Result,
             TypeDefKind::Enum(enum_) => WasiResultKind::Enum {
                 cases: enum_
