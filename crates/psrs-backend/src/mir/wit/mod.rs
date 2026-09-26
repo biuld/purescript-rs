@@ -206,7 +206,9 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?,
             _ => {
-                return Err(vec![BackendError::new(
+                // Classification rejects shapes with no canonical result
+                // before MIR lowering; reaching here is invalid compiler IR.
+                return Err(vec![BackendError::invalid_ir(
                     "P9 MIR lowering",
                     span,
                     "this WIT import's scalar result type is not supported yet",
@@ -296,7 +298,9 @@ pub(super) fn lower<L: WitCallLowerer>(
             )?;
         }
         abi::WasiResultKind::Discarded => {
-            return Err(vec![BackendError::new(
+            // The ABI classification reports an unsupported shape before MIR
+            // lowering, so a `Discarded` result here is invalid compiler IR.
+            return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
                 "aggregate WIT results must be rejected before MIR lowering",
