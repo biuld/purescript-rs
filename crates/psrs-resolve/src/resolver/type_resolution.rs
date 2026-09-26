@@ -14,11 +14,12 @@ impl Resolver {
                 if let Some(builtin) = builtin_type(&name.text) {
                     HirTypeKind::Constructor(builtin)
                 } else if let Some((qualifier, member)) = split_qualified(&name.text) {
-                    HirTypeKind::Named(
-                        self.lookup_qualified_type(&name.text, qualifier, member, name.span)?,
-                    )
+                    let id =
+                        self.lookup_qualified_type(&name.text, qualifier, member, name.span)?;
+                    self.nominal(id)
                 } else if is_uppercase(&name.text) {
-                    HirTypeKind::Named(self.lookup_type_name(&name.text, name.span)?)
+                    let id = self.lookup_type_name(&name.text, name.span)?;
+                    self.nominal(id)
                 } else {
                     HirTypeKind::Variable(name.text)
                 }
@@ -139,6 +140,29 @@ impl Resolver {
         None
     }
 
+    /// A foreign data type is nominal. Callers see `Opaque` rather than a
+    /// synonym or an ordinary data type, including when the type was imported.
+    fn nominal(&self, id: TypeId) -> HirTypeKind {
+        if self.opaque_types.contains(&id) {
+            HirTypeKind::Opaque(id)
+        } else {
+            HirTypeKind::Named(id)
+        }
+    }
+
+    /// Records opacity of imported foreign data so signatures in this module
+    /// mention `Opaque` without looking at the declaring module again.
+    pub(super) fn note_imported_opaque_types(&mut self) {
+        let imported = self
+            .imports
+            .iter()
+            .flat_map(|import| import.types.iter())
+            .filter(|imported| imported.opaque)
+            .map(|imported| imported.id)
+            .collect::<Vec<_>>();
+        self.opaque_types.extend(imported);
+    }
+
     /// Resolves a planned type declaration into HIR. The plan holds the IDs and
     /// symbols allocated during conflict checking.
     pub(super) fn resolve_type_declaration(
@@ -226,6 +250,18 @@ impl Resolver {
                     declaration.span,
                 )
             }
+            ast::TypeDeclaration::Foreign(declaration) => self.type_declaration(
+                plan.id,
+                declaration.name,
+                TypeDeclarationKind::Foreign,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+                Some(declaration.declared_kind),
+                declaration.span,
+            ),
             ast::TypeDeclaration::Class(declaration) => {
                 let mut superclasses = Vec::new();
                 for superclass in declaration.superclasses {

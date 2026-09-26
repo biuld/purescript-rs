@@ -32,6 +32,7 @@ flowchart LR
 | Document | Owns | Output |
 | --- | --- | --- |
 | [Modules and resolution](semantics/modules-and-resolution.md) | Module graph, imports/exports, stable IDs | Resolved HIR |
+| [Foreign imports](semantics/foreign-imports.md) | Opaque foreign data and target-aware value imports | Resolved HIR and the WIT type mapping |
 | [Desugaring](semantics/desugaring.md) | Surface constructs lowered while preserving HIR | Normalized HIR |
 | [Core lowering](semantics/core-lowering.md) | THIR-to-Core conversion and verification | Typed Core |
 | [Functional Core](semantics/functional-core.md) | Producer-owned Core type, term, and semantic contract | P7 input |

@@ -8,6 +8,8 @@ pub enum TypeDeclarationKind {
     Newtype,
     TypeSynonym,
     Class,
+    /// `foreign import data`. Nominal, with a declared kind and no constructors.
+    Foreign,
 }
 
 /// A resolved type-level declaration. Its `id` names the type, class, or

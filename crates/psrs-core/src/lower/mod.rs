@@ -79,6 +79,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         externals: module.externals,
         types,
         newtype_ids: module.newtype_ids,
+        opaque_ids: module.opaque_ids,
         constructors: module
             .constructors
             .iter()

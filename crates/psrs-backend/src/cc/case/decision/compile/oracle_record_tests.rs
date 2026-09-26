@@ -31,6 +31,7 @@ fn module() -> Module {
             Type::I32,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: symbol(0),

@@ -256,6 +256,7 @@ mod tests {
             externals: Vec::new(),
             types,
             newtype_ids: Vec::new(),
+            opaque_ids: Vec::new(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,

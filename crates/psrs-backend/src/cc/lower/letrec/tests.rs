@@ -440,6 +440,7 @@ fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![declaration],
         entry: Some(entry),

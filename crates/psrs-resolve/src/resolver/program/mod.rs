@@ -9,6 +9,10 @@ use std::collections::{HashMap, HashSet};
 #[cfg(test)]
 mod tests;
 
+mod interface;
+
+use interface::Interface;
+
 /// A resolution error tied to one module of a program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramError {
@@ -240,7 +244,12 @@ fn build_import(
                     symbols.push(imported(*symbol, name, name, import.span));
                 }
                 for (name, id) in &interface.types {
-                    types.push(imported_type(*id, name, import.span));
+                    types.push(imported_type(
+                        *id,
+                        name,
+                        import.span,
+                        interface.opaque.contains(id),
+                    ));
                 }
             }
             Some(list) if list.hiding => {
@@ -268,7 +277,12 @@ fn build_import(
                 }
                 for (name, id) in &interface.types {
                     if !hidden.contains(name) {
-                        types.push(imported_type(*id, name, import.span));
+                        types.push(imported_type(
+                            *id,
+                            name,
+                            import.span,
+                            interface.opaque.contains(id),
+                        ));
                     }
                 }
             }
@@ -287,7 +301,12 @@ fn build_import(
                                 unknown_import(module_index, name, errors);
                                 continue;
                             };
-                            types.push(imported_type(id, &name.text, name.span));
+                            types.push(imported_type(
+                                id,
+                                &name.text,
+                                name.span,
+                                interface.opaque.contains(&id),
+                            ));
                             match members {
                                 None => {}
                                 Some(members) if members.all => {
@@ -328,7 +347,12 @@ fn build_import(
                         ast::ImportRef::Class(name) => {
                             match interface.types.get(&name.text).copied() {
                                 Some(id) => {
-                                    types.push(imported_type(id, &name.text, name.span));
+                                    types.push(imported_type(
+                                        id,
+                                        &name.text,
+                                        name.span,
+                                        interface.opaque.contains(&id),
+                                    ));
                                     for (member, symbol) in interface
                                         .class_members
                                         .get(&name.text)
@@ -383,100 +407,11 @@ fn imported(
     }
 }
 
-fn imported_type(id: TypeId, name: &str, span: TextRange) -> ImportedType {
+fn imported_type(id: TypeId, name: &str, span: TextRange, opaque: bool) -> ImportedType {
     ImportedType {
         id,
         name: name.to_string(),
         span,
-    }
-}
-
-/// The namespaces a resolved module exposes to its importers.
-struct Interface {
-    values: HashMap<String, SymbolId>,
-    types: HashMap<String, TypeId>,
-    /// Exported data constructors per type name.
-    constructors: HashMap<String, Vec<(String, SymbolId)>>,
-    /// Exported class members per class name.
-    class_members: HashMap<String, Vec<(String, SymbolId)>>,
-}
-
-impl Interface {
-    fn from_module(module: &hir::Module) -> Self {
-        let mut values = HashMap::new();
-        let mut types = HashMap::new();
-        let mut constructors = HashMap::new();
-        let mut class_members = HashMap::new();
-        match &module.exports {
-            Some(exports) => {
-                for value in &exports.values {
-                    values.insert(value.name.clone(), value.symbol);
-                }
-                let declarations = module
-                    .types
-                    .iter()
-                    .map(|declaration| (declaration.id, declaration))
-                    .collect::<HashMap<_, _>>();
-                for exported in &exports.types {
-                    types.insert(exported.name.clone(), exported.id);
-                    let Some(declaration) = declarations.get(&exported.id).copied() else {
-                        continue;
-                    };
-                    if let Some(symbols) = &exported.constructors {
-                        let mut members = Vec::new();
-                        for symbol in symbols {
-                            if let Some(constructor) = declaration
-                                .constructors
-                                .iter()
-                                .find(|constructor| constructor.symbol == *symbol)
-                            {
-                                values
-                                    .entry(constructor.name.clone())
-                                    .or_insert(constructor.symbol);
-                                members.push((constructor.name.clone(), constructor.symbol));
-                            }
-                        }
-                        constructors.insert(exported.name.clone(), members);
-                    }
-                    if exported.is_class {
-                        let members = declaration
-                            .members
-                            .iter()
-                            .filter(|member| values.values().any(|symbol| *symbol == member.symbol))
-                            .map(|member| (member.name.clone(), member.symbol))
-                            .collect();
-                        class_members.insert(exported.name.clone(), members);
-                    }
-                }
-            }
-            None => {
-                for declaration in &module.declarations {
-                    values.insert(declaration.name.clone(), declaration.symbol);
-                }
-                for declaration in &module.types {
-                    types.insert(declaration.name.clone(), declaration.id);
-                    for constructor in &declaration.constructors {
-                        values.insert(constructor.name.clone(), constructor.symbol);
-                        constructors
-                            .entry(declaration.name.clone())
-                            .or_insert_with(Vec::new)
-                            .push((constructor.name.clone(), constructor.symbol));
-                    }
-                    for member in &declaration.members {
-                        values.insert(member.name.clone(), member.symbol);
-                        class_members
-                            .entry(declaration.name.clone())
-                            .or_insert_with(Vec::new)
-                            .push((member.name.clone(), member.symbol));
-                    }
-                }
-            }
-        }
-        Self {
-            values,
-            types,
-            constructors,
-            class_members,
-        }
+        opaque,
     }
 }

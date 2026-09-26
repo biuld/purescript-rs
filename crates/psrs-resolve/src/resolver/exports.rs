@@ -48,6 +48,9 @@ impl Resolver {
                             let declaration = own.get(&id).copied();
                             let constructors =
                                 self.export_members(declaration, members.as_ref(), &name);
+                            let opaque = declaration.is_some_and(|declaration| {
+                                declaration.kind == TypeDeclarationKind::Foreign
+                            }) || self.imported_opaque(id);
                             self.add_type(
                                 &mut exported_types,
                                 &mut type_sources,
@@ -58,6 +61,7 @@ impl Resolver {
                                     declaration.kind == TypeDeclarationKind::Class
                                 }),
                                 constructors,
+                                opaque,
                             );
                         }
                         None => self.report(ResolveErrorKind::UnknownExport, name.text, name.span),
@@ -112,6 +116,7 @@ impl Resolver {
         name_span: TextRange,
         is_class: bool,
         constructors: Option<Vec<SymbolId>>,
+        opaque: bool,
     ) {
         match sources.get(&name) {
             Some(existing) if *existing != id.module => {
@@ -126,6 +131,7 @@ impl Resolver {
                     name_span,
                     constructors,
                     is_class,
+                    opaque,
                 });
             }
         }
@@ -194,6 +200,7 @@ impl Resolver {
                 name.span,
                 false,
                 None,
+                imported.opaque,
             );
         }
     }
@@ -243,6 +250,15 @@ impl Resolver {
             );
         }
         Some(symbols)
+    }
+
+    fn imported_opaque(&self, id: TypeId) -> bool {
+        self.imports.iter().any(|import| {
+            import
+                .types
+                .iter()
+                .any(|imported| imported.id == id && imported.opaque)
+        })
     }
 
     fn lookup_export(&self, name: &str) -> Option<SymbolId> {
@@ -357,7 +373,7 @@ impl Resolver {
 
 fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
     match &ty.kind {
-        hir::TypeKind::Named(id) => out.push(*id),
+        hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => out.push(*id),
         hir::TypeKind::Application(function, argument) => {
             collect_named_types(function, out);
             collect_named_types(argument, out);

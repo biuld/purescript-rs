@@ -213,7 +213,7 @@ pub(crate) fn resolve_ast_module(
     }
 
     let mut type_declarations = module.type_declarations;
-    let (plans, type_names) = plan_type_declarations(
+    let (plans, type_names, opaque_types) = plan_type_declarations(
         module_id,
         &type_declarations,
         module.declarations.len() as u32,
@@ -244,6 +244,8 @@ pub(crate) fn resolve_ast_module(
         inputs.export_items,
         errors,
     );
+    resolver.opaque_types.extend(opaque_types);
+    resolver.note_imported_opaque_types();
 
     // A `foreign import` declares an external value whose type and WIT binding
     // come from source. Resolve its annotation first so expressions can refer
@@ -375,9 +377,10 @@ fn plan_type_declarations(
     first_symbol: u32,
     globals: &mut HashMap<String, SymbolId>,
     errors: &mut Vec<ResolveError>,
-) -> (Vec<PlannedType>, HashMap<String, TypeId>) {
+) -> (Vec<PlannedType>, HashMap<String, TypeId>, HashSet<TypeId>) {
     let mut plans = Vec::with_capacity(declarations.len());
     let mut type_names = HashMap::new();
+    let mut opaque_types = HashSet::new();
     let mut uppercase: HashSet<String> = HashSet::new();
     let mut next_symbol = first_symbol;
 
@@ -412,6 +415,9 @@ fn plan_type_declarations(
                 name.span,
             ));
         }
+        if matches!(declaration, ast::TypeDeclaration::Foreign(_)) {
+            opaque_types.insert(id);
+        }
         uppercase.insert(name.text.clone());
         for constructor in type_constructors(declaration) {
             uppercase.insert(constructor.name.text.clone());
@@ -433,7 +439,7 @@ fn plan_type_declarations(
         });
     }
 
-    (plans, type_names)
+    (plans, type_names, opaque_types)
 }
 
 fn type_constructors(declaration: &ast::TypeDeclaration) -> Vec<&ast::DataConstructor> {

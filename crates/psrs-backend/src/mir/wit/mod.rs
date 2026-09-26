@@ -160,6 +160,7 @@ pub(super) fn lower<L: WitCallLowerer>(
             free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
         abi::WasiResultKind::Scalar
+        | abi::WasiResultKind::Handle
         | abi::WasiResultKind::IntegerNarrow { .. }
         | abi::WasiResultKind::Boolean
         | abi::WasiResultKind::Enum { .. }

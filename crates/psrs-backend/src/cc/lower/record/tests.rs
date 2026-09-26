@@ -186,6 +186,7 @@ fn generic_record_module(include_read: bool, include_build_update: bool) -> Modu
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations,
         entry: None,
