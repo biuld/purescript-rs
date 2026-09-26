@@ -171,3 +171,61 @@ fn rejects_non_byte_lists_nested_in_records() {
         Some("non-byte WIT lists are not supported by the String ABI")
     );
 }
+
+#[test]
+fn validates_a_list_of_records() {
+    use crate::types::ValueType;
+    use psrs_core::TypeConstructor;
+    use psrs_hir::SymbolId;
+
+    let mut module = empty_core_module();
+    let x = intern_all(&mut module, vec![CoreType::I32])
+        .pop()
+        .expect("one integer");
+    let y = intern_all(&mut module, vec![CoreType::F64])
+        .pop()
+        .expect("one number");
+    let record = intern_all(
+        &mut module,
+        vec![CoreType::Record(vec![("x".into(), x), ("y".into(), y)])],
+    )
+    .pop()
+    .expect("one record");
+    let array_ctor = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(TypeConstructor::Array)],
+    )
+    .pop()
+    .expect("one array constructor");
+    let array = intern_all(&mut module, vec![CoreType::Application(array_ctor, record)])
+        .pop()
+        .expect("one array");
+    let unit = unit_type(&mut module);
+    let import = WasiImport {
+        symbol: SymbolId::new(ModuleId(0), 0),
+        module: "test:records".into(),
+        name: "take".into(),
+        parameters: vec![ValueType::I32, ValueType::I32],
+        param_kinds: vec![WasiParamKind::ValueList {
+            element: Box::new(WasiParamKind::Record {
+                fields: vec![
+                    crate::abi::WasiField {
+                        name: "x".into(),
+                        kind: WasiParamKind::Integer32,
+                    },
+                    crate::abi::WasiField {
+                        name: "y".into(),
+                        kind: WasiParamKind::Float64,
+                    },
+                ],
+            }),
+        }],
+        result: None,
+        result_kind: WasiResultKind::None,
+        unsupported: None,
+        retptr: false,
+        flat_slots: Vec::new(),
+    };
+    validate_against(&import, module, &[array], unit)
+        .expect("list<record> should validate against the source record");
+}

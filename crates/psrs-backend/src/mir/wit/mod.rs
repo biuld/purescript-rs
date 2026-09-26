@@ -6,13 +6,13 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod function_lowerer;
 mod handles;
 mod lists;
 mod parameters;
 
 pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
 
-use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
@@ -46,6 +46,16 @@ pub(super) trait WitCallLowerer {
         None
     }
 
+    /// The element shape of a GC array representation handle.
+    fn wit_array_element(&self, _repr: crate::cc::ReprId) -> Option<crate::cc::ValueShape> {
+        None
+    }
+
+    /// The concrete GC type of a representation handle.
+    fn wit_repr_index(&self, _repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {
+        None
+    }
+
     /// Records an `own<T>` result that this function must drop unless it
     /// returns the index or passes it to another `own` parameter.
     fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
@@ -76,68 +86,6 @@ pub(super) struct PendingFree {
     /// Element count of a `list<string>` parameter whose payloads must be freed
     /// after the host has copied them. `length` remains the byte size.
     pub string_elements: Option<ValueId>,
-}
-
-impl WitCallLowerer for FunctionLowerer<'_> {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
-        self.fresh(ty)
-    }
-
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        self.append_instruction(block, instruction, span)
-    }
-
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        self.wit_product_field(block, value, field, span)
-    }
-
-    fn wit_product(
-        &self,
-        repr: crate::cc::ReprId,
-    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
-        self.resolved_product(repr)
-    }
-
-    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
-        self.note_owned_handle(value, drop_symbol, span);
-    }
-
-    fn transfer_owned(&mut self, value: ValueId) {
-        self.transfer_owned_handle(value);
-    }
-
-    fn wit_array_type(
-        &self,
-        value: ValueId,
-        span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
-        match self.value_type(value) {
-            Some(ValueType::Ref(reference)) => match reference.heap {
-                crate::types::HeapType::Index(index) => Ok(index),
-                _ => Err(vec![BackendError::new(
-                    "P9 MIR lowering",
-                    span,
-                    "canonical list value is not a concrete GC array",
-                )]),
-            },
-            _ => Err(vec![BackendError::new(
-                "P9 MIR lowering",
-                span,
-                "canonical list value is not a GC array",
-            )]),
-        }
-    }
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
@@ -231,6 +179,7 @@ pub(super) fn lower<L: WitCallLowerer>(
                 lowerer,
                 import,
                 element,
+                &signature.result,
                 destination,
                 flat,
                 retptr,

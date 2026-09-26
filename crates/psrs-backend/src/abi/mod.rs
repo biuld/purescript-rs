@@ -13,6 +13,7 @@ use wit_parser::abi::AbiVariant;
 mod classification;
 mod flatten;
 mod handles;
+pub(crate) mod layout;
 pub(crate) mod link;
 mod lists;
 #[cfg(test)]

@@ -317,6 +317,9 @@ impl Structurer<'_> {
                 instruction @ MirInstruction::ListCopy { .. } => {
                     body.extend(self.emit_list_copy(instruction)?);
                 }
+                instruction @ MirInstruction::ListCopyRecord { .. } => {
+                    body.extend(self.emit_list_copy_record(instruction)?);
+                }
                 MirInstruction::Load {
                     destination,
                     address,

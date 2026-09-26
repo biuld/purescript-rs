@@ -87,6 +87,7 @@ fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
                 | CoreType::F64
                 | CoreType::Char
                 | CoreType::String
+                | CoreType::Record(_)
                 // A nullary enum or an opaque handle. The interner only admits
                 // `Named` for a nullary enum, so a field-bearing type never
                 // reaches here.

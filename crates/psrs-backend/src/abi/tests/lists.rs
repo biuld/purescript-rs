@@ -119,7 +119,14 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     ));
     assert!(unsupported_shape(&resolve, enums, &WasiResultKind::None).is_none());
 
-    for name in ["take-nested", "take-items", "take-handles", "take-options"] {
+    let items = function_named(&resolve, "take-items");
+    assert!(matches!(
+        param_kind(&resolve, &items.params[0].ty),
+        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Record { .. })
+    ));
+    assert!(unsupported_shape(&resolve, items, &WasiResultKind::None).is_none());
+
+    for name in ["take-nested", "take-handles", "take-options"] {
         let function = function_named(&resolve, name);
         assert!(
             unsupported_shape(&resolve, function, &WasiResultKind::None).is_some(),
