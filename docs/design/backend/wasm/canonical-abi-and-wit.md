@@ -213,7 +213,9 @@ through `cabi_realloc`, returns the return-area pointer, and the host reads and
 copies the value. The compiler then synthesizes a `cabi_post_<name>` function
 for that export that frees the return area and every buffer it owns. The
 `wasi:cli/run` entry returns no aggregate, so it needs no `post-return`, but any
-future list-returning export does.
+future list-returning export does. The `post-return` contract and its buffer
+ownership are fixed by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ### Resources and handles
 
@@ -223,7 +225,9 @@ lowering inserts that drop when the owning value is consumed. `borrow<T>` is a
 non-owning reference whose borrow must not outlive the call; the lowering
 releases the borrow when the call returns. A handle owned by an export result is
 released by the export's `post-return`. Handle types are declared in source with
-`foreign import data`, which mirrors a WIT resource.
+`foreign import data`, which mirrors a WIT resource. The drop and borrow-release
+timing relative to the buffer ownership classes is fixed by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ### Rejected alternatives
 
@@ -538,7 +542,9 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 The current code deviates from the complete design in these ways; the gaps are
 tracked on BE-11 and BE-17..BE-20 in [D-04](../../D-04-suite-roadmap.md) and are
-implementation coverage, not design choices:
+implementation coverage, not design choices. The allocator, buffer free, and
+`post-return` gaps are tracked specifically by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md):
 
 - A source `String` is now a GC byte-sequence value; the ABI adapter transcodes
   it to and from the component's UTF-8, but still through a bump allocator.

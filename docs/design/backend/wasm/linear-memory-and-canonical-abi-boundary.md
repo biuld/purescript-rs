@@ -3,17 +3,20 @@
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Stable (design)  
 **Prerequisites:** the Canonical ABI exchange format (flattened values, the return pointer, `realloc`), WebAssembly linear memory and the wasm32 address model, and Wasm GC as the language heap. Read [canonical ABI and WIT](canonical-abi-and-wit.md), [MIR](../fp/mir.md), and [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md) first.  
-**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: GC strings and byte lists transiently linearized, the return area of canonical calls, the `cabi_realloc` allocator, and passive data segments. It is not a general object heap. Language strings, aggregates, closures, variants, arrays, and erased values use Wasm GC.
+**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: GC strings and byte lists transiently linearized, the return area of canonical calls, and passive data segments. It is not a general object heap. Language strings, aggregates, closures, variants, arrays, and erased values use Wasm GC. The allocator that backs transient buffers and their lifetime are owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ## Scope
 
 This document owns the address model, the string and byte-list representation,
-the `cabi_realloc` allocator, the scratch return area, data-segment use, and the
-MIR byte-operation contract at the boundary. It does not own canonical ABI
-adaptation itself ([canonical ABI and WIT](canonical-abi-and-wit.md)), the
-structured encoding of memory instructions ([Wasm encoding](encoding-and-structuring.md)),
-the choice of GC as the heap ([capability profile](capability-profile.md)), or
-the exact GC layouts ([data representation](../fp/data-representation.md)).
+the scratch return area, data-segment use, and the MIR byte-operation contract at
+the boundary. It does not own canonical ABI adaptation itself
+([canonical ABI and WIT](canonical-abi-and-wit.md)), the `cabi_realloc`
+allocator and buffer ownership/lifetime
+([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)),
+the structured encoding of memory instructions
+([Wasm encoding](encoding-and-structuring.md)), the choice of GC as the heap
+([capability profile](capability-profile.md)), or the exact GC layouts
+([data representation](../fp/data-representation.md)).
 
 ## Background
 
@@ -80,8 +83,9 @@ Every transient buffer has exactly one owner and is freed when its lifetime
 ends; no language value is stored in linear memory between calls. The reserved
 scratch region is `[0, SCRATCH_END)` and holds canonical return areas;
 `PRINT_SCRATCH = 0` is the return pointer passed to indirect calls and
-`SCRATCH_END = 16` is the first free offset. The allocator's free lists and
-free pointer live in the heap-state segment after the scratch region.
+`SCRATCH_END = 16` is the first free offset. The allocator's free lists, free
+pointer, and buffer ownership rules live in
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 MIR's `Load`/`Load8U`/`Store` read and write pointer-width values; `offset` is a
 statically known constant added by the leaf `MemArg`, and `Load8U` reads one
@@ -106,11 +110,12 @@ values.
   dynamic addresses rely on WebAssembly's runtime bounds check and trap when out
   of bounds.
 - `cabi_realloc` returns a pointer aligned to the requested alignment and never
-  overlaps a static region. `new_len == 0` frees and returns `0`; a resize
-  preserves `min(old_len, new_len)` bytes; freed blocks are reused.
+  overlaps a static region. Its alloc/free/resize contract and block layout are
+  owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 - Every canonical buffer is freed by its owner: call buffers when the canonical
   call returns, import results after the bytes are copied into a GC value, and
-  export results in the export's `post-return`.
+  export results in the export's `post-return`
+  ([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)).
 - Language strings, arrays, and aggregates never use linear memory between
   calls; their operations are GC `array.*`/`struct.*`.
 
@@ -123,8 +128,10 @@ profile uses wasm32 (`i32` addresses) and one memory with `multi_memory`
 disabled, so a memory instruction cannot address the wrong memory. Carrying the
 `MemoryId` keeps the meaning explicit and lets a memory64 or multi-memory
 profile change only MIR and the encoder: a memory64 profile widens addresses and
-the allocator's free pointer to `i64`. CC references are opaque handles, so CC
-is unaffected ([IR boundaries](../00-ir-boundaries.md)).
+the allocator's words to `i64`
+([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)).
+CC references are opaque handles, so CC is unaffected
+([IR boundaries](../00-ir-boundaries.md)).
 
 ### Strings as GC values and static literals
 
@@ -138,38 +145,19 @@ to an import copies its bytes into a transient linear buffer allocated by
 returns. Reading a returned string copies the host-written bytes into a fresh GC
 string and then frees the linear buffer.
 
-### The canonical allocator
+### The canonical allocator and buffer lifetime
 
-`cabi_realloc` is a general aligned allocator, not a bump allocator. P9 fixes
-the buffer and allocator contract; P10 mechanically synthesizes and exports
-`cabi_realloc`. It implements the full canonical `realloc` contract:
-
-- `realloc(0, 0, align, n)` allocates an aligned block of `n` bytes;
-- `realloc(p, len, align, 0)` frees the block at `p` and returns `0`;
-- `realloc(p, old, align, new)` resizes, copying `min(old, new)` bytes and
-  freeing the old block when it cannot grow in place.
-
-Blocks carry a size header, and byte buffers carry a 4-byte length prefix
-immediately before the payload. Freed blocks are coalesced and reused; a fresh
-block is aligned to `max(align, 4)`. The allocator grows memory with
-`memory.grow` (MVP, not `bulk_memory`) and traps on `memory.grow` failure or an
-address overflow. Its free lists and free pointer live in the heap-state segment
-after the scratch region.
-
-### Buffer ownership and lifetime
-
-Each canonical buffer is one of:
-
-- *static* — a passive literal segment, program lifetime;
-- *call-local* — an indirect parameter record or import return area, owned by
-  the calling function and freed when the canonical call returns;
-- *import result* — host-written through the guest allocator, owned by the
-  guest and freed after its bytes are copied into a GC value; or
-- *export result* — guest-allocated, lifted by the host, then freed by the
-  export's synthesized `post-return`.
-
-No buffer outlives its owner, so growth is bounded by call frequency rather than
-allocation history ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
+`cabi_realloc` is a general aligned allocator, not a bump allocator, and every
+canonical buffer has exactly one owner and is freed when its lifetime ends:
+*static* buffers live for the program, *call-local* buffers are owned by the
+calling function, *import results* are owned by the guest and freed after their
+bytes are copied into a GC value, and *export results* are freed by the export's
+synthesized `post-return`. The allocator's full contract, its block layout and
+free lists, the heap-state region, growth and overflow trapping, `post-return`
+synthesis, and the four ownership classes are owned by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+P9 emits the allocator calls; P10 mechanically synthesizes and exports
+`cabi_realloc`.
 
 ### Byte operations at the boundary
 
@@ -254,32 +242,11 @@ store must establish writable-buffer provenance in ABI lowering or be rejected.
 
 ### `cabi_realloc`
 
-```text
-realloc(old_ptr, old_len, align, new_len):
-    require align is a nonzero power of two
-    if new_len == 0:
-        if old_ptr != 0: free(old_ptr)
-        return 0
-    require old_ptr == 0 implies old_len == 0
-    if old_ptr != 0 and the block can grow in place:
-        update the size header and length prefix; return old_ptr
-    payload = allocate_aligned(new_len, max(align, 4))
-    if old_ptr != 0:
-        copy min(old_len, new_len) bytes from old_ptr's payload to payload
-        free(old_ptr)
-    store the length prefix at payload - 4
-    return payload
-
-allocate_aligned(n, align):
-    find or split a free block of at least n bytes at an align-aligned address
-    when no block fits, grow low memory with memory.grow and trap on failure
-    record the block size in its header; return its payload address
-```
-
-`free` returns a block to the free list and coalesces adjacent free blocks. The
-allocator accepts canonical reallocations and reclaims freed storage; it never
-reuses the scratch, heap-state, or passive-segment ranges. Free lists and the
-free pointer live in the heap-state segment.
+The allocator's `realloc`, `allocate`, `free`, and coalescing algorithms are
+owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+This document relies on its contract: an aligned payload pointer with a 4-byte
+length prefix immediately before it, reclamation of freed storage, and a trap on
+growth failure or address overflow.
 
 ### Passing a string argument
 
@@ -410,36 +377,38 @@ Responsibilities and required entry points:
   types. Required entry point:
   `fn verify_memory(instruction, types) -> Result<(), Diagnostic>`.
 - `wasm/lower/runtime.rs` must collect and deduplicate string literals, encode
-  them as passive data segments, allocate one mutable `(ref null $string)` global
-  per distinct used literal for lazy interning, and own the heap-state segment.
-  The structurer emits `array.new_data` once per literal behind that global's
-  `ref.is_null` guard. Required entry point:
-  `fn plan_data_segments(strings, layout) -> DataSegments`.
+  them as passive data segments, and allocate one mutable `(ref null $string)`
+  global per distinct used literal for lazy interning. The structurer emits
+  `array.new_data` once per literal behind that global's `ref.is_null` guard.
+  Required entry point: `fn plan_data_segments(strings, layout) -> DataSegments`.
 - `wasm/lower/realloc.rs` must synthesize the general `cabi_realloc` allocator
-  with the standard `(old_ptr, old_len, align, new_len) -> i32` signature and
-  export it only when the module crosses the canonical ABI (a returned string or
-  byte list, an indirect parameter record, or an export return area). Required
-  entry point: `fn synthesize_realloc(layout) -> Function`.
+  and export it only when the module crosses the canonical ABI (a returned string
+  or byte list, an indirect parameter record, or an export return area). Its
+  contract, block layout, and free lists are owned by
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+  Required entry point: `fn synthesize_realloc(layout) -> Function`.
 - `wasm/lower/mod.rs` must assemble the memory (minimum pages), the data
   segments, and the allocator export into the thin Wasm module. After planning
   those segments and before structuring instructions, it must run
   `lower/extent.rs` against the MIR module and resulting ABI memory layout.
 - `wasm/lower/extent.rs` must resolve statically known MIR addresses, compute
   checked access intervals, and reject known accesses outside the scratch and
-  string-literal regions, reject known stores into read-only string-literal
-  regions, and reject accesses beyond the wasm32 address space. Unknown dynamic
-  addresses pass this static extent check when their fixed `offset + width`
-  fits the wasm32 space; dynamic stores also require an ABI-level
-  writable-buffer guarantee. The emitted WebAssembly instruction supplies the
-  runtime current-memory bounds trap. Required entry point:
+  heap-state regions, reject known stores into read-only regions, and reject
+  accesses beyond the wasm32 address space. Unknown dynamic addresses pass this
+  static extent check when their fixed `offset + width` fits the wasm32 space;
+  dynamic stores also require a `cabi_realloc` provenance proof. The emitted
+  WebAssembly instruction supplies the runtime current-memory bounds trap.
+  Required entry point:
   `fn verify_static_access_extents(module, layout) -> Result<(), Vec<BackendError>>`.
 - `wasm/lower/structure/instructions.rs` must lower the MIR boundary
   instructions to leaf Wasm load/store/convert instructions carrying a `MemArg`.
 - `mir/wit/mod.rs` and `mir/wit/parameters.rs` must adapt strings and byte lists
-  to and from the `(pointer, length)` exchange format; a non-byte list must be
-  rejected before this layer. They must not emit a dynamic `Store` without an
-  ABI-level writable-buffer guarantee; current lowering emits no dynamic MIR
-  store.
+  to and from the `(pointer, length)` exchange format and free each transient
+  buffer at the point fixed by
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md);
+  a non-byte list must be rejected before this layer. They must not emit a
+  dynamic `Store` without an ABI-level writable-buffer guarantee; current
+  lowering emits no dynamic MIR store.
 
 **No language objects in linear memory.** The module tree must not allocate
 language aggregates, closures, variants, arrays, or erased values in linear
@@ -506,26 +475,23 @@ its address is proven to come from `cabi_realloc`.
 
 ## Implementation notes
 
-The current code deviates from the complete design above in the following ways;
-these are implementation coverage gaps, not design choices, and are tracked on
-BE-11 in [D-04](../../D-04-suite-roadmap.md):
-
-- `cabi_realloc` is still a bump allocator: freeing is a no-op, there is no
-  reuse or coalescing, and returned buffers are not reclaimed.
-- `post-return` is not yet synthesized (the only export, `wasi:cli/run`,
-  returns no aggregate) and resource handles are not yet lowered.
-- The ABI memory is fixed to `MemoryId(0)` with `i32` addresses; the profile
-  does not yet select a pointer width or additional memories.
+The allocator and buffer-lifetime gaps are owned and tracked by
+[canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)
+and its [implementation checklist](../../implementation/backend/canonical-buffer-allocation.md):
+`cabi_realloc` is still a bump allocator, returned buffers are not reclaimed,
+no `post-return` is synthesized, and resource handles are not lowered. The ABI
+memory here is fixed to `MemoryId(0)` with `i32` addresses; the profile does not
+yet select a pointer width or additional memories.
 
 Strings and literals match the complete design: a source `String` is the GC
 `(array (mut i16))` type, literals are passive data segments materialized once
 with `array.new_data` and interned in a lazily initialized mutable global, and
 the ABI adapter transcodes UTF-16 to and from the
 component's UTF-8 (invalid sequences and unpaired surrogates become U+FFFD). The
-static MIR access-extent pass now covers only the scratch region, since GC
-string literals are not MIR-addressable. The thin-IR verifier, the Wasm
-validator, and the bump-allocator regression suite remain implemented against
-the current representation.
+static MIR access-extent pass covers the scratch and heap-state regions; GC
+string literals are not MIR-addressable and define no region. The thin-IR
+verifier, the Wasm validator, and the allocator regression suite remain
+implemented against the current representation.
 
 ## References
 
@@ -537,5 +503,6 @@ the current representation.
   [DEC-10 — Canonical ABI Buffer Ownership and Lifetime](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
   [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
 - [canonical ABI and WIT](canonical-abi-and-wit.md),
+  [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md),
   [capability profile](capability-profile.md),
   [data representation](../fp/data-representation.md).
