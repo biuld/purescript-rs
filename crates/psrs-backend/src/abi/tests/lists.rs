@@ -80,9 +80,11 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     let resolve = resolve_wit(
         "package test:lists@0.1.0; interface lists { \
          record item { n: s32 } \
+         enum color { red, green } \
          take-ints: func(values: list<s32>); \
          take-strings: func(values: list<string>); \
          take-bytes: func(values: list<u8>); \
+         take-enums: func(values: list<color>); \
          take-nested: func(values: list<list<s32>>); \
          resource file; \
          take-items: func(values: list<item>); \
@@ -109,6 +111,13 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
         param_kind(&resolve, &bytes.params[0].ty),
         WasiParamKind::List
     );
+
+    let enums = function_named(&resolve, "take-enums");
+    assert!(matches!(
+        param_kind(&resolve, &enums.params[0].ty),
+        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Enum { .. })
+    ));
+    assert!(unsupported_shape(&resolve, enums, &WasiResultKind::None).is_none());
 
     for name in ["take-nested", "take-items", "take-handles", "take-options"] {
         let function = function_named(&resolve, name);

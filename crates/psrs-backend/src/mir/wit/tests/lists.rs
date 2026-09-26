@@ -89,3 +89,40 @@ fn an_array_of_ints_lowers_to_a_list_parameter() {
         matches!(instruction, Instruction::ArrayLen { value, .. } if *value == argument)
     }));
 }
+
+#[test]
+fn an_array_of_enums_lowers_to_a_narrow_list_parameter() {
+    let mut lowerer = RecordingLowerer::default();
+    let argument = ValueId(3);
+    lowerer.array_types.insert(argument, DefinedTypeId(2));
+    lower(
+        &mut lowerer,
+        &import(
+            WasiResultKind::None,
+            vec![WasiParamKind::ValueList {
+                element: Box::new(WasiParamKind::Enum {
+                    cases: vec!["red".into(), "green".into()],
+                }),
+            }],
+        ),
+        &signature(vec![reference(0)]),
+        ValueId(0),
+        &[argument],
+        TextRange::new(0, 1),
+        BlockId(0),
+    )
+    .expect("Array enum should lower to a list of discriminants");
+    assert!(lowerer.instructions.iter().any(|instruction| {
+        matches!(
+            instruction,
+            Instruction::ListCopy {
+                direction: ListDirection::Store,
+                element: crate::abi::ListElement::Narrow {
+                    bits: 8,
+                    signed: false,
+                },
+                ..
+            }
+        )
+    }));
+}
