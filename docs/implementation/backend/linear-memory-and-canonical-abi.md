@@ -6,9 +6,10 @@
 and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md).
 
 **Progress:** LM-01 through LM-05 and ABI-01 through ABI-05, ABI-07 Verified.
-ABI-06 is In progress: the general aggregate/`option`/`result`/`variant`, non-byte
-list, narrowed-integer, tuple, and `own`/`borrow` paths are specified but not yet
-produced. This is why the broader BE-19 row stays `Partial`.
+ABI-06 is Blocked: the general aggregate/`option`/`result`/`variant`, non-byte
+list, narrowed-integer, tuple, and `own`/`borrow` paths have no source ABI
+type mapping or frontend support yet. This is why the broader BE-19 row stays
+`Partial`.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
@@ -37,7 +38,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order. | WIT record/flags flattening tests and the indirect composite fixture. | Verified |
 | ABI-04 | Indirect parameter tuples are laid out and allocated through `cabi_realloc`. | Indirect composite parameter lowering/artifact tests. | Verified |
 | ABI-05 | Unit-success, scalar, and byte-list results are recovered at the boundary. | Driver string/list result cases and multiple returned strings. | Verified |
-| ABI-06 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, narrowed integers, tuples, and `own`/`borrow` drop rules lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes are not produced. | In progress |
+| ABI-06 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, narrowed integers, tuples, and `own`/`borrow` drop rules lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
 
 ## Evidence record and completion rule
@@ -193,12 +194,13 @@ ABI-06:
     rejects_a_wit_import_when_the_declared_source_type_does_not_match.
   Input boundary: WIT signatures and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: partial; the unsupported-shape diagnostics pass, but the shapes are
+  Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
     not lowered.
-  Gaps: indirect aggregate results, `option`/`result`/`variant` payload
-    read-back, non-byte lists, `u32` and narrower integers, tuple source types,
-    and `own`/`borrow` drop rules are specified but not produced. This keeps
-    BE-19 `Partial`.
+  Gaps: the listed shapes have no source ABI mapping. Resumption: extend the
+    source ABI design with unsigned/narrowed integer, `Array`, and
+    `option`/`result`/`variant` source types (or their canonical encodings),
+    make the type checker accept record and array foreign signatures, and add
+    result memory-layout computation and read-back. This keeps BE-19 `Partial`.
 ```
 
 ```text
@@ -214,8 +216,7 @@ ABI-07:
 
 ## Remaining work and blockers
 
-ABI-06 remains In progress: implement the specified indirect aggregate result,
-`option`/`result`/`variant` payload, non-byte list, narrowed-integer, tuple, and
-`own`/`borrow` paths (or keep rejecting them with named diagnostics), then
-re-record the row. Allocation provenance and reclamation stay out of scope by
-DEC-09 and are recorded in the design.
+ABI-06 is Blocked on a source ABI type mapping and frontend support for
+aggregate foreign signatures; its resumption condition is recorded above.
+Allocation provenance and reclamation stay out of scope by DEC-09 and are
+recorded in the design.

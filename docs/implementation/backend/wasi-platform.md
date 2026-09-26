@@ -34,7 +34,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | WASI-04 | Monotonic clock is wired. | Clock execution test. | Verified |
 | WASI-05 | Random bytes are wired. | Random execution test. | Verified |
 | WASI-06 | Each enabled WASI service package has an independent capability gate; a disabled service fails before lowering. | Per-service gate test plus a disabled-service rejection. | Verified |
-| WASI-07 | Filesystem, arguments, and environment services. | Not implemented; capability flags disabled. | In progress |
+| WASI-07 | Filesystem, arguments, and environment services. | Not implemented; blocked on the general aggregate/list ABI (`list<string>` arguments and results). | Blocked |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |
 | WASI-09 | User modules are discovered from the filesystem and the import graph is followed. | Entry files' directories are indexed by module name; imported modules are loaded transitively and executed. | Verified |
 | WASI-10 | The standard library is loaded from disk rather than embedded in the driver. | Not implemented; the embedded prelude is still prepended. | In progress |
@@ -134,10 +134,10 @@ WASI-07:
   Tests: none; the capability flags are disabled.
   Input boundary: n/a.
   Commands: n/a.
-  Result: not implemented.
-  Gaps: filesystem, arguments, and environment services. Resumption: add the
-    source library and aggregate/list lowering, then expose and gate the
-    services.
+  Result: blocked.
+  Gaps: filesystem, arguments, and environment services. Blocked on ABI-06
+    (general aggregate/list coverage, including `list<string>`). Resumption:
+    land ABI-06, add the source library, then expose and gate the services.
 ```
 
 ```text
