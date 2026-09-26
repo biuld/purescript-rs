@@ -1,79 +1,36 @@
-use super::{HandleMode, SourceSignature, SourceType, WasiRegistry, WasiResultKind};
-use crate::abi::{WasiImport, WasiParamKind, WasiResultKind as ResultKind, source_signature};
+use super::*;
+use crate::abi::{WasiImport, WasiParamKind, WasiResultKind as ResultKind};
 use crate::types::ValueType;
-use psrs_core::{ConstructorInfo, Module as CoreModule, TypeId as CoreTypeId};
-use psrs_hir::{
-    BuiltinType, ModuleId, SymbolId, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind,
-};
+use psrs_core::{Type as CoreType, TypeConstructor};
+use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 
 fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
-fn hir_type(kind: HirTypeKind) -> HirType {
-    HirType { kind, span: span() }
-}
-
-fn empty_core() -> CoreModule {
-    CoreModule {
-        id: ModuleId(0),
-        name: "Main".into(),
-        externals: Vec::new(),
-        types: Vec::new(),
-        newtype_ids: Vec::new(),
-        opaque_ids: Vec::new(),
-        constructors: Vec::new(),
-        declarations: Vec::new(),
-        entry: None,
-        span: span(),
-    }
-}
-
-fn resource(type_id: HirTypeId) -> SourceType {
-    SourceType::Resource { type_id }
+fn opaque_type(type_id: HirTypeId) -> CoreType {
+    CoreType::Constructor(TypeConstructor::User(type_id))
 }
 
 #[test]
 fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let type_id = HirTypeId::new(ModuleId(0), 0);
-    let core = empty_core();
-    let signature = source_signature(
-        &core,
-        &hir_type(HirTypeKind::Function {
-            parameter: Box::new(hir_type(HirTypeKind::Opaque(type_id))),
-            result: Box::new(hir_type(HirTypeKind::Opaque(type_id))),
-        }),
-    )
-    .expect("a nullary opaque type should have a resource ABI mapping");
-    assert_eq!(signature.parameters, vec![resource(type_id)]);
-    assert_eq!(signature.result, resource(type_id));
-
-    let applied = source_signature(
-        &core,
-        &hir_type(HirTypeKind::Application(
-            Box::new(hir_type(HirTypeKind::Opaque(type_id))),
-            Box::new(hir_type(HirTypeKind::Constructor(BuiltinType::Int))),
-        )),
-    );
-    assert!(
-        applied.is_none(),
-        "an applied foreign constructor is not a resource handle"
-    );
-
-    let mut ordinary = empty_core();
-    ordinary.constructors.push(ConstructorInfo {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        name: "Mk".into(),
-        type_id,
-        tag: 0,
-        field_count: 1,
-        field_types: vec![CoreTypeId(0)],
-    });
-    assert!(
-        source_signature(&ordinary, &hir_type(HirTypeKind::Named(type_id))).is_none(),
-        "an ordinary data type is not a WIT resource"
-    );
+    let mut core = empty_core_module();
+    core.opaque_ids.push(type_id);
+    let opaque = intern_all(&mut core, vec![opaque_type(type_id)])
+        .pop()
+        .expect("one opaque type");
+    let integer = intern_all(&mut core, vec![CoreType::I32])
+        .pop()
+        .expect("one integer");
+    let boolean = intern_all(&mut core, vec![CoreType::Boolean])
+        .pop()
+        .expect("one boolean");
+    let string = intern_all(&mut core, vec![CoreType::String])
+        .pop()
+        .expect("one string");
+    let unit = unit_type(&mut core);
 
     let mut registry = WasiRegistry::load().expect("WASI WIT should load");
     let stdout = registry
@@ -92,34 +49,13 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         registry.symbol_name(owned.drop_symbol),
         Some(("wasi:io/streams@0.2.12", "[resource-drop]output-stream"))
     );
-    let handle_result = SourceSignature {
-        parameters: Vec::new(),
-        result: resource(type_id),
-        span: span(),
-    };
-    registry
-        .validate_signature(&stdout, &handle_result)
+    validate_against(&stdout, core.clone(), &[], opaque)
         .expect("get-stdout should accept the opaque output stream");
-    registry
-        .validate_signature(
-            &stdout,
-            &SourceSignature {
-                result: SourceType::Int,
-                ..handle_result
-            },
-        )
+    validate_against(&stdout, core.clone(), &[], integer)
         .expect("the integer placeholder should still match a handle result");
     assert!(
-        registry
-            .validate_signature(
-                &stdout,
-                &SourceSignature {
-                    parameters: Vec::new(),
-                    result: SourceType::Boolean,
-                    span: span(),
-                },
-            )
-            .is_err()
+        validate_against(&stdout, core.clone(), &[], boolean).is_err(),
+        "a Boolean is not a handle result"
     );
 
     let write = registry
@@ -137,45 +73,35 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     assert_eq!(borrowed.mode, HandleMode::Borrow);
     assert_eq!(borrowed.name, "output-stream");
     assert_eq!(write.param_kinds[1], WasiParamKind::List);
-    let write_signature = SourceSignature {
-        parameters: vec![resource(type_id), SourceType::String],
-        result: SourceType::Unit,
-        span: span(),
-    };
-    registry
-        .validate_signature(&write, &write_signature)
+    validate_against(&write, core.clone(), &[opaque, string], unit)
         .expect("the method should accept an opaque resource receiver");
-    registry
-        .validate_signature(
-            &write,
-            &SourceSignature {
-                parameters: vec![SourceType::Int, SourceType::String],
-                ..write_signature.clone()
-            },
-        )
+    validate_against(&write, core.clone(), &[integer, string], unit)
         .expect("the integer placeholder should still match a handle parameter");
     assert!(
-        registry
-            .validate_signature(
-                &write,
-                &SourceSignature {
-                    parameters: vec![SourceType::Boolean, SourceType::String],
-                    ..write_signature
-                },
-            )
-            .is_err()
+        validate_against(&write, core.clone(), &[boolean, string], unit).is_err(),
+        "a Boolean is not a handle parameter"
     );
 
-    let shape = crate::cc::abstract_signature(
-        &SourceSignature {
-            parameters: vec![resource(type_id)],
-            result: resource(type_id),
-            span: span(),
+    let function = psrs_hir::Type {
+        kind: psrs_hir::TypeKind::Function {
+            parameter: Box::new(psrs_hir::Type {
+                kind: psrs_hir::TypeKind::Opaque(type_id),
+                span: span(),
+            }),
+            result: Box::new(psrs_hir::Type {
+                kind: psrs_hir::TypeKind::Opaque(type_id),
+                span: span(),
+            }),
         },
+        span: span(),
+    };
+    let function_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the resource function type should intern");
+    let shape = crate::cc::abstract_signature(
+        Some(function_id),
         &core,
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
-        &mut crate::cc::RepresentationTable::default(),
     )
     .expect("a resource should have an abstract integer shape");
     assert_eq!(shape.parameters, vec![crate::cc::ValueShape::Integer]);
@@ -197,16 +123,13 @@ fn does_not_treat_an_opaque_type_as_an_integer_scalar() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let signature = SourceSignature {
-        parameters: vec![resource(type_id)],
-        result: resource(type_id),
-        span: span(),
-    };
+    let mut core = empty_core_module();
+    core.opaque_ids.push(type_id);
+    let opaque = intern_all(&mut core, vec![opaque_type(type_id)])
+        .pop()
+        .expect("one opaque type");
     assert!(
-        WasiRegistry::load()
-            .expect("WASI WIT should load")
-            .validate_signature(&import, &signature)
-            .is_err(),
+        validate_against(&import, core, &[opaque], opaque).is_err(),
         "a resource is not a substitute for a WIT integer"
     );
 }

@@ -3,10 +3,10 @@
 
 use super::common::RecordingLowerer;
 use super::*;
-use crate::abi::{
-    FlatSlot, SourceSignature, SourceType, WasiRegistry, WasiResultKind, source_signature,
-};
+use crate::abi::{FlatSlot, WasiImport, WasiRegistry, WasiResultKind};
 use crate::capability::TargetCapabilities;
+use crate::cc::ValueShape;
+use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
 use psrs_hir::{
     BuiltinType, ModuleId, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind,
 };
@@ -17,11 +17,47 @@ fn span() -> TextRange {
     TextRange::new(0, 4)
 }
 
-fn signature(parameters: Vec<SourceType>, result: SourceType) -> SourceSignature {
-    SourceSignature {
-        parameters,
-        result,
+/// Validates a declaration whose parameters and result are the given Core types
+/// against the resolved WIT descriptor, using the production conformance check.
+fn validate(
+    import: &WasiImport,
+    parameters: Vec<CoreType>,
+    result: CoreType,
+) -> Result<(), String> {
+    let mut module = psrs_core::Module {
+        id: ModuleId(0),
+        name: "Main".into(),
+        externals: Vec::new(),
+        types: Vec::new(),
+        newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
+        constructors: Vec::new(),
+        declarations: Vec::new(),
+        entry: None,
         span: span(),
+    };
+    let mut parameter_ids = Vec::new();
+    for ty in parameters {
+        module.types.push(ty);
+        parameter_ids.push(CoreTypeId((module.types.len() - 1) as u32));
+    }
+    module.types.push(result);
+    let mut current = CoreTypeId((module.types.len() - 1) as u32);
+    for parameter in parameter_ids.iter().rev() {
+        module.types.push(CoreType::Function {
+            parameter: *parameter,
+            result: current,
+        });
+        current = CoreTypeId((module.types.len() - 1) as u32);
+    }
+    crate::abi::link::validate_import_signature(import, &module, current)
+}
+
+/// The CC abstract signature used by MIR lowering.
+fn cc_signature(parameters: Vec<ValueShape>) -> crate::cc::Signature {
+    crate::cc::Signature {
+        parameters,
+        result: ValueShape::Integer,
     }
 }
 
@@ -53,25 +89,23 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         import.flat_slots,
         vec![FlatSlot::Int32, FlatSlot::Pointer, FlatSlot::Length]
     );
-    let accepted = signature(vec![SourceType::Int, SourceType::String], SourceType::Unit);
-    registry
-        .validate_signature(&import, &accepted)
-        .expect("option<string> flattens to Int -> String -> Unit");
+    validate(
+        &import,
+        vec![CoreType::I32, CoreType::String],
+        CoreType::Unit,
+    )
+    .expect("option<string> flattens to Int -> String -> Unit");
 
-    let char_discriminant = signature(vec![SourceType::Char, SourceType::String], SourceType::Unit);
     assert!(
-        registry
-            .validate_signature(&import, &char_discriminant)
-            .is_err(),
+        validate(
+            &import,
+            vec![CoreType::Char, CoreType::String],
+            CoreType::Unit,
+        )
+        .is_err(),
         "Char is not the option discriminant"
     );
-    let record = signature(
-        vec![SourceType::Record {
-            fields: vec![("value".into(), Box::new(SourceType::String))],
-        }],
-        SourceType::Unit,
-    );
-    assert!(registry.validate_signature(&import, &record).is_err());
+    assert!(validate(&import, vec![CoreType::Record(vec![])], CoreType::Unit).is_err());
 
     let named = HirType {
         kind: HirTypeKind::Function {
@@ -86,7 +120,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         },
         span: span(),
     };
-    let module = psrs_core::Module {
+    let mut module = psrs_core::Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
@@ -99,8 +133,8 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         span: span(),
     };
     assert!(
-        source_signature(&module, &named).is_none(),
-        "a non-primitive source type such as Maybe String has no source signature"
+        crate::abi::intern_source_type(&mut module, &named).is_none(),
+        "a non-primitive source type such as Maybe String has no source mapping"
     );
 
     let mut lowerer = RecordingLowerer::default();
@@ -109,7 +143,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     lower(
         &mut lowerer,
         &import,
-        &accepted,
+        &cc_signature(vec![ValueShape::Integer, ValueShape::String]),
         ValueId(7),
         &[discriminant, text],
         span(),
@@ -137,18 +171,6 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         "the call is a discriminant plus the string's pointer and length: {:?}",
         lowerer.instructions
     );
-    assert!(
-        lower(
-            &mut RecordingLowerer::default(),
-            &import,
-            &char_discriminant,
-            ValueId(7),
-            &[discriminant, text],
-            span(),
-            BlockId(0),
-        )
-        .is_err()
-    );
 
     let read = registry
         .import("wasi:io/streams", "read")
@@ -160,9 +182,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
             .is_some_and(|message| message.contains("result"))
     );
     assert!(
-        registry
-            .validate_signature(&read, &signature(Vec::new(), SourceType::String))
-            .is_err(),
+        validate(&read, Vec::new(), CoreType::String).is_err(),
         "a multi-value canonical result is not one primitive"
     );
 
@@ -170,27 +190,11 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         .import("wasi:io/streams", "take")
         .expect("take should resolve");
     assert_eq!(take.flat_slots, vec![FlatSlot::Int32, FlatSlot::Handle]);
-    registry
-        .validate_signature(
-            &take,
-            &signature(vec![SourceType::Int, SourceType::Int], SourceType::Unit),
-        )
+    validate(&take, vec![CoreType::I32, CoreType::I32], CoreType::Unit)
         .expect("a handle payload is declared as Int");
+    assert!(validate(&take, vec![CoreType::Char, CoreType::I32], CoreType::Unit,).is_err());
     assert!(
-        registry
-            .validate_signature(
-                &take,
-                &signature(vec![SourceType::Char, SourceType::Int], SourceType::Unit),
-            )
-            .is_err()
-    );
-    assert!(
-        registry
-            .validate_signature(
-                &take,
-                &signature(vec![SourceType::Int, SourceType::Char], SourceType::Unit),
-            )
-            .is_err(),
+        validate(&take, vec![CoreType::I32, CoreType::Char], CoreType::Unit,).is_err(),
         "a handle slot is not a Char"
     );
 }

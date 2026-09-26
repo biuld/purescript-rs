@@ -1,5 +1,5 @@
-use super::super::classification::{param_kind, result_kind, source_signature, unsupported_shape};
-use super::super::{SourceType, WasiParamKind, WasiResultKind};
+use super::super::classification::{param_kind, result_kind, unsupported_shape};
+use super::super::{WasiParamKind, WasiResultKind};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{BuiltinType, ModuleId, Type as HirType, TypeKind as HirTypeKind};
 use psrs_span::TextRange;
@@ -36,25 +36,18 @@ fn array(element: BuiltinType) -> HirType {
 }
 
 #[test]
-fn maps_an_array_of_supported_elements_and_rejects_nested_arrays() {
-    let core = empty_core();
-    let strings = source_signature(&core, &array(BuiltinType::String))
-        .expect("Array String should be a source array");
-    assert_eq!(
-        strings.result,
-        SourceType::Array {
-            element: Box::new(SourceType::String)
-        }
-    );
-    let ints = source_signature(&core, &array(BuiltinType::Int)).expect("Array Int");
-    assert_eq!(
-        ints.result,
-        SourceType::Array {
-            element: Box::new(SourceType::Int)
-        }
+fn interns_an_array_of_supported_elements_and_rejects_nested_arrays() {
+    let mut core = empty_core();
+    assert!(
+        crate::abi::intern_source_type(&mut core, &array(BuiltinType::String)).is_some(),
+        "Array String should intern"
     );
     assert!(
-        source_signature(&core, &array_of_array()).is_none(),
+        crate::abi::intern_source_type(&mut core, &array(BuiltinType::Int)).is_some(),
+        "Array Int should intern"
+    );
+    assert!(
+        crate::abi::intern_source_type(&mut core, &array_of_array()).is_none(),
         "Array (Array Int) is not a canonical list element"
     );
 }
@@ -87,9 +80,11 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     let resolve = resolve_wit(
         "package test:lists@0.1.0; interface lists { \
          record item { n: s32 } \
+         enum color { red, green } \
          take-ints: func(values: list<s32>); \
          take-strings: func(values: list<string>); \
          take-bytes: func(values: list<u8>); \
+         take-enums: func(values: list<color>); \
          take-nested: func(values: list<list<s32>>); \
          resource file; \
          take-items: func(values: list<item>); \
@@ -117,7 +112,21 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
         WasiParamKind::List
     );
 
-    for name in ["take-nested", "take-items", "take-handles", "take-options"] {
+    let enums = function_named(&resolve, "take-enums");
+    assert!(matches!(
+        param_kind(&resolve, &enums.params[0].ty),
+        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Enum { .. })
+    ));
+    assert!(unsupported_shape(&resolve, enums, &WasiResultKind::None).is_none());
+
+    let items = function_named(&resolve, "take-items");
+    assert!(matches!(
+        param_kind(&resolve, &items.params[0].ty),
+        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Record { .. })
+    ));
+    assert!(unsupported_shape(&resolve, items, &WasiResultKind::None).is_none());
+
+    for name in ["take-nested", "take-handles", "take-options"] {
         let function = function_named(&resolve, name);
         assert!(
             unsupported_shape(&resolve, function, &WasiResultKind::None).is_some(),

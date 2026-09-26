@@ -5,7 +5,7 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
@@ -13,20 +13,20 @@ use wit_parser::abi::AbiVariant;
 mod classification;
 mod flatten;
 mod handles;
+pub(crate) mod layout;
+pub(crate) mod link;
 mod lists;
 #[cfg(test)]
 mod tests;
 mod validation;
 
-pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
-pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+pub(crate) use flatten::FlatSlot;
 pub use handles::{HandleMode, HandleResource};
+pub(crate) use link::intern_source_type;
 pub use lists::ListElement;
 pub(crate) use lists::{element_layout, from_param as list_element};
-#[cfg(test)]
-use validation::source_parameter_matches;
-use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
+use validation::{flattened_parameter_count, wasi_interface_enabled};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -185,43 +185,6 @@ pub enum WasiResultKind {
     Discarded,
 }
 
-/// The small source-level type vocabulary understood by the current WIT ABI
-/// adapter. It is produced while crossing the Core boundary so CC/MIR do not
-/// retain HIR type nodes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SourceType {
-    Int,
-    Boolean,
-    Number,
-    Char,
-    /// A nullary data type whose cases correspond in order to WIT enum cases.
-    Enum {
-        cases: Vec<String>,
-    },
-    /// A closed PureScript record, kept structurally for ABI validation.
-    Record {
-        fields: Vec<(String, Box<SourceType>)>,
-    },
-    String,
-    /// A source array whose element is an already-supported ABI scalar or
-    /// `String`. Byte lists stay [`Self::String`].
-    Array {
-        element: Box<SourceType>,
-    },
-    Unit,
-    /// A nullary opaque foreign type mapped to a WIT resource handle.
-    Resource {
-        type_id: HirTypeId,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceSignature {
-    pub parameters: Vec<SourceType>,
-    pub result: SourceType,
-    pub span: psrs_span::TextRange,
-}
-
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
 /// and the symbol the low-level IRs use to reference it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -271,14 +234,6 @@ impl WasiImport {
                 .len()
                 .saturating_sub(usize::from(self.retptr))
     }
-}
-
-/// A P9-resolved import pairs WIT's ABI description with the exact source
-/// signature needed to recover record field order after CC lowering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BoundWasiImport {
-    pub import: WasiImport,
-    pub signature: SourceSignature,
 }
 
 /// Resolves WASI imports against the vendored WIT, interning each distinct
@@ -464,19 +419,6 @@ impl WasiRegistry {
                     WasiResultKind::List | WasiResultKind::ValueList { .. }
                 )
         })
-    }
-
-    /// Checks that a source-declared foreign import has a type that can be
-    /// represented by the canonical ABI adapter. This is deliberately done
-    /// before CC/MIR lowering: matching only arity would let an `Int` be used
-    /// for a resource or a non-byte list be treated as a `String`.
-    #[allow(clippy::unused_self)]
-    pub fn validate_signature(
-        &self,
-        import: &WasiImport,
-        signature: &SourceSignature,
-    ) -> Result<(), String> {
-        validate_import_signature(import, signature)
     }
 }
 

@@ -229,19 +229,19 @@ travels beside the CC module in a backend input object, conceptually:
 ```text
 BackendInput    = { cc: CcModule, externals: ExternalBindings }
 ExternalBindings = { imports: [ExternalBinding] }
-ExternalBinding  = { symbol: SymbolId, interface: String,
-                     function: String, signature: Option(SourceSignature) }
+ExternalBinding  = { symbol: SymbolId, interface: String, function: String,
+                     type_id: Option(CoreTypeId) }
 ```
 
 The Rust names are `BackendInput`, `ExternalBindings`, and `ExternalBinding`
 (`crates/psrs-backend/src/bindings.rs`); `ExternalBindings` is the concrete side
-table. Its `imports` map a symbol to its source declaration and platform binding. For the
-WASI target the binding contains the WIT interface and function names and the
-source signature required by the [canonical ABI](../wasm/canonical-abi-and-wit.md).
-P9 resolves these bindings through the ABI registry, emits canonical calls and
-adapters for referenced symbols, and keeps unused runtime imports out of MIR.
-Consequently, WIT names do not become part of CC identity, dumps, equality, or
-verification.
+table. Its `imports` map a symbol to its source declaration and platform binding.
+For the WASI target the binding contains the WIT interface and function names and
+the declaration's resolved Core type identity required by the
+[canonical ABI](../wasm/canonical-abi-and-wit.md). P9 resolves these bindings
+through the ABI registry, emits canonical calls and adapters for referenced
+symbols, and keeps unused runtime imports out of MIR. Consequently, WIT names do
+not become part of CC identity, dumps, equality, or verification.
 
 The boundary is checked in both directions. P8's `ExternalBindings::validate_core`
 validates that the side table is a complete projection of Core's WIT externals.

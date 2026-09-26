@@ -24,7 +24,7 @@ use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
 use scalar_helpers::lower_scalar_helpers;
 
-pub use instruction::{Instruction, ListDirection};
+pub use instruction::{Instruction, ListDirection, ListFieldCopy, ListFlagsField};
 pub use numeric::{NumericOp, UnaryOp};
 pub use verify::{verify_module, verify_module_with_capabilities};
 
@@ -66,6 +66,16 @@ pub struct Import {
     pub symbol: SymbolId,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
+}
+
+/// A resolved WIT import paired with the declaration's CC abstract signature.
+/// The WIT descriptor drives canonical adaptation; the CC `ValueShape`
+/// signature and the planned representation labels recover the source
+/// structure MIR needs, without a source-type mirror.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundWasiImport {
+    pub import: crate::abi::WasiImport,
+    pub signature: cc::Signature,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,16 +196,26 @@ fn lower_module_after_binding_validation(
     target: TargetCapabilities,
     mut wasi: WasiRegistry,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
-    // Resolve and validate every source-declared WIT binding. A declaration
-    // must fail with its ABI diagnostic even when dead code does not call it;
-    // the later import projection keeps unused runtime imports out of MIR.
+    // Resolve every source-declared WIT binding and pair it with the CC
+    // abstract signature. Conformance was already checked at the linking
+    // boundary; a declaration the backend cannot lower is rejected here.
+    let abstract_signatures: HashMap<SymbolId, cc::Signature> = module
+        .externals
+        .iter()
+        .filter_map(|external| {
+            external
+                .signature
+                .clone()
+                .map(|signature| (external.symbol, signature))
+        })
+        .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
         let function = &external.function;
         let import = wasi.import(interface, function).map_err(|message| {
             vec![
-                BackendError::new("P9 MIR lowering", module.span, message)
+                BackendError::new("P9 MIR lowering", external.span, message)
                     .with_module(external.symbol.module),
             ]
         })?;
@@ -203,39 +223,23 @@ fn lower_module_after_binding_validation(
             return Err(vec![
                 BackendError::new(
                     "P9 MIR lowering",
-                    external
-                        .signature
-                        .as_ref()
-                        .map_or(module.span, |signature| signature.span),
+                    external.span,
                     format!("WIT import `{interface}#{function}` is unsupported: {reason}"),
                 )
                 .with_module(external.symbol.module),
             ]);
         }
-        let Some(signature) = external.signature.as_ref() else {
+        let Some(signature) = abstract_signatures.get(&external.symbol).cloned() else {
             return Err(vec![
                 BackendError::new(
                     "P9 MIR lowering",
-                    module.span,
-                    format!("WIT import `{interface}#{function}` has no source signature"),
+                    external.span,
+                    format!("WIT import `{interface}#{function}` has no abstract signature"),
                 )
                 .with_module(external.symbol.module),
             ]);
         };
-        wasi.validate_signature(&import, signature)
-            .map_err(|message| {
-                vec![
-                    BackendError::new("P9 MIR lowering", signature.span, message)
-                        .with_module(external.symbol.module),
-                ]
-            })?;
-        wit_imports.insert(
-            external.symbol,
-            crate::abi::BoundWasiImport {
-                import,
-                signature: signature.clone(),
-            },
-        );
+        wit_imports.insert(external.symbol, BoundWasiImport { import, signature });
     }
     let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
         annotate_errors(
@@ -372,6 +376,15 @@ fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
                         element: crate::abi::ListElement::String,
                         ..
                     } => {
+                        used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
+                        used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
+                        used.insert(crate::abi::REALLOC_SYMBOL);
+                    }
+                    Instruction::ListCopyRecord { fields, .. }
+                        if fields.iter().any(|field| {
+                            matches!(field, crate::mir::ListFieldCopy::String { .. })
+                        }) =>
+                    {
                         used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
                         used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
                         used.insert(crate::abi::REALLOC_SYMBOL);

@@ -15,7 +15,7 @@ mod scalar;
 mod source_abi;
 mod verify;
 
-pub(crate) use source_abi::{abstract_signature, signature_matches_source};
+pub(crate) use source_abi::abstract_signature;
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
@@ -202,8 +202,8 @@ pub struct TagCase {
 /// Lowers Core with the default backend-side external binding extraction.
 /// Prefer [`lower_module_with_bindings`] when the caller already owns the
 /// backend input boundary.
-pub fn lower_module(module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
-    let bindings = ExternalBindings::from_core(&module);
+pub fn lower_module(mut module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
+    let bindings = ExternalBindings::from_core(&mut module);
     lower_module_with_bindings(module, bindings)
 }
 
@@ -225,7 +225,7 @@ pub fn lower_module_with_bindings(
     let newtype_ids = module.newtype_ids.iter().copied().collect();
     let enum_types = enum_type_ids(&module, &newtype_ids);
     let aggregate_types = aggregate_type_ids(&module, &newtype_ids);
-    let mut layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
+    let layout = type_layout(&module, &enum_types, &aggregate_types, &newtype_ids)?;
     let mut constructor_tags = HashMap::new();
     let mut constructors_by_type: HashMap<HirTypeId, Vec<(SymbolId, u32)>> = HashMap::new();
     for constructor in &module.constructors {
@@ -257,15 +257,12 @@ pub fn lower_module_with_bindings(
     }
     let mut externals = Vec::new();
     for binding in &bindings.imports {
-        let signature = binding.signature.as_ref().and_then(|signature| {
-            abstract_signature(
-                signature,
-                &module,
-                &layout.record_types,
-                &layout.array_types,
-                &mut layout.representations,
-            )
-        });
+        let signature = abstract_signature(
+            binding.type_id,
+            &module,
+            &layout.record_types,
+            &layout.array_types,
+        );
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }

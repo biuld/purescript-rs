@@ -42,18 +42,15 @@ type-directedly, so the library is ordinary source code.
 
 ## Model
 
-Two side tables carry the boundary. Neither is part of CC or MIR.
+Two side tables carry the boundary. Neither is part of CC or MIR. A
+target-aware linking stage (see [Design](#design)) resolves each import once and
+produces one [`ResolvedExternal`](#resolved-externals) per declaration, pairing
+the resolved source type with the WIT descriptor.
 
 ```text
-ExternalBindings = { imports: [ExternalBinding] }
-ExternalBinding  = { symbol: SymbolId, interface: String, function: String,
-                     signature: Option(SourceSignature) }
-
-SourceSignature = { parameters: [SourceType], result: SourceType, span: TextRange }
-SourceType      = Int | Boolean | Number | Char | String | Unit
-                | Enum { cases: [String] }
-                | Record { fields: [(String, SourceType)] }
-                | Array(SourceType)
+ExternalBindings = { imports: [ResolvedExternal] }
+ResolvedExternal = { symbol: SymbolId, interface: String, function: String,
+                     type_id: TypeId, import: WasiImport }
 
 WasiRegistry = { resolve: wit_parser::Resolve,
                  imports: [WasiImport],
@@ -81,23 +78,23 @@ WasiResultKind = None | Scalar | Boolean | Enum { cases: [String] }
                | Discarded
 
 WasiField      = { name: String, kind: WasiParamKind }
-BoundWasiImport = { import: WasiImport, signature: SourceSignature }
 ```
 
-`ExternalBindings` is produced from Typed Core by `ExternalBindings::from_core`,
-which keeps every `ExternalKind::Wit { interface, function }` and projects its
-HIR signature into `SourceSignature`; a signature the source ABI cannot express
-stays `None` and is rejected. `BoundWasiImport` pairs a resolved `WasiImport`
-with the exact `SourceSignature` so P9 can recover record field order after CC
-lowering.
+The linking stage resolves an `ExternalKind::Wit { interface, function }` against
+the vendored WIT once and produces a `ResolvedExternal`. `type_id` is the
+declaration's resolved source type, interned in the module type table, so CC can
+derive its layout from the shared representation table instead of re-deriving it
+from a source-type mirror. `import` is the WIT descriptor that carries the ABI
+facts the source type cannot: numeric width, `string` versus `list<u8>` byte
+semantics, flattening, `retptr`, and `own`/`borrow` ownership. A declaration the
+source ABI cannot express yields no `ResolvedExternal` and is rejected.
 
 `List` is a byte list (`string` or `list<u8>`) and flattens to a
 `(pointer, length)` pair of raw bytes. `ValueList { element }` is any other
 `list<T>`: it also flattens to `(pointer, length)`, but the pointer addresses an
-array of canonically laid-out `element` values. The source type for a
-`ValueList` is `SourceType::Array(element)`; the descriptor is named `ValueList`
-rather than `Array` so it is not confused with the GC array that carries the
-source value.
+array of canonically laid-out `element` values. Its resolved source type is
+`Array(element)`; the descriptor is named `ValueList` rather than `Array` so it
+is not confused with the GC array that carries the source value.
 
 ### Invariants
 
@@ -110,7 +107,7 @@ source value.
   count. When `Resolve::wasm_signature` selects indirect parameters, the core
   signature contains one pointer, followed by the return pointer when `retptr`
   is set; any mismatch is recorded as `unsupported`, never approximated.
-- A binding is validated against its source signature before CC or MIR is
+- A binding is validated against its resolved source type before CC or MIR is
   emitted; a mismatched arity or type is a source diagnostic.
 - WIT interface names, function names, and canonical signatures never appear in
   CC or MIR; MIR records only the interned symbol and its canonical value types.
@@ -179,28 +176,28 @@ mapping (trap on failure).
 
 ### Resolving and validating
 
-For each binding, P9 asks the `WasiRegistry` to resolve the interface and
-function against the vendored WASI 0.2.12 WIT. Resolution:
+The linking stage resolves each `ExternalKind::Wit` import against the vendored
+WASI 0.2.12 WIT once, before CC lowering. Resolution:
 
 - finds the package and interface, then the WIT function;
 - computes the canonical signature with `Resolve::wasm_signature`;
-- classifies each WIT parameter and the result;
+- classifies each WIT parameter and the result into the WIT descriptor;
+- interns the declaration's resolved source type in the module type table;
 - records an `unsupported` reason when the shape has no source mapping, when a
   list is not byte-valued, when a `result` has a payload on success, when
   parameters are passed indirectly, when flattening does not agree with the
   canonical signature, or when the interface's package is disabled by the
   target; and
-- interns the import and returns it.
+- interns the import and returns a `ResolvedExternal`.
 
-P9 then validates the source declaration against the resolved import
-(`WasiRegistry::validate_signature`). A failure is reported against the
-declaration's span; a declaration fails even when dead code never calls it,
-because the side table is validated eagerly.
+The stage validates the resolved source type against the WIT descriptor. A
+failure is reported against the declaration's span; a declaration fails even
+when dead code never calls it, because the side table is validated eagerly.
 
 ### Lowering a call
 
-`mir::wit::lower` lowers a call from the declared arguments, the source
-signature, and the import's classification. It flattens arguments into canonical
+`mir::wit::lower` lowers a call from the declared arguments, the resolved source
+type, and the import's WIT descriptor. It flattens arguments into canonical
 values, appends a return pointer when `retptr` is set, emits the call, and
 recovers the result. All adaptation instructions are ordinary MIR operations:
 
@@ -264,9 +261,9 @@ timing relative to the buffer ownership classes is fixed by
 ### Parameter flattening
 
 ```text
-lower_parameters(import, source_signature, args, flat):
-    require len(args) == len(source_signature.parameters) == len(import.param_kinds)
-    for (arg, source, kind) in zip(args, source_signature.parameters, import.param_kinds):
+lower_parameters(import, resolved_source, args, flat):
+    require len(args) == arity(resolved_source) == len(import.param_kinds)
+    for (arg, source, kind) in zip(args, parameters(resolved_source), import.param_kinds):
         lower_parameter(arg, source, kind, flat)
     if canonical_signature.indirect_params:
         (pointer, size, align) = layout_parameter_record(import.param_kinds)
@@ -315,6 +312,10 @@ layout_parameter_record(kinds):
     return the aligned tuple size, maximum field alignment, and field offsets
 ```
 
+`resolved_source` is the declaration's resolved type at `type_id`. `arity`,
+`parameters`, and `source_field` read its Core function and record structure; no
+source-type mirror is consulted.
+
 If `retptr` is set, the return-area pointer is appended after this indirect
 parameter pointer. The allocated parameter bytes remain live for the duration
 of the guest import call and are freed when the call returns
@@ -357,12 +358,12 @@ lower_result(import, destination, flat):
 ### Signature validation
 
 ```text
-validate_signature(import, signature):
-    require len(signature.parameters) == len(import.param_kinds)
-    for (source, kind) in zip(signature.parameters, import.param_kinds):
-        require source_parameter_matches(source, kind)
+validate_import_signature(import, module, type_id):
+    require arity(type_id) == len(import.param_kinds)
+    for (source, kind) in zip(parameters(type_id), import.param_kinds):
+        require core_matches_kind(module, source, kind)
     match import.result_kind:
-        None      => require signature.result is Unit
+        None      => require result(type_id) is Unit
         Scalar    => I64/I32 -> Int, F32/F64 -> Number
         Boolean   => Boolean
         Enum      => the source cases equal the WIT cases in order
@@ -397,10 +398,11 @@ the crate-level tree. The implementation must conform to this organization:
 
 ```text
 backend/src/
-  abi.rs               WasiRegistry, WasiImport, SourceSignature,
-                       validate_signature, package gating
+  abi.rs               WasiRegistry, WasiImport, package gating
   abi/
     classification.rs  WIT type classification and value types
+    link.rs            target-aware linking: intern the resolved type and
+                       validate conformance
   bindings.rs          ExternalBindings side table and boundary checks
   mir/
     wit/
@@ -413,11 +415,16 @@ backend/src/
 
 `abi.rs` and `abi/` own resolving source WIT bindings and must define:
 
-- `ExternalBindings`, `ExternalBinding`, `SourceSignature`, and `SourceType` —
-  the side table of the Model section, with
-  `ExternalBindings::from_core` keeping every `ExternalKind::Wit` binding and
-  projecting its HIR signature. It must provide `validate_core` and
-  `validate_cc` for the P8/P9 boundary checks.
+- `ExternalBindings` — the side table of the Model section, holding one
+  `ResolvedExternal` per `ExternalKind::Wit` binding. `ResolvedExternal` pairs
+  the declaration's resolved source `TypeId` with its resolved `WasiImport`
+  descriptor. It must provide `validate_core` and `validate_cc` for the P8/P9
+  boundary checks, and `validate_conformance`, which resolves and validates
+  every binding against the resolved Core type where Core is available.
+- `abi/link.rs` — the target-aware linking stage. It interns each declaration's
+  resolved source type in the module type table, resolves the WIT import once,
+  and validates the two sides with `validate_import_signature(import, module,
+  type_id)`.
 - `WasiRegistry` — the interned `(interface, function)` registry, holding the
   `TargetCapabilities` it was loaded with. It must provide:
   - `load() -> Result<Self, String>` and
@@ -425,18 +432,16 @@ backend/src/
   - `import(&mut self, interface: &str, function: &str) -> Result<WasiImport, String>`,
     which interns on first use;
   - `imports(&self) -> &[WasiImport]`, `symbol_name(&self, symbol: SymbolId) -> Option<(&str, &str)>`,
-    and `has_list_result(&self, symbol: SymbolId) -> bool`;
-  - `validate_signature(&self, import: &WasiImport, signature: &SourceSignature) -> Result<(), String>`.
+    and `has_list_result(&self, symbol: SymbolId) -> bool`.
 - `WasiImport::has_indirect_parameters()` identifies when the resolved canonical
   signature requires lowering the WIT parameter tuple through linear memory.
 - `WasiImport`, `WasiParamKind`, `WasiResultKind`, and `WasiField` — the
   resolved canonical descriptor. `param_kinds` must stay aligned with the
   WIT-level parameter list, including a method receiver, and `unsupported` must
   record any shape outside the supported subset instead of approximating it.
-- `abi/classification.rs` owns `param_kind`, `result_kind`, `source_signature`,
-  `value_type`, and `unsupported_shape`. Classification and flattening must
-  agree with `Resolve::wasm_signature`, or the import must be rejected as
-  unsupported.
+- `abi/classification.rs` owns `param_kind`, `result_kind`, `value_type`, and
+  `unsupported_shape`. Classification and flattening must agree with
+  `Resolve::wasm_signature`, or the import must be rejected as unsupported.
 
 `mir/wit/` owns the Canonical ABI adaptation and must provide:
 
@@ -444,7 +449,8 @@ backend/src/
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    type_id: TypeId,
+    module: &CoreModule,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
@@ -477,7 +483,7 @@ none may depend on the front end.
 - Every source WIT external appears exactly once in `ExternalBindings`; a missing,
   extra, or duplicate binding is a P8/P9 error (`validate_core`, `validate_cc`).
 - The declared source signature matches the resolved WIT form in arity and type;
-  otherwise P9 fails before CC/MIR emits anything.
+  otherwise the linking boundary fails before CC/MIR emits anything.
 - Flattening is checked against the canonical signature, so an unsupported shape
   is rejected rather than emitted with a lossy approximation.
 - MIR verifier checks canonical import calls against the MIR import table, and
@@ -521,7 +527,7 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 - **Input:** Typed Core externals projected into `ExternalBindings`, the vendored
   WASI WIT, and the target profile.
-- **Output:** a set of `BoundWasiImport`s and the `WasiRegistry` P9 hands to P10;
+- **Output:** a set of `ResolvedExternal`s and the `WasiRegistry` P9 hands to P10;
   MIR imports carry only the canonical symbol, parameters, and result.
 - **To MIR:** canonical calls and adaptation instructions. The ABI layer decides
   how values flatten; MIR only executes the resulting operations.
@@ -627,10 +633,25 @@ implementation coverage, not design choices. The allocator, buffer free, and
   source types are not lowered. Non-byte `list<T>` of a supported element is
   lowered.
 
+Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
+each foreign import's resolved source type is interned into the Core type table
+by the linking boundary (`abi/link.rs`) and carried as an
+`ExternalBinding::type_id`. CC derives its whole abstract signature, including
+record and array representations, directly from that Core type; the structural
+re-search (`core_type_matches_source`) and the source-signature comparison are
+removed. WIT conformance validation runs at the linking boundary against the
+resolved Core type (`ExternalBindings::validate_conformance`,
+`abi/link::validate_import_signature`). MIR lowering reads the declaration's CC
+`Signature` (`ValueShape`) and projects record and flags fields by label from
+the planned representation table; the WIT descriptor drives canonical
+adaptation. `SourceType` and `SourceSignature` are deleted; the ABI unit tests
+validate against the resolved Core type. The refactor is behavior preserving and
+does not change the source language.
+
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct
 records with nested byte-list fields, and flags words; indirect parameter tuples
-through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, and strings;
+through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, strings, nullary enums, flags, and directly flattened records of scalar or string fields;
 the unit-success `result` and scalar/list result paths.
 Regression tests cover those shapes.
 
@@ -642,6 +663,8 @@ Regression tests cover those shapes.
 - `wit-parser` `Resolve::wasm_signature`, `AbiVariant`.
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md),
   [DEC-10 — Canonical ABI Buffer Ownership and Lifetime](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
+  [DEC-11 — Primitive Foreign Imports and Standard-Library Wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
+  [DEC-12 — Resolved WIT Bindings and Descriptor-Based Lowering](../../../decision/DEC-12-resolved-wit-bindings.md),
   [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
 - [MIR](../fp/mir.md), [capability profile](capability-profile.md),
   [linear memory boundary](linear-memory-and-canonical-abi-boundary.md),

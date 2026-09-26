@@ -2,6 +2,9 @@
 //! straight-line so the extent checker can see allocator provenance without
 //! following a dynamic index.
 
+mod flags;
+mod record;
+
 use super::super::wasm_error;
 use super::Structurer;
 use super::helpers::ValueOps;
@@ -305,9 +308,13 @@ impl Structurer<'_> {
 
 pub(crate) fn uses_list_copy(function: &crate::mir::Function) -> bool {
     function.blocks.iter().any(|block| {
-        block
-            .instructions
-            .iter()
-            .any(|instruction| matches!(instruction, MirInstruction::ListCopy { .. }))
+        block.instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                MirInstruction::ListCopy { .. }
+                    | MirInstruction::ListCopyRecord { .. }
+                    | MirInstruction::ListCopyFlags { .. }
+            )
+        })
     })
 }

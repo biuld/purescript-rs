@@ -6,13 +6,13 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod function_lowerer;
 mod handles;
 mod lists;
 mod parameters;
 
 pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
 
-use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
@@ -35,6 +35,26 @@ pub(super) trait WitCallLowerer {
         field: u32,
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>>;
+
+    /// The record product fields and their canonical labels for a representation
+    /// handle. `None` when the handle is not a product. The WIT adapter uses the
+    /// labels to project fields by WIT name without a source-type mirror.
+    fn wit_product(
+        &self,
+        _repr: crate::cc::ReprId,
+    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
+        None
+    }
+
+    /// The element shape of a GC array representation handle.
+    fn wit_array_element(&self, _repr: crate::cc::ReprId) -> Option<crate::cc::ValueShape> {
+        None
+    }
+
+    /// The concrete GC type of a representation handle.
+    fn wit_repr_index(&self, _repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {
+        None
+    }
 
     /// Records an `own<T>` result that this function must drop unless it
     /// returns the index or passes it to another `own` parameter.
@@ -63,64 +83,23 @@ pub(super) struct PendingFree {
     pub pointer: ValueId,
     pub length: ValueId,
     pub align: i32,
-    /// Element count of a `list<string>` parameter whose payloads must be freed
-    /// after the host has copied them. `length` remains the byte size.
-    pub string_elements: Option<ValueId>,
+    /// Payloads of a `list<string>` or a `list<record>` with string fields that
+    /// must be freed after the host has copied them. `length` remains the byte
+    /// size.
+    pub string_elements: Option<StringFree>,
 }
 
-impl WitCallLowerer for FunctionLowerer<'_> {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
-        self.fresh(ty)
-    }
-
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        self.append_instruction(block, instruction, span)
-    }
-
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        self.wit_product_field(block, value, field, span)
-    }
-
-    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
-        self.note_owned_handle(value, drop_symbol, span);
-    }
-
-    fn transfer_owned(&mut self, value: ValueId) {
-        self.transfer_owned_handle(value);
-    }
-
-    fn wit_array_type(
-        &self,
-        value: ValueId,
-        span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
-        match self.value_type(value) {
-            Some(ValueType::Ref(reference)) => match reference.heap {
-                crate::types::HeapType::Index(index) => Ok(index),
-                _ => Err(vec![BackendError::new(
-                    "P9 MIR lowering",
-                    span,
-                    "canonical list value is not a concrete GC array",
-                )]),
-            },
-            _ => Err(vec![BackendError::new(
-                "P9 MIR lowering",
-                span,
-                "canonical list value is not a GC array",
-            )]),
-        }
-    }
+/// The string payloads a call-local list buffer owns.
+pub(super) enum StringFree {
+    /// One string per element; the value is the element count.
+    Scalars(ValueId),
+    /// Records with string fields; the value is the element count, `size` is the
+    /// element byte stride, and the plan locates each string field.
+    Records {
+        count: ValueId,
+        size: u32,
+        fields: Vec<crate::mir::ListFieldCopy>,
+    },
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
@@ -131,7 +110,7 @@ impl WitCallLowerer for FunctionLowerer<'_> {
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    signature: &crate::cc::Signature,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
@@ -140,14 +119,7 @@ pub(super) fn lower<L: WitCallLowerer>(
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     parameters::lower_parameters(
-        lowerer,
-        import,
-        source_signature,
-        arguments,
-        &mut flat,
-        &mut frees,
-        current,
-        span,
+        lowerer, import, signature, arguments, &mut flat, &mut frees, current, span,
     )?;
     let mut retptr = None;
     if import.retptr {
@@ -221,6 +193,7 @@ pub(super) fn lower<L: WitCallLowerer>(
                 lowerer,
                 import,
                 element,
+                &signature.result,
                 destination,
                 flat,
                 retptr,
@@ -394,8 +367,26 @@ pub(super) fn lower<L: WitCallLowerer>(
     // Call-local buffers (string transcode buffers and indirect parameter
     // records) are owned by this function and freed once the call returns.
     for pending in frees.iter().rev() {
-        if let Some(count) = pending.string_elements {
-            lists::free_string_elements(lowerer, pending.pointer, count, current, span)?;
+        match &pending.string_elements {
+            Some(StringFree::Scalars(count)) => {
+                lists::free_string_elements(lowerer, pending.pointer, *count, current, span)?;
+            }
+            Some(StringFree::Records {
+                count,
+                size,
+                fields,
+            }) => {
+                lists::free_record_string_elements(
+                    lowerer,
+                    pending.pointer,
+                    *count,
+                    *size,
+                    fields,
+                    current,
+                    span,
+                )?;
+            }
+            None => {}
         }
         free_buffer(
             lowerer,

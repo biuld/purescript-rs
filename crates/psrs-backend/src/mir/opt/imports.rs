@@ -31,6 +31,15 @@ pub(super) fn project_reachable(module: &mut Module) {
                         referenced.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
                         referenced.insert(crate::abi::REALLOC_SYMBOL);
                     }
+                    Instruction::ListCopyRecord { fields, .. }
+                        if fields.iter().any(|field| {
+                            matches!(field, crate::mir::ListFieldCopy::String { .. })
+                        }) =>
+                    {
+                        referenced.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
+                        referenced.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
+                        referenced.insert(crate::abi::REALLOC_SYMBOL);
+                    }
                     _ => {}
                 }
             }

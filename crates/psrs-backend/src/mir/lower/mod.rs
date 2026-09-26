@@ -1,9 +1,9 @@
+use super::BoundWasiImport;
 use super::layout::{LayoutError, PlannedLayout};
 use super::literals::StringLiterals;
 use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
-use crate::abi::BoundWasiImport;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
 use crate::mir::scalar_helpers::ScalarHelpers;
@@ -130,6 +130,33 @@ impl FunctionLowerer<'_> {
             .iter()
             .find(|decl| decl.id == id)
             .map(|decl| decl.ty)
+    }
+
+    /// The record product fields and canonical labels for a representation
+    /// handle, used by the WIT adapter to project fields by WIT name.
+    pub(super) fn resolved_product(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
+        self.layout
+            .wit_product(repr)
+            .map(|(fields, labels)| (fields.to_vec(), labels.to_vec()))
+    }
+
+    /// The element shape of a GC array representation handle.
+    pub(super) fn resolved_array_element(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<crate::cc::ValueShape> {
+        self.layout.array_element(repr).ok()
+    }
+
+    /// The concrete GC type of a representation handle.
+    pub(super) fn resolved_repr_index(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<crate::types::DefinedTypeId> {
+        self.layout.repr_index(repr).ok()
     }
 
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {

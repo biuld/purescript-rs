@@ -477,6 +477,12 @@ pub(super) fn verify_instruction(
         Instruction::ListCopy { .. } => {
             lists::verify_list_copy(function, instruction, definitions, defined)?
         }
+        Instruction::ListCopyRecord { .. } => {
+            lists::verify_list_copy_record(function, instruction, definitions, defined)?
+        }
+        Instruction::ListCopyFlags { .. } => {
+            lists::verify_list_copy_flags(function, instruction, definitions, defined)?
+        }
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }

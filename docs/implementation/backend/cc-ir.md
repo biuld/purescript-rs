@@ -126,7 +126,7 @@ CC-03:
   Implementation: cc/representation.rs (`ValueShape` with its distinct
     `String` variant, `RefShape`, `ReprId`, `SignatureId`,
     `RepresentationTable::reserve`/`set`/`add_signature`);
-    cc/layout/scalar.rs and cc/mod.rs map `Type::String`/`SourceType::String`
+    cc/layout/scalar.rs and cc/mod.rs map `Type::String` to it
     to `ValueShape::String`; cc/layout/aggregate.rs canonical keys;
     cc/layout/functions.rs interning and `canonicalize_signatures`.
   Tests: cc/layout/tests.rs
@@ -368,7 +368,7 @@ CC-13:
 
 - **`ValueShape::String` cross-topic change (resolved).** The distinct string
   shape now exists in `cc/representation.rs`; `cc/layout/scalar.rs` and
-  `cc/mod.rs` map `Type::String`/`SourceType::String` to it, the verifier
+  `cc/mod.rs` map `Type::String` to it, the verifier
   rejects numeric operations on it, and `mir/layout` maps it to `I32` while
   sharing the one-field i32 box with `Integer`/`Boolean` on the erased path.
   See CC-03/CC-05 and

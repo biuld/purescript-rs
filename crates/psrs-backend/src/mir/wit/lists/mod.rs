@@ -1,10 +1,19 @@
 //! Copy a source array to or from a non-byte canonical `list<T>`.
 
+mod record;
+
+mod flags;
+
+use flags::{read_flags_value_list_result, write_flags_value_list};
+pub(super) use record::free_record_string_elements;
+use record::{read_record_value_list_result, write_record_value_list};
+
 use super::super::BlockId;
 use super::super::instruction::{Instruction, ListDirection};
-use super::{PendingFree, WitCallLowerer, free_buffer};
+use super::{PendingFree, StringFree, WitCallLowerer, free_buffer};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
+use crate::cc::ValueShape;
 use crate::mir::NumericOp;
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
@@ -13,12 +22,23 @@ use psrs_span::TextRange;
 pub(super) fn write_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
+    shape: &ValueShape,
     element: &abi::WasiParamKind,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
+    if matches!(element, abi::WasiParamKind::Record { .. }) {
+        return write_record_value_list(
+            lowerer, argument, shape, element, flat, frees, current, span,
+        );
+    }
+    if matches!(element, abi::WasiParamKind::Flags { .. }) {
+        return write_flags_value_list(
+            lowerer, argument, shape, element, flat, frees, current, span,
+        );
+    }
     let element = list_element(element, span)?;
     let (size, align) = abi::element_layout(element);
     let array_type = lowerer.wit_array_type(argument, span)?;
@@ -53,7 +73,8 @@ pub(super) fn write_value_list<L: WitCallLowerer>(
         pointer,
         length: bytes,
         align,
-        string_elements: matches!(element, abi::ListElement::String).then_some(length),
+        string_elements: matches!(element, abi::ListElement::String)
+            .then_some(StringFree::Scalars(length)),
     });
     Ok(())
 }
@@ -63,12 +84,39 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     element: &abi::WasiParamKind,
+    shape: &ValueShape,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
+    if matches!(element, abi::WasiParamKind::Record { .. }) {
+        return read_record_value_list_result(
+            lowerer,
+            import,
+            element,
+            shape,
+            destination,
+            arguments,
+            retptr,
+            current,
+            span,
+        );
+    }
+    if matches!(element, abi::WasiParamKind::Flags { .. }) {
+        return read_flags_value_list_result(
+            lowerer,
+            import,
+            element,
+            shape,
+            destination,
+            arguments,
+            retptr,
+            current,
+            span,
+        );
+    }
     let element = list_element(element, span)?;
     let address = retptr.ok_or_else(|| {
         vec![BackendError::invalid_ir(
@@ -142,7 +190,7 @@ fn list_element(
     })
 }
 
-fn scale<L: WitCallLowerer>(
+pub(super) fn scale<L: WitCallLowerer>(
     lowerer: &mut L,
     length: ValueId,
     size: i32,
@@ -177,7 +225,7 @@ fn scale<L: WitCallLowerer>(
     Ok(bytes)
 }
 
-fn allocate<L: WitCallLowerer>(
+pub(super) fn allocate<L: WitCallLowerer>(
     lowerer: &mut L,
     size: ValueId,
     align: i32,
@@ -213,7 +261,7 @@ fn allocate<L: WitCallLowerer>(
     Ok(address)
 }
 
-fn load<L: WitCallLowerer>(
+pub(super) fn load<L: WitCallLowerer>(
     lowerer: &mut L,
     address: ValueId,
     offset: u32,

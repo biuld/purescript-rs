@@ -1,124 +1,10 @@
 //! Maps resolved WIT types to the source ABI subset and canonical value types.
 
 use super::flatten::primitive_aggregate_allowed;
-use super::{SourceSignature, SourceType, WasiField, WasiParamKind, WasiResultKind};
+use super::{WasiField, WasiParamKind, WasiResultKind};
 use crate::types::ValueType;
-use psrs_core::Module as CoreModule;
-use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 use wit_parser::abi::WasmType;
 use wit_parser::{Handle, Resolve, Type as WitType, TypeDefKind};
-
-/// Converts a resolved HIR foreign-import type into the source-level subset
-/// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
-/// declarations remain `None` and are rejected by the ABI validation pass.
-pub(crate) fn source_signature(
-    module: &CoreModule,
-    signature: &HirType,
-) -> Option<SourceSignature> {
-    let mut parameters = Vec::new();
-    let mut result = signature;
-    while let HirTypeKind::Function {
-        parameter,
-        result: next,
-    } = &result.kind
-    {
-        parameters.push(source_type(module, parameter)?);
-        result = next.as_ref();
-    }
-    Some(SourceSignature {
-        parameters,
-        result: source_type(module, result)?,
-        span: signature.span,
-    })
-}
-
-fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
-    match &ty.kind {
-        HirTypeKind::Constructor(BuiltinType::Int) => Some(SourceType::Int),
-        HirTypeKind::Constructor(BuiltinType::Boolean) => Some(SourceType::Boolean),
-        HirTypeKind::Constructor(BuiltinType::Number) => Some(SourceType::Number),
-        HirTypeKind::Constructor(BuiltinType::Char) => Some(SourceType::Char),
-        HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
-        HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
-        HirTypeKind::Opaque(type_id) => Some(SourceType::Resource { type_id: *type_id }),
-        HirTypeKind::Named(type_id) => source_enum_type(module, *type_id),
-        HirTypeKind::Application(function, argument) => {
-            if is_source_array(function) {
-                let element = source_type(module, argument)?;
-                return array_source(element);
-            }
-            let type_id = user_type_id(function)?;
-            source_enum_type(module, type_id)
-        }
-        HirTypeKind::Record { fields, tail } if tail.is_none() => {
-            let mut fields = fields
-                .iter()
-                .map(|field| {
-                    Some((
-                        field.label.clone(),
-                        Box::new(source_type(module, &field.ty)?),
-                    ))
-                })
-                .collect::<Option<Vec<_>>>()?;
-            fields.sort_by(|left, right| left.0.cmp(&right.0));
-            Some(SourceType::Record { fields })
-        }
-        _ => None,
-    }
-}
-
-fn is_source_array(ty: &HirType) -> bool {
-    matches!(ty.kind, HirTypeKind::Constructor(BuiltinType::Array))
-}
-
-/// Arrays cross the ABI only for elements that already have a scalar or string
-/// lowering. Nested arrays, records, and handles stay unsupported.
-fn array_source(element: SourceType) -> Option<SourceType> {
-    match element {
-        SourceType::Int
-        | SourceType::Boolean
-        | SourceType::Number
-        | SourceType::Char
-        | SourceType::String => Some(SourceType::Array {
-            element: Box::new(element),
-        }),
-        _ => None,
-    }
-}
-
-fn user_type_id(ty: &HirType) -> Option<HirTypeId> {
-    match &ty.kind {
-        HirTypeKind::Named(type_id) => Some(*type_id),
-        HirTypeKind::Application(function, _) => user_type_id(function),
-        _ => None,
-    }
-}
-
-fn source_enum_type(module: &CoreModule, type_id: HirTypeId) -> Option<SourceType> {
-    let mut constructors = module
-        .constructors
-        .iter()
-        .filter(|constructor| constructor.type_id == type_id)
-        .collect::<Vec<_>>();
-    constructors.sort_by_key(|constructor| constructor.tag);
-    if constructors.is_empty()
-        || constructors
-            .iter()
-            .any(|constructor| constructor.field_count != 0)
-        || constructors
-            .iter()
-            .enumerate()
-            .any(|(index, constructor)| constructor.tag != index as u32)
-    {
-        return None;
-    }
-    Some(SourceType::Enum {
-        cases: constructors
-            .into_iter()
-            .map(|constructor| constructor.name.clone())
-            .collect(),
-    })
-}
 
 pub(super) fn unsupported_shape(
     resolve: &Resolve,
@@ -201,6 +87,9 @@ fn classify_variable_list(resolve: &Resolve, inner: &WitType) -> WasiParamKind {
         | WasiParamKind::Scalar64 { .. }
         | WasiParamKind::Float32
         | WasiParamKind::Float64
+        | WasiParamKind::Enum { .. }
+        | WasiParamKind::Flags { .. }
+        | WasiParamKind::Record { .. }
         | WasiParamKind::List) => WasiParamKind::ValueList {
             element: Box::new(kind),
         },
@@ -306,6 +195,9 @@ fn supported_list_element(resolve: &Resolve, ty: &WitType) -> bool {
             | WasiParamKind::Scalar64 { .. }
             | WasiParamKind::Float32
             | WasiParamKind::Float64
+            | WasiParamKind::Enum { .. }
+            | WasiParamKind::Flags { .. }
+            | WasiParamKind::Record { .. }
             | WasiParamKind::List
     )
 }

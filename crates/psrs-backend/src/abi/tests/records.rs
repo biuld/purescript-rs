@@ -64,17 +64,15 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         ]),
         CoreType::Unit,
     ];
-    let source = source_signature(
-        &core,
-        &HirType {
-            kind: HirTypeKind::Function {
-                parameter: Box::new(record),
-                result: Box::new(unit),
-            },
-            span,
+    let function = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(record),
+            result: Box::new(unit),
         },
-    )
-    .expect("closed record signatures should have source ABI metadata");
+        span,
+    };
+    let type_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the record function type should intern");
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
         module: "test:records".into(),
@@ -87,29 +85,24 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    WasiRegistry::load()
-        .expect("vendored WASI should load")
-        .validate_signature(&import, &source)
+    crate::abi::link::validate_import_signature(&import, &core, type_id)
         .expect("source fields should match WIT names and types");
-    let mut mismatched = source.clone();
-    let SourceType::Record { fields } = &mut mismatched.parameters[0] else {
-        panic!("the source argument should retain its record fields");
-    };
-    *fields[1].1 = SourceType::Boolean;
+
+    let (bad_module, bad_record) =
+        record_module(&[("first", CoreType::I32), ("secondValue", CoreType::Boolean)]);
+    let mut bad_module = bad_module;
+    let bad_unit = unit_type(&mut bad_module);
     assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&import, &mismatched)
-            .is_err()
+        validate_against(&import, bad_module, &[bad_record], bad_unit).is_err(),
+        "a record field of the wrong type must be rejected"
     );
 
     let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
     let abstract_signature = crate::cc::abstract_signature(
-        &source,
+        Some(type_id),
         &core,
         &record_types,
         &std::collections::HashMap::new(),
-        &mut crate::cc::RepresentationTable::default(),
     )
     .expect("the record representation should be selected from Core layout metadata");
     assert_eq!(
@@ -177,4 +170,62 @@ fn rejects_non_byte_lists_nested_in_records() {
         unsupported_shape(&resolve, function, &WasiResultKind::None).as_deref(),
         Some("non-byte WIT lists are not supported by the String ABI")
     );
+}
+
+#[test]
+fn validates_a_list_of_records() {
+    use crate::types::ValueType;
+    use psrs_core::TypeConstructor;
+    use psrs_hir::SymbolId;
+
+    let mut module = empty_core_module();
+    let x = intern_all(&mut module, vec![CoreType::I32])
+        .pop()
+        .expect("one integer");
+    let y = intern_all(&mut module, vec![CoreType::F64])
+        .pop()
+        .expect("one number");
+    let record = intern_all(
+        &mut module,
+        vec![CoreType::Record(vec![("x".into(), x), ("y".into(), y)])],
+    )
+    .pop()
+    .expect("one record");
+    let array_ctor = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(TypeConstructor::Array)],
+    )
+    .pop()
+    .expect("one array constructor");
+    let array = intern_all(&mut module, vec![CoreType::Application(array_ctor, record)])
+        .pop()
+        .expect("one array");
+    let unit = unit_type(&mut module);
+    let import = WasiImport {
+        symbol: SymbolId::new(ModuleId(0), 0),
+        module: "test:records".into(),
+        name: "take".into(),
+        parameters: vec![ValueType::I32, ValueType::I32],
+        param_kinds: vec![WasiParamKind::ValueList {
+            element: Box::new(WasiParamKind::Record {
+                fields: vec![
+                    crate::abi::WasiField {
+                        name: "x".into(),
+                        kind: WasiParamKind::Integer32,
+                    },
+                    crate::abi::WasiField {
+                        name: "y".into(),
+                        kind: WasiParamKind::Float64,
+                    },
+                ],
+            }),
+        }],
+        result: None,
+        result_kind: WasiResultKind::None,
+        unsupported: None,
+        retptr: false,
+        flat_slots: Vec::new(),
+    };
+    validate_against(&import, module, &[array], unit)
+        .expect("list<record> should validate against the source record");
 }

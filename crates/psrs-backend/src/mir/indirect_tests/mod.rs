@@ -1,5 +1,5 @@
 use super::lower_module_with_registry;
-use crate::abi::{self, SourceSignature, SourceType};
+use crate::abi;
 use crate::cc::{self, Assignment, AssignmentKind, External, Signature, ValueDecl, ValueShape};
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings, TargetCapabilities};
@@ -20,15 +20,6 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
-    let source_parameters = (0..14)
-        .map(|_| SourceType::Int)
-        .chain([
-            SourceType::Number,
-            SourceType::Boolean,
-            SourceType::Int,
-            SourceType::Number,
-        ])
-        .collect::<Vec<_>>();
     let mut values = Vec::new();
     let mut assignments = Vec::new();
     let mut arguments = Vec::new();
@@ -101,17 +92,15 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
             symbol: external_symbol,
             interface: "wasi:io/streams".into(),
             function: "take".into(),
-            signature: Some(SourceSignature {
-                parameters: source_parameters,
-                result: SourceType::Unit,
-                span: span(),
-            }),
+            type_id: None,
+            span: span(),
         }],
     };
     (module, bindings, resolve)
 }
 
 mod composite;
+mod record_list;
 
 #[test]
 fn indirect_canonical_parameters_lower_to_an_artifact() {
