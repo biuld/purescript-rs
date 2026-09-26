@@ -4,7 +4,7 @@ mod access;
 mod address;
 
 use crate::BackendError;
-use crate::abi::SCRATCH_END;
+use crate::abi::{HEAP_START, HEAP_STATE, SCRATCH_END};
 use crate::mir;
 
 const WASM32_ADDRESS_SPACE: u64 = 1_u64 << 32;
@@ -12,7 +12,10 @@ const PASS: &str = "P10 Wasm structuring";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RegionKind {
+    /// The reserved canonical return-area scratch.
     Scratch,
+    /// The allocator's free-list head and bump break.
+    HeapState,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -24,14 +27,15 @@ struct Region {
 
 impl Region {
     fn writable(self) -> bool {
-        self.kind == RegionKind::Scratch
+        // Both regions are allocator-owned and read/write.
+        matches!(self.kind, RegionKind::Scratch | RegionKind::HeapState)
     }
 }
 
-/// Checks statically knowable MIR memory intervals against the ABI scratch
-/// region. Dynamic reads retain WebAssembly's runtime bounds checks. Dynamic
-/// writes must point into a buffer returned by the ABI allocator. GC string
-/// literals are not MIR-addressable and define no region.
+/// Checks statically knowable MIR memory intervals against the ABI scratch and
+/// heap-state regions. Dynamic reads retain WebAssembly's runtime bounds checks.
+/// Dynamic writes must point into a buffer returned by the ABI allocator. GC
+/// string literals are not MIR-addressable and define no region.
 pub(super) fn verify_static_access_extents(module: &mir::Module) -> Result<(), Vec<BackendError>> {
     let regions = build_regions();
     let mut errors = Vec::new();
@@ -56,11 +60,18 @@ pub(super) fn verify_static_access_extents(module: &mir::Module) -> Result<(), V
 }
 
 fn build_regions() -> Vec<Region> {
-    vec![Region {
-        start: 0,
-        end: u64::from(SCRATCH_END),
-        kind: RegionKind::Scratch,
-    }]
+    vec![
+        Region {
+            start: 0,
+            end: u64::from(SCRATCH_END),
+            kind: RegionKind::Scratch,
+        },
+        Region {
+            start: u64::from(HEAP_STATE),
+            end: u64::from(HEAP_START),
+            kind: RegionKind::HeapState,
+        },
+    ]
 }
 
 pub(super) fn function_error(

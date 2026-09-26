@@ -13,7 +13,6 @@
 //! - `decode_step` decodes one UTF-8 sequence, returning a packed
 //!   `(code_point << 6) | (utf16_units << 3) | consumed_bytes`.
 
-mod asm;
 mod decode;
 mod encode;
 

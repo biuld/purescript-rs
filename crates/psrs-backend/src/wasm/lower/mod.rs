@@ -13,6 +13,7 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 use wasm_encoder::{Instruction, RefType, ValType};
 
+mod asm;
 mod codec;
 mod extent;
 mod function_types;
@@ -158,6 +159,7 @@ pub fn lower_module_with_capabilities(
     });
 
     let entry_index = FunctionIndex(import_count + module.functions.len() as u32);
+    let indices = SynthesizedIndices::new(entry_index, needs_realloc, needs_helpers);
 
     let mut function_indices = module
         .functions
@@ -167,8 +169,8 @@ pub fn lower_module_with_capabilities(
     for (symbol, index) in &import_indices {
         function_indices.insert(*symbol, *index);
     }
-    if needs_realloc {
-        function_indices.insert(abi::REALLOC_SYMBOL, FunctionIndex(entry_index.0 + 1));
+    if let Some(realloc) = indices.realloc {
+        function_indices.insert(abi::REALLOC_SYMBOL, realloc);
     }
     // The GC string type index is carried by the reserved helper imports' value
     // types, so the synthesized codec names the same concrete type MIR does.
@@ -177,17 +179,20 @@ pub fn lower_module_with_capabilities(
             .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
         function_indices.insert(
             abi::STRING_TO_BYTES_SYMBOL,
-            FunctionIndex(entry_index.0 + 2),
+            indices
+                .string_to_bytes
+                .expect("a needed codec has a string_to_bytes index"),
         );
         function_indices.insert(
             abi::BYTES_TO_STRING_SYMBOL,
-            FunctionIndex(entry_index.0 + 3),
+            indices
+                .bytes_to_string
+                .expect("a needed codec has a bytes_to_string index"),
         );
         Some(string_type)
     } else {
         None
     };
-    let decode_step_index = FunctionIndex(entry_index.0 + 4);
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
@@ -229,29 +234,31 @@ pub fn lower_module_with_capabilities(
     let mut minimum = 1;
     let mut realloc = None;
     if needs_realloc {
-        let heap_pointer = abi::SCRATCH_END.next_multiple_of(4);
-        let heap_start = (heap_pointer + 4).next_multiple_of(16);
         let realloc_type = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
             parameters: vec![ValType::I32; 4],
             results: vec![ValType::I32],
         });
-        let index = FunctionIndex(entry_index.0 + 1);
+        let index = indices.realloc.expect("a needed realloc has an index");
         exports.push(Export {
             name: "cabi_realloc".into(),
             kind: ExportKind::Function,
             index: ExportIndex::Function(index),
         });
+        // The heap-state segment holds the free-list head (null) and the bump
+        // break (the first allocatable address).
+        let mut state = 0_u32.to_le_bytes().to_vec();
+        state.extend_from_slice(&abi::HEAP_START.to_le_bytes());
         data.push(DataSegment {
             id: DataId(data.len() as u32),
             index: DataIndex(data.len() as u32),
             mode: DataMode::Active {
-                offset: heap_pointer,
+                offset: abi::HEAP_STATE,
             },
-            bytes: heap_start.to_le_bytes().to_vec(),
+            bytes: state,
         });
-        minimum = (heap_start as u64).div_ceil(0x10000) + 1;
-        realloc = Some(build_realloc(realloc_type, heap_pointer, module.span));
+        minimum = (u64::from(abi::HEAP_START)).div_ceil(0x10000) + 1;
+        realloc = Some(build_realloc(realloc_type, module.span));
     }
     let helpers = if needs_helpers {
         let string_type = string_type.expect("a needed codec has a GC string type");
@@ -268,8 +275,8 @@ pub fn lower_module_with_capabilities(
         types.push(step);
         codec::synthesize(
             string_type,
-            FunctionIndex(entry_index.0 + 1),
-            decode_step_index,
+            indices.realloc.expect("the codec needs the allocator"),
+            indices.decode_step,
             stb_type,
             bts_type,
             step_type,
@@ -311,6 +318,38 @@ pub fn lower_module_with_capabilities(
     };
     super::verify::verify_module(&wasm)?;
     Ok(wasm)
+}
+
+/// The final Wasm function indices of the synthesized helpers. The encoder
+/// emits the entry, then `cabi_realloc`, then the codec helpers in their
+/// declared order, so every index has exactly one source here.
+struct SynthesizedIndices {
+    realloc: Option<FunctionIndex>,
+    string_to_bytes: Option<FunctionIndex>,
+    bytes_to_string: Option<FunctionIndex>,
+    decode_step: FunctionIndex,
+}
+
+impl SynthesizedIndices {
+    fn new(entry: FunctionIndex, needs_realloc: bool, needs_helpers: bool) -> Self {
+        let realloc = needs_realloc.then_some(FunctionIndex(entry.0 + 1));
+        let helper_base = entry.0 + 1 + u32::from(needs_realloc);
+        if needs_helpers {
+            Self {
+                realloc,
+                string_to_bytes: Some(FunctionIndex(helper_base)),
+                bytes_to_string: Some(FunctionIndex(helper_base + 1)),
+                decode_step: FunctionIndex(helper_base + 2),
+            }
+        } else {
+            Self {
+                realloc,
+                string_to_bytes: None,
+                bytes_to_string: None,
+                decode_step: FunctionIndex(helper_base),
+            }
+        }
+    }
 }
 
 /// The GC string defined-type index, read from a reserved codec import's value

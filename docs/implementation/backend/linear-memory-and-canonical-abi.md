@@ -11,12 +11,11 @@ with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 now GC `(array (mut i16))` values, each distinct literal is a passive data
 segment materialized once with `array.new_data` and interned in a lazily
 initialized module global, and the ABI adapter transcodes UTF-16 to
-and from the component's UTF-8. LM-02, LM-05, ABI-01, ABI-06, and ABI-07 are
-Verified. LM-01 and LM-04 implement that representation and are In progress
-because the profile still fixes one wasm32 memory and does not yet model the
-heap-state region. ABI-02 and ABI-03 are In progress for GC byte lists and
-handles. ABI-08 is Blocked on source types. The reclaiming allocator, transient
-buffer free, `post-return`, and buffer ownership moved to
+and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-06, and ABI-07
+are Verified. LM-01 implements that representation and is In progress because
+the profile still fixes one wasm32 memory. ABI-02 and ABI-03 are In progress for
+GC byte lists and handles. ABI-08 is Blocked on source types. The reclaiming
+allocator, transient buffer free, `post-return`, and buffer ownership moved to
 [canonical buffer allocation](canonical-buffer-allocation.md).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
@@ -40,7 +39,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | --- | --- | --- | --- |
 | LM-01 | The target profile selects the pointer width and the ABI memory; the stable profile uses one wasm32 memory at index 0 with deterministic memory/data index order. | Encoded modules validate; driver components run; memory64/multi-memory remain. | In progress |
 | LM-02 | Strings are GC byte sequences; each distinct literal is a passive data segment materialized once with `array.new_data` and interned in a lazily initialized module global, and the ABI linearizes strings transiently. | GC-string construction, crossing, literal interning, and execution tests. | Verified |
-| LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | In progress |
+| LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | Verified |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
 | ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | In progress |
@@ -108,16 +107,17 @@ LM-03:
 ```text
 LM-04:
   Implementation: crates/psrs-backend/src/wasm/lower/extent/.
-  Tests: wasm::lower::extent::tests::* (scratch read/write and boundary,
-    wasm32 fixed/effective extents, wrapping arithmetic, block-parameter
-    joins, unknown addresses, dynamic-read-allowed/dynamic-store-rejected).
+  Tests: wasm::lower::extent::tests::* (scratch/heap-state read/write and
+    boundary, wasm32 fixed/effective extents, wrapping arithmetic,
+    block-parameter joins, unknown addresses, allocator-proven dynamic store
+    accepted and unproven dynamic store rejected).
   Input boundary: verified MIR with memory operations.
   Commands: cargo test -p psrs-backend wasm::lower::extent.
   Result: pass. GC string literals are not MIR-addressable and define no
     region, matching the design; a dynamic store through a `cabi_realloc`
     pointer is accepted and an unproven dynamic store is rejected.
-  Gaps: the heap-state region is not yet modeled; dynamic reads rely on the
-    Wasm bounds trap.
+  Gaps: only the fixed `offset + width <= size` bound is proven for an
+    allocator pointer.
 ```
 
 ```text

@@ -1,6 +1,6 @@
 use super::super::BlockId;
 use super::super::instruction::Instruction;
-use super::WitCallLowerer;
+use super::{PendingFree, WitCallLowerer};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
 use crate::mir::{NumericOp, UnaryOp};
@@ -9,12 +9,14 @@ use psrs_span::TextRange;
 
 mod indirect;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     source_signature: &abi::SourceSignature,
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
+    frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
@@ -39,6 +41,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
             source,
             kind,
             &mut flattened,
+            frees,
             current,
             span,
         )?;
@@ -49,6 +52,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
             &import.param_kinds,
             &flattened,
             flat,
+            frees,
             current,
             span,
         )?;
@@ -58,12 +62,14 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     source: &abi::SourceType,
     kind: &abi::WasiParamKind,
     flat: &mut Vec<ValueId>,
+    frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
@@ -160,6 +166,12 @@ fn lower_parameter<L: WitCallLowerer>(
             )?;
             flat.push(bytes);
             flat.push(length);
+            // The transcode buffer is call-local: free it after the call returns.
+            frees.push(PendingFree {
+                pointer: bytes,
+                length,
+                align: 1,
+            });
         }
         abi::WasiParamKind::Record { fields } => {
             let abi::SourceType::Record {
@@ -187,6 +199,7 @@ fn lower_parameter<L: WitCallLowerer>(
                     source_field,
                     &field.kind,
                     flat,
+                    frees,
                     current,
                     span,
                 )?;

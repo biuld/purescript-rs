@@ -538,6 +538,39 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   the import graph ([WASI platform library](wasi-platform-library.md)). Loading
   the standard library from disk stays future work.
 
+### GC canonical ABI
+
+The linear-memory canonical ABI exists because it must also serve non-GC
+languages and hosts. The Component Model has an open pre-proposal
+([WebAssembly/component-model#525](https://github.com/WebAssembly/component-model/issues/525))
+to lower component types *directly to core Wasm GC types* behind a `gc`
+canonical option plus a `core-type` option that names a component's at-rest core
+function type. When it is present, a value crosses the boundary as a typed
+reference and the receiver reads it with `struct.get`/`array.get`; there is no
+linear buffer, no `cabi_realloc`, and no `post-return` for those values, and the
+GC heap owns their lifetime. The proposed lowerings are:
+
+| WIT | GC core type |
+| --- | --- |
+| `string` (utf8 / utf16) | `(ref null? (array (mut? i8)))` / `(ref null? (array (mut? i16)))` |
+| `list<T>` | `(ref null? (array (mut? T')))` |
+| `record`, `tuple`, `variant`, `option`, `result` | `(ref null? (struct ...))`, with subtyping |
+| `own`, `borrow`, `future`, `stream`, `error-context` | `externref` |
+
+Zero copy is not automatic: mutability, rec-group identity, and not-yet-defined
+width/depth subtyping can still force a copy when the two components' at-rest
+representations disagree, which is exactly what the `core-type` option lets each
+side declare. The extension is opt-in, so a component may use it while another
+keeps the linear-memory ABI.
+
+This project's `String` is already the proposed UTF-16 GC array
+(`(array (mut i16))`), so if the `gc` option and a supporting toolchain land,
+the string path could move to GC lowering and drop linear memory and
+`cabi_realloc` for strings. Until then, the linear-memory boundary and its
+allocator ([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md))
+remain the required path. WASI 0.3 (async, `stream`, `future`) does not include
+this extension, and `wit-component` 0.245 has no `gc` canonical option.
+
 ## Implementation notes
 
 The current code deviates from the complete design in these ways; the gaps are
@@ -547,9 +580,10 @@ implementation coverage, not design choices. The allocator, buffer free, and
 [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md):
 
 - A source `String` is now a GC byte-sequence value; the ABI adapter transcodes
-  it to and from the component's UTF-8, but still through a bump allocator.
-- `cabi_realloc` is a bump allocator with no reclamation, and no `post-return`
-  is synthesized.
+  it to and from the component's UTF-8 through the reclaiming `cabi_realloc`,
+  and frees the transient buffer at the boundary.
+- `cabi_realloc` is a reclaiming allocator; `post-return` is not synthesized
+  because no current export returns a non-scalar.
 - `own`/`borrow` handles are classified but not lowered: there is no
   `resource.drop` insertion or borrow release.
 - Non-byte `list<T>`, `option`/`result`/`variant` payload read-back, and tuple

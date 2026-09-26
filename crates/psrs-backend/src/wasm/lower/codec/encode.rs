@@ -1,7 +1,7 @@
 //! UTF-16 to UTF-8 encoding for a GC string at the canonical ABI boundary.
 
-use super::asm::*;
 use crate::types::DefinedTypeId;
+use crate::wasm::lower::asm::*;
 use crate::wasm::{Function, FunctionIndex, TypeIndex};
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};

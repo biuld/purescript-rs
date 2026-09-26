@@ -99,11 +99,13 @@ one owner and is freed when its lifetime ends.
   boundary: strings, byte lists, ..." is narrowed: strings and byte lists cross
   the boundary but are GC-managed after adaptation, not stored in linear
   memory.
-- Implementation notes record the remaining deviation: strings are GC
+- Implementation notes narrow the remaining deviation: strings are GC
   `(array (mut i16))` values materialized from passive segments and transcoded
-  at the boundary, but `cabi_realloc` is still a bump allocator, `post-return`
-  is not synthesized, and resource handles are not lowered. The allocator,
-  buffer lifetime, and `post-return` contract is designed and tracked by
+  at the boundary, and `cabi_realloc` is now a reclaiming allocator whose
+  call-local and import-result buffers are freed at the boundary. `post-return`
+  is still not synthesized (no current export returns a non-scalar) and resource
+  handles are not lowered. The allocator, buffer lifetime, and `post-return`
+  contract is designed and tracked by
   [canonical buffer allocation and lifetime](../design/backend/wasm/canonical-buffer-allocation-and-lifetime.md)
   and its [checklist](../implementation/backend/canonical-buffer-allocation.md);
   feature-row coverage stays in [D-04](../design/D-04-suite-roadmap.md).

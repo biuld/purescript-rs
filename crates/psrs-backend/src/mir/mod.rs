@@ -299,10 +299,11 @@ fn lower_module_after_binding_validation(
             result: import.result,
         })
         .collect();
-    if wasi
-        .imports()
-        .iter()
-        .any(|import| used.contains(&import.symbol) && import.has_indirect_parameters())
+    if used.contains(&crate::abi::REALLOC_SYMBOL)
+        || wasi
+            .imports()
+            .iter()
+            .any(|import| used.contains(&import.symbol) && import.has_indirect_parameters())
     {
         imports.push(Import {
             symbol: crate::abi::REALLOC_SYMBOL,

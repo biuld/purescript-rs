@@ -35,6 +35,28 @@ pub const SCRATCH_SIZE: u32 = 16;
 /// The first linear-memory offset after the scratch region.
 pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 
+/// The start of the allocator's heap-state segment: two pointer-width words
+/// holding the free-list head and the bump break. It follows the scratch region.
+pub const HEAP_STATE: u32 = SCRATCH_END;
+
+/// The byte size of the heap-state segment: a free-list head word and a bump
+/// break word, each one wasm32 pointer word.
+pub const HEAP_STATE_SIZE: u32 = 2 * WORD_SIZE;
+
+/// The first address the canonical allocator may hand out. It is aligned to the
+/// block granularity so every block header stays aligned.
+pub const HEAP_START: u32 = (HEAP_STATE + HEAP_STATE_SIZE).next_multiple_of(MIN_BLOCK);
+
+/// A wasm32 address word.
+pub const WORD_SIZE: u32 = 4;
+
+/// The per-block metadata header: a block-size word and a length/next word.
+pub const HEADER_SIZE: u32 = 8;
+
+/// The block granularity. It matches the maximum canonical ABI field alignment
+/// (`i64`/`f64`), so block headers and payloads stay aligned.
+pub const MIN_BLOCK: u32 = 8;
+
 /// Reserved MIR symbol for the allocator synthesized after ABI memory layout
 /// is known. Calls to this symbol become calls to the local `cabi_realloc`
 /// function during Wasm lowering; it is never emitted as a core import.
@@ -47,6 +69,20 @@ pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
 pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
+
+/// Reserved MIR symbol for the synthesized `decode_step` codec helper. Like the
+/// other codec symbols it is never a core import.
+pub(crate) const DECODE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
+
+/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and codec.
+/// Any other intrinsic-symbol allocator (for example the aggregate conversion
+/// helpers, which allocate downward from `u32::MAX`) must skip these.
+pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 4] = [
+    REALLOC_SYMBOL,
+    STRING_TO_BYTES_SYMBOL,
+    BYTES_TO_STRING_SYMBOL,
+    DECODE_STEP_SYMBOL,
+];
 
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.

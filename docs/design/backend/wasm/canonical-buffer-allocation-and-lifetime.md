@@ -55,6 +55,17 @@ frees a block, so its growth is bounded by allocation history, not call
 frequency. It is an MVP artifact. The complete design needs a general aligned
 allocator that implements the full canonical `realloc` contract.
 
+**Linear memory holds unmanaged bytes.** A GC `struct`/`array` lives on the GC
+heap and is reached through a typed reference; it cannot be addressed by an
+`i32` pointer, and a linear address cannot name a GC object. Bytes in linear
+memory are therefore raw, untraced, and never finalized. This is why every
+buffer has an explicit owner and an explicit free rather than relying on
+collection, and why a GC reference may never be stored in a linear buffer.
+Toolchains whose language heap already lives in linear memory may instead
+*adopt* a lifted buffer (using the same allocator) rather than copy it; a
+GC-native language cannot, so it copies a received value into the GC heap and
+frees the linear buffer.
+
 **Two addresses, one memory.** The canonical ABI allocator and the language
 heap are different storage. The ABI memory is a profile parameter: wasm32 uses
 `i32` addresses and one memory, memory64 uses `i64`, and a profile that enables
@@ -80,6 +91,24 @@ A `borrow<T>` is a call-scoped non-owning handle and is released when the call
 returns; an `own<T>` handle carries a drop obligation discharged either when the
 owning value is consumed or in the owning export's `post-return`
 ([canonical ABI and WIT](canonical-abi-and-wit.md)).
+
+### Who allocates and who frees
+
+Only guest code can allocate in or free guest memory, so `cabi_realloc` is
+always the allocator; the canonical ABI fixes *which side triggers* each
+operation. For a function whose parameters or result contain a list or string:
+
+| Direction | Allocates | Frees | Trigger |
+| --- | --- | --- | --- |
+| guest calls an import, list/string argument | the guest lowering | the guest lowering | emitted after the call returns |
+| an import returns a list/string | the host (it calls the guest `cabi_realloc`) | the guest lowering | emitted after the bytes are copied into a GC value |
+| the host calls a guest export, list/string argument | the host (it calls the guest `cabi_realloc`) | the host | after the export returns |
+| a guest export returns a list/string | the guest lowering | the guest's `cabi_post_<name>` | the host calls `post-return` after lifting |
+
+The guest never trusts the host to free a guest-owned buffer: the compiler
+inserts each free at the point the canonical ABI assigns ownership, on the same
+control-flow path as the call. A trap aborts the instance, so an interrupted
+call does not leave a reclaimable allocation behind.
 
 ### Statically known ABI regions
 
@@ -445,9 +474,30 @@ otherwise the whole block is handed out.
   rules ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 - **Alignments above the canonical maximum.** A profile with wider canonical
   fields raises `HEADER`/`MIN_BLOCK`; the model already parameterizes on them.
+- **GC canonical ABI.** The Component Model has an in-flight pre-proposal to
+  lower component types directly to core Wasm GC types (a `gc` canonical option
+  plus a `core-type`), which would pass strings and lists as typed references
+  and remove linear memory, `cabi_realloc`, and `post-return` from the string
+  path. That direction is compatible with this project's GC string
+  representation; see [canonical ABI and WIT](canonical-abi-and-wit.md#gc-canonical-abi).
 - **Threaded allocators.** The design is single-threaded; a shared-memory
   profile would need synchronization, which the capability matrix keeps out of
   scope ([D-04](../../D-04-suite-roadmap.md)).
+
+## Implementation notes
+
+The allocator and buffer-free path match this design. The remaining deviations
+are coverage, not choices:
+
+- `cabi_post_<name>` is not yet synthesized because no current export returns a
+  non-scalar; `wasi:cli/run` returns no aggregate.
+- Resource handles (`own<T>` drop and `borrow<T>` release) await the frontend
+  accepting `foreign import data`.
+
+The synthesized allocator body lives in
+`wasm/lower/realloc/` and shares the `wasm/lower/asm.rs` structured-instruction
+builder with the string codec. Coverage is tracked by ALC-01..ALC-07 in the
+[implementation checklist](../../implementation/backend/canonical-buffer-allocation.md).
 
 ## References
 

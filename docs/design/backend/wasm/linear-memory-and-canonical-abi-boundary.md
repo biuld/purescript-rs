@@ -478,10 +478,11 @@ its address is proven to come from `cabi_realloc`.
 The allocator and buffer-lifetime gaps are owned and tracked by
 [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)
 and its [implementation checklist](../../implementation/backend/canonical-buffer-allocation.md):
-`cabi_realloc` is still a bump allocator, returned buffers are not reclaimed,
-no `post-return` is synthesized, and resource handles are not lowered. The ABI
-memory here is fixed to `MemoryId(0)` with `i32` addresses; the profile does not
-yet select a pointer width or additional memories.
+`cabi_realloc` is now a reclaiming allocator and transient buffers are freed at
+the boundary, while `post-return` is not synthesized (no current export returns
+a non-scalar) and resource handles are not lowered. The ABI memory here is fixed
+to `MemoryId(0)` with `i32` addresses; the profile does not yet select a pointer
+width or additional memories.
 
 Strings and literals match the complete design: a source `String` is the GC
 `(array (mut i16))` type, literals are passive data segments materialized once
