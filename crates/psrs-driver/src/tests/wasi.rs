@@ -58,6 +58,19 @@ fn prints_hello_world_when_wasmtime_is_available() {
 }
 
 #[test]
+fn prints_a_non_ascii_literal_when_wasmtime_is_available() {
+    // `h`, `é` (U+00E9), `λ` (U+03BB): the GC UTF-16 string must be encoded as
+    // UTF-8 at the canonical ABI boundary, not truncated to bytes.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"h\u{e9}\u{3bb}\") in 0\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, "h\u{e9}\u{3bb}\n".as_bytes());
+}
+
+#[test]
 fn prints_an_interned_literal_once_per_use_when_wasmtime_is_available() {
     let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let first = runEffect (log \"twice\") in let second = runEffect (log \"twice\") in 0\n";
     let Some(output) = run_with_wasmtime(source) else {

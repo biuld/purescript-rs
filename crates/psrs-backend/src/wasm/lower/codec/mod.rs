@@ -17,6 +17,9 @@ mod asm;
 mod decode;
 mod encode;
 
+#[cfg(test)]
+mod tests;
+
 use crate::types::DefinedTypeId;
 use crate::wasm::{FuncType, Function, FunctionIndex, TypeIndex};
 use psrs_span::TextRange;

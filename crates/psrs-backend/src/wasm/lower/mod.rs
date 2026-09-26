@@ -317,6 +317,11 @@ pub fn lower_module_with_capabilities(
 /// type. It is present exactly when the adapter needed a string transcode.
 fn string_type_from_imports(module: &mir::Module) -> Option<crate::types::DefinedTypeId> {
     for import in &module.imports {
+        if import.symbol != abi::STRING_TO_BYTES_SYMBOL
+            && import.symbol != abi::BYTES_TO_STRING_SYMBOL
+        {
+            continue;
+        }
         for ty in import.parameters.iter().chain(import.result.iter()) {
             if let ValueType::Ref(reference) = ty
                 && let HeapType::Index(index) = reference.heap
