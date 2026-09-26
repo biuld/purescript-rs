@@ -25,6 +25,7 @@ fn validate(
     result: CoreType,
 ) -> Result<(), String> {
     let mut module = psrs_core::Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
@@ -121,6 +122,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         span: span(),
     };
     let mut module = psrs_core::Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

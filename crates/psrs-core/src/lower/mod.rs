@@ -104,6 +104,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             })
             .collect(),
         declarations,
+        type_names: module.type_names,
         entry: None,
         span: module.span,
     };

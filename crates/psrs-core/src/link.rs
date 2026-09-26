@@ -26,6 +26,8 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut declarations = Vec::new();
     let mut externals = Vec::new();
     let mut seen_externals = std::collections::HashSet::new();
+    let mut type_names = Vec::new();
+    let mut seen_type_names = HashSet::new();
     for module in modules {
         let offset = types.len() as u32;
         for ty in &module.types {
@@ -57,6 +59,11 @@ pub fn link(modules: Vec<Module>) -> Module {
                 externals.push(external);
             }
         }
+        for (id, name) in module.type_names {
+            if seen_type_names.insert(id) {
+                type_names.push((id, name));
+            }
+        }
     }
     Module {
         id: ModuleId(0),
@@ -67,6 +74,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         opaque_ids,
         constructors,
         declarations,
+        type_names,
         // Chosen by the caller once the program entry is known.
         entry: None,
         span,

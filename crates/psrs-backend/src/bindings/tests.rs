@@ -35,6 +35,7 @@ fn binding(symbol: SymbolId) -> ExternalBinding {
 
 fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
     CoreModule {
+        type_names: Vec::new(),
         id: ModuleId(1),
         name: "Main".into(),
         externals,

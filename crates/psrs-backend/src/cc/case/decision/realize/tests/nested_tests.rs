@@ -23,6 +23,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
     let true_symbol = SymbolId::new(module_id, 2);
     let false_symbol = SymbolId::new(module_id, 3);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "NestedDecisionTest".into(),
         externals: Vec::new(),

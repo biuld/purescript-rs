@@ -8,6 +8,7 @@ fn span() -> TextRange {
 
 fn module() -> CoreModule {
     CoreModule {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

@@ -10,6 +10,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
     let true_symbol = SymbolId::new(ModuleId(0), 0);
     let false_symbol = SymbolId::new(ModuleId(0), 1);
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "DecisionTest".into(),
         externals: Vec::new(),

@@ -20,6 +20,7 @@ fn expression(kind: ExprKind, ty: u32, start: u32, end: u32) -> Expr {
 
 fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

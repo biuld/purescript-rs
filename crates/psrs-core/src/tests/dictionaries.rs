@@ -17,6 +17,7 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
     let parent_dictionary = thir::TypeId(4);
     let span = TextRange::new(0, 20);
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
@@ -167,6 +168,7 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
     let dictionary_symbol = SymbolId::new(module_id, 1);
     let span = TextRange::new(0, 12);
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),

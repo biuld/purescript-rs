@@ -102,6 +102,7 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
         declaration(identity, "identity", identity_type, identity_value, span);
     identity_declaration.quantified = vec![TypeVariableId(0)];
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
@@ -211,6 +212,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let mut identity_declaration = declaration(identity, "identity", method, identity_value, span);
     identity_declaration.quantified = vec![TypeVariableId(0)];
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),

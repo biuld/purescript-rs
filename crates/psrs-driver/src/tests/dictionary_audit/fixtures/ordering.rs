@@ -141,6 +141,7 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
@@ -338,6 +339,7 @@ pub(crate) fn shared_dictionary_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),

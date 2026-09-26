@@ -4,6 +4,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId};
 #[test]
 fn verifier_rejects_out_of_range_types() {
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
@@ -37,6 +38,7 @@ fn verifier_rejects_out_of_range_types() {
 fn verifier_attributes_declaration_errors_to_their_source_module() {
     let owner = ModuleId(7);
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Linked".into(),
         externals: Vec::new(),
@@ -67,6 +69,7 @@ fn verifier_attributes_declaration_errors_to_their_source_module() {
 
 fn single_declaration(types: Vec<Type>, declaration_type: TypeId, value: Expr) -> Module {
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

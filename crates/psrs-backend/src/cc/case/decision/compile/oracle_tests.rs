@@ -29,6 +29,7 @@ fn module() -> Module {
     let t = HirTypeId::new(ModuleId(0), 0);
     let u = HirTypeId::new(ModuleId(0), 1);
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "OracleTest".into(),
         externals: Vec::new(),

@@ -41,6 +41,7 @@ fn module_with(bad: thir::Declaration, span: TextRange) -> thir::Module {
     let types = Types::new();
     let main = typed(thir::ExprKind::Integer(42), types.integer, span);
     thir::Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),

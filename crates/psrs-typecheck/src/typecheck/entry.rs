@@ -209,6 +209,16 @@ pub fn typecheck_module_with_imports_and_effect_context(
         });
     }
 
+    let type_names = module
+        .types
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.id,
+                format!("{}.{}", module.name, declaration.name),
+            )
+        })
+        .collect();
     let typed = thir::Module {
         id: module.id,
         name: module.name,
@@ -218,6 +228,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
         opaque_ids,
         constructors,
         declarations,
+        type_names,
         span: module.span,
     };
     match typed.verify() {

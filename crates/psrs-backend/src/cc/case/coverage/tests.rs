@@ -14,6 +14,7 @@ fn hir_type_id(index: u32) -> HirTypeId {
 
 fn module(types: Vec<Type>, constructors: Vec<psrs_core::ConstructorInfo>) -> Module {
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "CoverageTest".to_owned(),
         externals: Vec::new(),

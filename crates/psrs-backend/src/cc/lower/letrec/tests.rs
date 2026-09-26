@@ -435,6 +435,7 @@ fn function_type(parameter: TypeId, result: TypeId) -> Type {
 
 fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module {
     Module {
+        type_names: Vec::new(),
         id: entry.module,
         name: "Main".into(),
         externals: Vec::new(),
