@@ -53,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, and `string`/`list<u8>` is classified, validated, and lowered with a driver execution test; unsupported shapes are rejected with source diagnostics. `option`/`result`/`variant`/tuple remain non-source types and tuples/aggregates stay unsupported. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, and nullary enums is classified, validated, and lowered with a driver execution test; unsupported shapes are rejected with source diagnostics. `option`/`result`/`variant`/tuple remain non-source types and tuples/aggregates stay unsupported. | In progress |
 
 ## Evidence record and completion rule
 
