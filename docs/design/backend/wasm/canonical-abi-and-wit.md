@@ -143,7 +143,7 @@ never invents source values.
 | nullary `enum` | `Enum` | case order must match. |
 | `flags` | `Record` of `Boolean` | packed least-significant first. |
 | resource handle | opaque handle | `own<T>` transfers ownership with a drop obligation; `borrow<T>` is a call-scoped non-owning reference. |
-| `option`, `result`, non-unit `variant`, tuple | none | rejected until the standard library provides matching source types. |
+| `option`, `result`, non-unit `variant`, tuple | none | not a compiler source type. A standard-library wrapper may pass one only as primitive arguments whose flattening matches the canonical signature. A multi-value return stays unsupported. |
 
 Two rules follow from the source language having no unsigned or narrowed integer
 types:
@@ -157,10 +157,17 @@ types:
 - `Array` is only produced for a non-byte `list<T>` whose element maps. Byte
   lists stay `String`, so `list<u8>` never becomes `Array Int`.
 
-`option`/`result` payloads, non-unit `variant`s, and tuples have no source type;
-classification records them as unsupported until the standard library defines
-matching types (`Maybe`, `Either`, tuples). The unit-success `result` keeps its
-existing `Unit` mapping (trap on failure).
+`option`, `result`, non-unit `variant`, and tuple are not compiler source types.
+The lowerer does not add a source type for them and does not recognize `Maybe`,
+`Either`, or tuples. A standard-library wrapper may pass those forms only as a
+sequence of primitive arguments (`Int`, `Boolean`, `Number`, `Char`, `String`,
+`Unit`, with a handle declared as `Int`) whose flattening equals
+`Resolve::wasm_signature` for that function
+([primitive FFI and the standard library](primitive-ffi-and-stdlib.md),
+[DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+A canonical result that is several values stays unsupported until that whole
+result is one primitive. The unit-success `result` keeps its existing `Unit`
+mapping (trap on failure).
 
 ### Resolving and validating
 
@@ -530,9 +537,12 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   and reaches the ABI boundary, but non-byte lists are not lowered yet.
   Record and flags foreign signatures are not known to be reachable from
   parsed source.
-- **No source type for option/result/variant/tuple.** `option`/`result`
-  payloads, non-unit `variant`s, and tuples stay rejected until the standard
-  library defines `Maybe`, `Either`, and tuple types the compiler can map.
+- **No compiler source type for option/result/variant/tuple.** Those WIT forms
+  are not compiler source types
+  ([DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+  A standard-library wrapper may pass them only as a sequence of primitive
+  arguments whose flattening matches the canonical signature; multi-value
+  returns stay unsupported.
 - **Filesystem loader.** The standard library remains embedded; the driver's
   loader discovers user modules from the entry files' directories and follows
   the import graph ([WASI platform library](wasi-platform-library.md)). Loading
