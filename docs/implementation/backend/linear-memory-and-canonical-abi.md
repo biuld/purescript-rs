@@ -3,12 +3,16 @@
 **Feature:** [F-02](../../feature/F-02-portable-programs.md)
 
 **Design:** [Linear memory and the canonical ABI boundary](../../design/backend/wasm/linear-memory-and-canonical-abi-boundary.md)
-and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md).
+and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md),
+with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 
-**Progress:** LM-01 through LM-05 and ABI-01 through ABI-07 Verified. ABI-08 is
-Blocked: general aggregate results, `option`/`result`/`variant` payloads,
-non-byte lists, tuples, and `own`/`borrow` have no source type or frontend
-support yet. This is why the broader BE-19 row stays `Partial`.
+**Progress:** Re-baselined by
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md), which makes
+strings GC-managed and requires a reclaiming allocator, `post-return`, and
+`own`/`borrow` handles. LM-05, ABI-01, ABI-06, and ABI-07 are Verified.
+LM-01..LM-04 and ABI-02..ABI-05 pass under the pre-DEC-10 representation
+(linear `i32` strings, bump allocator) and are In progress for the complete
+target. ABI-08 is Blocked on source types.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
@@ -27,19 +31,19 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| LM-01 | One wasm32 memory at index 0, with deterministic memory/data index order and profile gating. | Encoded modules validate; driver components run. | Verified |
-| LM-02 | Strings are length-prefixed UTF-8 data segments; literal regions are read-only. | String execution cases plus literal read-only extent rejection. | Verified |
-| LM-03 | `cabi_realloc` checks alignment, address overflow, old range, growth, and copies preserved bytes. | Allocator unit test covering each failure and the copy path. | Verified |
-| LM-04 | Static access-extent verification propagates known addresses and rejects unsound stores. | `wasm::lower::extent` accept/reject fixtures. | Verified |
+| LM-01 | The target profile selects the pointer width and the ABI memory; the stable profile uses one wasm32 memory at index 0 with deterministic memory/data index order. | Encoded modules validate; driver components run; memory64/multi-memory remain. | In progress |
+| LM-02 | Strings are GC byte sequences; literals are passive data segments materialized with `array.new_data`, and the ABI linearizes them transiently. | GC-string construction, crossing, and literal tests. | In progress |
+| LM-03 | `cabi_realloc` is a general aligned allocator with alloc/free/realloc, reuse, alignment, overflow, and growth checks. | Allocator tests covering allocation, free, reuse, alignment, and failure. | In progress |
+| LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | In progress |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
-| ABI-02 | Scalars, enums, flags, chars, and handles map directly to canonical values. | WIT scalar/enum/flags tests and driver WASI cases. | Verified |
-| ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order. | WIT record/flags flattening tests and the indirect composite fixture. | Verified |
-| ABI-04 | Indirect parameter tuples are laid out and allocated through `cabi_realloc`. | Indirect composite parameter lowering/artifact tests. | Verified |
-| ABI-05 | Unit-success, scalar, and byte-list results are recovered at the boundary. | Driver string/list result cases and multiple returned strings. | Verified |
+| ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | In progress |
+| ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | In progress |
+| ABI-04 | Indirect parameter tuples are laid out and allocated through `cabi_realloc` and freed when the call returns. | Indirect composite parameter lowering/artifact tests plus buffer-free evidence. | In progress |
+| ABI-05 | Unit-success, scalar, and byte-list results are recovered into GC values, freeing the transient buffer. | Driver string/list result cases and multiple returned strings. | In progress |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and `own`/`borrow` drop rules lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
 
 ## Evidence record and completion rule
 
@@ -237,6 +241,10 @@ ABI-08:
 
 ## Remaining work and blockers
 
-ABI-08 is Blocked on source types and frontend support for aggregate foreign
-signatures; its resumption condition is recorded above. Allocation provenance
-and reclamation stay out of scope by DEC-09 and are recorded in the design.
+Migration to the DEC-10 target: GC string representation and `array.new_data`
+literals (LM-02), the reclaiming allocator (LM-03), the re-scoped extent
+regions (LM-04), GC byte-list recovery (ABI-03/ABI-05), buffer freeing after
+calls (ABI-04), and `own`/`borrow` handles (ABI-02). ABI-08 (aggregates,
+`option`/`result`/`variant`, tuples, `post-return`) is Blocked on source types
+and frontend support for aggregate foreign signatures. These are tracked on
+BE-11 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).
