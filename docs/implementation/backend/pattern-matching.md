@@ -340,7 +340,8 @@ PM-13:
   all small sum and closed-record matrices plus a bounded recursive-ADT oracle.
   Opening the oracle to newtypes and multi-column records is straightforward
   future work; current source-level newtype and record cases execute instead.
-- Excluded by design and not claimed as present support: literal, guard, view,
-  tuple, array, as, and or patterns; open-row patterns.
+- Tuple patterns are source sugar for closed-record patterns `{ _1, _2, ... }`
+  and are not a separate Core pattern. Excluded and not claimed as present
+  support: literal, guard, view, array, as, and or patterns; open-row patterns.
 - Frontend pattern syntax and official-suite landing remain independently
   tracked (FE-06/FE-12, M8-W).

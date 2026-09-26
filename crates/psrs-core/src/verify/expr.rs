@@ -139,9 +139,16 @@ impl Context<'_> {
                 }
             }
             ExprKind::RecordUpdate { record, fields } => {
-                self.expr(record, Some(expression.ty));
+                self.expr(record, None);
                 for (label, value) in fields {
-                    let field_type = record_field(record.ty, label, self.module);
+                    if record_field(record.ty, label, self.module).is_none() {
+                        self.errors.push(error(
+                            self.owner,
+                            value.span,
+                            "record update field is not declared",
+                        ));
+                    }
+                    let field_type = record_field(expression.ty, label, self.module);
                     self.expr(value, field_type);
                     if field_type.is_none() {
                         self.errors.push(error(

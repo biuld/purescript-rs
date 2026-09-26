@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn runs_a_tuple_as_a_closed_record() {
+    let source = "\
+module Main where
+pair :: (Int, Int)
+pair = (40, 2)
+sum (x, y) = x + y
+main = case pair of
+  (x, y) -> sum (x, y)
+";
+    let core = lower_source_to_core("Main.purs", source).expect("tuple should lower to Core");
+    let main = core
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .expect("Core should retain main");
+    let psrs_core::ExprKind::Case { scrutinee, .. } = &main.value.kind else {
+        panic!("main should case on the tuple");
+    };
+    let psrs_core::Type::Record(fields) = &core.types[scrutinee.ty.0 as usize] else {
+        panic!(
+            "a tuple type should be a closed record in Core, got {:?}",
+            core.types[scrutinee.ty.0 as usize]
+        );
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(label, _)| label.as_str())
+            .collect::<Vec<_>>(),
+        ["_1", "_2"]
+    );
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_a_record_field_access_through_a_gc_struct() {
     let source = "module Main where\nmain = { ignored: 10, answer: 42 }.answer\n";
     let artifact = compile_source("Main.purs", source).expect("lowering a record field access");
@@ -181,6 +220,67 @@ fn rejects_a_record_pattern_with_an_unknown_field() {
     let errors = compile_source("Main.purs", source).expect_err("unknown record pattern field");
     assert!(errors.iter().any(|error| {
         error.stage == "P5 typecheck" && error.message.contains("record has no field `missing`")
+    }));
+}
+
+#[test]
+fn typechecks_an_open_record_row_by_label() {
+    let source = "\
+module Main where
+getX :: forall r. { x :: Int | r } -> Int
+getX record = record.x
+setX :: forall r. { x :: Int | r } -> String -> { x :: String | r }
+setX record value = record { x = value }
+same :: forall r. { y :: Boolean, x :: Int | r } -> Int
+same record = getX record
+swapped :: forall s. { x :: Int, y :: Boolean | s } -> Int
+swapped record = same record
+main = swapped { y: true, x: 1 }
+";
+    check_source("Main.purs", source).expect("open rows should type check");
+    let errors = compile_source("Main.purs", source).expect_err("open rows have no runtime layout");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("open record rows have no runtime layout")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_missing_open_record_field_and_a_duplicate_label() {
+    let missing = "\
+module Main where
+getX :: forall r. { x :: Int | r } -> Int
+getX record = record.x
+main = getX { y: true }
+";
+    let errors = check_source("Main.purs", missing).expect_err("missing label");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck" && error.message.contains("record has no field `x`")
+    }));
+    let hidden = "\
+module Main where
+getY :: forall r. { x :: Int | r } -> Int
+getY record = record.y
+main = 0
+";
+    let errors = check_source("Main.purs", hidden).expect_err("rigid tail");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck" && error.message.contains("record has no field `y`")
+    }));
+    let duplicate = "\
+module Main where
+bad :: { x :: Int, x :: Boolean } -> Int
+bad record = record.x
+main = bad { x: 1 }
+";
+    let errors = check_source("Main.purs", duplicate).expect_err("duplicate label");
+    assert!(errors.iter().any(|error| {
+        error.stage == "P5 typecheck"
+            && error
+                .message
+                .contains("record label `x` occurs more than once")
     }));
 }
 

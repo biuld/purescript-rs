@@ -187,13 +187,14 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: stdlib/lib/{Prelude.purs,WASI/Console.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Exit.purs}
+  Implementation: stdlib/lib/{Prelude.purs,Data/Maybe.purs,Data/Either.purs,WASI/Console.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Exit.purs}
     read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
     lists those modules in trusted-prefix order. User discovery in
     crates/psrs-driver/src/loader.rs still skips those module names.
   Tests: psrs-driver tests::module_loader::
     loads_the_standard_library_from_disk_in_trusted_order,
     does_not_discover_a_user_module_shadowing_the_standard_library;
+    tests::library_types::runs_library_maybe_and_either_by_casing_on_just_and_left;
     tests::effects::{run_effect_is_only_available_from_the_selected_entry,
     an_untrusted_prelude_effect_remains_an_ordinary_user_type,
     transitive_effect_types_keep_their_closure_representation};
@@ -209,11 +210,13 @@ WASI-10:
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
-  Gaps: none. The loaded set is Prelude, WASI.Console, WASI.Clock,
-    WASI.Random, and WASI.Exit. WASI.Random and WASI.Exit use Effect from
-    Prelude. Their wrappers are effect lambdas, so both are part of the
-    trusted Effect representation with Console and Clock. The exit evidence
-    does not execute `exitWithCode`.
+  Gaps: none. The loaded set is Prelude, Data.Maybe, Data.Either,
+    WASI.Console, WASI.Clock, WASI.Random, and WASI.Exit. Data.Maybe and
+    Data.Either are ordinary algebraic types and are not in the trusted Effect
+    name list. WASI.Random and WASI.Exit use Effect from Prelude. Their
+    wrappers are effect lambdas, so both are part of the trusted Effect
+    representation with Console and Clock. The exit evidence does not execute
+    `exitWithCode`.
 ```
 
 ## Remaining work and blockers

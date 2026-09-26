@@ -192,6 +192,13 @@ pub(super) fn check_pattern_names(
                 }
             }
         }
+        cst::PatternKind::Tuple { elements, .. } => {
+            for element in elements {
+                if let Some(error) = check_pattern_names(element, seen) {
+                    return Some(error);
+                }
+            }
+        }
         cst::PatternKind::Record { fields, .. } => {
             for field in fields {
                 if let Some((_, pattern)) = &field.value {
@@ -259,6 +266,13 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
                     .collect::<Result<_, LowerError>>()?,
             }
         }
+        cst::PatternKind::Tuple { elements, .. } => PatternKind::Record {
+            fields: elements
+                .into_iter()
+                .enumerate()
+                .map(|(index, element)| Ok((super::tuple_label(index), lower_pattern(element)?)))
+                .collect::<Result<_, _>>()?,
+        },
         cst::PatternKind::Parens { pattern, .. } => {
             let mut lowered = lower_pattern(*pattern)?;
             lowered.span = span;

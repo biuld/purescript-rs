@@ -1,6 +1,8 @@
 # Trusted standard-library modules, in prefix order.
 # Dots are directory separators under this directory.
 Prelude
+Data.Maybe
+Data.Either
 WASI.Console
 WASI.Clock
 WASI.Random

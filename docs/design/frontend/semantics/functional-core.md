@@ -92,7 +92,7 @@ constructors is fixed:
 | `Char` | `Char` (a Unicode scalar) |
 | `Unit` | `Unit` (no payload) |
 | `a -> b` | `Function { parameter, result }` |
-| records and tuples | `Record([(label, TypeId)])`; a tuple is an anonymous product |
+| records and tuples | `Record([(label, TypeId)])`; a tuple is the closed record `{ _1, _2, ... }` |
 | `Array a` | `Application(Constructor(Array), a)` |
 | data types | `Constructor(User(HirTypeId))`, optionally applied to arguments |
 | `String` | `String`, a platform value supplied by the WASI boundary |
@@ -435,5 +435,7 @@ rank-1 polymorphic functions, non-parameterized and a restricted parameterized
 ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
 the current effect encoding. Local recursive `Let` groups are not yet lowered — only
 top-level recursion through `Global` and the generated closure wrappers are —
-and constraint evidence, open rows, and the final effect representation are not
-yet produced. Nothing in the model above depends on those deviations.
+and constraint evidence and the final effect representation are not yet
+produced. Open record rows are checked and kept in Core as `OpenRecord`;
+closure conversion rejects them rather than choosing a field layout. Nothing
+in the model above depends on those deviations.

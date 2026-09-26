@@ -104,8 +104,9 @@ pub(super) fn array_element(id: TypeId, module: &Module) -> Option<TypeId> {
 }
 
 pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<TypeId> {
-    let Type::Record(fields) = module.types.get(id.0 as usize)? else {
-        return None;
+    let fields = match module.types.get(id.0 as usize)? {
+        Type::Record(fields) | Type::OpenRecord { fields, .. } => fields,
+        _ => return None,
     };
     fields
         .iter()
@@ -183,6 +184,20 @@ fn types_compatible(
                         .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
                 })
         }
+        (
+            Type::OpenRecord {
+                fields: expected, ..
+            },
+            Type::Record(actual) | Type::OpenRecord { fields: actual, .. },
+        ) => expected.iter().all(|(label, ty)| {
+            // The row tail of `expected` can hold labels the argument still
+            // has. A missing expected label, or a field whose type disagrees,
+            // is not compatible. Tail variables themselves match any type.
+            actual
+                .iter()
+                .find(|(other, _)| other == label)
+                .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
+        }),
         _ => false,
     }
 }

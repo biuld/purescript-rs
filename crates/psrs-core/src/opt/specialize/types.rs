@@ -103,6 +103,7 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
             Box::new(type_key(module, *parameter, active)?),
             Box::new(type_key(module, *result, active)?),
         )),
+        Type::OpenRecord { .. } => None,
         Type::Record(fields) => {
             let mut keys = fields
                 .iter()

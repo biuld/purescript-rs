@@ -11,6 +11,7 @@ impl Checker {
         imported: &HashMap<SymbolId, hir::Type>,
         effect_type: Option<hir::TypeId>,
         effect_runtime_representation: bool,
+        known_types: &[hir::TypeDeclaration],
     ) -> Self {
         let mut checker = Self {
             globals: HashMap::new(),
@@ -97,8 +98,42 @@ impl Checker {
             level: 1,
             errors: Vec::new(),
         };
+        checker.import_known_types(known_types);
         checker.register_constructors();
         checker
+    }
+
+    /// Registers data and newtype constructors declared anywhere in the
+    /// program. Constructors this module already declared keep their entry.
+    fn import_known_types(&mut self, known_types: &[hir::TypeDeclaration]) {
+        for declaration in known_types {
+            self.type_names
+                .entry(declaration.id)
+                .or_insert_with(|| declaration.name.clone());
+            if !matches!(
+                declaration.kind,
+                hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
+            ) {
+                continue;
+            }
+            let parameters = declaration
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.clone())
+                .collect::<Vec<_>>();
+            for (tag, constructor) in declaration.constructors.iter().enumerate() {
+                self.constructor_info
+                    .entry(constructor.symbol)
+                    .or_insert_with(|| ConstructorInfo {
+                        symbol: constructor.symbol,
+                        name: constructor.name.clone(),
+                        type_id: declaration.id,
+                        tag: tag as u32,
+                        parameters: parameters.clone(),
+                        fields: constructor.fields.clone(),
+                    });
+            }
+        }
     }
 
     /// Registers each data and newtype constructor as a polymorphic value whose

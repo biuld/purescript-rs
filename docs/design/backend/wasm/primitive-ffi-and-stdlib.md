@@ -292,7 +292,9 @@ application world, and embedding stay in
 
 ```text
 stdlib/lib/
-  Prelude.purs                 ordinary library types (Effect, and later Maybe, Either, tuples)
+  Prelude.purs                 ordinary library types (Effect)
+  Data/Maybe.purs              data Maybe a = Nothing | Just a, plus eliminators
+  Data/Either.purs             data Either a b = Left a | Right b, plus eliminators
   WASI/Console.purs            export list is the wrappers only
   WASI/Clock.purs              same split
 crates/psrs-backend/src/
@@ -474,9 +476,11 @@ their modules and are not exported. `wasi:cli/exit.exit` is not wrapped; the
 A primitive import
 of an `option` parameter is accepted when the declared primitives flatten to
 the canonical parameter list; `option<string>` is `Int -> String -> Unit`.
-`Maybe` is not in `Prelude`. Nullary enum, closed record, and flags-record
-foreign imports still lower; new library code should not use that path. No
-`SourceType::Option`, `SourceType::Result`, or `SourceType::Tuple` exists.
+`Maybe` and `Either` are ordinary data types in `Data.Maybe` and `Data.Either`,
+not in `Prelude` and not compiler builtins. Nullary enum, closed record, and
+flags-record foreign imports still lower; new library code should not use that
+path. No `SourceType::Option`, `SourceType::Result`, or `SourceType::Tuple`
+exists.
 
 ## References
 
