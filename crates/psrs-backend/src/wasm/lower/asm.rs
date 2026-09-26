@@ -1,4 +1,5 @@
-//! Low-level structured-instruction helpers for the string codec.
+//! Low-level structured-instruction builders shared by synthesized Wasm
+//! helpers (the string codec and the canonical ABI allocator).
 
 use crate::types::DefinedTypeId;
 use crate::wasm::{Body, Op};
@@ -6,7 +7,7 @@ use wasm_encoder::{BlockType, Instruction, MemArg, ValType};
 
 const DEFAULT_ALIGN: u32 = 0;
 
-pub(super) fn memarg(offset: u32) -> MemArg {
+pub(crate) fn memarg(offset: u32) -> MemArg {
     MemArg {
         offset: u64::from(offset),
         align: DEFAULT_ALIGN,
@@ -14,14 +15,14 @@ pub(super) fn memarg(offset: u32) -> MemArg {
     }
 }
 
-pub(super) fn string_ref(string_type: DefinedTypeId) -> ValType {
+pub(crate) fn string_ref(string_type: DefinedTypeId) -> ValType {
     ValType::Ref(wasm_encoder::RefType {
         nullable: false,
         heap_type: wasm_encoder::HeapType::Concrete(string_type.0),
     })
 }
 
-pub(super) fn nullable_string_ref(string_type: DefinedTypeId) -> ValType {
+pub(crate) fn nullable_string_ref(string_type: DefinedTypeId) -> ValType {
     ValType::Ref(wasm_encoder::RefType {
         nullable: true,
         heap_type: wasm_encoder::HeapType::Concrete(string_type.0),
@@ -30,14 +31,14 @@ pub(super) fn nullable_string_ref(string_type: DefinedTypeId) -> ValType {
 
 /// A small structured-instruction builder that tracks label depth so branch
 /// targets can be named instead of counted.
-pub(super) struct Asm {
+pub(crate) struct Asm {
     body: Body,
     stack: Vec<u32>,
     next: u32,
 }
 
 impl Asm {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             body: Vec::new(),
             stack: Vec::new(),
@@ -45,49 +46,49 @@ impl Asm {
         }
     }
 
-    pub(super) fn into_body(self) -> Body {
+    pub(crate) fn into_body(self) -> Body {
         self.body
     }
 
-    pub(super) fn label(&mut self) -> u32 {
+    pub(crate) fn label(&mut self) -> u32 {
         let id = self.next;
         self.next += 1;
         id
     }
 
-    pub(super) fn leaf(&mut self, instruction: Instruction<'static>) {
+    pub(crate) fn leaf(&mut self, instruction: Instruction<'static>) {
         self.body.push(Op::Leaf(instruction));
     }
 
-    pub(super) fn block(&mut self, id: u32) {
+    pub(crate) fn block(&mut self, id: u32) {
         self.leaf(Instruction::Block(BlockType::Empty));
         self.stack.push(id);
     }
 
-    pub(super) fn loop_(&mut self, id: u32) {
+    pub(crate) fn loop_(&mut self, id: u32) {
         self.leaf(Instruction::Loop(BlockType::Empty));
         self.stack.push(id);
     }
 
-    pub(super) fn if_(&mut self, id: u32) {
+    pub(crate) fn if_(&mut self, id: u32) {
         self.leaf(Instruction::If(BlockType::Empty));
         self.stack.push(id);
     }
 
-    pub(super) fn else_(&mut self) {
+    pub(crate) fn else_(&mut self) {
         self.leaf(Instruction::Else);
     }
 
-    pub(super) fn end(&mut self) {
+    pub(crate) fn end(&mut self) {
         self.leaf(Instruction::End);
         self.stack.pop();
     }
 
-    pub(super) fn br(&mut self, id: u32) {
+    pub(crate) fn br(&mut self, id: u32) {
         self.leaf(Instruction::Br(self.depth(id)));
     }
 
-    pub(super) fn br_if(&mut self, id: u32) {
+    pub(crate) fn br_if(&mut self, id: u32) {
         self.leaf(Instruction::BrIf(self.depth(id)));
     }
 
@@ -102,19 +103,19 @@ impl Asm {
     }
 }
 
-pub(super) fn get(asm: &mut Asm, index: u32) {
+pub(crate) fn get(asm: &mut Asm, index: u32) {
     asm.leaf(Instruction::LocalGet(index));
 }
 
-pub(super) fn set(asm: &mut Asm, index: u32) {
+pub(crate) fn set(asm: &mut Asm, index: u32) {
     asm.leaf(Instruction::LocalSet(index));
 }
 
-pub(super) fn constant(asm: &mut Asm, value: i32) {
+pub(crate) fn constant(asm: &mut Asm, value: i32) {
     asm.leaf(Instruction::I32Const(value));
 }
 
-pub(super) fn advance(asm: &mut Asm, out: u32, amount: i32) {
+pub(crate) fn advance(asm: &mut Asm, out: u32, amount: i32) {
     get(asm, out);
     constant(asm, amount);
     asm.leaf(Instruction::I32Add);
@@ -122,7 +123,7 @@ pub(super) fn advance(asm: &mut Asm, out: u32, amount: i32) {
 }
 
 /// Stores the constant byte `value` at `out + offset`.
-pub(super) fn store_const(asm: &mut Asm, out: u32, offset: i32, value: i32) {
+pub(crate) fn store_const(asm: &mut Asm, out: u32, offset: i32, value: i32) {
     get(asm, out);
     if offset != 0 {
         constant(asm, offset);
@@ -134,7 +135,7 @@ pub(super) fn store_const(asm: &mut Asm, out: u32, offset: i32, value: i32) {
 
 /// Emits one byte of a multi-byte sequence: `base | ((value >> shift) & mask)`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn store_derived(
+pub(crate) fn store_derived(
     asm: &mut Asm,
     out: u32,
     offset: i32,

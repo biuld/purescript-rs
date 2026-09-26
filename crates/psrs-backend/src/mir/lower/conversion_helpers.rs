@@ -16,13 +16,16 @@ pub(in crate::mir) struct ConversionHelpers {
 
 impl ConversionHelpers {
     pub(in crate::mir) fn new(module: &cc::Module, scalar_helpers: &[Function]) -> Self {
-        let used = module
+        let mut used: HashSet<SymbolId> = module
             .functions
             .iter()
             .map(|function| function.symbol)
             .chain(module.externals.iter().map(|external| external.symbol))
             .chain(scalar_helpers.iter().map(|function| function.symbol))
             .collect();
+        // Intrinsic symbols are allocated downward from `u32::MAX`; the
+        // canonical ABI and codec reserve the top indices.
+        used.extend(crate::abi::RESERVED_ABI_SYMBOLS);
         Self {
             symbols: HashMap::new(),
             functions: Vec::new(),

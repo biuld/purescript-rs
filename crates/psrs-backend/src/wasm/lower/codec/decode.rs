@@ -1,17 +1,13 @@
 //! UTF-8 to UTF-16 decoding into a fresh GC string at the canonical ABI boundary.
 
-use super::asm::*;
+use crate::abi::DECODE_STEP_SYMBOL;
 use crate::types::DefinedTypeId;
+use crate::wasm::lower::asm::*;
 use crate::wasm::{Function, FunctionIndex, TypeIndex};
-use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
 use wasm_encoder::{Instruction, ValType};
 
 const REPLACEMENT: i32 = 0xFFFD;
-
-/// MIR identity for the internal `decode_step` helper. It is never referenced
-/// by MIR and only names the synthesized Wasm function.
-const DECODE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
 
 /// Packs the result of one decode step.
 fn pack(consumed: i32, units: i32, code_point: i32) -> i32 {

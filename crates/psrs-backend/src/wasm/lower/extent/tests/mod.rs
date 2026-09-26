@@ -123,6 +123,56 @@ fn allows_reads_and_writes_inside_the_scratch_region() {
 }
 
 #[test]
+fn allows_reads_and_writes_inside_the_heap_state_region() {
+    let function = function(
+        vec![
+            decl(0, ValueType::I32),
+            decl(1, ValueType::I32),
+            decl(2, ValueType::I32),
+            decl(3, ValueType::I32),
+        ],
+        Vec::new(),
+        vec![block(
+            vec![
+                Instruction::Constant {
+                    destination: ValueId(0),
+                    value: crate::abi::HEAP_STATE as i32,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Constant {
+                    destination: ValueId(1),
+                    value: 7,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Load {
+                    destination: ValueId(2),
+                    address: ValueId(0),
+                    memory: MemoryId(0),
+                    offset: 0,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Store {
+                    address: ValueId(0),
+                    value: ValueId(1),
+                    memory: MemoryId(0),
+                    offset: 0,
+                    span: ACCESS_SPAN,
+                },
+                Instruction::Copy {
+                    destination: ValueId(3),
+                    value: ValueId(2),
+                    span: ACCESS_SPAN,
+                },
+            ],
+            returning(ValueId(3)),
+        )],
+        ValueId(3),
+    );
+
+    verify(function).expect("heap state is a readable and writable ABI region");
+}
+
+#[test]
 fn rejects_accesses_that_cross_the_scratch_boundary() {
     let function = function(
         vec![decl(0, ValueType::I32), decl(1, ValueType::I32)],
@@ -160,7 +210,7 @@ fn rejects_accesses_that_start_in_an_unmapped_gap() {
             vec![
                 Instruction::Constant {
                     destination: ValueId(0),
-                    value: 23,
+                    value: 4096,
                     span: ACCESS_SPAN,
                 },
                 Instruction::Load8U {

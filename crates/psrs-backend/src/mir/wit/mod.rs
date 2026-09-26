@@ -33,6 +33,14 @@ pub(super) trait WitCallLowerer {
     ) -> Result<ValueId, Vec<BackendError>>;
 }
 
+/// A call-local buffer that must be freed once the canonical call returns. The
+/// `align` is a compile-time constant; `length` is the payload length value.
+pub(super) struct PendingFree {
+    pub pointer: ValueId,
+    pub length: ValueId,
+    pub align: i32,
+}
+
 impl WitCallLowerer for FunctionLowerer<'_> {
     fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
         self.fresh(ty)
@@ -73,12 +81,14 @@ pub(super) fn lower<L: WitCallLowerer>(
     current: BlockId,
 ) -> Result<(), Vec<BackendError>> {
     let mut flat = Vec::new();
+    let mut frees = Vec::new();
     parameters::lower_parameters(
         lowerer,
         import,
         source_signature,
         arguments,
         &mut flat,
+        &mut frees,
         current,
         span,
     )?;
@@ -145,6 +155,9 @@ pub(super) fn lower<L: WitCallLowerer>(
                 },
                 span,
             )?;
+            // The host-allocated import result is copied into the GC string;
+            // free it before returning control to source.
+            free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
         abi::WasiResultKind::Scalar
         | abi::WasiResultKind::IntegerNarrow { .. }
@@ -308,7 +321,63 @@ pub(super) fn lower<L: WitCallLowerer>(
             )]);
         }
     }
+    // Call-local buffers (string transcode buffers and indirect parameter
+    // records) are owned by this function and freed once the call returns.
+    for pending in frees.iter().rev() {
+        free_buffer(
+            lowerer,
+            pending.pointer,
+            pending.length,
+            pending.align,
+            current,
+            span,
+        )?;
+    }
     Ok(())
+}
+
+/// Frees a transient canonical buffer through `cabi_realloc(ptr, len, align, 0)`.
+fn free_buffer<L: WitCallLowerer>(
+    lowerer: &mut L,
+    pointer: ValueId,
+    length: ValueId,
+    align: i32,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let align_value = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: align_value,
+            value: align,
+            span,
+        },
+        span,
+    )?;
+    let zero = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: zero,
+            value: 0,
+            span,
+        },
+        span,
+    )?;
+    // `cabi_realloc` is declared with an `i32` result; the freed pointer is
+    // discarded.
+    let discarded = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Call {
+            destination: discarded,
+            function: abi::REALLOC_SYMBOL,
+            arguments: vec![pointer, length, align_value, zero],
+            span,
+        },
+        span,
+    )
 }
 
 #[cfg(test)]
