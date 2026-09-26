@@ -1,5 +1,5 @@
 
-module WASI.Console where
+module WASI.Console (log, error) where
 
 import Prelude
 

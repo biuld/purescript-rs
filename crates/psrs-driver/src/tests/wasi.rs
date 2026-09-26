@@ -181,13 +181,38 @@ fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
 #[test]
 fn reads_random_bytes_when_wasmtime_is_available() {
     let source = "module Main where\n\
-        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
-        main = let bytes = randomBytes 8 in 0\n";
+        import Prelude\n\
+        import WASI.Console\n\
+        import WASI.Random\n\
+        main = let noise = runEffect randomU64 in let ignored = runEffect (bind (randomBytes 8) log) in noise * 0\n";
+    let artifact = compile_source("Main.purs", source).expect("library randomBytes should lower");
+    assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
+    assert!(artifact.wat.contains("get-random-bytes"));
+    assert!(artifact.wat.contains("get-random-u64"));
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
-    assert_eq!(output.status.code(), Some(0));
+    assert!(output.status.success(), "wasmtime failed: {output:?}");
+    // Random bytes are decoded as UTF-8 with U+FFFD replacement. `log` appends
+    // a newline to that GC string, so the payload is non-empty.
+    assert!(output.stdout.ends_with(b"\n"), "{output:?}");
+    assert!(output.stdout.len() > 1, "{output:?}");
+}
+
+#[test]
+fn rejects_an_import_of_unexported_write_stdout() {
+    let errors = check_source(
+        "Main.purs",
+        "module Main where\nimport WASI.Console (writeStdout)\nmain = 0\n",
+    )
+    .expect_err("writeStdout is not part of the console export list");
+    assert!(
+        errors.iter().any(|error| {
+            error.message.contains("writeStdout") && error.message.contains("not exported")
+        }),
+        "{errors:?}"
+    );
 }
 
 #[test]
