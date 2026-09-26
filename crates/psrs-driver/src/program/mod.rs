@@ -237,6 +237,10 @@ fn typecheck_program(
                 .find(|declaration| declaration.name == "Effect")
                 .map(|declaration| declaration.id)
         });
+    let known_types = modules
+        .iter()
+        .flat_map(|module| module.types.iter().cloned())
+        .collect::<Vec<_>>();
     let exported = modules.iter().map(exported_signatures).collect::<Vec<_>>();
     let order = typecheck_order(&modules);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
@@ -284,6 +288,7 @@ fn typecheck_program(
             &imported,
             effect_type,
             trusted_effect_representation,
+            &known_types,
         );
         match check {
             Ok(module) => typed[index] = Some(module),

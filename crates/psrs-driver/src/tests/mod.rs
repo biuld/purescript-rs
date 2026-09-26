@@ -62,4 +62,6 @@ mod functions;
 
 mod module_loader;
 
+mod library_types;
+
 mod tail_calls;

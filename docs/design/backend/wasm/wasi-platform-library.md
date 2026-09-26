@@ -179,8 +179,10 @@ constant, which exists to give the entry its declared `i32` result
 
 The platform library is source code under `stdlib/lib`, read from disk and
 resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
-the trusted prefix order (`Prelude`, `WASI.Console`, `WASI.Clock`,
-`WASI.Random`, `WASI.Exit`).
+the trusted prefix order (`Prelude`, `Data.Maybe`, `Data.Either`,
+`WASI.Console`, `WASI.Clock`, `WASI.Random`, `WASI.Exit`). `Data.Maybe` and
+`Data.Either` are ordinary library types; they are not part of the trusted
+`Effect` representation.
 `WASI.Console` defines `log` and `error`, `WASI.Clock` defines `now`,
 `WASI.Random` defines `randomBytes` and `randomU64`, and `WASI.Exit` defines
 `exitWithCode`. Each WIT import is declared with a binding string and lowered
@@ -368,9 +370,9 @@ test that calls it, because that terminates the process. `wasi:cli/exit.exit`
 is not wrapped. Filesystem, arguments, environment, sockets, HTTP, and TLS are
 specified but not implemented; their capability flags are disabled in the
 default profile. The standard library is read from `stdlib/lib` at runtime
-(`stdlib/lib/trusted` lists `Prelude`, `WASI.Console`, `WASI.Clock`,
-`WASI.Random`, and `WASI.Exit` in trusted-prefix order). The driver discovers
-user modules from the entry files'
+(`stdlib/lib/trusted` lists `Prelude`, `Data.Maybe`, `Data.Either`,
+`WASI.Console`, `WASI.Clock`, `WASI.Random`, and `WASI.Exit` in trusted-prefix
+order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the
 on-disk library provides. Resolution, duplicate-module, and cycle checks remain
