@@ -1,5 +1,5 @@
-use super::super::classification::{param_kind, result_kind, source_signature, unsupported_shape};
-use super::super::{SourceType, WasiParamKind, WasiResultKind};
+use super::super::classification::{param_kind, result_kind, unsupported_shape};
+use super::super::{WasiParamKind, WasiResultKind};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{BuiltinType, ModuleId, Type as HirType, TypeKind as HirTypeKind};
 use psrs_span::TextRange;
@@ -36,25 +36,18 @@ fn array(element: BuiltinType) -> HirType {
 }
 
 #[test]
-fn maps_an_array_of_supported_elements_and_rejects_nested_arrays() {
-    let core = empty_core();
-    let strings = source_signature(&core, &array(BuiltinType::String))
-        .expect("Array String should be a source array");
-    assert_eq!(
-        strings.result,
-        SourceType::Array {
-            element: Box::new(SourceType::String)
-        }
-    );
-    let ints = source_signature(&core, &array(BuiltinType::Int)).expect("Array Int");
-    assert_eq!(
-        ints.result,
-        SourceType::Array {
-            element: Box::new(SourceType::Int)
-        }
+fn interns_an_array_of_supported_elements_and_rejects_nested_arrays() {
+    let mut core = empty_core();
+    assert!(
+        crate::abi::intern_source_type(&mut core, &array(BuiltinType::String)).is_some(),
+        "Array String should intern"
     );
     assert!(
-        source_signature(&core, &array_of_array()).is_none(),
+        crate::abi::intern_source_type(&mut core, &array(BuiltinType::Int)).is_some(),
+        "Array Int should intern"
+    );
+    assert!(
+        crate::abi::intern_source_type(&mut core, &array_of_array()).is_none(),
         "Array (Array Int) is not a canonical list element"
     );
 }

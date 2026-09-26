@@ -6,8 +6,6 @@
 //! instead of a compiler aggregate. `Char` stays distinct from `Int` and from
 //! a handle even though all three are `i32` on the wire.
 
-#[cfg(test)]
-use super::SourceType;
 use crate::types::ValueType;
 use wit_parser::{Int, Resolve, Type as WitType, TypeDefKind};
 
@@ -28,24 +26,6 @@ pub(crate) enum FlatSlot {
     Length,
     /// Joined variant payloads that are not one source primitive.
     Ambiguous,
-}
-
-#[cfg(test)]
-pub(crate) fn is_primitive(ty: &SourceType) -> bool {
-    matches!(
-        ty,
-        SourceType::Int
-            | SourceType::Boolean
-            | SourceType::Number
-            | SourceType::Char
-            | SourceType::String
-            | SourceType::Unit
-    )
-}
-
-#[cfg(test)]
-pub(crate) fn is_primitive_signature(parameters: &[SourceType], result: &SourceType) -> bool {
-    is_primitive(result) && parameters.iter().all(is_primitive)
 }
 
 /// Whether an otherwise unsupported WIT parameter is only scalars, handles,
@@ -145,54 +125,6 @@ pub(crate) fn slot_value_type(slot: &FlatSlot) -> Option<ValueType> {
         FlatSlot::Float64 => ValueType::F64,
         FlatSlot::Ambiguous => return None,
     })
-}
-
-/// Walks `parameters` against `slots`. `String` consumes `(pointer, length)`.
-/// `Int` matches an integer slot or a handle, not a `Char` or a `Boolean`.
-#[cfg(test)]
-pub(crate) fn parameters_match(parameters: &[SourceType], slots: &[FlatSlot]) -> bool {
-    let mut index = 0;
-    for parameter in parameters {
-        if !consume(parameter, slots, &mut index) {
-            return false;
-        }
-    }
-    index == slots.len()
-}
-
-#[cfg(test)]
-fn consume(parameter: &SourceType, slots: &[FlatSlot], index: &mut usize) -> bool {
-    let Some(slot) = slots.get(*index) else {
-        return false;
-    };
-    match parameter {
-        SourceType::Int => matches!(
-            slot,
-            FlatSlot::Int32 | FlatSlot::Int64 { .. } | FlatSlot::Handle
-        ),
-        SourceType::Boolean => matches!(slot, FlatSlot::Boolean),
-        SourceType::Char => matches!(slot, FlatSlot::Char),
-        SourceType::Number => matches!(slot, FlatSlot::Float32 | FlatSlot::Float64),
-        SourceType::String => {
-            let length = slots.get(*index + 1);
-            if matches!((slot, length), (FlatSlot::Pointer, Some(FlatSlot::Length))) {
-                *index += 2;
-                return true;
-            }
-            return false;
-        }
-        SourceType::Unit
-        | SourceType::Enum { .. }
-        | SourceType::Record { .. }
-        | SourceType::Resource { .. }
-        | SourceType::Array { .. } => {
-            return false;
-        }
-    }
-    .then(|| {
-        *index += 1;
-    })
-    .is_some()
 }
 
 fn push_type(resolve: &Resolve, ty: &WitType, slots: &mut Vec<FlatSlot>) {

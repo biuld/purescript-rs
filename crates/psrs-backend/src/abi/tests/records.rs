@@ -73,8 +73,6 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     };
     let type_id = crate::abi::intern_source_type(&mut core, &function)
         .expect("the record function type should intern");
-    let source = source_signature(&core, &function)
-        .expect("closed record signatures should have source ABI metadata");
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
         module: "test:records".into(),
@@ -87,20 +85,16 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    WasiRegistry::load()
-        .expect("vendored WASI should load")
-        .validate_signature(&import, &source)
+    crate::abi::link::validate_import_signature(&import, &core, type_id)
         .expect("source fields should match WIT names and types");
-    let mut mismatched = source.clone();
-    let SourceType::Record { fields } = &mut mismatched.parameters[0] else {
-        panic!("the source argument should retain its record fields");
-    };
-    *fields[1].1 = SourceType::Boolean;
+
+    let (bad_module, bad_record) =
+        record_module(&[("first", CoreType::I32), ("secondValue", CoreType::Boolean)]);
+    let mut bad_module = bad_module;
+    let bad_unit = unit_type(&mut bad_module);
     assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&import, &mismatched)
-            .is_err()
+        validate_against(&import, bad_module, &[bad_record], bad_unit).is_err(),
+        "a record field of the wrong type must be rejected"
     );
 
     let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
