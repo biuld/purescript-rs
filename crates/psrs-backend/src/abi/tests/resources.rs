@@ -173,16 +173,10 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let function_id = crate::abi::intern_source_type(&mut core, &function)
         .expect("the resource function type should intern");
     let shape = crate::cc::abstract_signature(
-        &SourceSignature {
-            parameters: vec![resource(type_id)],
-            result: resource(type_id),
-            span: span(),
-        },
         Some(function_id),
         &core,
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
-        &mut crate::cc::RepresentationTable::default(),
     )
     .expect("a resource should have an abstract integer shape");
     assert_eq!(shape.parameters, vec![crate::cc::ValueShape::Integer]);

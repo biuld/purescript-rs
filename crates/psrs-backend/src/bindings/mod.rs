@@ -161,33 +161,11 @@ impl ExternalBindings {
                 ));
                 continue;
             }
-            let Some(external) = cc_externals.get(&binding.symbol) else {
+            if !cc_externals.contains_key(&binding.symbol) {
                 errors.push(BackendError::new(
                     "P9 external binding validation",
                     module.span,
                     format!("external binding {:?} is absent from CC", binding.symbol),
-                ));
-                continue;
-            };
-            let signature_matches = binding
-                .signature
-                .as_ref()
-                .zip(external.signature.as_ref())
-                .is_some_and(|(source, actual)| {
-                    cc::signature_matches_source(source, actual, &module.representations)
-                })
-                || binding.signature.is_none() && external.signature.is_none();
-            if !signature_matches {
-                errors.push(BackendError::new(
-                    "P9 external binding validation",
-                    binding
-                        .signature
-                        .as_ref()
-                        .map_or(module.span, |signature| signature.span),
-                    format!(
-                        "external binding {:?} disagrees with its CC signature",
-                        binding.symbol
-                    ),
                 ));
             }
         }
