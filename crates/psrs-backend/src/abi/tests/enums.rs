@@ -1,4 +1,5 @@
 use super::*;
+use psrs_core::Type as CoreType;
 
 #[test]
 fn flags_spanning_multiple_words_match_the_canonical_parameter_count() {
@@ -82,12 +83,6 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
             names: vec!["read".into(), "write".into()]
         }
     );
-    let flags_source = SourceType::Record {
-        fields: vec![
-            ("read".into(), Box::new(SourceType::Boolean)),
-            ("write".into(), Box::new(SourceType::Boolean)),
-        ],
-    };
     let flags_import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 1),
         module: "test:enums".into(),
@@ -100,29 +95,19 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let flags_signature = SourceSignature {
-        parameters: vec![flags_source],
-        result: SourceType::Unit,
-        span: TextRange::new(0, 1),
-    };
-    WasiRegistry::load()
-        .expect("vendored WASI should load")
-        .validate_signature(&flags_import, &flags_signature)
+    let (flags_module, flags_record) =
+        record_module(&[("read", CoreType::Boolean), ("write", CoreType::Boolean)]);
+    let mut flags_module = flags_module;
+    let flags_unit = unit_type(&mut flags_module);
+    validate_against(&flags_import, flags_module, &[flags_record], flags_unit)
         .expect("Boolean record fields should map to named WIT flags");
-    let incompatible_flags = SourceSignature {
-        parameters: vec![SourceType::Record {
-            fields: vec![
-                ("read".into(), Box::new(SourceType::Boolean)),
-                ("write".into(), Box::new(SourceType::Int)),
-            ],
-        }],
-        ..flags_signature
-    };
+    let (bad_module, bad_record) =
+        record_module(&[("read", CoreType::Boolean), ("write", CoreType::I32)]);
+    let mut bad_module = bad_module;
+    let bad_unit = unit_type(&mut bad_module);
     assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&flags_import, &incompatible_flags)
-            .is_err()
+        validate_against(&flags_import, bad_module, &[bad_record], bad_unit).is_err(),
+        "a non-Boolean flags field must be rejected"
     );
 
     let span = TextRange::new(0, 1);
@@ -153,8 +138,6 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
     };
     let function_id = crate::abi::intern_source_type(&mut core, &function)
         .expect("the enum function type should intern");
-    let source = source_signature(&core, &function)
-        .expect("the nullary source enum should have an ABI representation");
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
         module: "test:enums".into(),
@@ -167,9 +150,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    WasiRegistry::load()
-        .expect("vendored WASI should load")
-        .validate_signature(&import, &source)
+    crate::abi::link::validate_import_signature(&import, &core, function_id)
         .expect("matching source constructor tags should pass ABI validation");
     assert_eq!(
         crate::cc::abstract_signature(
@@ -183,28 +164,25 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         vec![crate::cc::ValueShape::Integer]
     );
 
-    let reversed = SourceSignature {
-        parameters: vec![SourceType::Enum {
-            cases: cases.into_iter().rev().collect(),
-        }],
-        ..source.clone()
-    };
+    // The same enum with reversed constructor tags must not match the WIT
+    // enum case order.
+    let mut reversed_core = empty_core_module();
+    reversed_core.constructors = cases
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(tag, name)| ConstructorInfo {
+            symbol: psrs_hir::SymbolId::new(ModuleId(0), tag as u32),
+            name: name.clone(),
+            type_id,
+            tag: tag as u32,
+            field_count: 0,
+            field_types: Vec::new(),
+        })
+        .collect();
+    let reversed_id = crate::abi::intern_source_type(&mut reversed_core, &function)
+        .expect("the reversed enum function type should intern");
     assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&import, &reversed)
-            .is_err()
-    );
-    let reversed_result = SourceSignature {
-        result: SourceType::Enum {
-            cases: vec!["GreenBlue".into(), "Red".into()],
-        },
-        ..source
-    };
-    assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&import, &reversed_result)
-            .is_err()
+        crate::abi::link::validate_import_signature(&import, &reversed_core, reversed_id).is_err()
     );
 }

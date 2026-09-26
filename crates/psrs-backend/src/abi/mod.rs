@@ -5,8 +5,6 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-#[cfg(test)]
-use psrs_hir::TypeId as HirTypeId;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
@@ -21,18 +19,12 @@ mod lists;
 mod tests;
 mod validation;
 
-#[cfg(test)]
-pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
 pub(crate) use flatten::FlatSlot;
 pub use handles::{HandleMode, HandleResource};
 pub(crate) use link::intern_source_type;
 pub use lists::ListElement;
 pub(crate) use lists::{element_layout, from_param as list_element};
-#[cfg(test)]
-use validation::source_parameter_matches;
-#[cfg(test)]
-use validation::validate_import_signature;
 use validation::{flattened_parameter_count, wasi_interface_enabled};
 
 /// The core export name `wit-component` expects for the exported interface
@@ -190,43 +182,6 @@ pub enum WasiResultKind {
     /// A record, tuple, or other aggregate result that cannot be discarded by
     /// the current source-level ABI.
     Discarded,
-}
-
-/// The small source-level type vocabulary used by test fixtures.
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SourceType {
-    Int,
-    Boolean,
-    Number,
-    Char,
-    /// A nullary data type whose cases correspond in order to WIT enum cases.
-    Enum {
-        cases: Vec<String>,
-    },
-    /// A closed PureScript record, kept structurally for ABI validation.
-    Record {
-        fields: Vec<(String, Box<SourceType>)>,
-    },
-    String,
-    /// A source array whose element is an already-supported ABI scalar or
-    /// `String`. Byte lists stay [`Self::String`].
-    Array {
-        element: Box<SourceType>,
-    },
-    Unit,
-    /// A nullary opaque foreign type mapped to a WIT resource handle.
-    Resource {
-        type_id: HirTypeId,
-    },
-}
-
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceSignature {
-    pub parameters: Vec<SourceType>,
-    pub result: SourceType,
-    pub span: psrs_span::TextRange,
 }
 
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
@@ -463,19 +418,6 @@ impl WasiRegistry {
                     WasiResultKind::List | WasiResultKind::ValueList { .. }
                 )
         })
-    }
-
-    /// Checks that a source-declared foreign import has a type that can be
-    /// represented by the canonical ABI adapter. Test-only: production
-    /// conformance runs against the resolved Core type.
-    #[cfg(test)]
-    #[allow(clippy::unused_self)]
-    pub fn validate_signature(
-        &self,
-        import: &WasiImport,
-        signature: &SourceSignature,
-    ) -> Result<(), String> {
-        validate_import_signature(import, signature)
     }
 }
 

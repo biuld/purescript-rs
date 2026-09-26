@@ -1,4 +1,5 @@
 use super::*;
+use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
 use wit_parser::Type as WitType;
 
 mod capability_gates;
@@ -22,6 +23,81 @@ fn empty_core_module() -> psrs_core::Module {
         entry: None,
         span: psrs_span::TextRange::new(0, 0),
     }
+}
+
+fn intern_all(module: &mut psrs_core::Module, types: Vec<CoreType>) -> Vec<CoreTypeId> {
+    types
+        .into_iter()
+        .map(|ty| {
+            module.types.push(ty);
+            CoreTypeId((module.types.len() - 1) as u32)
+        })
+        .collect()
+}
+
+fn function_type(
+    module: &mut psrs_core::Module,
+    parameters: &[CoreTypeId],
+    result: CoreTypeId,
+) -> CoreTypeId {
+    let mut current = result;
+    for parameter in parameters.iter().rev() {
+        module.types.push(CoreType::Function {
+            parameter: *parameter,
+            result: current,
+        });
+        current = CoreTypeId((module.types.len() - 1) as u32);
+    }
+    current
+}
+
+/// Validates a declaration whose parameters and result are the given Core types
+/// against the resolved WIT descriptor, using the production conformance check.
+fn validate_core(
+    import: &WasiImport,
+    parameters: Vec<CoreType>,
+    result: CoreType,
+) -> Result<(), String> {
+    let mut module = empty_core_module();
+    let parameter_ids = intern_all(&mut module, parameters);
+    let result_id = intern_all(&mut module, vec![result])
+        .pop()
+        .expect("one result");
+    validate_against(import, module, &parameter_ids, result_id)
+}
+
+/// Validates against a prepared module with the given parameter and result ids.
+fn validate_against(
+    import: &WasiImport,
+    module: psrs_core::Module,
+    parameters: &[CoreTypeId],
+    result: CoreTypeId,
+) -> Result<(), String> {
+    let mut module = module;
+    let function = function_type(&mut module, parameters, result);
+    crate::abi::link::validate_import_signature(import, &module, function)
+}
+
+/// A module holding a closed record with the given fields, and the record id.
+fn record_module(fields: &[(&str, CoreType)]) -> (psrs_core::Module, CoreTypeId) {
+    let mut module = empty_core_module();
+    let mut ids = Vec::with_capacity(fields.len());
+    for (label, ty) in fields {
+        let id = intern_all(&mut module, vec![ty.clone()])
+            .pop()
+            .expect("one field type");
+        ids.push(((*label).to_string(), id));
+    }
+    let record = intern_all(&mut module, vec![CoreType::Record(ids)])
+        .pop()
+        .expect("one record");
+    (module, record)
+}
+
+fn unit_type(module: &mut psrs_core::Module) -> CoreTypeId {
+    intern_all(module, vec![CoreType::Unit])
+        .pop()
+        .expect("one unit")
 }
 
 #[test]
@@ -88,9 +164,6 @@ fn classifies_a_64_bit_parameter_by_its_wit_signedness() {
 
 #[test]
 fn maps_wit_char_to_the_source_char_type() {
-    use psrs_hir::{BuiltinType, Type as HirType, TypeKind as HirTypeKind};
-    use psrs_span::TextRange;
-
     assert_eq!(
         param_kind(&Resolve::default(), &WitType::Char),
         WasiParamKind::Char
@@ -99,17 +172,6 @@ fn maps_wit_char_to_the_source_char_type() {
         result_kind(&Resolve::default(), &WitType::Char),
         WasiResultKind::Char
     );
-
-    let span = TextRange::new(0, 1);
-    let source = source_signature(
-        &empty_core_module(),
-        &HirType {
-            kind: HirTypeKind::Constructor(BuiltinType::Char),
-            span,
-        },
-    )
-    .expect("Char should cross the source ABI boundary");
-    assert_eq!(source.result, SourceType::Char);
 
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
@@ -123,33 +185,16 @@ fn maps_wit_char_to_the_source_char_type() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let signature = SourceSignature {
-        parameters: vec![SourceType::Char],
-        result: SourceType::Char,
-        span,
-    };
-    WasiRegistry::load()
-        .expect("WASI WIT should load")
-        .validate_signature(&import, &signature)
+    validate_core(&import, vec![CoreType::Char], CoreType::Char)
         .expect("a Char declaration should match WIT char");
-
-    let incompatible = SourceSignature {
-        parameters: vec![SourceType::Int],
-        result: SourceType::Int,
-        span,
-    };
     assert!(
-        WasiRegistry::load()
-            .expect("WASI WIT should load")
-            .validate_signature(&import, &incompatible)
-            .is_err()
+        validate_core(&import, vec![CoreType::I32], CoreType::I32).is_err(),
+        "an Int is not the source Char type"
     );
 }
 
 #[test]
 fn classifies_wit_f32_for_number_conversion() {
-    use psrs_span::TextRange;
-
     assert_eq!(
         param_kind(&Resolve::default(), &WitType::F32),
         WasiParamKind::Float32
@@ -166,14 +211,7 @@ fn classifies_wit_f32_for_number_conversion() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let signature = SourceSignature {
-        parameters: vec![SourceType::Number],
-        result: SourceType::Number,
-        span: TextRange::new(0, 1),
-    };
-    WasiRegistry::load()
-        .expect("WASI WIT should load")
-        .validate_signature(&import, &signature)
+    validate_core(&import, vec![CoreType::F64], CoreType::F64)
         .expect("source Number should adapt to and from WIT f32");
 }
 
@@ -207,18 +245,10 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
 
 #[test]
 fn validates_wit_scalar_parameters_against_exact_source_types() {
-    use psrs_span::TextRange;
-
-    let registry = WasiRegistry::load().expect("WASI WIT should load");
-    let span = TextRange::new(0, 1);
     let cases = [
-        (
-            WasiParamKind::Integer32,
-            SourceType::Int,
-            SourceType::Boolean,
-        ),
-        (WasiParamKind::Boolean, SourceType::Boolean, SourceType::Int),
-        (WasiParamKind::Float64, SourceType::Number, SourceType::Int),
+        (WasiParamKind::Integer32, CoreType::I32, CoreType::Boolean),
+        (WasiParamKind::Boolean, CoreType::Boolean, CoreType::I32),
+        (WasiParamKind::Float64, CoreType::F64, CoreType::I32),
     ];
     for (index, (kind, accepted, rejected)) in cases.into_iter().enumerate() {
         let import = WasiImport {
@@ -237,45 +267,25 @@ fn validates_wit_scalar_parameters_against_exact_source_types() {
             retptr: false,
             flat_slots: Vec::new(),
         };
-        let signature = |parameter| SourceSignature {
-            parameters: vec![parameter],
-            result: SourceType::Unit,
-            span,
-        };
-        registry
-            .validate_signature(&import, &signature(accepted))
+        validate_core(&import, vec![accepted], CoreType::Unit)
             .expect("the matching source scalar should be accepted");
         assert!(
-            registry
-                .validate_signature(&import, &signature(rejected))
-                .is_err()
+            validate_core(&import, vec![rejected], CoreType::Unit).is_err(),
+            "an incompatible source scalar must be rejected"
         );
     }
 }
 
 #[test]
 fn validates_a_vendored_wit_boolean_result_against_boolean_source_type() {
-    use psrs_span::TextRange;
-
     let mut registry = WasiRegistry::load().expect("WASI WIT should load");
     let import = registry
         .import("wasi:io/poll", "[method]pollable.ready")
         .expect("pollable.ready should resolve");
     assert_eq!(import.result_kind, WasiResultKind::Boolean);
-    let signature = SourceSignature {
-        parameters: vec![SourceType::Int],
-        result: SourceType::Boolean,
-        span: TextRange::new(0, 1),
-    };
-    registry
-        .validate_signature(&import, &signature)
+    validate_core(&import, vec![CoreType::I32], CoreType::Boolean)
         .expect("pollable.ready should accept its Boolean source signature");
-
-    let incompatible = SourceSignature {
-        result: SourceType::Int,
-        ..signature
-    };
-    assert!(registry.validate_signature(&import, &incompatible).is_err());
+    assert!(validate_core(&import, vec![CoreType::I32], CoreType::I32).is_err());
 }
 
 #[test]
