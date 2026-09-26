@@ -207,8 +207,9 @@ WASI-10:
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
   Gaps: none. The loaded set is Prelude, WASI.Console, WASI.Clock, and
-    WASI.Random. WASI.Random uses Effect from Prelude and is not part of the
-    trusted Effect representation.
+    WASI.Random. WASI.Random uses Effect from Prelude. Its wrappers are effect
+    lambdas, so it is part of the trusted Effect representation with Console
+    and Clock.
 ```
 
 ## Remaining work and blockers

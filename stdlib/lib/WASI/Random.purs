@@ -7,7 +7,7 @@ foreign import "wasi:random/random#get-random-bytes" getRandomBytes :: Int -> St
 foreign import "wasi:random/random#get-random-u64" getRandomU64 :: Int
 
 randomBytes :: Int -> Effect String
-randomBytes count = pure (getRandomBytes count)
+randomBytes count = \token -> getRandomBytes count
 
 randomU64 :: Effect Int
-randomU64 = pure getRandomU64
+randomU64 = \token -> getRandomU64
