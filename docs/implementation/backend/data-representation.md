@@ -165,7 +165,9 @@ DR-07:
     {(ref func), (ref capture)}, capture array (mut (ref null eq)));
     mir/verify/tests/gaps.rs rejects_a_closure_capture_projection_with_a_non_eq_reference_result
     and ..._with_an_unrepresentable_result; driver functions.rs capturing-closure
-    cases; mandatory closure case in data_representation_execution.rs
+    cases; polymorphism_erasure_audit::escaping_closures_capture_a_string_value
+    (logs "captured" from a GC string capture); mandatory closure case in
+    data_representation_execution.rs
   Input boundary: CC and malformed MIR
   Commands: cargo test -p psrs-backend; PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
   Result: pass
@@ -174,9 +176,10 @@ DR-08:
   Implementation: mir/lower/aggregate/mod.rs BoxScalar/UnboxScalar/RecoverReference;
     mir/verify/array_map/mod.rs verify_conversion_helpers
   Tests: gaps.rs rejects_a_conversion_helper_that_casts_even_with_an_unrelated_rebuild
-    and accepts_a_conversion_helper_that_rebuilds_the_aggregate; existing
-    erased-field/box driver tests; mandatory erased-field case in
-    data_representation_execution.rs
+    and accepts_a_conversion_helper_that_rebuilds_the_aggregate;
+    polymorphism_erasure_audit::erased_string_box_preserves_nonempty_contents
+    (logs "value" recovered from an erased GC string); mandatory erased-field
+    case in data_representation_execution.rs
   Input boundary: malformed MIR and source
   Commands: cargo test -p psrs-backend; PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
   Result: pass
