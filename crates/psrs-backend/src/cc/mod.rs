@@ -202,8 +202,8 @@ pub struct TagCase {
 /// Lowers Core with the default backend-side external binding extraction.
 /// Prefer [`lower_module_with_bindings`] when the caller already owns the
 /// backend input boundary.
-pub fn lower_module(module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
-    let bindings = ExternalBindings::from_core(&module);
+pub fn lower_module(mut module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
+    let bindings = ExternalBindings::from_core(&mut module);
     lower_module_with_bindings(module, bindings)
 }
 
@@ -260,6 +260,7 @@ pub fn lower_module_with_bindings(
         let signature = binding.signature.as_ref().and_then(|signature| {
             abstract_signature(
                 signature,
+                binding.type_id,
                 &module,
                 &layout.record_types,
                 &layout.array_types,

@@ -3,8 +3,8 @@
 use crate::BackendError;
 use crate::abi::SourceSignature;
 use crate::cc;
-use psrs_core::Module as CoreModule;
-use psrs_hir::{ExternalKind, SymbolId};
+use psrs_core::{Module as CoreModule, TypeId as CoreTypeId};
+use psrs_hir::{ExternalKind, SymbolId, Type as HirType};
 use std::collections::{HashMap, HashSet};
 
 /// The complete input consumed by P9. Platform binding metadata is kept beside
@@ -24,9 +24,11 @@ pub struct ExternalBindings {
 impl ExternalBindings {
     /// Extracts platform binding metadata while crossing the Core boundary.
     /// CC receives only this side table and therefore never needs to inspect
-    /// WIT names or HIR external kinds.
-    pub(crate) fn from_core(module: &CoreModule) -> Self {
-        let imports = module
+    /// WIT names or HIR external kinds. Each declaration's resolved source type
+    /// is interned into the Core type table and recorded as a `type_id`, so CC
+    /// derives its layout from that identity instead of re-deriving it.
+    pub(crate) fn from_core(module: &mut CoreModule) -> Self {
+        let declared: Vec<(SymbolId, String, String, Option<HirType>)> = module
             .externals
             .iter()
             .filter_map(|external| {
@@ -37,17 +39,30 @@ impl ExternalBindings {
                 else {
                     return None;
                 };
-                Some(ExternalBinding {
-                    symbol: external.symbol,
-                    interface: interface.clone(),
-                    function: function.clone(),
-                    signature: external
-                        .signature
-                        .as_ref()
-                        .and_then(|signature| crate::abi::source_signature(module, signature)),
-                })
+                Some((
+                    external.symbol,
+                    interface.clone(),
+                    function.clone(),
+                    external.signature.clone(),
+                ))
             })
             .collect();
+        let mut imports = Vec::with_capacity(declared.len());
+        for (symbol, interface, function, signature) in declared {
+            let type_id = signature
+                .as_ref()
+                .and_then(|signature| crate::abi::intern_source_type(module, signature));
+            let source = signature
+                .as_ref()
+                .and_then(|signature| crate::abi::source_signature(module, signature));
+            imports.push(ExternalBinding {
+                symbol,
+                interface,
+                function,
+                signature: source,
+                type_id,
+            });
+        }
         Self { imports }
     }
 
@@ -205,6 +220,9 @@ pub struct ExternalBinding {
     pub interface: String,
     pub function: String,
     pub signature: Option<SourceSignature>,
+    /// The declaration's resolved source type, interned in the module type
+    /// table. It is the identity CC uses to select the canonical layout.
+    pub type_id: Option<CoreTypeId>,
 }
 
 #[cfg(test)]

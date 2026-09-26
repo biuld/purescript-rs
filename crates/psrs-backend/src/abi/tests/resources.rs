@@ -37,7 +37,7 @@ fn resource(type_id: HirTypeId) -> SourceType {
 #[test]
 fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let type_id = HirTypeId::new(ModuleId(0), 0);
-    let core = empty_core();
+    let mut core = empty_core();
     let signature = source_signature(
         &core,
         &hir_type(HirTypeKind::Function {
@@ -166,12 +166,19 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             .is_err()
     );
 
+    let function = hir_type(HirTypeKind::Function {
+        parameter: Box::new(hir_type(HirTypeKind::Opaque(type_id))),
+        result: Box::new(hir_type(HirTypeKind::Opaque(type_id))),
+    });
+    let function_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the resource function type should intern");
     let shape = crate::cc::abstract_signature(
         &SourceSignature {
             parameters: vec![resource(type_id)],
             result: resource(type_id),
             span: span(),
         },
+        Some(function_id),
         &core,
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),

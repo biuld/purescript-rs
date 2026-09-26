@@ -64,17 +64,17 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         ]),
         CoreType::Unit,
     ];
-    let source = source_signature(
-        &core,
-        &HirType {
-            kind: HirTypeKind::Function {
-                parameter: Box::new(record),
-                result: Box::new(unit),
-            },
-            span,
+    let function = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(record),
+            result: Box::new(unit),
         },
-    )
-    .expect("closed record signatures should have source ABI metadata");
+        span,
+    };
+    let type_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the record function type should intern");
+    let source = source_signature(&core, &function)
+        .expect("closed record signatures should have source ABI metadata");
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
         module: "test:records".into(),
@@ -106,6 +106,7 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
     let abstract_signature = crate::cc::abstract_signature(
         &source,
+        Some(type_id),
         &core,
         &record_types,
         &std::collections::HashMap::new(),

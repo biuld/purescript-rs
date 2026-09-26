@@ -1,48 +1,63 @@
 //! Source ABI shapes for WIT imports. CC sees [`ValueShape`], not WIT names.
+//!
+//! The declaration's resolved source type is interned in the Core type table
+//! and carried as a `type_id`. CC derives the record and array representations
+//! from that identity, so a foreign signature shares the canonical layout of
+//! the same type used elsewhere in the module.
 
 use super::{
     RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, ValueShape,
 };
 use crate::abi::{SourceSignature, SourceType};
-use psrs_core::{Module as CoreModule, Type as CoreType, TypeConstructor, TypeId};
-use psrs_hir::TypeId as HirTypeId;
-use std::collections::HashMap;
+use psrs_core::{Module as CoreModule, Type as CoreType, TypeId};
 
 pub(crate) fn abstract_signature(
     signature: &SourceSignature,
+    type_id: Option<TypeId>,
     module: &CoreModule,
-    record_types: &HashMap<TypeId, ReprId>,
-    array_types: &HashMap<TypeId, ReprId>,
-    representations: &mut RepresentationTable,
+    record_types: &std::collections::HashMap<TypeId, ReprId>,
+    array_types: &std::collections::HashMap<TypeId, ReprId>,
+    _representations: &mut RepresentationTable,
 ) -> Option<Signature> {
+    let (parameter_ids, result_id) = split_function(module, type_id?)?;
+    if parameter_ids.len() != signature.parameters.len() {
+        return None;
+    }
     let mut parameters = Vec::with_capacity(signature.parameters.len());
-    for parameter in &signature.parameters {
+    for (parameter, core_id) in signature.parameters.iter().zip(&parameter_ids) {
         parameters.push(scalar_source_type(
             parameter,
-            module,
+            *core_id,
             record_types,
             array_types,
-            representations,
         )?);
     }
     Some(Signature {
         parameters,
-        result: scalar_source_type(
-            &signature.result,
-            module,
-            record_types,
-            array_types,
-            representations,
-        )?,
+        result: scalar_source_type(&signature.result, result_id, record_types, array_types)?,
     })
+}
+
+/// Walks a Core function type into its parameter types and final result type.
+fn split_function(module: &CoreModule, type_id: TypeId) -> Option<(Vec<TypeId>, TypeId)> {
+    let mut parameters = Vec::new();
+    let mut current = type_id;
+    loop {
+        match module.types.get(current.0 as usize)? {
+            CoreType::Function { parameter, result } => {
+                parameters.push(*parameter);
+                current = *result;
+            }
+            _ => return Some((parameters, current)),
+        }
+    }
 }
 
 fn scalar_source_type(
     ty: &SourceType,
-    module: &CoreModule,
-    record_types: &HashMap<TypeId, ReprId>,
-    array_types: &HashMap<TypeId, ReprId>,
-    representations: &mut RepresentationTable,
+    core_id: TypeId,
+    record_types: &std::collections::HashMap<TypeId, ReprId>,
+    array_types: &std::collections::HashMap<TypeId, ReprId>,
 ) -> Option<ValueShape> {
     Some(match ty {
         SourceType::Int
@@ -53,52 +68,18 @@ fn scalar_source_type(
         SourceType::String => ValueShape::String,
         SourceType::Boolean => ValueShape::Boolean,
         SourceType::Number => ValueShape::Number,
-        SourceType::Record { .. } => {
-            let type_id = module
-                .types
-                .iter()
-                .enumerate()
-                .find_map(|(index, core_type)| {
-                    core_type_matches_source(module, core_type, ty).then_some(TypeId(index as u32))
-                })?;
-            let representation = record_types.get(&type_id).copied()?;
-            ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Repr(representation),
-            })
-        }
+        SourceType::Record { .. } => ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(record_types.get(&core_id).copied()?),
+        }),
         SourceType::Array { element } => {
-            let representation =
-                array_representation(module, element, array_types, representations)?;
+            array_element_shape(element)?;
             ValueShape::Reference(Reference {
                 nullable: false,
-                heap: RefShape::Repr(representation),
+                heap: RefShape::Repr(array_types.get(&core_id).copied()?),
             })
         }
     })
-}
-
-/// Uses the module's canonical array when the element type is already interned.
-/// An unused import has no core type yet, so it reserves one array of the same
-/// element shape; a later call site still shares the interned handle.
-fn array_representation(
-    module: &CoreModule,
-    element: &SourceType,
-    array_types: &HashMap<TypeId, ReprId>,
-    representations: &mut RepresentationTable,
-) -> Option<ReprId> {
-    let shape = SourceType::Array {
-        element: Box::new(element.clone()),
-    };
-    if let Some(type_id) = module.types.iter().enumerate().find_map(|(index, core)| {
-        core_type_matches_source(module, core, &shape).then_some(TypeId(index as u32))
-    }) {
-        return array_types.get(&type_id).copied();
-    }
-    let element = array_element_shape(element)?;
-    let id = representations.reserve();
-    representations.set(id, Representation::Array { element });
-    Some(id)
 }
 
 fn array_element_shape(element: &SourceType) -> Option<ValueShape> {
@@ -178,75 +159,4 @@ fn source_shape_matches(
             array_element_shape(element).is_some_and(|shape| shape == *actual_element)
         }
     }
-}
-
-fn core_type_matches_source(module: &CoreModule, core: &CoreType, source: &SourceType) -> bool {
-    match (core, source) {
-        (CoreType::I32, SourceType::Int)
-        | (CoreType::Boolean, SourceType::Boolean)
-        | (CoreType::F64, SourceType::Number)
-        | (CoreType::Char, SourceType::Char)
-        | (CoreType::String, SourceType::String)
-        | (CoreType::Unit, SourceType::Unit) => true,
-        (CoreType::Constructor(TypeConstructor::User(type_id)), SourceType::Enum { cases }) => {
-            source_enum_cases(module, *type_id).as_ref() == Some(cases)
-        }
-        (CoreType::Application(function, _), SourceType::Enum { cases }) => {
-            core_type_user_id(module, *function)
-                .and_then(|type_id| source_enum_cases(module, type_id))
-                .as_ref()
-                == Some(cases)
-        }
-        (CoreType::Application(function, argument), SourceType::Array { element }) => {
-            matches!(
-                module.types.get(function.0 as usize),
-                Some(CoreType::Constructor(TypeConstructor::Array))
-            ) && module
-                .types
-                .get(argument.0 as usize)
-                .is_some_and(|core| core_type_matches_source(module, core, element))
-        }
-        (CoreType::Record(core_fields), SourceType::Record { fields }) => {
-            core_fields.len() == fields.len()
-                && core_fields.iter().zip(fields).all(
-                    |((core_label, core_type), (source_label, source_type))| {
-                        core_label == source_label
-                            && module.types.get(core_type.0 as usize).is_some_and(|core| {
-                                core_type_matches_source(module, core, source_type)
-                            })
-                    },
-                )
-        }
-        _ => false,
-    }
-}
-
-fn core_type_user_id(module: &CoreModule, id: TypeId) -> Option<HirTypeId> {
-    match module.types.get(id.0 as usize)? {
-        CoreType::Constructor(TypeConstructor::User(type_id)) => Some(*type_id),
-        CoreType::Application(function, _) => core_type_user_id(module, *function),
-        _ => None,
-    }
-}
-
-fn source_enum_cases(module: &CoreModule, type_id: HirTypeId) -> Option<Vec<String>> {
-    let mut constructors = module
-        .constructors
-        .iter()
-        .filter(|constructor| constructor.type_id == type_id)
-        .collect::<Vec<_>>();
-    constructors.sort_by_key(|constructor| constructor.tag);
-    if constructors.is_empty()
-        || constructors.iter().enumerate().any(|(index, constructor)| {
-            constructor.tag != index as u32 || constructor.field_count != 0
-        })
-    {
-        return None;
-    }
-    Some(
-        constructors
-            .into_iter()
-            .map(|constructor| constructor.name.clone())
-            .collect(),
-    )
 }

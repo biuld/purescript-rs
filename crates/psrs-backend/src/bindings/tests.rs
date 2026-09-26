@@ -29,6 +29,7 @@ fn binding(symbol: SymbolId) -> ExternalBinding {
         interface: "wasi:cli/stdout@0.2.12".into(),
         function: "log".into(),
         signature: None,
+        type_id: None,
     }
 }
 
