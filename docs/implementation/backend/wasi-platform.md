@@ -4,10 +4,10 @@
 
 **Design:** [WASI platform library](../../design/backend/wasm/wasi-platform-library.md).
 
-**Progress:** WASI-01 through WASI-06 Verified. WASI-07 (filesystem, arguments,
-environment) and WASI-08 (sockets/HTTP/TLS) are not implemented; WASI-09
-(embedded standard library / module loading) is partial. The broader BE-22 row
-is Partial, BE-23 is Planned, and the excluded services stay Planned/Excluded.
+**Progress:** WASI-01 through WASI-06 and WASI-09 Verified. WASI-07 (filesystem,
+arguments, environment), WASI-08 (sockets/HTTP/TLS), and WASI-10 (loading the
+standard library from disk) are not implemented. The broader BE-22 row is
+Partial, BE-23 is Planned, and the excluded services stay Planned/Excluded.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21..BE-23, BE-26.
 
@@ -36,7 +36,8 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | WASI-06 | Each enabled WASI service package has an independent capability gate; a disabled service fails before lowering. | Per-service gate test plus a disabled-service rejection. | Verified |
 | WASI-07 | Filesystem, arguments, and environment services. | Not implemented; capability flags disabled. | In progress |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |
-| WASI-09 | Discoverable library/module loading replaces the embedded standard library. | Embedded prelude works through linked modules; no filesystem module loader. | In progress |
+| WASI-09 | User modules are discovered from the filesystem and the import graph is followed. | Entry files' directories are indexed by module name; imported modules are loaded transitively and executed. | Verified |
+| WASI-10 | The standard library is loaded from disk rather than embedded in the driver. | Not implemented; the embedded prelude is still prepended. | In progress |
 
 ## Evidence record and completion rule
 
@@ -152,18 +153,33 @@ WASI-08:
 
 ```text
 WASI-09:
-  Implementation: the standard library and test libraries are embedded in
-    crates/psrs-driver/src/prelude.rs and linked like source modules; there is
-    no filesystem module loader.
-  Tests: psrs-driver tests::integration::compiles_multiple_user_sources_with_the_embedded_prelude.
-  Input boundary: source modules.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib.
-  Result: partial.
-  Gaps: discoverable library/module loading. This keeps BE-26 `Partial`.
+  Implementation: crates/psrs-driver/src/loader.rs (`load_program_files`);
+    wired through crates/psrs-cli/src/main.rs.
+  Tests: psrs-driver tests::module_loader::
+    discovers_an_imported_module_from_the_entry_directory (loads `Helper`
+    from `Main`'s directory and executes to 42),
+    loads_only_the_modules_that_are_imported.
+  Input boundary: source files on disk; executed component.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib module_loader.
+  Result: pass; the CLI `build` discovers sibling modules without listing them.
+  Gaps: none for user-module discovery.
+```
+
+```text
+WASI-10:
+  Implementation: the standard library is embedded in
+    crates/psrs-driver/src/prelude.rs and prepended to the source list; there
+    is no discovery path for it.
+  Tests: none.
+  Input boundary: n/a.
+  Commands: n/a.
+  Result: not implemented.
+  Gaps: load the standard library from disk like any module and retire the
+    embedded sources.
 ```
 
 ## Remaining work and blockers
 
-WASI-07, WASI-08, and WASI-09 remain. The near-term one is module loading
-(WASI-09); filesystem/arguments/environment (WASI-07) depend on general
-aggregate/list ABI coverage (ABI-06) and are part of the same platform landing.
+WASI-07, WASI-08, and WASI-10 remain. WASI-07 (filesystem/arguments/environment)
+depends on general aggregate/list ABI coverage (ABI-06); WASI-10 retires the
+embedded prelude once the library ships on disk.

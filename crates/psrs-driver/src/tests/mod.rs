@@ -60,4 +60,6 @@ mod records;
 
 mod functions;
 
+mod module_loader;
+
 mod tail_calls;

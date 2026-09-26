@@ -307,8 +307,11 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 Console (stdout and stderr), monotonic clock, random, and exit are implemented
 and have execution tests. Filesystem, arguments, environment, sockets, HTTP, and
 TLS are specified but not implemented; their capability flags are disabled in
-the default profile. The standard library is embedded in the driver because
-there is no filesystem module loader yet.
+the default profile. The standard library remains embedded, but the driver
+discovers user modules from the entry files' directories
+(`psrs_driver::load_program_files`): it indexes sibling `.purs` files by module
+name and follows the `import` graph, never searching names the embedded library
+provides. Resolution, duplicate-module, and cycle checks remain in P3.
 
 ## References
 
