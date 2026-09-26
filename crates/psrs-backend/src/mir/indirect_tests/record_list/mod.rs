@@ -7,7 +7,9 @@ mod fixtures;
 use super::lower_module_with_registry;
 use crate::TargetCapabilities;
 use crate::abi;
-use fixtures::{fixture, flags_fixture, handle_fixture, result_fixture, string_fixture};
+use fixtures::{
+    fixture, flags_fixture, handle_fixture, result_fixture, string_fixture, tuple_fixture,
+};
 
 #[test]
 fn record_list_parameters_lower_to_a_canonical_layout() {
@@ -239,4 +241,54 @@ fn handle_list_parameters_copy_the_indexes() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the handle list Wasm should validate");
+}
+
+#[test]
+fn tuple_list_maps_to_a_record_list() {
+    let (cc, bindings, resolve) = tuple_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
+        .expect("P9 should lower a list<tuple<string, string>> parameter");
+
+    let store = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .find_map(|instruction| match instruction {
+            crate::mir::Instruction::ListCopyRecord {
+                direction: crate::mir::ListDirection::Store,
+                size,
+                fields,
+                ..
+            } => Some((*size, fields.clone())),
+            _ => None,
+        })
+        .expect("a ListCopyRecord Store should be emitted");
+    assert_eq!(store.0, 16, "two strings are 16 bytes");
+    assert_eq!(
+        store.1,
+        vec![
+            crate::mir::ListFieldCopy::String {
+                offset: 0,
+                index: 0,
+            },
+            crate::mir::ListFieldCopy::String {
+                offset: 8,
+                index: 1,
+            },
+        ]
+    );
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the tuple copy");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the tuple list copy");
+    let binary = crate::wasm::encode_module(&wasm).expect("the tuple list Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the tuple list Wasm should validate");
 }

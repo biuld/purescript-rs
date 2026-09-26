@@ -155,3 +155,26 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
         .is_none()
     );
 }
+
+#[test]
+fn maps_a_list_of_tuples_to_a_record_list() {
+    let resolve = resolve_wit(
+        "package test:lists@0.1.0; interface lists { take: func(values: list<tuple<string, string>>); }",
+    );
+    let function = function_named(&resolve, "take");
+    let kind = param_kind(&resolve, &function.params[0].ty);
+    let WasiParamKind::ValueList { element } = &kind else {
+        panic!("list<tuple<...>> should be a value list, got {kind:?}");
+    };
+    let WasiParamKind::Record { fields } = element.as_ref() else {
+        panic!("a tuple element should map to a record, got {element:?}");
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|field| (field.name.as_str(), &field.kind))
+            .collect::<Vec<_>>(),
+        vec![("_1", &WasiParamKind::List), ("_2", &WasiParamKind::List),]
+    );
+    assert!(unsupported_shape(&resolve, function, &WasiResultKind::None).is_none());
+}

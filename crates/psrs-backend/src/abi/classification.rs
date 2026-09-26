@@ -267,6 +267,23 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
                     WasiParamKind::Unsupported
                 }
             }
+            // DEC-13 maps a WIT tuple to the closed source record `{ _1, _2 }`.
+            TypeDefKind::Tuple(tuple) => {
+                let fields = tuple
+                    .types
+                    .iter()
+                    .enumerate()
+                    .map(|(index, ty)| WasiField {
+                        name: format!("_{}", index + 1),
+                        kind: param_kind(resolve, ty),
+                    })
+                    .collect::<Vec<_>>();
+                if fields.iter().all(|field| direct_parameter(&field.kind)) {
+                    WasiParamKind::Record { fields }
+                } else {
+                    WasiParamKind::Unsupported
+                }
+            }
             TypeDefKind::Type(inner) => param_kind(resolve, inner),
             _ => WasiParamKind::Unsupported,
         },
