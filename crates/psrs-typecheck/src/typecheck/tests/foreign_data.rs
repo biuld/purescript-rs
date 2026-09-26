@@ -2,6 +2,7 @@ use super::super::{TypeCheckErrorKind, typecheck_module};
 use psrs_hir::{ModuleId, TypeDeclarationKind, TypeKind};
 use psrs_resolve::ResolveErrorKind;
 use psrs_span::SourceFile;
+use psrs_thir as thir;
 
 fn lower_source(name: &str, source: &str) -> psrs_ast::Module {
     let file = SourceFile::new(name, source);
@@ -45,18 +46,43 @@ fn declares_an_opaque_foreign_type_and_rejects_source_construction() {
         .expect("Handle should be a type declaration");
     assert_eq!(foreign.kind, TypeDeclarationKind::Foreign);
     assert!(foreign.constructors.is_empty());
-    let signature = resolved
-        .externals
-        .iter()
-        .find(|external| external.name == "getStdout")
-        .and_then(|external| external.signature.as_ref())
-        .expect("getStdout should keep its source signature");
-    assert!(matches!(signature.kind, TypeKind::Opaque(id) if id == foreign.id));
+    let foreign_id = foreign.id;
+    {
+        let signature = resolved
+            .externals
+            .iter()
+            .find(|external| external.name == "getStdout")
+            .and_then(|external| external.signature.as_ref())
+            .expect("getStdout should keep its source signature");
+        assert!(matches!(signature.kind, TypeKind::Opaque(id) if id == foreign_id));
+    }
     let typed = check_types(resolved);
     assert!(
         typed.constructors.is_empty(),
         "an opaque type has no value constructors"
     );
+    assert_eq!(typed.opaque_ids, vec![foreign_id]);
+    let keep = typed
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "keep")
+        .expect("keep should be elaborated");
+    let thir::Type::Function { parameter, result } = &typed.types[keep.ty.0 as usize] else {
+        panic!(
+            "keep should be a function, got {:?}",
+            typed.types[keep.ty.0 as usize]
+        );
+    };
+    for end in [*parameter, *result] {
+        assert!(
+            matches!(
+                &typed.types[end.0 as usize],
+                thir::Type::Constructor(thir::TypeConstructor::User(id)) if *id == foreign_id
+            ),
+            "Handle must stay a nominal constructor, not {:?}",
+            typed.types[end.0 as usize]
+        );
+    }
 
     let forged = resolve_one(
         "module Main where\n\

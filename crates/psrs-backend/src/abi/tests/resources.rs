@@ -22,6 +22,7 @@ fn empty_core() -> CoreModule {
         externals: Vec::new(),
         types: Vec::new(),
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

@@ -68,6 +68,14 @@ rules. A use in a value type must have kind `Type`. The ABI mapping recognizes
 only the unapplied constructor: an application such as `Effect Int` is not a
 resource, even when `Effect` is opaque.
 
+THIR and Core do not add an `Opaque` type node and do not add an `Effect`
+node. The elaborated type is `Constructor(User(HirTypeId))`, the same node an
+algebraic type uses. Opacity is the module set `opaque_ids` together with an
+empty constructor set. The empty set is not enough on its own, because an
+algebraic declaration can also have no constructors. The flag is what keeps
+the type foreign. It is not a calling-convention or MIR layout, and it does
+not rewrite the type to `I32`.
+
 At the canonical boundary the source subset gains one case:
 
 ```text
@@ -95,10 +103,12 @@ original declaration to keep the nominal form.
 
 Kind checking uses the inline kind as the constructor's scheme. There are no
 fields to check. An unsaturated use fails the ordinary kind check when a value
-type is required. Type checking elaborates the opaque constructor as a nominal
-user type. It registers no constructor scheme, so the type name is not a value,
-a literal of another type does not inhabit it, and two opaque types do not
-unify.
+type is required. Type checking elaborates the opaque constructor into THIR as
+`Constructor(User(id))` and records `id` in `opaque_ids`. Core lowering copies
+both. A source function `Handle -> Handle` therefore has a Core function type
+whose parameter and result are that constructor, not `I32`. It registers no
+constructor scheme, so the type name is not a value, a literal of another type
+does not inhabit it, and two opaque types do not unify.
 
 The canonical ABI reads that nominal form off the foreign value's resolved
 signature. A nullary opaque type becomes `Resource { type_id }`. Validation
@@ -176,6 +186,10 @@ Foreign declarations cross the frontend as their own declaration form.
   builder. It does not synthesize constructors.
 - Type checking elaborates `Opaque` and `Named` with the same nominal
   constructor path and does not register a value scheme for `Foreign`.
+  `thir::Module.opaque_ids` and `core::Module.opaque_ids` list the foreign
+  type ids. The entry that fills the THIR set is the foreign-data filter in
+  `typecheck_module_with_imports_and_effect_context`. Core lowering copies it
+  in `lower_module_inner`, and linking concatenates it.
 - The ABI adapter's `source_signature` maps `TypeKind::Opaque(id)` to
   `SourceType::Resource { type_id }`. Handle parameters and results use
   `WasiParamKind::Handle` and `WasiResultKind::Handle`. Both accept `Resource`
@@ -196,6 +210,10 @@ Foreign declarations cross the frontend as their own declaration form.
   `Opaque` with the original type id.
 - `source_signature` yields `Resource` for a nullary opaque type, never for an
   application of one and never for an ordinary data type.
+- In THIR and Core, a nullary opaque type is `Constructor(User(id))` with `id`
+  in `opaque_ids` and with no `ConstructorInfo` for that id. It is never
+  `I32`. A function whose parameter or result is that type keeps the
+  constructor on both ends.
 - ABI validation accepts that `Resource` for a WIT handle and rejects it for a
   non-handle shape. A WIT handle still accepts `Int`.
 - No stage inserts `resource.drop`, releases a borrow, or synthesizes
@@ -234,6 +252,12 @@ Vendored `wasi:cli/stdout#get-stdout` returns a resource handle, so validation
 accepts the signature. The canonical result is still one `i32`. Nothing in this
 pipeline drops that handle.
 
+`keep` elaborates to a THIR and Core function type
+`Function { Constructor(User(outputStream)), Constructor(User(outputStream)) }`.
+`outputStream` is in `opaque_ids`. The type is not `I32`, and it is not the
+type of any other foreign data declaration. CC and MIR still have no layout
+for that function.
+
 `foreign import data Effect :: Type -> Type` followed by a use `Effect Int`
 kind-checks as a type, and `Effect` alone does not. `Effect Int` is not a
 `Resource`.
@@ -242,12 +266,14 @@ kind-checks as a type, and `Effect` alone does not. `Effect Int` is not a
 
 P1 and P2 produce the declaration. P3 resolves names and preserves the binding
 string and the opacity bit. P5 checks kinds and types without adding a runtime
-layout. The backend's external-binding table reads the resolved signature and
+layout, and P6 copies the nominal constructor and `opaque_ids` into Core. The
+backend's external-binding table reads the resolved signature and
 validates it against the vendored WIT function. CC and MIR see an integer shape
-for that boundary value only. They do not learn a WIT name from the opaque
-type, and they do not yet give a source function whose result is the opaque
-type a runtime layout of its own. That layout, and the drop and borrow actions,
-belong to the canonical ABI lowering.
+for a WIT boundary value only when the adapter has already classified it as a
+handle. They do not learn a WIT name from the opaque type, and they do not yet
+give a source function whose result is the opaque type a runtime layout of its
+own. That layout, and the drop and borrow actions, belong to the canonical ABI
+lowering.
 
 The effect library may later declare `Effect` with this form. Until that
 declaration replaces the compiler's internal token, `Effect` in the embedded
@@ -255,8 +281,9 @@ prelude remains the existing abstract type, not a foreign data declaration.
 
 ## Open questions and future work
 
-- Representing an opaque value inside CC and MIR, including a source function
-  that returns one, without making it unify with `Int`.
+- Representing an opaque value inside CC and MIR. THIR and Core already keep
+  `Constructor(User(id))` plus `opaque_ids`, distinct from `Int`. A source
+  function that returns the opaque type still has no calling-convention layout.
 - Inserting `resource.drop`, releasing borrows, and freeing an exported handle
   in `post-return`.
 - Choosing `own` versus `borrow` from source. The current mapping treats every

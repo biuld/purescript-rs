@@ -361,6 +361,7 @@ mod tests {
             externals: Vec::new(),
             types: vec![Type::I32, Type::F64],
             newtype_ids: Vec::new(),
+            opaque_ids: Vec::new(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,
