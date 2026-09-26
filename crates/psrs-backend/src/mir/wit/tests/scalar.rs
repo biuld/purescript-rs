@@ -14,6 +14,7 @@ fn scalar_f64_results_are_called_directly() {
         result_kind: WasiResultKind::Scalar,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
@@ -51,6 +52,7 @@ fn char_arguments_and_results_use_direct_i32_values() {
         result_kind: WasiResultKind::Char,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
@@ -95,6 +97,7 @@ fn enum_arguments_and_results_keep_the_validated_i32_tags() {
         result_kind: WasiResultKind::Enum { cases },
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
@@ -143,6 +146,7 @@ fn f32_arguments_and_results_are_adapted_to_source_numbers() {
         result_kind: WasiResultKind::Scalar,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);

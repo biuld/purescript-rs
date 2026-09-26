@@ -1,5 +1,6 @@
 //! Maps resolved WIT types to the source ABI subset and canonical value types.
 
+use super::flatten::primitive_aggregate_allowed;
 use super::{SourceSignature, SourceType, WasiField, WasiParamKind, WasiResultKind};
 use crate::types::ValueType;
 use psrs_core::Module as CoreModule;
@@ -104,16 +105,20 @@ pub(super) fn unsupported_shape(
     if function
         .params
         .iter()
-        .any(|parameter| param_kind(resolve, &parameter.ty) == WasiParamKind::Unsupported)
-    {
-        return Some("WIT parameter shape has no source ABI mapping yet".into());
-    }
-    if function
-        .params
-        .iter()
         .any(|parameter| contains_non_byte_list(resolve, &parameter.ty))
     {
         return Some("non-byte WIT lists are not supported by the String ABI".into());
+    }
+    // `option`, tuple, and payload-bearing variant stay `Unsupported` as a WIT
+    // parameter kind. A primitive import of those shapes is checked later,
+    // against the canonical flat slots, so this pass must not reject them
+    // before the source signature is known. Maps and other non-flat shapes
+    // still have no source ABI.
+    if function.params.iter().any(|parameter| {
+        param_kind(resolve, &parameter.ty) == WasiParamKind::Unsupported
+            && !primitive_aggregate_allowed(resolve, &parameter.ty)
+    }) {
+        return Some("WIT parameter shape has no source ABI mapping yet".into());
     }
     if matches!(result_kind, WasiResultKind::List)
         && let Some(result) = &function.result
@@ -180,6 +185,26 @@ fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
                 .fields
                 .iter()
                 .any(|field| contains_non_byte_list(resolve, &field.ty)),
+            TypeDefKind::Tuple(tuple) => tuple
+                .types
+                .iter()
+                .any(|ty| contains_non_byte_list(resolve, ty)),
+            TypeDefKind::Option(inner) => contains_non_byte_list(resolve, inner),
+            TypeDefKind::Result(result) => {
+                result
+                    .ok
+                    .as_ref()
+                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+                    || result
+                        .err
+                        .as_ref()
+                        .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+            }
+            TypeDefKind::Variant(variant) => variant.cases.iter().any(|case| {
+                case.ty
+                    .as_ref()
+                    .is_some_and(|ty| contains_non_byte_list(resolve, ty))
+            }),
             TypeDefKind::Type(inner) => contains_non_byte_list(resolve, inner),
             _ => false,
         },

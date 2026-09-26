@@ -176,6 +176,7 @@ fn does_not_treat_an_opaque_type_as_an_integer_scalar() {
         result_kind: ResultKind::Scalar,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let signature = SourceSignature {
         parameters: vec![resource(type_id)],

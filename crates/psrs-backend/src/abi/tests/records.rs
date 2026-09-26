@@ -85,6 +85,7 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     WasiRegistry::load()
         .expect("vendored WASI should load")
