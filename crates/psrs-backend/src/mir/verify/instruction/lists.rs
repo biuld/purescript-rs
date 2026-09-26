@@ -130,18 +130,43 @@ pub(super) fn verify_list_copy_record(
             "MIR record list copy field count does not match the struct",
         ));
     }
-    for (field, storage) in fields.iter().zip(field_types) {
-        let expected = match field.kind {
-            SlotKind::Byte | SlotKind::Half | SlotKind::Word => StorageType::I32,
-            SlotKind::F64 => StorageType::F64,
-            SlotKind::I64 | SlotKind::F32 => {
-                return Err(mir_error(
-                    *span,
-                    "MIR record list copy field width is not supported yet",
-                ));
+    let mut seen = vec![false; field_types.len()];
+    for field in fields {
+        let (index, matches) = match field {
+            crate::mir::ListFieldCopy::Scalar { index, kind, .. } => {
+                let expected = match kind {
+                    SlotKind::Byte | SlotKind::Half | SlotKind::Word => StorageType::I32,
+                    SlotKind::F64 => StorageType::F64,
+                    SlotKind::I64 | SlotKind::F32 => {
+                        return Err(mir_error(
+                            *span,
+                            "MIR record list copy field width is not supported yet",
+                        ));
+                    }
+                };
+                let matches = field_types
+                    .get(*index as usize)
+                    .is_some_and(|storage| storage.storage == expected);
+                (*index as usize, matches)
+            }
+            crate::mir::ListFieldCopy::String { index, .. } => {
+                let matches = field_types
+                    .get(*index as usize)
+                    .is_some_and(|storage| matches!(storage.storage, StorageType::Ref(_)));
+                (*index as usize, matches)
             }
         };
-        if storage.storage != expected {
+        let Some(slot) = seen.get_mut(index) else {
+            return Err(mir_error(
+                *span,
+                "MIR record list copy field index is out of range",
+            ));
+        };
+        if *slot {
+            return Err(mir_error(*span, "MIR record list copy field is duplicated"));
+        }
+        *slot = true;
+        if !matches {
             return Err(mir_error(
                 *span,
                 "MIR record list copy field storage does not match the struct",
