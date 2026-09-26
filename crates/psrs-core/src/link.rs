@@ -22,6 +22,7 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut newtype_ids = Vec::new();
     let mut opaque_ids = Vec::new();
     let mut constructors = Vec::new();
+    let mut seen_constructors = HashSet::new();
     let mut declarations = Vec::new();
     let mut externals = Vec::new();
     let mut seen_externals = std::collections::HashSet::new();
@@ -32,16 +33,19 @@ pub fn link(modules: Vec<Module>) -> Module {
         }
         newtype_ids.extend(module.newtype_ids);
         opaque_ids.extend(module.opaque_ids);
-        constructors.extend(module.constructors.into_iter().map(|constructor| {
-            ConstructorInfo {
+        for constructor in module.constructors {
+            if !seen_constructors.insert(constructor.symbol) {
+                continue;
+            }
+            constructors.push(ConstructorInfo {
                 field_types: constructor
                     .field_types
                     .into_iter()
                     .map(|field| shift_id(field, offset))
                     .collect(),
                 ..constructor
-            }
-        }));
+            });
+        }
         declarations.extend(
             module
                 .declarations
@@ -283,6 +287,17 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
     module
         .declarations
         .retain(|declaration| reachable.contains(&declaration.symbol));
+    // A reachable constructor keeps every case of its type so the variant
+    // layout stays complete. Unused library types drop out with their cases.
+    let used_types = module
+        .constructors
+        .iter()
+        .filter(|constructor| reachable.contains(&constructor.symbol))
+        .map(|constructor| constructor.type_id)
+        .collect::<HashSet<_>>();
+    module
+        .constructors
+        .retain(|constructor| used_types.contains(&constructor.type_id));
 }
 
 fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {

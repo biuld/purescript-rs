@@ -36,12 +36,17 @@ pub(super) fn append_function_types(
         });
     }
 
+    // Constructor schemes and unused library declarations leave function types
+    // in the linked table. Laying those out would demand a runtime shape for an
+    // ADT the program never references.
+    let referenced = referenced_types(module);
     let function_ids = module
         .types
         .iter()
         .enumerate()
         .filter_map(|(index, ty)| {
-            matches!(ty, Type::Function { .. }).then_some(TypeId(index as u32))
+            let id = TypeId(index as u32);
+            (matches!(ty, Type::Function { .. }) && referenced.contains(&id)).then_some(id)
         })
         .collect::<Vec<_>>();
     let mut provisional_function_types = HashMap::new();
@@ -321,4 +326,143 @@ fn contains_function_value(expression: &Expr, module: &CoreModule) -> bool {
 
 fn is_function_type(module: &CoreModule, id: TypeId) -> bool {
     matches!(module.types.get(id.0 as usize), Some(Type::Function { .. }))
+}
+
+/// Function types that occur on a remaining declaration, expression, or
+/// constructor field. Types left behind by pruned library code are omitted.
+fn referenced_types(module: &CoreModule) -> HashSet<TypeId> {
+    let mut referenced = HashSet::new();
+    let mut visiting = HashSet::new();
+    for declaration in &module.declarations {
+        record_type(module, declaration.ty, &mut visiting, &mut referenced);
+        record_expr(module, &declaration.value, &mut visiting, &mut referenced);
+    }
+    for constructor in &module.constructors {
+        for field in &constructor.field_types {
+            record_type(module, *field, &mut visiting, &mut referenced);
+        }
+    }
+    referenced
+}
+
+fn record_expr(
+    module: &CoreModule,
+    expression: &Expr,
+    visiting: &mut HashSet<TypeId>,
+    referenced: &mut HashSet<TypeId>,
+) {
+    record_type(module, expression.ty, visiting, referenced);
+    match &expression.kind {
+        ExprKind::Array { elements } => {
+            for element in elements {
+                record_expr(module, element, visiting, referenced);
+            }
+        }
+        ExprKind::Record { fields } | ExprKind::RecordUpdate { fields, .. } => {
+            if let ExprKind::RecordUpdate { record, .. } = &expression.kind {
+                record_expr(module, record, visiting, referenced);
+            }
+            for (_, value) in fields {
+                record_expr(module, value, visiting, referenced);
+            }
+        }
+        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
+            record_expr(module, record, visiting, referenced);
+        }
+        ExprKind::ArrayIndex { array, index } => {
+            record_expr(module, array, visiting, referenced);
+            record_expr(module, index, visiting, referenced);
+        }
+        ExprKind::ArrayUpdate {
+            array,
+            index,
+            value,
+        } => {
+            record_expr(module, array, visiting, referenced);
+            record_expr(module, index, visiting, referenced);
+            record_expr(module, value, visiting, referenced);
+        }
+        ExprKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                record_expr(module, argument, visiting, referenced);
+            }
+        }
+        ExprKind::Application(function, argument)
+        | ExprKind::Primitive {
+            left: function,
+            right: argument,
+            ..
+        } => {
+            record_expr(module, function, visiting, referenced);
+            record_expr(module, argument, visiting, referenced);
+        }
+        ExprKind::UnaryPrimitive { value, .. } => {
+            record_expr(module, value, visiting, referenced);
+        }
+        ExprKind::Lambda { binder, body } => {
+            record_type(module, binder.ty, visiting, referenced);
+            record_expr(module, body, visiting, referenced);
+        }
+        ExprKind::Let { bindings, body } => {
+            for binding in bindings {
+                record_type(module, binding.binder.ty, visiting, referenced);
+                record_expr(module, &binding.value, visiting, referenced);
+            }
+            record_expr(module, body, visiting, referenced);
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            record_expr(module, condition, visiting, referenced);
+            record_expr(module, then_branch, visiting, referenced);
+            record_expr(module, else_branch, visiting, referenced);
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            record_expr(module, scrutinee, visiting, referenced);
+            for branch in branches {
+                record_type(module, branch.pattern.ty, visiting, referenced);
+                record_expr(module, &branch.value, visiting, referenced);
+            }
+        }
+        ExprKind::Local(_)
+        | ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
+    }
+}
+
+fn record_type(
+    module: &CoreModule,
+    id: TypeId,
+    visiting: &mut HashSet<TypeId>,
+    referenced: &mut HashSet<TypeId>,
+) {
+    if !visiting.insert(id) {
+        return;
+    }
+    match module.types.get(id.0 as usize) {
+        Some(Type::Function { parameter, result }) => {
+            referenced.insert(id);
+            record_type(module, *parameter, visiting, referenced);
+            record_type(module, *result, visiting, referenced);
+        }
+        Some(Type::Application(function, argument)) => {
+            record_type(module, *function, visiting, referenced);
+            record_type(module, *argument, visiting, referenced);
+        }
+        Some(Type::Record(fields)) => {
+            for (_, field) in fields {
+                record_type(module, *field, visiting, referenced);
+            }
+        }
+        _ => {}
+    }
 }
