@@ -21,6 +21,9 @@ pub(super) struct Resolver {
     pub(super) globals: HashMap<String, SymbolId>,
     external_globals: HashMap<String, SymbolId>,
     pub(super) type_names: HashMap<String, TypeId>,
+    /// Type IDs introduced by `foreign import data`, including imports. A
+    /// reference to one of these is nominal and opaque.
+    pub(super) opaque_types: HashSet<TypeId>,
     pub(super) imported_types: HashMap<String, Vec<TypeId>>,
     pub(super) qualified_types: HashMap<String, Vec<QualifiedTypeImport>>,
     pub(super) externals: Vec<ExternalSymbol>,
@@ -99,6 +102,7 @@ impl Resolver {
             globals,
             external_globals,
             type_names,
+            opaque_types: HashSet::new(),
             imported_types,
             qualified_types,
             externals,

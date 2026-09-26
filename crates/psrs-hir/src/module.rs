@@ -21,6 +21,10 @@ pub struct ImportedType {
     /// The name used to reference the type inside the importing module.
     pub name: String,
     pub span: TextRange,
+    /// Whether the imported type is an opaque `foreign import data` declaration.
+    /// Importers must keep that nominal identity; the declaring module is not
+    /// consulted again when a signature mentions the type.
+    pub opaque: bool,
 }
 
 /// A resolved import declaration. The imported module is identified by ID and
@@ -55,6 +59,9 @@ pub struct ExportedType {
     pub name_span: TextRange,
     pub constructors: Option<Vec<SymbolId>>,
     pub is_class: bool,
+    /// Whether this export is an opaque `foreign import data` type. Re-exports
+    /// keep the flag so a later importer still treats the type as opaque.
+    pub opaque: bool,
 }
 
 /// A resolved explicit export list. The absence of a list means the module

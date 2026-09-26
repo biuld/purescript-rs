@@ -5,6 +5,7 @@ mod capability_gates;
 mod indirect;
 mod integers;
 mod records;
+mod resources;
 
 fn empty_core_module() -> psrs_core::Module {
     psrs_core::Module {
