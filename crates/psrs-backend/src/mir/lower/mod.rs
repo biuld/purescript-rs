@@ -1,9 +1,9 @@
+use super::BoundWasiImport;
 use super::layout::{LayoutError, PlannedLayout};
 use super::literals::StringLiterals;
 use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
-use crate::abi::BoundWasiImport;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
 use crate::mir::scalar_helpers::ScalarHelpers;
@@ -130,6 +130,17 @@ impl FunctionLowerer<'_> {
             .iter()
             .find(|decl| decl.id == id)
             .map(|decl| decl.ty)
+    }
+
+    /// The record product fields and canonical labels for a representation
+    /// handle, used by the WIT adapter to project fields by WIT name.
+    pub(super) fn resolved_product(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
+        self.layout
+            .wit_product(repr)
+            .map(|(fields, labels)| (fields.to_vec(), labels.to_vec()))
     }
 
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {

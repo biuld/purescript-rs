@@ -1,6 +1,6 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, reference, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::{WasiParamKind, WasiResultKind};
 use crate::mir::ListDirection;
 use crate::types::DefinedTypeId;
 use psrs_hir::{ModuleId, SymbolId};
@@ -35,12 +35,7 @@ fn a_list_of_strings_result_lowers_to_an_array() {
             },
             Vec::new(),
         ),
-        &source_signature(
-            Vec::new(),
-            SourceType::Array {
-                element: Box::new(SourceType::String),
-            },
-        ),
+        &signature(Vec::new()),
         destination,
         &[],
         TextRange::new(0, 1),
@@ -73,12 +68,7 @@ fn an_array_of_ints_lowers_to_a_list_parameter() {
                 element: Box::new(WasiParamKind::Integer32),
             }],
         ),
-        &source_signature(
-            vec![SourceType::Array {
-                element: Box::new(SourceType::Int),
-            }],
-            SourceType::Unit,
-        ),
+        &signature(vec![reference(0)]),
         ValueId(0),
         &[argument],
         TextRange::new(0, 1),

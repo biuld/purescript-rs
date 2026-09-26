@@ -1,7 +1,8 @@
 use super::super::*;
-use crate::abi::{SourceSignature, SourceType};
+use crate::cc::{RefShape, Reference, ReprId, Signature, ValueShape};
 use crate::types::DefinedTypeId;
 use std::collections::HashMap;
+
 #[derive(Default)]
 pub(super) struct RecordingLowerer {
     pub(super) next_value: u32,
@@ -9,6 +10,9 @@ pub(super) struct RecordingLowerer {
     pub(super) product_fields: Vec<u32>,
     pub(super) product_field_types: HashMap<u32, ValueType>,
     pub(super) array_types: HashMap<ValueId, DefinedTypeId>,
+    /// Record products by representation handle, with canonical labels. The
+    /// adapter projects WIT fields by name through these.
+    pub(super) products: HashMap<ReprId, (Vec<ValueShape>, Vec<String>)>,
 }
 
 impl WitCallLowerer for RecordingLowerer {
@@ -63,11 +67,42 @@ impl WitCallLowerer for RecordingLowerer {
             )]
         })
     }
-}
-pub(super) fn source_signature(parameters: Vec<SourceType>, result: SourceType) -> SourceSignature {
-    SourceSignature {
-        parameters,
-        result,
-        span: TextRange::new(0, 1),
+
+    fn wit_product(&self, repr: ReprId) -> Option<(Vec<ValueShape>, Vec<String>)> {
+        self.products.get(&repr).cloned()
     }
+}
+
+/// A CC abstract signature from explicit parameter shapes. The WIT adapter only
+/// reads the parameters; scalar-result tests set an arbitrary result shape.
+pub(super) fn signature(parameters: Vec<ValueShape>) -> Signature {
+    Signature {
+        parameters,
+        result: ValueShape::Integer,
+    }
+}
+
+/// A record reference parameter shape for the given representation handle.
+pub(super) fn reference(repr: u32) -> ValueShape {
+    ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(ReprId(repr)),
+    })
+}
+
+/// Registers a record product for a `RecordingLowerer` and returns the shape.
+pub(super) fn record(
+    lowerer: &mut RecordingLowerer,
+    repr: u32,
+    labels: &[&str],
+    fields: Vec<ValueShape>,
+) -> ValueShape {
+    lowerer.products.insert(
+        ReprId(repr),
+        (
+            fields,
+            labels.iter().map(|label| (*label).to_string()).collect(),
+        ),
+    );
+    reference(repr)
 }

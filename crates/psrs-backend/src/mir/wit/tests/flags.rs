@@ -1,6 +1,7 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, record, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 #[test]
@@ -19,20 +20,20 @@ fn flags_arguments_pack_boolean_fields_in_wit_declaration_order() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let source = SourceType::Record {
-        fields: vec![
-            ("read".into(), Box::new(SourceType::Boolean)),
-            ("write".into(), Box::new(SourceType::Boolean)),
-        ],
-    };
     let mut lowerer = RecordingLowerer {
         product_field_types: HashMap::from([(0, ValueType::Boolean), (1, ValueType::Boolean)]),
         ..RecordingLowerer::default()
     };
+    let shape = record(
+        &mut lowerer,
+        0,
+        &["read", "write"],
+        vec![ValueShape::Boolean, ValueShape::Boolean],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),
@@ -107,20 +108,21 @@ fn flags_arguments_split_after_thirty_two_bits() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let source = SourceType::Record {
-        fields: names
-            .iter()
-            .map(|name| (name.clone(), Box::new(SourceType::Boolean)))
-            .collect(),
-    };
     let mut lowerer = RecordingLowerer {
         product_field_types: (0..33).map(|index| (index, ValueType::Boolean)).collect(),
         ..RecordingLowerer::default()
     };
+    let labels = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let shape = record(
+        &mut lowerer,
+        0,
+        &labels,
+        vec![ValueShape::Boolean; names.len()],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),

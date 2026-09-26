@@ -1,13 +1,12 @@
 //! Resource-handle lowering: `resource.drop` for `own<T>`, borrow release at
 //! the end of the call, and the scope verifier.
 
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, signature};
 use super::handles::verify_function;
 use super::*;
-use crate::abi::{
-    BoundWasiImport, HandleMode, HandleResource, SourceSignature, SourceType, WasiImport,
-    WasiParamKind, WasiResultKind,
-};
+use crate::abi::{HandleMode, HandleResource, WasiImport, WasiParamKind, WasiResultKind};
+use crate::cc::{Signature, ValueShape};
+use crate::mir::BoundWasiImport;
 use crate::mir::{BasicBlock, BlockId, Function, Instruction, Terminator};
 use crate::types::{FunctionId, ValueDecl, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
@@ -43,10 +42,9 @@ fn import(result: WasiResultKind, params: Vec<WasiParamKind>, symbol: SymbolId) 
 
 fn bound(import: WasiImport) -> BoundWasiImport {
     BoundWasiImport {
-        signature: SourceSignature {
-            parameters: vec![SourceType::Int; import.param_kinds.len()],
-            result: SourceType::Int,
-            span: span(),
+        signature: Signature {
+            parameters: vec![ValueShape::Integer; import.param_kinds.len()],
+            result: ValueShape::Integer,
         },
         import,
     }
@@ -66,7 +64,7 @@ fn a_borrow_result_is_released_when_the_call_returns() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::Int),
+        &signature(Vec::new()),
         destination,
         &[],
         span(),
@@ -110,7 +108,7 @@ fn an_owned_result_is_not_dropped_before_the_caller_can_use_it() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::Int),
+        &signature(Vec::new()),
         ValueId(4),
         &[],
         span(),

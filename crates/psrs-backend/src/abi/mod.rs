@@ -21,7 +21,7 @@ mod validation;
 
 pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
-pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+pub(crate) use flatten::FlatSlot;
 pub use handles::{HandleMode, HandleResource};
 pub(crate) use link::intern_source_type;
 pub use lists::ListElement;
@@ -273,14 +273,6 @@ impl WasiImport {
                 .len()
                 .saturating_sub(usize::from(self.retptr))
     }
-}
-
-/// A P9-resolved import pairs WIT's ABI description with the exact source
-/// signature needed to recover record field order after CC lowering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BoundWasiImport {
-    pub import: WasiImport,
-    pub signature: SourceSignature,
 }
 
 /// Resolves WASI imports against the vendored WIT, interning each distinct

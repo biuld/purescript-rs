@@ -3,6 +3,7 @@ use super::super::instruction::Instruction;
 use super::{PendingFree, WitCallLowerer};
 use crate::BackendError;
 use crate::abi::{self, WasiImport};
+use crate::cc::{RefShape, Reference, ValueShape};
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
@@ -15,25 +16,25 @@ mod primitive;
 pub(super) fn lower_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    signature: &crate::cc::Signature,
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if source_signature.parameters.len() != arguments.len() {
+    if signature.parameters.len() != arguments.len() {
         return Err(parameter_count(span));
     }
     let mut flattened = Vec::new();
     // A primitive import of an aggregate (`option<string>` as `Int -> String`)
     // has a different source arity than `param_kinds`. Flatten each primitive
     // in order. Nullary enums, closed records, and flags stay on the zip path.
-    if primitive_flat_call(import, source_signature) {
+    if signature.parameters.len() != import.param_kinds.len() {
         primitive::lower_primitive_parameters(
             lowerer,
             import,
-            source_signature,
+            signature,
             arguments,
             &mut flattened,
             frees,
@@ -43,18 +44,15 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
         flat.extend(flattened);
         return Ok(());
     }
-    if import.param_kinds.len() != arguments.len() {
-        return Err(parameter_count(span));
-    }
-    for ((argument, source), kind) in arguments
+    for ((argument, shape), kind) in arguments
         .iter()
-        .zip(&source_signature.parameters)
+        .zip(&signature.parameters)
         .zip(&import.param_kinds)
     {
         lower_parameter(
             lowerer,
             *argument,
-            source,
+            shape,
             kind,
             &mut flattened,
             frees,
@@ -82,7 +80,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
 fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    source: &abi::SourceType,
+    shape: &ValueShape,
     kind: &abi::WasiParamKind,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
@@ -136,7 +134,7 @@ fn lower_parameter<L: WitCallLowerer>(
             flat.push(narrowed);
         }
         abi::WasiParamKind::Flags { names } => {
-            lower_flags(lowerer, argument, source, names, flat, current, span)?;
+            lower_flags(lowerer, argument, shape, names, flat, current, span)?;
         }
         abi::WasiParamKind::List => {
             // Transcode the GC string's UTF-16 into a fresh UTF-8 linear
@@ -201,29 +199,20 @@ fn lower_parameter<L: WitCallLowerer>(
             super::lists::write_value_list(lowerer, argument, element, flat, frees, current, span)?;
         }
         abi::WasiParamKind::Record { fields } => {
-            let abi::SourceType::Record {
-                fields: source_fields,
-            } = source
-            else {
-                return Err(unsupported_parameter(span));
-            };
-            if fields.len() != source_fields.len() {
+            let (product, labels) = product_of(lowerer, shape, span)?;
+            if fields.len() != labels.len() {
                 return Err(unsupported_parameter(span));
             }
             for field in fields {
                 let source_label = abi::source_field_name(&field.name);
-                let Some((index, (_, source_field))) = source_fields
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (label, _))| label == &source_label)
-                else {
+                let Some(index) = labels.iter().position(|label| label == &source_label) else {
                     return Err(unsupported_parameter(span));
                 };
                 let value = lowerer.wit_product_field(current, argument, index as u32, span)?;
                 lower_parameter(
                     lowerer,
                     value,
-                    source_field,
+                    &product[index],
                     &field.kind,
                     flat,
                     frees,
@@ -240,20 +229,14 @@ fn lower_parameter<L: WitCallLowerer>(
 fn lower_flags<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    source: &abi::SourceType,
+    shape: &ValueShape,
     names: &[String],
     flat: &mut Vec<ValueId>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    let abi::SourceType::Record { fields } = source else {
-        return Err(unsupported_parameter(span));
-    };
-    if names.len() != fields.len()
-        || fields
-            .iter()
-            .any(|(_, field)| !matches!(field.as_ref(), abi::SourceType::Boolean))
-    {
+    let (_, labels) = product_of(lowerer, shape, span)?;
+    if names.len() != labels.len() {
         return Err(unsupported_parameter(span));
     }
     for word_names in names.chunks(32) {
@@ -269,10 +252,9 @@ fn lower_flags<L: WitCallLowerer>(
         )?;
         for (bit, name) in word_names.iter().enumerate() {
             let label = abi::source_field_name(name);
-            let Some((field_index, _)) = fields
+            let Some(field_index) = labels
                 .iter()
-                .enumerate()
-                .find(|(_, (source_label, _))| source_label == &label)
+                .position(|source_label| source_label == &label)
             else {
                 return Err(unsupported_parameter(span));
             };
@@ -334,9 +316,21 @@ fn lower_flags<L: WitCallLowerer>(
     Ok(())
 }
 
-fn primitive_flat_call(import: &WasiImport, signature: &abi::SourceSignature) -> bool {
-    abi::is_primitive_signature(&signature.parameters, &signature.result)
-        && signature.parameters.len() != import.param_kinds.len()
+fn product_of<L: WitCallLowerer>(
+    lowerer: &L,
+    shape: &ValueShape,
+    span: TextRange,
+) -> Result<(Vec<ValueShape>, Vec<String>), Vec<BackendError>> {
+    let ValueShape::Reference(Reference {
+        heap: RefShape::Repr(repr),
+        ..
+    }) = shape
+    else {
+        return Err(unsupported_parameter(span));
+    };
+    lowerer
+        .wit_product(*repr)
+        .ok_or_else(|| unsupported_parameter(span))
 }
 
 fn parameter_count(span: TextRange) -> Vec<BackendError> {
