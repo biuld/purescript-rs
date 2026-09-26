@@ -1,18 +1,19 @@
 use super::convert::val_type;
 use super::{
-    Body, DataIndex, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType, Function,
-    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    Body, DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
+    Function, FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, DataId, MemoryId, ValueId, ValueType};
+use crate::types::{CompositeType, DataId, HeapType, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
 use wasm_encoder::{Instruction, RefType, ValType};
 
+mod codec;
 mod extent;
 mod realloc;
 mod runtime;
@@ -62,14 +63,18 @@ pub fn lower_module_with_capabilities(
         ));
     }
 
-    let (string_offsets, mut data, data_end) = collect_strings(module);
-    extent::verify_static_access_extents(module, &string_offsets)?;
+    let (mut data, string_lengths) = collect_strings(module);
+    extent::verify_static_access_extents(module)?;
+    let needs_helpers = module.imports.iter().any(|import| {
+        import.symbol == abi::STRING_TO_BYTES_SYMBOL || import.symbol == abi::BYTES_TO_STRING_SYMBOL
+    });
     // The host allocates returned lists through `cabi_realloc`; indirect
-    // parameter records use the same allocator from inside the guest.
-    let needs_realloc = module
-        .imports
-        .iter()
-        .any(|import| import.symbol == abi::REALLOC_SYMBOL || wasi.has_list_result(import.symbol));
+    // parameter records and the string codec use the same allocator from inside
+    // the guest.
+    let needs_realloc = needs_helpers
+        || module.imports.iter().any(|import| {
+            import.symbol == abi::REALLOC_SYMBOL || wasi.has_list_result(import.symbol)
+        });
 
     let type_defs = module.types.clone();
     let defined = type_defs
@@ -83,7 +88,10 @@ pub fn lower_module_with_capabilities(
     let mut imports = Vec::new();
     let mut import_indices = HashMap::<SymbolId, FunctionIndex>::new();
     for import in &module.imports {
-        if import.symbol == abi::REALLOC_SYMBOL {
+        if matches!(
+            import.symbol,
+            abi::REALLOC_SYMBOL | abi::STRING_TO_BYTES_SYMBOL | abi::BYTES_TO_STRING_SYMBOL
+        ) {
             continue;
         }
         let type_index = TypeIndex(defined + types.len() as u32);
@@ -153,6 +161,24 @@ pub fn lower_module_with_capabilities(
     if needs_realloc {
         function_indices.insert(abi::REALLOC_SYMBOL, FunctionIndex(entry_index.0 + 1));
     }
+    // The GC string type index is carried by the reserved helper imports' value
+    // types, so the synthesized codec names the same concrete type MIR does.
+    let string_type = if needs_helpers {
+        let string_type = string_type_from_imports(module)
+            .ok_or_else(|| wasm_error(module.span, "the string codec has no GC string type"))?;
+        function_indices.insert(
+            abi::STRING_TO_BYTES_SYMBOL,
+            FunctionIndex(entry_index.0 + 2),
+        );
+        function_indices.insert(
+            abi::BYTES_TO_STRING_SYMBOL,
+            FunctionIndex(entry_index.0 + 3),
+        );
+        Some(string_type)
+    } else {
+        None
+    };
+    let decode_step_index = FunctionIndex(entry_index.0 + 4);
 
     let mut functions = Vec::with_capacity(module.functions.len());
     for (index, source) in module.functions.iter().enumerate() {
@@ -160,7 +186,7 @@ pub fn lower_module_with_capabilities(
             source,
             function_types[index],
             &function_indices,
-            &string_offsets,
+            &string_lengths,
         )
         .map_err(|errors| {
             errors
@@ -193,7 +219,7 @@ pub fn lower_module_with_capabilities(
     let mut minimum = 1;
     let mut realloc = None;
     if needs_realloc {
-        let heap_pointer = data_end.next_multiple_of(4);
+        let heap_pointer = abi::SCRATCH_END.next_multiple_of(4);
         let heap_start = (heap_pointer + 4).next_multiple_of(16);
         let realloc_type = TypeIndex(defined + types.len() as u32);
         types.push(FuncType {
@@ -209,12 +235,39 @@ pub fn lower_module_with_capabilities(
         data.push(DataSegment {
             id: DataId(data.len() as u32),
             index: DataIndex(data.len() as u32),
-            offset: heap_pointer,
+            mode: DataMode::Active {
+                offset: heap_pointer,
+            },
             bytes: heap_start.to_le_bytes().to_vec(),
         });
         minimum = (heap_start as u64).div_ceil(0x10000) + 1;
         realloc = Some(build_realloc(realloc_type, heap_pointer, module.span));
     }
+    let helpers = if needs_helpers {
+        let string_type = string_type.expect("a needed codec has a GC string type");
+        let string_ref = val_type(ValueType::Ref(crate::types::RefType {
+            nullable: false,
+            heap: HeapType::Index(string_type),
+        }));
+        let (stb, bts, step) = codec::signatures(string_ref);
+        let stb_type = TypeIndex(defined + types.len() as u32);
+        types.push(stb);
+        let bts_type = TypeIndex(defined + types.len() as u32);
+        types.push(bts);
+        let step_type = TypeIndex(defined + types.len() as u32);
+        types.push(step);
+        codec::synthesize(
+            string_type,
+            FunctionIndex(entry_index.0 + 1),
+            decode_step_index,
+            stb_type,
+            bts_type,
+            step_type,
+            module.span,
+        )
+    } else {
+        Vec::new()
+    };
 
     let wasm = Module {
         name: module.name.clone(),
@@ -242,10 +295,26 @@ pub fn lower_module_with_capabilities(
             },
         }),
         realloc,
+        helpers,
         span: module.span,
     };
     super::verify::verify_module(&wasm)?;
     Ok(wasm)
+}
+
+/// The GC string defined-type index, read from a reserved codec import's value
+/// type. It is present exactly when the adapter needed a string transcode.
+fn string_type_from_imports(module: &mir::Module) -> Option<crate::types::DefinedTypeId> {
+    for import in &module.imports {
+        for ty in import.parameters.iter().chain(import.result.iter()) {
+            if let ValueType::Ref(reference) = ty
+                && let HeapType::Index(index) = reference.heap
+            {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 fn collect_function_types(
@@ -313,7 +382,7 @@ fn lower_function(
     source: &MirFunction,
     type_index: TypeIndex,
     function_indices: &HashMap<SymbolId, FunctionIndex>,
-    string_offsets: &HashMap<String, u32>,
+    string_lengths: &HashMap<crate::types::DataId, u32>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -340,7 +409,7 @@ fn lower_function(
             .collect(),
         locals,
         function_indices,
-        string_offsets,
+        string_lengths,
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;

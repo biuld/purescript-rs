@@ -144,6 +144,7 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
                 CcValueShape::Integer,
                 CcValueShape::Boolean,
                 CcValueShape::Number,
+                CcValueShape::String,
             ],
         },
     );
@@ -162,11 +163,21 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
         (CcValueShape::Integer, ValueType::I32),
         (CcValueShape::Boolean, ValueType::Boolean),
         (CcValueShape::Number, ValueType::F64),
-        (CcValueShape::String, ValueType::I32),
     ];
     for (shape, expected) in scalar_cases {
         assert_eq!(layout.value_type(&shape).unwrap(), expected, "{shape:?}");
     }
+    // A source `String` is a GC `(array (mut i16))`, not a linear pointer.
+    let string_index = layout
+        .string_index()
+        .expect("a reachable String reserves the GC string type");
+    assert_eq!(
+        layout.value_type(&CcValueShape::String).unwrap(),
+        ValueType::Ref(RefType {
+            nullable: false,
+            heap: HeapType::Index(string_index),
+        })
+    );
 
     let reference_cases = [
         (
@@ -225,7 +236,15 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
     };
     assert_eq!(
         fields.iter().map(|field| field.storage).collect::<Vec<_>>(),
-        vec![StorageType::I32, StorageType::I32, StorageType::F64]
+        vec![
+            StorageType::I32,
+            StorageType::I32,
+            StorageType::F64,
+            StorageType::Ref(RefType {
+                nullable: false,
+                heap: HeapType::Index(string_index),
+            }),
+        ]
     );
     assert!(
         fields.iter().all(|field| !field.mutable),

@@ -70,18 +70,22 @@ impl FunctionLowerer<'_> {
         let destination = self.module.types.get(destination_type.0 as usize);
         if matches!(destination, Some(Type::Variable(_))) {
             return match source_shape {
-                ValueShape::Integer | ValueShape::Boolean | ValueShape::String => self
+                ValueShape::Integer | ValueShape::Boolean => self
                     .box_plan(BoxKind::Integer, self.boxed_integer_type, span)
                     .map(|boxed| sequence(vec![boxed, ValueConversion::EraseReference])),
                 ValueShape::Number => self
                     .box_plan(BoxKind::Number, self.boxed_number_type, span)
                     .map(|boxed| sequence(vec![boxed, ValueConversion::EraseReference])),
-                ValueShape::Reference(_) => Ok(ValueConversion::EraseReference),
+                // A `String` is already a GC reference in the `eq` hierarchy, so
+                // it is erased and recovered by cast, not by the integer box.
+                ValueShape::String | ValueShape::Reference(_) => {
+                    Ok(ValueConversion::EraseReference)
+                }
             };
         }
         if matches!(source, Some(Type::Variable(_))) {
             return match destination_shape {
-                ValueShape::Integer | ValueShape::Boolean | ValueShape::String => self.unbox_plan(
+                ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
                     BoxKind::Integer,
                     self.boxed_integer_type,
                     destination_shape,
@@ -93,10 +97,12 @@ impl FunctionLowerer<'_> {
                     destination_shape,
                     span,
                 ),
-                ValueShape::Reference(_) => Ok(ValueConversion::RecoverReference {
-                    destination: destination_shape,
-                    evidence: RecoveryEvidence::TypeInstantiation,
-                }),
+                ValueShape::String | ValueShape::Reference(_) => {
+                    Ok(ValueConversion::RecoverReference {
+                        destination: destination_shape,
+                        evidence: RecoveryEvidence::TypeInstantiation,
+                    })
+                }
             };
         }
         if let (Some(source_element), Some(destination_element)) = (

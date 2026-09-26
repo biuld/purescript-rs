@@ -122,6 +122,7 @@ mod tests {
             }],
             entry: None,
             realloc: None,
+            helpers: Vec::new(),
             span,
         };
         crate::wasm::encode_module(&module).expect("encoding the core module")
@@ -250,7 +251,7 @@ mod tests {
             data: vec![DataSegment {
                 id: crate::types::DataId(0),
                 index: DataIndex(0),
-                offset: 100,
+                mode: crate::wasm::DataMode::Active { offset: 100 },
                 bytes: b"hello\n".to_vec(),
             }],
             exports: vec![
@@ -267,6 +268,7 @@ mod tests {
             ],
             entry: None,
             realloc: None,
+            helpers: Vec::new(),
             span,
         };
         crate::wasm::encode_module(&module).expect("encoding the core module")

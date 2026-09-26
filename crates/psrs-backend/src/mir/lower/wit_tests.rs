@@ -38,6 +38,7 @@ fn gc_wit_record_projection_uses_the_planned_product_type() {
         wit_imports: &HashMap::new(),
         scalar_helpers: &ScalarHelpers::default(),
         layout: &layout,
+        literals: None,
     };
 
     let field = lowerer

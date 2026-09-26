@@ -99,6 +99,8 @@ one owner and is freed when its lifetime ends.
   boundary: strings, byte lists, ..." is narrowed: strings and byte lists cross
   the boundary but are GC-managed after adaptation, not stored in linear
   memory.
-- Implementation notes record the current deviation (strings as linear `i32`
-  pointers and a bump allocator) until the code is migrated; feature-row
+- Implementation notes record the remaining deviation: strings are GC
+  `(array (mut i16))` values materialized from passive segments and transcoded
+  at the boundary, but `cabi_realloc` is still a bump allocator, `post-return`
+  is not synthesized, and resource handles are not lowered; feature-row
   coverage stays in [D-04](../design/D-04-suite-roadmap.md).

@@ -33,12 +33,12 @@ existing code or a fixture that only inspects WAT does not verify execution.
 | --- | --- | --- | --- |
 | PE-01 | A bare type variable has non-null erased `eqref` shape, while generic aggregates normalize recursively to canonical layouts. | Inspect CC shapes for `a`, `Array a`, nested arrays, dependent records and ADT fields; reject conflating bare erasure with aggregate identity. | Verified |
 | PE-02 | Equal normalized function signatures share `SignatureId` and MIR function type; closure receiver and capture conventions are exact. | Equivalent/different signature interning cases, indirect call verification, and emitted type-index inspection. | Verified |
-| PE-03 | Integer and Boolean use full-width `i32` boxes at erased boundaries, `Number` uses an `f64` box, and `String` erases and recovers as a GC reference. | Value-sensitive round trips including `Int` extremes, both Booleans, signed zero/NaN policy, and nonempty String contents. | In progress |
+| PE-03 | Integer and Boolean use full-width `i32` boxes at erased boundaries, `Number` uses an `f64` box, and `String` erases and recovers as a GC reference. | Value-sensitive round trips including `Int` extremes, both Booleans, signed zero/NaN policy, and nonempty String contents. | Verified |
 | PE-04 | GC references erase by upcast and recover by checked shape/provenance without avoidable allocation. | Inspect CC/MIR for reference-only conversions; execute valid ADT/array/record/closure identity and reject wrong nominal recovery. | Verified |
 | PE-05 | `i31` is reserved for Boolean capture encoding and never substitutes for a general boxed full-width `Int`. | Capture and erased-call fixtures with high-bit integer values; inspect emitted boxing operations. | Verified |
 | PE-06 | Direct generic calls adapt argument and result representations at the declaration signature and caller instantiation. | One generic body called at multiple scalar and reference instantiations; execute payload-sensitive results and inspect boundary plans. | Verified |
 | PE-07 | Concrete-to-generic and generic-to-concrete function adapters convert each argument and result at invocation with exact arity/signatures. | Execute both adapter directions, mixed scalar/reference arguments, returned function values, and repeated calls; prove original function value evaluated once. | Verified |
-| PE-08 | Closure captures use the uniform nullable `eqref` array; scalar captures box, a `String` capture is stored as its GC reference, and reference captures are stored as-is. | Escaping closures capture Int, Boolean, Number, String, reference, and already-erased values; execute later reads and inspect no double boxing. | In progress |
+| PE-08 | Closure captures use the uniform nullable `eqref` array; scalar captures box, a `String` capture is stored as its GC reference, and reference captures are stored as-is. | Escaping closures capture Int, Boolean, Number, String, reference, and already-erased values; execute later reads and inspect no double boxing. | Verified |
 | PE-09 | RepresentationTest/Cast is restricted to valid erased boundaries and cannot replace nominal aggregate reconstruction. | CC/MIR verifier negative fixtures for unrelated nominal layouts, wrong box kind, nullability, and signature; coordinate positive aggregate cases with [generic aggregate erasure](generic-aggregate-erasure.md). | Verified |
 | PE-10 | CC and MIR verifiers reject malformed adapters, captures, calls, and unresolved representation requirements. | Full-module negative fixtures for wrong signature, capture index/type, arity, cast provenance, and result shape before Wasm emission. | Verified |
 | PE-11 | Erased values are recovered before canonical WIT calls; optimized and unspecialized execution agree. | Source or verified Core fixture crossing a concrete ABI call, plus execution retaining an erased generic path and normal optimized execution. | Verified |
@@ -204,7 +204,8 @@ PE-08:
     cc/lower/lambda.rs (ClosureGetCapture), mir/lower/assignments.rs and
     wasm/lower/structure/closure.rs (uniform nullable eqref capture array).
   Tests: cc::layout::tests::non_i32_integer_shaped_captures_reserve_the_integer_box
-    (Char/String/Unit, no Type::Variable, no Type::I32);
+    (Char/Unit reserve Box{Integer}; a String capture does not, and is stored as
+    its GC reference);
     driver polymorphism_erasure_audit::
     escaping_closures_capture_int_and_reference_values (I32 and Ref capture
     slots), escaping_closures_capture_a_string_value (logs "captured"),
@@ -213,8 +214,8 @@ PE-08:
   Input boundary: verified Typed Core layout fixture and source.
   Commands: cargo test -p psrs-backend cc::layout::tests::non_i32_integer_shaped_captures_reserve_the_integer_box;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib polymorphism_erasure_audit.
-  Result: pass. A free Char/String/Unit capture now reserves Box{Integer};
-    Int, Boolean, String, reference, and already-erased captures execute.
+  Result: pass. Char/Unit captures reserve Box{Integer}; Int, Boolean, String,
+    reference, and already-erased captures execute.
   Revision: cc5d0f4 + audit diff.
   Gaps: none in the covered shapes; Number capture is exercised by the generic
     aggregate capture tests.

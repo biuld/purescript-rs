@@ -16,6 +16,7 @@ fn module_with(types: Vec<RecGroup>) -> Module {
     Module {
         name: "SubtypeTest".into(),
         types,
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: Vec::new(),
         entry: None,

@@ -41,7 +41,8 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
     let function_count = (module.imports.len()
         + module.functions.len()
         + usize::from(module.entry.is_some())
-        + usize::from(module.realloc.is_some())) as u32;
+        + usize::from(module.realloc.is_some())
+        + module.helpers.len()) as u32;
     for import in &module.imports {
         if !valid_function_type(module, import.type_index.0) {
             errors.push(wasm_error(
@@ -114,6 +115,24 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
             local_count,
             function_count,
             realloc.span,
+            FUNCTION_LABEL_DEPTH,
+            &mut errors,
+        );
+    }
+    for helper in &module.helpers {
+        if !valid_function_type(module, helper.type_index.0) {
+            errors.push(wasm_error(
+                helper.span,
+                "Wasm helper type index is out of range",
+            ));
+        }
+        let local_count = (helper.parameters.len() + helper.locals.len()) as u32;
+        verify_body(
+            &helper.body,
+            module,
+            local_count,
+            function_count,
+            helper.span,
             FUNCTION_LABEL_DEPTH,
             &mut errors,
         );

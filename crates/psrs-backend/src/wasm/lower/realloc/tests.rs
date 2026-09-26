@@ -1,8 +1,8 @@
 use super::*;
 use crate::types::{DataId, MemoryId};
 use crate::wasm::{
-    DataIndex, DataSegment, Export, ExportIndex, ExportKind, FuncType, FunctionIndex, Memory,
-    MemoryIndex, Module,
+    DataIndex, DataMode, DataSegment, Export, ExportIndex, ExportKind, FuncType, FunctionIndex,
+    Memory, MemoryIndex, Module,
 };
 use psrs_hir::{ModuleId, SymbolId};
 use psrs_span::TextRange;
@@ -190,7 +190,9 @@ fn fixture() -> Module {
         data: vec![DataSegment {
             id: DataId(0),
             index: DataIndex(0),
-            offset: HEAP_POINTER,
+            mode: DataMode::Active {
+                offset: HEAP_POINTER,
+            },
             bytes: INITIAL_FREE.to_le_bytes().to_vec(),
         }],
         exports: [
@@ -215,6 +217,7 @@ fn fixture() -> Module {
         .collect(),
         entry: None,
         realloc: Some(realloc),
+        helpers: Vec::new(),
         span: span(),
     }
 }

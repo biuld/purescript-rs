@@ -1,37 +1,30 @@
-use crate::abi::SCRATCH_END;
-use crate::mir::Instruction as MirInstruction;
 use crate::types::DataId;
-use crate::wasm::{DataIndex, DataSegment};
+use crate::wasm::{DataIndex, DataMode, DataSegment};
 use std::collections::HashMap;
 
-/// Collects string literals into length-prefixed data segments after the
-/// scratch region, returning their addresses and the first free offset.
+/// Encodes each static string literal as a passive data segment of little-endian
+/// UTF-16 code units. `array.new_data` materializes a segment into a GC string,
+/// so a literal never passes through linear memory. Returns the segments in
+/// `DataId` order and the code-unit count of each.
 pub(super) fn collect_strings(
     module: &crate::mir::Module,
-) -> (HashMap<String, u32>, Vec<DataSegment>, u32) {
-    let mut offsets = HashMap::new();
-    let mut data = Vec::new();
-    let mut next = SCRATCH_END;
-    for function in &module.functions {
-        for block in &function.blocks {
-            for instruction in &block.instructions {
-                if let MirInstruction::StringConstant { bytes, .. } = instruction
-                    && !offsets.contains_key(bytes)
-                {
-                    let offset = next.next_multiple_of(4);
-                    offsets.insert(bytes.clone(), offset);
-                    let mut segment = (bytes.len() as u32).to_le_bytes().to_vec();
-                    segment.extend_from_slice(bytes.as_bytes());
-                    data.push(DataSegment {
-                        id: DataId(data.len() as u32),
-                        index: DataIndex(data.len() as u32),
-                        offset,
-                        bytes: segment,
-                    });
-                    next = offset + 4 + bytes.len() as u32;
-                }
-            }
+) -> (Vec<DataSegment>, HashMap<DataId, u32>) {
+    let mut data = Vec::with_capacity(module.strings.len());
+    let mut counts = HashMap::new();
+    for (index, text) in module.strings.iter().enumerate() {
+        let units = text.encode_utf16().collect::<Vec<_>>();
+        let mut bytes = Vec::with_capacity(units.len() * 2);
+        for unit in &units {
+            bytes.extend_from_slice(&unit.to_le_bytes());
         }
+        let id = DataId(index as u32);
+        counts.insert(id, units.len() as u32);
+        data.push(DataSegment {
+            id,
+            index: DataIndex(index as u32),
+            mode: DataMode::Passive,
+            bytes,
+        });
     }
-    (offsets, data, next)
+    (data, counts)
 }

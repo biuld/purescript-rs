@@ -5,11 +5,11 @@
 **Design:** [Data representation](../../design/backend/fp/data-representation.md)
 
 **Progress:** Re-baselined by
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). DR-03..DR-06
-and DR-09..DR-12 remain Verified. DR-01, DR-02, DR-07, and DR-08 pass under the
-pre-DEC-10 linear `i32` string representation and are In progress for the
-GC-string target. Runtime evidence executed under Wasmtime 49.0.0 with
-`PSRS_REQUIRE_WASMTIME=1`.
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). DR-01..DR-12
+are Verified. A source `String` is now the GC `(array (mut i16))` type reserved
+by the planner; string literals use `array.new_data`, and the erased protocol
+stores and recovers a `String` as a reference rather than the integer box.
+Runtime evidence executed under Wasmtime 49.0.0 with `PSRS_REQUIRE_WASMTIME=1`.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-05 through BE-10 and BE-15.
 
@@ -32,14 +32,14 @@ evidence where behavior is observable.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| DR-01 | P9 maps every CC scalar, string, reference, erased, and closure shape to the specified MIR value type, with `String` as a GC byte sequence. | Table-driven layout tests for `Int`, `Number`, `Boolean`, `Char`, `Unit`, `String`, products, variants, arrays, closures, and erased values; reject mismatches. | In progress |
-| DR-02 | Planner reserves all reachable nominal types (including the string representation) in one recursion group and maps each `ReprId` to one `DefinedTypeId`. | Recursive and mutually referring record/array/variant/closure/string fixtures inspect type identities, forward references, and valid Wasm type section. | In progress |
+| DR-01 | P9 maps every CC scalar, string, reference, erased, and closure shape to the specified MIR value type, with `String` as a GC byte sequence. | Table-driven layout tests for `Int`, `Number`, `Boolean`, `Char`, `Unit`, `String`, products, variants, arrays, closures, and erased values; reject mismatches. | Verified |
+| DR-02 | Planner reserves all reachable nominal types (including the string representation) in one recursion group and maps each `ReprId` to one `DefinedTypeId`. | Recursive and mutually referring record/array/variant/closure/string fixtures inspect type identities, forward references, and valid Wasm type section. | Verified |
 | DR-03 | Products and closed records are structs with canonical field order and correct mutability; pure update creates a new value. | Construct, project, pattern match, and update mixed fields; retain the old value and execute assertions on both. | Verified |
 | DR-04 | Field-bearing sums use an abstract tag-carrying supertype and final case subtypes; all-nullary sums use immediate `i32` tags. | Inspect type hierarchy and tag positions; execute nullary, single/multiple-field and nested ADT cases; reject wrong tag/field selection. | Verified |
 | DR-05 | Newtype representation erases the wrapper exactly where the design specifies. | Inspect CC/MIR for absence of wrapper allocation and execute construction/matching through nested uses. | Verified |
 | DR-06 | Arrays use mutable GC element storage but source `ArraySet` is a pure clone/update; canonical and concrete layouts remain distinct. | Execute empty, singleton, nested, and aliased update/read cases; inspect `array.new`, `get`, `set`, clone and type indices. | Verified |
-| DR-07 | Closures use a code reference and uniform nullable `eqref` capture array; integer/Boolean captures box and a `String` capture is stored as its GC reference. | Inspect layout, capture ordering and code signature; execute escaping closures capturing each scalar class, GC references, and strings. | In progress |
-| DR-08 | Scalar boxes and erased/reference recovery obey exact nullability and nominal provenance rules; `String` erases and recovers as a reference, not an integer box. | Positive and negative `ref.test`/`ref.cast`, box/unbox, i31 Boolean capture, full-width integer, Number, and string reference paths; no nominal cast substitutes for aggregate reconstruction. | In progress |
+| DR-07 | Closures use a code reference and uniform nullable `eqref` capture array; integer/Boolean captures box and a `String` capture is stored as its GC reference. | Inspect layout, capture ordering and code signature; execute escaping closures capturing each scalar class, GC references, and strings. | Verified |
+| DR-08 | Scalar boxes and erased/reference recovery obey exact nullability and nominal provenance rules; `String` erases and recovers as a reference, not an integer box. | Positive and negative `ref.test`/`ref.cast`, box/unbox, i31 Boolean capture, full-width integer, Number, and string reference paths; no nominal cast substitutes for aggregate reconstruction. | Verified |
 | DR-09 | Product, variant, array, closure, and conversion operations lower to exact typed MIR instructions. | Full-module verifier rejects wrong operand, field/index, mutability, arity, nullability, and layout; valid cases validate as Wasm. | Verified |
 | DR-10 | Private defaultable aggregate allocation cannot escape before full initialization. | Malformed MIR early-read/return/branch fixtures and nested conversion execution; coordinate proof with [generic aggregate erasure](generic-aggregate-erasure.md). | Verified |
 | DR-11 | Capability flags reject operations requiring disabled GC, references, or typed function references before emission. | Compile representative operations with each feature disabled; assert named failure and no invalid artifact. | Verified |
@@ -90,9 +90,9 @@ DR-01:
   Implementation: mir/layout/mod.rs (PlannedLayout::plan_selected, value_type,
     storage_type, array_storage_type, reference)
   Tests: mir/layout/tests.rs::maps_every_cc_value_shape_to_its_specified_mir_type
-    (Integer->I32, Boolean->Boolean, Number->F64, String->I32,
+    (Integer->I32, Boolean->Boolean, Number->F64, String->(ref $string),
     Repr/Aggregate/Closure/Erased references with copied nullability; product
-    fields I32,I32,F64 immutable);
+    fields I32,I32,F64,(ref $string) immutable);
     mir/layout/tests.rs::plans_the_uniform_closure_and_capture_array_layout
   Input boundary: CC RepresentationTable
   Commands: cargo test -p psrs-backend mir::layout

@@ -34,6 +34,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
     crate::mir::verify_module(&MirModule {
         name: source.name.clone(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![source.clone()],
         entry: Some(source.symbol),
@@ -65,6 +66,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         }],
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
     wasm::verify::verify_module(&module)
@@ -330,6 +332,7 @@ fn structures_and_executes_irreducible_cfg_with_block_parameters_and_sparse_swit
     let mir = MirModule {
         name: function.name.clone(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![function.clone()],
         entry: Some(function.symbol),

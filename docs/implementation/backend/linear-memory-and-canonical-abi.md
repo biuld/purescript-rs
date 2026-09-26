@@ -7,12 +7,14 @@ and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md),
 with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 
 **Progress:** Re-baselined by
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md), which makes
-strings GC-managed and requires a reclaiming allocator, `post-return`, and
-`own`/`borrow` handles. LM-05, ABI-01, ABI-06, and ABI-07 are Verified.
-LM-01..LM-04 and ABI-02..ABI-05 pass under the pre-DEC-10 representation
-(linear `i32` strings, bump allocator) and are In progress for the complete
-target. ABI-08 is Blocked on source types.
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). Strings are
+now GC `(array (mut i16))` values, literals are passive data segments
+materialized with `array.new_data`, and the ABI adapter transcodes UTF-16 to
+and from the component's UTF-8. LM-02, LM-05, ABI-01, ABI-06, and ABI-07 are
+Verified. LM-01, LM-03, LM-04, and ABI-02..ABI-05 implement that representation
+and are In progress because `cabi_realloc` is still a bump allocator, transient
+buffers are not yet freed, and `own`/`borrow` handles are not lowered. ABI-08 is
+Blocked on source types.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
@@ -32,7 +34,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | LM-01 | The target profile selects the pointer width and the ABI memory; the stable profile uses one wasm32 memory at index 0 with deterministic memory/data index order. | Encoded modules validate; driver components run; memory64/multi-memory remain. | In progress |
-| LM-02 | Strings are GC byte sequences; literals are passive data segments materialized with `array.new_data`, and the ABI linearizes them transiently. | GC-string construction, crossing, and literal tests. | In progress |
+| LM-02 | Strings are GC byte sequences; literals are passive data segments materialized with `array.new_data`, and the ABI linearizes them transiently. | GC-string construction, crossing, and literal tests. | Verified |
 | LM-03 | `cabi_realloc` is a general aligned allocator with alloc/free/realloc, reuse, alignment, overflow, and growth checks. | Allocator tests covering allocation, free, reuse, alignment, and failure. | In progress |
 | LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | In progress |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
@@ -54,7 +56,7 @@ commands, runtime, executed/skipped cases, revision, and gaps. Runtime cases use
 
 ## Recorded evidence
 
-Revision: `c4e65dd` plus the memory/ABI evidence changes in this worktree.
+Revision: the `backend/gc-string` worktree on top of `cc8cf2c`.
 Runtime: `wasmtime 49.0.0` under `PSRS_REQUIRE_WASMTIME=1`.
 
 ```text
@@ -72,16 +74,23 @@ LM-01:
 
 ```text
 LM-02:
-  Implementation: string data segments in crates/psrs-backend/src/wasm/lower/;
-    literal read-only extents in wasm/lower/extent/.
+  Implementation: the `$string` GC array in crates/psrs-backend/src/mir/layout/;
+    `ArrayNewData` in mir/instruction.rs with the pool in mir/literals.rs;
+    passive UTF-16 segments in wasm/lower/runtime.rs and `array.new_data` in
+    wasm/lower/structure/instructions.rs; the UTF-16<->UTF-8 codec in
+    wasm/lower/codec/; the adapter in mir/wit/.
   Tests: psrs-driver tests::wasi::{lowers_string_log_to_wasi_stdout,
-    prints_hello_world_when_wasmtime_is_available};
-    wasm::lower::extent::tests::{permits_loads_within_a_string_literal_segment,
-    rejects_loads_that_cross_a_string_literal_segment,
-    rejects_stores_to_string_literals_even_when_in_bounds}.
+    prints_hello_world_when_wasmtime_is_available,
+    passes_a_returned_wit_string_to_another_import,
+    keeps_multiple_returned_wit_strings_in_distinct_allocations};
+    mir::layout::tests::maps_every_cc_value_shape_to_its_specified_mir_type;
+    mir::indirect_tests::composite::
+    indirect_composite_parameters_lower_to_the_canonical_layout.
   Input boundary: verified MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass.
+  Result: pass; a static literal never enters linear memory and the ABI
+    transcodes UTF-16 to UTF-8 (invalid sequences and unpaired surrogates
+    become U+FFFD).
   Gaps: none.
 ```
 
@@ -99,15 +108,15 @@ LM-03:
 ```text
 LM-04:
   Implementation: crates/psrs-backend/src/wasm/lower/extent/.
-  Tests: wasm::lower::extent::tests::* (14 cases: widths, scratch
-    read/write, literal bounds and read-only, wasm32 fixed/effective extents,
-    wrapping arithmetic, block-parameter joins, unknown addresses,
-    dynamic-read-allowed/dynamic-store-rejected).
+  Tests: wasm::lower::extent::tests::* (scratch read/write and boundary,
+    wasm32 fixed/effective extents, wrapping arithmetic, block-parameter
+    joins, unknown addresses, dynamic-read-allowed/dynamic-store-rejected).
   Input boundary: verified MIR with memory operations.
   Commands: cargo test -p psrs-backend wasm::lower::extent.
-  Result: pass.
-  Gaps: allocation provenance for dynamic pointers remains outside the
-    verifier, recorded by design; dynamic reads rely on the Wasm bounds trap.
+  Result: pass. GC string literals are not MIR-addressable and define no
+    region, matching the design.
+  Gaps: the heap-state region and allocator provenance for dynamic pointers
+    are not yet modeled; dynamic reads rely on the Wasm bounds trap.
 ```
 
 ```text

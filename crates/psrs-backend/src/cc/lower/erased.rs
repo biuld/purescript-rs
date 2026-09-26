@@ -1,8 +1,8 @@
 use super::super::layout::depends_on_type_variable;
 use super::super::layout::function_signature;
 use super::super::{
-    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, UnaryOp, ValueId,
-    ValueShape,
+    AggregateConvert, Assignment, AssignmentKind, Function, RecoveryEvidence, RefShape, Reference,
+    SignatureId, UnaryOp, ValueConversion, ValueId, ValueShape,
 };
 use super::call::{persist_reference, restore_reference};
 use super::{FunctionLowerer, LambdaLowering};
@@ -237,7 +237,29 @@ impl FunctionLowerer<'_> {
                 nullable: false,
                 heap: RefShape::Erased,
             }) => Ok(value),
-            ValueShape::Integer | ValueShape::Boolean | ValueShape::String => {
+            // A `String` is a GC reference in the `eq` hierarchy, so it is
+            // recovered by a cast to `(ref $string)`, not by the integer box.
+            ValueShape::String => {
+                let result = self.fresh(ValueShape::String);
+                assignments.push(Assignment {
+                    destination: result,
+                    kind: AssignmentKind::AggregateConvert {
+                        destination: result,
+                        value,
+                        conversion: AggregateConvert {
+                            source: erased_reference_type(),
+                            destination: ValueShape::String,
+                            plan: ValueConversion::RecoverReference {
+                                destination: ValueShape::String,
+                                evidence: RecoveryEvidence::TypeInstantiation,
+                            },
+                        },
+                    },
+                    span,
+                });
+                Ok(result)
+            }
+            ValueShape::Integer | ValueShape::Boolean => {
                 let Some(boxed_type) = self.boxed_integer_type else {
                     return Err(vec![BackendError::new(
                         "P8 closure conversion",

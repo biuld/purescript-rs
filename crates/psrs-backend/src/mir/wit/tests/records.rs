@@ -111,6 +111,6 @@ fn nested_records_flatten_byte_lists_in_wit_field_order() {
     assert!(lowerer.instructions.iter().any(|instruction| matches!(
         instruction,
         Instruction::CallVoid { arguments, .. }
-            if arguments == &[ValueId(0), ValueId(5), ValueId(3)]
+            if arguments == &[ValueId(0), ValueId(6), ValueId(4)]
     )));
 }

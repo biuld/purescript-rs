@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) mod cfg;
 mod instruction;
 mod layout;
+mod literals;
 mod lower;
 mod numeric;
 pub mod opt;
@@ -18,6 +19,7 @@ mod scalar_helpers;
 mod verify;
 mod wit;
 
+use literals::StringLiterals;
 use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
 use scalar_helpers::lower_scalar_helpers;
@@ -45,6 +47,8 @@ pub struct Module {
     /// function types at a fixed base; see
     /// `docs/design/backend/00-ir-boundaries.md`.
     pub types: Vec<RecGroup>,
+    /// Static string literals referenced by `ArrayNewData` data indices.
+    pub strings: Vec<String>,
     /// Runtime ABI imports the module may call. Their canonical signatures come
     /// from the WIT runtime ABI; see `docs/decision/DEC-06`.
     pub imports: Vec<Import>,
@@ -246,6 +250,7 @@ fn lower_module_after_binding_validation(
     let (scalar_helpers, generated_helpers) =
         lower_scalar_helpers(&module, module.functions.len() as u32);
     let mut conversion_helpers = lower::ConversionHelpers::new(&module, &generated_helpers);
+    let mut literals = StringLiterals::default();
     let mut functions = Vec::with_capacity(module.functions.len());
     for (id, function) in module.functions.iter().enumerate() {
         let lowered = lower_function(
@@ -255,6 +260,7 @@ fn lower_module_after_binding_validation(
             &scalar_helpers,
             &layout,
             Some(&mut conversion_helpers),
+            Some(&mut literals),
             target,
         )
         .map_err(|errors| {
@@ -275,6 +281,7 @@ fn lower_module_after_binding_validation(
             &scalar_helpers,
             &layout,
             None,
+            Some(&mut literals),
             target,
         )?;
         functions.push(lowered);
@@ -303,9 +310,44 @@ fn lower_module_after_binding_validation(
             result: Some(ValueType::I32),
         });
     }
+    // The canonical ABI boundary transcodes between the GC string's UTF-16 and
+    // the component's UTF-8. The adapter calls these reserved helpers, which P10
+    // synthesizes as ordinary Wasm functions; they are never core imports.
+    if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL)
+        || used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL)
+    {
+        let string_type = layout
+            .value_type(&cc::ValueShape::String)
+            .map_err(|error| {
+                annotate_errors(
+                    vec![BackendError::new(
+                        "P9 MIR lowering",
+                        module.span,
+                        format!("invalid string layout: {error:?}"),
+                    )],
+                    module.entry.map(|entry| entry.module),
+                )
+            })?;
+        if used.contains(&crate::abi::STRING_TO_BYTES_SYMBOL) {
+            imports.push(Import {
+                symbol: crate::abi::STRING_TO_BYTES_SYMBOL,
+                parameters: vec![string_type],
+                result: Some(ValueType::I32),
+            });
+        }
+        if used.contains(&crate::abi::BYTES_TO_STRING_SYMBOL) {
+            imports.push(Import {
+                symbol: crate::abi::BYTES_TO_STRING_SYMBOL,
+                parameters: vec![ValueType::I32, ValueType::I32],
+                result: Some(string_type),
+            });
+        }
+    }
+    let strings = literals.into_strings();
     let mir = Module {
         name: module.name,
         types: layout.types,
+        strings,
         imports,
         functions,
         entry: module.entry,

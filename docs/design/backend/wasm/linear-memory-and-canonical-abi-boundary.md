@@ -505,9 +505,6 @@ The current code deviates from the complete design above in the following ways;
 these are implementation coverage gaps, not design choices, and are tracked on
 BE-11 in [D-04](../../D-04-suite-roadmap.md):
 
-- A source `String` is still an `i32` pointer to a length-prefixed linear
-  buffer, and string literals still live in active data segments rather than
-  becoming GC strings through `array.new_data`.
 - `cabi_realloc` is still a bump allocator: freeing is a no-op, there is no
   reuse or coalescing, and returned buffers are not reclaimed.
 - `post-return` is not yet synthesized (the only export, `wasi:cli/run`,
@@ -515,9 +512,14 @@ BE-11 in [D-04](../../D-04-suite-roadmap.md):
 - The ABI memory is fixed to `MemoryId(0)` with `i32` addresses; the profile
   does not yet select a pointer width or additional memories.
 
-The static MIR access-extent pass, the thin-IR verifier, the Wasm validator,
-and the bump-allocator regression suite are implemented against the current
-representation; they are re-pointed at the complete model as the code migrates.
+Strings and literals match the complete design: a source `String` is the GC
+`(array (mut i16))` type, literals are passive data segments materialized with
+`array.new_data`, and the ABI adapter transcodes UTF-16 to and from the
+component's UTF-8 (invalid sequences and unpaired surrogates become U+FFFD). The
+static MIR access-extent pass now covers only the scratch region, since GC
+string literals are not MIR-addressable. The thin-IR verifier, the Wasm
+validator, and the bump-allocator regression suite remain implemented against
+the current representation.
 
 ## References
 
