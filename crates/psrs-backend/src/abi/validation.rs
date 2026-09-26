@@ -4,6 +4,8 @@ use super::{
 };
 use crate::TargetCapabilities;
 use crate::types::ValueType;
+use psrs_core::ConstructorInfo;
+use psrs_hir::TypeId as HirTypeId;
 
 pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind) -> bool {
     match wit {
@@ -186,6 +188,34 @@ fn validate_result(import: &WasiImport, signature: &SourceSignature) -> Result<(
         ));
     }
     Ok(())
+}
+
+/// The case names of a nullary source enum, in constructor-tag order. This is
+/// shared by the source projection and the Core-based conformance check.
+pub(super) fn enum_cases(
+    constructors: &[ConstructorInfo],
+    type_id: HirTypeId,
+) -> Option<Vec<String>> {
+    let mut cases = constructors
+        .iter()
+        .filter(|constructor| constructor.type_id == type_id)
+        .collect::<Vec<_>>();
+    cases.sort_by_key(|constructor| constructor.tag);
+    if cases.is_empty()
+        || cases.iter().any(|constructor| constructor.field_count != 0)
+        || cases
+            .iter()
+            .enumerate()
+            .any(|(index, constructor)| constructor.tag != index as u32)
+    {
+        return None;
+    }
+    Some(
+        cases
+            .into_iter()
+            .map(|constructor| constructor.name.clone())
+            .collect(),
+    )
 }
 
 pub(super) fn wasi_interface_enabled(target: TargetCapabilities, module: &str) -> bool {

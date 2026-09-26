@@ -30,6 +30,7 @@ fn binding(symbol: SymbolId) -> ExternalBinding {
         function: "log".into(),
         signature: None,
         type_id: None,
+        span: span(),
     }
 }
 

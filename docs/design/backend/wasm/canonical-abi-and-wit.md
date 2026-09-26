@@ -419,10 +419,12 @@ backend/src/
   `ResolvedExternal` per `ExternalKind::Wit` binding. `ResolvedExternal` pairs
   the declaration's resolved source `TypeId` with its resolved `WasiImport`
   descriptor. It must provide `validate_core` and `validate_cc` for the P8/P9
-  boundary checks.
+  boundary checks, and `validate_conformance`, which resolves and validates
+  every binding against the resolved Core type where Core is available.
 - `abi/link.rs` — the target-aware linking stage. It interns each declaration's
   resolved source type in the module type table, resolves the WIT import once,
-  validates the two sides, and produces the `ResolvedExternal` table.
+  and validates the two sides with `validate_import_signature(import, module,
+  type_id)`.
 - `WasiRegistry` — the interned `(interface, function)` registry, holding the
   `TargetCapabilities` it was loaded with. It must provide:
   - `load() -> Result<Self, String>` and
@@ -430,8 +432,7 @@ backend/src/
   - `import(&mut self, interface: &str, function: &str) -> Result<WasiImport, String>`,
     which interns on first use;
   - `imports(&self) -> &[WasiImport]`, `symbol_name(&self, symbol: SymbolId) -> Option<(&str, &str)>`,
-    and `has_list_result(&self, symbol: SymbolId) -> bool`;
-  - `validate_signature(&self, import: &WasiImport, type_id: TypeId, module: &CoreModule) -> Result<(), String>`.
+    and `has_list_result(&self, symbol: SymbolId) -> bool`.
 - `WasiImport::has_indirect_parameters()` identifies when the resolved canonical
   signature requires lowering the WIT parameter tuple through linear memory.
 - `WasiImport`, `WasiParamKind`, `WasiResultKind`, and `WasiField` — the
@@ -482,7 +483,7 @@ none may depend on the front end.
 - Every source WIT external appears exactly once in `ExternalBindings`; a missing,
   extra, or duplicate binding is a P8/P9 error (`validate_core`, `validate_cc`).
 - The declared source signature matches the resolved WIT form in arity and type;
-  otherwise P9 fails before CC/MIR emits anything.
+  otherwise the linking boundary fails before CC/MIR emits anything.
 - Flattening is checked against the canonical signature, so an unsupported shape
   is rejected rather than emitted with a lossy approximation.
 - MIR verifier checks canonical import calls against the MIR import table, and
@@ -638,9 +639,13 @@ by the linking boundary (`abi/link.rs`) and carried as an
 `ExternalBinding::type_id`. CC derives its whole abstract signature, including
 record and array representations, directly from that Core type; the structural
 re-search (`core_type_matches_source`) and the source-signature comparison are
-removed. The `SourceType` mirror is still used for WIT conformance validation
-and MIR lowering; removing it is the remaining DEC-12 work. The refactor is
-behavior preserving and does not change the source language.
+removed. WIT conformance validation now runs at the linking boundary against the
+resolved Core type (`ExternalBindings::validate_conformance`,
+`abi/link::validate_import_signature`) and MIR no longer validates. The
+`SourceType` mirror is still carried to MIR as the lowering signature; removing
+it, and computing the lowering directly from the CC `Signature` and the WIT
+descriptor, is the remaining DEC-12 work. The refactor is behavior preserving
+and does not change the source language.
 
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct

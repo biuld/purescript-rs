@@ -15,7 +15,7 @@ pub(crate) fn abstract_signature(
     record_types: &HashMap<TypeId, ReprId>,
     array_types: &HashMap<TypeId, ReprId>,
 ) -> Option<Signature> {
-    let (parameter_ids, result_id) = split_function(module, type_id?)?;
+    let (parameter_ids, result_id) = crate::abi::link::function_parts(module, type_id?)?;
     let mut parameters = Vec::with_capacity(parameter_ids.len());
     for parameter in parameter_ids {
         parameters.push(core_shape(module, parameter, record_types, array_types)?);
@@ -24,21 +24,6 @@ pub(crate) fn abstract_signature(
         parameters,
         result: core_shape(module, result_id, record_types, array_types)?,
     })
-}
-
-/// Walks a Core function type into its parameter types and final result type.
-fn split_function(module: &CoreModule, type_id: TypeId) -> Option<(Vec<TypeId>, TypeId)> {
-    let mut parameters = Vec::new();
-    let mut current = type_id;
-    loop {
-        match module.types.get(current.0 as usize)? {
-            CoreType::Function { parameter, result } => {
-                parameters.push(*parameter);
-                current = *result;
-            }
-            _ => return Some((parameters, current)),
-        }
-    }
 }
 
 fn core_shape(

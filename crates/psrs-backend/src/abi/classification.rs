@@ -98,27 +98,8 @@ pub(super) fn source_enum_type(
     constructors: &[ConstructorInfo],
     type_id: HirTypeId,
 ) -> Option<SourceType> {
-    let mut constructors = constructors
-        .iter()
-        .filter(|constructor| constructor.type_id == type_id)
-        .collect::<Vec<_>>();
-    constructors.sort_by_key(|constructor| constructor.tag);
-    if constructors.is_empty()
-        || constructors
-            .iter()
-            .any(|constructor| constructor.field_count != 0)
-        || constructors
-            .iter()
-            .enumerate()
-            .any(|(index, constructor)| constructor.tag != index as u32)
-    {
-        return None;
-    }
     Some(SourceType::Enum {
-        cases: constructors
-            .into_iter()
-            .map(|constructor| constructor.name.clone())
-            .collect(),
+        cases: super::validation::enum_cases(constructors, type_id)?,
     })
 }
 

@@ -173,6 +173,7 @@ pub fn compile_with_target(
         })?;
     let optimized_core = module.clone();
     let external_bindings = ExternalBindings::from_core(&mut module);
+    external_bindings.validate_conformance(&module, target)?;
     let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
     let cc = lowered_cc.cc;
     let (mir, mut wasi) =

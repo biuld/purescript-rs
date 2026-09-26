@@ -107,6 +107,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 span: span(),
             }),
             type_id: None,
+            span: span(),
         }],
     };
     (module, bindings, resolve)

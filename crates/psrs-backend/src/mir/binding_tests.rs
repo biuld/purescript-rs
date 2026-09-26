@@ -65,6 +65,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
             function: crate::abi::names::GET_STDOUT.into(),
             signature: Some(source_signature),
             type_id: None,
+            span: span(),
         }],
     };
     (module, bindings)
@@ -176,6 +177,7 @@ fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
                 span: span(),
             }),
             type_id: None,
+            span: span(),
         }],
     };
     let (mir, wasi) =

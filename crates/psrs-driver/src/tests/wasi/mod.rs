@@ -136,7 +136,7 @@ fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering"
+        error.stage == "P8 WIT linking"
             && error.message.contains("non-byte WIT list results")
             && error.span.start < error.span.end
             && error.span.end <= source.len() as u32
@@ -150,7 +150,7 @@ fn rejects_a_string_declaration_for_a_list_of_strings() {
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering"
+        error.stage == "P8 WIT linking"
             && error
                 .message
                 .contains("incompatible with its canonical result")
@@ -219,7 +219,7 @@ fn rejects_a_wit_import_when_the_declared_source_type_does_not_match() {
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering" && error.message.contains("incompatible type")
+        error.stage == "P8 WIT linking" && error.message.contains("incompatible type")
     }));
 }
 
@@ -232,7 +232,7 @@ fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
     let error = errors
         .iter()
         .find(|error| {
-            error.stage == "P9 MIR lowering"
+            error.stage == "P8 WIT linking"
                 && error
                     .message
                     .contains("not in the current component capability profile")

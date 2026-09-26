@@ -222,13 +222,6 @@ fn lower_module_after_binding_validation(
                 .with_module(external.symbol.module),
             ]);
         };
-        wasi.validate_signature(&import, signature)
-            .map_err(|message| {
-                vec![
-                    BackendError::new("P9 MIR lowering", signature.span, message)
-                        .with_module(external.symbol.module),
-                ]
-            })?;
         wit_imports.insert(
             external.symbol,
             crate::abi::BoundWasiImport {
