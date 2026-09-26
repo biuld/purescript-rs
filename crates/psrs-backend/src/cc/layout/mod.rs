@@ -95,6 +95,7 @@ fn layoutable_field_type_inner(
         Some(Type::Variable(_))
         | Some(Type::Constructor(TypeConstructor::Array))
         | Some(Type::Record(_))
+        | Some(Type::OpenRecord { .. })
         | Some(Type::Function { .. })
         | None => false,
         Some(Type::Application(_, _)) => array_element_type(module, id).is_some(),
@@ -291,6 +292,12 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
             Some(Type::Record(fields)) => fields
                 .iter()
                 .any(|(_, field)| visit(module, *field, visiting)),
+            Some(Type::OpenRecord { fields, tail }) => {
+                visit(module, *tail, visiting)
+                    || fields
+                        .iter()
+                        .any(|(_, field)| visit(module, *field, visiting))
+            }
             _ => false,
         };
         visiting.remove(&id);

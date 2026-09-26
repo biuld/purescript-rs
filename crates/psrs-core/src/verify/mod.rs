@@ -43,6 +43,12 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
                     verify_type(*field, module, module.id, module.span, &mut errors);
                 }
             }
+            Type::OpenRecord { fields, tail } => {
+                for (_, field) in fields {
+                    verify_type(*field, module, module.id, module.span, &mut errors);
+                }
+                verify_type(*tail, module, module.id, module.span, &mut errors);
+            }
             _ => {}
         }
     }

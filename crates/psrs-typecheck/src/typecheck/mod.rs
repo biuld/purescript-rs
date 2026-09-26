@@ -63,8 +63,33 @@ enum InferType {
     Unit,
     Constructor(TypeConstructor),
     Application(Box<InferType>, Box<InferType>),
-    Record(Vec<(String, InferType)>),
+    Record(InferRecord),
     Function(Box<InferType>, Box<InferType>),
+}
+
+/// A record row during inference. `Closed` is the empty tail. `Open` is a row
+/// variable, rigid when it comes from a signature and flexible when it is
+/// inferred. Field order is not significant; labels are kept sorted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct InferRecord {
+    fields: Vec<(String, InferType)>,
+    tail: RowTail,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowTail {
+    Closed,
+    Open(u32),
+}
+
+impl InferRecord {
+    fn closed(mut fields: Vec<(String, InferType)>) -> Self {
+        fields.sort_by(|left, right| left.0.cmp(&right.0));
+        Self {
+            fields,
+            tail: RowTail::Closed,
+        }
+    }
 }
 
 /// A type constructor during inference. `Array` is the only built-in the
@@ -258,7 +283,13 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         InferType::Application(function, argument) | InferType::Function(function, argument) => {
             occurs(variable, function) || occurs(variable, argument)
         }
-        InferType::Record(fields) => fields.iter().any(|(_, field)| occurs(variable, field)),
+        InferType::Record(record) => {
+            record
+                .fields
+                .iter()
+                .any(|(_, field)| occurs(variable, field))
+                || matches!(record.tail, RowTail::Open(tail) if tail == variable)
+        }
         InferType::I32
         | InferType::F64
         | InferType::Boolean
@@ -275,5 +306,6 @@ mod tests;
 mod finalize;
 mod infer;
 mod order;
+mod rows;
 mod signature;
 mod unify;
