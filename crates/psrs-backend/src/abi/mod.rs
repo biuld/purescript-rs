@@ -11,13 +11,17 @@ use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
 mod classification;
+mod flatten;
 #[cfg(test)]
 mod tests;
 mod validation;
 
 pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
-use validation::{flattened_parameter_count, source_parameter_matches, wasi_interface_enabled};
+pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+#[cfg(test)]
+use validation::source_parameter_matches;
+use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -227,6 +231,11 @@ pub struct WasiImport {
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
     pub retptr: bool,
+    /// Canonical flat slots of the WIT parameters, excluding a return pointer.
+    /// A primitive import whose source arity differs from [`Self::param_kinds`]
+    /// lowers through these slots. Descriptors built for the one-argument zip
+    /// path may leave this empty.
+    pub(crate) flat_slots: Vec<FlatSlot>,
 }
 
 impl WasiImport {
@@ -339,6 +348,16 @@ impl WasiRegistry {
                 })
             })
             .or_else(|| {
+                // An `option`, tuple, or payload-bearing variant is one WIT
+                // parameter and several flat slots. `flattened_parameter_count`
+                // cannot see those slots; signature validation compares the
+                // declared primitives with `flat_slots` instead.
+                if param_kinds
+                    .iter()
+                    .any(|kind| matches!(kind, WasiParamKind::Unsupported))
+                {
+                    return None;
+                }
                 let flattened = param_kinds
                     .iter()
                     .map(flattened_parameter_count)
@@ -383,6 +402,7 @@ impl WasiRegistry {
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
+        let flat_slots = flatten::flatten_parameters(&self.resolve, wit_function);
         self.imports.push(WasiImport {
             symbol,
             module,
@@ -393,6 +413,7 @@ impl WasiRegistry {
             result_kind,
             unsupported,
             retptr: signature.retptr,
+            flat_slots,
         });
         self.keys.insert(key, self.imports.len() - 1);
         Ok(self.imports.last().expect("just pushed").clone())
@@ -423,63 +444,13 @@ impl WasiRegistry {
     /// represented by the canonical ABI adapter. This is deliberately done
     /// before CC/MIR lowering: matching only arity would let an `Int` be used
     /// for a resource or a non-byte list be treated as a `String`.
+    #[allow(clippy::unused_self)]
     pub fn validate_signature(
         &self,
         import: &WasiImport,
         signature: &SourceSignature,
     ) -> Result<(), String> {
-        if signature.parameters.len() != import.param_kinds.len() {
-            return Err(format!(
-                "WIT import `{}` expects {} source arguments, but its declaration has {}",
-                import.name,
-                import.param_kinds.len(),
-                signature.parameters.len()
-            ));
-        }
-        for (parameter, kind) in signature.parameters.iter().zip(&import.param_kinds) {
-            if !source_parameter_matches(parameter, kind) {
-                return Err(format!(
-                    "WIT import `{}` has a source parameter with an incompatible type",
-                    import.name
-                ));
-            }
-        }
-        let valid_result = match &import.result_kind {
-            WasiResultKind::None => matches!(&signature.result, SourceType::Unit),
-            WasiResultKind::Scalar => match import.result {
-                Some(ValueType::I64) => {
-                    matches!(&signature.result, SourceType::Int)
-                }
-                Some(ValueType::I32) => matches!(&signature.result, SourceType::Int),
-                Some(ValueType::F32 | ValueType::F64) => {
-                    matches!(&signature.result, SourceType::Number)
-                }
-                _ => false,
-            },
-            WasiResultKind::Handle => {
-                matches!(
-                    &signature.result,
-                    SourceType::Int | SourceType::Resource { .. }
-                )
-            }
-            WasiResultKind::IntegerNarrow { .. } => matches!(&signature.result, SourceType::Int),
-            WasiResultKind::Boolean => matches!(&signature.result, SourceType::Boolean),
-            WasiResultKind::Enum { cases } => matches!(
-                &signature.result,
-                SourceType::Enum { cases: source } if source == cases
-            ),
-            WasiResultKind::Char => matches!(&signature.result, SourceType::Char),
-            WasiResultKind::List => matches!(&signature.result, SourceType::String),
-            WasiResultKind::Result => matches!(&signature.result, SourceType::Unit),
-            WasiResultKind::Discarded => false,
-        };
-        if !valid_result {
-            return Err(format!(
-                "WIT import `{}` has a source result type incompatible with its canonical result",
-                import.name
-            ));
-        }
-        Ok(())
+        validate_import_signature(import, signature)
     }
 }
 

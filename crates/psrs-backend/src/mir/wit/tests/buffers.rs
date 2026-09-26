@@ -21,6 +21,7 @@ fn import(
         result_kind,
         unsupported: None,
         retptr,
+        flat_slots: Vec::new(),
     }
 }
 

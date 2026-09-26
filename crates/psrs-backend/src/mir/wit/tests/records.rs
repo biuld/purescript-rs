@@ -25,6 +25,7 @@ fn record_arguments_flatten_in_wit_field_order() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let source = SourceType::Record {
         fields: vec![
@@ -80,6 +81,7 @@ fn nested_records_flatten_byte_lists_in_wit_field_order() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     // Source record fields are normalized alphabetically. The nested source
     // product therefore projects by name while the ABI emits WIT declaration

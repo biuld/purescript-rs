@@ -114,6 +114,7 @@ fn maps_wit_char_to_the_source_char_type() {
         result_kind: WasiResultKind::Char,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let signature = SourceSignature {
         parameters: vec![SourceType::Char],
@@ -236,6 +237,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let flags_signature = SourceSignature {
         parameters: vec![flags_source],
@@ -302,6 +304,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         result_kind,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     WasiRegistry::load()
         .expect("vendored WASI should load")
@@ -358,6 +361,7 @@ fn classifies_wit_f32_for_number_conversion() {
         result_kind: WasiResultKind::Scalar,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let signature = SourceSignature {
         parameters: vec![SourceType::Number],
@@ -428,6 +432,7 @@ fn validates_wit_scalar_parameters_against_exact_source_types() {
             result_kind: WasiResultKind::None,
             unsupported: None,
             retptr: false,
+            flat_slots: Vec::new(),
         };
         let signature = |parameter| SourceSignature {
             parameters: vec![parameter],

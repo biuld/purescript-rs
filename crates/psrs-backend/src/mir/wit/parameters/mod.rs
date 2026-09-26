@@ -8,6 +8,7 @@ use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 mod indirect;
+mod primitive;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn lower_parameters<L: WitCallLowerer>(
@@ -20,16 +21,30 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if source_signature.parameters.len() != arguments.len()
-        || import.param_kinds.len() != arguments.len()
-    {
-        return Err(vec![BackendError::new(
-            "P9 MIR lowering",
-            span,
-            "WIT parameter count disagrees with the source call signature",
-        )]);
+    if source_signature.parameters.len() != arguments.len() {
+        return Err(parameter_count(span));
     }
     let mut flattened = Vec::new();
+    // A primitive import of an aggregate (`option<string>` as `Int -> String`)
+    // has a different source arity than `param_kinds`. Flatten each primitive
+    // in order. Nullary enums, closed records, and flags stay on the zip path.
+    if primitive_flat_call(import, source_signature) {
+        primitive::lower_primitive_parameters(
+            lowerer,
+            import,
+            source_signature,
+            arguments,
+            &mut flattened,
+            frees,
+            current,
+            span,
+        )?;
+        flat.extend(flattened);
+        return Ok(());
+    }
+    if import.param_kinds.len() != arguments.len() {
+        return Err(parameter_count(span));
+    }
     for ((argument, source), kind) in arguments
         .iter()
         .zip(&source_signature.parameters)
@@ -305,6 +320,19 @@ fn lower_flags<L: WitCallLowerer>(
         flat.push(word);
     }
     Ok(())
+}
+
+fn primitive_flat_call(import: &WasiImport, signature: &abi::SourceSignature) -> bool {
+    abi::is_primitive_signature(&signature.parameters, &signature.result)
+        && signature.parameters.len() != import.param_kinds.len()
+}
+
+fn parameter_count(span: TextRange) -> Vec<BackendError> {
+    vec![BackendError::new(
+        "P9 MIR lowering",
+        span,
+        "WIT parameter count disagrees with the source call signature",
+    )]
 }
 
 fn unsupported_parameter(span: TextRange) -> Vec<BackendError> {
