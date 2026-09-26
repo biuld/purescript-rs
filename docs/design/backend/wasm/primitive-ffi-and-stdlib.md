@@ -304,7 +304,8 @@ crates/psrs-backend/src/
 - A platform module exports only user-facing functions. `WASI.Console` exports
   `log :: String -> Effect Unit` and `error :: String -> Effect Unit`. It does
   not export `writeStdout`, `getStdout`, or `getStderr`. `WASI.Clock` exports
-  `now :: Effect Int` and does not export `monotonicNow`.
+  `now :: Effect Int` and does not export `monotonicNow`. `WASI.Exit` exports
+  `exitWithCode :: Int -> Effect Unit` and does not export `exitWithCodeRaw`.
 - Each raw binding is an unexported `foreign import` whose parameters and
   single result are in the primitive set. The binding string is
   `<interface>#<function>`, as in the canonical ABI topic.
@@ -465,9 +466,12 @@ on a success string it never receives. The function stays unexposed.
 ## Implementation notes
 
 `WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`.
-`WASI.Random` exports `randomBytes` and `randomU64`. Raw imports
-(`writeStdout`, `getStdout`, `getStderr`, `monotonicNow`, `getRandomBytes`,
-`getRandomU64`) stay in their modules and are not exported. A primitive import
+`WASI.Random` exports `randomBytes` and `randomU64`. `WASI.Exit` exports
+`exitWithCode`. Raw imports (`writeStdout`, `getStdout`, `getStderr`,
+`monotonicNow`, `getRandomBytes`, `getRandomU64`, `exitWithCodeRaw`) stay in
+their modules and are not exported. `wasi:cli/exit.exit` is not wrapped; the
+[capability matrix](wasi-platform-library.md#capability-matrix) records why.
+A primitive import
 of an `option` parameter is accepted when the declared primitives flatten to
 the canonical parameter list; `option<string>` is `Int -> String -> Unit`.
 `Maybe` is not in `Prelude`. Nullary enum, closed record, and flags-record
