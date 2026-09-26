@@ -42,6 +42,9 @@ fn intern_into(
         HirTypeKind::Application(function, argument) => {
             let function = intern_into(types, constructors, function)?;
             let argument = intern_into(types, constructors, argument)?;
+            if is_array_constructor(types, function) && !is_array_element(types, argument) {
+                return None;
+            }
             CoreType::Application(function, argument)
         }
         HirTypeKind::Function { parameter, result } => {
@@ -63,6 +66,20 @@ fn intern_into(
         _ => return None,
     };
     Some(intern_core_type(types, core))
+}
+
+fn is_array_constructor(types: &[CoreType], id: CoreTypeId) -> bool {
+    matches!(
+        types.get(id.0 as usize),
+        Some(CoreType::Constructor(TypeConstructor::Array))
+    )
+}
+
+fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
+    matches!(
+        types.get(id.0 as usize),
+        Some(CoreType::I32 | CoreType::Boolean | CoreType::F64 | CoreType::Char | CoreType::String)
+    )
 }
 
 fn intern_core_type(types: &mut Vec<CoreType>, core: CoreType) -> CoreTypeId {

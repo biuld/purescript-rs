@@ -208,19 +208,3 @@ fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
         "resource.drop should run when the owned handle is consumed"
     );
 }
-
-#[test]
-fn p9_rejects_a_binding_that_disagrees_with_cc() {
-    let (module, mut bindings) = input(false);
-    bindings.imports[0].signature.as_mut().unwrap().result = SourceType::Boolean;
-    let errors =
-        match lower_module_with_bindings(module, bindings, crate::TargetCapabilities::default()) {
-            Ok(_) => panic!("P9 must not silently replace the CC external signature"),
-            Err(errors) => errors,
-        };
-    assert!(
-        errors
-            .iter()
-            .any(|error| { error.message.contains("disagrees with its CC signature") })
-    );
-}

@@ -635,11 +635,12 @@ implementation coverage, not design choices. The allocator, buffer free, and
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table
 by the linking boundary (`abi/link.rs`) and carried as an
-`ExternalBinding::type_id`. CC derives the record and array representations from
-that identity; the structural re-search (`core_type_matches_source`) is removed.
-The `SourceType` mirror is still used for WIT conformance validation and MIR
-lowering; removing it is the remaining DEC-12 work. The refactor is behavior
-preserving and does not change the source language.
+`ExternalBinding::type_id`. CC derives its whole abstract signature, including
+record and array representations, directly from that Core type; the structural
+re-search (`core_type_matches_source`) and the source-signature comparison are
+removed. The `SourceType` mirror is still used for WIT conformance validation
+and MIR lowering; removing it is the remaining DEC-12 work. The refactor is
+behavior preserving and does not change the source language.
 
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct

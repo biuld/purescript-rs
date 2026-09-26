@@ -173,12 +173,10 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         .expect("matching source constructor tags should pass ABI validation");
     assert_eq!(
         crate::cc::abstract_signature(
-            &source,
             Some(function_id),
             &core,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
-            &mut crate::cc::RepresentationTable::default(),
         )
         .expect("a source enum should lower to an abstract scalar signature")
         .parameters,
