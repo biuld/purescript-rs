@@ -10,9 +10,11 @@ with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 buffer allocation and lifetime are tracked on their own. `cabi_realloc` is now a
 reclaiming aligned allocator with free-list reuse and coalescing; call-local and
 import-result buffers are freed at the boundary; the heap-state region and
-allocator provenance are modeled. `post-return` remains Blocked because no
-current export returns a non-scalar, and resource handles await frontend
-`foreign import data`.
+allocator provenance are modeled. ALC-06 (`post-return` for a non-scalar
+export result) remains Blocked because `wasi:cli/run` returns a scalar and no
+list-returning export exists. An export whose result is `own<T>` does
+synthesize `cabi_post_<name>` to drop that handle; that release is the
+canonical ABI handle rule, not ALC-06's buffer free.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix),
 primarily BE-11 and BE-17..BE-20.
@@ -122,5 +124,8 @@ ALC-07:
   there is no non-scalar export to attach a `post-return` to. Synthesis is
   blocked until a list-returning export exists (the `SourceType::Array` /
   aggregate source-type work tracked by ABI-08 and BE-19).
-- Resource handles (`own<T>` drop and `borrow<T>` release) await the frontend
-  accepting `foreign import data`, which is currently rejected at P2.
+- `own<T>` / `borrow<T>` lowering lives with the canonical ABI adapter, not
+  this allocator. An export whose result is an owned handle synthesizes
+  `cabi_post_<name>` to `resource.drop` that handle. ALC-06 stays blocked for
+  list and other non-scalar export results: `wasi:cli/run` still returns a
+  scalar, and no list-returning export is synthesized.

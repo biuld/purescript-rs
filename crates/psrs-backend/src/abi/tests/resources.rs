@@ -1,4 +1,4 @@
-use super::{SourceSignature, SourceType, WasiRegistry, WasiResultKind};
+use super::{HandleMode, SourceSignature, SourceType, WasiRegistry, WasiResultKind};
 use crate::abi::{WasiImport, WasiParamKind, WasiResultKind as ResultKind, source_signature};
 use crate::types::ValueType;
 use psrs_core::{ConstructorInfo, Module as CoreModule, TypeId as CoreTypeId};
@@ -79,7 +79,19 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let stdout = registry
         .import("wasi:cli/stdout", "get-stdout")
         .expect("get-stdout should resolve");
-    assert_eq!(stdout.result_kind, WasiResultKind::Handle);
+    let WasiResultKind::Handle(owned) = &stdout.result_kind else {
+        panic!(
+            "get-stdout should return an owned handle, got {:?}",
+            stdout.result_kind
+        );
+    };
+    assert_eq!(owned.mode, HandleMode::Own);
+    assert_eq!(owned.name, "output-stream");
+    assert_eq!(owned.interface, "wasi:io/streams@0.2.12");
+    assert_eq!(
+        registry.symbol_name(owned.drop_symbol),
+        Some(("wasi:io/streams@0.2.12", "[resource-drop]output-stream"))
+    );
     let handle_result = SourceSignature {
         parameters: Vec::new(),
         result: resource(type_id),
@@ -116,10 +128,15 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             "[method]output-stream.blocking-write-and-flush",
         )
         .expect("blocking-write-and-flush should resolve");
-    assert_eq!(
-        write.param_kinds,
-        vec![WasiParamKind::Handle, WasiParamKind::List]
-    );
+    let WasiParamKind::Handle(borrowed) = &write.param_kinds[0] else {
+        panic!(
+            "the method receiver should be a borrow, got {:?}",
+            write.param_kinds
+        );
+    };
+    assert_eq!(borrowed.mode, HandleMode::Borrow);
+    assert_eq!(borrowed.name, "output-stream");
+    assert_eq!(write.param_kinds[1], WasiParamKind::List);
     let write_signature = SourceSignature {
         parameters: vec![resource(type_id), SourceType::String],
         result: SourceType::Unit,

@@ -39,6 +39,7 @@ fn gc_wit_record_projection_uses_the_planned_product_type() {
         scalar_helpers: &ScalarHelpers::default(),
         layout: &layout,
         literals: None,
+        owned_handles: Vec::new(),
     };
 
     let field = lowerer

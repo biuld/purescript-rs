@@ -37,10 +37,15 @@ fn resolves_stdout_and_exit_imports() {
         .import(names::STREAMS, names::WRITE_STDOUT)
         .expect("blocking-write-and-flush should resolve");
     assert_eq!(write.module, "wasi:io/streams@0.2.12");
-    assert_eq!(
-        write.param_kinds,
-        vec![WasiParamKind::Handle, WasiParamKind::List]
-    );
+    let super::WasiParamKind::Handle(receiver) = &write.param_kinds[0] else {
+        panic!(
+            "the stream receiver should be a handle, got {:?}",
+            write.param_kinds
+        );
+    };
+    assert_eq!(receiver.mode, super::HandleMode::Borrow);
+    assert_eq!(receiver.name, "output-stream");
+    assert_eq!(write.param_kinds[1], WasiParamKind::List);
     assert_eq!(write.result_kind, WasiResultKind::Result);
     assert!(write.retptr);
     assert!(write.unsupported.is_none());

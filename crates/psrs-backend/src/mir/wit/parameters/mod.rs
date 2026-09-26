@@ -93,8 +93,14 @@ fn lower_parameter<L: WitCallLowerer>(
         | abi::WasiParamKind::Boolean
         | abi::WasiParamKind::Char
         | abi::WasiParamKind::Float64
-        | abi::WasiParamKind::Handle
         | abi::WasiParamKind::Enum { .. } => flat.push(argument),
+        abi::WasiParamKind::Handle(handle) => {
+            // `own<T>` transfers the index; the host lifts it, so do not drop it too.
+            if handle.mode == abi::HandleMode::Own {
+                lowerer.transfer_owned(argument);
+            }
+            flat.push(argument);
+        }
         abi::WasiParamKind::Float32 => {
             let narrowed = lowerer.fresh_wit_value(ValueType::F32);
             lowerer.append_wit_instruction(

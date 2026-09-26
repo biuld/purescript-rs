@@ -285,7 +285,8 @@ prelude remains the existing abstract type, not a foreign data declaration.
   `Constructor(User(id))` plus `opaque_ids`, distinct from `Int`. A source
   function that returns the opaque type still has no calling-convention layout.
 - Inserting `resource.drop`, releasing borrows, and freeing an exported handle
-  in `post-return`.
+  in `post-return`. That lowering now lives in the canonical ABI adapter; this
+  layer still does not choose `own` versus `borrow`.
 - Choosing `own` versus `borrow` from source. The current mapping treats every
   matched handle as one `i32` and does not track ownership.
 - Retiring the `Int` placeholder once source declarations use opaque types.

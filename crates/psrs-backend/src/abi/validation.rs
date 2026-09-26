@@ -28,7 +28,7 @@ pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind)
                 })
         }
         WasiParamKind::Scalar64 { .. } => matches!(source, SourceType::Int),
-        WasiParamKind::Handle => {
+        WasiParamKind::Handle(_) => {
             matches!(source, SourceType::Int | SourceType::Resource { .. })
         }
         WasiParamKind::List => matches!(source, SourceType::String),
@@ -152,7 +152,7 @@ fn validate_result(import: &WasiImport, signature: &SourceSignature) -> Result<(
             }
             _ => false,
         },
-        WasiResultKind::Handle => {
+        WasiResultKind::Handle(_) => {
             matches!(
                 &signature.result,
                 SourceType::Int | SourceType::Resource { .. }

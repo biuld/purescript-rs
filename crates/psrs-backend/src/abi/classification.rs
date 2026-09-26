@@ -6,7 +6,7 @@ use crate::types::ValueType;
 use psrs_core::Module as CoreModule;
 use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 use wit_parser::abi::WasmType;
-use wit_parser::{Resolve, Type as WitType, TypeDefKind};
+use wit_parser::{Handle, Resolve, Type as WitType, TypeDefKind};
 
 /// Converts a resolved HIR foreign-import type into the source-level subset
 /// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
@@ -242,7 +242,7 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
         WitType::S64 => WasiParamKind::Scalar64 { signed: true },
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiParamKind::List,
-            TypeDefKind::Handle(_) => WasiParamKind::Handle,
+            TypeDefKind::Handle(handle) => classify_handle(resolve, handle),
             TypeDefKind::Enum(enum_) => WasiParamKind::Enum {
                 cases: enum_
                     .cases
@@ -286,7 +286,7 @@ fn direct_parameter(kind: &WasiParamKind) -> bool {
         | WasiParamKind::Float64
         | WasiParamKind::Enum { .. }
         | WasiParamKind::Flags { .. }
-        | WasiParamKind::Handle => true,
+        | WasiParamKind::Handle(_) => true,
         WasiParamKind::Record { fields } => {
             fields.iter().all(|field| direct_parameter(&field.kind))
         }
@@ -303,7 +303,7 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         WitType::Char => WasiResultKind::Char,
         WitType::Id(id) => match &resolve.types[*id].kind {
             TypeDefKind::List(_) | TypeDefKind::FixedLengthList(..) => WasiResultKind::List,
-            TypeDefKind::Handle(_) => WasiResultKind::Handle,
+            TypeDefKind::Handle(handle) => classify_result_handle(resolve, handle),
             TypeDefKind::Result(_) => WasiResultKind::Result,
             TypeDefKind::Enum(enum_) => WasiResultKind::Enum {
                 cases: enum_
@@ -337,6 +337,18 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
         },
         _ => WasiResultKind::Discarded,
     }
+}
+
+fn classify_handle(resolve: &Resolve, handle: &Handle) -> WasiParamKind {
+    super::handles::classify(resolve, handle)
+        .map(WasiParamKind::Handle)
+        .unwrap_or(WasiParamKind::Unsupported)
+}
+
+fn classify_result_handle(resolve: &Resolve, handle: &Handle) -> WasiResultKind {
+    super::handles::classify(resolve, handle)
+        .map(WasiResultKind::Handle)
+        .unwrap_or(WasiResultKind::Discarded)
 }
 
 fn source_constructor_name(wit_case: &str) -> String {
