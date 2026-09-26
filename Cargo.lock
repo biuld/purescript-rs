@@ -323,10 +323,13 @@ dependencies = [
 name = "psrs-typecheck"
 version = "0.1.0"
 dependencies = [
+ "psrs-ast",
  "psrs-desugar",
  "psrs-hir",
+ "psrs-kind",
  "psrs-resolve",
  "psrs-span",
+ "psrs-syntax",
  "psrs-thir",
 ]
 

@@ -14,8 +14,8 @@ pub use import::{Import, ImportList, ImportRef};
 pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
-    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, NewtypeDeclaration,
-    TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
+    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, ForeignDataDeclaration,
+    NewtypeDeclaration, TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,9 +115,16 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                 index += 1;
             }
             cst::Declaration::Foreign(declaration) => {
-                match lower_foreign_import(declaration) {
-                    Ok(foreign) => foreign_imports.push(foreign),
-                    Err(error) => errors.push(error),
+                if declaration.data_keyword_span.is_some() {
+                    match type_decl::lower_foreign_data(declaration) {
+                        Ok(declaration) => type_declarations.push(declaration),
+                        Err(error) => errors.push(error),
+                    }
+                } else {
+                    match lower_foreign_import(declaration) {
+                        Ok(foreign) => foreign_imports.push(foreign),
+                        Err(error) => errors.push(error),
+                    }
                 }
                 index += 1;
             }
@@ -175,12 +182,6 @@ fn matches_kind_declaration(
 }
 
 fn lower_foreign_import(declaration: cst::ForeignDeclaration) -> Result<ForeignImport, LowerError> {
-    if declaration.data_keyword_span.is_some() {
-        return Err(LowerError::new(
-            declaration.span,
-            "foreign type imports are not supported yet",
-        ));
-    }
     let Some(binding) = declaration.binding else {
         return Err(LowerError::new(
             declaration.span,

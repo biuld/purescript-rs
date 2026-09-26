@@ -8,6 +8,9 @@ pub enum TypeDeclaration {
     Newtype(NewtypeDeclaration),
     TypeSynonym(TypeSynonymDeclaration),
     Class(ClassDeclaration),
+    /// An opaque type introduced by `foreign import data`. It has a kind and
+    /// no constructors, so source cannot build a value of the type.
+    Foreign(ForeignDataDeclaration),
 }
 
 impl TypeDeclaration {
@@ -17,6 +20,7 @@ impl TypeDeclaration {
             Self::Newtype(declaration) => &declaration.name,
             Self::TypeSynonym(declaration) => &declaration.name,
             Self::Class(declaration) => &declaration.name,
+            Self::Foreign(declaration) => &declaration.name,
         }
     }
 
@@ -26,6 +30,7 @@ impl TypeDeclaration {
             Self::Newtype(declaration) => declaration.span,
             Self::TypeSynonym(declaration) => declaration.span,
             Self::Class(declaration) => declaration.span,
+            Self::Foreign(declaration) => declaration.span,
         }
     }
 
@@ -39,8 +44,20 @@ impl TypeDeclaration {
             Self::Newtype(declaration) => declaration.kind_signature.as_ref(),
             Self::TypeSynonym(declaration) => declaration.kind_signature.as_ref(),
             Self::Class(declaration) => declaration.kind_signature.as_ref(),
+            // The kind is inline on the foreign declaration, not a preceding
+            // standalone kind signature.
+            Self::Foreign(_) => None,
         }
     }
+}
+
+/// `foreign import data Name :: Kind`. The kind is written after `::`; the
+/// declaration introduces no value constructor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForeignDataDeclaration {
+    pub name: Name,
+    pub declared_kind: Type,
+    pub span: TextRange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +177,24 @@ pub(crate) fn lower_type_declaration(
             "expected a data, newtype, type, or class declaration",
         )),
     }
+}
+
+/// Lowers `foreign import data Name :: Kind`. A WIT binding belongs to a
+/// foreign value import, not to an opaque type.
+pub(crate) fn lower_foreign_data(
+    declaration: cst::ForeignDeclaration,
+) -> Result<TypeDeclaration, LowerError> {
+    if declaration.binding.is_some() {
+        return Err(LowerError::new(
+            declaration.span,
+            "a foreign data declaration does not take a WIT binding",
+        ));
+    }
+    Ok(TypeDeclaration::Foreign(ForeignDataDeclaration {
+        name: lower_name(declaration.name),
+        declared_kind: lower_type(declaration.type_expr)?,
+        span: declaration.span,
+    }))
 }
 
 fn lower_type_parameters(

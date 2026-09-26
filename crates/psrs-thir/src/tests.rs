@@ -8,6 +8,7 @@ fn verifier_rejects_invalid_type_references() {
         externals: Vec::new(),
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -49,6 +50,7 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
             },
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -99,6 +101,7 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
             Type::Boolean,
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),

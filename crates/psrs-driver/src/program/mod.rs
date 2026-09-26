@@ -1,14 +1,16 @@
 //! Multi-module program pipelines: resolution, dependency-ordered type
 //! checking against imported signatures, Core lowering, and linking.
 
-use super::prelude;
 use super::{
     Artifact, ProgramDiagnostic, backend_warnings, coded_diagnostic, diagnostic,
     lower_source_to_ast,
 };
+
+pub use library::compile_program_sources_with_prelude;
 use std::collections::HashMap;
 
 mod effects;
+mod library;
 
 /// Compiles a whole program to a single Wasm component. Every module is type
 /// checked in dependency order and lowered to Core; the modules are then linked
@@ -39,28 +41,6 @@ fn compile_program_sources_with_trusted_prefix(
         wat: output.wat,
         warnings,
     })
-}
-
-/// Compiles user sources together with the embedded `Prelude` module. The
-/// returned diagnostic source indices refer to `sources`, not the hidden
-/// prelude entry, so callers can render errors against the files they passed.
-pub fn compile_program_sources_with_prelude(
-    sources: &[(&str, &str)],
-) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let mut all_sources = Vec::with_capacity(sources.len() + prelude::SOURCES.len());
-    all_sources.extend_from_slice(prelude::SOURCES);
-    all_sources.extend_from_slice(sources);
-    compile_program_sources_with_trusted_prefix(&all_sources, prelude::SOURCES.len()).map_err(
-        |errors| {
-            errors
-                .into_iter()
-                .map(|mut error| {
-                    error.source = error.source.saturating_sub(prelude::SOURCES.len());
-                    error
-                })
-                .collect()
-        },
-    )
 }
 
 #[cfg(test)]
@@ -297,7 +277,7 @@ fn typecheck_program(
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
-                "Prelude" | "WASI.Console" | "WASI.Clock"
+                "Prelude" | "WASI.Console" | "WASI.Clock" | "WASI.Random"
             );
         let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
             module,

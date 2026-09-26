@@ -92,6 +92,22 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
     let text = project(details, 1);
     let nested_enum = project(details, 0);
     let outer_enum = project(ValueId(24), 2);
+    // The GC String is transcoded into a transient linear buffer; the helper
+    // returns the length-prefix address the canonical pair is derived from.
+    let list_prefix = instructions
+        .iter()
+        .find_map(|instruction| match instruction {
+            Instruction::Call {
+                destination,
+                function,
+                arguments,
+                ..
+            } if *function == crate::abi::STRING_TO_BYTES_SYMBOL && arguments == &[text] => {
+                Some(*destination)
+            }
+            _ => None,
+        })
+        .expect("the list branch should transcode the String");
     let list_length = instructions
         .iter()
         .find_map(|instruction| match instruction {
@@ -100,7 +116,7 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
                 address,
                 offset: 0,
                 ..
-            } if *address == text => Some(*destination),
+            } if *address == list_prefix => Some(*destination),
             _ => None,
         })
         .expect("the list branch should load the String length");
@@ -113,7 +129,7 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
                 left,
                 right,
                 ..
-            } if *left == text
+            } if *left == list_prefix
                 && instructions.iter().any(|candidate| {
                     matches!(candidate,
                         Instruction::Constant { destination, value: 4, .. }

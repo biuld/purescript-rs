@@ -292,6 +292,7 @@ fn dictionary_evidence_module() -> thir::Module {
             },
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(entry, "main", main_type, main, span),

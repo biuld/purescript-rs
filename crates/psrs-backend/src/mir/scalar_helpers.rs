@@ -69,6 +69,9 @@ pub(super) fn lower_scalar_helpers(
         .map(|function| function.symbol)
         .chain(module.externals.iter().map(|external| external.symbol))
         .collect::<HashSet<_>>();
+    // Intrinsic symbols may be allocated downward from `u32::MAX`; never take
+    // one the canonical ABI or codec reserves.
+    used_symbols.extend(crate::abi::RESERVED_ABI_SYMBOLS);
     let symbol_module = module
         .functions
         .first()

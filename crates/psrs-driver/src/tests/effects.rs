@@ -75,13 +75,11 @@ fn transitive_effect_types_keep_their_closure_representation() {
         "Main.purs",
         "module Main where\nimport Library\nforward = action\nmain = let ignored = forward in 0\n",
     );
-    let mut sources = prelude::SOURCES.to_vec();
-    sources.extend([library_source, main_source]);
-    let typed = crate::program::typecheck_program_sources_with_trusted_prefix(
-        &sources,
-        prelude::SOURCES.len(),
-    )
-    .unwrap();
+    let (sources, trusted_prefix) =
+        prelude::prepend(&[library_source, main_source]).expect("standard library");
+    let typed =
+        crate::program::typecheck_program_sources_with_trusted_prefix(&sources, trusted_prefix)
+            .unwrap();
     let library = typed
         .iter()
         .find(|module| module.name == "Library")

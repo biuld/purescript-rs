@@ -42,6 +42,7 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
             },
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             thir::Declaration {
@@ -174,6 +175,7 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
             thir::Type::Record(vec![("value".into(), thir::TypeId(0))]),
         ],
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             thir::Declaration {

@@ -203,6 +203,12 @@ pub fn typecheck_module_with_imports_and_effect_context(
         .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Newtype)
         .map(|declaration| declaration.id)
         .collect();
+    let opaque_ids = module
+        .types
+        .iter()
+        .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Foreign)
+        .map(|declaration| declaration.id)
+        .collect();
     let mut constructors = Vec::with_capacity(constructor_infos.len());
     for info in constructor_infos {
         let mut variables = HashMap::new();
@@ -240,6 +246,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
         externals: module.externals,
         types: types.values,
         newtype_ids,
+        opaque_ids,
         constructors,
         declarations,
         span: module.span,

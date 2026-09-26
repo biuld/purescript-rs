@@ -35,7 +35,9 @@ impl FunctionLowerer<'_> {
 }
 
 fn dictionary_error(expression: &Expr, message: &'static str) -> Vec<BackendError> {
-    vec![BackendError::new(
+    // The class layout is derived from the same checked Core record, so a
+    // mismatch here is inconsistent compiler evidence, not unsupported source.
+    vec![BackendError::invalid_ir(
         "P8 closure conversion",
         expression.span,
         message,

@@ -5,19 +5,25 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId};
+use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
 mod classification;
+mod flatten;
+mod handles;
 #[cfg(test)]
 mod tests;
 mod validation;
 
 pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
-use validation::{flattened_parameter_count, source_parameter_matches, wasi_interface_enabled};
+pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+pub use handles::{HandleMode, HandleResource};
+#[cfg(test)]
+use validation::source_parameter_matches;
+use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -35,10 +41,54 @@ pub const SCRATCH_SIZE: u32 = 16;
 /// The first linear-memory offset after the scratch region.
 pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 
+/// The start of the allocator's heap-state segment: two pointer-width words
+/// holding the free-list head and the bump break. It follows the scratch region.
+pub const HEAP_STATE: u32 = SCRATCH_END;
+
+/// The byte size of the heap-state segment: a free-list head word and a bump
+/// break word, each one wasm32 pointer word.
+pub const HEAP_STATE_SIZE: u32 = 2 * WORD_SIZE;
+
+/// The first address the canonical allocator may hand out. It is aligned to the
+/// block granularity so every block header stays aligned.
+pub const HEAP_START: u32 = (HEAP_STATE + HEAP_STATE_SIZE).next_multiple_of(MIN_BLOCK);
+
+/// A wasm32 address word.
+pub const WORD_SIZE: u32 = 4;
+
+/// The per-block metadata header: a block-size word and a length/next word.
+pub const HEADER_SIZE: u32 = 8;
+
+/// The block granularity. It matches the maximum canonical ABI field alignment
+/// (`i64`/`f64`), so block headers and payloads stay aligned.
+pub const MIN_BLOCK: u32 = 8;
+
 /// Reserved MIR symbol for the allocator synthesized after ABI memory layout
 /// is known. Calls to this symbol become calls to the local `cabi_realloc`
 /// function during Wasm lowering; it is never emitted as a core import.
 pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
+
+/// Reserved symbols for the UTF-16 <-> UTF-8 codec at the canonical ABI
+/// boundary. P10 synthesizes them as ordinary local Wasm functions; like
+/// `REALLOC_SYMBOL` they are never emitted as core imports.
+pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
+    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
+pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
+    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
+
+/// Reserved MIR symbol for the synthesized `decode_step` codec helper. Like the
+/// other codec symbols it is never a core import.
+pub(crate) const DECODE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
+
+/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and codec.
+/// Any other intrinsic-symbol allocator (for example the aggregate conversion
+/// helpers, which allocate downward from `u32::MAX`) must skip these.
+pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 4] = [
+    REALLOC_SYMBOL,
+    STRING_TO_BYTES_SYMBOL,
+    BYTES_TO_STRING_SYMBOL,
+    DECODE_STEP_SYMBOL,
+];
 
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.
@@ -58,8 +108,11 @@ pub mod names {
 /// types, so the shape is kept for the lowering to adapt arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WasiParamKind {
-    /// A WIT `s32` flattened to one canonical `i32` parameter.
+    /// A WIT `s32` or `u32` flattened to one canonical `i32` parameter.
     Integer32,
+    /// A WIT `s8`/`u8`/`s16`/`u16` flattened to one canonical `i32`. `bits` is
+    /// the width and `signed` selects sign-extension when masking an `Int`.
+    IntegerNarrow { bits: u8, signed: bool },
     /// A WIT `bool` flattened to one canonical `i32` parameter.
     Boolean,
     /// A WIT character flattened to one canonical `i32` parameter.
@@ -78,8 +131,9 @@ pub enum WasiParamKind {
     Flags { names: Vec<String> },
     /// A closed record whose fields each flatten directly to scalar values.
     Record { fields: Vec<WasiField> },
-    /// A resource handle flattened to one canonical `i32` handle.
-    Handle,
+    /// A resource handle flattened to one canonical `i32` index.
+    /// `Own` must be dropped; `Borrow` dies when the creating call returns.
+    Handle(HandleResource),
     /// A string or list flattened to a `(pointer, length)` pair.
     List,
     /// A WIT shape with no source representation in the current ABI subset.
@@ -100,6 +154,11 @@ pub enum WasiResultKind {
     None,
     /// A scalar returned directly in a register.
     Scalar,
+    /// A resource handle returned as one canonical `i32` index.
+    Handle(HandleResource),
+    /// A WIT `s8`/`u8`/`s16`/`u16` result returned as a canonical `i32` whose
+    /// bits are already the in-range value.
+    IntegerNarrow { bits: u8, signed: bool },
     /// A WIT `bool` result represented by the source `Boolean` type.
     Boolean,
     /// A WIT enum with cases that must match a nullary source data type.
@@ -138,6 +197,10 @@ pub enum SourceType {
     },
     String,
     Unit,
+    /// A nullary opaque foreign type mapped to a WIT resource handle.
+    Resource {
+        type_id: HirTypeId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -171,9 +234,19 @@ pub struct WasiImport {
     /// Whether the import takes a return pointer for a value that does not fit
     /// in a single canonical result.
     pub retptr: bool,
+    /// Canonical flat slots of the WIT parameters, excluding a return pointer.
+    /// A primitive import whose source arity differs from [`Self::param_kinds`]
+    /// lowers through these slots. Descriptors built for the one-argument zip
+    /// path may leave this empty.
+    pub(crate) flat_slots: Vec<FlatSlot>,
 }
 
 impl WasiImport {
+    /// The handle flattened into `flat_index`, when that slot is a handle.
+    pub(crate) fn handle_at_flat_index(&self, flat_index: usize) -> Option<&HandleResource> {
+        handles::handle_at_flat_index(self, flat_index)
+    }
+
     pub(crate) fn has_indirect_parameters(&self) -> bool {
         let flattened = self
             .param_kinds
@@ -253,7 +326,8 @@ impl WasiRegistry {
         let wit_function = self.resolve.interfaces[interface_id]
             .functions
             .get(function)
-            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?;
+            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
+            .clone();
         let module = self
             .resolve
             .id_of(interface_id)
@@ -264,17 +338,17 @@ impl WasiRegistry {
         }
         let signature = self
             .resolve
-            .wasm_signature(AbiVariant::GuestImport, wit_function);
-        let param_kinds: Vec<WasiParamKind> = wit_function
+            .wasm_signature(AbiVariant::GuestImport, &wit_function);
+        let mut param_kinds: Vec<WasiParamKind> = wit_function
             .params
             .iter()
             .map(|param| param_kind(&self.resolve, &param.ty))
             .collect();
-        let result_kind = match &wit_function.result {
+        let mut result_kind = match &wit_function.result {
             None => WasiResultKind::None,
             Some(ty) => result_kind(&self.resolve, ty),
         };
-        let unsupported = unsupported_shape(&self.resolve, wit_function, &result_kind)
+        let unsupported = unsupported_shape(&self.resolve, &wit_function, &result_kind)
             .or_else(|| {
                 (!crate::component::component_interface_supported(&module)).then(|| {
                     format!(
@@ -283,6 +357,16 @@ impl WasiRegistry {
                 })
             })
             .or_else(|| {
+                // An `option`, tuple, or payload-bearing variant is one WIT
+                // parameter and several flat slots. `flattened_parameter_count`
+                // cannot see those slots; signature validation compares the
+                // declared primitives with `flat_slots` instead.
+                if param_kinds
+                    .iter()
+                    .any(|kind| matches!(kind, WasiParamKind::Unsupported))
+                {
+                    return None;
+                }
                 let flattened = param_kinds
                     .iter()
                     .map(flattened_parameter_count)
@@ -308,6 +392,7 @@ impl WasiRegistry {
                     )
                 })
             });
+        self.bind_handle_drops(&mut param_kinds, &mut result_kind);
         let parameters = signature
             .params
             .iter()
@@ -327,6 +412,7 @@ impl WasiRegistry {
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
+        let flat_slots = flatten::flatten_parameters(&self.resolve, &wit_function);
         self.imports.push(WasiImport {
             symbol,
             module,
@@ -337,6 +423,7 @@ impl WasiRegistry {
             result_kind,
             unsupported,
             retptr: signature.retptr,
+            flat_slots,
         });
         self.keys.insert(key, self.imports.len() - 1);
         Ok(self.imports.last().expect("just pushed").clone())
@@ -367,56 +454,13 @@ impl WasiRegistry {
     /// represented by the canonical ABI adapter. This is deliberately done
     /// before CC/MIR lowering: matching only arity would let an `Int` be used
     /// for a resource or a non-byte list be treated as a `String`.
+    #[allow(clippy::unused_self)]
     pub fn validate_signature(
         &self,
         import: &WasiImport,
         signature: &SourceSignature,
     ) -> Result<(), String> {
-        if signature.parameters.len() != import.param_kinds.len() {
-            return Err(format!(
-                "WIT import `{}` expects {} source arguments, but its declaration has {}",
-                import.name,
-                import.param_kinds.len(),
-                signature.parameters.len()
-            ));
-        }
-        for (parameter, kind) in signature.parameters.iter().zip(&import.param_kinds) {
-            if !source_parameter_matches(parameter, kind) {
-                return Err(format!(
-                    "WIT import `{}` has a source parameter with an incompatible type",
-                    import.name
-                ));
-            }
-        }
-        let valid_result = match &import.result_kind {
-            WasiResultKind::None => matches!(&signature.result, SourceType::Unit),
-            WasiResultKind::Scalar => match import.result {
-                Some(ValueType::I64) => {
-                    matches!(&signature.result, SourceType::Int)
-                }
-                Some(ValueType::I32) => matches!(&signature.result, SourceType::Int),
-                Some(ValueType::F32 | ValueType::F64) => {
-                    matches!(&signature.result, SourceType::Number)
-                }
-                _ => false,
-            },
-            WasiResultKind::Boolean => matches!(&signature.result, SourceType::Boolean),
-            WasiResultKind::Enum { cases } => matches!(
-                &signature.result,
-                SourceType::Enum { cases: source } if source == cases
-            ),
-            WasiResultKind::Char => matches!(&signature.result, SourceType::Char),
-            WasiResultKind::List => matches!(&signature.result, SourceType::String),
-            WasiResultKind::Result => matches!(&signature.result, SourceType::Unit),
-            WasiResultKind::Discarded => false,
-        };
-        if !valid_result {
-            return Err(format!(
-                "WIT import `{}` has a source result type incompatible with its canonical result",
-                import.name
-            ));
-        }
-        Ok(())
+        validate_import_signature(import, signature)
     }
 }
 

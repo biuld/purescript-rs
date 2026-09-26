@@ -1,337 +1,273 @@
 //! The synthesized linear-memory allocator used by canonical ABI lowering.
+//!
+//! `cabi_realloc` implements the full canonical `(old_ptr, old_len, align,
+//! new_len) -> pointer` contract: it allocates an aligned block, frees when the
+//! new length is zero, and resizes with copy otherwise. Freed blocks go on an
+//! address-ordered free list and are coalesced with their neighbors, so a
+//! request reuses reclaimed storage instead of exhausting memory. The block
+//! layout and ownership rules are fixed by
+//! `docs/design/backend/wasm/canonical-buffer-allocation-and-lifetime.md`.
 
-use super::super::{Body, Function, Op, TypeIndex};
+use super::super::{Function, TypeIndex};
+use super::asm::*;
+use crate::abi;
 use psrs_span::TextRange;
-use wasm_encoder::{BlockType, Instruction, MemArg, ValType};
+use wasm_encoder::{Instruction, MemArg, ValType};
 
-const OLD_PTR: u32 = 0;
-const OLD_LEN: u32 = 1;
-const ALIGN: u32 = 2;
-const NEW_LEN: u32 = 3;
-const FREE_PTR: u32 = 4;
-const EFFECTIVE_ALIGN: u32 = 5;
-const MIN_PAYLOAD: u32 = 6;
-const PAYLOAD: u32 = 7;
-const PREFIX: u32 = 8;
-const END: u32 = 9;
-const REQUIRED_PAGES: u32 = 10;
-const COPY_REMAINING: u32 = 11;
-const COPY_SOURCE: u32 = 12;
-const COPY_DESTINATION: u32 = 13;
-const BYTE: u32 = 14;
+mod block;
 
-/// Builds the bump-allocator `cabi_realloc` used by canonical ABI boundary
-/// buffers, including indirect parameter records and returned lists/strings.
-pub(super) fn build_realloc(type_index: TypeIndex, heap_pointer: u32, span: TextRange) -> Function {
-    let word = || memarg(2);
-    let byte = || memarg(0);
-    let mut body = Body::new();
+use block::{emit_allocate, emit_free};
+
+pub(super) const OLD_PTR: u32 = 0;
+pub(super) const OLD_LEN: u32 = 1;
+pub(super) const ALIGN: u32 = 2;
+pub(super) const NEW_LEN: u32 = 3;
+
+// Scratch locals. Parameters occupy 0..4, so the first scratch local is 4.
+pub(super) const L_A: u32 = 4;
+pub(super) const L_PREV: u32 = 5;
+pub(super) const L_NODE: u32 = 6;
+pub(super) const L_SIZE: u32 = 7;
+pub(super) const L_PNODE: u32 = 8;
+pub(super) const L_FRONT: u32 = 9;
+pub(super) const L_TAIL: u32 = 10;
+pub(super) const L_P: u32 = 11;
+pub(super) const L_END: u32 = 12;
+pub(super) const L_PAGES: u32 = 13;
+pub(super) const L_BREAK: u32 = 14;
+pub(super) const L_SRC: u32 = 15;
+pub(super) const L_DST: u32 = 16;
+pub(super) const L_BYTE: u32 = 17;
+pub(super) const L_COUNT: u32 = 18;
+pub(super) const L_H: u32 = 19;
+pub(super) const L_CAP: u32 = 20;
+pub(super) const L_TMP: u32 = 21;
+pub(super) const L_TMP2: u32 = 22;
+pub(super) const LOCAL_COUNT: usize = 19;
+
+pub(super) const WORD_ALIGN: u32 = 2;
+pub(super) const BYTE_ALIGN: u32 = 0;
+
+/// Builds the reclaiming `cabi_realloc` used by canonical ABI boundary buffers,
+/// including indirect parameter records and returned lists/strings.
+pub(super) fn build_realloc(type_index: TypeIndex, span: TextRange) -> Function {
+    let mut asm = Asm::new();
 
     // Alignment is an unsigned, nonzero power of two. Validate it even for a
     // zero-sized allocation so malformed calls trap consistently.
-    let mut invalid_alignment = Body::new();
-    push(&mut invalid_alignment, Instruction::LocalGet(ALIGN));
-    push(&mut invalid_alignment, Instruction::I32Eqz);
-    push(&mut invalid_alignment, Instruction::LocalGet(ALIGN));
-    push(&mut invalid_alignment, Instruction::I32Const(1));
-    push(&mut invalid_alignment, Instruction::I32Sub);
-    push(&mut invalid_alignment, Instruction::LocalGet(ALIGN));
-    push(&mut invalid_alignment, Instruction::I32And);
-    push(&mut invalid_alignment, Instruction::I32Eqz);
-    push(&mut invalid_alignment, Instruction::I32Eqz);
-    push(&mut invalid_alignment, Instruction::I32Or);
-    trap_if(&mut body, invalid_alignment, span);
-
-    // Free is a no-op. Keep the old allocation untouched and avoid all memory
-    // accesses for this case.
-    let mut zero_sized = Body::new();
-    push(&mut zero_sized, Instruction::I32Const(0));
-    push(&mut zero_sized, Instruction::Return);
-    body.push(Op::Leaf(Instruction::LocalGet(NEW_LEN)));
-    body.push(Op::Leaf(Instruction::I32Eqz));
-    body.push(Op::If {
-        then_body: zero_sized,
-        else_body: Body::new(),
-        result: None,
-        span,
+    trap_if(&mut asm, |a| {
+        get(a, ALIGN);
+        a.leaf(Instruction::I32Eqz);
+        get(a, ALIGN);
+        constant(a, 1);
+        a.leaf(Instruction::I32Sub);
+        get(a, ALIGN);
+        a.leaf(Instruction::I32And);
+        a.leaf(Instruction::I32Eqz);
+        a.leaf(Instruction::I32Eqz);
+        a.leaf(Instruction::I32Or);
     });
 
-    // A null old pointer cannot describe bytes to preserve. The old range is
-    // represented by a payload pointer preceded by the matching length.
-    let mut null_with_length = Body::new();
-    push(&mut null_with_length, Instruction::LocalGet(OLD_PTR));
-    push(&mut null_with_length, Instruction::I32Eqz);
-    push(&mut null_with_length, Instruction::LocalGet(OLD_LEN));
-    push(&mut null_with_length, Instruction::I32Eqz);
-    push(&mut null_with_length, Instruction::I32Eqz);
-    push(&mut null_with_length, Instruction::I32And);
-    trap_if(&mut body, null_with_length, span);
+    // new_len == 0 frees the old block (when any) and returns null.
+    let zero_length = asm.label();
+    get(&mut asm, NEW_LEN);
+    asm.leaf(Instruction::I32Eqz);
+    asm.if_(zero_length);
+    {
+        let has_old = asm.label();
+        get(&mut asm, OLD_PTR);
+        asm.leaf(Instruction::I32Eqz);
+        asm.leaf(Instruction::I32Eqz);
+        asm.if_(has_old);
+        emit_free(&mut asm, OLD_PTR);
+        asm.end();
+        constant(&mut asm, 0);
+        asm.leaf(Instruction::Return);
+    }
+    asm.end();
 
-    let mut effective_alignment = Body::new();
-    push(&mut effective_alignment, Instruction::I32Const(4));
-    push(
-        &mut effective_alignment,
-        Instruction::LocalSet(EFFECTIVE_ALIGN),
-    );
-    body.push(Op::Leaf(Instruction::LocalGet(ALIGN)));
-    body.push(Op::Leaf(Instruction::I32Const(4)));
-    body.push(Op::Leaf(Instruction::I32LtU));
-    body.push(Op::If {
-        then_body: effective_alignment,
-        else_body: {
-            let mut otherwise = Body::new();
-            push(&mut otherwise, Instruction::LocalGet(ALIGN));
-            push(&mut otherwise, Instruction::LocalSet(EFFECTIVE_ALIGN));
-            otherwise
-        },
-        result: None,
-        span,
+    // A non-null old pointer must describe a complete block whose stored length
+    // agrees with the caller's. If the block already has capacity and alignment
+    // for the new length, resize in place.
+    let old_nonnull = asm.label();
+    get(&mut asm, OLD_PTR);
+    asm.leaf(Instruction::I32Eqz);
+    asm.leaf(Instruction::I32Eqz);
+    asm.if_(old_nonnull);
+    {
+        trap_if(&mut asm, |a| {
+            get(a, OLD_PTR);
+            constant(a, abi::HEADER_SIZE as i32);
+            a.leaf(Instruction::I32LtU);
+        });
+        trap_if(&mut asm, |a| {
+            get(a, OLD_PTR);
+            constant(a, 4);
+            a.leaf(Instruction::I32Sub);
+            a.leaf(Instruction::I32Load(word_memarg()));
+            get(a, OLD_LEN);
+            a.leaf(Instruction::I32Ne);
+        });
+        get(&mut asm, OLD_PTR);
+        constant(&mut asm, abi::HEADER_SIZE as i32);
+        asm.leaf(Instruction::I32Sub);
+        set(&mut asm, L_H);
+        word_load(&mut asm, L_H, 0);
+        set(&mut asm, L_SIZE);
+        get(&mut asm, L_SIZE);
+        constant(&mut asm, abi::HEADER_SIZE as i32);
+        asm.leaf(Instruction::I32Sub);
+        set(&mut asm, L_CAP);
+
+        let fits_in_place = asm.label();
+        get(&mut asm, NEW_LEN);
+        get(&mut asm, L_CAP);
+        asm.leaf(Instruction::I32LeU);
+        get(&mut asm, OLD_PTR);
+        get(&mut asm, ALIGN);
+        constant(&mut asm, 1);
+        asm.leaf(Instruction::I32Sub);
+        asm.leaf(Instruction::I32And);
+        asm.leaf(Instruction::I32Eqz);
+        asm.leaf(Instruction::I32And);
+        asm.if_(fits_in_place);
+        {
+            get(&mut asm, OLD_PTR);
+            constant(&mut asm, 4);
+            asm.leaf(Instruction::I32Sub);
+            get(&mut asm, NEW_LEN);
+            asm.leaf(Instruction::I32Store(word_memarg()));
+            get(&mut asm, OLD_PTR);
+            asm.leaf(Instruction::Return);
+        }
+        asm.end();
+    }
+    asm.end();
+
+    // A null old pointer requires an empty old length.
+    trap_if(&mut asm, |a| {
+        get(a, OLD_PTR);
+        a.leaf(Instruction::I32Eqz);
+        get(a, OLD_LEN);
+        a.leaf(Instruction::I32Eqz);
+        a.leaf(Instruction::I32Eqz);
+        a.leaf(Instruction::I32And);
     });
 
-    // Confirm that a non-null old allocation has a complete prefix and that
-    // the caller's old_len agrees with it. The pointer subtraction is guarded
-    // before the prefix load; out-of-memory ranges trap on the load itself.
-    body.push(Op::Leaf(Instruction::LocalGet(OLD_PTR)));
-    body.push(Op::Leaf(Instruction::I32Eqz));
-    body.push(Op::Leaf(Instruction::I32Eqz));
-    body.push(Op::If {
-        then_body: {
-            let mut validate_old = Body::new();
-            let mut short_old_pointer = Body::new();
-            push(&mut short_old_pointer, Instruction::LocalGet(OLD_PTR));
-            push(&mut short_old_pointer, Instruction::I32Const(4));
-            push(&mut short_old_pointer, Instruction::I32LtU);
-            trap_if(&mut validate_old, short_old_pointer, span);
+    emit_allocate(&mut asm);
 
-            let mut old_range_overflows = Body::new();
-            push(&mut old_range_overflows, Instruction::LocalGet(OLD_PTR));
-            push(&mut old_range_overflows, Instruction::LocalGet(OLD_LEN));
-            push(&mut old_range_overflows, Instruction::I32Add);
-            push(&mut old_range_overflows, Instruction::LocalTee(FREE_PTR));
-            push(&mut old_range_overflows, Instruction::LocalGet(OLD_PTR));
-            push(&mut old_range_overflows, Instruction::I32LtU);
-            trap_if(&mut validate_old, old_range_overflows, span);
+    let has_old_bytes = asm.label();
+    get(&mut asm, OLD_PTR);
+    asm.leaf(Instruction::I32Eqz);
+    asm.leaf(Instruction::I32Eqz);
+    asm.if_(has_old_bytes);
+    {
+        let old_is_smaller = asm.label();
+        get(&mut asm, OLD_LEN);
+        get(&mut asm, NEW_LEN);
+        asm.leaf(Instruction::I32LtU);
+        asm.if_(old_is_smaller);
+        get(&mut asm, OLD_LEN);
+        set(&mut asm, L_COUNT);
+        asm.else_();
+        get(&mut asm, NEW_LEN);
+        set(&mut asm, L_COUNT);
+        asm.end();
+        get(&mut asm, OLD_PTR);
+        set(&mut asm, L_SRC);
+        get(&mut asm, L_P);
+        set(&mut asm, L_DST);
+        let done = asm.label();
+        let next = asm.label();
+        asm.block(done);
+        asm.loop_(next);
+        get(&mut asm, L_COUNT);
+        asm.leaf(Instruction::I32Eqz);
+        asm.br_if(done);
+        get(&mut asm, L_SRC);
+        asm.leaf(Instruction::I32Load8U(byte_memarg()));
+        set(&mut asm, L_BYTE);
+        get(&mut asm, L_DST);
+        get(&mut asm, L_BYTE);
+        asm.leaf(Instruction::I32Store8(byte_memarg()));
+        advance(&mut asm, L_SRC, 1);
+        advance(&mut asm, L_DST, 1);
+        get(&mut asm, L_COUNT);
+        constant(&mut asm, 1);
+        asm.leaf(Instruction::I32Sub);
+        set(&mut asm, L_COUNT);
+        asm.br(next);
+        asm.end();
+        asm.end();
+        emit_free(&mut asm, OLD_PTR);
+    }
+    asm.end();
 
-            let mut old_range_exceeds_memory = Body::new();
-            push(
-                &mut old_range_exceeds_memory,
-                Instruction::LocalGet(FREE_PTR),
-            );
-            push(&mut old_range_exceeds_memory, Instruction::I32Const(16));
-            push(&mut old_range_exceeds_memory, Instruction::I32ShrU);
-            push(&mut old_range_exceeds_memory, Instruction::MemorySize(0));
-            push(&mut old_range_exceeds_memory, Instruction::I32GtU);
-            push(
-                &mut old_range_exceeds_memory,
-                Instruction::LocalGet(FREE_PTR),
-            );
-            push(&mut old_range_exceeds_memory, Instruction::I32Const(16));
-            push(&mut old_range_exceeds_memory, Instruction::I32ShrU);
-            push(&mut old_range_exceeds_memory, Instruction::MemorySize(0));
-            push(&mut old_range_exceeds_memory, Instruction::I32Eq);
-            push(
-                &mut old_range_exceeds_memory,
-                Instruction::LocalGet(FREE_PTR),
-            );
-            push(&mut old_range_exceeds_memory, Instruction::I32Const(65535));
-            push(&mut old_range_exceeds_memory, Instruction::I32And);
-            push(&mut old_range_exceeds_memory, Instruction::I32Eqz);
-            push(&mut old_range_exceeds_memory, Instruction::I32Eqz);
-            push(&mut old_range_exceeds_memory, Instruction::I32And);
-            push(&mut old_range_exceeds_memory, Instruction::I32Or);
-            trap_if(&mut validate_old, old_range_exceeds_memory, span);
-
-            let mut mismatched_old_length = Body::new();
-            push(&mut mismatched_old_length, Instruction::LocalGet(OLD_PTR));
-            push(&mut mismatched_old_length, Instruction::I32Const(4));
-            push(&mut mismatched_old_length, Instruction::I32Sub);
-            push(&mut mismatched_old_length, Instruction::I32Load(word()));
-            push(&mut mismatched_old_length, Instruction::LocalGet(OLD_LEN));
-            push(&mut mismatched_old_length, Instruction::I32Ne);
-            trap_if(&mut validate_old, mismatched_old_length, span);
-            validate_old
-        },
-        else_body: Body::new(),
-        result: None,
-        span,
-    });
-
-    // Compute an aligned payload pointer without allowing any intermediate
-    // wasm32 address calculation to wrap. The four-byte prefix is before the
-    // payload, and the end pointer is the next free byte.
-    push(&mut body, Instruction::I32Const(heap_pointer as i32));
-    push(&mut body, Instruction::I32Load(word()));
-    push(&mut body, Instruction::LocalTee(FREE_PTR));
-    push(&mut body, Instruction::I32Const(4));
-    push(&mut body, Instruction::I32Add);
-    push(&mut body, Instruction::LocalTee(MIN_PAYLOAD));
-    push(&mut body, Instruction::LocalGet(FREE_PTR));
-    push(&mut body, Instruction::I32LtU);
-    trap_if_top(&mut body, span);
-
-    push(&mut body, Instruction::LocalGet(MIN_PAYLOAD));
-    push(&mut body, Instruction::LocalGet(EFFECTIVE_ALIGN));
-    push(&mut body, Instruction::I32Const(1));
-    push(&mut body, Instruction::I32Sub);
-    push(&mut body, Instruction::I32Add);
-    push(&mut body, Instruction::LocalTee(PAYLOAD));
-    push(&mut body, Instruction::LocalGet(MIN_PAYLOAD));
-    push(&mut body, Instruction::I32LtU);
-    trap_if_top(&mut body, span);
-
-    push(&mut body, Instruction::LocalGet(PAYLOAD));
-    push(&mut body, Instruction::I32Const(0));
-    push(&mut body, Instruction::LocalGet(EFFECTIVE_ALIGN));
-    push(&mut body, Instruction::I32Sub);
-    push(&mut body, Instruction::I32And);
-    push(&mut body, Instruction::LocalSet(PAYLOAD));
-
-    push(&mut body, Instruction::LocalGet(PAYLOAD));
-    push(&mut body, Instruction::I32Const(4));
-    push(&mut body, Instruction::I32Sub);
-    push(&mut body, Instruction::LocalSet(PREFIX));
-    push(&mut body, Instruction::LocalGet(PAYLOAD));
-    push(&mut body, Instruction::LocalGet(NEW_LEN));
-    push(&mut body, Instruction::I32Add);
-    push(&mut body, Instruction::LocalTee(END));
-    push(&mut body, Instruction::LocalGet(PAYLOAD));
-    push(&mut body, Instruction::I32LtU);
-    trap_if_top(&mut body, span);
-
-    // ceil(end / 65536), written without adding 65535 (which itself could
-    // overflow). A failed memory.grow returns -1 and becomes an unconditional
-    // trap before any allocator state is committed.
-    push(&mut body, Instruction::LocalGet(END));
-    push(&mut body, Instruction::I32Const(16));
-    push(&mut body, Instruction::I32ShrU);
-    push(&mut body, Instruction::LocalGet(END));
-    push(&mut body, Instruction::I32Const(65535));
-    push(&mut body, Instruction::I32And);
-    push(&mut body, Instruction::I32Eqz);
-    push(&mut body, Instruction::I32Eqz);
-    push(&mut body, Instruction::I32Add);
-    push(&mut body, Instruction::LocalSet(REQUIRED_PAGES));
-
-    push(&mut body, Instruction::LocalGet(REQUIRED_PAGES));
-    push(&mut body, Instruction::MemorySize(0));
-    push(&mut body, Instruction::I32GtU);
-    body.push(Op::If {
-        then_body: {
-            let mut grow = Body::new();
-            push(&mut grow, Instruction::LocalGet(REQUIRED_PAGES));
-            push(&mut grow, Instruction::MemorySize(0));
-            push(&mut grow, Instruction::I32Sub);
-            push(&mut grow, Instruction::MemoryGrow(0));
-            push(&mut grow, Instruction::I32Const(-1));
-            push(&mut grow, Instruction::I32Eq);
-            trap_if_top(&mut grow, span);
-            grow
-        },
-        else_body: Body::new(),
-        result: None,
-        span,
-    });
-
-    // Copy min(old_len, new_len) bytes using MVP byte loads and stores. This
-    // preserves realloc contents without relying on bulk-memory opcodes.
-    push(&mut body, Instruction::LocalGet(OLD_LEN));
-    push(&mut body, Instruction::LocalGet(NEW_LEN));
-    push(&mut body, Instruction::I32LtU);
-    body.push(Op::If {
-        then_body: {
-            let mut use_old_length = Body::new();
-            push(&mut use_old_length, Instruction::LocalGet(OLD_LEN));
-            push(&mut use_old_length, Instruction::LocalSet(COPY_REMAINING));
-            use_old_length
-        },
-        else_body: {
-            let mut use_new_length = Body::new();
-            push(&mut use_new_length, Instruction::LocalGet(NEW_LEN));
-            push(&mut use_new_length, Instruction::LocalSet(COPY_REMAINING));
-            use_new_length
-        },
-        result: None,
-        span,
-    });
-    body.push(Op::Leaf(Instruction::LocalGet(OLD_PTR)));
-    body.push(Op::Leaf(Instruction::LocalSet(COPY_SOURCE)));
-    body.push(Op::Leaf(Instruction::LocalGet(PAYLOAD)));
-    body.push(Op::Leaf(Instruction::LocalSet(COPY_DESTINATION)));
-    body.push(Op::Leaf(Instruction::Block(BlockType::Empty)));
-    body.push(Op::Leaf(Instruction::Loop(BlockType::Empty)));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_REMAINING)));
-    body.push(Op::Leaf(Instruction::I32Eqz));
-    body.push(Op::Leaf(Instruction::BrIf(1)));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_SOURCE)));
-    body.push(Op::Leaf(Instruction::I32Load8U(byte())));
-    body.push(Op::Leaf(Instruction::LocalSet(BYTE)));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_DESTINATION)));
-    body.push(Op::Leaf(Instruction::LocalGet(BYTE)));
-    body.push(Op::Leaf(Instruction::I32Store8(byte())));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_SOURCE)));
-    body.push(Op::Leaf(Instruction::I32Const(1)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    body.push(Op::Leaf(Instruction::LocalSet(COPY_SOURCE)));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_DESTINATION)));
-    body.push(Op::Leaf(Instruction::I32Const(1)));
-    body.push(Op::Leaf(Instruction::I32Add));
-    body.push(Op::Leaf(Instruction::LocalSet(COPY_DESTINATION)));
-    body.push(Op::Leaf(Instruction::LocalGet(COPY_REMAINING)));
-    body.push(Op::Leaf(Instruction::I32Const(1)));
-    body.push(Op::Leaf(Instruction::I32Sub));
-    body.push(Op::Leaf(Instruction::LocalSet(COPY_REMAINING)));
-    body.push(Op::Leaf(Instruction::Br(0)));
-    body.push(Op::Leaf(Instruction::End));
-    body.push(Op::Leaf(Instruction::End));
-
-    push(&mut body, Instruction::LocalGet(PREFIX));
-    push(&mut body, Instruction::LocalGet(NEW_LEN));
-    push(&mut body, Instruction::I32Store(word()));
-    push(&mut body, Instruction::I32Const(heap_pointer as i32));
-    push(&mut body, Instruction::LocalGet(END));
-    push(&mut body, Instruction::I32Store(word()));
-    push(&mut body, Instruction::LocalGet(PAYLOAD));
+    get(&mut asm, L_P);
 
     Function {
         symbol: crate::abi::REALLOC_SYMBOL,
         name: "cabi_realloc".into(),
         type_index,
         parameters: vec![ValType::I32; 4],
-        locals: vec![ValType::I32; 11],
-        body,
+        locals: vec![ValType::I32; LOCAL_COUNT],
+        body: asm.into_body(),
         span,
     }
 }
 
-fn memarg(align: u32) -> MemArg {
+pub(super) fn word_memarg() -> MemArg {
     MemArg {
         offset: 0,
-        align,
+        align: WORD_ALIGN,
         memory_index: 0,
     }
 }
 
-fn push(body: &mut Body, instruction: Instruction<'static>) {
-    body.push(Op::Leaf(instruction));
+pub(super) fn byte_memarg() -> MemArg {
+    MemArg {
+        offset: 0,
+        align: BYTE_ALIGN,
+        memory_index: 0,
+    }
 }
 
-fn trap_if(body: &mut Body, condition: Body, span: TextRange) {
-    body.extend(condition);
-    body.push(Op::If {
-        then_body: vec![Op::Leaf(Instruction::Unreachable)],
-        else_body: Body::new(),
-        result: None,
-        span,
-    });
+pub(super) fn word_load(asm: &mut Asm, base: u32, offset: u32) {
+    get(asm, base);
+    if offset != 0 {
+        constant(asm, offset as i32);
+        asm.leaf(Instruction::I32Add);
+    }
+    asm.leaf(Instruction::I32Load(word_memarg()));
 }
 
-fn trap_if_top(body: &mut Body, span: TextRange) {
-    body.push(Op::If {
-        then_body: vec![Op::Leaf(Instruction::Unreachable)],
-        else_body: Body::new(),
-        result: None,
-        span,
-    });
+pub(super) fn word_store(asm: &mut Asm, base: u32, offset: u32, value: u32) {
+    get(asm, base);
+    if offset != 0 {
+        constant(asm, offset as i32);
+        asm.leaf(Instruction::I32Add);
+    }
+    get(asm, value);
+    asm.leaf(Instruction::I32Store(word_memarg()));
+}
+
+pub(super) fn state_load(asm: &mut Asm, offset: u32) {
+    constant(asm, (abi::HEAP_STATE + offset) as i32);
+    asm.leaf(Instruction::I32Load(word_memarg()));
+}
+
+pub(super) fn state_store(asm: &mut Asm, offset: u32, value: u32) {
+    constant(asm, (abi::HEAP_STATE + offset) as i32);
+    get(asm, value);
+    asm.leaf(Instruction::I32Store(word_memarg()));
+}
+
+pub(super) fn trap_if(asm: &mut Asm, condition: impl FnOnce(&mut Asm)) {
+    condition(asm);
+    let failed = asm.label();
+    asm.if_(failed);
+    asm.leaf(Instruction::Unreachable);
+    asm.end();
 }
 
 #[cfg(test)]

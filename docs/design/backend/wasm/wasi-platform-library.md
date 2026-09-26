@@ -12,8 +12,10 @@ with `wit-component`, the enabled WASI services, and validation and execution of
 the component. It does not own canonical ABI adaptation and call lowering
 ([canonical ABI and WIT](canonical-abi-and-wit.md)), the byte boundary and
 allocator ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)),
-the thin encoding ([Wasm encoding](encoding-and-structuring.md)), or which
-capability families are permitted ([capability profile](capability-profile.md)).
+the thin encoding ([Wasm encoding](encoding-and-structuring.md)), which
+capability families are permitted ([capability profile](capability-profile.md)),
+or the split between unexported primitive foreign imports and user-facing
+wrappers ([primitive FFI and the standard library](primitive-ffi-and-stdlib.md)).
 
 ## Background
 
@@ -76,6 +78,11 @@ matches that list exactly and imports only named interfaces. The vendored WASI
 
 ### Enabled services
 
+The names in **Source-facing operation** are the user-facing wrappers, not the
+types of the foreign imports. `log`, `error`, and `now` are ordinary PureScript.
+The imports underneath are primitives (`Int`, `String`, `Unit`, with a handle
+declared as `Int`) and must not be exported.
+
 | Service | WIT interface | Source-facing operation |
 | --- | --- | --- |
 | Console output | `wasi:cli/stdout`, `wasi:io/streams` | `log :: String -> Effect Unit` |
@@ -97,8 +104,8 @@ pruned so an unused service adds no import.
   application world. An import outside the enabled set is rejected during ABI
   resolution.
 - The core↔component bridge uses UTF-8 string encoding
-  (`StringEncoding::UTF8`), matching the length-prefixed UTF-8 string
-  representation ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+  (`StringEncoding::UTF8`); the canonical ABI linearizes GC strings as UTF-8
+  bytes ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
 - A built component validates as a component before it is written.
 
 ## Design
@@ -138,13 +145,27 @@ the entry its declared `i32` result
 
 ### The platform library
 
-The platform library is source code, embedded in the driver because there is no
-filesystem module loader yet, but resolved, type-checked, and linked like any
-module. `WASI.Console` defines `log` over `writeStdout`/`getStdout`, and
+The platform library is source code under `stdlib/lib`, read from disk and
+resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
+the trusted prefix order (`Prelude`, `WASI.Console`, `WASI.Clock`).
+`WASI.Console` defines `log` over `writeStdout`/`getStdout`, and
 `WASI.Clock` defines `now` over the monotonic clock. Each WIT import is declared
 with a binding string and lowered by the generic Canonical ABI adapter
 ([canonical ABI and WIT](canonical-abi-and-wit.md)); the compiler has no
 per-service host function.
+
+### Two library layers
+
+Each enabled service is two layers
+([primitive FFI and the standard library](primitive-ffi-and-stdlib.md),
+[DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+The raw `foreign import` is unexported and uses only primitive source types.
+The names in the table above are the exported wrappers: `log` and `error` hide
+`writeStdout`, `getStdout`, and `getStderr`, and `now` hides `monotonicNow`.
+`writeStdout` must not be exported. Wrappers may use library types such as
+`Maybe` or records; they `case` on those types and pass primitives whose
+flattening matches the WIT function. This document does not move that contract
+into the component world.
 
 ### Rejected alternatives
 
@@ -240,17 +261,18 @@ Responsibilities and required entry points:
     reject an import outside that world.
 - `abi.rs` and `abi/wasi.rs` own the service interface names and binding lookup.
   `abi/wasi.rs` must map each enabled service to its WIT interface and
-  source-facing operation and expose the lookup MIR binding resolution uses. No
-  module may hard-code a per-service host function.
+  source-facing operation — the exported wrapper, not the foreign-import type —
+  and expose the lookup MIR binding resolution uses. No module may hard-code a
+  per-service host function.
 - `wasm/lower/mod.rs` must synthesize the `run` entry that calls `main`, passes
   the result to `wasi:cli/exit.exit-with-code`, and returns `0`.
 - `lib.rs` must own the build pipeline: lower to CC, lower to MIR, structure,
   encode, call `command_world` and `componentize`, validate with the target's
   features, and return the component and its WAT form.
 - The WASI library must be ordinary PureScript source resolved, type-checked,
-  and linked like any other module. `psrs-driver/src/wasi.rs` must embed it and
-  define `log`, `error`, `now`, and the random operations over WIT imports; the
-  portable `Prelude` must not import WASI.
+  and linked like any other module. The driver loads it from `stdlib/lib`
+  rather than embedding it, and defines `log`, `error`, `now`, and the random
+  operations over WIT imports; the portable `Prelude` must not import WASI.
 - `psrs-cli/src/main.rs` must expose `psrs build`, `psrs wat`, and `psrs dump`.
 - `wit/psrs-app.wit` and `wit/deps/` own the vendored WASI 0.2.12 WIT sources.
 
@@ -295,8 +317,6 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 
 - **More services.** Arguments, environment, and filesystem, then sockets, HTTP,
   and TLS, each behind its own capability flag and source library.
-- **A filesystem module loader**, so libraries are discovered rather than
-  embedded in the driver.
 - **WASI 0.3 / async components**, once the language has async features and the
   runtime target is revised.
 - **Reclamation**, so returned lists and resources do not leak
@@ -307,8 +327,13 @@ lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
 Console (stdout and stderr), monotonic clock, random, and exit are implemented
 and have execution tests. Filesystem, arguments, environment, sockets, HTTP, and
 TLS are specified but not implemented; their capability flags are disabled in
-the default profile. The standard library is embedded in the driver because
-there is no filesystem module loader yet.
+the default profile. The standard library is read from `stdlib/lib` at runtime
+(`stdlib/lib/trusted` lists `Prelude`, `WASI.Console`, and `WASI.Clock` in
+trusted-prefix order). The driver discovers user modules from the entry files'
+directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
+files by module name and follows the `import` graph, never searching names the
+on-disk library provides. Resolution, duplicate-module, and cycle checks remain
+in P3.
 
 ## References
 
@@ -317,7 +342,9 @@ there is no filesystem module loader yet.
 - `wit-component` `ComponentEncoder`, `embed_component_metadata`,
   `StringEncoding::UTF8`.
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md),
-  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
+  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md),
+  [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
+- [Primitive FFI and the standard library](primitive-ffi-and-stdlib.md).
 - [capability profile](capability-profile.md),
   [canonical ABI and WIT](canonical-abi-and-wit.md),
   [linear memory boundary](linear-memory-and-canonical-abi-boundary.md),

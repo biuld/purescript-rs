@@ -1,6 +1,6 @@
 use super::BlockId;
 use super::NumericOp;
-use crate::types::{DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
+use crate::types::{DataId, DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
@@ -21,9 +21,12 @@ pub enum Instruction {
         value: String,
         span: TextRange,
     },
-    StringConstant {
+    /// Materializes a static string literal into a fresh GC string from a
+    /// passive data segment holding its UTF-16 code units little-endian.
+    ArrayNewData {
         destination: ValueId,
-        bytes: String,
+        type_index: DefinedTypeId,
+        data_index: DataId,
         span: TextRange,
     },
     Primitive {
@@ -283,7 +286,7 @@ impl Instruction {
             Self::Copy { destination, .. }
             | Self::Constant { destination, .. }
             | Self::NumberConstant { destination, .. }
-            | Self::StringConstant { destination, .. }
+            | Self::ArrayNewData { destination, .. }
             | Self::Primitive { destination, .. }
             | Self::UnaryPrimitive { destination, .. }
             | Self::Call { destination, .. }
@@ -327,7 +330,7 @@ impl Instruction {
     pub fn operands(&self) -> Vec<ValueId> {
         match self {
             Self::Copy { value, .. } => vec![*value],
-            Self::Constant { .. } | Self::NumberConstant { .. } | Self::StringConstant { .. } => {
+            Self::Constant { .. } | Self::NumberConstant { .. } | Self::ArrayNewData { .. } => {
                 Vec::new()
             }
             Self::Primitive { left, right, .. } => vec![*left, *right],
@@ -397,7 +400,7 @@ impl Instruction {
             Self::Copy { span, .. }
             | Self::Constant { span, .. }
             | Self::NumberConstant { span, .. }
-            | Self::StringConstant { span, .. }
+            | Self::ArrayNewData { span, .. }
             | Self::Primitive { span, .. }
             | Self::UnaryPrimitive { span, .. }
             | Self::Call { span, .. }

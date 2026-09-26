@@ -20,6 +20,18 @@ uncommitted work.
   decision. Keep documentation proportional to the change.
 - Review the local diff and run the validation relevant to the files changed.
 
+### Commit granularity
+
+- Group a commit by topic, not by file type. Code, tests, and the design or
+  acceptance documentation for the same topic belong in one commit.
+- Each commit is a self-contained, reviewable unit: it should make sense on its
+  own and pass the validation relevant to the files it changes.
+- Do not split one logical change into trivial incremental commits, and do not
+  mix unrelated topics in one commit. Avoid a history where each commit changes
+  only a little of the same work.
+- Rewrite local, unpushed history to merge related commits rather than adding a
+  corrective commit on top. Do not rewrite commits that are already pushed.
+
 ### Backend topic implementation
 
 - When a backend topic has an execution checklist under

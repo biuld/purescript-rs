@@ -96,7 +96,7 @@ fn free_integer_local(
             !bound.contains(id)
                 && matches!(
                     module.types.get(expression.ty.0 as usize),
-                    Some(Type::I32 | Type::Char | Type::String | Type::Unit)
+                    Some(Type::I32 | Type::Char | Type::Unit)
                 )
         }
         ExprKind::Lambda { binder, body } => {

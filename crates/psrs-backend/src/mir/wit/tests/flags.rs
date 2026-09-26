@@ -17,6 +17,7 @@ fn flags_arguments_pack_boolean_fields_in_wit_declaration_order() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let source = SourceType::Record {
         fields: vec![
@@ -104,6 +105,7 @@ fn flags_arguments_split_after_thirty_two_bits() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let source = SourceType::Record {
         fields: names

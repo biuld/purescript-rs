@@ -3,7 +3,9 @@ use wit_parser::Type as WitType;
 
 mod capability_gates;
 mod indirect;
+mod integers;
 mod records;
+mod resources;
 
 fn empty_core_module() -> psrs_core::Module {
     psrs_core::Module {
@@ -12,6 +14,7 @@ fn empty_core_module() -> psrs_core::Module {
         externals: Vec::new(),
         types: Vec::new(),
         newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -34,10 +37,15 @@ fn resolves_stdout_and_exit_imports() {
         .import(names::STREAMS, names::WRITE_STDOUT)
         .expect("blocking-write-and-flush should resolve");
     assert_eq!(write.module, "wasi:io/streams@0.2.12");
-    assert_eq!(
-        write.param_kinds,
-        vec![WasiParamKind::Handle, WasiParamKind::List]
-    );
+    let super::WasiParamKind::Handle(receiver) = &write.param_kinds[0] else {
+        panic!(
+            "the stream receiver should be a handle, got {:?}",
+            write.param_kinds
+        );
+    };
+    assert_eq!(receiver.mode, super::HandleMode::Borrow);
+    assert_eq!(receiver.name, "output-stream");
+    assert_eq!(write.param_kinds[1], WasiParamKind::List);
     assert_eq!(write.result_kind, WasiResultKind::Result);
     assert!(write.retptr);
     assert!(write.unsupported.is_none());
@@ -111,6 +119,7 @@ fn maps_wit_char_to_the_source_char_type() {
         result_kind: WasiResultKind::Char,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let signature = SourceSignature {
         parameters: vec![SourceType::Char],
@@ -233,6 +242,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         result_kind: WasiResultKind::None,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let flags_signature = SourceSignature {
         parameters: vec![flags_source],
@@ -299,6 +309,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         result_kind,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     WasiRegistry::load()
         .expect("vendored WASI should load")
@@ -355,6 +366,7 @@ fn classifies_wit_f32_for_number_conversion() {
         result_kind: WasiResultKind::Scalar,
         unsupported: None,
         retptr: false,
+        flat_slots: Vec::new(),
     };
     let signature = SourceSignature {
         parameters: vec![SourceType::Number],
@@ -383,7 +395,7 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
     );
     assert_eq!(
         param_kind(&Resolve::default(), &WitType::U32),
-        WasiParamKind::Unsupported
+        WasiParamKind::Integer32
     );
     assert_eq!(
         result_kind(&Resolve::default(), &WitType::Bool),
@@ -391,7 +403,7 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
     );
     assert_eq!(
         result_kind(&Resolve::default(), &WitType::U32),
-        WasiResultKind::Discarded
+        WasiResultKind::Scalar
     );
 }
 
@@ -425,6 +437,7 @@ fn validates_wit_scalar_parameters_against_exact_source_types() {
             result_kind: WasiResultKind::None,
             unsupported: None,
             retptr: false,
+            flat_slots: Vec::new(),
         };
         let signature = |parameter| SourceSignature {
             parameters: vec![parameter],

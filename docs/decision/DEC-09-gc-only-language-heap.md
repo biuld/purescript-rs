@@ -41,7 +41,10 @@ heap:
 - **Linear memory is retained only as the canonical ABI boundary**: strings,
   byte lists, the return area for canonical calls, `cabi_realloc`, active data
   segments, and the `Load`/`Load8U`/`Store` byte operations that service them.
-  It is not a general object heap for the language.
+  It is not a general object heap for the language. The string clause is
+  narrowed by [DEC-10](DEC-10-canonical-abi-buffer-lifetime.md): strings cross
+  the boundary through linear memory but are GC-managed before and after the
+  call, not stored there.
 - The `LinearMemoryPlanner`, its language-heap object layouts (box/product/
   variant/array/closure-environment offsets), the linear erased boxing/unboxing
   path, and the MIR pointer-bounds verifier for language objects are removed.

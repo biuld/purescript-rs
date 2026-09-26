@@ -28,6 +28,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
             Type::I32,
         ],
         newtype_ids: vec![wrapper_type],
+        opaque_ids: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: wrapper,

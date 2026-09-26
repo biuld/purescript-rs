@@ -195,6 +195,7 @@ mod tests {
                 supertype: None,
                 composite: CompositeType::Struct(Vec::new()),
             }])],
+            strings: Vec::new(),
             imports: Vec::new(),
             functions: Vec::new(),
             entry: None,
@@ -351,6 +352,7 @@ mod tests {
                     results,
                 },
             }])],
+            strings: Vec::new(),
             imports: Vec::new(),
             functions: Vec::new(),
             entry: Some(SymbolId::new(ModuleId(4), 0)),
@@ -363,6 +365,7 @@ mod tests {
         mir::Module {
             name: "capability-instruction-test".into(),
             types: Vec::new(),
+            strings: Vec::new(),
             imports: Vec::new(),
             functions: vec![mir::Function {
                 id: crate::types::FunctionId(0),
@@ -442,6 +445,7 @@ mod tests {
         let module = mir::Module {
             name: "capability-tail-test".into(),
             types: Vec::new(),
+            strings: Vec::new(),
             imports: Vec::new(),
             functions: vec![mir::Function {
                 id: crate::types::FunctionId(0),

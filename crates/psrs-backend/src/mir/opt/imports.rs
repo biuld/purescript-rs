@@ -49,6 +49,7 @@ mod tests {
         let mut module = Module {
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
+            strings: Vec::new(),
             imports: vec![Import {
                 symbol: imported,
                 parameters: Vec::new(),

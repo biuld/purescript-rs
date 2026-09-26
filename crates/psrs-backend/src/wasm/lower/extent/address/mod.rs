@@ -13,10 +13,7 @@ pub(super) enum AddressFact {
     Unknown,
 }
 
-pub(super) fn solve_address_facts(
-    function: &Function,
-    string_offsets: &HashMap<String, u32>,
-) -> HashMap<ValueId, AddressFact> {
+pub(super) fn solve_address_facts(function: &Function) -> HashMap<ValueId, AddressFact> {
     let mut facts = function
         .values
         .iter()
@@ -30,11 +27,6 @@ pub(super) fn solve_address_facts(
             if let Some(destination) = instruction.destination() {
                 let fact = match instruction {
                     Instruction::Constant { value, .. } => AddressFact::Known(*value as u32),
-                    Instruction::StringConstant { bytes, .. } => string_offsets
-                        .get(bytes)
-                        .copied()
-                        .map(AddressFact::Known)
-                        .unwrap_or(AddressFact::Unknown),
                     Instruction::Copy { .. } => AddressFact::Pending,
                     Instruction::Primitive {
                         op: NumericOp::I32Add | NumericOp::I32Sub,
@@ -55,7 +47,7 @@ pub(super) fn solve_address_facts(
                 let Some(destination) = instruction.destination() else {
                     continue;
                 };
-                let fact = instruction_fact(instruction, &previous, string_offsets);
+                let fact = instruction_fact(instruction, &previous);
                 facts.insert(destination, fact);
             }
             for parameter in &block.parameters {
@@ -116,16 +108,10 @@ fn block_parameter_inputs(function: &Function) -> HashMap<ValueId, Vec<ValueId>>
 fn instruction_fact(
     instruction: &Instruction,
     facts: &HashMap<ValueId, AddressFact>,
-    string_offsets: &HashMap<String, u32>,
 ) -> AddressFact {
     let fact = |value: ValueId| facts.get(&value).copied().unwrap_or(AddressFact::Unknown);
     match instruction {
         Instruction::Constant { value, .. } => AddressFact::Known(*value as u32),
-        Instruction::StringConstant { bytes, .. } => string_offsets
-            .get(bytes)
-            .copied()
-            .map(AddressFact::Known)
-            .unwrap_or(AddressFact::Unknown),
         Instruction::Copy { value, .. } => fact(*value),
         Instruction::Primitive {
             op: NumericOp::I32Add,

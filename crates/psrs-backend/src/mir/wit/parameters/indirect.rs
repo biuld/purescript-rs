@@ -1,6 +1,6 @@
 use super::super::super::instruction::Instruction;
 use super::super::BlockId;
-use super::super::WitCallLowerer;
+use super::super::{PendingFree, WitCallLowerer};
 use crate::BackendError;
 use crate::abi;
 use crate::types::{MemoryId, ValueId, ValueType};
@@ -33,6 +33,7 @@ pub(super) fn write_parameter_record<L: WitCallLowerer>(
     kinds: &[abi::WasiParamKind],
     flattened: &[ValueId],
     output: &mut Vec<ValueId>,
+    frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
@@ -44,6 +45,22 @@ pub(super) fn write_parameter_record<L: WitCallLowerer>(
     for (slot, value) in layout.slots.iter().zip(flattened) {
         store_slot(lowerer, address, *value, *slot, current, span)?;
     }
+    // The parameter record is call-local: free it after the call returns.
+    let size = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: size,
+            value: layout.size as i32,
+            span,
+        },
+        span,
+    )?;
+    frees.push(PendingFree {
+        pointer: address,
+        length: size,
+        align: layout.align as i32,
+    });
     output.push(address);
     Ok(())
 }
@@ -54,8 +71,12 @@ fn parameter_layout(
 ) -> Result<MemoryLayout, Vec<BackendError>> {
     match kind {
         abi::WasiParamKind::Boolean => scalar_layout(1, SlotKind::Byte),
-        abi::WasiParamKind::Integer32 | abi::WasiParamKind::Char | abi::WasiParamKind::Handle => {
-            scalar_layout(4, SlotKind::Word)
+        abi::WasiParamKind::Integer32
+        | abi::WasiParamKind::Char
+        | abi::WasiParamKind::Handle(_) => scalar_layout(4, SlotKind::Word),
+        abi::WasiParamKind::IntegerNarrow { bits, .. } => {
+            let width = u32::from(*bits) / 8;
+            scalar_layout(width, slot_for_width(width))
         }
         abi::WasiParamKind::Scalar64 { .. } => scalar_layout(8, SlotKind::I64),
         abi::WasiParamKind::Float32 => scalar_layout(4, SlotKind::F32),

@@ -2,7 +2,7 @@
 //! per-function SSA and instruction checks. See
 //! `docs/design/backend/00-ir-boundaries.md`.
 
-use super::{Module, ValueType};
+use super::{Instruction, Module, ValueType};
 use crate::types::{CompositeType, DefinedType, DefinedTypeId, FunctionId, HeapType, StorageType};
 use crate::{BackendError, TargetCapabilities};
 use psrs_span::TextRange;
@@ -82,6 +82,25 @@ pub fn verify_module(module: &Module) -> Result<(), Vec<BackendError>> {
                     .into_iter()
                     .map(|error| error.with_module(function.symbol.module)),
             );
+        }
+    }
+    // `ArrayNewData` refers to a string literal by its data index; the module's
+    // literal pool bounds the valid range.
+    let data_count = module.strings.len() as u32;
+    for function in &module.functions {
+        for block in &function.blocks {
+            for instruction in &block.instructions {
+                if let Instruction::ArrayNewData {
+                    data_index, span, ..
+                } = instruction
+                    && data_index.0 >= data_count
+                {
+                    errors.extend(mir_error(
+                        *span,
+                        "MIR array.new_data data index is out of range",
+                    ));
+                }
+            }
         }
     }
     if errors.is_empty() {

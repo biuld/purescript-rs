@@ -22,6 +22,7 @@ fn module(functions: Vec<Function>, imports: Vec<Import>, entry: SymbolId) -> Mo
     Module {
         name: "OptimizationTest".into(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports,
         functions,
         entry: Some(entry),
