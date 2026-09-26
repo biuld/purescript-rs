@@ -12,8 +12,10 @@ with `wit-component`, the enabled WASI services, and validation and execution of
 the component. It does not own canonical ABI adaptation and call lowering
 ([canonical ABI and WIT](canonical-abi-and-wit.md)), the byte boundary and
 allocator ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)),
-the thin encoding ([Wasm encoding](encoding-and-structuring.md)), or which
-capability families are permitted ([capability profile](capability-profile.md)).
+the thin encoding ([Wasm encoding](encoding-and-structuring.md)), which
+capability families are permitted ([capability profile](capability-profile.md)),
+or the split between unexported primitive foreign imports and user-facing
+wrappers ([primitive FFI and the standard library](primitive-ffi-and-stdlib.md)).
 
 ## Background
 
@@ -75,6 +77,11 @@ matches that list exactly and imports only named interfaces. The vendored WASI
 `command_world` resolves `psrs:app` against it.
 
 ### Enabled services
+
+The names in **Source-facing operation** are the user-facing wrappers, not the
+types of the foreign imports. `log`, `error`, and `now` are ordinary PureScript.
+The imports underneath are primitives (`Int`, `String`, `Unit`, with a handle
+declared as `Int`) and must not be exported.
 
 | Service | WIT interface | Source-facing operation |
 | --- | --- | --- |
@@ -145,6 +152,19 @@ module. `WASI.Console` defines `log` over `writeStdout`/`getStdout`, and
 with a binding string and lowered by the generic Canonical ABI adapter
 ([canonical ABI and WIT](canonical-abi-and-wit.md)); the compiler has no
 per-service host function.
+
+### Two library layers
+
+Each enabled service is two layers
+([primitive FFI and the standard library](primitive-ffi-and-stdlib.md),
+[DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+The raw `foreign import` is unexported and uses only primitive source types.
+The names in the table above are the exported wrappers: `log` and `error` hide
+`writeStdout`, `getStdout`, and `getStderr`, and `now` hides `monotonicNow`.
+`writeStdout` must not be exported. Wrappers may use library types such as
+`Maybe` or records; they `case` on those types and pass primitives whose
+flattening matches the WIT function. This document does not move that contract
+into the component world.
 
 ### Rejected alternatives
 
@@ -240,8 +260,9 @@ Responsibilities and required entry points:
     reject an import outside that world.
 - `abi.rs` and `abi/wasi.rs` own the service interface names and binding lookup.
   `abi/wasi.rs` must map each enabled service to its WIT interface and
-  source-facing operation and expose the lookup MIR binding resolution uses. No
-  module may hard-code a per-service host function.
+  source-facing operation — the exported wrapper, not the foreign-import type —
+  and expose the lookup MIR binding resolution uses. No module may hard-code a
+  per-service host function.
 - `wasm/lower/mod.rs` must synthesize the `run` entry that calls `main`, passes
   the result to `wasi:cli/exit.exit-with-code`, and returns `0`.
 - `lib.rs` must own the build pipeline: lower to CC, lower to MIR, structure,
@@ -320,7 +341,9 @@ provides. Resolution, duplicate-module, and cycle checks remain in P3.
 - `wit-component` `ComponentEncoder`, `embed_component_metadata`,
   `StringEncoding::UTF8`.
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md),
-  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md).
+  [DEC-05 — Target wasmtime's WebAssembly Feature Set](../../../decision/DEC-05-wasmtime-feature-set.md),
+  [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
+- [Primitive FFI and the standard library](primitive-ffi-and-stdlib.md).
 - [capability profile](capability-profile.md),
   [canonical ABI and WIT](canonical-abi-and-wit.md),
   [linear memory boundary](linear-memory-and-canonical-abi-boundary.md),
