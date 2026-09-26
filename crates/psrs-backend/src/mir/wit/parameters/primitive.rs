@@ -82,7 +82,8 @@ fn slot_kind(
         abi::SourceType::Unit
         | abi::SourceType::Enum { .. }
         | abi::SourceType::Record { .. }
-        | abi::SourceType::Resource { .. } => return Err(unsupported_parameter(span)),
+        | abi::SourceType::Resource { .. }
+        | abi::SourceType::Array { .. } => return Err(unsupported_parameter(span)),
     };
     *index += 1;
     Ok(kind)

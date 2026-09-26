@@ -9,17 +9,21 @@
 and buffer reclamation. WASI-01, WASI-02, WASI-03, WASI-04, WASI-05, WASI-06,
 WASI-09, and WASI-10 are Verified. Stdout, stderr, and random bytes execute
 under the GC-string representation, and the standard library loads from
-`stdlib/lib`. WASI-07 (filesystem, arguments, environment) and WASI-08
-(sockets/HTTP/TLS) are not implemented. The broader BE-22 row is Partial,
-BE-23 is Planned, and the excluded services stay Planned/Excluded.
+`stdlib/lib`. WASI-07 is In progress: `WASI.Environment.arguments` wraps
+`wasi:cli/environment#get-arguments` and its `list<string>` result, while
+environment variables and filesystem stay blocked on lists of aggregates and
+`option` results. WASI-08 (sockets/HTTP/TLS) is not implemented. The broader
+BE-22 row is Partial, BE-23 is Planned, and the excluded services stay
+Planned/Excluded.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21..BE-23, BE-26.
 
 ## Scope and dependencies
 
 Complete componentization, the command entry/exit path, and the implemented WASI
-services (console, monotonic clock, random), plus independent per-service
-capability gating. Filesystem, arguments, environment, sockets, HTTP, and TLS
+services (console, monotonic clock, random, and environment arguments), plus
+independent per-service capability gating. Filesystem, environment variables,
+sockets, HTTP, and TLS
 are specified but out of the current synchronous target. Module loading and the
 on-disk standard library are tracked here through BE-26. The canonical ABI
 bytes are owned by
@@ -38,7 +42,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | WASI-04 | Monotonic clock is wired. | Clock execution test. | Verified |
 | WASI-05 | Random bytes are wired, recovering the returned byte list into a GC value. | Random execution test. | Verified |
 | WASI-06 | Each enabled WASI service package has an independent capability gate; a disabled service fails before lowering. | Per-service gate test plus a disabled-service rejection. | Verified |
-| WASI-07 | Filesystem, arguments, and environment services. | Not implemented; blocked on the general aggregate/list ABI (`list<string>` arguments and results). | Blocked |
+| WASI-07 | Filesystem, arguments, and environment services. | `WASI.Environment.arguments :: Effect (Array String)` wraps `get-arguments` and lowers its `list<string>` result into a GC array; environment variables (`list<tuple<string, string>>`) and filesystem remain blocked on lists of aggregates and `option` results. | In progress |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |
 | WASI-09 | User modules are discovered from the filesystem and the import graph is followed. | Entry files' directories are indexed by module name; imported modules are loaded transitively and executed. | Verified |
 | WASI-10 | The standard library is loaded from disk rather than embedded in the driver. | `stdlib/lib` is read at runtime in trusted-prefix order; existing library and execution tests pass. | Verified |
@@ -149,15 +153,26 @@ WASI-06:
 
 ```text
 WASI-07:
-  Implementation: WIT descriptions vendored; no source library or aggregate
-    lowering yet.
-  Tests: none; the capability flags are disabled.
-  Input boundary: n/a.
-  Commands: n/a.
-  Result: blocked.
-  Gaps: filesystem, arguments, and environment services. Blocked on ABI-06
-    (general aggregate/list coverage, including `list<string>`). Resumption:
-    land ABI-06, add the source library, then expose and gate the services.
+  Implementation: stdlib/lib/WASI/Environment.purs wraps
+    `wasi:cli/environment#get-arguments` as `arguments :: Effect (Array String)`.
+    The `list<string>` result is lowered by the ABI-08 list path
+    (crates/psrs-backend/src/mir/wit/lists.rs). Filesystem and environment
+    variables have WIT vendored but no source library; both need list-of-
+    aggregate and `option`-result lowering.
+  Tests: psrs-driver tests::wasi::{
+    lowers_the_environment_arguments_wrapper_to_an_array,
+    reads_environment_arguments_when_wasmtime_is_available,
+    rejects_an_import_of_unexported_get_arguments};
+    psrs-driver tests::module_loader::
+    loads_the_standard_library_from_disk_in_trusted_order.
+  Input boundary: source and executed component.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
+  Result: pass under Wasmtime 49.0.1. `arguments` recovers the host's
+    `list<string>` into a GC array; `arrayLength (runEffect arguments)` equals
+    argv length.
+  Gaps: environment variables (`get-environment` returns
+    `list<tuple<string, string>>`) and filesystem. Resumption: land list-of-
+    aggregate lowering, then expose and gate those services.
 ```
 
 ```text
@@ -187,7 +202,7 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: stdlib/lib/{Prelude.purs,Data/Maybe.purs,Data/Either.purs,WASI/Console.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Exit.purs}
+  Implementation: stdlib/lib/{Prelude.purs,Data/Maybe.purs,Data/Either.purs,WASI/Console.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Exit.purs,WASI/Environment.purs}
     read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
     lists those modules in trusted-prefix order. User discovery in
     crates/psrs-driver/src/loader.rs still skips those module names.
@@ -201,7 +216,9 @@ WASI-10:
     tests::wasi::{prints_hello_world_when_wasmtime_is_available,
     reads_the_monotonic_clock_when_wasmtime_is_available,
     rejects_an_import_of_unexported_exit_with_code_raw,
-    stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure}.
+    stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure,
+    lowers_the_environment_arguments_wrapper_to_an_array,
+    reads_environment_arguments_when_wasmtime_is_available}.
   Input boundary: standard-library files on disk, plus user source; executed
     component for the console and clock cases. The exit wrapper is compile/WAT
     only.
@@ -211,16 +228,17 @@ WASI-10:
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
   Gaps: none. The loaded set is Prelude, Data.Maybe, Data.Either,
-    WASI.Console, WASI.Clock, WASI.Random, and WASI.Exit. Data.Maybe and
-    Data.Either are ordinary algebraic types and are not in the trusted Effect
-    name list. WASI.Random and WASI.Exit use Effect from Prelude. Their
-    wrappers are effect lambdas, so both are part of the trusted Effect
-    representation with Console and Clock. The exit evidence does not execute
-    `exitWithCode`.
+    WASI.Console, WASI.Clock, WASI.Random, WASI.Exit, and WASI.Environment.
+    Data.Maybe and Data.Either are ordinary algebraic types and are not in the
+    trusted Effect name list. WASI.Random, WASI.Exit, and WASI.Environment use
+    Effect from Prelude. Their wrappers are effect lambdas, so they are part of
+    the trusted Effect representation with Console and Clock. The exit evidence
+    does not execute `exitWithCode`.
 ```
 
 ## Remaining work and blockers
 
-WASI-07 and WASI-08 remain. WASI-07 (filesystem/arguments/environment)
-depends on general aggregate/list ABI coverage (ABI-06). WASI-10 is verified:
-the standard library is loaded from `stdlib/lib` rather than embedded sources.
+WASI-08 remains. WASI-07 is In progress: `arguments` is wrapped and executes,
+while environment variables (`list<tuple<string, string>>`) and filesystem need
+list-of-aggregate and `option`-result coverage. WASI-10 is verified: the
+standard library is loaded from `stdlib/lib` rather than embedded sources.

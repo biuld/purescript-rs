@@ -174,6 +174,8 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         },
         &core,
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        &mut crate::cc::RepresentationTable::default(),
     )
     .expect("a resource should have an abstract integer shape");
     assert_eq!(shape.parameters, vec![crate::cc::ValueShape::Integer]);

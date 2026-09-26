@@ -125,6 +125,13 @@ pub(super) struct FunctionLowerer<'a> {
 }
 
 impl FunctionLowerer<'_> {
+    pub(super) fn value_type(&self, id: ValueId) -> Option<ValueType> {
+        self.values
+            .iter()
+            .find(|decl| decl.id == id)
+            .map(|decl| decl.ty)
+    }
+
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;
