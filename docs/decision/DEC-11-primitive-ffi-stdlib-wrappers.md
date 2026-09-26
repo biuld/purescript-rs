@@ -75,3 +75,14 @@ does not extend it.
   every `Nothing`/`Just` or `Left`/`Right` as WIT `option`/`result`, putting
   WIT or HIR types into CC or MIR, a project host ABI or a hand-written
   Preview 1 call, and a public API that takes pointers or discriminants.
+
+## Amendment — non-byte lists
+
+The narrowed scope of issue #58 adds one exception to the primitive set: a
+non-byte WIT `list<T>` of an element that already maps may be declared as
+`Array a`. The `Array String` raw import behind
+`WASI.Environment.arguments :: Effect (Array String)` is the first use. This is
+not the rejected `Maybe`/`Either`/tuple path: `Array` is the source type for a
+canonical list, not an aggregate encoding, and `option`, `result`, `variant`,
+and tuples remain non-source types. A future list of aggregates, and every
+multi-value return, still stays out until the whole value is one mapped shape.

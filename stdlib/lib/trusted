@@ -7,3 +7,4 @@ WASI.Console
 WASI.Clock
 WASI.Random
 WASI.Exit
+WASI.Environment

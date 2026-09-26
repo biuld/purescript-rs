@@ -32,6 +32,12 @@ pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind)
             matches!(source, SourceType::Int | SourceType::Resource { .. })
         }
         WasiParamKind::List => matches!(source, SourceType::String),
+        WasiParamKind::ValueList { element } => {
+            let SourceType::Array { element: source } = source else {
+                return false;
+            };
+            source_parameter_matches(source, element)
+        }
         WasiParamKind::Record { fields } => {
             let SourceType::Record {
                 fields: source_fields,
@@ -55,7 +61,7 @@ pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind)
 
 pub(super) fn flattened_parameter_count(kind: &WasiParamKind) -> usize {
     match kind {
-        WasiParamKind::List => 2,
+        WasiParamKind::List | WasiParamKind::ValueList { .. } => 2,
         WasiParamKind::Record { fields } => fields
             .iter()
             .map(|field| flattened_parameter_count(&field.kind))
@@ -166,6 +172,10 @@ fn validate_result(import: &WasiImport, signature: &SourceSignature) -> Result<(
         ),
         WasiResultKind::Char => matches!(&signature.result, SourceType::Char),
         WasiResultKind::List => matches!(&signature.result, SourceType::String),
+        WasiResultKind::ValueList { element } => match &signature.result {
+            SourceType::Array { element: source } => source_parameter_matches(source, element),
+            _ => false,
+        },
         WasiResultKind::Result => matches!(&signature.result, SourceType::Unit),
         WasiResultKind::Discarded => false,
     };

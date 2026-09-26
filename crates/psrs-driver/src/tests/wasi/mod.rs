@@ -132,7 +132,7 @@ fn lowers_a_list_returning_import_with_an_allocator() {
 #[test]
 fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
     let source = "module Main where\n\
-        foreign import \"wasi:cli/environment#get-arguments\" args :: String\n\
+        foreign import \"wasi:cli/environment#get-environment\" env :: String\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
@@ -141,6 +141,75 @@ fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
             && error.span.start < error.span.end
             && error.span.end <= source.len() as u32
     }));
+}
+
+#[test]
+fn rejects_a_string_declaration_for_a_list_of_strings() {
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/environment#get-arguments\" args :: String\n\
+        main = 0\n";
+    let errors = compile_source("Main.purs", source).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.stage == "P9 MIR lowering"
+            && error
+                .message
+                .contains("incompatible with its canonical result")
+    }));
+}
+
+#[test]
+fn lowers_a_list_of_strings_to_an_array() {
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/environment#get-arguments\" args :: Array String\n\
+        main = arrayLength args\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("list<string> should lower to an array");
+    assert!(artifact.wat.contains("get-arguments"));
+    assert!(artifact.wat.contains("array.new_default"));
+}
+
+#[test]
+fn lowers_the_environment_arguments_wrapper_to_an_array() {
+    let source = "module Main where\n\
+        import Prelude\n\
+        import WASI.Environment\n\
+        main = arrayLength (runEffect arguments)\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("WASI.Environment.arguments should lower to an array");
+    assert!(artifact.wat.contains("wasi:cli/environment@0.2.12"));
+    assert!(artifact.wat.contains("get-arguments"));
+    assert!(artifact.wat.contains("array.new_default"));
+}
+
+#[test]
+fn rejects_an_import_of_unexported_get_arguments() {
+    let errors = check_source(
+        "Main.purs",
+        "module Main where\nimport WASI.Environment (getArguments)\nmain = 0\n",
+    )
+    .expect_err("getArguments is not part of the environment export list");
+    assert!(
+        errors.iter().any(|error| {
+            error.message.contains("getArguments") && error.message.contains("not exported")
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn reads_environment_arguments_when_wasmtime_is_available() {
+    // `get-arguments` returns the canonical list<string>; the wrapper recovers
+    // it into a GC `Array String`. The host supplies argv, whose first element
+    // is the module path under Wasmtime.
+    let source = "module Main where\n\
+        import Prelude\n\
+        import WASI.Environment\n\
+        main = arrayLength (runEffect arguments)\n";
+    let Some(output) = run_with_wasmtime_args(source, &["alpha", "beta"]) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
 }
 
 #[test]

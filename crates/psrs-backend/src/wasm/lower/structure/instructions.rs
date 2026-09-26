@@ -314,6 +314,9 @@ impl Structurer<'_> {
                     value,
                     span,
                 } => self.emit_array_len(body, *destination, *value, *span)?,
+                instruction @ MirInstruction::ListCopy { .. } => {
+                    body.extend(self.emit_list_copy(instruction)?);
+                }
                 MirInstruction::Load {
                     destination,
                     address,

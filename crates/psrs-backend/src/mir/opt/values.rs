@@ -293,6 +293,22 @@ pub(crate) fn remap_instruction(
             replace(value);
         }
         I::TrapIf { condition, .. } => replace(condition),
+        I::ListCopy {
+            direction,
+            array,
+            pointer,
+            length,
+            ..
+        } => {
+            if !matches!(
+                direction,
+                crate::mir::instruction::ListDirection::FreeStrings
+            ) {
+                replace(array);
+            }
+            replace(pointer);
+            replace(length);
+        }
     }
 }
 

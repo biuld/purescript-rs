@@ -281,7 +281,12 @@ fn typecheck_program(
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
-                "Prelude" | "WASI.Console" | "WASI.Clock" | "WASI.Random" | "WASI.Exit"
+                "Prelude"
+                    | "WASI.Console"
+                    | "WASI.Clock"
+                    | "WASI.Random"
+                    | "WASI.Exit"
+                    | "WASI.Environment"
             );
         let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
             module,

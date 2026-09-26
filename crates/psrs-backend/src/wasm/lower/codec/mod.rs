@@ -19,7 +19,7 @@ mod encode;
 #[cfg(test)]
 mod tests;
 
-use crate::types::DefinedTypeId;
+use crate::types::{DefinedTypeId, HeapType, ValueType};
 use crate::wasm::{FuncType, Function, FunctionIndex, TypeIndex};
 use psrs_span::TextRange;
 use wasm_encoder::ValType;
@@ -40,6 +40,25 @@ pub(super) fn signatures(string_ref: ValType) -> (FuncType, FuncType, FuncType) 
             results: vec![ValType::I32],
         },
     )
+}
+
+/// The GC string defined-type index, read from a reserved codec import.
+pub(super) fn string_type_from_imports(module: &crate::mir::Module) -> Option<DefinedTypeId> {
+    for import in &module.imports {
+        if import.symbol != crate::abi::STRING_TO_BYTES_SYMBOL
+            && import.symbol != crate::abi::BYTES_TO_STRING_SYMBOL
+        {
+            continue;
+        }
+        for ty in import.parameters.iter().chain(import.result.iter()) {
+            if let ValueType::Ref(reference) = ty
+                && let HeapType::Index(index) = reference.heap
+            {
+                return Some(index);
+            }
+        }
+    }
+    None
 }
 
 /// Builds `string_to_bytes`, `bytes_to_string`, and `decode_step` in that order.

@@ -13,6 +13,7 @@ use wit_parser::abi::AbiVariant;
 mod classification;
 mod flatten;
 mod handles;
+mod lists;
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -21,6 +22,8 @@ pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
 pub(crate) use flatten::{FlatSlot, is_primitive_signature};
 pub use handles::{HandleMode, HandleResource};
+pub use lists::ListElement;
+pub(crate) use lists::{element_layout, from_param as list_element};
 #[cfg(test)]
 use validation::source_parameter_matches;
 use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
@@ -134,8 +137,11 @@ pub enum WasiParamKind {
     /// A resource handle flattened to one canonical `i32` index.
     /// `Own` must be dropped; `Borrow` dies when the creating call returns.
     Handle(HandleResource),
-    /// A string or list flattened to a `(pointer, length)` pair.
+    /// A string or `list<u8>` flattened to a `(pointer, length)` pair.
     List,
+    /// A non-byte `list<T>` flattened to a `(pointer, length)` pair. `element`
+    /// is one already-lowered scalar or string; the list is copied element-wise.
+    ValueList { element: Box<WasiParamKind> },
     /// A WIT shape with no source representation in the current ABI subset.
     Unsupported,
 }
@@ -165,9 +171,10 @@ pub enum WasiResultKind {
     Enum { cases: Vec<String> },
     /// A WIT character returned directly as a canonical `i32`.
     Char,
-    /// A `list`/`string` returned indirectly through a return pointer as a
-    /// `(pointer, length)` pair.
+    /// A `list<u8>` or `string` returned indirectly as a `(pointer, length)` pair.
     List,
+    /// A non-byte `list<T>` returned indirectly. The guest rebuilds one array.
+    ValueList { element: Box<WasiParamKind> },
     /// A result returned indirectly but not modeled (for example a `result` or
     /// a record); the lowering rejects it. A WIT `result` with a source `Unit`
     /// declaration is represented separately because write-like operations
@@ -196,6 +203,11 @@ pub enum SourceType {
         fields: Vec<(String, Box<SourceType>)>,
     },
     String,
+    /// A source array whose element is an already-supported ABI scalar or
+    /// `String`. Byte lists stay [`Self::String`].
+    Array {
+        element: Box<SourceType>,
+    },
     Unit,
     /// A nullary opaque foreign type mapped to a WIT resource handle.
     Resource {
@@ -445,9 +457,13 @@ impl WasiRegistry {
     /// Whether an interned import returns a `list`/`string`, which needs the
     /// module to export `cabi_realloc`.
     pub fn has_list_result(&self, symbol: SymbolId) -> bool {
-        self.imports
-            .iter()
-            .any(|import| import.symbol == symbol && import.result_kind == WasiResultKind::List)
+        self.imports.iter().any(|import| {
+            import.symbol == symbol
+                && matches!(
+                    import.result_kind,
+                    WasiResultKind::List | WasiResultKind::ValueList { .. }
+                )
+        })
     }
 
     /// Checks that a source-declared foreign import has a type that can be

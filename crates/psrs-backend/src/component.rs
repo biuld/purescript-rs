@@ -37,6 +37,7 @@ pub(crate) const COMPONENT_INTERFACES: &[&str] = &[
     "wasi:cli/exit@0.2.12",
     "wasi:clocks/monotonic-clock@0.2.12",
     "wasi:random/random@0.2.12",
+    "wasi:cli/environment@0.2.12",
 ];
 
 pub(crate) fn component_interface_supported(module: &str) -> bool {

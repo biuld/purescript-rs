@@ -1,6 +1,7 @@
 use super::address::AddressFact;
 use super::{Region, WASM32_ADDRESS_SPACE, function_error};
-use crate::mir::{Function, Instruction};
+use crate::abi::REALLOC_SYMBOL;
+use crate::mir::{Function, Instruction, ListDirection};
 use crate::types::ValueId;
 use std::collections::HashMap;
 
@@ -17,6 +18,44 @@ pub(super) struct MemoryAccess {
     width: u64,
     kind: AccessKind,
     span: psrs_span::TextRange,
+}
+
+/// A list store writes only inside the buffer `cabi_realloc` just returned.
+/// The index is dynamic, so the checker accepts the copy when the pointer is
+/// that allocation and does not try to bound each element statically.
+pub(super) fn verify_list_copy(
+    function: &Function,
+    instruction: &Instruction,
+    errors: &mut Vec<crate::BackendError>,
+) {
+    let Instruction::ListCopy {
+        direction: ListDirection::Store,
+        pointer,
+        span,
+        ..
+    } = instruction
+    else {
+        return;
+    };
+    let from_realloc = function.blocks.iter().any(|block| {
+        block.instructions.iter().any(|instruction| {
+            matches!(
+                instruction,
+                Instruction::Call {
+                    destination,
+                    function,
+                    ..
+                } if *destination == *pointer && *function == REALLOC_SYMBOL
+            )
+        })
+    });
+    if !from_realloc {
+        errors.push(function_error(
+            function,
+            *span,
+            "MIR list store has no cabi_realloc provenance",
+        ));
+    }
 }
 
 pub(super) fn verify_access(

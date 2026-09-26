@@ -44,6 +44,7 @@ pub(super) fn verify_static_access_extents(module: &mir::Module) -> Result<(), V
         let facts = address::solve_address_facts(function);
         for block in &function.blocks {
             for instruction in &block.instructions {
+                access::verify_list_copy(function, instruction, &mut errors);
                 let Some(memory_access) = access::memory_access(instruction) else {
                     continue;
                 };

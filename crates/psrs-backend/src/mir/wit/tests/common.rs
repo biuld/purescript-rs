@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::abi::{SourceSignature, SourceType};
+use crate::types::DefinedTypeId;
 use std::collections::HashMap;
 #[derive(Default)]
 pub(super) struct RecordingLowerer {
@@ -7,6 +8,7 @@ pub(super) struct RecordingLowerer {
     pub(super) instructions: Vec<Instruction>,
     pub(super) product_fields: Vec<u32>,
     pub(super) product_field_types: HashMap<u32, ValueType>,
+    pub(super) array_types: HashMap<ValueId, DefinedTypeId>,
 }
 
 impl WitCallLowerer for RecordingLowerer {
@@ -46,6 +48,20 @@ impl WitCallLowerer for RecordingLowerer {
             span,
         });
         Ok(destination)
+    }
+
+    fn wit_array_type(
+        &self,
+        value: ValueId,
+        span: TextRange,
+    ) -> Result<DefinedTypeId, Vec<BackendError>> {
+        self.array_types.get(&value).copied().ok_or_else(|| {
+            vec![BackendError::new(
+                "P9 MIR lowering",
+                span,
+                "canonical list lowering has no GC array type",
+            )]
+        })
     }
 }
 pub(super) fn source_signature(parameters: Vec<SourceType>, result: SourceType) -> SourceSignature {

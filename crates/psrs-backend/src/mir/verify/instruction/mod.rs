@@ -13,6 +13,7 @@ use psrs_hir::SymbolId;
 use std::collections::HashMap;
 mod arrays;
 mod copy;
+mod lists;
 mod memory;
 mod primitive;
 mod unary;
@@ -473,6 +474,9 @@ pub(super) fn verify_instruction(
             value,
             span,
         } => arrays::verify_len(function, *destination, *value, *span, definitions, defined)?,
+        Instruction::ListCopy { .. } => {
+            lists::verify_list_copy(function, instruction, definitions, defined)?
+        }
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
         | Instruction::Store { .. }
