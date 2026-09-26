@@ -1,0 +1,5 @@
+# Trusted standard-library modules, in prefix order.
+# Dots are directory separators under this directory.
+Prelude
+WASI.Console
+WASI.Clock

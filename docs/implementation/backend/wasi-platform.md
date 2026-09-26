@@ -9,9 +9,9 @@
 and buffer reclamation. WASI-01, WASI-02, WASI-04, WASI-06, and WASI-09 are
 Verified; WASI-03 and WASI-05 pass under the pre-DEC-10 representation and are
 In progress for the GC-string target. WASI-07 (filesystem, arguments,
-environment), WASI-08 (sockets/HTTP/TLS), and WASI-10 (loading the standard
-library from disk) are not implemented. The broader BE-22 row is Partial, BE-23
-is Planned, and the excluded services stay Planned/Excluded.
+environment) and WASI-08 (sockets/HTTP/TLS) are not implemented. WASI-10
+loads the standard library from `stdlib/lib`. The broader BE-22 row is Partial,
+BE-23 is Planned, and the excluded services stay Planned/Excluded.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21..BE-23, BE-26.
 
@@ -21,7 +21,7 @@ Complete componentization, the command entry/exit path, and the implemented WASI
 services (console, monotonic clock, random), plus independent per-service
 capability gating. Filesystem, arguments, environment, sockets, HTTP, and TLS
 are specified but out of the current synchronous target. Module loading and the
-embedded standard library are tracked here through BE-26. The canonical ABI
+on-disk standard library are tracked here through BE-26. The canonical ABI
 bytes are owned by
 [linear memory and canonical ABI](linear-memory-and-canonical-abi.md); the
 validator/encoder by [Wasm encoding](wasm-encoding.md).
@@ -41,7 +41,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | WASI-07 | Filesystem, arguments, and environment services. | Not implemented; blocked on the general aggregate/list ABI (`list<string>` arguments and results). | Blocked |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |
 | WASI-09 | User modules are discovered from the filesystem and the import graph is followed. | Entry files' directories are indexed by module name; imported modules are loaded transitively and executed. | Verified |
-| WASI-10 | The standard library is loaded from disk rather than embedded in the driver. | Not implemented; the embedded prelude is still prepended. | In progress |
+| WASI-10 | The standard library is loaded from disk rather than embedded in the driver. | `stdlib/lib` is read at runtime in trusted-prefix order; existing library and execution tests pass. | Verified |
 
 ## Evidence record and completion rule
 
@@ -171,19 +171,31 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: the standard library is embedded in
-    crates/psrs-driver/src/prelude.rs and prepended to the source list; there
-    is no discovery path for it.
-  Tests: none.
-  Input boundary: n/a.
-  Commands: n/a.
-  Result: not implemented.
-  Gaps: load the standard library from disk like any module and retire the
-    embedded sources.
+  Implementation: stdlib/lib/{Prelude.purs,WASI/Console.purs,WASI/Clock.purs}
+    read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
+    lists those modules in trusted-prefix order. User discovery in
+    crates/psrs-driver/src/loader.rs still skips those module names.
+  Tests: psrs-driver tests::module_loader::
+    loads_the_standard_library_from_disk_in_trusted_order,
+    does_not_discover_a_user_module_shadowing_the_standard_library;
+    tests::effects::{run_effect_is_only_available_from_the_selected_entry,
+    an_untrusted_prelude_effect_remains_an_ordinary_user_type,
+    transitive_effect_types_keep_their_closure_representation};
+    tests::wasi::{prints_hello_world_when_wasmtime_is_available,
+    reads_the_monotonic_clock_when_wasmtime_is_available}.
+  Input boundary: standard-library files on disk, plus user source; executed
+    component for the WASI cases.
+  Commands: cargo test -p psrs-driver --lib standard_library;
+    cargo test -p psrs-driver --lib tests::effects;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
+    PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
+  Result: pass.
+  Gaps: none. No modules beyond the previous Prelude, WASI.Console, and
+    WASI.Clock set are loaded.
 ```
 
 ## Remaining work and blockers
 
-WASI-07, WASI-08, and WASI-10 remain. WASI-07 (filesystem/arguments/environment)
-depends on general aggregate/list ABI coverage (ABI-06); WASI-10 retires the
-embedded prelude once the library ships on disk.
+WASI-07 and WASI-08 remain. WASI-07 (filesystem/arguments/environment)
+depends on general aggregate/list ABI coverage (ABI-06). WASI-10 is verified:
+the standard library is loaded from `stdlib/lib` rather than embedded sources.
