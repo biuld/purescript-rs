@@ -47,8 +47,12 @@ impl ExternalBindings {
                 ))
             })
             .collect();
+        let module_span = module.span;
         let mut imports = Vec::with_capacity(declared.len());
         for (symbol, interface, function, signature) in declared {
+            let span = signature
+                .as_ref()
+                .map_or(module_span, |signature| signature.span);
             let type_id = signature
                 .as_ref()
                 .and_then(|signature| crate::abi::intern_source_type(module, signature));
@@ -61,9 +65,63 @@ impl ExternalBindings {
                 function,
                 signature: source,
                 type_id,
+                span,
             });
         }
         Self { imports }
+    }
+
+    /// Resolves and validates every source WIT binding against the vendored WIT
+    /// using the declaration's resolved Core type. This runs where Core is
+    /// available, so no source-type mirror is needed and a declaration fails
+    /// even when dead code never calls it.
+    pub(crate) fn validate_conformance(
+        &self,
+        module: &CoreModule,
+        target: crate::TargetCapabilities,
+    ) -> Result<(), Vec<BackendError>> {
+        let mut registry = crate::abi::WasiRegistry::load_with_capabilities(target)
+            .map_err(|message| vec![BackendError::new("P8 WIT linking", module.span, message)])?;
+        for binding in &self.imports {
+            let qualified = format!("{}#{}", binding.interface, binding.function);
+            let import = registry
+                .import(&binding.interface, &binding.function)
+                .map_err(|message| {
+                    vec![
+                        BackendError::new("P8 WIT linking", binding.span, message)
+                            .with_module(binding.symbol.module),
+                    ]
+                })?;
+            if let Some(reason) = &import.unsupported {
+                return Err(vec![
+                    BackendError::new(
+                        "P8 WIT linking",
+                        binding.span,
+                        format!("WIT import `{qualified}` is unsupported: {reason}"),
+                    )
+                    .with_module(binding.symbol.module),
+                ]);
+            }
+            let Some(type_id) = binding.type_id else {
+                return Err(vec![
+                    BackendError::new(
+                        "P8 WIT linking",
+                        binding.span,
+                        format!("WIT import `{qualified}` has no resolved source type"),
+                    )
+                    .with_module(binding.symbol.module),
+                ]);
+            };
+            crate::abi::link::validate_import_signature(&import, module, type_id).map_err(
+                |message| {
+                    vec![
+                        BackendError::new("P8 WIT linking", binding.span, message)
+                            .with_module(binding.symbol.module),
+                    ]
+                },
+            )?;
+        }
+        Ok(())
     }
 
     /// Checks that the side table is a complete, lossless projection of the
@@ -201,6 +259,8 @@ pub struct ExternalBinding {
     /// The declaration's resolved source type, interned in the module type
     /// table. It is the identity CC uses to select the canonical layout.
     pub type_id: Option<CoreTypeId>,
+    /// The span of the foreign import's type annotation.
+    pub span: psrs_span::TextRange,
 }
 
 #[cfg(test)]

@@ -261,6 +261,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
                 span: span(),
             }),
             type_id: None,
+            span: span(),
         }],
     };
     (module, bindings, resolve)
