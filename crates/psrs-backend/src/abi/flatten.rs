@@ -6,6 +6,7 @@
 //! instead of a compiler aggregate. `Char` stays distinct from `Int` and from
 //! a handle even though all three are `i32` on the wire.
 
+#[cfg(test)]
 use super::SourceType;
 use crate::types::ValueType;
 use wit_parser::{Int, Resolve, Type as WitType, TypeDefKind};
@@ -29,6 +30,7 @@ pub(crate) enum FlatSlot {
     Ambiguous,
 }
 
+#[cfg(test)]
 pub(crate) fn is_primitive(ty: &SourceType) -> bool {
     matches!(
         ty,
@@ -41,6 +43,7 @@ pub(crate) fn is_primitive(ty: &SourceType) -> bool {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn is_primitive_signature(parameters: &[SourceType], result: &SourceType) -> bool {
     is_primitive(result) && parameters.iter().all(is_primitive)
 }
@@ -146,6 +149,7 @@ pub(crate) fn slot_value_type(slot: &FlatSlot) -> Option<ValueType> {
 
 /// Walks `parameters` against `slots`. `String` consumes `(pointer, length)`.
 /// `Int` matches an integer slot or a handle, not a `Char` or a `Boolean`.
+#[cfg(test)]
 pub(crate) fn parameters_match(parameters: &[SourceType], slots: &[FlatSlot]) -> bool {
     let mut index = 0;
     for parameter in parameters {
@@ -156,6 +160,7 @@ pub(crate) fn parameters_match(parameters: &[SourceType], slots: &[FlatSlot]) ->
     index == slots.len()
 }
 
+#[cfg(test)]
 fn consume(parameter: &SourceType, slots: &[FlatSlot], index: &mut usize) -> bool {
     let Some(slot) = slots.get(*index) else {
         return false;

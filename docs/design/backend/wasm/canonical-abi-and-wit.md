@@ -639,13 +639,16 @@ by the linking boundary (`abi/link.rs`) and carried as an
 `ExternalBinding::type_id`. CC derives its whole abstract signature, including
 record and array representations, directly from that Core type; the structural
 re-search (`core_type_matches_source`) and the source-signature comparison are
-removed. WIT conformance validation now runs at the linking boundary against the
+removed. WIT conformance validation runs at the linking boundary against the
 resolved Core type (`ExternalBindings::validate_conformance`,
-`abi/link::validate_import_signature`) and MIR no longer validates. The
-`SourceType` mirror is still carried to MIR as the lowering signature; removing
-it, and computing the lowering directly from the CC `Signature` and the WIT
-descriptor, is the remaining DEC-12 work. The refactor is behavior preserving
-and does not change the source language.
+`abi/link::validate_import_signature`). MIR lowering reads the declaration's CC
+`Signature` (`ValueShape`) and projects record and flags fields by label from
+the planned representation table; the WIT descriptor drives canonical
+adaptation. No production path uses a source-type mirror. `SourceType` and
+`SourceSignature` remain only as `#[cfg(test)]` fixtures for the ABI unit tests;
+migrating those fixtures to the Core-based validation and deleting them is the
+remaining cleanup. The refactor is behavior preserving and does not change the
+source language.
 
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct

@@ -1,12 +1,16 @@
-use super::flatten;
-use super::{
-    SourceSignature, SourceType, WasiImport, WasiParamKind, WasiResultKind, source_field_name,
-};
+use super::WasiParamKind;
 use crate::TargetCapabilities;
-use crate::types::ValueType;
 use psrs_core::ConstructorInfo;
 use psrs_hir::TypeId as HirTypeId;
 
+#[cfg(test)]
+use super::flatten;
+#[cfg(test)]
+use super::{SourceSignature, SourceType, WasiImport, WasiResultKind, source_field_name};
+#[cfg(test)]
+use crate::types::ValueType;
+
+#[cfg(test)]
 pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind) -> bool {
     match wit {
         WasiParamKind::Integer32 => matches!(source, SourceType::Int),
@@ -74,6 +78,7 @@ pub(super) fn flattened_parameter_count(kind: &WasiParamKind) -> usize {
     }
 }
 
+#[cfg(test)]
 pub(super) fn validate_import_signature(
     import: &WasiImport,
     signature: &SourceSignature,
@@ -91,6 +96,7 @@ pub(super) fn validate_import_signature(
 /// A primitive import whose source arity differs from the WIT parameter count.
 /// `option<string>` is one WIT parameter and `Int -> String`: a discriminant
 /// plus `(pointer, length)`.
+#[cfg(test)]
 fn validate_primitive_flattening(
     import: &WasiImport,
     signature: &SourceSignature,
@@ -124,6 +130,7 @@ fn validate_primitive_flattening(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_zipped_parameters(
     import: &WasiImport,
     signature: &SourceSignature,
@@ -147,6 +154,7 @@ fn validate_zipped_parameters(
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_result(import: &WasiImport, signature: &SourceSignature) -> Result<(), String> {
     let valid_result = match &import.result_kind {
         WasiResultKind::None => matches!(&signature.result, SourceType::Unit),

@@ -1,16 +1,22 @@
 //! Maps resolved WIT types to the source ABI subset and canonical value types.
 
 use super::flatten::primitive_aggregate_allowed;
-use super::{SourceSignature, SourceType, WasiField, WasiParamKind, WasiResultKind};
+use super::{WasiField, WasiParamKind, WasiResultKind};
 use crate::types::ValueType;
-use psrs_core::{ConstructorInfo, Module as CoreModule};
-use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 use wit_parser::abi::WasmType;
 use wit_parser::{Handle, Resolve, Type as WitType, TypeDefKind};
+
+#[cfg(test)]
+use super::{SourceSignature, SourceType};
+#[cfg(test)]
+use psrs_core::{ConstructorInfo, Module as CoreModule};
+#[cfg(test)]
+use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 
 /// Converts a resolved HIR foreign-import type into the source-level subset
 /// that may cross into CC. Unsupported polymorphic, aggregate, or higher-kinded
 /// declarations remain `None` and are rejected by the ABI validation pass.
+#[cfg(test)]
 pub(crate) fn source_signature(
     module: &CoreModule,
     signature: &HirType,
@@ -32,6 +38,7 @@ pub(crate) fn source_signature(
     })
 }
 
+#[cfg(test)]
 fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
     match &ty.kind {
         HirTypeKind::Constructor(BuiltinType::Int) => Some(SourceType::Int),
@@ -67,12 +74,14 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
     }
 }
 
+#[cfg(test)]
 fn is_source_array(ty: &HirType) -> bool {
     matches!(ty.kind, HirTypeKind::Constructor(BuiltinType::Array))
 }
 
 /// Arrays cross the ABI only for elements that already have a scalar or string
 /// lowering. Nested arrays, records, and handles stay unsupported.
+#[cfg(test)]
 fn array_source(element: SourceType) -> Option<SourceType> {
     match element {
         SourceType::Int
@@ -86,6 +95,7 @@ fn array_source(element: SourceType) -> Option<SourceType> {
     }
 }
 
+#[cfg(test)]
 fn user_type_id(ty: &HirType) -> Option<HirTypeId> {
     match &ty.kind {
         HirTypeKind::Named(type_id) => Some(*type_id),
@@ -94,6 +104,7 @@ fn user_type_id(ty: &HirType) -> Option<HirTypeId> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn source_enum_type(
     constructors: &[ConstructorInfo],
     type_id: HirTypeId,

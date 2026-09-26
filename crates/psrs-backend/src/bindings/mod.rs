@@ -1,7 +1,6 @@
 //! Backend-side metadata that accompanies target-neutral CC.
 
 use crate::BackendError;
-use crate::abi::SourceSignature;
 use crate::cc;
 use psrs_core::{Module as CoreModule, TypeId as CoreTypeId};
 use psrs_hir::{ExternalKind, SymbolId, Type as HirType};
@@ -56,14 +55,10 @@ impl ExternalBindings {
             let type_id = signature
                 .as_ref()
                 .and_then(|signature| crate::abi::intern_source_type(module, signature));
-            let source = signature
-                .as_ref()
-                .and_then(|signature| crate::abi::source_signature(module, signature));
             imports.push(ExternalBinding {
                 symbol,
                 interface,
                 function,
-                signature: source,
                 type_id,
                 span,
             });
@@ -146,7 +141,7 @@ impl ExternalBindings {
                 ));
                 continue;
             }
-            let Some(external) = expected.get(&binding.symbol) else {
+            let Some(_external) = expected.get(&binding.symbol) else {
                 errors.push(BackendError::new(
                     "P8 external binding validation",
                     module.span,
@@ -157,23 +152,6 @@ impl ExternalBindings {
                 ));
                 continue;
             };
-            let expected_signature = external
-                .signature
-                .as_ref()
-                .and_then(|signature| crate::abi::source_signature(module, signature));
-            if !same_source_signature(binding.signature.as_ref(), expected_signature.as_ref()) {
-                errors.push(BackendError::new(
-                    "P8 external binding validation",
-                    binding
-                        .signature
-                        .as_ref()
-                        .map_or(module.span, |signature| signature.span),
-                    format!(
-                        "external binding {:?} has a mismatched source signature",
-                        binding.symbol
-                    ),
-                ));
-            }
         }
         for external in expected.values() {
             if !seen.contains(&external.symbol) {
@@ -244,18 +222,11 @@ impl ExternalBindings {
     }
 }
 
-fn same_source_signature(left: Option<&SourceSignature>, right: Option<&SourceSignature>) -> bool {
-    left.zip(right).is_some_and(|(left, right)| {
-        left.parameters == right.parameters && left.result == right.result
-    }) || left.is_none() && right.is_none()
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalBinding {
     pub symbol: SymbolId,
     pub interface: String,
     pub function: String,
-    pub signature: Option<SourceSignature>,
     /// The declaration's resolved source type, interned in the module type
     /// table. It is the identity CC uses to select the canonical layout.
     pub type_id: Option<CoreTypeId>,
