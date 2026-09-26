@@ -1,11 +1,11 @@
-use super::{Body, DataMode, ExportIndex, ExportKind, Module, Op};
+use super::{Body, DataMode, ExportIndex, ExportKind, GlobalInit, Module, Op};
 use crate::BackendError;
 use std::borrow::Cow;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataCountSection, DataSection, ElementSection, Elements,
     EntityType, ExportKind as WasmExportKind, ExportSection, Function as EncoderFunction,
-    FunctionSection, ImportSection, Instruction, MemorySection, MemoryType,
-    Module as EncoderModule, TypeSection, ValType,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemorySection,
+    MemoryType, Module as EncoderModule, TypeSection, ValType,
 };
 
 /// Encodes the thin Wasm IR into a binary module.
@@ -66,6 +66,24 @@ pub fn encode_module(module: &Module) -> Result<Vec<u8>, Vec<BackendError>> {
             });
         }
         encoder.section(&memories);
+    }
+
+    if !module.globals.is_empty() {
+        let mut globals = GlobalSection::new();
+        for global in &module.globals {
+            let init = match global.init {
+                GlobalInit::RefNull(heap) => ConstExpr::ref_null(heap),
+            };
+            globals.global(
+                GlobalType {
+                    val_type: global.ty,
+                    mutable: global.mutable,
+                    shared: false,
+                },
+                &init,
+            );
+        }
+        encoder.section(&globals);
     }
 
     if !module.exports.is_empty() {

@@ -122,6 +122,7 @@ mod tests {
             }],
             entry: None,
             realloc: None,
+            globals: Vec::new(),
             helpers: Vec::new(),
             span,
         };
@@ -268,6 +269,7 @@ mod tests {
             ],
             entry: None,
             realloc: None,
+            globals: Vec::new(),
             helpers: Vec::new(),
             span,
         };

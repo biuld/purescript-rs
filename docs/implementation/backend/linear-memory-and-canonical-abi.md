@@ -8,8 +8,9 @@ with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 
 **Progress:** Re-baselined by
 [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). Strings are
-now GC `(array (mut i16))` values, literals are passive data segments
-materialized with `array.new_data`, and the ABI adapter transcodes UTF-16 to
+now GC `(array (mut i16))` values, each distinct literal is a passive data
+segment materialized once with `array.new_data` and interned in a lazily
+initialized module global, and the ABI adapter transcodes UTF-16 to
 and from the component's UTF-8. LM-02, LM-05, ABI-01, ABI-06, and ABI-07 are
 Verified. LM-01, LM-03, LM-04, and ABI-02..ABI-05 implement that representation
 and are In progress because `cabi_realloc` is still a bump allocator, transient
@@ -34,7 +35,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | LM-01 | The target profile selects the pointer width and the ABI memory; the stable profile uses one wasm32 memory at index 0 with deterministic memory/data index order. | Encoded modules validate; driver components run; memory64/multi-memory remain. | In progress |
-| LM-02 | Strings are GC byte sequences; literals are passive data segments materialized with `array.new_data`, and the ABI linearizes them transiently. | GC-string construction, crossing, and literal tests. | Verified |
+| LM-02 | Strings are GC byte sequences; each distinct literal is a passive data segment materialized once with `array.new_data` and interned in a lazily initialized module global, and the ABI linearizes strings transiently. | GC-string construction, crossing, literal interning, and execution tests. | Verified |
 | LM-03 | `cabi_realloc` is a general aligned allocator with alloc/free/realloc, reuse, alignment, overflow, and growth checks. | Allocator tests covering allocation, free, reuse, alignment, and failure. | In progress |
 | LM-04 | Static access-extent verification covers the scratch and heap-state regions and requires `cabi_realloc` provenance for dynamic stores. | `wasm::lower::extent` accept/reject fixtures under the new regions. | In progress |
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
@@ -76,21 +77,25 @@ LM-01:
 LM-02:
   Implementation: the `$string` GC array in crates/psrs-backend/src/mir/layout/;
     `ArrayNewData` in mir/instruction.rs with the pool in mir/literals.rs;
-    passive UTF-16 segments in wasm/lower/runtime.rs and `array.new_data` in
-    wasm/lower/structure/instructions.rs; the UTF-16<->UTF-8 codec in
-    wasm/lower/codec/; the adapter in mir/wit/.
+    passive UTF-16 segments and the one lazy interning global per used literal in
+    wasm/lower/runtime.rs; the `ref.is_null`/`global.set` guarded
+    `array.new_data` in wasm/lower/structure/instructions.rs; the UTF-16<->UTF-8
+    codec in wasm/lower/codec/; the adapter in mir/wit/.
   Tests: psrs-driver tests::wasi::{lowers_string_log_to_wasi_stdout,
     prints_hello_world_when_wasmtime_is_available,
+    prints_an_interned_literal_once_per_use_when_wasmtime_is_available,
+    prints_an_empty_literal_when_wasmtime_is_available,
     passes_a_returned_wit_string_to_another_import,
     keeps_multiple_returned_wit_strings_in_distinct_allocations};
+    wasm::tests::interns_repeated_string_literals_in_one_lazy_global;
     mir::layout::tests::maps_every_cc_value_shape_to_its_specified_mir_type;
     mir::indirect_tests::composite::
     indirect_composite_parameters_lower_to_the_canonical_layout.
   Input boundary: verified MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass; a static literal never enters linear memory and the ABI
-    transcodes UTF-16 to UTF-8 (invalid sequences and unpaired surrogates
-    become U+FFFD).
+  Result: pass; a static literal never enters linear memory, a repeated literal
+    builds one GC string behind one global, and the ABI transcodes UTF-16 to
+    UTF-8 (invalid sequences and unpaired surrogates become U+FFFD).
   Gaps: none.
 ```
 

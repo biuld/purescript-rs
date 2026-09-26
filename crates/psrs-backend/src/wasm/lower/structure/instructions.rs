@@ -54,12 +54,33 @@ impl Structurer<'_> {
                         .get(data_index)
                         .copied()
                         .ok_or_else(|| wasm_error(*span, "string literal has no data segment"))?;
-                    body.push(Op::Leaf(Instruction::I32Const(0)));
-                    body.push(Op::Leaf(Instruction::I32Const(length as i32)));
-                    body.push(Op::Leaf(Instruction::ArrayNewData {
-                        array_type_index: type_index.0,
-                        array_data_index: data_index.0,
-                    }));
+                    let global =
+                        self.literal_globals
+                            .get(data_index)
+                            .copied()
+                            .ok_or_else(|| {
+                                wasm_error(*span, "string literal has no interned global")
+                            })?;
+                    // Lazily materialize the literal once: if the shared global
+                    // is still null, build it from the passive data segment and
+                    // store it, then read the interned string back.
+                    body.push(Op::Leaf(Instruction::GlobalGet(global.0)));
+                    body.push(Op::Leaf(Instruction::RefIsNull));
+                    body.push(Op::If {
+                        then_body: vec![
+                            Op::Leaf(Instruction::I32Const(0)),
+                            Op::Leaf(Instruction::I32Const(length as i32)),
+                            Op::Leaf(Instruction::ArrayNewData {
+                                array_type_index: type_index.0,
+                                array_data_index: data_index.0,
+                            }),
+                            Op::Leaf(Instruction::GlobalSet(global.0)),
+                        ],
+                        else_body: Vec::new(),
+                        result: None,
+                        span: *span,
+                    });
+                    body.push(Op::Leaf(Instruction::GlobalGet(global.0)));
                     self.store(body, *destination, *span)?;
                 }
                 MirInstruction::Primitive {

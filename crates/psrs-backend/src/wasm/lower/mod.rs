@@ -7,7 +7,7 @@ use crate::BackendError;
 use crate::abi::{self, names};
 use crate::capability::TargetCapabilities;
 use crate::mir::{self, Function as MirFunction};
-use crate::types::{CompositeType, DataId, HeapType, MemoryId, ValueId, ValueType};
+use crate::types::{DataId, HeapType, MemoryId, ValueId, ValueType};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 use std::collections::HashMap;
@@ -15,12 +15,14 @@ use wasm_encoder::{Instruction, RefType, ValType};
 
 mod codec;
 mod extent;
+mod function_types;
 mod realloc;
 mod runtime;
 mod structure;
 
+use function_types::collect_function_types;
 use realloc::build_realloc;
-use runtime::collect_strings;
+use runtime::{collect_literal_globals, collect_strings};
 use structure::Structurer;
 
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
@@ -64,6 +66,13 @@ pub fn lower_module_with_capabilities(
     }
 
     let (mut data, string_lengths) = collect_strings(module);
+    let literal_globals = collect_literal_globals(module);
+    if !literal_globals.globals.is_empty() && !target.mutable_globals {
+        return Err(wasm_error(
+            module.span,
+            "string literal interning requires mutable WebAssembly globals",
+        ));
+    }
     extent::verify_static_access_extents(module)?;
     let needs_helpers = module.imports.iter().any(|import| {
         import.symbol == abi::STRING_TO_BYTES_SYMBOL || import.symbol == abi::BYTES_TO_STRING_SYMBOL
@@ -187,6 +196,7 @@ pub fn lower_module_with_capabilities(
             function_types[index],
             &function_indices,
             &string_lengths,
+            &literal_globals.indices,
         )
         .map_err(|errors| {
             errors
@@ -281,6 +291,7 @@ pub fn lower_module_with_capabilities(
             minimum,
             maximum: None,
         }],
+        globals: literal_globals.globals,
         data,
         exports,
         entry: Some(Entry {
@@ -317,72 +328,12 @@ fn string_type_from_imports(module: &mir::Module) -> Option<crate::types::Define
     None
 }
 
-fn collect_function_types(
-    module: &mir::Module,
-    defined: u32,
-    initial_types: Vec<FuncType>,
-) -> Result<(Vec<FuncType>, Vec<TypeIndex>), Vec<BackendError>> {
-    let mut types = initial_types;
-    let mut indices = HashMap::<(Vec<ValType>, Vec<ValType>), TypeIndex>::new();
-    for (index, definition) in module
-        .types
-        .iter()
-        .flat_map(|group| group.0.iter())
-        .enumerate()
-    {
-        let CompositeType::Func {
-            parameters,
-            results,
-        } = &definition.composite
-        else {
-            continue;
-        };
-        indices.insert(
-            (
-                parameters.iter().copied().map(val_type).collect(),
-                results.iter().copied().map(val_type).collect(),
-            ),
-            TypeIndex(index as u32),
-        );
-    }
-    let mut function_types = Vec::with_capacity(module.functions.len());
-    for function in &module.functions {
-        if function.parameters.len() > function.values.len() {
-            return Err(wasm_error(
-                function.span,
-                "MIR function has more parameters than values",
-            ));
-        }
-        let mut parameters = Vec::with_capacity(function.parameters.len());
-        for parameter in &function.parameters {
-            let ty = value_type(function, *parameter).ok_or_else(|| {
-                wasm_error(function.span, "MIR function parameter has no value type")
-            })?;
-            parameters.push(val_type(ty));
-        }
-        let key = (parameters, vec![val_type(function.result_type)]);
-        let type_index = match indices.get(&key) {
-            Some(index) => *index,
-            None => {
-                let index = TypeIndex(defined + types.len() as u32);
-                types.push(FuncType {
-                    parameters: key.0.clone(),
-                    results: key.1.clone(),
-                });
-                indices.insert(key, index);
-                index
-            }
-        };
-        function_types.push(type_index);
-    }
-    Ok((types, function_types))
-}
-
 fn lower_function(
     source: &MirFunction,
     type_index: TypeIndex,
     function_indices: &HashMap<SymbolId, FunctionIndex>,
     string_lengths: &HashMap<crate::types::DataId, u32>,
+    literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
 ) -> Result<Function, Vec<BackendError>> {
     let locals = local_indices(source)?;
     let parameters = source
@@ -410,6 +361,7 @@ fn lower_function(
         locals,
         function_indices,
         string_lengths,
+        literal_globals,
     };
     let mut body = Body::new();
     let uses_dispatcher = structurer.emit_control_flow(&mut body)?;

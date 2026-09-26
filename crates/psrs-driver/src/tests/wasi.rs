@@ -6,9 +6,12 @@ fn lowers_string_log_to_wasi_stdout() {
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
-    // The literal is a passive UTF-16 data segment materialized by
-    // `array.new_data`, so the WAT holds its code units rather than ASCII.
+    // The literal is a passive UTF-16 data segment materialized once into a
+    // lazily initialized global, so the WAT holds its code units rather than
+    // ASCII and guards `array.new_data` with `ref.is_null`/`global.set`.
     assert!(artifact.wat.contains("array.new_data"));
+    assert!(artifact.wat.contains("ref.is_null"));
+    assert!(artifact.wat.contains("global.set"));
     assert!(artifact.wat.contains("i32.load8_u"));
     assert!(artifact.wat.contains("unreachable"));
 }
@@ -52,6 +55,28 @@ fn prints_hello_world_when_wasmtime_is_available() {
     };
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"hello world\n");
+}
+
+#[test]
+fn prints_an_interned_literal_once_per_use_when_wasmtime_is_available() {
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let first = runEffect (log \"twice\") in let second = runEffect (log \"twice\") in 0\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"twice\ntwice\n");
+}
+
+#[test]
+fn prints_an_empty_literal_when_wasmtime_is_available() {
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let ignored = runEffect (log \"\") in 0\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"\n");
 }
 
 #[test]

@@ -33,6 +33,7 @@ fn module_with_function_body(name: &str, body: Body) -> Module {
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     }
@@ -105,6 +106,7 @@ fn encodes_and_runs_a_gc_struct() {
         }],
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     };
@@ -157,6 +159,7 @@ fn defined_types_precede_function_types() {
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     };
@@ -181,6 +184,7 @@ fn rejects_a_data_index_that_does_not_match_module_order() {
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     };
@@ -210,6 +214,7 @@ fn rejects_an_export_with_the_wrong_index_domain() {
         }],
         entry: None,
         realloc: None,
+        globals: Vec::new(),
         helpers: Vec::new(),
         span: span(),
     };
@@ -296,6 +301,125 @@ fn rejects_a_branch_depth_beyond_the_structured_labels() {
             .any(|error| error.message.contains("does not target an enclosing label")),
         "{errors:?}"
     );
+}
+
+/// A literal used twice is materialized once: MIR interning yields one passive
+/// data segment and one lazily initialized global, each use guarded by
+/// `ref.is_null`/`global.set`, and the encoded module validates.
+#[test]
+fn interns_repeated_string_literals_in_one_lazy_global() {
+    use crate::mir::{
+        BasicBlock, BlockId, Function as MirFunction, Instruction as MirInstruction,
+        Module as MirModule, Terminator,
+    };
+    use crate::types::{
+        DataId, DefinedTypeId, FunctionId, HeapType as MirHeapType, RefType as MirRefType,
+        ValueDecl, ValueId, ValueType,
+    };
+
+    let string = ValueType::Ref(MirRefType {
+        nullable: false,
+        heap: MirHeapType::Index(DefinedTypeId(0)),
+    });
+    let symbol = SymbolId::new(ModuleId(0), 0);
+    let mir = MirModule {
+        name: "InternedStrings".into(),
+        entry: Some(symbol),
+        types: vec![RecGroup(vec![DefinedType {
+            final_type: true,
+            supertype: None,
+            composite: CompositeType::Array(FieldType {
+                storage: StorageType::I16,
+                mutable: true,
+            }),
+        }])],
+        strings: vec!["twice".into()],
+        imports: Vec::new(),
+        functions: vec![MirFunction {
+            id: FunctionId(0),
+            symbol,
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![
+                ValueDecl {
+                    id: ValueId(0),
+                    ty: string,
+                },
+                ValueDecl {
+                    id: ValueId(1),
+                    ty: string,
+                },
+                ValueDecl {
+                    id: ValueId(2),
+                    ty: ValueType::I32,
+                },
+            ],
+            entry: BlockId(0),
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                parameters: Vec::new(),
+                instructions: vec![
+                    MirInstruction::ArrayNewData {
+                        destination: ValueId(0),
+                        type_index: DefinedTypeId(0),
+                        data_index: DataId(0),
+                        span: span(),
+                    },
+                    MirInstruction::ArrayNewData {
+                        destination: ValueId(1),
+                        type_index: DefinedTypeId(0),
+                        data_index: DataId(0),
+                        span: span(),
+                    },
+                    MirInstruction::Constant {
+                        destination: ValueId(2),
+                        value: 7,
+                        span: span(),
+                    },
+                ],
+                terminator: Some(Terminator::Return {
+                    value: ValueId(2),
+                    span: span(),
+                }),
+            }],
+            result: ValueId(2),
+            result_type: ValueType::I32,
+            span: span(),
+        }],
+        span: span(),
+    };
+
+    let mut registry = crate::abi::WasiRegistry::load().expect("the vendored WASI WIT should load");
+    let wasm = crate::wasm::lower_module(&mir, &mut registry).expect("lowering a repeated literal");
+    assert_eq!(wasm.data.len(), 1, "one deduplicated passive data segment");
+    assert_eq!(
+        wasm.globals.len(),
+        1,
+        "one interned global per distinct literal"
+    );
+    assert!(wasm.globals[0].mutable);
+    assert_eq!(
+        wasm.globals[0].ty,
+        WasmValType::Ref(WasmRefType {
+            nullable: true,
+            heap_type: HeapType::Concrete(0),
+        })
+    );
+    assert_eq!(
+        wasm.globals[0].init,
+        super::GlobalInit::RefNull(HeapType::Concrete(0))
+    );
+
+    let binary = crate::wasm::encode_module(&wasm).expect("encoding the interned module");
+    crate::validator()
+        .validate_all(&binary)
+        .expect("the encoded interned module should validate");
+    let wat = wasmprinter::print_bytes(&binary).expect("printing the core module");
+    assert_eq!(wat.matches("array.new_data").count(), 2);
+    assert_eq!(wat.matches("ref.is_null").count(), 2);
+    assert_eq!(wat.matches("global.set 0").count(), 2);
+    assert_eq!(wat.matches("global.get 0").count(), 4);
+    assert!(wat.contains("(mut (ref null 0))"));
 }
 
 #[test]

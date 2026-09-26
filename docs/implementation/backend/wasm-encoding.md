@@ -29,11 +29,11 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | ENC-01 | The thin IR keeps distinct index domains and `Leaf`/`If`/`Block`/`Loop` regions; P10 makes no representation decision. | Encoding tests exercise structured regions and index domains; MIR values lower to locals. | Verified |
-| ENC-02 | Defined types precede function types; import/function/entry/realloc and memory/data indices follow the documented order. | Index-order and wrong-domain rejection fixtures. | Verified |
+| ENC-02 | Defined types precede function types; import/function/entry/realloc, memory/global/data, and export indices follow the documented order. | Index-order and wrong-domain rejection fixtures. | Verified |
 | ENC-03 | Every `ref.func` is declared in the element segment. | Closure execution tests emit `ref.func` and run the component. | Verified |
 | ENC-04 | Data segments and the `cabi_realloc` allocator follow the boundary contract. | Data-index order rejection and allocator unit test. | Verified |
 | ENC-05 | The command entry is synthesized and calls `exit-with-code` with the result on the CLI profile. | Entry synthesis is exercised by every executed component; a missing entry symbol is rejected. | Verified |
-| ENC-06 | The thin-IR verifier checks local, function, type, data, and export indices and branch depths. | Dedicated `wasm::tests` accept/reject fixtures. | Verified |
+| ENC-06 | The thin-IR verifier checks local, function, type, global, data, and export indices, global initializer types, and branch depths. | Dedicated `wasm::tests` accept/reject fixtures. | Verified |
 | ENC-07 | The encoded module is validated with a validator built from the same capability profile, then printed to WAT. | Backend harness validates before execution; profile/validator tests. | Verified |
 | ENC-08 | Each capability field controls exactly its wasmparser feature and no other. | Independent-flag derivation test. | Verified |
 | ENC-09 | Operations requiring a disabled capability are rejected before encoding with a source-associated diagnostic. | MIR capability fixtures and the driver WASI-capability diagnostic. | Verified |
@@ -71,7 +71,8 @@ ENC-02:
     section order); crates/psrs-backend/src/wasm/lower/mod.rs.
   Tests: wasm::tests::{defined_types_precede_function_types,
     rejects_a_data_index_that_does_not_match_module_order,
-    rejects_an_export_with_the_wrong_index_domain}.
+    rejects_an_export_with_the_wrong_index_domain,
+    interns_repeated_string_literals_in_one_lazy_global}.
   Input boundary: verified MIR.
   Commands: cargo test -p psrs-backend wasm::.
   Result: pass.
@@ -125,6 +126,7 @@ ENC-06:
     rejects_a_branch_depth_beyond_the_raw_labels,
     rejects_a_branch_depth_beyond_the_structured_labels,
     rejects_a_branch_depth_outside_its_enclosing_labels,
+    interns_repeated_string_literals_in_one_lazy_global,
     rejects_a_data_index_that_does_not_match_module_order,
     rejects_an_export_with_the_wrong_index_domain}.
   Input boundary: malformed and valid thin Wasm IR.
