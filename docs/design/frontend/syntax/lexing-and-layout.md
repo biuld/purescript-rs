@@ -48,7 +48,10 @@ count. Trivia stays recoverable from the source between token ranges.
 Lexing and layout are consecutive operations in P0 so `psrs lex` can show
 physical tokens and `psrs layout` can show the augmented stream. The lexer
 validates escapes, character scalars, numeric forms, and unterminated strings
-or comments without inventing a semantic value. The layout processor inserts
+or comments without inventing a semantic value. A character literal is one
+Unicode scalar, including the astral range U+10000 through U+10FFFF, written
+either as the character or as a `\x` escape of one to six hexadecimal digits.
+Surrogate code points are not scalars and are not character literals. The layout processor inserts
 markers only at grammar-defined layout introducers, honors explicit braces,
 and closes implicit blocks before an outer dedent and at end of file.
 
