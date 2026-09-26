@@ -99,7 +99,13 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         .collect::<Vec<_>>();
     assert_eq!(
         names,
-        ["Prelude", "WASI.Console", "WASI.Clock", "WASI.Random"]
+        [
+            "Prelude",
+            "WASI.Console",
+            "WASI.Clock",
+            "WASI.Random",
+            "WASI.Exit"
+        ]
     );
     for module in modules {
         let path = std::path::Path::new(&module.path);
@@ -107,7 +113,8 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             path.ends_with("lib/Prelude.purs")
                 || path.ends_with("lib/WASI/Console.purs")
                 || path.ends_with("lib/WASI/Clock.purs")
-                || path.ends_with("lib/WASI/Random.purs"),
+                || path.ends_with("lib/WASI/Random.purs")
+                || path.ends_with("lib/WASI/Exit.purs"),
             "{}",
             module.path
         );

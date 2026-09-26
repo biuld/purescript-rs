@@ -4,3 +4,4 @@ Prelude
 WASI.Console
 WASI.Clock
 WASI.Random
+WASI.Exit
