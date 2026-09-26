@@ -57,6 +57,10 @@ fn parameter_layout(
         abi::WasiParamKind::Integer32 | abi::WasiParamKind::Char | abi::WasiParamKind::Handle => {
             scalar_layout(4, SlotKind::Word)
         }
+        abi::WasiParamKind::IntegerNarrow { bits, .. } => {
+            let width = u32::from(*bits) / 8;
+            scalar_layout(width, slot_for_width(width))
+        }
         abi::WasiParamKind::Scalar64 { .. } => scalar_layout(8, SlotKind::I64),
         abi::WasiParamKind::Float32 => scalar_layout(4, SlotKind::F32),
         abi::WasiParamKind::Float64 => scalar_layout(8, SlotKind::F64),

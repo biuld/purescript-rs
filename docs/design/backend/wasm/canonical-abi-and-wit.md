@@ -53,6 +53,7 @@ SourceSignature = { parameters: [SourceType], result: SourceType, span: TextRang
 SourceType      = Int | Boolean | Number | Char | String | Unit
                 | Enum { cases: [String] }
                 | Record { fields: [(String, SourceType)] }
+                | Array(SourceType)
 
 WasiRegistry = { resolve: wit_parser::Resolve,
                  imports: [WasiImport],
@@ -64,15 +65,20 @@ WasiImport = { symbol: SymbolId, module: String, name: String,
                result: Option<ValueType>, result_kind: WasiResultKind,
                unsupported: Option<String>, retptr: bool }
 
-WasiParamKind = Integer32 | Boolean | Char | Scalar64 { signed: bool }
+WasiParamKind = Integer32 | IntegerNarrow { bits: 8 | 16, signed: bool }
+              | Boolean | Char | Scalar64 { signed: bool }
               | Float32 | Float64
               | Enum { cases: [String] }
               | Flags { names: [String] }
               | Record { fields: [WasiField] }
+              | Array { element: Box(WasiParamKind) }
               | Handle | List | Unsupported
 
 WasiResultKind = None | Scalar | Boolean | Enum { cases: [String] }
-               | Char | List | Result | Discarded
+               | Char | List | Result
+               | IntegerNarrow { bits: 8 | 16, signed: bool }
+               | Array { element: Box(WasiParamKind) }
+               | Discarded
 
 WasiField      = { name: String, kind: WasiParamKind }
 BoundWasiImport = { import: WasiImport, signature: SourceSignature }
@@ -117,6 +123,44 @@ signature through the standard type mapping. There is a single external kind,
 `Wit`; the compiler has no per-function host registry. `ExternalBindings` is a
 lossless projection of the source externals, checked against Core
 (`validate_core`) and against CC's abstract signatures (`validate_cc`).
+
+### Source type mapping
+
+The source ABI maps WIT types to source types with bit-preserving semantics; it
+never invents source values.
+
+| WIT type | Source type | Notes |
+| --- | --- | --- |
+| `bool` | `Boolean` | canonical `0`/`1`. |
+| `s8`, `s16`, `s32` | `Int` | signed; a narrower width sign-extends at the boundary. |
+| `u8`, `u16`, `u32` | `Int` | unsigned bits in the low 32 bits; a caller passes the low `bits`. |
+| `s64`, `u64` | `Int` | widened to/from `i64`; `Int` keeps the low 32 bits on return. |
+| `f32`, `f64` | `Number` | `f32` narrows/widens at the boundary. |
+| `char` | `Char` | both are canonical `i32`; an `Int` is rejected. |
+| `string`, `list<u8>` | `String` | length-prefixed byte buffer. |
+| other `list<T>` | `Array(T)` | element-wise; not a byte list. |
+| `record` | `Record` | canonical field order by label. |
+| nullary `enum` | `Enum` | case order must match. |
+| `flags` | `Record` of `Boolean` | packed least-significant first. |
+| resource handle | opaque handle | `own`/`borrow` drop rules are future work. |
+| `option`, `result`, non-unit `variant`, tuple | none | rejected until the standard library provides matching source types. |
+
+Two rules follow from the source language having no unsigned or narrowed integer
+types:
+
+- Every WIT integer maps to source `Int` and is bit-preserving. For a
+  parameter, lowering masks a narrow (`u8`/`s8`/`u16`/`s16`) argument to its
+  width so the canonical value is always in range; a 32-bit argument passes
+  unchanged. For a result, the canonical `i32` already carries the in-range
+  value, so no conversion is needed. A source program that wants unsigned
+  interpretation of a returned bit pattern is outside this contract.
+- `Array` is only produced for a non-byte `list<T>` whose element maps. Byte
+  lists stay `String`, so `list<u8>` never becomes `Array Int`.
+
+`option`/`result` payloads, non-unit `variant`s, and tuples have no source type;
+classification records them as unsupported until the standard library defines
+matching types (`Maybe`, `Either`, tuples). The unit-success `result` keeps its
+existing `Unit` mapping (trap on failure).
 
 ### Resolving and validating
 
@@ -193,6 +237,8 @@ lower_parameters(import, source_signature, args, flat):
 lower_parameter(arg, source, kind, flat):
     Integer32 | Boolean | Char | Float64 | Handle | Enum
         => flat.push(arg)
+    IntegerNarrow { bits, signed }
+        => flat.push(MaskToWidth(arg, bits))   # zero the bits above `bits`
     Float32
         => flat.push(F64ToF32(arg))
     Scalar64 { signed }
@@ -209,6 +255,11 @@ lower_parameter(arg, source, kind, flat):
         => length = Load(arg)                 # 4-byte length prefix
            bytes  = arg + 4
            flat.push(bytes); flat.push(length)
+    Array { element }
+        => # Non-byte list: copy the source array's elements into a fresh
+           # linear-memory buffer via cabi_realloc, then pass (pointer, count).
+           address = copy_array_to_memory(arg, element)
+           flat.push(address); flat.push(ArrayLength(arg))
     Record { fields }
         => for field in fields (WIT order):
                index = position of source_field_name(field.name) in source fields
@@ -239,11 +290,18 @@ lower_result(import, destination, flat):
             pointer = Load(PRINT_SCRATCH)
             length = Load(PRINT_SCRATCH + 4)
             destination = validate_and_recover_internal_string(pointer, length)
-        Scalar | Boolean | Enum | Char =>
+        Scalar | Boolean | Enum | Char | IntegerNarrow { .. } =>
             match import.result:
                 I64 => destination = WrapI64(Call(import, flat))
                 F32 => destination = F32ToF64(Call(import, flat))
                 I32 | F64 => destination = Call(import, flat)
+        Array { element } =>
+            # Non-byte list result: the host writes (pointer, count) into the
+            # return area; read it back into a fresh source array element-wise.
+            CallVoid(import, flat)
+            pointer = Load(PRINT_SCRATCH)
+            count   = Load(PRINT_SCRATCH + 4)
+            destination = recover_array(pointer, count, element)
         None =>
             CallVoid(import, flat); destination = Constant(0)
         Result =>
@@ -269,6 +327,8 @@ validate_signature(import, signature):
         Enum      => the source cases equal the WIT cases in order
         Char      => Char
         List      => String (byte list)
+        IntegerNarrow { .. } => Int
+        Array { element } => Array(source) whose element matches `element`
         Result    => Unit
         Discarded => always reject
 ```
@@ -432,12 +492,18 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 - **Aggregate ABI.** Indirect records and tuples, `option`/`result`/`variant`
   results, `option`/`result`/`variant` payloads, and non-byte `list<T>` need
-  result memory-layout computation and read-back. Indirect parameter records
-  are implemented for the currently classified parameter kinds.
+  result memory-layout computation and read-back. Narrowed and unsigned WIT
+  integers and non-byte lists of scalars now have a source mapping
+  ([Source type mapping](#source-type-mapping)); indirect parameter records are
+  implemented for the currently classified parameter kinds.
 - **Resources.** `own`/`borrow` handles need `drop` insertion and lifetime rules;
   ownership and post-return reclamation are specified but not implemented.
-- **Source integration.** The type checker still rejects record type signatures,
-  so the record and flags paths are not yet reachable from source.
+- **Source integration.** The type checker still rejects record and array
+  foreign signatures, so the record, flags, and array paths are not yet
+  reachable from parsed source.
+- **No source type for option/result/variant/tuple.** `option`/`result`
+  payloads, non-unit `variant`s, and tuples stay rejected until the standard
+  library defines `Maybe`, `Either`, and tuple types the compiler can map.
 - **Allocator reclamation.** Indirect parameter tuples and returned byte lists
   use the bump allocator and are not reclaimed. Repeated calls can grow linear
   memory; reusing or reclaiming those areas needs a lifetime design
@@ -459,12 +525,14 @@ currently classified scalar, handle, enum, flags, byte-list, and nested-record
 shapes; an artifact regression covers mixed integer, Boolean, 64-bit, and float
 fields. The unit-success `result` and scalar/list result paths remain supported.
 
-Indirect aggregate results, `option`/`result`/`variant` payload read-back,
-non-byte lists, `u32` and narrower integers, tuple source types, and `own`/`borrow`
-drop rules remain specified but are not yet produced. Source-level record
-signatures are still rejected by the type checker, so record parameter support
-is currently reachable through backend IR paths rather than parsed source.
-These are coverage gaps in this design, not a change to its canonical ABI.
+The [Source type mapping](#source-type-mapping) now defines the source types for
+narrowed and unsigned WIT integers (`Int`, bit-preserving) and non-byte
+`list<T>` (`Array`). Indirect aggregate results, `option`/`result`/`variant`
+payload read-back, tuple source types, and `own`/`borrow` drop rules remain
+specified but not produced. Source-level record, flags, and array signatures are
+still rejected by the type checker, so those parameter and result paths are
+reachable only through backend IR fixtures. These are coverage gaps in this
+design, not a change to its canonical ABI.
 
 ## References
 

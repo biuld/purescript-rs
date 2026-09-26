@@ -191,7 +191,23 @@ fn contains_non_byte_list(resolve: &Resolve, ty: &WitType) -> bool {
 pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
     match ty {
         WitType::Bool => WasiParamKind::Boolean,
-        WitType::S32 => WasiParamKind::Integer32,
+        WitType::S32 | WitType::U32 => WasiParamKind::Integer32,
+        WitType::U8 => WasiParamKind::IntegerNarrow {
+            bits: 8,
+            signed: false,
+        },
+        WitType::S8 => WasiParamKind::IntegerNarrow {
+            bits: 8,
+            signed: true,
+        },
+        WitType::U16 => WasiParamKind::IntegerNarrow {
+            bits: 16,
+            signed: false,
+        },
+        WitType::S16 => WasiParamKind::IntegerNarrow {
+            bits: 16,
+            signed: true,
+        },
         WitType::F64 => WasiParamKind::Float64,
         WitType::String => WasiParamKind::List,
         WitType::Char => WasiParamKind::Char,
@@ -236,6 +252,7 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
 fn direct_parameter(kind: &WasiParamKind) -> bool {
     match kind {
         WasiParamKind::Integer32
+        | WasiParamKind::IntegerNarrow { .. }
         | WasiParamKind::Boolean
         | WasiParamKind::Char
         | WasiParamKind::Scalar64 { .. }
@@ -273,9 +290,25 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
             _ => WasiResultKind::Discarded,
         },
         WitType::Bool => WasiResultKind::Boolean,
-        WitType::S32 | WitType::S64 | WitType::U64 | WitType::F32 | WitType::F64 => {
+        WitType::S32 | WitType::U32 | WitType::S64 | WitType::U64 | WitType::F32 | WitType::F64 => {
             WasiResultKind::Scalar
         }
+        WitType::U8 => WasiResultKind::IntegerNarrow {
+            bits: 8,
+            signed: false,
+        },
+        WitType::S8 => WasiResultKind::IntegerNarrow {
+            bits: 8,
+            signed: true,
+        },
+        WitType::U16 => WasiResultKind::IntegerNarrow {
+            bits: 16,
+            signed: false,
+        },
+        WitType::S16 => WasiResultKind::IntegerNarrow {
+            bits: 16,
+            signed: true,
+        },
         _ => WasiResultKind::Discarded,
     }
 }

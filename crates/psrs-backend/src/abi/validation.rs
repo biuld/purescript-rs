@@ -4,6 +4,7 @@ use crate::TargetCapabilities;
 pub(super) fn source_parameter_matches(source: &SourceType, wit: &WasiParamKind) -> bool {
     match wit {
         WasiParamKind::Integer32 => matches!(source, SourceType::Int),
+        WasiParamKind::IntegerNarrow { .. } => matches!(source, SourceType::Int),
         WasiParamKind::Boolean => matches!(source, SourceType::Boolean),
         WasiParamKind::Char => matches!(source, SourceType::Char),
         WasiParamKind::Float32 | WasiParamKind::Float64 => matches!(source, SourceType::Number),
