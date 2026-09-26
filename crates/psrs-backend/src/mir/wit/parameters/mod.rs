@@ -196,7 +196,9 @@ fn lower_parameter<L: WitCallLowerer>(
             });
         }
         abi::WasiParamKind::ValueList { element } => {
-            super::lists::write_value_list(lowerer, argument, element, flat, frees, current, span)?;
+            super::lists::write_value_list(
+                lowerer, argument, shape, element, flat, frees, current, span,
+            )?;
         }
         abi::WasiParamKind::Record { fields } => {
             let (product, labels) = product_of(lowerer, shape, span)?;

@@ -143,6 +143,22 @@ impl FunctionLowerer<'_> {
             .map(|(fields, labels)| (fields.to_vec(), labels.to_vec()))
     }
 
+    /// The element shape of a GC array representation handle.
+    pub(super) fn resolved_array_element(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<crate::cc::ValueShape> {
+        self.layout.array_element(repr).ok()
+    }
+
+    /// The concrete GC type of a representation handle.
+    pub(super) fn resolved_repr_index(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<crate::types::DefinedTypeId> {
+        self.layout.repr_index(repr).ok()
+    }
+
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;

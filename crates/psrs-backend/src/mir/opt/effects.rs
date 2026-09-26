@@ -92,7 +92,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             may_trap: true,
             ..InstructionEffects::default()
         },
-        I::ListCopy { .. } => InstructionEffects {
+        I::ListCopy { .. } | I::ListCopyRecord { .. } => InstructionEffects {
             may_trap: true,
             reads_memory: true,
             writes_memory: true,

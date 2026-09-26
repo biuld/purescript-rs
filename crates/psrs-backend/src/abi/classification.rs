@@ -88,6 +88,7 @@ fn classify_variable_list(resolve: &Resolve, inner: &WitType) -> WasiParamKind {
         | WasiParamKind::Float32
         | WasiParamKind::Float64
         | WasiParamKind::Enum { .. }
+        | WasiParamKind::Record { .. }
         | WasiParamKind::List) => WasiParamKind::ValueList {
             element: Box::new(kind),
         },
@@ -194,6 +195,7 @@ fn supported_list_element(resolve: &Resolve, ty: &WitType) -> bool {
             | WasiParamKind::Float32
             | WasiParamKind::Float64
             | WasiParamKind::Enum { .. }
+            | WasiParamKind::Record { .. }
             | WasiParamKind::List
     )
 }
