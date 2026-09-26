@@ -3,7 +3,7 @@
 use super::flatten::primitive_aggregate_allowed;
 use super::{SourceSignature, SourceType, WasiField, WasiParamKind, WasiResultKind};
 use crate::types::ValueType;
-use psrs_core::Module as CoreModule;
+use psrs_core::{ConstructorInfo, Module as CoreModule};
 use psrs_hir::{BuiltinType, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind};
 use wit_parser::abi::WasmType;
 use wit_parser::{Handle, Resolve, Type as WitType, TypeDefKind};
@@ -41,14 +41,14 @@ fn source_type(module: &CoreModule, ty: &HirType) -> Option<SourceType> {
         HirTypeKind::Constructor(BuiltinType::String) => Some(SourceType::String),
         HirTypeKind::Constructor(BuiltinType::Unit) => Some(SourceType::Unit),
         HirTypeKind::Opaque(type_id) => Some(SourceType::Resource { type_id: *type_id }),
-        HirTypeKind::Named(type_id) => source_enum_type(module, *type_id),
+        HirTypeKind::Named(type_id) => source_enum_type(&module.constructors, *type_id),
         HirTypeKind::Application(function, argument) => {
             if is_source_array(function) {
                 let element = source_type(module, argument)?;
                 return array_source(element);
             }
             let type_id = user_type_id(function)?;
-            source_enum_type(module, type_id)
+            source_enum_type(&module.constructors, type_id)
         }
         HirTypeKind::Record { fields, tail } if tail.is_none() => {
             let mut fields = fields
@@ -94,9 +94,11 @@ fn user_type_id(ty: &HirType) -> Option<HirTypeId> {
     }
 }
 
-fn source_enum_type(module: &CoreModule, type_id: HirTypeId) -> Option<SourceType> {
-    let mut constructors = module
-        .constructors
+pub(super) fn source_enum_type(
+    constructors: &[ConstructorInfo],
+    type_id: HirTypeId,
+) -> Option<SourceType> {
+    let mut constructors = constructors
         .iter()
         .filter(|constructor| constructor.type_id == type_id)
         .collect::<Vec<_>>();

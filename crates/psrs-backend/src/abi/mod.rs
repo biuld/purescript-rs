@@ -13,6 +13,7 @@ use wit_parser::abi::AbiVariant;
 mod classification;
 mod flatten;
 mod handles;
+mod link;
 mod lists;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ pub(crate) use classification::source_signature;
 use classification::{param_kind, result_kind, unsupported_shape, value_type};
 pub(crate) use flatten::{FlatSlot, is_primitive_signature};
 pub use handles::{HandleMode, HandleResource};
+pub(crate) use link::intern_source_type;
 pub use lists::ListElement;
 pub(crate) use lists::{element_layout, from_param as list_element};
 #[cfg(test)]

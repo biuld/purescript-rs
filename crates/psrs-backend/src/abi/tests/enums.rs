@@ -144,17 +144,17 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         kind: HirTypeKind::Named(type_id),
         span,
     };
-    let source = source_signature(
-        &core,
-        &HirType {
-            kind: HirTypeKind::Function {
-                parameter: Box::new(enum_type.clone()),
-                result: Box::new(enum_type),
-            },
-            span,
+    let function = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(enum_type.clone()),
+            result: Box::new(enum_type),
         },
-    )
-    .expect("the nullary source enum should have an ABI representation");
+        span,
+    };
+    let function_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the enum function type should intern");
+    let source = source_signature(&core, &function)
+        .expect("the nullary source enum should have an ABI representation");
     let import = WasiImport {
         symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
         module: "test:enums".into(),
@@ -174,6 +174,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
     assert_eq!(
         crate::cc::abstract_signature(
             &source,
+            Some(function_id),
             &core,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
