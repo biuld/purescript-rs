@@ -15,7 +15,7 @@ and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
 ABI-07 are Verified. LM-01 is In progress because the profile still fixes one
 wasm32 memory. ABI-02 is Verified, including `own`/`borrow` handle drop;
 scalar, enum, flags, char, and GC string mapping already has tests. ABI-08's
-non-byte `list<T>` / `SourceType::Array` is lowered for scalars, `bool`, `char`,
+non-byte `list<T>` / `Array` is lowered for scalars, `bool`, `char`,
 and `string`/`list<u8>` elements, with an execution test for `list<string>`;
 `option`/`result`/`variant` and tuples remain out because they are not compiler
 source types
@@ -236,8 +236,7 @@ ABI-05:
 ABI-06:
   Implementation: crates/psrs-backend/src/abi/classification.rs
     (`param_kind`, `result_kind` for U8/U16/U32/S8/S16),
-    crates/psrs-backend/src/abi/validation.rs (`source_parameter_matches`),
-    crates/psrs-backend/src/abi/mod.rs (`validate_signature`,
+    crates/psrs-backend/src/abi/link.rs (`validate_import_signature`,
     `WasiParamKind::IntegerNarrow`, `WasiResultKind::IntegerNarrow`), and
     crates/psrs-backend/src/mir/wit/parameters/mod.rs (`narrow_integer` masks
     and sign-extends).
@@ -266,7 +265,7 @@ ABI-07:
 
 ```text
 ABI-08:
-  Implementation: non-byte `list<T>` / `SourceType::Array` classification in
+  Implementation: non-byte `list<T>` / `Array` classification in
     crates/psrs-backend/src/abi/lists.rs and
     crates/psrs-backend/src/abi/classification.rs; MIR lowering in
     crates/psrs-backend/src/mir/wit/lists.rs and
@@ -314,6 +313,6 @@ buffer free, and `post-return` are tracked by
 [primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
 a wrapper may pass primitive arguments whose flattening matches, and
 multi-value returns stay unsupported. The non-byte `list<T>` /
-`SourceType::Array` part of ABI-08 is lowered for supported elements; its
+`Array` part of ABI-08 is lowered for supported elements; its
 remaining gap is lists of aggregates. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).
