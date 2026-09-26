@@ -5,11 +5,10 @@
 **Design:** [Linear memory and the canonical ABI boundary](../../design/backend/wasm/linear-memory-and-canonical-abi-boundary.md)
 and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md).
 
-**Progress:** LM-01 through LM-05 and ABI-01 through ABI-05, ABI-07 Verified.
-ABI-06 is Blocked: the general aggregate/`option`/`result`/`variant`, non-byte
-list, narrowed-integer, tuple, and `own`/`borrow` paths have no source ABI
-type mapping or frontend support yet. This is why the broader BE-19 row stays
-`Partial`.
+**Progress:** LM-01 through LM-05 and ABI-01 through ABI-07 Verified. ABI-08 is
+Blocked: general aggregate results, `option`/`result`/`variant` payloads,
+non-byte lists, tuples, and `own`/`borrow` have no source type or frontend
+support yet. This is why the broader BE-19 row stays `Partial`.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
@@ -38,8 +37,9 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order. | WIT record/flags flattening tests and the indirect composite fixture. | Verified |
 | ABI-04 | Indirect parameter tuples are laid out and allocated through `cabi_realloc`. | Indirect composite parameter lowering/artifact tests. | Verified |
 | ABI-05 | Unit-success, scalar, and byte-list results are recovered at the boundary. | Driver string/list result cases and multiple returned strings. | Verified |
-| ABI-06 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, narrowed integers, tuples, and `own`/`borrow` drop rules lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
+| ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and `own`/`borrow` drop rules lower or are rejected with named diagnostics. | Partially covered: unsupported shapes are rejected with source diagnostics; the listed shapes cannot be produced. | Blocked |
 
 ## Evidence record and completion rule
 
@@ -187,20 +187,23 @@ ABI-05:
 
 ```text
 ABI-06:
-  Implementation: none for the listed shapes; unsupported shapes are rejected
-    at classification/lowering.
-  Tests: psrs-driver tests::wasi::
-    rejects_a_non_byte_wit_list_before_lowering_it_as_a_string,
-    rejects_a_wit_import_when_the_declared_source_type_does_not_match.
-  Input boundary: WIT signatures and source.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
-    not lowered.
-  Gaps: the listed shapes have no source ABI mapping. Resumption: extend the
-    source ABI design with unsigned/narrowed integer, `Array`, and
-    `option`/`result`/`variant` source types (or their canonical encodings),
-    make the type checker accept record and array foreign signatures, and add
-    result memory-layout computation and read-back. This keeps BE-19 `Partial`.
+  Implementation: crates/psrs-backend/src/abi/classification.rs
+    (`param_kind`, `result_kind` for U8/U16/U32/S8/S16),
+    crates/psrs-backend/src/abi/validation.rs (`source_parameter_matches`),
+    crates/psrs-backend/src/abi/mod.rs (`validate_signature`,
+    `WasiParamKind::IntegerNarrow`, `WasiResultKind::IntegerNarrow`), and
+    crates/psrs-backend/src/mir/wit/parameters/mod.rs (`narrow_integer` masks
+    and sign-extends).
+  Tests: abi::tests::integers::classifies_narrow_and_unsigned_wit_integers;
+    mir::wit::parameters::tests::unsigned_narrow_parameter_only_masks,
+    ::signed_narrow_parameter_masks_and_sign_extends.
+  Input boundary: WIT classification, signatures, and MIR lowering.
+  Commands: cargo test -p psrs-backend abi::tests::classifies_narrow;
+    cargo test -p psrs-backend mir::wit::parameters.
+  Result: pass; every WIT integer maps to source `Int`, narrow parameters are
+    masked (and sign-extended when signed), and narrow results use the
+    canonical `i32` directly.
+  Gaps: none.
 ```
 
 ```text
@@ -214,9 +217,26 @@ ABI-07:
   Gaps: none.
 ```
 
+```text
+ABI-08:
+  Implementation: none for the listed shapes; unsupported shapes are rejected
+    at classification/lowering.
+  Tests: psrs-driver tests::wasi::
+    rejects_a_non_byte_wit_list_before_lowering_it_as_a_string,
+    rejects_a_wit_import_when_the_declared_source_type_does_not_match.
+  Input boundary: WIT signatures and source.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
+  Result: blocked; the unsupported-shape diagnostics pass, but the shapes are
+    not lowered.
+  Gaps: the listed shapes have no source type. Resumption: define source
+    `Array` and `Maybe`/`Either`/tuple types (or equivalent canonical
+    encodings), make the type checker accept record, array, and aggregate
+    foreign signatures, and add result memory-layout computation and
+    read-back. This keeps BE-19 `Partial`.
+```
+
 ## Remaining work and blockers
 
-ABI-06 is Blocked on a source ABI type mapping and frontend support for
-aggregate foreign signatures; its resumption condition is recorded above.
-Allocation provenance and reclamation stay out of scope by DEC-09 and are
-recorded in the design.
+ABI-08 is Blocked on source types and frontend support for aggregate foreign
+signatures; its resumption condition is recorded above. Allocation provenance
+and reclamation stay out of scope by DEC-09 and are recorded in the design.

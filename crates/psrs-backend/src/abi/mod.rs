@@ -58,8 +58,11 @@ pub mod names {
 /// types, so the shape is kept for the lowering to adapt arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WasiParamKind {
-    /// A WIT `s32` flattened to one canonical `i32` parameter.
+    /// A WIT `s32` or `u32` flattened to one canonical `i32` parameter.
     Integer32,
+    /// A WIT `s8`/`u8`/`s16`/`u16` flattened to one canonical `i32`. `bits` is
+    /// the width and `signed` selects sign-extension when masking an `Int`.
+    IntegerNarrow { bits: u8, signed: bool },
     /// A WIT `bool` flattened to one canonical `i32` parameter.
     Boolean,
     /// A WIT character flattened to one canonical `i32` parameter.
@@ -100,6 +103,9 @@ pub enum WasiResultKind {
     None,
     /// A scalar returned directly in a register.
     Scalar,
+    /// A WIT `s8`/`u8`/`s16`/`u16` result returned as a canonical `i32` whose
+    /// bits are already the in-range value.
+    IntegerNarrow { bits: u8, signed: bool },
     /// A WIT `bool` result represented by the source `Boolean` type.
     Boolean,
     /// A WIT enum with cases that must match a nullary source data type.
@@ -400,6 +406,7 @@ impl WasiRegistry {
                 }
                 _ => false,
             },
+            WasiResultKind::IntegerNarrow { .. } => matches!(&signature.result, SourceType::Int),
             WasiResultKind::Boolean => matches!(&signature.result, SourceType::Boolean),
             WasiResultKind::Enum { cases } => matches!(
                 &signature.result,

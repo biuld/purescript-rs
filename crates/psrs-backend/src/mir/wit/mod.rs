@@ -147,6 +147,7 @@ pub(super) fn lower<L: WitCallLowerer>(
             )?;
         }
         abi::WasiResultKind::Scalar
+        | abi::WasiResultKind::IntegerNarrow { .. }
         | abi::WasiResultKind::Boolean
         | abi::WasiResultKind::Enum { .. }
         | abi::WasiResultKind::Char => match import.result {

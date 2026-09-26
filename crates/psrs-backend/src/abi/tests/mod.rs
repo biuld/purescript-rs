@@ -3,6 +3,7 @@ use wit_parser::Type as WitType;
 
 mod capability_gates;
 mod indirect;
+mod integers;
 mod records;
 
 fn empty_core_module() -> psrs_core::Module {
@@ -383,7 +384,7 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
     );
     assert_eq!(
         param_kind(&Resolve::default(), &WitType::U32),
-        WasiParamKind::Unsupported
+        WasiParamKind::Integer32
     );
     assert_eq!(
         result_kind(&Resolve::default(), &WitType::Bool),
@@ -391,7 +392,7 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
     );
     assert_eq!(
         result_kind(&Resolve::default(), &WitType::U32),
-        WasiResultKind::Discarded
+        WasiResultKind::Scalar
     );
 }
 
