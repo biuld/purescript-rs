@@ -498,9 +498,10 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   implemented for the currently classified parameter kinds.
 - **Resources.** `own`/`borrow` handles need `drop` insertion and lifetime rules;
   ownership and post-return reclamation are specified but not implemented.
-- **Source integration.** The type checker still rejects record and array
-  foreign signatures, so the record, flags, and array paths are not yet
-  reachable from parsed source.
+- **Source integration.** Parsed source can declare `Array` foreign signatures
+  and reaches the ABI boundary, but non-byte lists are not lowered yet.
+  Record and flags foreign signatures are not known to be reachable from
+  parsed source.
 - **No source type for option/result/variant/tuple.** `option`/`result`
   payloads, non-unit `variant`s, and tuples stay rejected until the standard
   library defines `Maybe`, `Either`, and tuple types the compiler can map.
@@ -529,10 +530,10 @@ The [Source type mapping](#source-type-mapping) now defines the source types for
 narrowed and unsigned WIT integers (`Int`, bit-preserving) and non-byte
 `list<T>` (`Array`). Indirect aggregate results, `option`/`result`/`variant`
 payload read-back, tuple source types, and `own`/`borrow` drop rules remain
-specified but not produced. Source-level record, flags, and array signatures are
-still rejected by the type checker, so those parameter and result paths are
-reachable only through backend IR fixtures. These are coverage gaps in this
-design, not a change to its canonical ABI.
+specified but not produced. Non-byte `Array` signatures from parsed source
+reach the ABI boundary but are not lowered; record and flags signatures remain
+reachable through backend IR fixtures. These are coverage gaps in this design,
+not a change to its canonical ABI.
 
 ## References
 
