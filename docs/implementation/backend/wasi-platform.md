@@ -4,10 +4,14 @@
 
 **Design:** [WASI platform library](../../design/backend/wasm/wasi-platform-library.md).
 
-**Progress:** WASI-01 through WASI-06 and WASI-09 Verified. WASI-07 (filesystem,
-arguments, environment), WASI-08 (sockets/HTTP/TLS), and WASI-10 (loading the
-standard library from disk) are not implemented. The broader BE-22 row is
-Partial, BE-23 is Planned, and the excluded services stay Planned/Excluded.
+**Progress:** Re-baselined by
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) for GC strings
+and buffer reclamation. WASI-01, WASI-02, WASI-04, WASI-06, and WASI-09 are
+Verified; WASI-03 and WASI-05 pass under the pre-DEC-10 representation and are
+In progress for the GC-string target. WASI-07 (filesystem, arguments,
+environment), WASI-08 (sockets/HTTP/TLS), and WASI-10 (loading the standard
+library from disk) are not implemented. The broader BE-22 row is Partial, BE-23
+is Planned, and the excluded services stay Planned/Excluded.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21..BE-23, BE-26.
 
@@ -30,9 +34,9 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | --- | --- | --- | --- |
 | WASI-01 | The core module is componentized into a WASI 0.2 command with UTF-8 strings and matching world. | Component emission and world/capability tests. | Verified |
 | WASI-02 | The command entry calls `wasi:cli/run` and exits with the program result. | Executed component returns the program exit code. | Verified |
-| WASI-03 | Console stdout and stderr are wired and observable. | Stdout/stderr execution tests and effect ordering. | Verified |
+| WASI-03 | Console stdout and stderr are wired and observable, linearizing GC strings per call. | Stdout/stderr execution tests and effect ordering. | In progress |
 | WASI-04 | Monotonic clock is wired. | Clock execution test. | Verified |
-| WASI-05 | Random bytes are wired. | Random execution test. | Verified |
+| WASI-05 | Random bytes are wired, recovering the returned byte list into a GC value. | Random execution test. | In progress |
 | WASI-06 | Each enabled WASI service package has an independent capability gate; a disabled service fails before lowering. | Per-service gate test plus a disabled-service rejection. | Verified |
 | WASI-07 | Filesystem, arguments, and environment services. | Not implemented; blocked on the general aggregate/list ABI (`list<string>` arguments and results). | Blocked |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |

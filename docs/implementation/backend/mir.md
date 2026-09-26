@@ -6,7 +6,12 @@
 
 **Progress:** All rows MIR-01 through MIR-12 Verified. The tail-call terminators
 (`ReturnCall`, `ReturnCallRef`) exist and are exercised by the records below;
-see [control flow and tail calls](control-flow-and-tail-calls.md).
+see [control flow and tail calls](control-flow-and-tail-calls.md). The `String`
+value type is re-baselined to a GC reference by
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md); the affected
+layout rows are tracked in
+[data representation](data-representation.md) and
+[scalars and primitives](scalars-and-primitives.md).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-03, with BE-13 and BE-15 at the output boundary.
 

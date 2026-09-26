@@ -4,8 +4,10 @@
 
 **Design:** [Scalars and numeric operations](../../design/backend/fp/scalars-and-primitives.md)
 
-**Progress:** Audited. SP-01 through SP-12 are Verified. See the evidence
-records below.
+**Progress:** Audited. SP-01 and SP-03 through SP-12 are Verified. SP-02 is
+re-baselined by
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) to the GC-string
+target and is In progress. See the evidence records below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-04; FE-08 supplies source typing.
 
@@ -27,7 +29,7 @@ Verified requires exact test and executed result evidence.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | SP-01 | `Int` is wrapping signed 32-bit; `Number` is IEEE binary64; Boolean is canonical 0/1; Char is a Unicode scalar; Unit has its fixed representation. | Boundary-value and malformed-type tests for each shape, including high-bit Int, NaN/infinity, invalid Char, and Boolean normalization. | Verified |
-| SP-02 | `String` keeps a separate semantic CC shape despite its `i32` runtime pointer. | Positive string literal/import use and verifier rejection of numeric operations on String pointers. | Verified |
+| SP-02 | `String` keeps a separate semantic CC shape and is a GC byte sequence, linearized only at the canonical ABI boundary. | Positive string literal/import use and verifier rejection of numeric operations on String values. | In progress |
 | SP-03 | Every specified CC unary/binary primitive has an exact MIR instruction or helper lowering. | Exhaustive operation table matching the design vocabulary; reject missing opcode mappings and wrong operand/result types. | Verified |
 | SP-04 | Integer add/subtract/multiply and bitwise operations wrap at 32 bits; shift counts follow the specified modulo-32 behavior. | Source or verified Core execution at overflow/underflow and shift counts 0, 31, 32, 33; compare exact bits/results. | Verified |
 | SP-05 | Integer quotient/remainder truncate toward zero and trap for divisor zero and signed minimum divided by -1. | Positive signed combinations and expected-trap component cases; distinguish quotient/remainder from floor division/modulo. | Verified |
