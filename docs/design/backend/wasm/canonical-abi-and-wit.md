@@ -651,7 +651,7 @@ does not change the source language.
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct
 records with nested byte-list fields, and flags words; indirect parameter tuples
-through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, strings, and nullary enums;
+through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, strings, nullary enums, and directly flattened records of scalar fields;
 the unit-success `result` and scalar/list result paths.
 Regression tests cover those shapes.
 
