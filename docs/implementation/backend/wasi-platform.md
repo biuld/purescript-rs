@@ -6,9 +6,9 @@
 
 **Progress:** Re-baselined by
 [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) for GC strings
-and buffer reclamation. WASI-01, WASI-02, WASI-04, WASI-06, and WASI-09 are
-Verified; WASI-03 and WASI-05 pass under the pre-DEC-10 representation and are
-In progress for the GC-string target. WASI-07 (filesystem, arguments,
+and buffer reclamation. WASI-01, WASI-02, WASI-03, WASI-04, WASI-05, WASI-06,
+and WASI-09 are Verified. Stdout, stderr, and random bytes execute under the
+GC-string representation. WASI-07 (filesystem, arguments,
 environment), WASI-08 (sockets/HTTP/TLS), and WASI-10 (loading the standard
 library from disk) are not implemented. The broader BE-22 row is Partial, BE-23
 is Planned, and the excluded services stay Planned/Excluded.
@@ -34,9 +34,9 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | --- | --- | --- | --- |
 | WASI-01 | The core module is componentized into a WASI 0.2 command with UTF-8 strings and matching world. | Component emission and world/capability tests. | Verified |
 | WASI-02 | The command entry calls `wasi:cli/run` and exits with the program result. | Executed component returns the program exit code. | Verified |
-| WASI-03 | Console stdout and stderr are wired and observable, linearizing GC strings per call. | Stdout/stderr execution tests and effect ordering. | In progress |
+| WASI-03 | Console stdout and stderr are wired and observable, linearizing GC strings per call. | Stdout/stderr execution tests and effect ordering. | Verified |
 | WASI-04 | Monotonic clock is wired. | Clock execution test. | Verified |
-| WASI-05 | Random bytes are wired, recovering the returned byte list into a GC value. | Random execution test. | In progress |
+| WASI-05 | Random bytes are wired, recovering the returned byte list into a GC value. | Random execution test. | Verified |
 | WASI-06 | Each enabled WASI service package has an independent capability gate; a disabled service fails before lowering. | Per-service gate test plus a disabled-service rejection. | Verified |
 | WASI-07 | Filesystem, arguments, and environment services. | Not implemented; blocked on the general aggregate/list ABI (`list<string>` arguments and results). | Blocked |
 | WASI-08 | Sockets, HTTP, and TLS services. | Outside the synchronous target; excluded/planned. | In progress |
@@ -52,8 +52,8 @@ commands, runtime, executed/skipped cases, revision, and gaps. Runtime cases use
 
 ## Recorded evidence
 
-Revision: `c4e65dd` plus the WASI evidence changes in this worktree. Runtime:
-`wasmtime 49.0.0` under `PSRS_REQUIRE_WASMTIME=1`.
+Revision: `81b2eee` plus the DEC-10 re-verification in this worktree. Runtime:
+`wasmtime 49.0.1` under `PSRS_REQUIRE_WASMTIME=1`.
 
 ```text
 WASI-01:
@@ -83,15 +83,26 @@ WASI-02:
 ```text
 WASI-03:
   Implementation: WASI stdout/stderr imports in the ABI registry; effects
-    library.
+    library. Each call linearizes a GC `(array (mut i16))` string to UTF-8.
   Tests: component::tests::prints_via_wasi_stdout_when_wasmtime_is_available;
     psrs-driver tests::wasi::{lowers_string_log_to_wasi_stdout,
     prints_hello_world_when_wasmtime_is_available,
+    prints_a_non_ascii_literal_when_wasmtime_is_available,
+    prints_an_interned_literal_once_per_use_when_wasmtime_is_available,
     writes_to_stderr_when_wasmtime_is_available};
     tests::effects::bind_preserves_wasi_results_across_stdout_and_stderr.
   Input boundary: source and executed component.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib.
-  Result: pass.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend --lib
+    prints_via_wasi_stdout_when_wasmtime_is_available;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    lowers_string_log_to_wasi_stdout prints_hello_world_when_wasmtime_is_available
+    prints_a_non_ascii_literal_when_wasmtime_is_available
+    prints_an_interned_literal_once_per_use_when_wasmtime_is_available
+    writes_to_stderr_when_wasmtime_is_available
+    bind_preserves_wasi_results_across_stdout_and_stderr.
+  Result: pass under Wasmtime 49.0.1. `log` prints `hello world`, `héλ`, and a
+    repeated interned literal; `error` prints `oops` to stderr; bind runs
+    stderr before stdout.
   Gaps: none.
 ```
 
@@ -107,11 +118,16 @@ WASI-04:
 
 ```text
 WASI-05:
-  Implementation: random import wiring in the ABI registry.
-  Tests: psrs-driver tests::wasi::reads_random_bytes_when_wasmtime_is_available.
+  Implementation: random import wiring in the ABI registry. A returned byte
+    list is decoded into a fresh GC string.
+  Tests: psrs-driver tests::wasi::{reads_random_bytes_when_wasmtime_is_available,
+    passes_a_returned_wit_string_to_another_import}.
   Input boundary: source and executed component.
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi.
-  Result: pass.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    reads_random_bytes_when_wasmtime_is_available
+    passes_a_returned_wit_string_to_another_import.
+  Result: pass under Wasmtime 49.0.1. `get-random-bytes` returns, and logging
+    that string prints a non-empty UTF-8 payload plus a newline.
   Gaps: none.
 ```
 
