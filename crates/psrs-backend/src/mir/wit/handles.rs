@@ -7,7 +7,8 @@
 
 use super::super::{Function, Instruction, Terminator};
 use crate::BackendError;
-use crate::abi::{self, BoundWasiImport, HandleMode};
+use crate::abi::{self, HandleMode};
+use crate::mir::BoundWasiImport;
 use crate::types::ValueId;
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;

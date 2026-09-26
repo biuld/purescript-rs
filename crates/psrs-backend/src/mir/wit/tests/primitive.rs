@@ -7,6 +7,7 @@ use crate::abi::{
     FlatSlot, SourceSignature, SourceType, WasiRegistry, WasiResultKind, source_signature,
 };
 use crate::capability::TargetCapabilities;
+use crate::cc::ValueShape;
 use psrs_hir::{
     BuiltinType, ModuleId, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind,
 };
@@ -22,6 +23,14 @@ fn signature(parameters: Vec<SourceType>, result: SourceType) -> SourceSignature
         parameters,
         result,
         span: span(),
+    }
+}
+
+/// The CC abstract signature used by MIR lowering.
+fn cc_signature(parameters: Vec<ValueShape>) -> crate::cc::Signature {
+    crate::cc::Signature {
+        parameters,
+        result: ValueShape::Integer,
     }
 }
 
@@ -109,7 +118,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     lower(
         &mut lowerer,
         &import,
-        &accepted,
+        &cc_signature(vec![ValueShape::Integer, ValueShape::String]),
         ValueId(7),
         &[discriminant, text],
         span(),
@@ -136,18 +145,6 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         }),
         "the call is a discriminant plus the string's pointer and length: {:?}",
         lowerer.instructions
-    );
-    assert!(
-        lower(
-            &mut RecordingLowerer::default(),
-            &import,
-            &char_discriminant,
-            ValueId(7),
-            &[discriminant, text],
-            span(),
-            BlockId(0),
-        )
-        .is_err()
     );
 
     let read = registry

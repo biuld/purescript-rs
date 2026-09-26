@@ -31,6 +31,14 @@ impl PlannedLayout {
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
     }
+
+    /// The record product fields and their canonical labels for a
+    /// representation handle, when it is a product.
+    pub(in crate::mir) fn wit_product(&self, id: ReprId) -> Option<(&[CcValueShape], &[String])> {
+        self.wit_products
+            .get(&id)
+            .map(|(fields, labels)| (fields.as_slice(), labels.as_slice()))
+    }
     pub(in crate::mir) fn variant_index(
         &self,
         id: ReprId,

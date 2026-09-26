@@ -22,6 +22,9 @@ pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
     product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
+    /// Record products by representation handle, with their canonical labels,
+    /// so the WIT adapter can project fields by WIT name.
+    wit_products: HashMap<ReprId, (Vec<CcValueShape>, Vec<String>)>,
     array_elements: HashMap<ReprId, CcValueShape>,
     variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
@@ -96,6 +99,7 @@ impl PlannedLayout {
         }
         let mut repr_indices = HashMap::new();
         let mut product_fields = HashMap::new();
+        let mut wit_products = HashMap::new();
         let mut array_elements = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len() + 1);
         // The GC string is `(array (mut i16))`: its length is the UTF-16 code
@@ -254,6 +258,10 @@ impl PlannedLayout {
                 }),
             };
             definitions[index as usize].composite = composite;
+            if let Representation::Product { fields } = representation {
+                let labels = table.product_labels.get(id).cloned().unwrap_or_default();
+                wit_products.insert(*id, (fields.clone(), labels));
+            }
         }
         for (index, fields) in variant_cases {
             let mut concrete = vec![FieldType {
@@ -341,6 +349,7 @@ impl PlannedLayout {
             },
             repr_indices,
             product_fields,
+            wit_products,
             array_elements,
             variant_indices,
             signature_indices,

@@ -36,6 +36,16 @@ pub(super) trait WitCallLowerer {
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>>;
 
+    /// The record product fields and their canonical labels for a representation
+    /// handle. `None` when the handle is not a product. The WIT adapter uses the
+    /// labels to project fields by WIT name without a source-type mirror.
+    fn wit_product(
+        &self,
+        _repr: crate::cc::ReprId,
+    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
+        None
+    }
+
     /// Records an `own<T>` result that this function must drop unless it
     /// returns the index or passes it to another `own` parameter.
     fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
@@ -92,6 +102,13 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         self.wit_product_field(block, value, field, span)
     }
 
+    fn wit_product(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
+        self.resolved_product(repr)
+    }
+
     fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
         self.note_owned_handle(value, drop_symbol, span);
     }
@@ -131,7 +148,7 @@ impl WitCallLowerer for FunctionLowerer<'_> {
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    signature: &crate::cc::Signature,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
@@ -140,14 +157,7 @@ pub(super) fn lower<L: WitCallLowerer>(
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     parameters::lower_parameters(
-        lowerer,
-        import,
-        source_signature,
-        arguments,
-        &mut flat,
-        &mut frees,
-        current,
-        span,
+        lowerer, import, signature, arguments, &mut flat, &mut frees, current, span,
     )?;
     let mut retptr = None;
     if import.retptr {

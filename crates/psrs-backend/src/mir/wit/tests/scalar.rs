@@ -1,6 +1,7 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
 #[test]
 fn scalar_f64_results_are_called_directly() {
@@ -22,7 +23,7 @@ fn scalar_f64_results_are_called_directly() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::Number),
+        &signature(Vec::new()),
         destination,
         &[],
         TextRange::new(0, 1),
@@ -61,7 +62,7 @@ fn char_arguments_and_results_use_direct_i32_values() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![SourceType::Char], SourceType::Char),
+        &signature(vec![ValueShape::Integer]),
         destination,
         &[argument],
         TextRange::new(0, 1),
@@ -106,14 +107,7 @@ fn enum_arguments_and_results_keep_the_validated_i32_tags() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(
-            vec![SourceType::Enum {
-                cases: vec!["Red".into(), "GreenBlue".into()],
-            }],
-            SourceType::Enum {
-                cases: vec!["Red".into(), "GreenBlue".into()],
-            },
-        ),
+        &signature(vec![ValueShape::Integer]),
         destination,
         &[argument],
         TextRange::new(0, 1),
@@ -155,7 +149,7 @@ fn f32_arguments_and_results_are_adapted_to_source_numbers() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![SourceType::Number], SourceType::Number),
+        &signature(vec![ValueShape::Number]),
         destination,
         &[argument],
         TextRange::new(0, 1),

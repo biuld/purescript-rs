@@ -87,7 +87,17 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
             },
         ],
         signatures: Vec::new(),
-        product_labels: Default::default(),
+        product_labels: [
+            (
+                cc::ReprId(0),
+                vec!["audit", "debug", "execute", "read", "write"],
+            ),
+            (cc::ReprId(1), vec!["state", "text"]),
+            (cc::ReprId(2), vec!["access", "details", "shade"]),
+        ]
+        .into_iter()
+        .map(|(id, labels)| (id, labels.into_iter().map(String::from).collect()))
+        .collect(),
     };
 
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);

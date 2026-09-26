@@ -1,6 +1,7 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, signature};
 use super::*;
-use crate::abi::{self, SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::{self, WasiParamKind, WasiResultKind};
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
 
 fn import(
@@ -65,7 +66,7 @@ fn list_results_free_the_import_buffer_after_decoding() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::String),
+        &signature(Vec::new()),
         ValueId(0),
         &[],
         TextRange::new(0, 1),
@@ -90,7 +91,7 @@ fn string_arguments_free_the_transcode_buffer_after_the_call() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![SourceType::String], SourceType::Unit),
+        &signature(vec![ValueShape::String]),
         ValueId(0),
         &[ValueId(1)],
         TextRange::new(0, 1),

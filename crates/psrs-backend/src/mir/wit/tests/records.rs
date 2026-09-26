@@ -1,7 +1,9 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, record, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
+
 #[test]
 fn record_arguments_flatten_in_wit_field_order() {
     let import = WasiImport {
@@ -27,17 +29,17 @@ fn record_arguments_flatten_in_wit_field_order() {
         retptr: false,
         flat_slots: Vec::new(),
     };
-    let source = SourceType::Record {
-        fields: vec![
-            ("first".into(), Box::new(SourceType::Int)),
-            ("secondValue".into(), Box::new(SourceType::Number)),
-        ],
-    };
     let mut lowerer = RecordingLowerer::default();
+    let shape = record(
+        &mut lowerer,
+        0,
+        &["first", "secondValue"],
+        vec![ValueShape::Integer, ValueShape::Number],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),
@@ -86,22 +88,18 @@ fn nested_records_flatten_byte_lists_in_wit_field_order() {
     // Source record fields are normalized alphabetically. The nested source
     // product therefore projects by name while the ABI emits WIT declaration
     // order, then expands the String to pointer and length.
-    let source = SourceType::Record {
-        fields: vec![
-            ("code".into(), Box::new(SourceType::Int)),
-            (
-                "payload".into(),
-                Box::new(SourceType::Record {
-                    fields: vec![("text".into(), Box::new(SourceType::String))],
-                }),
-            ),
-        ],
-    };
     let mut lowerer = RecordingLowerer::default();
+    let nested = record(&mut lowerer, 1, &["text"], vec![ValueShape::String]);
+    let outer = record(
+        &mut lowerer,
+        0,
+        &["code", "payload"],
+        vec![ValueShape::Integer, nested],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![outer]),
         ValueId(15),
         &[ValueId(20)],
         TextRange::new(0, 1),

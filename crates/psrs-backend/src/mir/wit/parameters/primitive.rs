@@ -5,6 +5,7 @@
 use super::{PendingFree, WitCallLowerer, lower_parameter, unsupported_parameter};
 use crate::BackendError;
 use crate::abi::{self, FlatSlot, WasiImport};
+use crate::cc::ValueShape;
 use crate::mir::BlockId;
 use crate::types::ValueId;
 use psrs_span::TextRange;
@@ -13,7 +14,7 @@ use psrs_span::TextRange;
 pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    signature: &crate::cc::Signature,
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
@@ -21,11 +22,9 @@ pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
     let mut index = 0;
-    for (argument, source) in arguments.iter().zip(&source_signature.parameters) {
-        let kind = slot_kind(import, source, &mut index, span)?;
-        lower_parameter(
-            lowerer, *argument, source, &kind, flat, frees, current, span,
-        )?;
+    for (argument, shape) in arguments.iter().zip(&signature.parameters) {
+        let kind = slot_kind(import, shape, &mut index, span)?;
+        lower_parameter(lowerer, *argument, shape, &kind, flat, frees, current, span)?;
     }
     let direct = import
         .parameters
@@ -39,12 +38,12 @@ pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
 
 fn slot_kind(
     import: &WasiImport,
-    source: &abi::SourceType,
+    shape: &ValueShape,
     index: &mut usize,
     span: TextRange,
 ) -> Result<abi::WasiParamKind, Vec<BackendError>> {
-    let kind = match source {
-        abi::SourceType::Int => match import.flat_slots.get(*index) {
+    let kind = match shape {
+        ValueShape::Integer => match import.flat_slots.get(*index) {
             Some(FlatSlot::Int32) => abi::WasiParamKind::Integer32,
             Some(FlatSlot::Int64 { signed }) => abi::WasiParamKind::Scalar64 { signed: *signed },
             Some(FlatSlot::Handle) => import
@@ -54,20 +53,16 @@ fn slot_kind(
                 .ok_or_else(|| unsupported_parameter(span))?,
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::Boolean => match import.flat_slots.get(*index) {
+        ValueShape::Boolean => match import.flat_slots.get(*index) {
             Some(FlatSlot::Boolean) => abi::WasiParamKind::Boolean,
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::Char => match import.flat_slots.get(*index) {
-            Some(FlatSlot::Char) => abi::WasiParamKind::Char,
-            _ => return Err(unsupported_parameter(span)),
-        },
-        abi::SourceType::Number => match import.flat_slots.get(*index) {
+        ValueShape::Number => match import.flat_slots.get(*index) {
             Some(FlatSlot::Float64) => abi::WasiParamKind::Float64,
             Some(FlatSlot::Float32) => abi::WasiParamKind::Float32,
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::String => {
+        ValueShape::String => {
             match (
                 import.flat_slots.get(*index),
                 import.flat_slots.get(*index + 1),
@@ -79,11 +74,7 @@ fn slot_kind(
                 _ => return Err(unsupported_parameter(span)),
             }
         }
-        abi::SourceType::Unit
-        | abi::SourceType::Enum { .. }
-        | abi::SourceType::Record { .. }
-        | abi::SourceType::Resource { .. }
-        | abi::SourceType::Array { .. } => return Err(unsupported_parameter(span)),
+        ValueShape::Reference(_) => return Err(unsupported_parameter(span)),
     };
     *index += 1;
     Ok(kind)
