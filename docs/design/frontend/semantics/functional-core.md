@@ -92,7 +92,7 @@ constructors is fixed:
 | `Char` | `Char` (a Unicode scalar) |
 | `Unit` | `Unit` (no payload) |
 | `a -> b` | `Function { parameter, result }` |
-| records and tuples | `Record([(label, TypeId)])`; a tuple is an anonymous product |
+| records and tuples | `Record([(label, TypeId)])`; a tuple is the closed record `{ _1, _2, ... }` |
 | `Array a` | `Application(Constructor(Array), a)` |
 | data types | `Constructor(User(HirTypeId))`, optionally applied to arguments |
 | `String` | `String`, a platform value supplied by the WASI boundary |

@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn runs_a_tuple_as_a_closed_record() {
+    let source = "\
+module Main where
+pair :: (Int, Int)
+pair = (40, 2)
+sum (x, y) = x + y
+main = case pair of
+  (x, y) -> sum (x, y)
+";
+    let core = lower_source_to_core("Main.purs", source).expect("tuple should lower to Core");
+    let main = core
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .expect("Core should retain main");
+    let psrs_core::ExprKind::Case { scrutinee, .. } = &main.value.kind else {
+        panic!("main should case on the tuple");
+    };
+    let psrs_core::Type::Record(fields) = &core.types[scrutinee.ty.0 as usize] else {
+        panic!(
+            "a tuple type should be a closed record in Core, got {:?}",
+            core.types[scrutinee.ty.0 as usize]
+        );
+    };
+    assert_eq!(
+        fields
+            .iter()
+            .map(|(label, _)| label.as_str())
+            .collect::<Vec<_>>(),
+        ["_1", "_2"]
+    );
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn runs_a_record_field_access_through_a_gc_struct() {
     let source = "module Main where\nmain = { ignored: 10, answer: 42 }.answer\n";
     let artifact = compile_source("Main.purs", source).expect("lowering a record field access");
