@@ -7,7 +7,7 @@ mod fixtures;
 use super::lower_module_with_registry;
 use crate::TargetCapabilities;
 use crate::abi;
-use fixtures::{fixture, result_fixture, string_fixture};
+use fixtures::{fixture, flags_fixture, result_fixture, string_fixture};
 
 #[test]
 fn record_list_parameters_lower_to_a_canonical_layout() {
@@ -159,4 +159,49 @@ fn record_list_string_fields_transcode_and_free() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the record list with a string field should validate");
+}
+
+#[test]
+fn flags_list_packs_boolean_fields() {
+    let (cc, bindings, resolve) = flags_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
+        .expect("P9 should lower a list<flags> parameter");
+
+    let flags = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .find_map(|instruction| match instruction {
+            crate::mir::Instruction::ListCopyFlags {
+                direction,
+                size,
+                fields,
+                ..
+            } => Some((*direction, *size, fields.clone())),
+            _ => None,
+        })
+        .expect("a ListCopyFlags should be emitted");
+    assert_eq!(flags.0, crate::mir::ListDirection::Store);
+    assert_eq!(flags.1, 4, "one canonical word");
+    assert_eq!(
+        flags.2,
+        vec![
+            crate::mir::ListFlagsField { bit: 1, index: 0 },
+            crate::mir::ListFlagsField { bit: 0, index: 1 },
+        ]
+    );
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the flags copy");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the flags list copy");
+    let binary = crate::wasm::encode_module(&wasm).expect("the flags list Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the flags list Wasm should validate");
 }

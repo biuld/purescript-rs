@@ -306,6 +306,13 @@ pub(crate) fn remap_instruction(
             pointer,
             length,
             ..
+        }
+        | I::ListCopyFlags {
+            direction,
+            array,
+            pointer,
+            length,
+            ..
         } => {
             if !matches!(
                 direction,

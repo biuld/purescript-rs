@@ -81,6 +81,76 @@ fn element_storage_matches(element: ListElement, storage: &StorageType) -> bool 
     }
 }
 
+pub(super) fn verify_list_copy_flags(
+    function: &Function,
+    instruction: &Instruction,
+    definitions: &HashMap<ValueId, ValueType>,
+    defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let Instruction::ListCopyFlags {
+        direction,
+        array,
+        array_type,
+        struct_type,
+        pointer,
+        length,
+        fields,
+        span,
+        ..
+    } = instruction
+    else {
+        unreachable!("flags list verifier received another instruction")
+    };
+    if require_value(definitions, *pointer, *span)? != ValueType::I32
+        || require_value(definitions, *length, *span)? != ValueType::I32
+    {
+        return Err(mir_error(
+            *span,
+            "MIR flags list copy pointer and length must be i32",
+        ));
+    }
+    if *direction == ListDirection::FreeStrings {
+        return Ok(());
+    }
+    let Some(CompositeType::Array(_)) = composite_at(defined, *array_type) else {
+        return Err(mir_error(*span, "MIR flags list copy type is not an array"));
+    };
+    let Some(CompositeType::Struct(field_types)) = composite_at(defined, *struct_type) else {
+        return Err(mir_error(
+            *span,
+            "MIR flags list copy element is not a struct",
+        ));
+    };
+    if field_types.len() != fields.len()
+        || fields.iter().any(|field| field.bit >= 32)
+        || field_types
+            .iter()
+            .any(|field| field.storage != StorageType::I32)
+    {
+        return Err(mir_error(
+            *span,
+            "MIR flags list copy fields do not match the struct",
+        ));
+    }
+    let array_type_ok = match direction {
+        ListDirection::Load => value_type(function, *array)
+            .is_some_and(|ty| is_array_reference(ty, *array_type, defined)),
+        ListDirection::Store => is_array_reference(
+            require_value(definitions, *array, *span)?,
+            *array_type,
+            defined,
+        ),
+        ListDirection::FreeStrings => true,
+    };
+    if !array_type_ok {
+        return Err(mir_error(
+            *span,
+            "MIR flags list copy array has the wrong type",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn verify_list_copy_record(
     function: &Function,
     instruction: &Instruction,

@@ -2,6 +2,7 @@
 //! straight-line so the extent checker can see allocator provenance without
 //! following a dynamic index.
 
+mod flags;
 mod record;
 
 use super::super::wasm_error;
@@ -310,7 +311,9 @@ pub(crate) fn uses_list_copy(function: &crate::mir::Function) -> bool {
         block.instructions.iter().any(|instruction| {
             matches!(
                 instruction,
-                MirInstruction::ListCopy { .. } | MirInstruction::ListCopyRecord { .. }
+                MirInstruction::ListCopy { .. }
+                    | MirInstruction::ListCopyRecord { .. }
+                    | MirInstruction::ListCopyFlags { .. }
             )
         })
     })
