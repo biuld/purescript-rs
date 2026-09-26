@@ -147,6 +147,19 @@ The existing enum, closed-record, and flags-record lowering still accepts
 those declarations and is not deleted. They keep a resolved type and still
 lower. They are not the set new standard-library imports use.
 
+### Aggregate forms map to library types
+
+[DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
+higher-level WIT forms to existing idiomatic library types rather than a
+compiler vocabulary: `tuple<A, B>` to a closed record `{ _1, _2 }`,
+`option<T>` to `Maybe T`, `result<O, E>` to `Either O E`, and `variant` to a
+data type whose constructors follow the WIT case order. The compiler carries a
+small name table for `Data.Maybe.Maybe` and `Data.Either.Either` and lowers
+these through the resolved-type path fixed by
+[DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md). This supersedes
+DEC-11's primitive-only mechanism; the two-layer rule (library wrappers over
+primitive imports) still stands.
+
 ## Design
 
 The standard library grows by writing PureScript. The compiler does not gain

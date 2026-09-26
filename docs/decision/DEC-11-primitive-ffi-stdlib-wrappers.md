@@ -86,3 +86,19 @@ not the rejected `Maybe`/`Either`/tuple path: `Array` is the source type for a
 canonical list, not an aggregate encoding, and `option`, `result`, `variant`,
 and tuples remain non-source types. A future list of aggregates, and every
 multi-value return, still stays out until the whole value is one mapped shape.
+
+## Amendment — aggregate WIT forms (mechanism superseded)
+
+[DEC-12](DEC-12-resolved-wit-bindings.md) removed `SourceType`, so the clause
+"the lowerer does not grow `SourceType`" no longer has an object. The source
+side of the ABI is now the declaration's resolved Core type plus the WIT
+descriptor.
+
+[DEC-13](DEC-13-wit-to-source-type-mapping.md) maps `tuple`, `option`,
+`result`, and `variant` to the existing idiomatic library types — closed
+records, `Data.Maybe.Maybe`, `Data.Either.Either`, and ordinary data types —
+and supersedes this record's mechanism clause and its rule against recognizing
+`Maybe`/`Either`/tuples. The two-layer rule still stands: the standard library
+wraps foreign imports in ordinary PureScript, and the compiler does not grow a
+parallel type vocabulary. The amendment above that admitted non-byte `Array`
+lists is subsumed by DEC-13.
