@@ -85,6 +85,51 @@ pub(super) fn verify_array_new_default(
     Ok(())
 }
 
+/// `array.new_data` materializes static literal bytes into a fresh packed
+/// array. Only the GC string's packed `i16` element type is admitted.
+pub(super) fn verify_array_new_data(
+    function: &Function,
+    instruction: &Instruction,
+    defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let Instruction::ArrayNewData {
+        destination,
+        type_index,
+        span,
+        ..
+    } = instruction
+    else {
+        unreachable!("array.new_data verifier received another instruction")
+    };
+    let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+        return Err(mir_error(*span, "MIR array.new_data type is not an array"));
+    };
+    if element.storage != StorageType::I16 {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_data requires packed i16 element storage",
+        ));
+    }
+    if !element.mutable {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_data requires a mutable array",
+        ));
+    }
+    if !is_array_reference(
+        value_type(function, *destination)
+            .ok_or_else(|| mir_error(*span, "MIR array.new_data result has no value type"))?,
+        *type_index,
+        defined,
+    ) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_data result must be a reference",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn verify_clone(
     function: &Function,
     destination: ValueId,

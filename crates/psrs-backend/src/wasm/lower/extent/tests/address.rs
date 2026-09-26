@@ -111,9 +111,9 @@ fn propagates_a_known_address_through_block_parameters() {
             BasicBlock {
                 id: BlockId(0),
                 parameters: Vec::new(),
-                instructions: vec![Instruction::StringConstant {
+                instructions: vec![Instruction::Constant {
                     destination: ValueId(0),
-                    bytes: "abc".into(),
+                    value: 0,
                     span: ACCESS_SPAN,
                 }],
                 terminator: Some(Terminator::Jump {
@@ -157,14 +157,14 @@ fn conflicting_block_parameter_addresses_become_dynamic() {
                 id: BlockId(0),
                 parameters: Vec::new(),
                 instructions: vec![
-                    Instruction::StringConstant {
+                    Instruction::Constant {
                         destination: ValueId(0),
-                        bytes: "abc".into(),
+                        value: 0,
                         span: ACCESS_SPAN,
                     },
                     Instruction::Constant {
                         destination: ValueId(1),
-                        value: 0,
+                        value: 5,
                         span: ACCESS_SPAN,
                     },
                 ],
@@ -226,9 +226,9 @@ fn a_dynamic_offset_from_a_literal_base_remains_a_dynamic_read() {
         vec![ValueId(1)],
         vec![block(
             vec![
-                Instruction::StringConstant {
+                Instruction::Constant {
                     destination: ValueId(0),
-                    bytes: "abc".into(),
+                    value: 0,
                     span: ACCESS_SPAN,
                 },
                 Instruction::Primitive {

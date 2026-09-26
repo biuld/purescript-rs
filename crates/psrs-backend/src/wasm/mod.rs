@@ -125,12 +125,20 @@ pub struct Function {
     pub span: TextRange,
 }
 
-/// An initialized data segment in linear memory.
+/// How a data segment is made available: copied into linear memory at a fixed
+/// offset, or held passively for `array.new_data` to read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DataMode {
+    Active { offset: u32 },
+    Passive,
+}
+
+/// An initialized data segment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataSegment {
     pub id: DataId,
     pub index: DataIndex,
-    pub offset: u32,
+    pub mode: DataMode,
     pub bytes: Vec<u8>,
 }
 
@@ -161,6 +169,9 @@ pub struct Module {
     /// A synthesized `cabi_realloc` export, present when canonical ABI lowering
     /// needs guest linear-memory allocation.
     pub realloc: Option<Function>,
+    /// Synthesized string-boundary codec functions. They are local functions,
+    /// referenced by reserved MIR symbols, and encoded after `realloc`.
+    pub helpers: Vec<Function>,
     pub span: TextRange,
 }
 

@@ -48,10 +48,8 @@ fn verify_plan(
             };
             let valid = match kind {
                 BoxKind::Integer => {
-                    matches!(
-                        source,
-                        ValueShape::Integer | ValueShape::Boolean | ValueShape::String
-                    ) && *value == ValueShape::Integer
+                    matches!(source, ValueShape::Integer | ValueShape::Boolean)
+                        && *value == ValueShape::Integer
                 }
                 BoxKind::Number => source == ValueShape::Number && *value == ValueShape::Number,
             };
@@ -83,10 +81,7 @@ fn verify_plan(
             match kind {
                 BoxKind::Integer
                     if *value == ValueShape::Integer
-                        && matches!(
-                            destination,
-                            ValueShape::Integer | ValueShape::Boolean | ValueShape::String
-                        ) =>
+                        && matches!(destination, ValueShape::Integer | ValueShape::Boolean) =>
                 {
                     Ok(*destination)
                 }
@@ -102,8 +97,11 @@ fn verify_plan(
             }
         }
         ValueConversion::EraseReference => {
-            if !matches!(source, ValueShape::Reference(reference) if reference != erased_reference())
-            {
+            // A typed reference or the GC string is erased to `eq`; the string
+            // is an array reference in the `eq` hierarchy.
+            let typed = matches!(source, ValueShape::String)
+                || matches!(source, ValueShape::Reference(reference) if reference != erased_reference());
+            if !typed {
                 return Err(assignment_error(
                     assignment,
                     "reference erasure requires a typed reference",
@@ -115,7 +113,9 @@ fn verify_plan(
             destination,
             evidence,
         } => {
-            if source != erased_shape() || !matches!(destination, ValueShape::Reference(_)) {
+            if source != erased_shape()
+                || !matches!(destination, ValueShape::Reference(_) | ValueShape::String)
+            {
                 return Err(assignment_error(
                     assignment,
                     "reference recovery has incompatible shapes",

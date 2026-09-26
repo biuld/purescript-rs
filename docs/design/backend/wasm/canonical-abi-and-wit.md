@@ -540,8 +540,8 @@ The current code deviates from the complete design in these ways; the gaps are
 tracked on BE-11 and BE-17..BE-20 in [D-04](../../D-04-suite-roadmap.md) and are
 implementation coverage, not design choices:
 
-- A source `String` is still an `i32` linear pointer to a length-prefixed
-  buffer, not a GC byte-sequence value.
+- A source `String` is now a GC byte-sequence value; the ABI adapter transcodes
+  it to and from the component's UTF-8, but still through a bump allocator.
 - `cabi_realloc` is a bump allocator with no reclamation, and no `post-return`
   is synthesized.
 - `own`/`borrow` handles are classified but not lowered: there is no

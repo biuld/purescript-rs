@@ -1,7 +1,7 @@
 use super::{local, value_type, wasm_error};
 use crate::BackendError;
 use crate::mir::{self, BlockId, Function as MirFunction, Instruction as MirInstruction};
-use crate::types::ValueId;
+use crate::types::{DataId, ValueId};
 use crate::wasm::convert::heap_type;
 use crate::wasm::{Body, Op};
 use ops::{memory, memory_with_align, primitive, ref_cast, ref_test};
@@ -47,7 +47,8 @@ pub(super) struct Structurer<'a> {
     pub(super) blocks: HashMap<BlockId, &'a mir::BasicBlock>,
     pub(super) locals: HashMap<ValueId, u32>,
     pub(super) function_indices: &'a HashMap<SymbolId, FunctionIndex>,
-    pub(super) string_offsets: &'a HashMap<String, u32>,
+    /// UTF-16 code-unit count of each passive string data segment.
+    pub(super) string_lengths: &'a HashMap<DataId, u32>,
 }
 impl Structurer<'_> {
     pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<bool, Vec<BackendError>> {

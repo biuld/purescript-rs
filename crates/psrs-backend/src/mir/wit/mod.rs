@@ -99,8 +99,7 @@ pub(super) fn lower<L: WitCallLowerer>(
     }
     match &import.result_kind {
         // A returned list or string is written through the return pointer as
-        // `(pointer, length)`. `cabi_realloc` prefixes the buffer with its
-        // length, so the string value is the pointer minus that prefix.
+        // `(pointer, length)` of UTF-8 bytes. Decode it into a fresh GC string.
         abi::WasiResultKind::List => {
             let address = retptr.expect("a list result takes a return pointer");
             lowerer.append_wit_instruction(
@@ -124,23 +123,24 @@ pub(super) fn lower<L: WitCallLowerer>(
                 },
                 span,
             )?;
-            let four = lowerer.fresh_wit_value(ValueType::I32);
+            let length = lowerer.fresh_wit_value(ValueType::I32);
             lowerer.append_wit_instruction(
                 current,
-                Instruction::Constant {
-                    destination: four,
-                    value: 4,
+                Instruction::Load {
+                    destination: length,
+                    address,
+                    memory: MemoryId(0),
+                    offset: 4,
                     span,
                 },
                 span,
             )?;
             lowerer.append_wit_instruction(
                 current,
-                Instruction::Primitive {
+                Instruction::Call {
                     destination,
-                    op: NumericOp::I32Sub,
-                    left: pointer,
-                    right: four,
+                    function: crate::abi::BYTES_TO_STRING_SYMBOL,
+                    arguments: vec![pointer, length],
                     span,
                 },
                 span,

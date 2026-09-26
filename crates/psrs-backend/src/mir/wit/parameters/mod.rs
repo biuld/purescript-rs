@@ -110,12 +110,26 @@ fn lower_parameter<L: WitCallLowerer>(
             lower_flags(lowerer, argument, source, names, flat, current, span)?;
         }
         abi::WasiParamKind::List => {
+            // Transcode the GC string's UTF-16 into a fresh UTF-8 linear
+            // buffer. The helper returns the address of a length prefix; the
+            // canonical exchange passes the payload pointer and byte length.
+            let prefix = lowerer.fresh_wit_value(ValueType::I32);
+            lowerer.append_wit_instruction(
+                current,
+                Instruction::Call {
+                    destination: prefix,
+                    function: crate::abi::STRING_TO_BYTES_SYMBOL,
+                    arguments: vec![argument],
+                    span,
+                },
+                span,
+            )?;
             let length = lowerer.fresh_wit_value(ValueType::I32);
             lowerer.append_wit_instruction(
                 current,
                 Instruction::Load {
                     destination: length,
-                    address: argument,
+                    address: prefix,
                     memory: MemoryId(0),
                     offset: 0,
                     span,
@@ -138,7 +152,7 @@ fn lower_parameter<L: WitCallLowerer>(
                 Instruction::Primitive {
                     destination: bytes,
                     op: NumericOp::I32Add,
-                    left: argument,
+                    left: prefix,
                     right: four,
                     span,
                 },

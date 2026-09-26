@@ -345,7 +345,7 @@ fn integer_capture_module(capture: Type) -> Module {
 
 #[test]
 fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
-    for capture in [Type::Char, Type::String, Type::Unit] {
+    for capture in [Type::Char, Type::Unit] {
         let module = integer_capture_module(capture.clone());
         assert!(
             !module
@@ -364,4 +364,16 @@ fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
             "a free {capture:?} capture maps to ValueShape::Integer and needs the integer box"
         );
     }
+    // A `String` capture is a GC reference erased through the `eq` reference,
+    // not through the one-field integer box.
+    let module = integer_capture_module(Type::String);
+    let newtypes = HashSet::new();
+    let enums = enum_type_ids(&module, &newtypes);
+    let aggregates = aggregate_type_ids(&module, &newtypes);
+    let layout = type_layout(&module, &enums, &aggregates, &newtypes)
+        .expect("a String capture should have a layout");
+    assert!(
+        layout.boxed_integer_type.is_none(),
+        "a String capture must not reserve the integer box"
+    );
 }

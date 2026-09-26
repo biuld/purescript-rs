@@ -30,6 +30,7 @@ fn defined_types_flow_into_the_wasm_type_section() {
                 mutable: false,
             }]),
         }])],
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
             id: crate::types::FunctionId(0),
@@ -77,6 +78,7 @@ fn lowers_and_validates_f64_to_f32_abi_conversions() {
         name: "FloatAbi".into(),
         entry: Some(symbol),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
             id: crate::types::FunctionId(0),
@@ -176,6 +178,7 @@ fn runs_a_mir_gc_struct_under_wasmtime() {
         name: "MirGc".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: vec![RecGroup(vec![struct_type])],
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
             id: crate::types::FunctionId(0),
@@ -304,6 +307,7 @@ fn lowers_an_imported_call() {
         name: "MirImport".into(),
         entry: Some(SymbolId::new(ModuleId(0), 0)),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: vec![Import {
             symbol: callee,
             parameters: import.parameters.clone(),
@@ -361,6 +365,7 @@ fn wasm_lowering_requires_an_explicit_entry_symbol() {
         name: "NoEntry".into(),
         entry: None,
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
             id: crate::types::FunctionId(0),
@@ -415,6 +420,7 @@ fn rejects_a_struct_new_with_a_mistyped_field() {
                 mutable: false,
             }]),
         }])],
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![Function {
             id: crate::types::FunctionId(0),

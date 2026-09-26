@@ -33,6 +33,7 @@ fn module_with_function_body(name: &str, body: Body) -> Module {
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     }
 }
@@ -104,6 +105,7 @@ fn encodes_and_runs_a_gc_struct() {
         }],
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
 
@@ -155,6 +157,7 @@ fn defined_types_precede_function_types() {
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
     assert_eq!(module.defined_type_count(), 1);
@@ -172,12 +175,13 @@ fn rejects_a_data_index_that_does_not_match_module_order() {
         data: vec![DataSegment {
             id: crate::types::DataId(0),
             index: super::DataIndex(1),
-            offset: 0,
+            mode: super::DataMode::Active { offset: 0 },
             bytes: Vec::new(),
         }],
         exports: Vec::new(),
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
     let errors = super::verify::verify_module(&module).unwrap_err();
@@ -206,6 +210,7 @@ fn rejects_an_export_with_the_wrong_index_domain() {
         }],
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
     let errors = super::verify::verify_module(&module).unwrap_err();

@@ -19,6 +19,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
     crate::mir::verify_module(&crate::mir::Module {
         name: source.name.clone(),
         types: Vec::new(),
+        strings: Vec::new(),
         imports: Vec::new(),
         functions: vec![source.clone()],
         entry: Some(source.symbol),
@@ -44,6 +45,7 @@ pub(super) fn lower_and_validate(source: &MirFunction) -> (Function, Vec<u8>) {
         }],
         entry: None,
         realloc: None,
+        helpers: Vec::new(),
         span: span(),
     };
     wasm::verify::verify_module(&module).unwrap();

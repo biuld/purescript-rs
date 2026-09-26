@@ -50,15 +50,8 @@ pub(super) fn verify_instruction(
                 return Err(mir_error(*span, "MIR number constant must produce f64"));
             }
         }
-        Instruction::StringConstant {
-            destination, span, ..
-        } => {
-            if value_type(function, *destination) != Some(ValueType::I32) {
-                return Err(mir_error(
-                    *span,
-                    "MIR string constant must produce an i32 pointer",
-                ));
-            }
+        Instruction::ArrayNewData { .. } => {
+            arrays::verify_array_new_data(function, instruction, defined)?
         }
         Instruction::Primitive { .. } => {
             primitive::verify_primitive(function, instruction, definitions)?

@@ -4,8 +4,8 @@ use super::reachable::ReachableHandles;
 use crate::TargetCapabilities;
 use crate::cc::Module as CcModule;
 use crate::cc::{
-    RefShape as CcRefShape, Reference as CcReference, ReprId, Representation, RepresentationTable,
-    SignatureId, ValueShape as CcValueShape,
+    RefShape as CcRefShape, ReprId, Representation, RepresentationTable, SignatureId,
+    ValueShape as CcValueShape,
 };
 use crate::types::{
     CompositeType, DefinedType, DefinedTypeId, FieldType, HeapType, RecGroup, RefType, StorageType,
@@ -13,6 +13,7 @@ use crate::types::{
 };
 use std::collections::HashMap;
 
+mod accessors;
 mod validate;
 use validate::validate_selected;
 
@@ -28,6 +29,7 @@ pub(super) struct PlannedLayout {
     capture_array_index: Option<DefinedTypeId>,
     boxed_integer_index: Option<DefinedTypeId>,
     boxed_number_index: Option<DefinedTypeId>,
+    string_index: Option<DefinedTypeId>,
 }
 
 impl PlannedLayout {
@@ -42,7 +44,21 @@ impl PlannedLayout {
         let signature_ids = (0..table.signatures.len())
             .map(|index| SignatureId(index as u32))
             .collect::<Vec<_>>();
-        Self::plan_selected(table, target, &repr_ids, &signature_ids)
+        let needs_string = repr_ids.iter().any(|id| match table.representation(*id) {
+            Some(Representation::Box { value })
+            | Some(Representation::Array { element: value }) => *value == CcValueShape::String,
+            Some(Representation::Product { fields }) => fields.contains(&CcValueShape::String),
+            Some(Representation::Variant { cases }) => cases
+                .iter()
+                .any(|case| case.fields.contains(&CcValueShape::String)),
+            None => false,
+        }) || signature_ids.iter().any(|id| {
+            table.signature(*id).is_some_and(|signature| {
+                signature.parameters.contains(&CcValueShape::String)
+                    || signature.result == CcValueShape::String
+            })
+        });
+        Self::plan_selected(table, target, &repr_ids, &signature_ids, needs_string)
     }
 
     /// Plans only the representation and signature requirements reachable from
@@ -58,6 +74,7 @@ impl PlannedLayout {
             target,
             &reachable.representations,
             &reachable.signatures,
+            reachable.needs_string,
         )
     }
 
@@ -66,9 +83,10 @@ impl PlannedLayout {
         target: TargetCapabilities,
         repr_ids: &[ReprId],
         signature_ids: &[SignatureId],
+        needs_string: bool,
     ) -> Result<Self, LayoutError> {
         validate_selected(table, repr_ids, signature_ids)?;
-        if !repr_ids.is_empty() && (!target.reference_types || !target.gc) {
+        if (!repr_ids.is_empty() || needs_string) && (!target.reference_types || !target.gc) {
             return Err(LayoutError::UnsupportedGcTarget);
         }
         if !signature_ids.is_empty()
@@ -79,11 +97,29 @@ impl PlannedLayout {
         let mut repr_indices = HashMap::new();
         let mut product_fields = HashMap::new();
         let mut array_elements = HashMap::new();
-        let mut definitions = Vec::with_capacity(repr_ids.len());
+        let mut definitions = Vec::with_capacity(repr_ids.len() + 1);
+        // The GC string is `(array (mut i16))`: its length is the UTF-16 code
+        // unit count, matching PureScript/JS `String` semantics. Reserve it at
+        // index 0 so every other concrete type keeps a stable offset.
+        let string_index = if needs_string {
+            definitions.push(DefinedType {
+                final_type: true,
+                supertype: None,
+                composite: CompositeType::Array(FieldType {
+                    storage: StorageType::I16,
+                    mutable: true,
+                }),
+            });
+            Some(DefinedTypeId(0))
+        } else {
+            None
+        };
+        let string_offset = u32::from(needs_string);
         for (index, id) in repr_ids.iter().enumerate() {
-            repr_indices.insert(*id, DefinedTypeId(index as u32));
+            let index = index as u32 + string_offset;
+            repr_indices.insert(*id, DefinedTypeId(index));
             if let Some(Representation::Product { fields }) = table.representation(*id) {
-                product_fields.insert(DefinedTypeId(index as u32), fields.clone());
+                product_fields.insert(DefinedTypeId(index), fields.clone());
             }
             if let Some(Representation::Array { element }) = table.representation(*id) {
                 array_elements.insert(*id, *element);
@@ -159,7 +195,7 @@ impl PlannedLayout {
                     })
                 )
             })
-            .map(|index| DefinedTypeId(index as u32));
+            .map(|index| DefinedTypeId(index as u32 + string_offset));
         let boxed_integer_index = repr_ids
             .iter()
             .position(|id| {
@@ -170,14 +206,15 @@ impl PlannedLayout {
                     })
                 )
             })
-            .map(|index| DefinedTypeId(index as u32));
+            .map(|index| DefinedTypeId(index as u32 + string_offset));
         for (index, id) in repr_ids.iter().enumerate() {
+            let index = index as u32 + string_offset;
             let representation = table
                 .representation(*id)
                 .ok_or(LayoutError::UnknownRepresentation)?;
             let composite = match representation {
                 Representation::Box { value } => CompositeType::Struct(vec![FieldType {
-                    storage: storage_type(value, &repr_indices, closure_index)?,
+                    storage: storage_type(value, &repr_indices, closure_index, string_index)?,
                     mutable: false,
                 }]),
                 Representation::Product { fields } => CompositeType::Struct(
@@ -185,7 +222,12 @@ impl PlannedLayout {
                         .iter()
                         .map(|value| {
                             Ok(FieldType {
-                                storage: storage_type(value, &repr_indices, closure_index)?,
+                                storage: storage_type(
+                                    value,
+                                    &repr_indices,
+                                    closure_index,
+                                    string_index,
+                                )?,
                                 mutable: false,
                             })
                         })
@@ -195,18 +237,23 @@ impl PlannedLayout {
                     if cases.is_empty() {
                         return Err(LayoutError::IncompatibleVariant);
                     }
-                    definitions[index].final_type = false;
+                    definitions[index as usize].final_type = false;
                     CompositeType::Struct(vec![FieldType {
                         storage: StorageType::I32,
                         mutable: false,
                     }])
                 }
                 Representation::Array { element } => CompositeType::Array(FieldType {
-                    storage: array_storage_type(element, &repr_indices, closure_index)?,
+                    storage: array_storage_type(
+                        element,
+                        &repr_indices,
+                        closure_index,
+                        string_index,
+                    )?,
                     mutable: true,
                 }),
             };
-            definitions[index].composite = composite;
+            definitions[index as usize].composite = composite;
         }
         for (index, fields) in variant_cases {
             let mut concrete = vec![FieldType {
@@ -218,7 +265,12 @@ impl PlannedLayout {
                     .iter()
                     .map(|value| {
                         Ok(FieldType {
-                            storage: storage_type(value, &repr_indices, closure_index)?,
+                            storage: storage_type(
+                                value,
+                                &repr_indices,
+                                closure_index,
+                                string_index,
+                            )?,
                             mutable: false,
                         })
                     })
@@ -245,10 +297,15 @@ impl PlannedLayout {
                 signature
                     .parameters
                     .iter()
-                    .map(|value| value_type(value, &repr_indices, closure_index))
+                    .map(|value| value_type(value, &repr_indices, closure_index, string_index))
                     .collect::<Result<Vec<_>, _>>()?,
             );
-            let results = [value_type(&signature.result, &repr_indices, closure_index)?];
+            let results = [value_type(
+                &signature.result,
+                &repr_indices,
+                closure_index,
+                string_index,
+            )?];
             let key = (
                 parameters
                     .iter()
@@ -291,78 +348,7 @@ impl PlannedLayout {
             capture_array_index,
             boxed_integer_index,
             boxed_number_index,
-        })
-    }
-    pub(super) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
-        self.repr_indices
-            .get(&id)
-            .copied()
-            .ok_or(LayoutError::UnknownRepresentation)
-    }
-    pub(super) fn product_field(
-        &self,
-        id: DefinedTypeId,
-        field: u32,
-    ) -> Result<CcValueShape, LayoutError> {
-        self.product_fields
-            .get(&id)
-            .and_then(|fields| fields.get(field as usize))
-            .copied()
-            .ok_or(LayoutError::UnknownField)
-    }
-    pub(super) fn array_element(&self, id: ReprId) -> Result<CcValueShape, LayoutError> {
-        self.array_elements
-            .get(&id)
-            .copied()
-            .ok_or(LayoutError::UnknownRepresentation)
-    }
-    pub(super) fn variant_index(
-        &self,
-        id: ReprId,
-        case: u32,
-    ) -> Result<DefinedTypeId, LayoutError> {
-        self.variant_indices
-            .get(&(id, case))
-            .copied()
-            .ok_or(LayoutError::UnknownField)
-    }
-    pub(super) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
-        self.signature_indices
-            .get(&id)
-            .copied()
-            .ok_or(LayoutError::UnknownSignature)
-    }
-
-    pub(super) fn closure_layout(&self) -> Result<(DefinedTypeId, DefinedTypeId), LayoutError> {
-        self.closure_index
-            .zip(self.capture_array_index)
-            .ok_or(LayoutError::UnknownClosureLayout)
-    }
-
-    pub(super) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
-        self.boxed_number_index
-    }
-
-    pub(super) fn boxed_integer_index(&self) -> Option<DefinedTypeId> {
-        self.boxed_integer_index
-    }
-
-    pub(super) fn value_type(&self, value: &CcValueShape) -> Result<ValueType, LayoutError> {
-        value_type(value, &self.repr_indices, self.closure_index)
-    }
-
-    pub(super) fn reference(&self, reference: &CcReference) -> Result<RefType, LayoutError> {
-        Ok(RefType {
-            nullable: reference.nullable,
-            heap: match reference.heap {
-                CcRefShape::Repr(id) => HeapType::Index(self.repr_index(id)?),
-                CcRefShape::Aggregate => HeapType::Struct,
-                CcRefShape::Closure(_) => HeapType::Index(
-                    self.closure_index
-                        .ok_or(LayoutError::UnknownRepresentation)?,
-                ),
-                CcRefShape::Erased => HeapType::Eq,
-            },
+            string_index,
         })
     }
 }
@@ -394,12 +380,16 @@ fn value_type(
     value: &CcValueShape,
     repr_indices: &HashMap<ReprId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
+    string_index: Option<DefinedTypeId>,
 ) -> Result<ValueType, LayoutError> {
     Ok(match value {
         CcValueShape::Integer => ValueType::I32,
         CcValueShape::Boolean => ValueType::Boolean,
         CcValueShape::Number => ValueType::F64,
-        CcValueShape::String => ValueType::I32,
+        CcValueShape::String => ValueType::Ref(RefType {
+            nullable: false,
+            heap: HeapType::Index(string_index.ok_or(LayoutError::UnknownRepresentation)?),
+        }),
         CcValueShape::Reference(reference) => ValueType::Ref(RefType {
             nullable: reference.nullable,
             heap: match reference.heap {
@@ -423,21 +413,25 @@ fn storage_type(
     value: &CcValueShape,
     repr_indices: &HashMap<ReprId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
+    string_index: Option<DefinedTypeId>,
 ) -> Result<StorageType, LayoutError> {
-    Ok(match value_type(value, repr_indices, closure_index)? {
-        ValueType::I32 | ValueType::Boolean => StorageType::I32,
-        ValueType::F64 => StorageType::F64,
-        ValueType::Ref(reference) => StorageType::Ref(reference),
-        _ => return Err(LayoutError::UnsupportedValue),
-    })
+    Ok(
+        match value_type(value, repr_indices, closure_index, string_index)? {
+            ValueType::I32 | ValueType::Boolean => StorageType::I32,
+            ValueType::F64 => StorageType::F64,
+            ValueType::Ref(reference) => StorageType::Ref(reference),
+            _ => return Err(LayoutError::UnsupportedValue),
+        },
+    )
 }
 
 fn array_storage_type(
     value: &CcValueShape,
     repr_indices: &HashMap<ReprId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
+    string_index: Option<DefinedTypeId>,
 ) -> Result<StorageType, LayoutError> {
-    let mut storage = storage_type(value, repr_indices, closure_index)?;
+    let mut storage = storage_type(value, repr_indices, closure_index, string_index)?;
     if let StorageType::Ref(reference) = &mut storage {
         // Dynamic clones use `array.new_default`, so reference slots must be
         // nullable while the fresh array is being initialized by `array.copy`.

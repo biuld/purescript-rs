@@ -43,21 +43,24 @@ impl Structurer<'_> {
                         *span,
                     )?)));
                 }
-                MirInstruction::StringConstant {
+                MirInstruction::ArrayNewData {
                     destination,
-                    bytes,
+                    type_index,
+                    data_index,
                     span,
                 } => {
-                    let offset =
-                        self.string_offsets.get(bytes).copied().ok_or_else(|| {
-                            wasm_error(*span, "string constant has no data segment")
-                        })?;
-                    body.push(Op::Leaf(Instruction::I32Const(offset as i32)));
-                    body.push(Op::Leaf(Instruction::LocalSet(local(
-                        &self.locals,
-                        *destination,
-                        *span,
-                    )?)));
+                    let length = self
+                        .string_lengths
+                        .get(data_index)
+                        .copied()
+                        .ok_or_else(|| wasm_error(*span, "string literal has no data segment"))?;
+                    body.push(Op::Leaf(Instruction::I32Const(0)));
+                    body.push(Op::Leaf(Instruction::I32Const(length as i32)));
+                    body.push(Op::Leaf(Instruction::ArrayNewData {
+                        array_type_index: type_index.0,
+                        array_data_index: data_index.0,
+                    }));
+                    self.store(body, *destination, *span)?;
                 }
                 MirInstruction::Primitive {
                     destination,

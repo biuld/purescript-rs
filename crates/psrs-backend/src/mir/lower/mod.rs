@@ -1,4 +1,5 @@
 use super::layout::{LayoutError, PlannedLayout};
+use super::literals::StringLiterals;
 use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
@@ -12,6 +13,7 @@ use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod aggregate;
+mod assignment_array;
 mod assignments;
 mod conversion_helpers;
 mod tail;
@@ -36,6 +38,7 @@ fn unsupported_wit_record(span: TextRange) -> Vec<BackendError> {
     )]
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower_function(
     source: &cc::Function,
     id: FunctionId,
@@ -43,6 +46,7 @@ pub(super) fn lower_function(
     scalar_helpers: &ScalarHelpers,
     layout: &PlannedLayout,
     conversion_helpers: Option<&mut ConversionHelpers>,
+    literals: Option<&mut StringLiterals>,
     target: crate::capability::TargetCapabilities,
 ) -> Result<Function, Vec<BackendError>> {
     let entry = BlockId(0);
@@ -76,6 +80,7 @@ pub(super) fn lower_function(
         scalar_helpers,
         layout,
         conversion_helpers,
+        literals,
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
     lowerer.set_terminator(
@@ -112,6 +117,7 @@ pub(super) struct FunctionLowerer<'a> {
     scalar_helpers: &'a ScalarHelpers,
     layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
+    literals: Option<&'a mut StringLiterals>,
 }
 
 impl FunctionLowerer<'_> {

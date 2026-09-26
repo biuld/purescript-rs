@@ -40,6 +40,14 @@ pub const SCRATCH_END: u32 = PRINT_SCRATCH as u32 + SCRATCH_SIZE;
 /// function during Wasm lowering; it is never emitted as a core import.
 pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
 
+/// Reserved symbols for the UTF-16 <-> UTF-8 codec at the canonical ABI
+/// boundary. P10 synthesizes them as ordinary local Wasm functions; like
+/// `REALLOC_SYMBOL` they are never emitted as core imports.
+pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
+    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
+pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
+    SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
+
 /// WASI interfaces and functions the backend itself references. The standard
 /// library names its own imports in source.
 pub mod names {

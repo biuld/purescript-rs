@@ -273,15 +273,14 @@ intrinsics into Core primitive operations and keeps runtime functions, such as
 
 P8 flattens top-level lambdas, makes closure captures explicit, and emits ANF
 assignments with direct or closure calls. Function values use a uniform GC
-closure representation; scalar captures are boxed into `i31` values and
-reference captures remain GC references. String literals become string
-constants. P9 creates typed MIR values, including GC references for supported
-data constructors, string
-constants, and basic blocks, and lowers `log` to WASI: it reads
-the string's length from its length-prefixed buffer and calls
-`wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`
+closure representation; full-width integer captures are boxed in a one-field
+struct, Boolean captures use `i31`, and reference and `String` captures remain
+GC references. P9 creates typed MIR values, including GC references for
+supported data constructors, GC strings (`ArrayNewData` literals), and basic
+blocks, and lowers `log` to WASI: it transcodes the GC string's UTF-16 into a
+transient UTF-8 buffer and calls `wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`
 diamonds into the thin Wasm encoding, whose leaf opcodes are
-`wasm_encoder::Instruction` values, assigns string data segments, exports the
+`wasm_encoder::Instruction` values, assigns passive string data segments, exports the
 canonical `wasi:cli/run@0.2.12#run` entry that calls `main` and
 `wasi:cli/exit.exit-with-code`, and declares the WASI imports. P11 uses
 `wasm-encoder` to emit the core module, `wit-component` to lift it into a
