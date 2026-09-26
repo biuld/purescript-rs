@@ -102,9 +102,11 @@ one owner and is freed when its lifetime ends.
 - Implementation notes narrow the remaining deviation: strings are GC
   `(array (mut i16))` values materialized from passive segments and transcoded
   at the boundary, and `cabi_realloc` is now a reclaiming allocator whose
-  call-local and import-result buffers are freed at the boundary. `post-return`
-  is still not synthesized (no current export returns a non-scalar) and resource
-  handles are not lowered. The allocator, buffer lifetime, and `post-return`
+  call-local and import-result buffers are freed at the boundary. Export
+  `post-return` synthesis is implemented and fixture-verified (return-area and
+  buffer free, plus owned-handle drop), but no source export names a non-scalar
+  result yet, so the production descriptor lists stay empty. Resource handles
+  are lowered. The allocator, buffer lifetime, and `post-return`
   contract is designed and tracked by
   [canonical buffer allocation and lifetime](../design/backend/wasm/canonical-buffer-allocation-and-lifetime.md)
   and its [checklist](../implementation/backend/canonical-buffer-allocation.md);

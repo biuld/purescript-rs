@@ -288,16 +288,9 @@ pub fn lower_module_with_capabilities(
     };
 
     // `wasi:cli/run` returns a scalar, so the command export contributes no
-    // owned-handle post-return. An export of `own<T>` is released here.
-    debug_assert!(
-        post_return::append_owned_handle_post_returns(
-            &[],
-            TypeIndex(0),
-            FunctionIndex(0),
-            module.span,
-        )
-        .is_empty()
-    );
+    // post-return. The synthesis entry points stay reachable so an export
+    // mechanism can populate the descriptor lists without dead code.
+    post_return::assert_no_known_post_returns(module.span);
 
     let wasm = Module {
         name: module.name.clone(),
