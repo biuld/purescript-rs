@@ -69,14 +69,83 @@ pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
         WasiParamKind::Record { fields } => {
             record_layout(fields.iter().map(|field| parameter_layout(&field.kind)))
         }
-        // Aggregates with a discriminant are lowered directly by branching on
-        // the tag; an indirect parameter record that contains one is not
-        // modeled yet.
-        WasiParamKind::ValueList { .. }
-        | WasiParamKind::Option { .. }
-        | WasiParamKind::Result { .. }
-        | WasiParamKind::Variant { .. }
-        | WasiParamKind::Unsupported => None,
+        // A mapped aggregate is a discriminant followed by the joined payload.
+        WasiParamKind::Option { payload } => aggregate_layout(&[None, Some(payload)]),
+        WasiParamKind::Result { ok, err } => aggregate_layout(&[Some(ok), Some(err)]),
+        WasiParamKind::Variant { cases } => {
+            let cases = cases
+                .iter()
+                .map(|case| case.kind.as_deref())
+                .collect::<Vec<_>>();
+            aggregate_layout(&cases)
+        }
+        WasiParamKind::ValueList { .. } | WasiParamKind::Unsupported => None,
+    }
+}
+
+/// The canonical layout of a variant: its discriminant followed by the joined
+/// case payload. Cases must agree on each payload slot's offset, and their
+/// kinds must be joinable.
+fn aggregate_layout(cases: &[Option<&WasiParamKind>]) -> Option<MemoryLayout> {
+    let discriminant = discriminant_width(cases.len());
+    let mut payload_size = 0_u32;
+    let mut payload_align = 1_u32;
+    let mut positions: Vec<(u32, SlotKind)> = Vec::new();
+    for case in cases {
+        let layout = match case {
+            Some(kind) => parameter_layout(kind)?,
+            None => MemoryLayout {
+                size: 0,
+                align: 1,
+                slots: Vec::new(),
+            },
+        };
+        payload_size = payload_size.max(layout.size);
+        payload_align = payload_align.max(layout.align);
+        for (index, slot) in layout.slots.iter().enumerate() {
+            match positions.get_mut(index) {
+                Some(existing) => {
+                    if existing.0 != slot.offset {
+                        return None;
+                    }
+                    existing.1 = join_slot_kind(existing.1, slot.kind)?;
+                }
+                None => positions.push((slot.offset, slot.kind)),
+            }
+        }
+    }
+    let payload_offset = align_to(discriminant, payload_align)?;
+    let mut slots = vec![MemorySlot {
+        offset: 0,
+        kind: slot_for_width(discriminant),
+    }];
+    for (offset, kind) in positions {
+        slots.push(MemorySlot {
+            offset: payload_offset.checked_add(offset)?,
+            kind,
+        });
+    }
+    let align = discriminant.max(payload_align);
+    Some(MemoryLayout {
+        size: align_to(payload_offset.checked_add(payload_size)?, align)?,
+        align,
+        slots,
+    })
+}
+
+/// The canonical slot kind of two joined case payloads. Integer widths widen to
+/// `Word`; a float pair widens to `F64`; anything else is unjoinable.
+fn join_slot_kind(left: SlotKind, right: SlotKind) -> Option<SlotKind> {
+    if left == right {
+        return Some(left);
+    }
+    match (left, right) {
+        (
+            SlotKind::Byte | SlotKind::Half | SlotKind::Word,
+            SlotKind::Byte | SlotKind::Half | SlotKind::Word,
+        ) => Some(SlotKind::Word),
+        (SlotKind::F32, SlotKind::F64) | (SlotKind::F64, SlotKind::F32) => Some(SlotKind::F64),
+        _ => None,
     }
 }
 

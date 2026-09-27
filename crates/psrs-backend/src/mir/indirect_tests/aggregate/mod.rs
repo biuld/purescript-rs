@@ -3,6 +3,7 @@
 
 mod collections;
 mod fixtures;
+mod indirect;
 mod nested;
 mod scalars;
 
@@ -13,6 +14,7 @@ use crate::abi;
 use crate::cc::{self, VariantCase};
 use collections::{flags_fixture, non_byte_list_fixture};
 use fixtures::{erased, fixture, parameter_fixture};
+use indirect::indirect_aggregate_fixture;
 use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_variant_fixture};
 use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
 use wit_parser::Resolve;
@@ -294,6 +296,25 @@ fn flags_payload_lowers_to_a_wasm_artifact() {
 fn non_byte_list_payload_lowers_to_a_wasm_artifact() {
     let (module, bindings, resolve) = non_byte_list_fixture();
     lower_and_validate_collection(module, bindings, resolve);
+}
+
+#[test]
+fn indirect_aggregate_parameter_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = indirect_aggregate_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower an indirect aggregate parameter");
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the indirect ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the indirect aggregate parameter");
+    let binary = crate::wasm::encode_module(&wasm).expect("the indirect Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the indirect aggregate parameter Wasm should validate");
 }
 
 #[test]
