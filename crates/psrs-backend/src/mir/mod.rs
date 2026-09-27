@@ -76,6 +76,8 @@ pub struct Import {
 pub(crate) struct BoundWasiImport {
     pub import: crate::abi::WasiImport,
     pub signature: cc::Signature,
+    /// The concrete payload tree for a mapped aggregate parameter or result.
+    pub payloads: cc::ExternalPayloads,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -209,6 +211,11 @@ fn lower_module_after_binding_validation(
                 .map(|signature| (external.symbol, signature))
         })
         .collect();
+    let external_payloads: HashMap<SymbolId, cc::ExternalPayloads> = module
+        .externals
+        .iter()
+        .map(|external| (external.symbol, external.payloads.clone()))
+        .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
@@ -239,7 +246,18 @@ fn lower_module_after_binding_validation(
                 .with_module(external.symbol.module),
             ]);
         };
-        wit_imports.insert(external.symbol, BoundWasiImport { import, signature });
+        let payloads = external_payloads
+            .get(&external.symbol)
+            .cloned()
+            .unwrap_or_default();
+        wit_imports.insert(
+            external.symbol,
+            BoundWasiImport {
+                import,
+                signature,
+                payloads,
+            },
+        );
     }
     let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
         annotate_errors(

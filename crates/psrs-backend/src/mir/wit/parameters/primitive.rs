@@ -25,7 +25,9 @@ pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     let mut current = entry;
     for (argument, shape) in arguments.iter().zip(&signature.parameters) {
         let kind = slot_kind(import, shape, &mut index, span)?;
-        current = lower_parameter(lowerer, *argument, shape, &kind, flat, frees, current, span)?;
+        current = lower_parameter(
+            lowerer, *argument, shape, None, &kind, flat, frees, current, span,
+        )?;
     }
     let direct = import
         .parameters

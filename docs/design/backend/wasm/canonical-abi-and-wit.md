@@ -227,7 +227,11 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
   selected payload, and builds the source value with `VariantNew`. The payload
   is recovered into the stored `Maybe`/`Either`/data-type field; a scalar is
   boxed and a reference is cast, matching the erased aggregate field protocol.
-  Each branch joins at a merge block that carries the canonical slots.
+  Each branch joins at a merge block that carries the canonical slots. A payload
+  that is itself a record, byte list, or mapped aggregate is lowered
+  recursively: the linking stage threads a `PayloadNode` tree with each
+  position's concrete shape, so a nested record projects or builds its fields
+  and a nested variant repeats the tag branch at its own payload offset.
 - **Indirect aggregates.** When a mapped aggregate participates in an indirect
   parameter record, its canonical `(size, align, slots)` is computed the same
   way as any other WIT value and written through the record pointer.
@@ -554,18 +558,20 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 - **Aggregate ABI.** `option`/`result`/`variant` are classified and validated
   against `Maybe`/`Either`/a source data type, CC derives their variant
-  representation, and MIR branches on the tag and rebuilds the source value
+  representation and the concrete shape of every nested payload, and MIR
+  branches on each tag and rebuilds the source value recursively
   ([Aggregate parameters and results](#lowering-a-call)). A payload is lowered
-  when it is a directly flattenable scalar, byte list, enum, or handle; a
-  nested `record`, non-byte list, `flags`, 64-bit or floating scalar, or another
-  aggregate payload is rejected with a named diagnostic. Indirect records are
-  lowered for the classified parameter kinds; a mapped aggregate inside an
-  indirect parameter record is not. Narrowed and unsigned WIT integers and
-  non-byte `list<T>` results have a source mapping and are lowered
-  ([Source type mapping](#source-type-mapping)). A non-byte `list<T>` is copied
-  element-wise between a source GC array and the canonical `(pointer, length)`
-  buffer; `string` and `list<u8>` elements are transcoded and their element
-  buffers freed.
+  when it is a directly flattenable scalar, byte list, enum, handle, a closed
+  record of directly flattenable fields, or a nested `option`/`result`/variant;
+  a non-byte list, `flags`, 64-bit or floating scalar, resource handle in a
+  result, or a record field that is itself an aggregate is rejected with a named
+  diagnostic. Indirect records are lowered for the classified parameter kinds; a
+  mapped aggregate inside an indirect parameter record is not. Narrowed and
+  unsigned WIT integers and non-byte `list<T>` results have a source mapping and
+  are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
+  is copied element-wise between a source GC array and the canonical
+  `(pointer, length)` buffer; `string` and `list<u8>` elements are transcoded and
+  their element buffers freed.
 - **Resources.** `own`/`borrow` handles are lowered
   ([Resources and handles](#resources-and-handles)): an owned import result is
   dropped with `resource.drop` when the receiving function does not return it
@@ -653,10 +659,14 @@ implementation coverage, not design choices. The allocator, buffer free, and
   A second drop, or a use after the borrow release, is rejected.
 - `option`/`result`/`variant` are classified and validated against
   `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives
-  their variant representation, and MIR branches on the tag and rebuilds the
-  source value for a directly flattenable payload (scalar, byte list, enum,
-  handle). A nested aggregate or an unsupported scalar payload is rejected with
-  a named diagnostic. Non-byte `list<T>` of a supported element is lowered.
+  their variant representation and a `PayloadNode` tree with each payload's
+  concrete shape, and MIR branches on the tag and rebuilds the source value
+  recursively. A directly flattenable payload (scalar, byte list, enum, handle),
+  a closed record of directly flattenable fields, and a nested `option`,
+  `result`, or `variant` are lowered; a non-byte list, `flags`, 64-bit or
+  floating scalar, resource handle in a result, or aggregate record field is
+  rejected with a named diagnostic. Non-byte `list<T>` of a supported element is
+  lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table

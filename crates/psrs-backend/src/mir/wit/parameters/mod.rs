@@ -17,6 +17,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     signature: &crate::cc::Signature,
+    payloads: &crate::cc::ExternalPayloads,
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
@@ -45,15 +46,24 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
         flat.extend(flattened);
         return Ok(current);
     }
-    for ((argument, shape), kind) in arguments
+    let nodes = payloads
+        .parameters
+        .get(..arguments.len())
+        .filter(|nodes| nodes.len() == arguments.len());
+    for (index, ((argument, shape), kind)) in arguments
         .iter()
         .zip(&signature.parameters)
         .zip(&import.param_kinds)
+        .enumerate()
     {
+        let node = nodes
+            .and_then(|nodes| nodes.get(index))
+            .filter(|node| !matches!(node, crate::cc::PayloadNode::None));
         current = lower_parameter(
             lowerer,
             *argument,
             shape,
+            node,
             kind,
             &mut flattened,
             frees,
@@ -82,6 +92,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     shape: &ValueShape,
+    node: Option<&crate::cc::PayloadNode>,
     kind: &abi::WasiParamKind,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
@@ -141,7 +152,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
         | abi::WasiParamKind::Result { .. }
         | abi::WasiParamKind::Variant { .. } => {
             return super::aggregate::lower_variant_parameter(
-                lowerer, argument, shape, kind, flat, frees, current, span,
+                lowerer, argument, shape, node, kind, flat, frees, current, span,
             );
         }
         abi::WasiParamKind::List => {
@@ -224,6 +235,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
                     lowerer,
                     value,
                     &product[index],
+                    None,
                     &field.kind,
                     flat,
                     frees,

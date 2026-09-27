@@ -105,7 +105,8 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
     )
-    .expect("the record representation should be selected from Core layout metadata");
+    .expect("the record representation should be selected from Core layout metadata")
+    .0;
     assert_eq!(
         abstract_signature.parameters,
         vec![crate::cc::ValueShape::Reference(crate::cc::Reference {

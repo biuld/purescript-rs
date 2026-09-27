@@ -144,8 +144,11 @@ The normative set for a new standard-library foreign import is the primitives
 above, `Array` of a supported element for a non-byte `list<T>`, and the mapped
 aggregate forms below. `Maybe`, `Either`, and a non-unit variant are classified
 and validated against their WIT descriptor, and their MIR tag-branch lowering
-rebuilds the source value for a directly flattenable payload; a nested
-aggregate payload is rejected with a named diagnostic.
+rebuilds the source value recursively for a directly flattenable payload, a
+closed record of directly flattenable fields, and a nested
+`option`/`result`/`variant`; a non-byte-list, `flags`, 64-bit/float,
+result-handle, or aggregate-record-field payload is rejected with a named
+diagnostic.
 
 The existing enum, closed-record, and flags-record lowering still accepts
 those declarations and is not deleted. They keep a resolved type and still

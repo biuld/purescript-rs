@@ -53,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation, and MIR branches on the tag and rebuilds the source value for a directly flattenable payload ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, and `option` parameter. Nested aggregate payloads, indirect aggregates, and resource list results stay unsupported. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a directly flattenable payload, a closed record of directly flattenable fields, and a nested `option`/`result`/`variant` ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, and nested record payloads. Non-byte-list payloads, `flags`, 64-bit/float payloads, result handles, indirect aggregates, and resource list results stay unsupported. | In progress |
 
 ## Evidence record and completion rule
 
@@ -293,10 +293,13 @@ ABI-08:
     aggregates are rejected with a source diagnostic.
   Gaps: `option`, `result`, and non-unit `variant` are classified and validated
     against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type,
-    CC derives their variant representation, and MIR branches on the tag and
-    rebuilds the source value for a directly flattenable payload
-    ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)). A nested
-    aggregate payload, a 64-bit or floating scalar payload, an indirect
+    CC derives their variant representation and a concrete payload tree, and MIR
+    branches on each tag and rebuilds the source value recursively for a
+    directly flattenable payload, a closed record of directly flattenable
+    fields, and a nested `option`/`result`/`variant`
+    ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)). A non-byte
+    list payload, a `flags` payload, a 64-bit or floating scalar payload, a
+    resource handle in a result, an aggregate record field, an indirect
     parameter record that contains one of these shapes, and lists of aggregates
     are rejected with a named diagnostic. This keeps BE-19 `Partial`.
 ```
@@ -311,9 +314,11 @@ buffer free, and `post-return` are tracked by
 [canonical buffer allocation](canonical-buffer-allocation.md). ABI-08's
 `option`/`result`/`variant` forms are recognized on the resolved-type path
 ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)): classification,
-Core conformance validation, CC's variant representation, and MIR tag-branch
-lowering for a directly flattenable payload are implemented, while nested
-aggregate payloads remain. The non-byte `list<T>` /
+Core conformance validation, CC's variant representation and payload tree, and
+MIR recursive tag-branch lowering for a directly flattenable payload, a closed
+record of directly flattenable fields, and a nested `option`/`result`/`variant`
+are implemented, while non-byte-list, `flags`, 64-bit/float, result-handle, and
+aggregate-record-field payloads remain. The non-byte `list<T>` /
 `Array` part of ABI-08 is lowered for supported elements; its
 remaining gap is lists of aggregates. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

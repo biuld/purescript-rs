@@ -72,6 +72,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: external_parameters,
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations: cc::RepresentationTable::default(),
         functions: vec![cc::Function {

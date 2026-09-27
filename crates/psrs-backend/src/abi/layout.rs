@@ -92,10 +92,24 @@ pub(crate) fn variant_payload_offset(cases: &[Option<&WasiParamKind>]) -> Option
 }
 
 /// The canonical alignment of one variant case payload. A non-byte list is a
-/// `(pointer, length)` pair, so it aligns like a byte list.
+/// `(pointer, length)` pair, so it aligns like a byte list; a nested variant
+/// aligns to its discriminant and its widest case.
 fn case_alignment(kind: &WasiParamKind) -> Option<u32> {
     match kind {
         WasiParamKind::List | WasiParamKind::ValueList { .. } => Some(4),
+        WasiParamKind::Option { payload } => Some(case_alignment(payload)?.max(1)),
+        WasiParamKind::Result { ok, err } => {
+            Some(case_alignment(ok)?.max(case_alignment(err)?).max(1))
+        }
+        WasiParamKind::Variant { cases } => {
+            let mut align = discriminant_width(cases.len());
+            for case in cases {
+                if let Some(kind) = &case.kind {
+                    align = align.max(case_alignment(kind)?);
+                }
+            }
+            Some(align)
+        }
         other => parameter_layout(other).map(|layout| layout.align),
     }
 }
@@ -121,6 +135,22 @@ pub(crate) fn record_layout(
     }
     size = align_to(size, align)?;
     Some(MemoryLayout { size, align, slots })
+}
+
+/// The canonical byte offset and layout of each record field, in declaration
+/// order. `None` when a field has no directly flattenable layout.
+pub(crate) fn record_fields(
+    fields: impl IntoIterator<Item = Option<MemoryLayout>>,
+) -> Option<Vec<(u32, MemoryLayout)>> {
+    let mut offset = 0_u32;
+    let mut layouts = Vec::new();
+    for field in fields {
+        let field = field?;
+        offset = align_to(offset, field.align)?;
+        layouts.push((offset, field.clone()));
+        offset = offset.checked_add(field.size)?;
+    }
+    Some(layouts)
 }
 
 fn scalar_layout(size: u32, kind: SlotKind) -> Option<MemoryLayout> {

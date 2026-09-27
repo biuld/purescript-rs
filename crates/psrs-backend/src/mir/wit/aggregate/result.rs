@@ -1,7 +1,7 @@
+use super::decode::build_payload;
 use super::*;
 use crate::abi::WasiImport;
 use crate::abi::WasiResultKind;
-use crate::cc::Signature;
 use crate::types::RefType;
 
 /// Lowers a mapped aggregate result. The call writes the discriminant and the
@@ -11,7 +11,8 @@ use crate::types::RefType;
 pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    signature: &Signature,
+    shape: &ValueShape,
+    node: Option<&crate::cc::PayloadNode>,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -19,7 +20,7 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
     let address = retptr.ok_or_else(|| unsupported(span))?;
-    let repr = shape_repr(&signature.result).ok_or_else(|| unsupported(span))?;
+    let repr = shape_repr(shape).ok_or_else(|| unsupported(span))?;
     let cases = result_cases(&import.result_kind).ok_or_else(|| unsupported(span))?;
     let payload_offset =
         abi::layout::variant_payload_offset(&cases).ok_or_else(|| unsupported(span))?;
@@ -74,19 +75,27 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     };
     for (index, case) in cases.iter().enumerate() {
         let block = case_blocks[index];
-        let fields = match case {
-            Some(payload) => vec![read_payload(
+        let (field, block) = match case {
+            Some(payload) => build_payload(
                 lowerer,
                 payload,
+                case_node(node, index),
                 address,
                 payload_offset,
                 block,
                 span,
-            )?],
-            None => Vec::new(),
+            )?,
+            None => (None, block),
         };
         let built = lowerer.fresh_wit_value(aggregate_type());
-        lowerer.wit_variant_new(block, built, repr, index as u32, fields, span)?;
+        lowerer.wit_variant_new(
+            block,
+            built,
+            repr,
+            index as u32,
+            field.into_iter().collect(),
+            span,
+        )?;
         let cast = lowerer.fresh_wit_value(ValueType::Ref(supertype_reference));
         lowerer.append_wit_instruction(
             block,

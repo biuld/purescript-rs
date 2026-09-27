@@ -34,6 +34,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
                 parameters: Vec::new(),
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations: cc::RepresentationTable::default(),
         functions: vec![cc::Function {
@@ -121,6 +122,7 @@ fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
                 parameters: Vec::new(),
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations: cc::RepresentationTable::default(),
         functions: vec![cc::Function {

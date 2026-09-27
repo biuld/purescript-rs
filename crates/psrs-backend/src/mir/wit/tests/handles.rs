@@ -47,6 +47,7 @@ fn bound(import: WasiImport) -> BoundWasiImport {
             result: ValueShape::Integer,
         },
         import,
+        payloads: Default::default(),
     }
 }
 
