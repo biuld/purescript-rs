@@ -102,6 +102,7 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: vec![reference(1)],
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {
@@ -195,6 +196,7 @@ pub(crate) fn handle_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: vec![reference(0)],
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {
@@ -318,6 +320,7 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: vec![reference(1)],
                 result: ValueShape::Integer,
             }),
+            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {

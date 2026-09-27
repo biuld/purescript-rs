@@ -53,6 +53,7 @@ pub(super) enum StringFree {
 /// canonical parameter; a 64-bit scalar is widened; a `String` argument maps to
 /// the `(pointer, length)` of its length-prefixed buffer. A return pointer is
 /// passed when the canonical result does not fit in one value.
+#[cfg(test)]
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
@@ -62,10 +63,35 @@ pub(super) fn lower<L: WitCallLowerer>(
     span: TextRange,
     entry: BlockId,
 ) -> Result<BlockId, Vec<BackendError>> {
+    lower_with_payloads(
+        lowerer,
+        import,
+        signature,
+        &crate::cc::ExternalPayloads::default(),
+        destination,
+        arguments,
+        span,
+        entry,
+    )
+}
+
+/// Lowers a call with the external's concrete payload tree, so a mapped
+/// aggregate payload that is itself a record, list, or variant can be laid out.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn lower_with_payloads<L: WitCallLowerer>(
+    lowerer: &mut L,
+    import: &WasiImport,
+    signature: &crate::cc::Signature,
+    payloads: &crate::cc::ExternalPayloads,
+    destination: ValueId,
+    arguments: &[ValueId],
+    span: TextRange,
+    entry: BlockId,
+) -> Result<BlockId, Vec<BackendError>> {
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     let mut current = parameters::lower_parameters(
-        lowerer, import, signature, arguments, &mut flat, &mut frees, entry, span,
+        lowerer, import, signature, payloads, arguments, &mut flat, &mut frees, entry, span,
     )?;
     let mut retptr = None;
     if import.retptr {
@@ -303,10 +329,15 @@ pub(super) fn lower<L: WitCallLowerer>(
         abi::WasiResultKind::Option { .. }
         | abi::WasiResultKind::ValueResult { .. }
         | abi::WasiResultKind::Variant { .. } => {
+            let result_node = match &payloads.result {
+                crate::cc::PayloadNode::None => None,
+                node => Some(node),
+            };
             current = aggregate::lower_variant_result(
                 lowerer,
                 import,
-                signature,
+                &signature.result,
+                result_node,
                 destination,
                 flat,
                 retptr,

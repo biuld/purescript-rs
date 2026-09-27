@@ -5,6 +5,7 @@
 //! flattens the selected payload; as a result it branches on the return-area
 //! discriminant and rebuilds the source value.
 
+mod decode;
 mod parameter;
 mod result;
 
@@ -53,9 +54,9 @@ pub(super) fn aggregate_type() -> ValueType {
 /// discriminant for a mapped aggregate.
 pub(super) fn flat_types(kind: &WasiParamKind) -> Option<Vec<ValueType>> {
     Some(match kind {
+        WasiParamKind::Boolean => vec![ValueType::Boolean],
         WasiParamKind::Integer32
         | WasiParamKind::IntegerNarrow { .. }
-        | WasiParamKind::Boolean
         | WasiParamKind::Char
         | WasiParamKind::Enum { .. }
         | WasiParamKind::Handle(_) => vec![ValueType::I32],
@@ -251,23 +252,83 @@ pub(super) fn recover_string<L: WitCallLowerer>(
 }
 
 /// Unboxes an erased variant field to its source value for a parameter.
+/// The nested payload node of case `index` of a variant node.
+pub(super) fn case_node(
+    node: Option<&crate::cc::PayloadNode>,
+    index: usize,
+) -> Option<&crate::cc::PayloadNode> {
+    match node? {
+        crate::cc::PayloadNode::Variant { cases, .. } => {
+            cases.get(index).and_then(|case| case.as_ref())
+        }
+        _ => None,
+    }
+}
+
+/// The concrete MIR reference type of a source reference shape.
+pub(super) fn reference_type<L: WitCallLowerer>(
+    lowerer: &L,
+    shape: &ValueShape,
+) -> Option<RefType> {
+    let ValueShape::Reference(reference) = shape else {
+        return None;
+    };
+    Some(RefType {
+        nullable: reference.nullable,
+        heap: match reference.heap {
+            RefShape::Repr(repr) => HeapType::Index(lowerer.wit_repr_index(repr)?),
+            RefShape::Aggregate => HeapType::Struct,
+            RefShape::Erased => HeapType::Eq,
+            RefShape::Closure(_) => return None,
+        },
+    })
+}
+
+/// Casts an erased variant field to a concrete reference shape.
+pub(super) fn cast_reference<L: WitCallLowerer>(
+    lowerer: &mut L,
+    value: ValueId,
+    shape: &ValueShape,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let reference = reference_type(lowerer, shape).ok_or_else(|| unsupported(span))?;
+    let destination = lowerer.fresh_wit_value(ValueType::Ref(reference));
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::RefCast {
+            destination,
+            value,
+            reference,
+            span,
+        },
+        span,
+    )?;
+    Ok(destination)
+}
+
+/// Unboxes an erased variant field into the concrete source value for a
+/// parameter. Returns the value and its concrete shape.
 pub(super) fn recover_payload<L: WitCallLowerer>(
     lowerer: &mut L,
     value: ValueId,
     kind: &WasiParamKind,
+    node: Option<&crate::cc::PayloadNode>,
     block: BlockId,
     span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    match kind {
-        WasiParamKind::Integer32
-        | WasiParamKind::IntegerNarrow { .. }
-        | WasiParamKind::Char
-        | WasiParamKind::Enum { .. }
-        | WasiParamKind::Handle(_) => unbox_scalar(lowerer, value, false, block, span),
-        WasiParamKind::Boolean => unbox_scalar(lowerer, value, true, block, span),
-        WasiParamKind::List => recover_string(lowerer, value, block, span),
-        _ => Err(unsupported(span)),
-    }
+) -> Result<(ValueId, ValueShape), Vec<BackendError>> {
+    let shape = match node {
+        Some(node) => node.shape().ok_or_else(|| unsupported(span))?,
+        None => direct_shape(kind).ok_or_else(|| unsupported(span))?,
+    };
+    let recovered = match shape {
+        ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
+        ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,
+        ValueShape::String => recover_string(lowerer, value, block, span)?,
+        ValueShape::Reference(_) => cast_reference(lowerer, value, &shape, block, span)?,
+        ValueShape::Number => return Err(unsupported(span)),
+    };
+    Ok((recovered, shape))
 }
 
 fn unbox_scalar<L: WitCallLowerer>(
@@ -323,104 +384,4 @@ fn unbox_scalar<L: WitCallLowerer>(
     } else {
         Ok(integer)
     }
-}
-
-/// Reads a directly lowered payload from the canonical return area and erases
-/// it into the stored variant field.
-pub(super) fn read_payload<L: WitCallLowerer>(
-    lowerer: &mut L,
-    kind: &WasiParamKind,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    if matches!(kind, WasiParamKind::List) {
-        let pointer = load(lowerer, address, offset, block, span)?;
-        let length = load(lowerer, address, offset + 4, block, span)?;
-        let string = lowerer
-            .wit_string_index()
-            .ok_or_else(|| unsupported(span))?;
-        let reference = RefType {
-            nullable: false,
-            heap: HeapType::Index(string),
-        };
-        let value = lowerer.fresh_wit_value(ValueType::Ref(reference));
-        lowerer.append_wit_instruction(
-            block,
-            Instruction::Call {
-                destination: value,
-                function: abi::BYTES_TO_STRING_SYMBOL,
-                arguments: vec![pointer, length],
-                span,
-            },
-            span,
-        )?;
-        free_buffer(lowerer, pointer, length, 1, block, span)?;
-        return erase_reference(lowerer, value, block, span);
-    }
-    // A resource handle nested in a result would need ownership tracking the
-    // result path does not model, so it is rejected rather than leaked.
-    if !matches!(
-        kind,
-        WasiParamKind::Integer32
-            | WasiParamKind::IntegerNarrow { .. }
-            | WasiParamKind::Boolean
-            | WasiParamKind::Char
-            | WasiParamKind::Enum { .. }
-    ) {
-        return Err(unsupported(span));
-    }
-    let layout = abi::layout::parameter_layout(kind).ok_or_else(|| unsupported(span))?;
-    let slot = layout.slots.first().ok_or_else(|| unsupported(span))?;
-    let scalar = match slot.kind {
-        abi::layout::SlotKind::Byte => load8(lowerer, address, offset + slot.offset, block, span)?,
-        abi::layout::SlotKind::Word => load(lowerer, address, offset + slot.offset, block, span)?,
-        _ => return Err(unsupported(span)),
-    };
-    box_scalar(lowerer, scalar, block, span)
-}
-
-fn load<L: WitCallLowerer>(
-    lowerer: &mut L,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    let destination = lowerer.fresh_wit_value(ValueType::I32);
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::Load {
-            destination,
-            address,
-            memory: MemoryId(0),
-            offset,
-            span,
-        },
-        span,
-    )?;
-    Ok(destination)
-}
-
-fn load8<L: WitCallLowerer>(
-    lowerer: &mut L,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    let destination = lowerer.fresh_wit_value(ValueType::I32);
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::Load8U {
-            destination,
-            address,
-            memory: MemoryId(0),
-            offset,
-            span,
-        },
-        span,
-    )?;
-    Ok(destination)
 }

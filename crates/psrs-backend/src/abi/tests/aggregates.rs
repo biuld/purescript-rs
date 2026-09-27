@@ -249,7 +249,8 @@ fn cc_recognizes_a_payload_bearing_data_type_as_a_variant_reference() {
         &HashMap::new(),
         &constructor_types,
     )
-    .expect("Maybe String should have an abstract signature");
+    .expect("Maybe String should have an abstract signature")
+    .0;
     assert_eq!(
         signature.parameters,
         vec![ValueShape::Reference(Reference {

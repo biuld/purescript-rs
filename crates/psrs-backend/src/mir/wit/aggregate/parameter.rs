@@ -10,6 +10,7 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     shape: &ValueShape,
+    node: Option<&crate::cc::PayloadNode>,
     kind: &WasiParamKind,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
@@ -50,7 +51,7 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     for (index, case) in cases.iter().enumerate() {
         let block = case_blocks[index];
         let Some(payload) = case else {
-            let zeros = zero_arguments(lowerer, &merge_parameters, block, span)?;
+            let zeros = zero_arguments(lowerer, &joined, block, span)?;
             lowerer.wit_jump(block, merge, zeros, span)?;
             continue;
         };
@@ -59,20 +60,22 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
             .ok_or_else(|| unsupported(span))?;
         let erased = lowerer.fresh_wit_value(field_type);
         lowerer.wit_variant_get(block, erased, repr, index as u32, 0, argument, span)?;
-        let value = recover_payload(lowerer, erased, payload, block, span)?;
-        let payload_shape = direct_shape(payload).ok_or_else(|| unsupported(span))?;
+        let case_node = case_node(node, index);
+        let (value, payload_shape) =
+            recover_payload(lowerer, erased, payload, case_node, block, span)?;
         let mut case_flat = Vec::new();
         let end = lower_parameter(
             lowerer,
             value,
             &payload_shape,
+            case_node,
             payload,
             &mut case_flat,
             frees,
             block,
             span,
         )?;
-        let arguments = pad_to(lowerer, case_flat, &merge_parameters, end, span)?;
+        let arguments = pad_to(lowerer, case_flat, &joined, end, span)?;
         lowerer.wit_jump(end, merge, arguments, span)?;
     }
     flat.extend(merge_parameters);
@@ -82,28 +85,28 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
 fn pad_to<L: WitCallLowerer>(
     lowerer: &mut L,
     mut values: Vec<ValueId>,
-    merge_parameters: &[ValueId],
+    joined: &[ValueType],
     block: BlockId,
     span: TextRange,
 ) -> Result<Vec<ValueId>, Vec<BackendError>> {
-    if values.len() > merge_parameters.len() {
+    if values.len() > joined.len() {
         return Err(unsupported(span));
     }
-    while values.len() < merge_parameters.len() {
-        values.push(zero_argument(lowerer, ValueType::I32, block, span)?);
+    while values.len() < joined.len() {
+        values.push(zero_argument(lowerer, joined[values.len()], block, span)?);
     }
     Ok(values)
 }
 
 fn zero_arguments<L: WitCallLowerer>(
     lowerer: &mut L,
-    merge_parameters: &[ValueId],
+    joined: &[ValueType],
     block: BlockId,
     span: TextRange,
 ) -> Result<Vec<ValueId>, Vec<BackendError>> {
-    merge_parameters
+    joined
         .iter()
-        .map(|_| zero_argument(lowerer, ValueType::I32, block, span))
+        .map(|ty| zero_argument(lowerer, *ty, block, span))
         .collect()
 }
 
@@ -113,10 +116,10 @@ fn zero_argument<L: WitCallLowerer>(
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    if ty != ValueType::I32 {
+    if !matches!(ty, ValueType::I32 | ValueType::Boolean) {
         return Err(unsupported(span));
     }
-    let destination = lowerer.fresh_wit_value(ValueType::I32);
+    let destination = lowerer.fresh_wit_value(ty);
     lowerer.append_wit_instruction(
         block,
         Instruction::Constant {

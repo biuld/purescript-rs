@@ -77,6 +77,14 @@ impl ReachableHandles {
                     &mut representation_work,
                     &mut signature_work,
                 );
+                for parameter in &external.payloads.parameters {
+                    add_payload_node(parameter, &mut representations, &mut representation_work);
+                }
+                add_payload_node(
+                    &external.payloads.result,
+                    &mut representations,
+                    &mut representation_work,
+                );
             }
         }
 
@@ -270,6 +278,32 @@ pub(super) fn add_reference(
         RefShape::Repr(id) => add_representation(id, representations, representation_work),
         RefShape::Closure(id) => add_signature(id, signatures, signature_work),
         RefShape::Aggregate | RefShape::Erased => {}
+    }
+}
+
+/// Adds the representations a payload tree needs, including a nested variant's
+/// supertype and any record or array reference it holds.
+fn add_payload_node(
+    node: &crate::cc::PayloadNode,
+    representations: &mut HashSet<ReprId>,
+    work: &mut Vec<ReprId>,
+) {
+    match node {
+        crate::cc::PayloadNode::None => {}
+        crate::cc::PayloadNode::Value(ValueShape::Reference(Reference {
+            heap: RefShape::Repr(repr),
+            ..
+        })) => add_representation(*repr, representations, work),
+        crate::cc::PayloadNode::Value(_) => {}
+        crate::cc::PayloadNode::Variant {
+            representation,
+            cases,
+        } => {
+            add_representation(*representation, representations, work);
+            for case in cases.iter().flatten() {
+                add_payload_node(case, representations, work);
+            }
+        }
     }
 }
 
