@@ -565,9 +565,8 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   non-byte list of a supported element, an enum, `flags`, a handle, a closed
   record of directly flattenable fields, or a nested `option`/`result`/variant;
   a resource handle in a result or a record field that is itself an aggregate is
-  rejected with a named diagnostic. Indirect records are lowered for the
-  classified parameter kinds; a
-  mapped aggregate inside an indirect parameter record is not. Narrowed and
+  rejected with a named diagnostic. An indirect parameter record carries a mapped
+  aggregate as its discriminant and joined payload. Narrowed and
   unsigned WIT integers and non-byte `list<T>` results have a source mapping and
   are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
   is copied element-wise between a source GC array and the canonical

@@ -53,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list of a supported element, `flags`, a closed record of directly flattenable fields, and a nested `option`/`result`/`variant` ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, and a non-byte-list payload. Result handles, aggregate record fields, indirect aggregates, and lists of aggregates stay unsupported. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list of a supported element, `flags`, a closed record of directly flattenable fields, and a nested `option`/`result`/`variant` ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, and a non-byte-list payload. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Result handles, aggregate record fields, and lists of aggregates stay unsupported. | In progress |
 
 ## Evidence record and completion rule
 
@@ -298,10 +298,11 @@ ABI-08:
     payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list of a
     supported element, `flags`, a closed record of directly flattenable fields,
     and a nested `option`/`result`/`variant`
-    ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)). A resource
-    handle in a result, an aggregate record field, an indirect parameter record
-    that contains one of these shapes, and lists of aggregates are rejected with
-    a named diagnostic. This keeps BE-19 `Partial`.
+    ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)). An indirect
+    parameter record carries a mapped aggregate as its discriminant and joined
+    payload. A resource handle in a result, an aggregate record field, and lists
+    of aggregates are rejected with a named diagnostic. This keeps BE-19
+    `Partial`.
 ```
 
 ## Remaining work and blockers
