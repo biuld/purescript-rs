@@ -211,8 +211,10 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
   fields in WIT order and recurses; `Flags` packs Boolean fields into one or
   more `i32` words in WIT declaration order. The buffer is freed when the call
   returns.
-- **Return pointer.** A scratch address (`PRINT_SCRATCH = 0`, inside the 16-byte
-  reserved scratch region) is passed as the last argument.
+- **Return pointer.** A return area that fits the 16-byte reserved scratch
+  region uses the scratch address (`PRINT_SCRATCH = 0`) as the last argument. A
+  larger aggregate return area is allocated through `cabi_realloc`, its pointer
+  is passed as the last argument, and it is freed once the result is read.
 - **Results.** A scalar `i64` is wrapped to `Int`, an `f32` widened to `Number`,
   an `i32`/`f64` used directly, and a `list`/`string` read from the return area
   as `(pointer, length)`, copied into a fresh GC value, and the linear buffer
@@ -565,10 +567,11 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   non-byte list, an enum, `flags`, a handle, a closed record, or a nested
   `option`/`result`/variant; the payload tree recurses through record fields and
   through a `list<record>`/`list<flags>` element, so a field or element that is
-  itself an aggregate is encoded and decoded. A resource handle in a result is
-  rejected with a named diagnostic, as is an aggregate result whose return area
-  exceeds the 16-byte scratch region. An indirect parameter record carries a
-  mapped aggregate as its discriminant and joined payload. Narrowed and
+  itself an aggregate is encoded and decoded. A large aggregate return area is
+  allocated through `cabi_realloc` rather than the fixed scratch region. A
+  resource handle in a result is rejected with a named diagnostic. An indirect
+  parameter record carries a mapped aggregate as its discriminant and joined
+  payload. Narrowed and
   unsigned WIT integers and non-byte `list<T>` results have a source mapping and
   are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
   is copied element-wise between a source GC array and the canonical
@@ -666,10 +669,10 @@ implementation coverage, not design choices. The allocator, buffer free, and
   recursively. A scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte
   or non-byte list, an enum, `flags`, a handle, a closed record, and a nested
   `option`, `result`, or `variant` are lowered; the tree recurses through record
-  fields and a `list<record>`/`list<flags>` element. A resource handle in a
-  result and an aggregate result whose return area exceeds the scratch region are
-  rejected with a named diagnostic. Non-byte `list<T>` of a supported element is
-  lowered.
+  fields and a `list<record>`/`list<flags>` element. A large aggregate return
+  area is allocated through `cabi_realloc` and freed after the read; a resource
+  handle in a result is rejected with a named diagnostic. Non-byte `list<T>` of a
+  supported element is lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table
