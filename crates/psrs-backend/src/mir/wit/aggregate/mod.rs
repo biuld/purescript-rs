@@ -12,6 +12,7 @@ mod parameter;
 mod result;
 
 pub(super) use parameter::lower_variant_parameter;
+pub(super) use result::lower_record_result;
 pub(super) use result::lower_variant_result;
 pub(super) use result::retptr_buffer;
 

@@ -306,6 +306,7 @@ fn rejects_an_external_that_conflicts_with_a_function_symbol() {
     let module = crate::cc::Module {
         name: "conflict".into(),
         externals: vec![crate::cc::External {
+            result_guest: None,
             symbol: symbol(0),
             signature: None,
         }],

@@ -93,6 +93,7 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
     let module = cc::Module {
         name: "NestedAggregateAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -197,6 +198,7 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
     let module = cc::Module {
         name: "NestedRecordAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -354,6 +356,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
     let module = cc::Module {
         name: "NestedRecordParameterAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],

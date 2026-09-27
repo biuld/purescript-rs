@@ -86,6 +86,7 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
     let module = cc::Module {
         name: "LargeRecordAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -153,6 +154,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
     let module = cc::Module {
         name: "LargeUnitResultAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),

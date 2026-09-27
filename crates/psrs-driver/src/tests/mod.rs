@@ -21,6 +21,16 @@ fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
 }
 
 fn run_with_wasmtime_args(source: &str, args: &[&str]) -> Option<std::process::Output> {
+    run_wasmtime(source, args, None)
+}
+
+/// Runs a compiled program under Wasmtime, feeding `input` to the guest's
+/// standard input. Used by the stream `read` wrappers.
+fn run_with_wasmtime_stdin(source: &str, input: &[u8]) -> Option<std::process::Output> {
+    run_wasmtime(source, &[], Some(input))
+}
+
+fn run_wasmtime(source: &str, args: &[&str], input: Option<&[u8]>) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")
         .output()
@@ -31,6 +41,7 @@ fn run_with_wasmtime_args(source: &str, args: &[&str]) -> Option<std::process::O
         }
         return None;
     }
+    use std::io::Write;
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let artifact = compile_source("Main.purs", source).unwrap();
@@ -39,7 +50,23 @@ fn run_with_wasmtime_args(source: &str, args: &[&str]) -> Option<std::process::O
     std::fs::write(&path, &artifact.wasm).unwrap();
     let mut command = std::process::Command::new("wasmtime");
     command.arg("run").arg(&path).args(args);
-    let output = command.output().unwrap();
+    let output = match input {
+        None => command.output().unwrap(),
+        Some(input) => {
+            command
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let mut child = command.spawn().unwrap();
+            child
+                .stdin
+                .take()
+                .expect("stdin is piped")
+                .write_all(input)
+                .unwrap();
+            child.wait_with_output().unwrap()
+        }
+    };
     let _ = std::fs::remove_file(&path);
     Some(output)
 }

@@ -81,6 +81,9 @@ pub struct Import {
 pub(crate) struct BoundWasiImport {
     pub import: crate::abi::WasiImport,
     pub signature: cc::Signature,
+    /// The concrete decode layout of the result, when the abstract signature
+    /// stores part of it erased. See [`crate::cc::External::result_guest`].
+    pub result_guest: Option<cc::GuestLayout>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -214,6 +217,16 @@ fn lower_module_after_binding_validation(
                 .map(|signature| (external.symbol, signature))
         })
         .collect();
+    let result_guests: HashMap<SymbolId, cc::GuestLayout> = module
+        .externals
+        .iter()
+        .filter_map(|external| {
+            external
+                .result_guest
+                .clone()
+                .map(|guest| (external.symbol, guest))
+        })
+        .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
@@ -244,7 +257,14 @@ fn lower_module_after_binding_validation(
                 .with_module(external.symbol.module),
             ]);
         };
-        wit_imports.insert(external.symbol, BoundWasiImport { import, signature });
+        wit_imports.insert(
+            external.symbol,
+            BoundWasiImport {
+                import,
+                signature,
+                result_guest: result_guests.get(&external.symbol).cloned(),
+            },
+        );
     }
     let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
         annotate_errors(

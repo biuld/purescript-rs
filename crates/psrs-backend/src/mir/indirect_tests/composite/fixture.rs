@@ -203,6 +203,7 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
     let module = cc::Module {
         name: "IndirectCompositeAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: external_parameters,

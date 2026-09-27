@@ -385,3 +385,46 @@ fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
         "a String capture must not reserve the integer box"
     );
 }
+
+#[test]
+fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
+    let module_id = ModuleId(0);
+    let opaque = HirTypeId::new(module_id, 0);
+    let handle = TypeId(0);
+    let array_handle = TypeId(2);
+    let module = Module {
+        type_names: Vec::new(),
+        id: module_id,
+        name: "OpaqueHandleLayoutTest".into(),
+        externals: Vec::new(),
+        types: vec![
+            Type::Constructor(TypeConstructor::User(opaque)),
+            Type::Constructor(TypeConstructor::Array),
+            Type::Application(TypeId(1), TypeId(0)),
+        ],
+        newtype_ids: Vec::new(),
+        opaque_ids: vec![opaque],
+        constructors: Vec::new(),
+        declarations: Vec::new(),
+        entry: None,
+        span: psrs_span::TextRange::new(0, 40),
+    };
+    let newtypes = HashSet::new();
+    let enums = enum_type_ids(&module, &newtypes);
+    let aggregates = aggregate_type_ids(&module, &newtypes);
+    let layout = type_layout(&module, &enums, &aggregates, &newtypes)
+        .expect("an array of opaque handles should have a layout");
+    assert!(
+        layout.array_types.contains_key(&array_handle),
+        "array<opaque> must reserve a canonical array layout"
+    );
+    assert_eq!(
+        layout
+            .representations
+            .representation(layout.array_types[&array_handle]),
+        Some(&Representation::Array {
+            element: ValueShape::Integer,
+        })
+    );
+    let _ = handle;
+}

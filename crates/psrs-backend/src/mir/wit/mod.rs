@@ -33,6 +33,8 @@ use psrs_span::TextRange;
 pub(crate) struct BoundType {
     pub canonical: CanonicalType,
     pub guest: crate::cc::ValueShape,
+    /// The concrete decode layout of an erased position, when one is known.
+    pub decode: Option<crate::cc::GuestLayout>,
 }
 
 /// Every parameter and the optional result of one resolved WIT import, each
@@ -51,17 +53,26 @@ pub(crate) struct BoundFn {
 impl BoundFn {
     /// Pairs the import's canonical parameters and result with the declaration's
     /// abstract guest signature.
-    fn bind(import: &WasiImport, signature: &crate::cc::Signature) -> Self {
+    fn bind(
+        import: &WasiImport,
+        signature: &crate::cc::Signature,
+        result_guest: Option<&crate::cc::GuestLayout>,
+    ) -> Self {
         let parameters = import
             .params
             .iter()
             .cloned()
             .zip(signature.parameters.iter().copied())
-            .map(|(canonical, guest)| BoundType { canonical, guest })
+            .map(|(canonical, guest)| BoundType {
+                canonical,
+                guest,
+                decode: None,
+            })
             .collect();
         let result = import.canonical_result.clone().map(|canonical| BoundType {
             canonical,
             guest: signature.result,
+            decode: result_guest.cloned(),
         });
         BoundFn {
             parameters,
@@ -109,21 +120,20 @@ pub(super) struct ElementFree {
 /// Lowers a call to a WIT import from the declared arguments and the import's
 /// canonical signature. Declared scalars and resource handles map to one
 /// canonical parameter; a 64-bit scalar is widened; a `String` argument maps to
-/// the `(pointer, length)` of its length-prefixed buffer. A return pointer is
-/// passed when the canonical result does not fit in one value. The guest layout
-/// of each bound value is resolved from CC's representation table through the
-/// lowerer.
+/// the `(pointer, length)` of its buffer. A return pointer is passed when the
+/// canonical result does not fit in one value.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     signature: &crate::cc::Signature,
+    result_guest: Option<&crate::cc::GuestLayout>,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
     entry: BlockId,
 ) -> Result<BlockId, Vec<BackendError>> {
-    let bound = BoundFn::bind(import, signature);
+    let bound = BoundFn::bind(import, signature, result_guest);
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     let mut current = parameters::lower_parameters(
@@ -382,6 +392,27 @@ pub(super) fn lower<L: WitCallLowerer>(
                 import,
                 &result.guest,
                 layout.as_ref(),
+                result.decode.as_ref(),
+                destination,
+                flat,
+                retptr,
+                current,
+                span,
+            )?;
+        }
+        Some(ty @ CanonicalType::Record(_)) => {
+            let result = bound
+                .result
+                .as_ref()
+                .expect("a record result has a bound guest shape");
+            let layout = lowerer.wit_guest_layout(result.guest);
+            current = aggregate::lower_record_result(
+                lowerer,
+                import,
+                ty,
+                &result.guest,
+                layout.as_ref(),
+                result.decode.as_ref(),
                 destination,
                 flat,
                 retptr,

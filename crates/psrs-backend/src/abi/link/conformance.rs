@@ -157,6 +157,11 @@ fn core_matches_result(module: &CoreModule, result: CoreTypeId, import: &WasiImp
 
 /// Whether the Core type `id` is the source representation of canonical `ty`.
 fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) -> bool {
+    // A newtype is represented by its single field, so a nominal newtype such
+    // as `Resource a` matches whatever its `Int`/handle field matches (DEC-14).
+    if let Some(inner) = newtype_underlying(module, id) {
+        return core_matches_kind(module, inner, ty);
+    }
     match ty {
         CanonicalType::Int { .. } => matches!(core(module, id), Some(CoreType::I32)),
         CanonicalType::Bool => matches!(core(module, id), Some(CoreType::Boolean)),
@@ -196,6 +201,23 @@ fn wit_cases(cases: &[String]) -> Vec<String> {
         .iter()
         .map(|case| source_constructor_name(case))
         .collect()
+}
+
+/// The single field type of a newtype at its resolved application, or `None`
+/// when the type is not a newtype.
+fn newtype_underlying(module: &CoreModule, id: CoreTypeId) -> Option<CoreTypeId> {
+    let (hir, _) = applied_parts(module, id);
+    let hir = hir?;
+    if !module.newtype_ids.contains(&hir) {
+        return None;
+    }
+    module
+        .constructors
+        .iter()
+        .find(|constructor| constructor.type_id == hir && constructor.field_count == 1)?
+        .field_types
+        .first()
+        .copied()
 }
 
 fn core_is_handle(module: &CoreModule, id: CoreTypeId) -> bool {

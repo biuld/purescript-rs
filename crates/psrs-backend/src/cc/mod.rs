@@ -49,6 +49,10 @@ pub struct Module {
 pub struct External {
     pub symbol: SymbolId,
     pub signature: Option<Signature>,
+    /// The concrete decode layout of the external's result, when the result is
+    /// an aggregate. It names the source shape of each nested payload that the
+    /// abstract signature stores erased.
+    pub result_guest: Option<GuestLayout>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -265,12 +269,20 @@ pub fn lower_module_with_bindings(
             &layout.array_types,
             &layout.constructor_types,
         );
+        let result_guest = source_abi::abstract_result_guest(
+            binding.type_id,
+            &module,
+            &layout.record_types,
+            &layout.array_types,
+            &layout.constructor_types,
+        );
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }
         externals.push(External {
             symbol: binding.symbol,
             signature,
+            result_guest,
         });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());

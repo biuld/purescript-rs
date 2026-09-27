@@ -28,16 +28,33 @@ const APP_WIT: &str = include_str!("../wit/psrs-app.wit");
 /// lower through its canonical ABI adapter. Keep this list next to the world
 /// declaration so ABI discovery and component encoding share one contract.
 pub(crate) const COMPONENT_INTERFACES: &[&str] = &[
-    "wasi:cli/stdout@0.2.12",
-    "wasi:cli/stderr@0.2.12",
-    "wasi:io/streams@0.2.12",
-    // `io/streams` pulls these support interfaces into the resolved world.
     "wasi:io/error@0.2.12",
     "wasi:io/poll@0.2.12",
-    "wasi:cli/exit@0.2.12",
+    "wasi:io/streams@0.2.12",
     "wasi:clocks/monotonic-clock@0.2.12",
+    "wasi:clocks/wall-clock@0.2.12",
     "wasi:random/random@0.2.12",
+    "wasi:random/insecure@0.2.12",
+    "wasi:random/insecure-seed@0.2.12",
     "wasi:cli/environment@0.2.12",
+    "wasi:cli/exit@0.2.12",
+    "wasi:cli/stdin@0.2.12",
+    "wasi:cli/stdout@0.2.12",
+    "wasi:cli/stderr@0.2.12",
+    "wasi:cli/terminal-input@0.2.12",
+    "wasi:cli/terminal-output@0.2.12",
+    "wasi:cli/terminal-stdin@0.2.12",
+    "wasi:cli/terminal-stdout@0.2.12",
+    "wasi:cli/terminal-stderr@0.2.12",
+    "wasi:filesystem/types@0.2.12",
+    "wasi:filesystem/preopens@0.2.12",
+    "wasi:sockets/network@0.2.12",
+    "wasi:sockets/instance-network@0.2.12",
+    "wasi:sockets/udp@0.2.12",
+    "wasi:sockets/udp-create-socket@0.2.12",
+    "wasi:sockets/tcp@0.2.12",
+    "wasi:sockets/tcp-create-socket@0.2.12",
+    "wasi:sockets/ip-name-lookup@0.2.12",
 ];
 
 pub(crate) fn component_interface_supported(module: &str) -> bool {

@@ -74,6 +74,7 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
     let module = cc::Module {
         name: "ResourceResultAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),

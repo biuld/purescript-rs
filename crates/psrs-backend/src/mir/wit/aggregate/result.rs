@@ -12,6 +12,7 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     import: &WasiImport,
     shape: &ValueShape,
     guest: Option<&GuestLayout>,
+    decode: Option<&GuestLayout>,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -27,6 +28,10 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     let cases = payload_cases(result).ok_or_else(|| unsupported(span))?;
     let payload_offset =
         abi::layout::variant_payload_offset(&cases).ok_or_else(|| unsupported(span))?;
+    // The stored field shape comes from the abstract guest layout; the concrete
+    // decode shape comes from the result's decode tree when the storage field is
+    // erased. A `Repr` decode shape resolves the nested source aggregate so MIR
+    // can decode it before erasing the reference into the field.
     let field_shapes = (0..cases.len())
         .map(|index| match guest {
             Some(GuestLayout::Variant { cases, .. }) => cases
@@ -35,7 +40,16 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
             _ => None,
         })
         .collect::<Vec<_>>();
-    let layouts = field_shapes
+    let decode_shapes = (0..cases.len())
+        .map(|index| match decode {
+            Some(GuestLayout::Variant { cases, .. }) => cases
+                .get(index)
+                .and_then(|case| case.fields.first().copied())
+                .or(field_shapes[index]),
+            _ => field_shapes[index],
+        })
+        .collect::<Vec<_>>();
+    let layouts = decode_shapes
         .iter()
         .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
         .collect::<Vec<_>>();
@@ -125,6 +139,53 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
         )?;
         lowerer.wit_jump(block, merge, vec![cast], span)?;
     }
+    Ok(merge)
+}
+
+/// Lowers a top-level record result. The call writes the record into the
+/// canonical return area; the lowering reads each field and builds the source
+/// record, then passes it to the merge block as the call's result value.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::mir) fn lower_record_result<L: WitCallLowerer>(
+    lowerer: &mut L,
+    import: &WasiImport,
+    kind: &CanonicalType,
+    shape: &ValueShape,
+    guest: Option<&GuestLayout>,
+    decode: Option<&GuestLayout>,
+    destination: ValueId,
+    arguments: Vec<ValueId>,
+    retptr: Option<ValueId>,
+    current: BlockId,
+    span: TextRange,
+) -> Result<BlockId, Vec<BackendError>> {
+    let address = retptr.ok_or_else(|| unsupported(span))?;
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::CallVoid {
+            function: import.symbol,
+            arguments,
+            span,
+        },
+        span,
+    )?;
+    // A record's decode tree names the concrete shape of each field, which a
+    // nested erased aggregate needs. Fall back to the abstract guest layout
+    // when the result is not an aggregate.
+    let concrete = decode.or(guest);
+    let (value, block) = build_payload(
+        lowerer,
+        kind,
+        concrete,
+        Some(*shape),
+        address,
+        0,
+        current,
+        span,
+    )?;
+    let value = value.ok_or_else(|| unsupported(span))?;
+    let merge = lowerer.wit_new_block(vec![destination]);
+    lowerer.wit_jump(block, merge, vec![value], span)?;
     Ok(merge)
 }
 

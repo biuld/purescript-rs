@@ -123,6 +123,7 @@ fn parameter_fixture(
     let module = cc::Module {
         name: "AggregateListAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(element + 1)],
@@ -263,6 +264,7 @@ pub(crate) fn option_string_list_result_fixture() -> (cc::Module, ExternalBindin
     let module = cc::Module {
         name: "AggregateListResultAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -420,6 +422,7 @@ pub(crate) fn option_list_list_fixture() -> (cc::Module, ExternalBindings, Resol
     let module = cc::Module {
         name: "AggregateListNestedAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(2)],

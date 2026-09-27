@@ -227,3 +227,29 @@ fn validates_a_list_of_records() {
     validate_against(&import, module, &[array], unit)
         .expect("list<record> should validate against the source record");
 }
+
+#[test]
+fn accepts_a_top_level_record_result() {
+    let mut resolve = Resolve::default();
+    let package = resolve
+        .push_str(
+            "clock.wit",
+            "package test:clock@0.1.0; interface clock { record datetime { seconds: u64, nanoseconds: u32 } now: func() -> datetime; }",
+        )
+        .expect("the WIT record result fixture should resolve");
+    let interface = resolve.packages[package].interfaces["clock"];
+    let function = &resolve.interfaces[interface].functions["now"];
+    let resolved = super::canonical::resolve(
+        &resolve,
+        function
+            .result
+            .as_ref()
+            .expect("the fixture returns a record"),
+    )
+    .expect("the record result should resolve");
+    assert!(matches!(resolved, CanonicalType::Record(_)));
+    assert!(
+        super::unsupported(&resolve, function).is_none(),
+        "a top-level record result should have a source ABI mapping"
+    );
+}

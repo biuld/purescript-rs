@@ -121,6 +121,7 @@ pub(super) fn fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "RecordListAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],
@@ -182,6 +183,7 @@ pub(super) fn result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "RecordListResultAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -330,6 +332,7 @@ pub(super) fn string_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "RecordListStringAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],

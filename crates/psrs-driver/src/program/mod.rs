@@ -283,6 +283,10 @@ fn typecheck_program(
                 module.name.as_str(),
                 "Prelude"
                     | "WASI.Resource"
+                    | "WASI.Streams"
+                    | "WASI.Poll"
+                    | "WASI.Error"
+                    | "WASI.Stdin"
                     | "WASI.Console"
                     | "WASI.Clock"
                     | "WASI.Random"

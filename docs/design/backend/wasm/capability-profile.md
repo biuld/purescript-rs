@@ -115,7 +115,7 @@ for the default target and is also `Default::default()`. Its policy is:
 | MVP values, functions, memory, structured control | Enabled | Required baseline. |
 | Mutable globals, sign extension, saturating float-to-int, multi-value, bulk memory, extended const | Enabled as target capability | Cheap post-MVP features the lowerings may use; presence does not claim end-to-end support. |
 | Reference types, typed function references, GC | Enabled and required when used | Closures, aggregates, casts, and `call_ref` depend on them. |
-| Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. |
+| Component Model and WASI 0.2 (`wasi_cli`, `wasi_io`, `wasi_clocks`, `wasi_random`, `wasi_filesystem`, `wasi_sockets`) | Enabled and required | The artifact boundary; canonical ABI and WIT metadata are emitted. Filesystem and sockets have no library wrappers yet but the vendored WIT and the pinned host provide them. |
 | SIMD, relaxed SIMD | Disabled | Optimization track only. |
 | Tail calls, exceptions, multi-memory, wide arithmetic, threads | Disabled | Tail-call lowering and execution tests now exist but are gated on `tail_call`; enabling it in the stable profile still requires a profile revision ([control flow and tail calls](../fp/control-flow-and-tail-calls.md)). Other proposals have no lowering. |
 | Memory64 | Disabled | Deferred; see below. |
@@ -325,10 +325,11 @@ with `required.gc = true` and rejects it with the module span and a message that
 the target does not support WebAssembly GC. No bytes are produced and no linear
 heap fallback is attempted.
 
-A program that declares `foreign import "wasi:filesystem/types#..." ...` is
-rejected earlier: the default profile leaves `wasi_filesystem` disabled, so ABI
-resolution records an `unsupported` reason and P9 reports it against the
-declaration's span.
+A program that declares `foreign import "wasi:http/types#..." ...` is rejected
+earlier: no WASI HTTP WIT is vendored, so ABI resolution records an `unsupported`
+reason and P9 reports it against the declaration's span. Filesystem and sockets
+are enabled in the default profile; `wasi:clocks/timezone` stays out because the
+pinned host does not link it.
 
 ## Boundaries and interfaces
 
@@ -349,8 +350,8 @@ declaration's span.
   execution evidence exist.
 - **Memory64.** Revisited only when `wit-component` lifts 64-bit-memory modules
   and the WASI host supports them.
-- **New WASI services.** Filesystem, sockets, HTTP, and TLS are enabled as their
-  PureScript-facing libraries and ABI shapes land
+- **New WASI services.** Filesystem and sockets are enabled as service packages;
+  their PureScript-facing wrappers and HTTP/TLS remain future work
   ([WASI platform library](wasi-platform-library.md)).
 - **Wasmtime baseline.** Adopting a new runtime baseline is a deliberate
   revision of this profile and of [DEC-05](../../../decision/DEC-05-wasmtime-feature-set.md),
