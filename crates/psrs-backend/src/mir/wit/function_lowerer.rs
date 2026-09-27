@@ -138,6 +138,10 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         self.wit_boxed_integer()
     }
 
+    fn wit_boxed_number(&self) -> Option<DefinedTypeId> {
+        self.wit_boxed_number()
+    }
+
     fn wit_string_index(&self) -> Option<DefinedTypeId> {
         self.wit_string_index()
     }

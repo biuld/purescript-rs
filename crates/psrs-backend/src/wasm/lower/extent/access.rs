@@ -185,6 +185,24 @@ pub(super) fn memory_access(instruction: &Instruction) -> Option<MemoryAccess> {
             span,
             ..
         } => (*address, *offset, *span, 1, AccessKind::Read),
+        Instruction::LoadI64 {
+            address,
+            offset,
+            span,
+            ..
+        }
+        | Instruction::LoadF64 {
+            address,
+            offset,
+            span,
+            ..
+        } => (*address, *offset, *span, 8, AccessKind::Read),
+        Instruction::LoadF32 {
+            address,
+            offset,
+            span,
+            ..
+        } => (*address, *offset, *span, 4, AccessKind::Read),
         Instruction::Store {
             address,
             offset,

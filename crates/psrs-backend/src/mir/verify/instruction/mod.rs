@@ -1,10 +1,12 @@
 //! Instruction and terminator type checks for MIR verification.
-use super::Signature;
-use super::call::{verify_call_ref, verify_ref_func};
 use super::util::{
     call_value_types_match, check_heap, composite_at, is_array_reference, is_ref, is_ref_opt,
     is_struct_reference, mir_error, require_value, storage_value_type,
     struct_field_type_compatible, value_type, value_type_assignable,
+};
+use super::{
+    Signature,
+    call::{verify_call_ref, verify_ref_func},
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -12,6 +14,7 @@ use crate::types::{CompositeType, DefinedType, HeapType, RefType};
 use psrs_hir::SymbolId;
 use std::collections::HashMap;
 mod arrays;
+mod constant;
 mod copy;
 mod lists;
 mod memory;
@@ -27,29 +30,8 @@ pub(super) fn verify_instruction(
 ) -> Result<(), Vec<BackendError>> {
     match instruction {
         Instruction::Copy { .. } => copy::verify_copy(function, instruction, definitions)?,
-        Instruction::Constant {
-            destination,
-            value,
-            span,
-        } => {
-            let Some(result) = value_type(function, *destination) else {
-                return Err(mir_error(*span, "MIR constant has no result type"));
-            };
-            if !matches!(result, ValueType::I32 | ValueType::Boolean)
-                || (result == ValueType::Boolean && !matches!(value, 0 | 1))
-            {
-                return Err(mir_error(
-                    *span,
-                    "MIR integer constant has the wrong result type",
-                ));
-            }
-        }
-        Instruction::NumberConstant {
-            destination, span, ..
-        } => {
-            if value_type(function, *destination) != Some(ValueType::F64) {
-                return Err(mir_error(*span, "MIR number constant must produce f64"));
-            }
+        Instruction::Constant { .. } | Instruction::NumberConstant { .. } => {
+            constant::verify_constant(function, instruction, definitions)?
         }
         Instruction::ArrayNewData { .. } => {
             arrays::verify_array_new_data(function, instruction, defined)?
@@ -485,6 +467,9 @@ pub(super) fn verify_instruction(
         }
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
+        | Instruction::LoadI64 { .. }
+        | Instruction::LoadF32 { .. }
+        | Instruction::LoadF64 { .. }
         | Instruction::Store { .. }
         | Instruction::Store8 { .. }
         | Instruction::Store16 { .. }

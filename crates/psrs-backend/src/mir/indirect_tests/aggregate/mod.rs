@@ -3,6 +3,7 @@
 
 mod fixtures;
 mod nested;
+mod scalars;
 
 use super::lower_module_with_registry;
 use crate::ExternalBindings;
@@ -11,6 +12,7 @@ use crate::abi;
 use crate::cc::{self, VariantCase};
 use fixtures::{erased, fixture, parameter_fixture};
 use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_variant_fixture};
+use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
 use wit_parser::Resolve;
 
 fn lower_and_validate(module: cc::Module, bindings: ExternalBindings, resolve: Resolve) {
@@ -208,6 +210,58 @@ fn nested_record_parameter_lowers_to_a_wasm_artifact() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the nested record parameter Wasm should validate");
+}
+
+#[test]
+fn wide_scalar_payloads_lower_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = wide_scalar_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower wide scalar payloads");
+    let loads = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .filter(|instruction| {
+            matches!(
+                instruction,
+                crate::mir::Instruction::LoadI64 { .. } | crate::mir::Instruction::LoadF64 { .. }
+            )
+        })
+        .count();
+    assert_eq!(loads, 2, "both wide payloads are read at their width");
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the wide ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower wide scalar payloads");
+    let binary = crate::wasm::encode_module(&wasm).expect("the wide Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the wide scalar Wasm should validate");
+}
+
+#[test]
+fn wide_scalar_parameter_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = wide_scalar_parameter_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower a wide scalar parameter");
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the wide ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the wide scalar parameter");
+    let binary = crate::wasm::encode_module(&wasm).expect("the wide Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the wide scalar parameter Wasm should validate");
 }
 
 #[test]

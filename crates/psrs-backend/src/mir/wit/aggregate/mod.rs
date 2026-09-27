@@ -6,6 +6,7 @@
 //! discriminant and rebuilds the source value.
 
 mod decode;
+mod memory;
 mod parameter;
 mod result;
 
@@ -157,6 +158,8 @@ pub(super) fn direct_shape(kind: &WasiParamKind) -> Option<ValueShape> {
         | WasiParamKind::Enum { .. }
         | WasiParamKind::Handle(_) => ValueShape::Integer,
         WasiParamKind::Boolean => ValueShape::Boolean,
+        WasiParamKind::Scalar64 { .. } => ValueShape::Integer,
+        WasiParamKind::Float32 | WasiParamKind::Float64 => ValueShape::Number,
         WasiParamKind::List => ValueShape::String,
         _ => return None,
     })
@@ -324,11 +327,78 @@ pub(super) fn recover_payload<L: WitCallLowerer>(
     let recovered = match shape {
         ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
         ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,
+        ValueShape::Number => unbox_number(lowerer, value, block, span)?,
         ValueShape::String => recover_string(lowerer, value, block, span)?,
         ValueShape::Reference(_) => cast_reference(lowerer, value, &shape, block, span)?,
-        ValueShape::Number => return Err(unsupported(span)),
     };
     Ok((recovered, shape))
+}
+
+/// Boxes an `f64` and erases the box into the stored variant field.
+pub(super) fn box_number<L: WitCallLowerer>(
+    lowerer: &mut L,
+    value: ValueId,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let boxed = lowerer
+        .wit_boxed_number()
+        .ok_or_else(|| unsupported(span))?;
+    let boxed_type = ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Index(boxed),
+    });
+    let boxed_value = lowerer.fresh_wit_value(boxed_type);
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::StructNew {
+            destination: boxed_value,
+            type_index: boxed,
+            arguments: vec![value],
+            span,
+        },
+        span,
+    )?;
+    erase_reference(lowerer, boxed_value, block, span)
+}
+
+fn unbox_number<L: WitCallLowerer>(
+    lowerer: &mut L,
+    value: ValueId,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let boxed = lowerer
+        .wit_boxed_number()
+        .ok_or_else(|| unsupported(span))?;
+    let reference = RefType {
+        nullable: false,
+        heap: HeapType::Index(boxed),
+    };
+    let boxed_value = lowerer.fresh_wit_value(ValueType::Ref(reference));
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::RefCast {
+            destination: boxed_value,
+            value,
+            reference,
+            span,
+        },
+        span,
+    )?;
+    let number = lowerer.fresh_wit_value(ValueType::F64);
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::StructGet {
+            destination: number,
+            type_index: boxed,
+            field: 0,
+            value: boxed_value,
+            span,
+        },
+        span,
+    )?;
+    Ok(number)
 }
 
 fn unbox_scalar<L: WitCallLowerer>(

@@ -240,6 +240,30 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// `i64.load`, used for a canonical 64-bit aggregate payload.
+    LoadI64 {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `f32.load`, used for a canonical `f32` aggregate payload.
+    LoadF32 {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
+    /// `f64.load`, used for a canonical `f64` aggregate payload.
+    LoadF64 {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
     /// `i32.store`.
     Store {
         address: ValueId,

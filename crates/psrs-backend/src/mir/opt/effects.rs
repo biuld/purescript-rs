@@ -83,7 +83,11 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
             writes_memory: true,
             ..InstructionEffects::default()
         },
-        I::Load { .. } | I::Load8U { .. } => InstructionEffects {
+        I::Load { .. }
+        | I::Load8U { .. }
+        | I::LoadI64 { .. }
+        | I::LoadF32 { .. }
+        | I::LoadF64 { .. } => InstructionEffects {
             may_trap: true,
             reads_memory: true,
             ..InstructionEffects::default()

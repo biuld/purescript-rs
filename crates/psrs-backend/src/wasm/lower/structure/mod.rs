@@ -14,6 +14,7 @@ mod instructions;
 #[cfg(test)]
 mod irreducible_dispatch_tests;
 mod lists;
+mod memory_instructions;
 mod ops;
 #[cfg(test)]
 mod reducible_tests;
