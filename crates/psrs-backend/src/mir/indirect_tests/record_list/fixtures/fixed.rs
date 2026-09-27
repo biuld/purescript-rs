@@ -80,7 +80,7 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "FixedListAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(0)],
@@ -133,7 +133,7 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
     let module = cc::Module {
         name: "FixedListResultAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),

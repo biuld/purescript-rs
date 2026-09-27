@@ -85,6 +85,7 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         },
         I::Load { .. }
         | I::Load8U { .. }
+        | I::Load16U { .. }
         | I::LoadI64 { .. }
         | I::LoadF32 { .. }
         | I::LoadF64 { .. } => InstructionEffects {

@@ -253,7 +253,7 @@ fn rejects_a_direct_call_to_an_unbound_runner_external() {
     let module = crate::cc::Module {
         name: "unbound_runner".into(),
         externals: vec![crate::cc::External {
-            result_guest: None,
+            projection: None,
             symbol: runner,
             signature: None,
         }],

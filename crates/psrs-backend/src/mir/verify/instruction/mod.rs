@@ -461,6 +461,7 @@ pub(super) fn verify_instruction(
         }
         Instruction::Load { .. }
         | Instruction::Load8U { .. }
+        | Instruction::Load16U { .. }
         | Instruction::LoadI64 { .. }
         | Instruction::LoadF32 { .. }
         | Instruction::LoadF64 { .. }

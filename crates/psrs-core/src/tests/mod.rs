@@ -359,6 +359,7 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
         tag: 0,
         field_count: 1,
         field_types: vec![TypeId(0)],
+        parameters: Vec::new(),
     });
     assert!(has_message(
         &invalid_constructor,
@@ -417,6 +418,7 @@ fn verifier_rejects_a_constructor_annotated_as_an_unrelated_type() {
         tag: 0,
         field_count: 1,
         field_types: vec![TypeId(0)],
+        parameters: Vec::new(),
     });
     assert!(has_message(
         &module,

@@ -97,7 +97,7 @@ pub(crate) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "FlagsListAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],
@@ -191,7 +191,7 @@ pub(crate) fn handle_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "HandleListAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(0)],
@@ -315,7 +315,7 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "TupleListAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],
@@ -378,7 +378,7 @@ fn handle_result(result: &str) -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "HandleListResultAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),

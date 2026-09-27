@@ -41,6 +41,7 @@ fn module() -> Module {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(1),
@@ -49,6 +50,7 @@ fn module() -> Module {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

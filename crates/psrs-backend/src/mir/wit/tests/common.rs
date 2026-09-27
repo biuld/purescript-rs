@@ -199,10 +199,19 @@ impl WitCallLowerer for RecordingLowerer {
                 ..
             }) => {
                 if let Some((fields, labels)) = self.products.get(&repr) {
+                    let fields = fields
+                        .iter()
+                        .map(|shape| {
+                            Some(crate::cc::Field {
+                                value: self.wit_guest_layout(*shape)?,
+                                stored: *shape,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?;
                     Some(GuestLayout::Product {
                         repr,
                         labels: labels.clone(),
-                        fields: fields.clone(),
+                        fields,
                     })
                 } else {
                     self.guest_layouts.get(&repr).cloned()

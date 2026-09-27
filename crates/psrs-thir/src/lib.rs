@@ -57,6 +57,11 @@ pub struct ConstructorInfo {
     /// THIR lets later representations choose a runtime layout without
     /// consulting HIR again.
     pub field_types: Vec<TypeId>,
+    /// The declaration's ordered type parameters, as the variables that
+    /// `field_types` templates refer to. The variable at `parameters[i]` is the
+    /// constructor's field type when the enclosing application's argument `i` is
+    /// substituted, so a resolved application can instantiate the templates.
+    pub parameters: Vec<TypeVariableId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

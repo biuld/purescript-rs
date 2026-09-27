@@ -319,6 +319,7 @@ impl Structurer<'_> {
                 }
                 instruction @ (MirInstruction::Load { .. }
                 | MirInstruction::Load8U { .. }
+                | MirInstruction::Load16U { .. }
                 | MirInstruction::LoadI64 { .. }
                 | MirInstruction::LoadF32 { .. }
                 | MirInstruction::LoadF64 { .. }

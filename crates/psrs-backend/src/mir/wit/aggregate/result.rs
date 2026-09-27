@@ -10,9 +10,7 @@ use crate::types::RefType;
 pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    shape: &ValueShape,
-    guest: Option<&GuestLayout>,
-    decode: Option<&GuestLayout>,
+    guest: &GuestLayout,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -20,38 +18,21 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
     let address = retptr.ok_or_else(|| unsupported(span))?;
-    let repr = shape_repr(shape).ok_or_else(|| unsupported(span))?;
+    let GuestLayout::Variant { repr, cases } = guest else {
+        return Err(unsupported(span));
+    };
+    let repr = *repr;
     let result = import
         .canonical_result
         .as_ref()
         .ok_or_else(|| unsupported(span))?;
-    let cases = payload_cases(result).ok_or_else(|| unsupported(span))?;
+    let case_kinds = payload_cases(result).ok_or_else(|| unsupported(span))?;
     let payload_offset =
-        abi::layout::variant_payload_offset(&cases).ok_or_else(|| unsupported(span))?;
-    // The stored field shape comes from the abstract guest layout; the concrete
-    // decode shape comes from the result's decode tree when the storage field is
-    // erased. A `Repr` decode shape resolves the nested source aggregate so MIR
-    // can decode it before erasing the reference into the field.
-    let field_shapes = (0..cases.len())
-        .map(|index| match guest {
-            Some(GuestLayout::Variant { cases, .. }) => cases
-                .get(index)
-                .and_then(|case| case.fields.first().copied()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let decode_shapes = (0..cases.len())
-        .map(|index| match decode {
-            Some(GuestLayout::Variant { cases, .. }) => cases
-                .get(index)
-                .and_then(|case| case.fields.first().copied())
-                .or(field_shapes[index]),
-            _ => field_shapes[index],
-        })
-        .collect::<Vec<_>>();
-    let layouts = decode_shapes
-        .iter()
-        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
+        abi::layout::variant_payload_offset(&case_kinds).ok_or_else(|| unsupported(span))?;
+    // Each case's projected field carries both the concrete source value and the
+    // storage slot; MIR decodes the value and erases it when the slot is erased.
+    let case_fields = (0..case_kinds.len())
+        .map(|index| cases.get(index).and_then(|case| case.fields.first()))
         .collect::<Vec<_>>();
 
     lowerer.append_wit_instruction(
@@ -76,7 +57,7 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
         span,
     )?;
 
-    let case_blocks = cases
+    let case_blocks = case_kinds
         .iter()
         .map(|_| lowerer.wit_new_block(Vec::new()))
         .collect::<Vec<_>>();
@@ -102,20 +83,20 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
         nullable: false,
         heap: HeapType::Index(supertype),
     };
-    for (index, case) in cases.iter().enumerate() {
+    for (index, case) in case_kinds.iter().enumerate() {
         let block = case_blocks[index];
-        let (field, block) = match case {
-            Some(payload) => build_payload(
+        let (field, block) = match (case, case_fields[index]) {
+            (Some(payload), Some(case_field)) => build_payload(
                 lowerer,
                 payload,
-                layouts[index].as_ref(),
-                field_shapes[index],
+                &case_field.value,
+                case_field.stored,
                 address,
                 payload_offset,
                 block,
                 span,
             )?,
-            None => (None, block),
+            _ => (None, block),
         };
         let built = lowerer.fresh_wit_value(aggregate_type());
         lowerer.wit_variant_new(
@@ -150,9 +131,7 @@ pub(in crate::mir) fn lower_record_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     kind: &CanonicalType,
-    shape: &ValueShape,
-    guest: Option<&GuestLayout>,
-    decode: Option<&GuestLayout>,
+    guest: &GuestLayout,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -169,20 +148,10 @@ pub(in crate::mir) fn lower_record_result<L: WitCallLowerer>(
         },
         span,
     )?;
-    // A record's decode tree names the concrete shape of each field, which a
-    // nested erased aggregate needs. Fall back to the abstract guest layout
-    // when the result is not an aggregate.
-    let concrete = decode.or(guest);
-    let (value, block) = build_payload(
-        lowerer,
-        kind,
-        concrete,
-        Some(*shape),
-        address,
-        0,
-        current,
-        span,
-    )?;
+    // The projection names the concrete shape of each field, which a nested
+    // erased aggregate needs.
+    let stored = guest.shape();
+    let (value, block) = build_payload(lowerer, kind, guest, stored, address, 0, current, span)?;
     let value = value.ok_or_else(|| unsupported(span))?;
     let merge = lowerer.wit_new_block(vec![destination]);
     lowerer.wit_jump(block, merge, vec![value], span)?;

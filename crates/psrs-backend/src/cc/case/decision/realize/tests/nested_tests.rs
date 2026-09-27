@@ -42,6 +42,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 0,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(1)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: skip,
@@ -50,6 +51,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 1,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(2)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: true_symbol,
@@ -58,6 +60,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -66,6 +69,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

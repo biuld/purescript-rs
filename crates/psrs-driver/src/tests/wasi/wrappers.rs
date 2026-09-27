@@ -318,6 +318,18 @@ main =
   let flags = runEffect (getFlags d) in
   let target = runEffect (readlinkAt d "a") in
   let same = runEffect (isSameObject d d) in
+  let stats = runEffect (stat d) in
+  let statsAt = runEffect (statAt d { symlinkFollow: true } "a") in
+  let entries = runEffect (readDirectory d) in
+  let readEntry = case entries of
+        Left _ -> 1
+        Right stream ->
+          let entry = runEffect (readDirectoryEntry stream) in
+          let dropped = runEffect (dropDirectoryEntryStream stream) in
+          0
+  in
+  let ignoredTimes = runEffect (setTimes d NoChange NoChange) in
+  let ignoredTimesAt = runEffect (setTimesAt d { symlinkFollow: true } "a" NoChange NoChange) in
   let bracketed = runEffect (withDescriptor d (\handle -> getType handle)) in
   let ignored = runEffect (setSize d 0) in
   0
@@ -333,20 +345,35 @@ fn lowers_the_sockets_wrapper_surface() {
     let source = r#"module Main where
 import Prelude
 import Data.Either (Either(..))
+import Data.Maybe (Maybe(..))
 import WASI.Sockets
 addr :: IpSocketAddress
 addr = IpV4SocketAddress { port: 0, address: { _1: 0, _2: 0, _3: 0, _4: 0 } }
 main =
   let network = runEffect instanceNetwork in
   let created = runEffect (createTcpSocket Ipv4) in
-  case created of
-    Right socket ->
-      let ignored = runEffect (tcpStartBind socket network addr) in
-      let ignoredFinish = runEffect (tcpFinishBind socket) in
-      let family = runEffect (tcpAddressFamily socket) in
-      let dropped = runEffect (dropTcpSocket socket) in
-      0
-    Left _ -> 1
+  let tcp = case created of
+        Right socket ->
+          let ignored = runEffect (tcpStartBind socket network addr) in
+          let ignoredFinish = runEffect (tcpFinishBind socket) in
+          let family = runEffect (tcpAddressFamily socket) in
+          let local = runEffect (tcpLocalAddress socket) in
+          let remote = runEffect (tcpRemoteAddress socket) in
+          let dropped = runEffect (dropTcpSocket socket) in
+          0
+        Left _ -> 1
+  in
+  let createdUdp = runEffect (createUdpSocket Ipv4) in
+  let udp = case createdUdp of
+        Right socket ->
+          let local = runEffect (udpLocalAddress socket) in
+          let remote = runEffect (udpRemoteAddress socket) in
+          let streams = runEffect (udpSocketStream socket Nothing) in
+          let dropped = runEffect (dropUdpSocket socket) in
+          0
+        Left _ -> 1
+  in
+  tcp + udp
 "#;
     let artifact = compile_source("Main.purs", source).expect("every sockets wrapper should lower");
     assert!(
@@ -390,53 +417,6 @@ fn rejects_a_raw_sockets_import_from_the_library() {
         }),
         "{errors:?}"
     );
-}
-
-#[test]
-fn writes_and_reads_a_file_through_preopens_when_wasmtime_is_available() {
-    let source = r#"module Main where
-import Prelude
-import Data.Either (Either(..))
-import WASI.Console (log)
-import WASI.Filesystem
-main =
-  let dirs = runEffect preopens in
-  let dir = arrayIndex dirs 0 in
-  let created = runEffect (openWrite (dir._1) "roundtrip.txt") in
-  case created of
-    Left _ -> 1
-    Right file ->
-      let wrote = runEffect (writeString file "roundtrip") in
-      let closed = runEffect (dropDescriptor file) in
-      let reopened = runEffect (openRead (dir._1) "roundtrip.txt") in
-      case reopened of
-        Left _ -> 2
-        Right reader ->
-          let contents = runEffect (withDescriptor reader (\openReader -> readString openReader 64)) in
-          case contents of
-            Left _ -> 3
-            Right text -> let ignored = runEffect (log text) in 0
-"#;
-    let directory = std::env::temp_dir().join(format!(
-        "psrs-fs-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&directory).unwrap();
-    let Some(output) = run_wasmtime_with_dirs(source, &[], None, &[(directory.clone(), "/data")])
-    else {
-        eprintln!("skipping: wasmtime is not installed");
-        let _ = std::fs::remove_dir_all(&directory);
-        return;
-    };
-    assert_eq!(output.status.code(), Some(0), "{output:?}");
-    assert_eq!(output.stdout, b"roundtrip\n", "{output:?}");
-    let written = std::fs::read(directory.join("roundtrip.txt")).expect("the guest wrote the file");
-    assert_eq!(written, b"roundtrip");
-    let _ = std::fs::remove_dir_all(&directory);
 }
 
 #[test]

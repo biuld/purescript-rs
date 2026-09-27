@@ -31,23 +31,25 @@ pub(super) fn write_fixed_list<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    let element_shape = match guest {
-        Some(GuestLayout::Array { element, .. }) => *element,
+    let element_field = match guest {
+        Some(GuestLayout::Array { element, .. }) => element,
         _ => return Err(unsupported_list(span)),
     };
-    let element_guest = lowerer
-        .wit_guest_layout(element_shape)
-        .ok_or_else(|| unsupported_list(span))?;
     let array_type = lowerer.wit_array_type(argument, span)?;
     let mut current = current;
     for index in 0..length {
-        let value =
-            lowerer.wit_array_get(current, argument, array_type, element_shape, index, span)?;
+        let value = lowerer.wit_array_get(
+            current,
+            argument,
+            array_type,
+            element_field.stored,
+            index,
+            span,
+        )?;
         current = super::parameters::lower_parameter(
             lowerer,
             value,
-            &element_shape,
-            Some(&element_guest),
+            Some(&element_field.value),
             element,
             flat,
             frees,
@@ -67,7 +69,7 @@ pub(super) fn read_fixed_list_result<L: WitCallLowerer>(
     import: &WasiImport,
     element: &CanonicalType,
     length: u32,
-    shape: &ValueShape,
+    list: Option<&GuestLayout>,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -90,8 +92,7 @@ pub(super) fn read_fixed_list_result<L: WitCallLowerer>(
         },
         span,
     )?;
-    let list_layout = lowerer.wit_guest_layout(*shape);
-    let element_guest = element_guest(lowerer, list_layout.as_ref(), element, span)?;
+    let element_guest = element_guest(lowerer, list, element, span)?;
     let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let array_type = lowerer.wit_array_type(destination, span)?;
     let count = constant_i32(lowerer, length as i32, current, span)?;
@@ -171,7 +172,7 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     element: &CanonicalType,
-    shape: &ValueShape,
+    list: Option<&GuestLayout>,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -208,8 +209,7 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
         },
         span,
     )?;
-    let list_layout = lowerer.wit_guest_layout(*shape);
-    let element_guest = element_guest(lowerer, list_layout.as_ref(), element, span)?;
+    let element_guest = element_guest(lowerer, list, element, span)?;
     let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let pointer = load(lowerer, address, 0, current, span)?;
     let length = load(lowerer, address, 4, current, span)?;
@@ -268,8 +268,8 @@ fn element_guest<L: WitCallLowerer>(
     element: &CanonicalType,
     span: TextRange,
 ) -> Result<GuestLayout, Vec<BackendError>> {
-    if let Some(GuestLayout::Array { element: shape, .. }) = list
-        && let Some(layout) = lowerer.wit_guest_layout(*shape)
+    if let Some(GuestLayout::Array { element: field, .. }) = list
+        && let Some(layout) = lowerer.wit_guest_layout(field.stored)
     {
         return Ok(layout);
     }

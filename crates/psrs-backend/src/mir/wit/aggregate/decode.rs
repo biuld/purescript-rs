@@ -1,26 +1,25 @@
 //! Decodes a mapped aggregate payload from the canonical return area.
 
 use super::collections::{read_fixed_list, read_flags, read_value_list};
-use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8};
+use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8, load16};
 use super::*;
 use crate::abi::layout::{self, SlotKind};
 
 /// Reads a payload from the return area into the shape its variant case field
 /// expects. A concrete field keeps the source value; an erased field is boxed
-/// (scalar) or cast to the erased reference. `field_shape` is the guest case
-/// field shape, or `None` for an unknown field.
+/// (scalar) or cast to the erased reference.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_payload<L: WitCallLowerer>(
     lowerer: &mut L,
     kind: &CanonicalType,
-    guest: Option<&GuestLayout>,
-    field_shape: Option<ValueShape>,
+    value_node: &GuestLayout,
+    stored: ValueShape,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<(Option<ValueId>, BlockId), Vec<BackendError>> {
-    let erased = is_erased(field_shape);
+    let erased = is_erased(stored);
     if direct_shape(kind).is_some() {
         if kind.is_byte_list() {
             let value = read_string(lowerer, address, offset, block, span)?;
@@ -48,10 +47,12 @@ pub(super) fn build_payload<L: WitCallLowerer>(
         };
         return Ok((Some(value), block));
     }
-    let guest = guest.ok_or_else(|| unsupported(span))?;
-    let (value, block) = build_concrete(lowerer, kind, guest, address, offset, block, span)?;
+    let (value, block) = build_concrete(lowerer, kind, value_node, address, offset, block, span)?;
+    // The storage slot is either the concrete representation (`stored` names
+    // the same repr, so no cast) or an erased/aggregate supertype. Cast the
+    // built reference to the declared storage slot.
     let value = if erased {
-        erase_reference(lowerer, value, block, span)?
+        cast_reference(lowerer, value, &stored, block, span)?
     } else {
         value
     };
@@ -92,7 +93,7 @@ fn build_concrete<L: WitCallLowerer>(
                 read_value_list(
                     lowerer,
                     *repr,
-                    *element,
+                    element.stored,
                     wit_element,
                     address,
                     offset,
@@ -108,7 +109,7 @@ fn build_concrete<L: WitCallLowerer>(
                 read_fixed_list(
                     lowerer,
                     *repr,
-                    *element,
+                    element.stored,
                     wit_element,
                     *length,
                     address,
@@ -138,7 +139,7 @@ fn build_variant<L: WitCallLowerer>(
     lowerer: &mut L,
     kind: &CanonicalType,
     representation: crate::cc::ReprId,
-    cases: &[crate::cc::VariantCase],
+    cases: &[crate::cc::GuestCase],
     address: ValueId,
     offset: u32,
     block: BlockId,
@@ -148,16 +149,8 @@ fn build_variant<L: WitCallLowerer>(
     let tag = load_discriminant(lowerer, address, offset, case_kinds.len(), block, span)?;
     let payload_offset =
         layout::variant_payload_offset(&case_kinds).ok_or_else(|| unsupported(span))?;
-    let field_shapes = (0..case_kinds.len())
-        .map(|index| {
-            cases
-                .get(index)
-                .and_then(|case| case.fields.first().copied())
-        })
-        .collect::<Vec<_>>();
-    let layouts = field_shapes
-        .iter()
-        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
+    let case_fields = (0..case_kinds.len())
+        .map(|index| cases.get(index).and_then(|case| case.fields.first()))
         .collect::<Vec<_>>();
     let case_blocks = cases
         .iter()
@@ -187,18 +180,18 @@ fn build_variant<L: WitCallLowerer>(
 
     for (index, case_kind) in case_kinds.iter().enumerate() {
         let block = case_blocks[index];
-        let (field, block) = match case_kind {
-            Some(case_kind) => build_payload(
+        let (field, block) = match (case_kind, case_fields[index]) {
+            (Some(case_kind), Some(case_field)) => build_payload(
                 lowerer,
                 case_kind,
-                layouts[index].as_ref(),
-                field_shapes[index],
+                &case_field.value,
+                case_field.stored,
                 address,
                 offset + payload_offset,
                 block,
                 span,
             )?,
-            None => (None, block),
+            _ => (None, block),
         };
         let built = lowerer.fresh_wit_value(aggregate_type());
         lowerer.wit_variant_new(
@@ -317,6 +310,7 @@ fn read_scalar<L: WitCallLowerer>(
     let slot = layout.slots.first().ok_or_else(|| unsupported(span))?;
     match slot.kind {
         SlotKind::Byte => load8(lowerer, address, offset + slot.offset, block, span),
+        SlotKind::Half => load16(lowerer, address, offset + slot.offset, block, span),
         SlotKind::Word => load(lowerer, address, offset + slot.offset, block, span),
         _ => Err(unsupported(span)),
     }
@@ -361,7 +355,7 @@ fn read_record<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
     labels: &[String],
-    product: &[ValueShape],
+    product: &[crate::cc::Field],
     wit_fields: &[crate::abi::canonical::CanonicalField],
     address: ValueId,
     offset: u32,
@@ -382,19 +376,23 @@ fn read_record<L: WitCallLowerer>(
             .iter()
             .position(|candidate| candidate == &label)
             .ok_or_else(|| unsupported(span))?;
-        let field_guest = lowerer.wit_guest_layout(product[index]);
-        let Some(field_guest) = field_guest else {
-            return Err(unsupported(span));
-        };
         let (value, next) = build_concrete(
             lowerer,
             &wit_field.ty,
-            &field_guest,
+            &product[index].value,
             address,
             offset + field_offset,
             block,
             span,
         )?;
+        // The concrete node builds the nested representation; the record's
+        // storage slot may be an erased or aggregate supertype that needs a
+        // cast before the struct is built.
+        let value = if is_erased(product[index].stored) {
+            cast_reference(lowerer, value, &product[index].stored, next, span)?
+        } else {
+            value
+        };
         values[index] = Some(value);
         block = next;
     }

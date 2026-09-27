@@ -9,6 +9,7 @@ mod aggregate;
 mod element;
 mod nested;
 mod record;
+mod variant;
 
 use super::super::wasm_error;
 use super::Structurer;

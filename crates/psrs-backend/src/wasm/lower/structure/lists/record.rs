@@ -8,7 +8,6 @@ use super::super::wasm_error;
 use super::{ListLoop, Projection, Structurer};
 use crate::BackendError;
 use crate::abi;
-use crate::cc::ValueShape;
 use crate::wasm::{Body, Op};
 use psrs_span::TextRange;
 use wasm_encoder::Instruction;
@@ -24,7 +23,7 @@ impl Structurer<'_> {
         canonical_fields: &[crate::abi::canonical::CanonicalField],
         repr: crate::cc::ReprId,
         labels: &[String],
-        shapes: &[ValueShape],
+        shapes: &[crate::cc::Field],
         path: &[Projection],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
@@ -38,7 +37,7 @@ impl Structurer<'_> {
         for (field, (field_offset, _)) in canonical_fields.iter().zip(&layouts) {
             let label = abi::source_field_name(&field.name);
             let index = label_index(labels, &label, span)?;
-            let guest = self.resolve_guest(shapes[index as usize], span)?;
+            let guest = self.resolve_guest(shapes[index as usize].stored, span)?;
             let mut nested = path.to_vec();
             nested.push(Projection::Field {
                 ty: repr_index,
@@ -67,7 +66,7 @@ impl Structurer<'_> {
         canonical_fields: &[crate::abi::canonical::CanonicalField],
         repr: crate::cc::ReprId,
         labels: &[String],
-        shapes: &[ValueShape],
+        shapes: &[crate::cc::Field],
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         let layouts = abi::layout::record_fields(
@@ -84,7 +83,7 @@ impl Structurer<'_> {
                 .position(|field| &abi::source_field_name(&field.name) == label)
                 .ok_or_else(|| wasm_error(span, "canonical record element has no field"))?;
             let field_offset = layouts[canonical_index].0;
-            let guest = self.resolve_guest(*shape, span)?;
+            let guest = self.resolve_guest(shape.stored, span)?;
             self.emit_load_node(
                 body,
                 context,

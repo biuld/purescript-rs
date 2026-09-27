@@ -3,9 +3,11 @@
 -- | `Maybe`, `Either`, closed records, and an `error-code` ADT).
 module WASI.Filesystem
   ( Descriptor
+  , DirectoryEntryStream
   , FileError(..)
   , DescriptorType(..)
   , Advice(..)
+  , NewTimestamp(..)
   , preopens
   , preopen
   , openAt
@@ -33,8 +35,15 @@ module WASI.Filesystem
   , sync
   , syncData
   , setSize
+  , setTimes
+  , setTimesAt
   , advise
   , linkAt
+  , stat
+  , statAt
+  , readDirectory
+  , readDirectoryEntry
+  , dropDirectoryEntryStream
   , filesystemErrorCode
   , dropDescriptor
   , withDescriptor
@@ -47,6 +56,10 @@ import WASI.Streams (Error, InputStream, OutputStream, StreamError(..), blocking
 
 -- | An owned filesystem descriptor. Drop it with `dropDescriptor`.
 foreign import data Descriptor :: Type
+
+-- | An owned stream of directory entries, from `readDirectory`. Drop it with
+-- | `dropDirectoryEntryStream`.
+foreign import data DirectoryEntryStream :: Type
 
 -- | `error-code` returned by filesystem operations, mapped from the WIT enum.
 data FileError
@@ -101,6 +114,13 @@ data DescriptorType
 
 -- | `advice`, mapped from the WIT enum.
 data Advice = Normal | Sequential | Random | WillNeed | DontNeed | NoReuse
+
+-- | `new-timestamp` taken by `setTimes` and `setTimesAt`: leave the timestamp
+-- | unchanged, set it to now, or set it to a given `datetime`.
+data NewTimestamp
+  = NoChange
+  | Now
+  | Timestamp { seconds :: Int, nanoseconds :: Int }
 
 defaultPathFlags :: { symlinkFollow :: Boolean }
 defaultPathFlags = { symlinkFollow: true }
@@ -268,6 +288,45 @@ foreign import "wasi:filesystem/types#[method]descriptor.is-same-object" isSameO
 isSameObject :: Descriptor -> Descriptor -> Effect Boolean
 isSameObject left right = \token -> isSameObjectRaw left right
 
+foreign import "wasi:filesystem/types#[method]descriptor.stat" statRaw :: Descriptor -> Either { type :: DescriptorType, linkCount :: Int, size :: Int, dataAccessTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, dataModificationTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, statusChangeTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int } } FileError
+foreign import "wasi:filesystem/types#[method]descriptor.stat-at" statAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Either { type :: DescriptorType, linkCount :: Int, size :: Int, dataAccessTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, dataModificationTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, statusChangeTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int } } FileError
+
+-- | The attributes of an open file or directory.
+stat :: Descriptor -> Effect (Either FileError { type :: DescriptorType, linkCount :: Int, size :: Int, dataAccessTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, dataModificationTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, statusChangeTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int } })
+stat descriptor = \token ->
+  case statRaw descriptor of
+    Left attributes -> Right attributes
+    Right err -> Left err
+
+-- | The attributes of a file or directory named by a relative path.
+statAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Effect (Either FileError { type :: DescriptorType, linkCount :: Int, size :: Int, dataAccessTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, dataModificationTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int }, statusChangeTimestamp :: Maybe { seconds :: Int, nanoseconds :: Int } })
+statAt descriptor pathFlags path = \token ->
+  case statAtRaw descriptor pathFlags path of
+    Left attributes -> Right attributes
+    Right err -> Left err
+
+foreign import "wasi:filesystem/types#[method]descriptor.read-directory" readDirectoryRaw :: Descriptor -> Either DirectoryEntryStream FileError
+foreign import "wasi:filesystem/types#[method]directory-entry-stream.read-directory-entry" readDirectoryEntryRaw :: DirectoryEntryStream -> Either (Maybe { type :: DescriptorType, name :: String }) FileError
+foreign import "wasi:filesystem/types#[resource-drop]directory-entry-stream" dropDirectoryEntryStreamRaw :: DirectoryEntryStream -> Unit
+
+-- | Opens a fresh stream over the entries of a directory.
+readDirectory :: Descriptor -> Effect (Either FileError DirectoryEntryStream)
+readDirectory descriptor = \token ->
+  case readDirectoryRaw descriptor of
+    Left stream -> Right stream
+    Right err -> Left err
+
+-- | Reads the next entry from a directory stream. `Nothing` reports the end of
+-- | the stream.
+readDirectoryEntry :: DirectoryEntryStream -> Effect (Either FileError (Maybe { type :: DescriptorType, name :: String }))
+readDirectoryEntry stream = \token ->
+  case readDirectoryEntryRaw stream of
+    Left entry -> Right entry
+    Right err -> Left err
+
+dropDirectoryEntryStream :: DirectoryEntryStream -> Effect Unit
+dropDirectoryEntryStream stream = \token -> dropDirectoryEntryStreamRaw stream
+
 -- The remaining operations report `result<_, error-code>`: the canonical ABI
 -- maps that to a `Unit` result that traps on failure, so these wrappers cannot
 -- return a `FileError`.
@@ -306,6 +365,20 @@ syncData descriptor = \token -> syncDataRaw descriptor
 
 setSize :: Descriptor -> Int -> Effect Unit
 setSize descriptor size = \token -> setSizeRaw descriptor size
+
+foreign import "wasi:filesystem/types#[method]descriptor.set-times" setTimesRaw :: Descriptor -> NewTimestamp -> NewTimestamp -> Unit
+foreign import "wasi:filesystem/types#[method]descriptor.set-times-at" setTimesAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Unit
+
+-- | Adjusts the access and modification timestamps of an open file or
+-- | directory. A unit-success result traps on failure (DEC-13).
+setTimes :: Descriptor -> NewTimestamp -> NewTimestamp -> Effect Unit
+setTimes descriptor accessTimestamp modificationTimestamp = \token ->
+  setTimesRaw descriptor accessTimestamp modificationTimestamp
+
+-- | Adjusts the timestamps of a file or directory named by a relative path.
+setTimesAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Effect Unit
+setTimesAt descriptor pathFlags path accessTimestamp modificationTimestamp = \token ->
+  setTimesAtRaw descriptor pathFlags path accessTimestamp modificationTimestamp
 
 advise :: Descriptor -> Int -> Int -> Advice -> Effect Unit
 advise descriptor offset length advice = \token -> adviseRaw descriptor offset length advice

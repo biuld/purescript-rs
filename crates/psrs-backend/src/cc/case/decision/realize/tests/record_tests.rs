@@ -42,6 +42,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -50,6 +51,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

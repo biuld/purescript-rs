@@ -87,14 +87,15 @@ fn list_layout() -> Option<MemoryLayout> {
     })
 }
 
-/// The canonical layout of a variant: its discriminant followed by the joined
-/// case payload. Cases must agree on each payload slot's offset, and their
-/// kinds must be joinable.
+/// The canonical layout of a variant: its discriminant followed by a shared
+/// payload region sized by the maximum case payload size and alignment. Each
+/// case writes and reads at the payload offset using its own layout, so two
+/// cases with different field shapes (`ipv4`/`ipv6` socket addresses) share the
+/// region without their slots having to agree positionally.
 fn aggregate_layout(cases: &[Option<&CanonicalType>]) -> Option<MemoryLayout> {
     let discriminant = discriminant_width(cases.len());
     let mut payload_size = 0_u32;
     let mut payload_align = 1_u32;
-    let mut positions: Vec<(u32, SlotKind)> = Vec::new();
     for case in cases {
         let layout = match case {
             Some(ty) => parameter_layout(ty)?,
@@ -106,51 +107,17 @@ fn aggregate_layout(cases: &[Option<&CanonicalType>]) -> Option<MemoryLayout> {
         };
         payload_size = payload_size.max(layout.size);
         payload_align = payload_align.max(layout.align);
-        for (index, slot) in layout.slots.iter().enumerate() {
-            match positions.get_mut(index) {
-                Some(existing) => {
-                    if existing.0 != slot.offset {
-                        return None;
-                    }
-                    existing.1 = join_slot_kind(existing.1, slot.kind)?;
-                }
-                None => positions.push((slot.offset, slot.kind)),
-            }
-        }
     }
     let payload_offset = align_to(discriminant, payload_align)?;
-    let mut slots = vec![MemorySlot {
-        offset: 0,
-        kind: slot_for_width(discriminant),
-    }];
-    for (offset, kind) in positions {
-        slots.push(MemorySlot {
-            offset: payload_offset.checked_add(offset)?,
-            kind,
-        });
-    }
     let align = discriminant.max(payload_align);
     Some(MemoryLayout {
         size: align_to(payload_offset.checked_add(payload_size)?, align)?,
         align,
-        slots,
+        slots: vec![MemorySlot {
+            offset: 0,
+            kind: slot_for_width(discriminant),
+        }],
     })
-}
-
-/// The canonical slot kind of two joined case payloads. Integer widths widen to
-/// `Word`; a float pair widens to `F64`; anything else is unjoinable.
-fn join_slot_kind(left: SlotKind, right: SlotKind) -> Option<SlotKind> {
-    if left == right {
-        return Some(left);
-    }
-    match (left, right) {
-        (
-            SlotKind::Byte | SlotKind::Half | SlotKind::Word,
-            SlotKind::Byte | SlotKind::Half | SlotKind::Word,
-        ) => Some(SlotKind::Word),
-        (SlotKind::F32, SlotKind::F64) | (SlotKind::F64, SlotKind::F32) => Some(SlotKind::F64),
-        _ => None,
-    }
 }
 
 /// The canonical return-area `(size, align)` of a result passed through a

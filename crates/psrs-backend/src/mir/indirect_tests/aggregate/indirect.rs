@@ -139,7 +139,7 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
     let module = cc::Module {
         name: "IndirectAggregateAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: parameter_shapes,

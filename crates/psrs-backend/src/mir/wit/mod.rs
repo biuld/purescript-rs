@@ -7,6 +7,7 @@
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
 mod aggregate;
+mod bind;
 mod call_lowerer;
 mod free;
 mod function_lowerer;
@@ -14,6 +15,7 @@ mod handles;
 mod lists;
 mod parameters;
 
+pub(super) use bind::BoundFn;
 pub(super) use call_lowerer::WitCallLowerer;
 pub(super) use handles::verify_function;
 
@@ -25,62 +27,6 @@ use crate::cc::GuestLayout;
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
-
-/// One canonical ABI value paired with the guest shape of the declaration
-/// position it lowers. Canonical drives flattening, layout, and the return
-/// area; the guest shape resolves the recursive guest layout.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BoundType {
-    pub canonical: CanonicalType,
-    pub guest: crate::cc::ValueShape,
-    /// The concrete decode layout of an erased position, when one is known.
-    pub decode: Option<crate::cc::GuestLayout>,
-}
-
-/// Every parameter and the optional result of one resolved WIT import, each
-/// paired with its guest shape. Built once per call so the lowering never
-/// searches the declaration again.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BoundFn {
-    pub parameters: Vec<BoundType>,
-    /// The declaration's full abstract parameter list. A primitive import may
-    /// have a different source arity than the WIT parameter count, so the
-    /// primitive lowering reads these rather than the zipped `parameters`.
-    pub guest_parameters: Vec<crate::cc::ValueShape>,
-    pub result: Option<BoundType>,
-}
-
-impl BoundFn {
-    /// Pairs the import's canonical parameters and result with the declaration's
-    /// abstract guest signature.
-    fn bind(
-        import: &WasiImport,
-        signature: &crate::cc::Signature,
-        result_guest: Option<&crate::cc::GuestLayout>,
-    ) -> Self {
-        let parameters = import
-            .params
-            .iter()
-            .cloned()
-            .zip(signature.parameters.iter().copied())
-            .map(|(canonical, guest)| BoundType {
-                canonical,
-                guest,
-                decode: None,
-            })
-            .collect();
-        let result = import.canonical_result.clone().map(|canonical| BoundType {
-            canonical,
-            guest: signature.result,
-            decode: result_guest.cloned(),
-        });
-        BoundFn {
-            parameters,
-            guest_parameters: signature.parameters.clone(),
-            result,
-        }
-    }
-}
 
 /// Whether a canonical result is read directly from a register rather than
 /// through a return pointer: a scalar, handle, `Char`, `Bool`, or nullary enum.
@@ -127,13 +73,13 @@ pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     signature: &crate::cc::Signature,
-    result_guest: Option<&crate::cc::GuestLayout>,
+    projection: Option<&crate::cc::ExternalProjection>,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
     entry: BlockId,
 ) -> Result<BlockId, Vec<BackendError>> {
-    let bound = BoundFn::bind(import, signature, result_guest);
+    let bound = BoundFn::bind(import, signature, projection);
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     let mut current = parameters::lower_parameters(
@@ -202,12 +148,12 @@ pub(super) fn lower<L: WitCallLowerer>(
             let shape = bound
                 .result
                 .as_ref()
-                .map_or(signature.result, |result| result.guest);
+                .and_then(|result| result.guest_layout(lowerer));
             lists::read_value_list_result(
                 lowerer,
                 import,
                 element,
-                &shape,
+                shape.as_ref(),
                 destination,
                 flat,
                 retptr,
@@ -219,13 +165,13 @@ pub(super) fn lower<L: WitCallLowerer>(
             let shape = bound
                 .result
                 .as_ref()
-                .map_or(signature.result, |result| result.guest);
+                .and_then(|result| result.guest_layout(lowerer));
             lists::read_fixed_list_result(
                 lowerer,
                 import,
                 element,
                 *length,
-                &shape,
+                shape.as_ref(),
                 destination,
                 flat,
                 retptr,
@@ -386,13 +332,13 @@ pub(super) fn lower<L: WitCallLowerer>(
                 .result
                 .as_ref()
                 .expect("a variant result has a bound guest shape");
-            let layout = lowerer.wit_guest_layout(result.guest);
+            let guest = result
+                .guest_layout(lowerer)
+                .ok_or_else(|| aggregate::unsupported(span))?;
             current = aggregate::lower_variant_result(
                 lowerer,
                 import,
-                &result.guest,
-                layout.as_ref(),
-                result.decode.as_ref(),
+                &guest,
                 destination,
                 flat,
                 retptr,
@@ -405,14 +351,14 @@ pub(super) fn lower<L: WitCallLowerer>(
                 .result
                 .as_ref()
                 .expect("a record result has a bound guest shape");
-            let layout = lowerer.wit_guest_layout(result.guest);
+            let guest = result
+                .guest_layout(lowerer)
+                .ok_or_else(|| aggregate::unsupported(span))?;
             current = aggregate::lower_record_result(
                 lowerer,
                 import,
                 ty,
-                &result.guest,
-                layout.as_ref(),
-                result.decode.as_ref(),
+                &guest,
                 destination,
                 flat,
                 retptr,

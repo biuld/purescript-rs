@@ -33,6 +33,19 @@ impl Structurer<'_> {
                 ))));
                 self.store(body, *destination, *span)?;
             }
+            MirInstruction::Load16U {
+                destination,
+                address,
+                offset,
+                span,
+                ..
+            } => {
+                self.load(body, *address, *span)?;
+                body.push(Op::Leaf(Instruction::I32Load16U(memory_with_align(
+                    *offset, 1,
+                ))));
+                self.store(body, *destination, *span)?;
+            }
             MirInstruction::LoadI64 {
                 destination,
                 address,

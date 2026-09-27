@@ -181,10 +181,12 @@ pub fn typecheck_module_with_imports_and_effect_context(
         // Imported constructors are emitted so this module can lower
         // applications and patterns. Linking keeps one copy per symbol.
         let mut variables = HashMap::new();
+        let mut parameters = Vec::with_capacity(info.parameters.len());
         for parameter in &info.parameters {
             let variable = checker.fresh();
             if let InferType::Variable(id) = variable {
                 generics.insert(id);
+                parameters.push(TypeVariableId(id));
             }
             variables.insert(parameter.clone(), variable);
         }
@@ -206,6 +208,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
             tag: info.tag,
             field_count: field_types.len(),
             field_types,
+            parameters,
         });
     }
 

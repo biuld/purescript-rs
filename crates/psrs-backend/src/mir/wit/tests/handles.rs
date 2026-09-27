@@ -46,7 +46,7 @@ fn bound(import: WasiImport) -> BoundWasiImport {
             parameters: vec![ValueShape::Integer; import.params.len()],
             result: ValueShape::Integer,
         },
-        result_guest: None,
+        projection: None,
         import,
     }
 }

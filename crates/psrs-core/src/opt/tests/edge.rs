@@ -70,6 +70,7 @@ fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
         tag: 0,
         field_count: 0,
         field_types: Vec::new(),
+        parameters: Vec::new(),
     });
     let result = optimize(module, Budget::default()).unwrap();
     assert!(matches!(

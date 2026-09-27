@@ -101,7 +101,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
     let module = cc::Module {
         name: "RecordFieldAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -324,7 +324,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
     let module = cc::Module {
         name: "RecordFieldParameterAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(3)],

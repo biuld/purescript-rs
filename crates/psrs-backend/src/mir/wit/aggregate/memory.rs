@@ -62,6 +62,28 @@ pub(super) fn load8<L: WitCallLowerer>(
     Ok(destination)
 }
 
+pub(super) fn load16<L: WitCallLowerer>(
+    lowerer: &mut L,
+    address: ValueId,
+    offset: u32,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let destination = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::Load16U {
+            destination,
+            address,
+            memory: MemoryId(0),
+            offset,
+            span,
+        },
+        span,
+    )?;
+    Ok(destination)
+}
+
 pub(super) fn load_i64<L: WitCallLowerer>(
     lowerer: &mut L,
     address: ValueId,

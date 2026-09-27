@@ -9,26 +9,25 @@ use crate::mir::wit::parameters::lower_parameter;
 pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    shape: &ValueShape,
-    guest: Option<&GuestLayout>,
+    guest: &GuestLayout,
     kind: &CanonicalType,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
-    let repr = shape_repr(shape).ok_or_else(|| unsupported(span))?;
-    let cases = payload_cases(kind).ok_or_else(|| unsupported(span))?;
-    let joined = joined_payload_types(kind).ok_or_else(|| unsupported(span))?;
-    let Some(GuestLayout::Variant { .. }) = guest else {
+    let GuestLayout::Variant { repr, cases } = guest else {
         return Err(unsupported(span));
     };
+    let repr = *repr;
+    let case_kinds = payload_cases(kind).ok_or_else(|| unsupported(span))?;
+    let joined = joined_payload_types(kind).ok_or_else(|| unsupported(span))?;
 
     let tag = lowerer.fresh_wit_value(ValueType::I32);
     lowerer.wit_variant_tag(current, tag, repr, argument, span)?;
     flat.push(tag);
 
-    let case_blocks = cases
+    let case_blocks = case_kinds
         .iter()
         .map(|_| lowerer.wit_new_block(Vec::new()))
         .collect::<Vec<_>>();
@@ -51,46 +50,29 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     )?;
     lowerer.wit_jump(default, case_blocks[0], Vec::new(), span)?;
 
-    let field_shapes = (0..cases.len())
-        .map(|index| match guest {
-            Some(GuestLayout::Variant { cases, .. }) => cases
-                .get(index)
-                .and_then(|case| case.fields.first().copied()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let layouts = field_shapes
-        .iter()
-        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
-        .collect::<Vec<_>>();
-    for (index, case) in cases.iter().enumerate() {
+    for (index, case) in case_kinds.iter().enumerate() {
         let block = case_blocks[index];
-        let Some(payload) = case else {
-            let zeros = zero_arguments(lowerer, &joined, block, span)?;
-            lowerer.wit_jump(block, merge, zeros, span)?;
-            continue;
+        let case_field = cases.get(index).and_then(|case| case.fields.first());
+        let (payload, case_field) = match (case, case_field) {
+            (Some(payload), Some(case_field)) => (payload, case_field),
+            _ => {
+                let zeros = zero_arguments(lowerer, &joined, block, span)?;
+                lowerer.wit_jump(block, merge, zeros, span)?;
+                continue;
+            }
         };
         let field_type = lowerer
             .wit_case_field_type(repr, index as u32, 0)
             .ok_or_else(|| unsupported(span))?;
         let erased = lowerer.fresh_wit_value(field_type);
         lowerer.wit_variant_get(block, erased, repr, index as u32, 0, argument, span)?;
-        let case_guest = layouts[index].as_ref();
-        let (value, payload_shape) = recover_payload(
-            lowerer,
-            erased,
-            payload,
-            case_guest,
-            field_shapes[index],
-            block,
-            span,
-        )?;
+        let (value, payload_guest) =
+            recover_payload(lowerer, erased, case_field, payload, block, span)?;
         let mut case_flat = Vec::new();
         let end = lower_parameter(
             lowerer,
             value,
-            &payload_shape,
-            case_guest,
+            Some(&payload_guest),
             payload,
             &mut case_flat,
             frees,

@@ -4,12 +4,70 @@ mod assignments;
 
 use super::layout::LayoutError;
 use crate::cc::{
-    Module as CcModule, RefShape, Reference, ReprId, Representation, RepresentationTable,
-    Signature, SignatureId, ValueShape,
+    GuestLayout, Module as CcModule, RefShape, Reference, ReprId, Representation,
+    RepresentationTable, Signature, SignatureId, ValueShape,
 };
 use std::collections::{HashMap, HashSet};
 
 use assignments::add_assignments;
+
+/// Adds every representation the instance-aware projection names. The concrete
+/// `value` node of an erased parameter field references a nested representation
+/// the abstract signature does not reach, so the projection is what keeps a
+/// nested `option<record>` payload's struct and array types planned.
+fn add_projection(
+    layout: &GuestLayout,
+    representations: &mut HashSet<ReprId>,
+    signatures: &mut HashSet<SignatureId>,
+    representation_work: &mut Vec<ReprId>,
+    signature_work: &mut Vec<SignatureId>,
+) {
+    match layout {
+        GuestLayout::Scalar { shape } | GuestLayout::Boxed { shape } => add_value(
+            shape,
+            representations,
+            signatures,
+            representation_work,
+            signature_work,
+        ),
+        GuestLayout::Product { repr, fields, .. } => {
+            add_representation(*repr, representations, representation_work);
+            for field in fields {
+                add_projection(
+                    &field.value,
+                    representations,
+                    signatures,
+                    representation_work,
+                    signature_work,
+                );
+            }
+        }
+        GuestLayout::Variant { repr, cases } => {
+            add_representation(*repr, representations, representation_work);
+            for case in cases {
+                for field in &case.fields {
+                    add_projection(
+                        &field.value,
+                        representations,
+                        signatures,
+                        representation_work,
+                        signature_work,
+                    );
+                }
+            }
+        }
+        GuestLayout::Array { repr, element } => {
+            add_representation(*repr, representations, representation_work);
+            add_projection(
+                &element.value,
+                representations,
+                signatures,
+                representation_work,
+                signature_work,
+            );
+        }
+    }
+}
 
 pub(super) struct ReachableHandles {
     pub(super) representations: Vec<ReprId>,
@@ -77,6 +135,28 @@ impl ReachableHandles {
                     &mut representation_work,
                     &mut signature_work,
                 );
+            }
+            if direct_calls.contains(&external.symbol)
+                && let Some(projection) = &external.projection
+            {
+                for parameter in &projection.parameters {
+                    add_projection(
+                        parameter,
+                        &mut representations,
+                        &mut signatures,
+                        &mut representation_work,
+                        &mut signature_work,
+                    );
+                }
+                if let Some(result) = &projection.result {
+                    add_projection(
+                        result,
+                        &mut representations,
+                        &mut signatures,
+                        &mut representation_work,
+                        &mut signature_work,
+                    );
+                }
             }
         }
 

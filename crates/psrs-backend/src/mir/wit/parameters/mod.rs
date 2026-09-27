@@ -48,11 +48,10 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
         return Ok(current);
     }
     for (argument, parameter) in arguments.iter().zip(&bound.parameters) {
-        let guest = lowerer.wit_guest_layout(parameter.guest);
+        let guest = parameter.guest_layout(lowerer);
         current = lower_parameter(
             lowerer,
             *argument,
-            &parameter.guest,
             guest.as_ref(),
             &parameter.canonical,
             &mut flattened,
@@ -62,7 +61,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
         )?;
     }
     if import.has_indirect_parameters() {
-        indirect::write_parameter_record(
+        current = indirect::write_parameter_record(
             lowerer,
             &import.params,
             &flattened,
@@ -81,7 +80,6 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
 pub(super) fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    shape: &crate::cc::ValueShape,
     guest: Option<&GuestLayout>,
     ty: &CanonicalType,
     flat: &mut Vec<ValueId>,
@@ -140,8 +138,9 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             err: Some(_),
         }
         | CanonicalType::Variant(_) => {
+            let guest = guest.ok_or_else(|| unsupported_parameter(span))?;
             return super::aggregate::lower_variant_parameter(
-                lowerer, argument, shape, guest, ty, flat, frees, current, span,
+                lowerer, argument, guest, ty, flat, frees, current, span,
             );
         }
         CanonicalType::String => {
@@ -182,12 +181,10 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
                     return Err(unsupported_parameter(span));
                 };
                 let value = lowerer.wit_product_field(current, argument, index as u32, span)?;
-                let field_guest = lowerer.wit_guest_layout(product[index]);
                 current = lower_parameter(
                     lowerer,
                     value,
-                    &product[index],
-                    field_guest.as_ref(),
+                    Some(&product[index].value),
                     &field.ty,
                     flat,
                     frees,

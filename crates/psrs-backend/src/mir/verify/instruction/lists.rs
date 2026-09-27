@@ -58,8 +58,8 @@ pub(super) fn verify_list_copy(
                 "MIR list copy element fields do not match the struct",
             ));
         }
-        for (shape, storage) in fields.iter().zip(field_types) {
-            if !field_storage_matches(*shape, &storage.storage) {
+        for (field, storage) in fields.iter().zip(field_types) {
+            if !field_storage_matches(field.stored, &storage.storage) {
                 return Err(mir_error(
                     *span,
                     "MIR list copy element field storage does not match the struct",

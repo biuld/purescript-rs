@@ -312,8 +312,8 @@ fn tuple_list_maps_to_a_record_list() {
     };
     assert_eq!(labels, &["_1".to_string(), "_2".to_string()]);
     assert_eq!(
-        fields,
-        &[crate::cc::ValueShape::String, crate::cc::ValueShape::String]
+        fields.iter().map(|field| field.stored).collect::<Vec<_>>(),
+        vec![crate::cc::ValueShape::String, crate::cc::ValueShape::String]
     );
 
     let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the tuple copy");

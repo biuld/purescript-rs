@@ -260,7 +260,7 @@ impl FunctionLowerer<'_> {
                             self,
                             &import.import,
                             &import.signature,
-                            import.result_guest.as_ref(),
+                            import.projection.as_ref(),
                             assignment.destination,
                             arguments,
                             assignment.span,
