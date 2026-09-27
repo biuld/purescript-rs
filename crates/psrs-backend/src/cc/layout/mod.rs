@@ -92,9 +92,12 @@ fn layoutable_field_type_inner(
             result
         }
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
+        // A closed record has its own representation handle, so a variant case
+        // may carry one as a referenced payload (WIT `datetime`, socket
+        // addresses, and directory entries are records).
+        Some(Type::Record(_)) => true,
         Some(Type::Variable(_))
         | Some(Type::Constructor(TypeConstructor::Array))
-        | Some(Type::Record(_))
         | Some(Type::OpenRecord { .. })
         | Some(Type::Function { .. })
         | None => false,

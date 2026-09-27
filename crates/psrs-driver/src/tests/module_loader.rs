@@ -112,7 +112,9 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "WASI.Stdin",
             "WASI.Console",
             "WASI.Exit",
-            "WASI.Environment"
+            "WASI.Environment",
+            "WASI.Filesystem",
+            "WASI.Sockets"
         ]
     );
     for module in modules {
@@ -130,7 +132,9 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
                 || path.ends_with("lib/WASI/Clock.purs")
                 || path.ends_with("lib/WASI/Random.purs")
                 || path.ends_with("lib/WASI/Exit.purs")
-                || path.ends_with("lib/WASI/Environment.purs"),
+                || path.ends_with("lib/WASI/Environment.purs")
+                || path.ends_with("lib/WASI/Filesystem.purs")
+                || path.ends_with("lib/WASI/Sockets.purs"),
             "{}",
             module.path
         );
