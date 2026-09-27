@@ -1,5 +1,6 @@
 use super::*;
 
+mod filesystem;
 mod wat;
 use wat::*;
 

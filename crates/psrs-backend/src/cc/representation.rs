@@ -69,6 +69,36 @@ pub enum Representation {
     Array { element: ValueShape },
 }
 
+/// One projected field of a guest aggregate: the concrete source value at that
+/// field and the storage slot it maps to in the physical representation.
+///
+/// `value` is the instance-aware guest node read or written by MIR; `stored` is
+/// the physical field shape from the [`RepresentationTable`]. They differ for a
+/// parameterized ADT's type-parameter field, where the table stores `Erased`
+/// (DEC-07) but the resolved Core type names a concrete payload. `value ==
+/// stored` is a direct projection; otherwise a defined CC conversion (scalar
+/// `<->` erased, concrete reference `<->` erased) bridges them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub value: GuestLayout,
+    pub stored: ValueShape,
+}
+
+impl Field {
+    /// The shape of the concrete value node.
+    pub fn value_shape(&self) -> ValueShape {
+        self.value.shape()
+    }
+}
+
+/// One case of a projected guest variant, in tag order. `fields` are the
+/// projected fields of the case's single payload (empty for a nullary case).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuestCase {
+    pub tag: u32,
+    pub fields: Vec<Field>,
+}
+
 /// The concrete guest layout of one bound value, resolved from CC's
 /// representation table. This is the guest half of a WIT binding: the canonical
 /// type says how bytes cross the boundary; this says how the guest stores the
@@ -81,19 +111,16 @@ pub enum GuestLayout {
     /// A value boxed into an erased field.
     Boxed { shape: ValueShape },
     /// A closed record with its representation, canonical labels, and the
-    /// shape of each field in storage order.
+    /// projection of each field in storage order.
     Product {
         repr: ReprId,
         labels: Vec<String>,
-        fields: Vec<ValueShape>,
+        fields: Vec<Field>,
     },
     /// A tagged value with its representation and cases in tag order.
-    Variant {
-        repr: ReprId,
-        cases: Vec<VariantCase>,
-    },
-    /// A GC array with its representation and element shape.
-    Array { repr: ReprId, element: ValueShape },
+    Variant { repr: ReprId, cases: Vec<GuestCase> },
+    /// A GC array with its representation and projected element.
+    Array { repr: ReprId, element: Box<Field> },
 }
 
 impl GuestLayout {
@@ -111,36 +138,89 @@ impl GuestLayout {
     }
 }
 
-/// Resolves a value shape to its recursive guest layout by looking up the
-/// representation table. A representation handle yields its product, variant,
-/// array, or boxed node; every other shape is a scalar. This is the one
-/// recursive accessor the ABI lowering walks in lockstep with a canonical type.
+/// Resolves a value shape to its storage guest layout by looking up the
+/// representation table. Each field pairs the storage shape with a projection
+/// that resolves the same storage shape, so `value == stored`. A representation
+/// handle yields its product, variant, array, or boxed node; every other shape
+/// is a scalar.
 pub(crate) fn guest_layout(shape: ValueShape, table: &RepresentationTable) -> Option<GuestLayout> {
+    let mut visited = std::collections::HashSet::new();
+    guest_layout_inner(shape, table, &mut visited)
+}
+
+fn guest_layout_inner(
+    shape: ValueShape,
+    table: &RepresentationTable,
+    visited: &mut std::collections::HashSet<ReprId>,
+) -> Option<GuestLayout> {
     match shape {
         ValueShape::Reference(Reference {
             heap: RefShape::Repr(repr),
             ..
-        }) => Some(match table.representation(repr)? {
-            Representation::Box { value } => GuestLayout::Boxed { shape: *value },
-            Representation::Product { fields } => GuestLayout::Product {
-                repr,
-                labels: table
-                    .product_labels(repr)
-                    .map(<[String]>::to_vec)
-                    .unwrap_or_default(),
-                fields: fields.clone(),
-            },
-            Representation::Variant { cases } => GuestLayout::Variant {
-                repr,
-                cases: cases.clone(),
-            },
-            Representation::Array { element } => GuestLayout::Array {
-                repr,
-                element: *element,
-            },
-        }),
+        }) => {
+            if !visited.insert(repr) {
+                // A recursive representation stops here; MIR resolves nested
+                // shapes lazily through the table.
+                return Some(GuestLayout::Scalar { shape });
+            }
+            let layout = Some(match table.representation(repr)? {
+                Representation::Box { value } => GuestLayout::Boxed { shape: *value },
+                Representation::Product { fields } => GuestLayout::Product {
+                    repr,
+                    labels: table
+                        .product_labels(repr)
+                        .map(<[String]>::to_vec)
+                        .unwrap_or_default(),
+                    fields: fields
+                        .iter()
+                        .map(|field| storage_field(*field, table, visited))
+                        .collect::<Option<Vec<_>>>()?,
+                },
+                Representation::Variant { cases } => GuestLayout::Variant {
+                    repr,
+                    cases: cases
+                        .iter()
+                        .map(|case| storage_case(case, table, visited))
+                        .collect::<Option<Vec<_>>>()?,
+                },
+                Representation::Array { element } => GuestLayout::Array {
+                    repr,
+                    element: Box::new(storage_field(*element, table, visited)?),
+                },
+            });
+            visited.remove(&repr);
+            layout
+        }
         other => Some(GuestLayout::Scalar { shape: other }),
     }
+}
+
+/// A storage field whose concrete node is the resolution of its own storage
+/// shape.
+fn storage_field(
+    shape: ValueShape,
+    table: &RepresentationTable,
+    visited: &mut std::collections::HashSet<ReprId>,
+) -> Option<Field> {
+    Some(Field {
+        value: guest_layout_inner(shape, table, visited)?,
+        stored: shape,
+    })
+}
+
+fn storage_case(
+    case: &VariantCase,
+    table: &RepresentationTable,
+    visited: &mut std::collections::HashSet<ReprId>,
+) -> Option<GuestCase> {
+    Some(GuestCase {
+        tag: case.tag,
+        fields: case
+            .fields
+            .iter()
+            .map(|shape| storage_field(*shape, table, visited))
+            .collect::<Option<Vec<_>>>()?,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]

@@ -110,6 +110,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
             tag: tag as u32,
             field_count: 0,
             field_types: Vec::new(),
+            parameters: Vec::new(),
         })
         .collect();
     let enum_type = HirType {
@@ -161,6 +162,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
             tag: tag as u32,
             field_count: 0,
             field_types: Vec::new(),
+            parameters: Vec::new(),
         })
         .collect();
     let reversed_id = crate::abi::intern_source_type(&mut reversed_core, &function)
@@ -189,6 +191,7 @@ fn validates_a_list_of_nullary_enums() {
             tag: tag as u32,
             field_count: 0,
             field_types: Vec::new(),
+            parameters: Vec::new(),
         })
         .collect();
     let enum_id = intern_all(

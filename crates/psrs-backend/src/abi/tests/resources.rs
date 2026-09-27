@@ -190,6 +190,7 @@ fn erases_a_newtype_resource_wrapper_to_its_handle() {
         tag: 0,
         field_count: 1,
         field_types: vec![int],
+        parameters: Vec::new(),
     });
     let resource_constructor = intern_all(
         &mut core,

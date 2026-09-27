@@ -10,6 +10,7 @@ mod case;
 mod convert;
 mod layout;
 mod lower;
+mod projection;
 mod representation;
 mod scalar;
 mod source_abi;
@@ -22,10 +23,11 @@ use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
 pub use convert::{AggregateConvert, BoxKind, RecoveryEvidence, ValueConversion};
+pub use projection::ExternalProjection;
 pub(crate) use representation::guest_layout;
 pub use representation::{
-    GuestLayout, RefShape, Reference, ReprId, Representation, RepresentationTable, Signature,
-    SignatureId, ValueDecl, ValueShape, VariantCase,
+    Field, GuestCase, GuestLayout, RefShape, Reference, ReprId, Representation,
+    RepresentationTable, Signature, SignatureId, ValueDecl, ValueShape, VariantCase,
 };
 pub use scalar::{BinaryOp, UnaryOp};
 
@@ -49,10 +51,11 @@ pub struct Module {
 pub struct External {
     pub symbol: SymbolId,
     pub signature: Option<Signature>,
-    /// The concrete decode layout of the external's result, when the result is
-    /// an aggregate. It names the source shape of each nested payload that the
-    /// abstract signature stores erased.
-    pub result_guest: Option<GuestLayout>,
+    /// The instance-aware guest projection of the external's parameters and
+    /// result. It carries, for each field, the concrete guest value and the
+    /// storage slot it maps to. `None` when the declaration is not a function
+    /// type.
+    pub projection: Option<projection::ExternalProjection>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -269,20 +272,27 @@ pub fn lower_module_with_bindings(
             &layout.array_types,
             &layout.constructor_types,
         );
-        let result_guest = source_abi::abstract_result_guest(
+        let projection = projection::project_external(
             binding.type_id,
             &module,
             &layout.record_types,
             &layout.array_types,
             &layout.constructor_types,
-        );
+            &layout.representations,
+        )
+        .map_err(|message| {
+            vec![
+                BackendError::new("P8 closure conversion", module.span, message)
+                    .with_module(binding.symbol.module),
+            ]
+        })?;
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }
         externals.push(External {
             symbol: binding.symbol,
             signature,
-            result_guest,
+            projection,
         });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());

@@ -41,6 +41,7 @@ fn constructor(
         tag: index,
         field_count: field_types.len(),
         field_types,
+        parameters: Vec::new(),
     }
 }
 

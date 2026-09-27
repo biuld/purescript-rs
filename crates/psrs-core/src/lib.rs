@@ -58,6 +58,11 @@ pub struct ConstructorInfo {
     pub tag: u32,
     pub field_count: usize,
     pub field_types: Vec<TypeId>,
+    /// The declaration's ordered type parameters, as the variables its
+    /// `field_types` templates refer to. The variable at `parameters[i]` stands
+    /// for the resolved application's argument `i`, letting the ABI instantiate
+    /// a parameterized constructor's field templates.
+    pub parameters: Vec<TypeVariableId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

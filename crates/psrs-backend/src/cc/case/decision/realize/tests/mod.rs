@@ -40,6 +40,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -48,6 +49,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

@@ -42,6 +42,7 @@ fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
             tag: 0,
             field_count: 1,
             field_types: vec![array_a],
+            parameters: Vec::new(),
         }],
         declarations: Vec::new(),
         entry: None,
@@ -156,6 +157,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
                 tag: 0,
                 field_count: 1,
                 field_types: vec![array_a],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: outer,
@@ -164,6 +166,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
                 tag: 0,
                 field_count: 1,
                 field_types: vec![inner_a],
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

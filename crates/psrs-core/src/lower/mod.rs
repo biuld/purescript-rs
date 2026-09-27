@@ -101,6 +101,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
                     .iter()
                     .map(|field| TypeId(field.0))
                     .collect(),
+                parameters: constructor.parameters.clone(),
             })
             .collect(),
         declarations,

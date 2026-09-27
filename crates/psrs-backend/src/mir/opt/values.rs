@@ -280,6 +280,11 @@ pub(crate) fn remap_instruction(
             address,
             ..
         }
+        | I::Load16U {
+            destination,
+            address,
+            ..
+        }
         | I::LoadI64 {
             destination,
             address,

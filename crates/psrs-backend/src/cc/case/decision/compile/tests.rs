@@ -25,6 +25,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: false_symbol,
@@ -33,6 +34,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

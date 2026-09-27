@@ -27,6 +27,7 @@ fn constructor(
         tag,
         field_count: field_types.len(),
         field_types,
+        parameters: Vec::new(),
     }
 }
 

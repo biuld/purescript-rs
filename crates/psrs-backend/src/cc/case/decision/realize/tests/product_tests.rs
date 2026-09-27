@@ -33,6 +33,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
             tag: 0,
             field_count: 1,
             field_types: vec![psrs_core::TypeId(1)],
+            parameters: Vec::new(),
         }],
         declarations: Vec::new(),
         entry: None,

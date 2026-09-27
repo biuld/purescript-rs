@@ -33,6 +33,7 @@ impl Instruction {
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
             | Self::Load8U { destination, .. }
+            | Self::Load16U { destination, .. }
             | Self::LoadI64 { destination, .. }
             | Self::LoadF32 { destination, .. }
             | Self::LoadF64 { destination, .. }
@@ -116,6 +117,7 @@ impl Instruction {
             } => vec![*value, *index, *new_value],
             Self::Load { address, .. }
             | Self::Load8U { address, .. }
+            | Self::Load16U { address, .. }
             | Self::LoadI64 { address, .. }
             | Self::LoadF32 { address, .. }
             | Self::LoadF64 { address, .. } => vec![*address],
@@ -179,6 +181,7 @@ impl Instruction {
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
             | Self::Load8U { span, .. }
+            | Self::Load16U { span, .. }
             | Self::LoadI64 { span, .. }
             | Self::LoadF32 { span, .. }
             | Self::LoadF64 { span, .. }

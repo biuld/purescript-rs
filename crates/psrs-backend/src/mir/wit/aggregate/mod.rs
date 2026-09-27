@@ -20,7 +20,7 @@ use super::{BlockId, PendingFree, WitCallLowerer, free_buffer};
 use crate::BackendError;
 use crate::abi;
 use crate::abi::canonical::{CanonicalType, payload_cases};
-use crate::cc::{GuestLayout, RefShape, Reference, ValueShape};
+use crate::cc::{GuestLayout, RefShape, ValueShape};
 use crate::mir::UnaryOp;
 use crate::mir::instruction::Instruction;
 use crate::types::{HeapType, MemoryId, RefType, ValueId, ValueType};
@@ -60,6 +60,7 @@ pub(super) fn aggregate_type() -> ValueType {
 pub(super) fn flat_types(ty: &CanonicalType) -> Option<Vec<ValueType>> {
     Some(match ty {
         CanonicalType::Bool => vec![ValueType::Boolean],
+        CanonicalType::Int { width: 64, .. } => vec![ValueType::I64],
         CanonicalType::Int { .. }
         | CanonicalType::Char
         | CanonicalType::Enum(_)
@@ -172,18 +173,6 @@ pub(super) fn direct_shape(ty: &CanonicalType) -> Option<ValueShape> {
     })
 }
 
-/// The concrete variant representation handle of a source aggregate shape.
-pub(super) fn shape_repr(shape: &ValueShape) -> Option<crate::cc::ReprId> {
-    let ValueShape::Reference(Reference {
-        heap: RefShape::Repr(repr),
-        ..
-    }) = shape
-    else {
-        return None;
-    };
-    Some(*repr)
-}
-
 /// Boxes an `i32` scalar and erases the box into the stored variant field.
 pub(super) fn box_scalar<L: WitCallLowerer>(
     lowerer: &mut L,
@@ -261,15 +250,12 @@ pub(super) fn recover_string<L: WitCallLowerer>(
     Ok(recovered)
 }
 
-/// Whether a variant case field stores an erased value that the erased
-/// aggregate protocol boxes or casts. An unknown field is treated as erased.
-pub(super) fn is_erased(shape: Option<ValueShape>) -> bool {
+/// Whether a projected field's storage slot is erased. The erased aggregate
+/// protocol boxes or casts such a field.
+pub(super) fn is_erased(shape: ValueShape) -> bool {
     match shape {
-        None => true,
-        Some(ValueShape::Reference(reference)) => {
-            !matches!(reference.heap, crate::cc::RefShape::Repr(_))
-        }
-        Some(_) => false,
+        ValueShape::Reference(reference) => !matches!(reference.heap, crate::cc::RefShape::Repr(_)),
+        _ => false,
     }
 }
 
@@ -316,34 +302,54 @@ pub(super) fn cast_reference<L: WitCallLowerer>(
 }
 
 /// Unboxes an erased variant field into the concrete source value for a
-/// parameter. Returns the value and its concrete shape.
+/// parameter. Returns the value and its concrete projection. `kind` is the
+/// canonical payload, which recovers a direct scalar when the projection is the
+/// storage fallback (`value` is an erased or representation placeholder).
 pub(super) fn recover_payload<L: WitCallLowerer>(
     lowerer: &mut L,
     value: ValueId,
+    field: &crate::cc::Field,
     kind: &CanonicalType,
-    guest: Option<&GuestLayout>,
-    field_shape: Option<ValueShape>,
     block: BlockId,
     span: TextRange,
-) -> Result<(ValueId, ValueShape), Vec<BackendError>> {
-    // A concrete case field already stores the source value.
-    if !is_erased(field_shape) {
-        let shape = field_shape.ok_or_else(|| unsupported(span))?;
-        return Ok((value, shape));
+) -> Result<(ValueId, crate::cc::GuestLayout), Vec<BackendError>> {
+    // A concrete storage slot already stores the source value.
+    if !is_erased(field.stored) {
+        return Ok((value, field.value.clone()));
     }
-    // An erased field is a reference (scalar box or erased aggregate). Recover
-    // the concrete source shape from the canonical type or the guest layout.
-    let shape = direct_shape(kind)
-        .or_else(|| guest.map(GuestLayout::shape))
-        .ok_or_else(|| unsupported(span))?;
-    let recovered = match shape {
-        ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
-        ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,
-        ValueShape::Number => unbox_number(lowerer, value, block, span)?,
-        ValueShape::String => recover_string(lowerer, value, block, span)?,
-        ValueShape::Reference(_) => cast_reference(lowerer, value, &shape, block, span)?,
+    // An erased slot holds a reference (scalar box or erased aggregate).
+    // Recover the concrete source value from the projected node; when the node
+    // is a storage placeholder, the canonical payload names the direct scalar.
+    let concrete = if is_storage_placeholder(&field.value) {
+        direct_shape(kind)
+            .map(|shape| crate::cc::GuestLayout::Scalar { shape })
+            .unwrap_or_else(|| field.value.clone())
+    } else {
+        field.value.clone()
     };
-    Ok((recovered, shape))
+    let recovered = match &concrete {
+        crate::cc::GuestLayout::Scalar { shape } => match shape {
+            ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
+            ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,
+            ValueShape::Number => unbox_number(lowerer, value, block, span)?,
+            ValueShape::String => recover_string(lowerer, value, block, span)?,
+            ValueShape::Reference(_) => cast_reference(lowerer, value, shape, block, span)?,
+        },
+        other => cast_reference(lowerer, value, &other.shape(), block, span)?,
+    };
+    Ok((recovered, concrete))
+}
+
+/// Whether a projected node is the storage fallback rather than a concrete
+/// scalar: a scalar whose shape is a reference (erased or representation
+/// placeholder) still needs the canonical payload to recover its value.
+fn is_storage_placeholder(node: &GuestLayout) -> bool {
+    matches!(
+        node,
+        GuestLayout::Scalar {
+            shape: ValueShape::Reference(_)
+        }
+    )
 }
 
 /// Boxes an `f64` and erases the box into the stored variant field.

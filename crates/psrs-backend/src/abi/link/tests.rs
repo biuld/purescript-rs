@@ -120,6 +120,7 @@ fn interns_an_array_of_a_nullary_enum() {
             tag: tag as u32,
             field_count: 0,
             field_types: Vec::new(),
+            parameters: Vec::new(),
         })
         .collect();
     let array = HirType {

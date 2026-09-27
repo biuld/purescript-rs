@@ -220,6 +220,14 @@ pub enum Instruction {
         offset: u32,
         span: TextRange,
     },
+    /// Zero-extending `i32.load16_u`, used for a two-byte canonical payload.
+    Load16U {
+        destination: ValueId,
+        address: ValueId,
+        memory: MemoryId,
+        offset: u32,
+        span: TextRange,
+    },
     /// `i64.load`, used for a canonical 64-bit aggregate payload.
     LoadI64 {
         destination: ValueId,

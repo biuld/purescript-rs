@@ -96,7 +96,7 @@ pub(super) fn fixture(
     let module = cc::Module {
         name: "AggregateAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -232,7 +232,7 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "AggregateParameterAbi".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],

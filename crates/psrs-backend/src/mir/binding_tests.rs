@@ -29,7 +29,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
     let module = cc::Module {
         name: "Bindings".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -117,7 +117,7 @@ fn p9_exposes_an_owned_handle_without_dropping_it() {
     let module = cc::Module {
         name: "Drop".into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external,
             signature: Some(Signature {
                 parameters: Vec::new(),

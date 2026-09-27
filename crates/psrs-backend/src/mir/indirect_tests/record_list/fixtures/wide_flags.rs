@@ -361,7 +361,7 @@ fn finish(
     let module = cc::Module {
         name: name.into(),
         externals: vec![External {
-            result_guest: None,
+            projection: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: parameter.into_iter().collect(),

@@ -38,6 +38,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 0,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(1)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: true_symbol,
@@ -46,6 +47,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -54,6 +56,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

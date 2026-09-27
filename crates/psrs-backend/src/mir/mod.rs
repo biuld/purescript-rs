@@ -73,17 +73,15 @@ pub struct Import {
     pub result: Option<ValueType>,
 }
 
-/// A resolved WIT import paired with the declaration's CC abstract signature.
-/// The WIT descriptor drives canonical adaptation; the CC `ValueShape`
-/// signature and the planned representation labels recover the source
-/// structure MIR needs, without a source-type mirror.
+/// A resolved WIT import paired with the declaration's CC abstract signature
+/// and the instance-aware guest projection. The WIT descriptor drives canonical
+/// adaptation; the projection carries, per field, the concrete guest value and
+/// the storage slot it maps to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct BoundWasiImport {
     pub import: crate::abi::WasiImport,
     pub signature: cc::Signature,
-    /// The concrete decode layout of the result, when the abstract signature
-    /// stores part of it erased. See [`crate::cc::External::result_guest`].
-    pub result_guest: Option<cc::GuestLayout>,
+    pub projection: Option<cc::ExternalProjection>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -217,15 +215,10 @@ fn lower_module_after_binding_validation(
                 .map(|signature| (external.symbol, signature))
         })
         .collect();
-    let result_guests: HashMap<SymbolId, cc::GuestLayout> = module
+    let projections: HashMap<SymbolId, Option<cc::ExternalProjection>> = module
         .externals
         .iter()
-        .filter_map(|external| {
-            external
-                .result_guest
-                .clone()
-                .map(|guest| (external.symbol, guest))
-        })
+        .map(|external| (external.symbol, external.projection.clone()))
         .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
@@ -262,7 +255,7 @@ fn lower_module_after_binding_validation(
             BoundWasiImport {
                 import,
                 signature,
-                result_guest: result_guests.get(&external.symbol).cloned(),
+                projection: projections.get(&external.symbol).cloned().flatten(),
             },
         );
     }

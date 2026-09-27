@@ -3,12 +3,14 @@
 -- | `UdpSocket`, `Maybe`, `Either`, closed records, and ADTs).
 -- |
 -- | The address-returning methods (`local-address`, `remote-address`) and the
--- | datagram stream operations are not exposed: their canonical memory layout
--- | is not yet modeled by the backend. See the module report for details.
+-- | datagram stream operation are exposed; their canonical memory layout is
+-- | modeled by the backend.
 module WASI.Sockets
   ( Network
   , TcpSocket
   , UdpSocket
+  , IncomingDatagramStream
+  , OutgoingDatagramStream
   , NetworkError(..)
   , IpAddressFamily(..)
   , IpSocketAddress(..)
@@ -25,24 +27,34 @@ module WASI.Sockets
   , tcpAccept
   , tcpIsListening
   , tcpAddressFamily
+  , tcpLocalAddress
+  , tcpRemoteAddress
   , tcpShutdown
   , tcpKeepAliveIdleTime
   , udpStartBind
   , udpFinishBind
   , udpAddressFamily
+  , udpLocalAddress
+  , udpRemoteAddress
+  , udpSocketStream
   , dropNetwork
   , dropTcpSocket
   , dropUdpSocket
+  , dropIncomingDatagramStream
+  , dropOutgoingDatagramStream
   ) where
 
 import Prelude
 import Data.Either (Either(..))
+import Data.Maybe (Maybe)
 import WASI.Streams (InputStream, OutputStream)
 
 -- | An owned capability handle for (a subset of) the network.
 foreign import data Network :: Type
 foreign import data TcpSocket :: Type
 foreign import data UdpSocket :: Type
+foreign import data IncomingDatagramStream :: Type
+foreign import data OutgoingDatagramStream :: Type
 
 -- | `error-code`, mapped from the WIT enum.
 data NetworkError
@@ -110,6 +122,8 @@ foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-connect" tcpFinishCon
 foreign import "wasi:sockets/tcp#[method]tcp-socket.accept" tcpAcceptRaw :: TcpSocket -> Either { _1 :: TcpSocket, _2 :: InputStream, _3 :: OutputStream } NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.is-listening" tcpIsListeningRaw :: TcpSocket -> Boolean
 foreign import "wasi:sockets/tcp#[method]tcp-socket.address-family" tcpAddressFamilyRaw :: TcpSocket -> IpAddressFamily
+foreign import "wasi:sockets/tcp#[method]tcp-socket.local-address" tcpLocalAddressRaw :: TcpSocket -> Either IpSocketAddress NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.remote-address" tcpRemoteAddressRaw :: TcpSocket -> Either IpSocketAddress NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.keep-alive-idle-time" tcpKeepAliveIdleTimeRaw :: TcpSocket -> Either Int NetworkError
 
 tcpStartBind :: TcpSocket -> Network -> IpSocketAddress -> Effect Unit
@@ -148,6 +162,18 @@ tcpIsListening socket = \token -> tcpIsListeningRaw socket
 tcpAddressFamily :: TcpSocket -> Effect IpAddressFamily
 tcpAddressFamily socket = \token -> tcpAddressFamilyRaw socket
 
+tcpLocalAddress :: TcpSocket -> Effect (Either NetworkError IpSocketAddress)
+tcpLocalAddress socket = \token ->
+  case tcpLocalAddressRaw socket of
+    Left address -> Right address
+    Right err -> Left err
+
+tcpRemoteAddress :: TcpSocket -> Effect (Either NetworkError IpSocketAddress)
+tcpRemoteAddress socket = \token ->
+  case tcpRemoteAddressRaw socket of
+    Left address -> Right address
+    Right err -> Left err
+
 tcpKeepAliveIdleTime :: TcpSocket -> Effect (Either NetworkError Int)
 tcpKeepAliveIdleTime socket = \token ->
   case tcpKeepAliveIdleTimeRaw socket of
@@ -157,6 +183,9 @@ tcpKeepAliveIdleTime socket = \token ->
 foreign import "wasi:sockets/udp#[method]udp-socket.start-bind" udpStartBindRaw :: UdpSocket -> Network -> IpSocketAddress -> Unit
 foreign import "wasi:sockets/udp#[method]udp-socket.finish-bind" udpFinishBindRaw :: UdpSocket -> Unit
 foreign import "wasi:sockets/udp#[method]udp-socket.address-family" udpAddressFamilyRaw :: UdpSocket -> IpAddressFamily
+foreign import "wasi:sockets/udp#[method]udp-socket.local-address" udpLocalAddressRaw :: UdpSocket -> Either IpSocketAddress NetworkError
+foreign import "wasi:sockets/udp#[method]udp-socket.remote-address" udpRemoteAddressRaw :: UdpSocket -> Either IpSocketAddress NetworkError
+foreign import "wasi:sockets/udp#[method]udp-socket.stream" udpSocketStreamRaw :: UdpSocket -> Maybe IpSocketAddress -> Either { _1 :: IncomingDatagramStream, _2 :: OutgoingDatagramStream } NetworkError
 
 udpStartBind :: UdpSocket -> Network -> IpSocketAddress -> Effect Unit
 udpStartBind socket network address = \token -> udpStartBindRaw socket network address
@@ -167,9 +196,31 @@ udpFinishBind socket = \token -> udpFinishBindRaw socket
 udpAddressFamily :: UdpSocket -> Effect IpAddressFamily
 udpAddressFamily socket = \token -> udpAddressFamilyRaw socket
 
+udpLocalAddress :: UdpSocket -> Effect (Either NetworkError IpSocketAddress)
+udpLocalAddress socket = \token ->
+  case udpLocalAddressRaw socket of
+    Left address -> Right address
+    Right err -> Left err
+
+udpRemoteAddress :: UdpSocket -> Effect (Either NetworkError IpSocketAddress)
+udpRemoteAddress socket = \token ->
+  case udpRemoteAddressRaw socket of
+    Left address -> Right address
+    Right err -> Left err
+
+-- | Connects the UDP socket to an optional remote address and returns the
+-- | incoming and outgoing datagram streams.
+udpSocketStream :: UdpSocket -> Maybe IpSocketAddress -> Effect (Either NetworkError { _1 :: IncomingDatagramStream, _2 :: OutgoingDatagramStream })
+udpSocketStream socket remote = \token ->
+  case udpSocketStreamRaw socket remote of
+    Left streams -> Right streams
+    Right err -> Left err
+
 foreign import "wasi:sockets/network#[resource-drop]network" dropNetworkRaw :: Network -> Unit
 foreign import "wasi:sockets/tcp#[resource-drop]tcp-socket" dropTcpSocketRaw :: TcpSocket -> Unit
 foreign import "wasi:sockets/udp#[resource-drop]udp-socket" dropUdpSocketRaw :: UdpSocket -> Unit
+foreign import "wasi:sockets/udp#[resource-drop]incoming-datagram-stream" dropIncomingDatagramStreamRaw :: IncomingDatagramStream -> Unit
+foreign import "wasi:sockets/udp#[resource-drop]outgoing-datagram-stream" dropOutgoingDatagramStreamRaw :: OutgoingDatagramStream -> Unit
 
 dropNetwork :: Network -> Effect Unit
 dropNetwork network = \token -> dropNetworkRaw network
@@ -179,3 +230,9 @@ dropTcpSocket socket = \token -> dropTcpSocketRaw socket
 
 dropUdpSocket :: UdpSocket -> Effect Unit
 dropUdpSocket socket = \token -> dropUdpSocketRaw socket
+
+dropIncomingDatagramStream :: IncomingDatagramStream -> Effect Unit
+dropIncomingDatagramStream stream = \token -> dropIncomingDatagramStreamRaw stream
+
+dropOutgoingDatagramStream :: OutgoingDatagramStream -> Effect Unit
+dropOutgoingDatagramStream stream = \token -> dropOutgoingDatagramStreamRaw stream

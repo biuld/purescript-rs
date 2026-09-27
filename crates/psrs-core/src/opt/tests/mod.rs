@@ -409,6 +409,7 @@ fn selects_a_known_constructor_case_and_substitutes_its_field() {
         tag: 0,
         field_count: 1,
         field_types: vec![int_type],
+        parameters: Vec::new(),
     });
     let result = optimize(module, Budget::default()).unwrap();
     let ExprKind::Let { bindings, body } = &result.declarations[0].value.kind else {
