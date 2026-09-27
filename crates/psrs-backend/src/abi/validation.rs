@@ -2,6 +2,7 @@
 
 use super::canonical::{
     CanonicalType, contains_rejected_list, parameter_has_source_abi, primitive_aggregate_allowed,
+    supported_list_element,
 };
 use crate::TargetCapabilities;
 use psrs_core::ConstructorInfo;
@@ -63,8 +64,8 @@ fn result_has_source_abi(ty: &CanonicalType) -> bool {
         | CanonicalType::Enum(_)
         | CanonicalType::Handle { .. }
         | CanonicalType::String => true,
-        CanonicalType::List(element) => element.is_byte() || list_element_supported(element),
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::List(element) => supported_list_element(element),
+        CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Option(payload) => direct(payload),
         CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
             (Some(ok), Some(err)) => direct(ok) && direct(err),
@@ -75,24 +76,6 @@ fn result_has_source_abi(ty: &CanonicalType) -> bool {
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct)),
         CanonicalType::Record(_) | CanonicalType::Flags(_) => false,
-    }
-}
-
-/// Whether a non-byte list result's element has a source lowering.
-fn list_element_supported(element: &CanonicalType) -> bool {
-    match element {
-        CanonicalType::String => true,
-        CanonicalType::List(inner) => inner.is_byte(),
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
-        CanonicalType::Bool
-        | CanonicalType::Int { .. }
-        | CanonicalType::Float { .. }
-        | CanonicalType::Char
-        | CanonicalType::Enum(_)
-        | CanonicalType::Flags(_)
-        | CanonicalType::Handle { .. } => true,
-        CanonicalType::Record(fields) => fields.iter().all(|field| direct(&field.ty)),
-        _ => false,
     }
 }
 
@@ -108,7 +91,7 @@ fn direct(ty: &CanonicalType) -> bool {
         | CanonicalType::Flags(_)
         | CanonicalType::Handle { .. }
         | CanonicalType::List(_) => true,
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct(&field.ty)),
         CanonicalType::Option(payload) => direct(payload),
         CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {

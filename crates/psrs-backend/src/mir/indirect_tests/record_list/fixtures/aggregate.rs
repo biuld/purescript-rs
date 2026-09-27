@@ -344,3 +344,88 @@ pub(crate) fn tuple_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     };
     (module, bindings, resolve)
 }
+
+/// `list<own<file>>` -> `Array Int` as a result. The compiler copies the handle
+/// indices; the standard library drops each extracted handle (DEC-14).
+pub(crate) fn handle_result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
+    handle_result("list<own<file>>")
+}
+
+fn handle_result(result: &str) -> (cc::Module, ExternalBindings, Resolve) {
+    let mut resolve = Resolve::default();
+    resolve
+        .push_str(
+            "handle-list-result.wit",
+            &format!(
+                "package wasi:io@0.2.12; interface streams {{ resource file; get: func() -> {result}; }}"
+            ),
+        )
+        .expect("the handle list result WIT fixture should resolve");
+
+    let representations = cc::RepresentationTable {
+        representations: vec![cc::Representation::Array {
+            element: ValueShape::Integer,
+        }],
+        signatures: Vec::new(),
+        product_labels: Default::default(),
+    };
+
+    let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
+    let main_symbol = SymbolId::new(ModuleId(0), 0);
+    let module = cc::Module {
+        name: "HandleListResultAbi".into(),
+        externals: vec![External {
+            symbol: external_symbol,
+            signature: Some(Signature {
+                parameters: Vec::new(),
+                result: reference(0),
+            }),
+        }],
+        representations,
+        functions: vec![cc::Function {
+            symbol: main_symbol,
+            name: "main".into(),
+            parameters: Vec::new(),
+            values: vec![
+                ValueDecl {
+                    id: ValueId(0),
+                    ty: reference(0),
+                },
+                ValueDecl {
+                    id: ValueId(1),
+                    ty: ValueShape::Integer,
+                },
+            ],
+            assignments: vec![
+                Assignment {
+                    destination: ValueId(0),
+                    kind: AssignmentKind::DirectCall {
+                        function: external_symbol,
+                        arguments: Vec::new(),
+                    },
+                    span: span(),
+                },
+                Assignment {
+                    destination: ValueId(1),
+                    kind: AssignmentKind::Constant(0),
+                    span: span(),
+                },
+            ],
+            result: ValueId(1),
+            result_type: ValueShape::Integer,
+            span: span(),
+        }],
+        entry: Some(main_symbol),
+        span: span(),
+    };
+    let bindings = ExternalBindings {
+        imports: vec![ExternalBinding {
+            symbol: external_symbol,
+            interface: "wasi:io/streams".into(),
+            function: "get".into(),
+            type_id: None,
+            span: span(),
+        }],
+    };
+    (module, bindings, resolve)
+}

@@ -205,6 +205,24 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?;
         }
+        Some(CanonicalType::FixedList { element, length }) => {
+            let shape = bound
+                .result
+                .as_ref()
+                .map_or(signature.result, |result| result.guest);
+            lists::read_fixed_list_result(
+                lowerer,
+                import,
+                element,
+                *length,
+                &shape,
+                destination,
+                flat,
+                retptr,
+                current,
+                span,
+            )?;
+        }
         Some(ty) if is_direct_result(ty) => match import.result {
             Some(ValueType::I64) => {
                 let value = lowerer.fresh_wit_value(ValueType::I64);

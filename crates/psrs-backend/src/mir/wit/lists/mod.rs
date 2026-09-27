@@ -16,6 +16,102 @@ use crate::mir::NumericOp;
 use crate::types::{DefinedTypeId, MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
+/// Copies a source array into the inline canonical slots of a fixed-length
+/// list parameter. A fixed-length list has no `(pointer, length)` buffer: each
+/// element is lowered directly into the flattened arguments.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn write_fixed_list<L: WitCallLowerer>(
+    lowerer: &mut L,
+    argument: ValueId,
+    element: &CanonicalType,
+    length: u32,
+    guest: Option<&GuestLayout>,
+    flat: &mut Vec<ValueId>,
+    frees: &mut Vec<PendingFree>,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let element_shape = match guest {
+        Some(GuestLayout::Array { element, .. }) => *element,
+        _ => return Err(unsupported_list(span)),
+    };
+    let element_guest = lowerer
+        .wit_guest_layout(element_shape)
+        .ok_or_else(|| unsupported_list(span))?;
+    let array_type = lowerer.wit_array_type(argument, span)?;
+    let mut current = current;
+    for index in 0..length {
+        let value =
+            lowerer.wit_array_get(current, argument, array_type, element_shape, index, span)?;
+        current = super::parameters::lower_parameter(
+            lowerer,
+            value,
+            &element_shape,
+            Some(&element_guest),
+            element,
+            flat,
+            frees,
+            current,
+            span,
+        )?;
+    }
+    Ok(())
+}
+
+/// Reads the inline elements of a fixed-length list result into a fresh GC
+/// array. The elements sit directly in the return area, so the list copy reads
+/// from `retptr` with the static element count.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn read_fixed_list_result<L: WitCallLowerer>(
+    lowerer: &mut L,
+    import: &WasiImport,
+    element: &CanonicalType,
+    length: u32,
+    shape: &ValueShape,
+    destination: ValueId,
+    arguments: Vec<ValueId>,
+    retptr: Option<ValueId>,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let address = retptr.ok_or_else(|| {
+        vec![BackendError::invalid_ir(
+            "P9 MIR lowering",
+            span,
+            "a fixed-length list result takes a return pointer",
+        )]
+    })?;
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::CallVoid {
+            function: import.symbol,
+            arguments,
+            span,
+        },
+        span,
+    )?;
+    let list_layout = lowerer.wit_guest_layout(*shape);
+    let element_guest = element_guest(lowerer, list_layout.as_ref(), element, span)?;
+    let struct_type = element_struct_type(lowerer, &element_guest, span)?;
+    let array_type = lowerer.wit_array_type(destination, span)?;
+    let count = constant_i32(lowerer, length as i32, current, span)?;
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::ListCopy {
+            direction: ListDirection::Load,
+            array: destination,
+            array_type,
+            struct_type,
+            pointer: address,
+            length: count,
+            element: element.clone(),
+            element_guest,
+            span,
+        },
+        span,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn write_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
@@ -82,13 +178,18 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if matches!(element, CanonicalType::Handle { .. }) {
-        // A returned resource list would need per-element drop or borrow
-        // release; only resource lists passed as parameters are supported.
+    if let CanonicalType::Handle {
+        ownership: crate::abi::canonical::Ownership::Borrow,
+        ..
+    } = element
+    {
+        // A borrowed handle must not escape the call that produced it. An owned
+        // handle list is an ordinary `i32` array: the standard library drops
+        // each extracted handle (DEC-14), so the compiler copies the indices.
         return Err(vec![BackendError::new(
             "P9 MIR lowering",
             span,
-            "a resource list result is not supported yet",
+            "a list<borrow<T>> result cannot outlive the call that produced it; return list<own<T>> instead",
         )]);
     }
     let address = retptr.ok_or_else(|| {
@@ -172,7 +273,16 @@ fn element_guest<L: WitCallLowerer>(
     {
         return Ok(layout);
     }
-    if matches!(element, CanonicalType::Record(_) | CanonicalType::Flags(_)) {
+    if matches!(
+        element,
+        CanonicalType::Record(_)
+            | CanonicalType::Flags(_)
+            | CanonicalType::Option(_)
+            | CanonicalType::Result { .. }
+            | CanonicalType::Variant(_)
+            | CanonicalType::List(_)
+            | CanonicalType::FixedList { .. }
+    ) {
         return Err(unsupported_list(span));
     }
     Ok(GuestLayout::Scalar {
@@ -188,7 +298,7 @@ pub(super) fn element_struct_type<L: WitCallLowerer>(
     span: TextRange,
 ) -> Result<DefinedTypeId, Vec<BackendError>> {
     match element_guest {
-        GuestLayout::Product { repr, .. } => lowerer
+        GuestLayout::Product { repr, .. } | GuestLayout::Variant { repr, .. } => lowerer
             .wit_repr_index(*repr)
             .ok_or_else(|| unsupported_list(span)),
         _ => Ok(DefinedTypeId(0)),
@@ -310,4 +420,23 @@ fn unsupported_list(span: TextRange) -> Vec<BackendError> {
         span,
         "this WIT list element has no source array lowering",
     )]
+}
+
+fn constant_i32<L: WitCallLowerer>(
+    lowerer: &mut L,
+    value: i32,
+    current: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let destination = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination,
+            value,
+            span,
+        },
+        span,
+    )?;
+    Ok(destination)
 }

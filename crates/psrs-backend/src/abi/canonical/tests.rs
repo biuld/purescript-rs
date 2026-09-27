@@ -167,6 +167,35 @@ fn size_align_matches_the_canonical_layout() {
 }
 
 #[test]
+fn result_area_sizes_a_unit_success_from_its_error_payload() {
+    let unit = CanonicalType::Result {
+        ok: None,
+        err: Some(Box::new(CanonicalType::String)),
+    };
+    assert_eq!(crate::abi::layout::result_area(&unit), Some((12, 4)));
+
+    let big = CanonicalType::Record(vec![
+        CanonicalField {
+            name: "a".into(),
+            ty: CanonicalType::Float { width: 64 },
+        },
+        CanonicalField {
+            name: "b".into(),
+            ty: CanonicalType::Float { width: 64 },
+        },
+        CanonicalField {
+            name: "c".into(),
+            ty: CanonicalType::int(64, true),
+        },
+    ]);
+    let large = CanonicalType::Result {
+        ok: None,
+        err: Some(Box::new(big)),
+    };
+    assert_eq!(crate::abi::layout::result_area(&large), Some((32, 8)));
+}
+
+#[test]
 fn despecialize_is_idempotent_and_preserves_flatten_and_size() {
     let ty = CanonicalType::List(Box::new(CanonicalType::Option(Box::new(
         CanonicalType::String,

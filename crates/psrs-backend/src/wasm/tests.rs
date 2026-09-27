@@ -334,6 +334,7 @@ fn interns_repeated_string_literals_in_one_lazy_global() {
             }),
         }])],
         strings: vec!["twice".into()],
+        layout: None,
         imports: Vec::new(),
         functions: vec![MirFunction {
             id: FunctionId(0),

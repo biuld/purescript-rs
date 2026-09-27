@@ -36,7 +36,7 @@ fn array(element: BuiltinType) -> HirType {
 }
 
 #[test]
-fn interns_an_array_of_supported_elements_and_rejects_nested_arrays() {
+fn interns_an_array_of_supported_elements_and_nested_arrays() {
     let mut core = empty_core();
     assert!(
         crate::abi::intern_source_type(&mut core, &array(BuiltinType::String)).is_some(),
@@ -47,8 +47,12 @@ fn interns_an_array_of_supported_elements_and_rejects_nested_arrays() {
         "Array Int should intern"
     );
     assert!(
-        crate::abi::intern_source_type(&mut core, &array_of_array()).is_none(),
-        "Array (Array Int) is not a canonical list element"
+        crate::abi::intern_source_type(&mut core, &array_of_array()).is_some(),
+        "Array (Array Int) is a recursive list element"
+    );
+    assert!(
+        crate::abi::intern_source_type(&mut core, &array(BuiltinType::Unit)).is_none(),
+        "Array Unit has no canonical list element"
     );
 }
 
@@ -141,19 +145,48 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     ));
     assert!(super::unsupported(&resolve, handles).is_none());
 
-    for name in ["take-nested", "take-options"] {
-        let function = function_named(&resolve, name);
-        assert!(
-            super::unsupported(&resolve, function).is_some(),
-            "{name} should be rejected"
-        );
-    }
+    let options = function_named(&resolve, "take-options");
+    assert!(matches!(
+        param(&resolve, options),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::Option(_))
+    ));
+    assert!(
+        super::unsupported(&resolve, options).is_none(),
+        "a list of options is admitted as a recursive element"
+    );
+
+    let nested = function_named(&resolve, "take-nested");
+    assert!(matches!(
+        param(&resolve, nested),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::List(_))
+    ));
+    assert!(
+        super::unsupported(&resolve, nested).is_none(),
+        "a nested list is admitted as a recursive element"
+    );
 
     let returned = function_named(&resolve, "strings");
     let returned = canonical_resolve(&resolve, returned.result.as_ref().unwrap())
         .expect("result should resolve");
     assert!(
         matches!(returned, CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::String))
+    );
+}
+
+#[test]
+fn admits_a_non_byte_fixed_length_list() {
+    let resolve = resolve_wit(
+        "package test:lists@0.1.0; interface lists { take: func(values: list<s32, 3>); }",
+    );
+    let function = function_named(&resolve, "take");
+    let CanonicalType::FixedList { element, length } = param(&resolve, function) else {
+        panic!("list<s32, 3> should be a fixed-length list");
+    };
+    assert!(matches!(*element, CanonicalType::Int { .. }));
+    assert_eq!(length, 3);
+    assert!(
+        super::unsupported(&resolve, function).is_none(),
+        "a non-byte fixed-length list is admitted"
     );
 }
 

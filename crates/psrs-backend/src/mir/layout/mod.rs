@@ -17,8 +17,8 @@ mod accessors;
 mod validate;
 use validate::validate_selected;
 
-#[derive(Clone, Debug)]
-pub(super) struct PlannedLayout {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
     product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
@@ -361,13 +361,13 @@ impl PlannedLayout {
     }
 
     /// The target-neutral representation table this layout was planned from.
-    pub(super) fn representation_table(&self) -> &RepresentationTable {
+    pub(crate) fn representation_table(&self) -> &RepresentationTable {
         &self.representation_table
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum LayoutError {
+pub(crate) enum LayoutError {
     UnknownRepresentation,
     UnknownSignature,
     UnknownField,

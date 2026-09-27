@@ -257,15 +257,19 @@ pub(crate) fn payload_cases(ty: &CanonicalType) -> Option<Vec<Option<&CanonicalT
     })
 }
 
-/// A top-level `list<T>` of a supported element is lowered. The same list nested
-/// in a record, tuple, option, result, or variant is still rejected, as is any
-/// list whose element has no scalar or string lowering.
+/// A top-level `list<T>` of a supported element is lowered. A non-byte `list`
+/// nested directly in a record field is still rejected, but a list nested in a
+/// `list`, `option`, `result`, or `variant` is lowered recursively.
 pub(crate) fn contains_rejected_list(ty: &CanonicalType, nested: bool) -> bool {
     match ty {
         CanonicalType::List(inner) => {
-            !(inner.is_byte() || (!nested && supported_list_element(inner)))
+            if nested {
+                !inner.is_byte()
+            } else {
+                !supported_list_element(inner)
+            }
         }
-        CanonicalType::FixedList { element, .. } => !element.is_byte(),
+        CanonicalType::FixedList { element, .. } => !supported_list_element(element),
         CanonicalType::Record(fields) => fields
             .iter()
             .any(|field| contains_rejected_list(&field.ty, true)),
@@ -286,20 +290,33 @@ pub(crate) fn contains_rejected_list(ty: &CanonicalType, nested: bool) -> bool {
     }
 }
 
-fn supported_list_element(ty: &CanonicalType) -> bool {
+/// Whether a value can be a list element, a fixed-length list element, a
+/// variant payload, or a record field inside a copied list. Every aggregate
+/// recurses, so `list<option<string>>`, `list<list<T>>`, and a record with a
+/// nested list are admitted.
+pub(crate) fn supported_list_element(ty: &CanonicalType) -> bool {
     match ty {
-        CanonicalType::String => true,
-        CanonicalType::List(inner) => inner.is_byte(),
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
-        CanonicalType::Bool
+        CanonicalType::String
+        | CanonicalType::Bool
         | CanonicalType::Int { .. }
         | CanonicalType::Float { .. }
         | CanonicalType::Char
         | CanonicalType::Enum(_)
         | CanonicalType::Flags(_)
         | CanonicalType::Handle { .. } => true,
-        CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
-        _ => false,
+        CanonicalType::List(inner) => supported_list_element(inner),
+        CanonicalType::FixedList { element, .. } => supported_list_element(element),
+        CanonicalType::Record(fields) => {
+            fields.iter().all(|field| supported_list_element(&field.ty))
+        }
+        CanonicalType::Option(inner) => supported_list_element(inner),
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(supported_list_element)
+                && err.as_deref().is_none_or(supported_list_element)
+        }
+        CanonicalType::Variant(cases) => cases
+            .iter()
+            .all(|case| case.payload.as_deref().is_none_or(supported_list_element)),
     }
 }
 
@@ -316,7 +333,7 @@ fn direct_parameter(ty: &CanonicalType) -> bool {
         | CanonicalType::Flags(_)
         | CanonicalType::Handle { .. } => true,
         CanonicalType::List(_) => true,
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::FixedList { element, .. } => direct_parameter(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
         CanonicalType::Option(inner) => direct_parameter(inner),
         CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
@@ -374,7 +391,7 @@ pub(crate) fn parameter_has_source_abi(ty: &CanonicalType) -> bool {
         | CanonicalType::Flags(_)
         | CanonicalType::Handle { .. }
         | CanonicalType::List(_) => true,
-        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
         CanonicalType::Option(inner) => direct_parameter(inner),
         CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {

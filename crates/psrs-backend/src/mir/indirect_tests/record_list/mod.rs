@@ -3,6 +3,7 @@
 //! directly, like the composite indirect-parameter fixture.
 
 mod fixtures;
+mod tests;
 
 use super::lower_module_with_registry;
 use crate::TargetCapabilities;
@@ -12,7 +13,11 @@ use crate::abi::layout::SlotKind;
 use crate::cc::GuestLayout;
 use crate::mir::{Instruction, ListDirection};
 use fixtures::{
-    fixture, flags_fixture, handle_fixture, result_fixture, string_fixture, tuple_fixture,
+    fixed_list_fixture, fixed_list_result_fixture, fixture, flags_fixture, handle_fixture,
+    handle_result_fixture, nested_list_fixture, option_list_list_fixture,
+    option_string_list_fixture, option_string_list_result_fixture, result_fixture, string_fixture,
+    tuple_fixture, variant_list_fixture, wide_flags_list_fixture, wide_flags_record_fixture,
+    wide_flags_variant_fixture,
 };
 
 #[test]

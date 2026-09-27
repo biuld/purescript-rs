@@ -135,11 +135,29 @@ pub(crate) trait WitCallLowerer {
         &self,
         _value: ValueId,
         span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
+    ) -> Result<DefinedTypeId, Vec<BackendError>> {
         Err(vec![BackendError::new(
             "P9 MIR lowering",
             span,
             "canonical list lowering has no GC array type",
+        )])
+    }
+
+    /// Projects the element at the constant `index` of a source GC array. Used
+    /// to lower a fixed-length list, whose canonical form is inline.
+    fn wit_array_get(
+        &mut self,
+        _block: BlockId,
+        _array: ValueId,
+        _array_type: DefinedTypeId,
+        _element: ValueShape,
+        _index: u32,
+        span: TextRange,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        Err(vec![BackendError::new(
+            "P9 MIR lowering",
+            span,
+            "canonical fixed-length list lowering has no array projection",
         )])
     }
 }

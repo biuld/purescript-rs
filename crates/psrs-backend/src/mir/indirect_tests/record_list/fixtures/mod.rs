@@ -1,6 +1,17 @@
 mod aggregate;
+mod fixed;
+mod variants;
+mod wide_flags;
 
-pub(super) use aggregate::{flags_fixture, handle_fixture, tuple_fixture};
+pub(super) use aggregate::{flags_fixture, handle_fixture, handle_result_fixture, tuple_fixture};
+pub(super) use fixed::{fixed_list_fixture, fixed_list_result_fixture};
+pub(super) use variants::{
+    nested_list_fixture, option_list_list_fixture, option_string_list_fixture,
+    option_string_list_result_fixture, variant_list_fixture,
+};
+pub(super) use wide_flags::{
+    wide_flags_list_fixture, wide_flags_record_fixture, wide_flags_variant_fixture,
+};
 
 use crate::cc::{self, Assignment, AssignmentKind, External, Signature, ValueDecl, ValueShape};
 use crate::types::ValueId;

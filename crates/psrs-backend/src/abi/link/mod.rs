@@ -70,21 +70,23 @@ fn is_array_constructor(types: &[CoreType], id: CoreTypeId) -> bool {
 }
 
 fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
-    matches!(
-        types.get(id.0 as usize),
+    match types.get(id.0 as usize) {
         Some(
             CoreType::I32
-                | CoreType::Boolean
-                | CoreType::F64
-                | CoreType::Char
-                | CoreType::String
-                | CoreType::Record(_)
-                // A nullary enum or an opaque handle. The interner only admits
-                // `Named` for a nullary enum, so a field-bearing type never
-                // reaches here.
-                | CoreType::Constructor(TypeConstructor::User(_))
-        )
-    )
+            | CoreType::Boolean
+            | CoreType::F64
+            | CoreType::Char
+            | CoreType::String
+            | CoreType::Record(_)
+            // A nullary enum or an opaque handle. The interner only admits
+            // `Named` for a nullary enum, so a field-bearing type never
+            // reaches here.
+            | CoreType::Constructor(TypeConstructor::User(_)),
+        ) => true,
+        // A nested `Array T` element lowers recursively.
+        Some(CoreType::Application(function, _)) => is_array_constructor(types, *function),
+        _ => false,
+    }
 }
 
 fn intern_core_type(types: &mut Vec<CoreType>, core: CoreType) -> CoreTypeId {

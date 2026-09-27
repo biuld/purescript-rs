@@ -146,6 +146,14 @@ impl FunctionLowerer<'_> {
         crate::cc::guest_layout(shape, self.layout.representation_table())
     }
 
+    /// The concrete MIR value type of a value shape.
+    pub(super) fn resolved_value_type(
+        &self,
+        shape: &crate::cc::ValueShape,
+    ) -> Option<crate::types::ValueType> {
+        self.layout.value_type(shape).ok()
+    }
+
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;

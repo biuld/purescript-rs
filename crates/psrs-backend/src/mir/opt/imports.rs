@@ -59,6 +59,7 @@ mod tests {
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
             strings: Vec::new(),
+            layout: None,
             imports: vec![Import {
                 symbol: imported,
                 parameters: Vec::new(),

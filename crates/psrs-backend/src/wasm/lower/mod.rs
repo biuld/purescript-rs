@@ -1,7 +1,7 @@
 use super::convert::val_type;
 use super::{
-    Body, DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
-    Function, FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
+    DataIndex, DataMode, DataSegment, Entry, Export, ExportIndex, ExportKind, FuncType,
+    FunctionIndex, Import, Memory, MemoryIndex, Module, Op, TypeIndex,
 };
 use crate::BackendError;
 use crate::abi::{self, names};
@@ -16,16 +16,16 @@ use wasm_encoder::{Instruction, RefType, ValType};
 mod asm;
 mod codec;
 mod extent;
-mod function_types;
+mod function;
 mod post_return;
 mod realloc;
 mod runtime;
 mod structure;
 
-use function_types::collect_function_types;
+use function::types::collect_function_types;
+use function::{ListLocals, lower_function};
 use realloc::build_realloc;
 use runtime::{collect_literal_globals, collect_strings};
-use structure::Structurer;
 
 /// Structures MIR control flow and builds the thin Wasm IR. The ABI registry
 /// names each MIR import; MIR itself carries only canonical signatures.
@@ -203,6 +203,7 @@ pub fn lower_module_with_capabilities(
             &function_indices,
             &string_lengths,
             &literal_globals.indices,
+            module.layout.as_ref(),
         )
         .map_err(|errors| {
             errors
@@ -358,69 +359,9 @@ impl SynthesizedIndices {
     }
 }
 
-fn lower_function(
-    source: &MirFunction,
-    type_index: TypeIndex,
-    function_indices: &HashMap<SymbolId, FunctionIndex>,
-    string_lengths: &HashMap<crate::types::DataId, u32>,
-    literal_globals: &HashMap<crate::types::DataId, crate::wasm::GlobalIndex>,
-) -> Result<Function, Vec<BackendError>> {
-    let locals = local_indices(source)?;
-    let list_locals = structure::uses_list_copy(source).then(|| {
-        let index = source.values.len() as u32;
-        (index, index + 1)
-    });
-    let parameters = source
-        .parameters
-        .iter()
-        .map(|parameter| {
-            value_type(source, *parameter)
-                .map(val_type)
-                .ok_or_else(|| wasm_error(source.span, "MIR function parameter has no value type"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let local_types = source
-        .values
-        .iter()
-        .skip(source.parameters.len())
-        .map(|value| defaultable_local_type(val_type(value.ty)))
-        .collect::<Vec<_>>();
-    let structurer = Structurer {
-        function: source,
-        blocks: source
-            .blocks
-            .iter()
-            .map(|block| (block.id, block))
-            .collect(),
-        locals,
-        function_indices,
-        string_lengths,
-        literal_globals,
-        list_locals,
-    };
-    let mut body = Body::new();
-    let uses_dispatcher = structurer.emit_control_flow(&mut body)?;
-    structurer.emit_load(source.result, source.span, &mut body)?;
-    let mut locals = local_types;
-    if list_locals.is_some() {
-        locals.push(ValType::I32);
-        locals.push(ValType::I32);
-    }
-    if uses_dispatcher {
-        locals.push(ValType::I32);
-    }
-    Ok(Function {
-        symbol: source.symbol,
-        name: source.name.clone(),
-        type_index,
-        parameters,
-        locals,
-        body,
-        span: source.span,
-    })
-}
-
-fn local_indices(function: &MirFunction) -> Result<HashMap<ValueId, u32>, Vec<BackendError>> {
+pub(super) fn local_indices(
+    function: &MirFunction,
+) -> Result<HashMap<ValueId, u32>, Vec<BackendError>> {
     let locals = function
         .values
         .iter()
@@ -443,7 +384,7 @@ fn local_indices(function: &MirFunction) -> Result<HashMap<ValueId, u32>, Vec<Ba
 /// block parameters inside nested structured blocks, so a non-parameter
 /// reference local is declared nullable here and the structurer restores the
 /// non-null type with `ref.as_non_null` at each read.
-fn defaultable_local_type(ty: ValType) -> ValType {
+pub(super) fn defaultable_local_type(ty: ValType) -> ValType {
     match ty {
         ValType::Ref(reference) if !reference.nullable => ValType::Ref(RefType {
             nullable: true,
@@ -464,7 +405,7 @@ pub(super) fn local(
         .ok_or_else(|| wasm_error(span, "MIR value has no Wasm local index"))
 }
 
-fn value_type(function: &MirFunction, value: ValueId) -> Option<ValueType> {
+pub(super) fn value_type(function: &MirFunction, value: ValueId) -> Option<ValueType> {
     function
         .values
         .iter()

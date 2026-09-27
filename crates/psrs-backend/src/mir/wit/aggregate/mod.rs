@@ -69,7 +69,13 @@ pub(super) fn flat_types(ty: &CanonicalType) -> Option<Vec<ValueType>> {
         CanonicalType::FixedList { element, .. } if element.is_byte() => {
             vec![ValueType::I32, ValueType::I32]
         }
-        CanonicalType::FixedList { .. } => return None,
+        CanonicalType::FixedList { element, length } => {
+            let mut types = Vec::new();
+            for _ in 0..*length {
+                types.extend(flat_types(element)?);
+            }
+            types
+        }
         CanonicalType::Flags(names) => vec![ValueType::I32; names.len().div_ceil(32)],
         CanonicalType::Record(fields) => {
             let mut types = Vec::new();
