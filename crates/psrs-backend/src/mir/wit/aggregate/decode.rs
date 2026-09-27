@@ -1,5 +1,6 @@
 //! Decodes a mapped aggregate payload from the canonical return area.
 
+use super::collections::{read_flags, read_value_list};
 use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8};
 use super::*;
 use crate::abi::layout::{self, SlotKind};
@@ -161,13 +162,22 @@ fn read_value<L: WitCallLowerer>(
         }
         ValueShape::String => read_string(lowerer, address, offset, block, span),
         ValueShape::Reference(reference) => match reference.heap {
-            RefShape::Repr(repr) => {
-                let WasiParamKind::Record { fields } = kind else {
-                    return Err(unsupported(span));
-                };
-                let value = read_record(lowerer, repr, fields, address, offset, block, span)?;
-                erase_reference(lowerer, value, block, span)
-            }
+            RefShape::Repr(repr) => match kind {
+                WasiParamKind::Record { fields } => {
+                    let value = read_record(lowerer, repr, fields, address, offset, block, span)?;
+                    erase_reference(lowerer, value, block, span)
+                }
+                WasiParamKind::Flags { names } => {
+                    let value = read_flags(lowerer, repr, names, address, offset, block, span)?;
+                    erase_reference(lowerer, value, block, span)
+                }
+                WasiParamKind::ValueList { element } => {
+                    let value =
+                        read_value_list(lowerer, repr, element, address, offset, block, span)?;
+                    erase_reference(lowerer, value, block, span)
+                }
+                _ => Err(unsupported(span)),
+            },
             _ => Err(unsupported(span)),
         },
     }

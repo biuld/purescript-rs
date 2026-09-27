@@ -1,6 +1,7 @@
 //! Synthesized `result`/`option`/`variant` aggregate tests, including nested
 //! record and variant payloads.
 
+mod collections;
 mod fixtures;
 mod nested;
 mod scalars;
@@ -10,6 +11,7 @@ use crate::ExternalBindings;
 use crate::TargetCapabilities;
 use crate::abi;
 use crate::cc::{self, VariantCase};
+use collections::{flags_fixture, non_byte_list_fixture};
 use fixtures::{erased, fixture, parameter_fixture};
 use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_variant_fixture};
 use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
@@ -262,6 +264,36 @@ fn wide_scalar_parameter_lowers_to_a_wasm_artifact() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the wide scalar parameter Wasm should validate");
+}
+
+fn lower_and_validate_collection(module: cc::Module, bindings: ExternalBindings, resolve: Resolve) {
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower a collection payload");
+    let mir =
+        crate::mir::opt::optimize(mir, target).expect("P10 should preserve the collection ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the collection payload");
+    let binary = crate::wasm::encode_module(&wasm).expect("the collection Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the collection Wasm should validate");
+}
+
+#[test]
+fn flags_payload_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = flags_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
+}
+
+#[test]
+fn non_byte_list_payload_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = non_byte_list_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
 }
 
 #[test]
