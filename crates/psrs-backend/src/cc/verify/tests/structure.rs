@@ -308,7 +308,6 @@ fn rejects_an_external_that_conflicts_with_a_function_symbol() {
         externals: vec![crate::cc::External {
             symbol: symbol(0),
             signature: None,
-            payloads: Default::default(),
         }],
         representations: table(),
         functions: vec![function],

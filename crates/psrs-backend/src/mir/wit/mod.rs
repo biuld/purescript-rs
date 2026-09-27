@@ -8,6 +8,7 @@
 
 mod aggregate;
 mod call_lowerer;
+mod free;
 mod function_lowerer;
 mod handles;
 mod lists;
@@ -18,42 +19,101 @@ pub(super) use handles::verify_function;
 
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
+use crate::abi::canonical::CanonicalType;
 use crate::abi::{self, WasiImport};
+use crate::cc::GuestLayout;
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
+/// One canonical ABI value paired with the guest shape of the declaration
+/// position it lowers. Canonical drives flattening, layout, and the return
+/// area; the guest shape resolves the recursive guest layout.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundType {
+    pub canonical: CanonicalType,
+    pub guest: crate::cc::ValueShape,
+}
+
+/// Every parameter and the optional result of one resolved WIT import, each
+/// paired with its guest shape. Built once per call so the lowering never
+/// searches the declaration again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundFn {
+    pub parameters: Vec<BoundType>,
+    /// The declaration's full abstract parameter list. A primitive import may
+    /// have a different source arity than the WIT parameter count, so the
+    /// primitive lowering reads these rather than the zipped `parameters`.
+    pub guest_parameters: Vec<crate::cc::ValueShape>,
+    pub result: Option<BoundType>,
+}
+
+impl BoundFn {
+    /// Pairs the import's canonical parameters and result with the declaration's
+    /// abstract guest signature.
+    fn bind(import: &WasiImport, signature: &crate::cc::Signature) -> Self {
+        let parameters = import
+            .params
+            .iter()
+            .cloned()
+            .zip(signature.parameters.iter().copied())
+            .map(|(canonical, guest)| BoundType { canonical, guest })
+            .collect();
+        let result = import.canonical_result.clone().map(|canonical| BoundType {
+            canonical,
+            guest: signature.result,
+        });
+        BoundFn {
+            parameters,
+            guest_parameters: signature.parameters.clone(),
+            result,
+        }
+    }
+}
+
+/// Whether a canonical result is read directly from a register rather than
+/// through a return pointer: a scalar, handle, `Char`, `Bool`, or nullary enum.
+fn is_direct_result(ty: &CanonicalType) -> bool {
+    matches!(
+        ty,
+        CanonicalType::Bool
+            | CanonicalType::Int { .. }
+            | CanonicalType::Float { .. }
+            | CanonicalType::Char
+            | CanonicalType::Enum(_)
+            | CanonicalType::Handle { .. }
+    )
+}
+
 /// A call-local buffer that must be freed once the canonical call returns. The
-/// `align` is a compile-time constant; `length` is the payload length value.
+/// `align` is a compile-time constant; `length` is the payload byte length.
 pub(super) struct PendingFree {
     pub pointer: ValueId,
     pub length: ValueId,
     pub align: i32,
-    /// Payloads of a `list<string>` or a `list<record>` with string fields that
-    /// must be freed after the host has copied them. `length` remains the byte
-    /// size.
-    pub string_elements: Option<StringFree>,
+    /// Element payloads of a `list<T>` buffer that owns host buffers, such as
+    /// `list<string>` or `list<record>` with string fields. `length` remains the
+    /// whole-buffer byte size.
+    pub elements: Option<ElementFree>,
 }
 
-/// The string payloads a call-local list buffer owns.
-pub(super) enum StringFree {
-    /// One string per element; the value is the element count.
-    Scalars(ValueId),
-    /// Records with string fields; the value is the element count, `size` is the
-    /// element byte stride, and the plan locates each string field.
-    Records {
-        count: ValueId,
-        size: u32,
-        fields: Vec<crate::mir::ListFieldCopy>,
-    },
+/// The per-element frees of a call-local list buffer. The guest layout and
+/// canonical element drive the element copy and free so a `list<record>` with
+/// string fields frees each field, and a `list<string>` frees each string.
+pub(super) struct ElementFree {
+    pub count: ValueId,
+    pub element: CanonicalType,
+    pub element_guest: GuestLayout,
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
 /// canonical signature. Declared scalars and resource handles map to one
 /// canonical parameter; a 64-bit scalar is widened; a `String` argument maps to
 /// the `(pointer, length)` of its length-prefixed buffer. A return pointer is
-/// passed when the canonical result does not fit in one value.
-#[cfg(test)]
+/// passed when the canonical result does not fit in one value. The guest layout
+/// of each bound value is resolved from CC's representation table through the
+/// lowerer.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
@@ -63,47 +123,23 @@ pub(super) fn lower<L: WitCallLowerer>(
     span: TextRange,
     entry: BlockId,
 ) -> Result<BlockId, Vec<BackendError>> {
-    lower_with_payloads(
-        lowerer,
-        import,
-        signature,
-        &crate::cc::ExternalPayloads::default(),
-        destination,
-        arguments,
-        span,
-        entry,
-    )
-}
-
-/// Lowers a call with the external's concrete payload tree, so a mapped
-/// aggregate payload that is itself a record, list, or variant can be laid out.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn lower_with_payloads<L: WitCallLowerer>(
-    lowerer: &mut L,
-    import: &WasiImport,
-    signature: &crate::cc::Signature,
-    payloads: &crate::cc::ExternalPayloads,
-    destination: ValueId,
-    arguments: &[ValueId],
-    span: TextRange,
-    entry: BlockId,
-) -> Result<BlockId, Vec<BackendError>> {
+    let bound = BoundFn::bind(import, signature);
     let mut flat = Vec::new();
     let mut frees = Vec::new();
     let mut current = parameters::lower_parameters(
-        lowerer, import, signature, payloads, arguments, &mut flat, &mut frees, entry, span,
+        lowerer, import, &bound, arguments, &mut flat, &mut frees, entry, span,
     )?;
     let mut retptr = None;
-    if import.retptr {
+    if import.abi.retptr {
         let pointer =
-            aggregate::retptr_buffer(lowerer, &import.result_kind, &mut frees, current, span)?;
+            aggregate::retptr_buffer(lowerer, import.abi.result_area, &mut frees, current, span)?;
         flat.push(pointer);
         retptr = Some(pointer);
     }
-    match &import.result_kind {
+    match &import.canonical_result {
         // A returned list or string is written through the return pointer as
         // `(pointer, length)` of UTF-8 bytes. Decode it into a fresh GC string.
-        abi::WasiResultKind::List => {
+        Some(ty) if ty.is_byte_list() => {
             let address = retptr.expect("a list result takes a return pointer");
             lowerer.append_wit_instruction(
                 current,
@@ -152,12 +188,16 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
             // free it before returning control to source.
             free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
-        abi::WasiResultKind::ValueList { element } => {
+        Some(CanonicalType::List(element)) => {
+            let shape = bound
+                .result
+                .as_ref()
+                .map_or(signature.result, |result| result.guest);
             lists::read_value_list_result(
                 lowerer,
                 import,
                 element,
-                &signature.result,
+                &shape,
                 destination,
                 flat,
                 retptr,
@@ -165,12 +205,7 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Scalar
-        | abi::WasiResultKind::Handle(_)
-        | abi::WasiResultKind::IntegerNarrow { .. }
-        | abi::WasiResultKind::Boolean
-        | abi::WasiResultKind::Enum { .. }
-        | abi::WasiResultKind::Char => match import.result {
+        Some(ty) if is_direct_result(ty) => match import.result {
             Some(ValueType::I64) => {
                 let value = lowerer.fresh_wit_value(ValueType::I64);
                 lowerer.append_wit_instruction(
@@ -236,7 +271,7 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
                 )]);
             }
         },
-        abi::WasiResultKind::None => {
+        None => {
             lowerer.append_wit_instruction(
                 current,
                 Instruction::CallVoid {
@@ -256,7 +291,7 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Result => {
+        Some(CanonicalType::Result { ok: None, .. }) => {
             lowerer.append_wit_instruction(
                 current,
                 Instruction::CallVoid {
@@ -318,18 +353,17 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Option { .. }
-        | abi::WasiResultKind::ValueResult { .. }
-        | abi::WasiResultKind::Variant { .. } => {
-            let result_node = match &payloads.result {
-                crate::cc::PayloadNode::None => None,
-                node => Some(node),
-            };
+        Some(ty) if abi::canonical::is_variant(ty) => {
+            let result = bound
+                .result
+                .as_ref()
+                .expect("a variant result has a bound guest shape");
+            let layout = lowerer.wit_guest_layout(result.guest);
             current = aggregate::lower_variant_result(
                 lowerer,
                 import,
-                &signature.result,
-                result_node,
+                &result.guest,
+                layout.as_ref(),
                 destination,
                 flat,
                 retptr,
@@ -337,9 +371,9 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Discarded => {
-            // The ABI classification reports an unsupported shape before MIR
-            // lowering, so a `Discarded` result here is invalid compiler IR.
+        Some(_) => {
+            // The ABI surface check reports an unsupported shape before MIR
+            // lowering, so an unmodeled result here is invalid compiler IR.
             return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
@@ -347,29 +381,12 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
             )]);
         }
     }
-    // Call-local buffers (string transcode buffers and indirect parameter
-    // records) are owned by this function and freed once the call returns.
+    // Call-local buffers (string transcode buffers, list buffers, and indirect
+    // parameter records) are owned by this function and freed once the call
+    // returns. Each buffer's element payloads are freed first.
     for pending in frees.iter().rev() {
-        match &pending.string_elements {
-            Some(StringFree::Scalars(count)) => {
-                lists::free_string_elements(lowerer, pending.pointer, *count, current, span)?;
-            }
-            Some(StringFree::Records {
-                count,
-                size,
-                fields,
-            }) => {
-                lists::free_record_string_elements(
-                    lowerer,
-                    pending.pointer,
-                    *count,
-                    *size,
-                    fields,
-                    current,
-                    span,
-                )?;
-            }
-            None => {}
+        if let Some(elements) = &pending.elements {
+            lists::free_elements(lowerer, pending.pointer, elements, current, span)?;
         }
         free_buffer(
             lowerer,

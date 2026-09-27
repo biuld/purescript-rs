@@ -317,12 +317,6 @@ impl Structurer<'_> {
                 instruction @ MirInstruction::ListCopy { .. } => {
                     body.extend(self.emit_list_copy(instruction)?);
                 }
-                instruction @ MirInstruction::ListCopyRecord { .. } => {
-                    body.extend(self.emit_list_copy_record(instruction)?);
-                }
-                instruction @ MirInstruction::ListCopyFlags { .. } => {
-                    body.extend(self.emit_list_copy_flags(instruction)?);
-                }
                 instruction @ (MirInstruction::Load { .. }
                 | MirInstruction::Load8U { .. }
                 | MirInstruction::LoadI64 { .. }

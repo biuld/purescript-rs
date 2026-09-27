@@ -208,7 +208,6 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
                 parameters: external_parameters,
                 result: ValueShape::Integer,
             }),
-            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {

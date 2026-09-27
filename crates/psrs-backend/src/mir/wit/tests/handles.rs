@@ -4,7 +4,7 @@
 use super::common::{RecordingLowerer, signature};
 use super::handles::verify_function;
 use super::*;
-use crate::abi::{HandleMode, HandleResource, WasiImport, WasiParamKind, WasiResultKind};
+use crate::abi::canonical::{CanonicalType, Ownership, ResourceId};
 use crate::cc::{Signature, ValueShape};
 use crate::mir::BoundWasiImport;
 use crate::mir::{BasicBlock, BlockId, Function, Instruction, Terminator};
@@ -16,38 +16,37 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
-fn handle(mode: HandleMode, symbol: SymbolId) -> HandleResource {
-    HandleResource {
-        mode,
-        interface: "fixture:handles/types@0.1.0".into(),
-        name: "thing".into(),
-        drop_symbol: symbol,
+fn handle(ownership: Ownership) -> CanonicalType {
+    CanonicalType::Handle {
+        resource: ResourceId {
+            interface: "fixture:handles/types@0.1.0".into(),
+            name: "thing".into(),
+        },
+        ownership,
     }
 }
 
-fn import(result: WasiResultKind, params: Vec<WasiParamKind>, symbol: SymbolId) -> WasiImport {
-    WasiImport {
+fn import(
+    result: Option<CanonicalType>,
+    params: Vec<CanonicalType>,
+    symbol: SymbolId,
+) -> WasiImport {
+    crate::abi::test_support::import(
         symbol,
-        module: "fixture:handles/types@0.1.0".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32; params.len()],
-        param_kinds: params,
-        result: Some(ValueType::I32),
-        result_kind: result,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    }
+        "fixture:handles/types@0.1.0",
+        "take",
+        params,
+        result,
+    )
 }
 
 fn bound(import: WasiImport) -> BoundWasiImport {
     BoundWasiImport {
         signature: Signature {
-            parameters: vec![ValueShape::Integer; import.param_kinds.len()],
+            parameters: vec![ValueShape::Integer; import.params.len()],
             result: ValueShape::Integer,
         },
         import,
-        payloads: Default::default(),
     }
 }
 
@@ -55,11 +54,7 @@ fn bound(import: WasiImport) -> BoundWasiImport {
 fn a_result_handle_is_not_released_by_the_compiler() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
-    let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Borrow, drop_symbol)),
-        Vec::new(),
-        symbol,
-    );
+    let import = import(Some(handle(Ownership::Borrow)), Vec::new(), symbol);
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(4);
     lower(
@@ -84,6 +79,7 @@ fn a_result_handle_is_not_released_by_the_compiler() {
         "the compiler must not drop or release a result handle: {:?}",
         lowerer.instructions
     );
+    let _ = drop_symbol;
 }
 
 #[test]
@@ -91,7 +87,7 @@ fn an_owned_result_is_not_dropped_by_the_compiler() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Own, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );
@@ -153,7 +149,7 @@ fn the_verifier_rejects_an_owned_handle_dropped_twice() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Own, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );
@@ -190,7 +186,7 @@ fn the_verifier_accepts_an_explicit_drop() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Own, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );

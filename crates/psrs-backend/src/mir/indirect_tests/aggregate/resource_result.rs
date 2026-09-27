@@ -3,8 +3,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadNode, ReprId,
-    Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, Representation, Signature, ValueDecl, ValueShape,
+    VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -71,17 +71,6 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![
-                Some(PayloadNode::Value(ValueShape::Integer)),
-                Some(PayloadNode::Value(ValueShape::Integer)),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "ResourceResultAbi".into(),
         externals: vec![External {
@@ -90,7 +79,6 @@ pub(super) fn resource_result_fixture() -> (cc::Module, ExternalBindings, Resolv
                 parameters: Vec::new(),
                 result: reference(1),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {

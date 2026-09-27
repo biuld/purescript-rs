@@ -1,5 +1,7 @@
 use super::BlockId;
 use super::NumericOp;
+use crate::abi::canonical::CanonicalType;
+use crate::cc::GuestLayout;
 use crate::types::{DataId, DefinedTypeId, HeapType, MemoryId, RefType, ValueId};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
@@ -11,30 +13,8 @@ pub enum ListDirection {
     Store,
     /// Allocate a GC array and fill it from the canonical buffer.
     Load,
-    /// Free string payloads stored in a `list<string>` parameter buffer.
-    FreeStrings,
-}
-
-/// One field of a `list<record>` element.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ListFieldCopy {
-    /// A scalar field: a canonical slot at `offset`, GC field `index`.
-    Scalar {
-        offset: u32,
-        index: u32,
-        kind: crate::abi::layout::SlotKind,
-    },
-    /// A string field: canonical `(pointer, length)` at `offset`, GC string
-    /// field `index`.
-    String { offset: u32, index: u32 },
-}
-
-/// One boolean field of a `list<flags>` element, packed into bit `bit` of the
-/// element's single canonical word.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ListFlagsField {
-    pub bit: u32,
-    pub index: u32,
+    /// Free payloads stored in a canonical list parameter buffer.
+    Free,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -327,41 +307,20 @@ pub enum Instruction {
         span: TextRange,
     },
     /// Element-wise copy between a GC array and a canonical `list<T>` buffer.
-    /// P10 emits the loop; the extent checker only checks allocator provenance.
+    /// The canonical element and its guest layout parameterize the copy, so one
+    /// instruction covers scalars, strings, records, and flags. P10 emits the
+    /// loop; the extent checker only checks allocator provenance.
     ListCopy {
         direction: ListDirection,
         array: ValueId,
         array_type: DefinedTypeId,
-        pointer: ValueId,
-        length: ValueId,
-        element: crate::abi::ListElement,
-        span: TextRange,
-    },
-    /// Element-wise copy between a GC array of records and a canonical
-    /// `list<record>` buffer. Each element is a directly flattened record of
-    /// scalar fields; P10 emits a loop of struct gets/loads and stores.
-    ListCopyRecord {
-        direction: ListDirection,
-        array: ValueId,
-        array_type: DefinedTypeId,
+        /// The concrete element struct type for a record or flags element; a
+        /// placeholder for scalars and strings.
         struct_type: DefinedTypeId,
         pointer: ValueId,
         length: ValueId,
-        size: u32,
-        fields: Vec<ListFieldCopy>,
-        span: TextRange,
-    },
-    /// Element-wise copy between a GC array of flags records and a canonical
-    /// `list<flags>` buffer. Each element packs into one canonical word.
-    ListCopyFlags {
-        direction: ListDirection,
-        array: ValueId,
-        array_type: DefinedTypeId,
-        struct_type: DefinedTypeId,
-        pointer: ValueId,
-        length: ValueId,
-        size: u32,
-        fields: Vec<ListFlagsField>,
+        element: CanonicalType,
+        element_guest: GuestLayout,
         span: TextRange,
     },
     /// Trap when a canonical ABI status value is nonzero.

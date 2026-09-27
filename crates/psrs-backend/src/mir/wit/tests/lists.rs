@@ -1,24 +1,23 @@
 use super::common::{RecordingLowerer, reference, signature};
 use super::*;
-use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::abi::canonical::CanonicalType;
+use crate::abi::test_support::import;
 use crate::mir::ListDirection;
 use crate::types::DefinedTypeId;
 use psrs_hir::{ModuleId, SymbolId};
 
-fn import(result_kind: WasiResultKind, param_kinds: Vec<WasiParamKind>) -> WasiImport {
-    let retptr = matches!(&result_kind, WasiResultKind::ValueList { .. });
-    WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:lists".into(),
-        name: "values".into(),
-        parameters: vec![crate::types::ValueType::I32; param_kinds.len() * 2],
-        param_kinds,
-        result: None,
-        result_kind,
-        unsupported: None,
-        retptr,
-        flat_slots: Vec::new(),
-    }
+fn list_import(params: Vec<CanonicalType>, result: Option<CanonicalType>) -> WasiImport {
+    import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:lists",
+        "values",
+        params,
+        result,
+    )
+}
+
+fn int(width: u8, signed: bool) -> CanonicalType {
+    CanonicalType::Int { width, signed }
 }
 
 #[test]
@@ -26,15 +25,10 @@ fn a_list_of_strings_result_lowers_to_an_array() {
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(0);
     lowerer.array_types.insert(destination, DefinedTypeId(1));
-    let element = WasiParamKind::List;
+    let element = CanonicalType::String;
     lower(
         &mut lowerer,
-        &import(
-            WasiResultKind::ValueList {
-                element: Box::new(element),
-            },
-            Vec::new(),
-        ),
+        &list_import(Vec::new(), Some(CanonicalType::List(Box::new(element)))),
         &signature(Vec::new()),
         destination,
         &[],
@@ -47,7 +41,7 @@ fn a_list_of_strings_result_lowers_to_an_array() {
             instruction,
             Instruction::ListCopy {
                 direction: ListDirection::Load,
-                element: crate::abi::ListElement::String,
+                element: CanonicalType::String,
                 array,
                 ..
             } if *array == destination
@@ -62,12 +56,7 @@ fn an_array_of_ints_lowers_to_a_list_parameter() {
     lowerer.array_types.insert(argument, DefinedTypeId(2));
     lower(
         &mut lowerer,
-        &import(
-            WasiResultKind::None,
-            vec![WasiParamKind::ValueList {
-                element: Box::new(WasiParamKind::Integer32),
-            }],
-        ),
+        &list_import(vec![CanonicalType::List(Box::new(int(32, true)))], None),
         &signature(vec![reference(0)]),
         ValueId(0),
         &[argument],
@@ -80,9 +69,9 @@ fn an_array_of_ints_lowers_to_a_list_parameter() {
             instruction,
             Instruction::ListCopy {
                 direction: ListDirection::Store,
-                element: crate::abi::ListElement::Word,
+                element,
                 ..
-            }
+            } if *element == int(32, true)
         )
     }));
     assert!(lowerer.instructions.iter().any(|instruction| {
@@ -97,13 +86,12 @@ fn an_array_of_enums_lowers_to_a_narrow_list_parameter() {
     lowerer.array_types.insert(argument, DefinedTypeId(2));
     lower(
         &mut lowerer,
-        &import(
-            WasiResultKind::None,
-            vec![WasiParamKind::ValueList {
-                element: Box::new(WasiParamKind::Enum {
-                    cases: vec!["red".into(), "green".into()],
-                }),
-            }],
+        &list_import(
+            vec![CanonicalType::List(Box::new(CanonicalType::Enum(vec![
+                "red".into(),
+                "green".into(),
+            ])))],
+            None,
         ),
         &signature(vec![reference(0)]),
         ValueId(0),
@@ -117,10 +105,7 @@ fn an_array_of_enums_lowers_to_a_narrow_list_parameter() {
             instruction,
             Instruction::ListCopy {
                 direction: ListDirection::Store,
-                element: crate::abi::ListElement::Narrow {
-                    bits: 8,
-                    signed: false,
-                },
+                element: CanonicalType::Enum(_),
                 ..
             }
         )

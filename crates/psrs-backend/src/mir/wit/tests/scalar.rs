@@ -1,22 +1,19 @@
 use super::common::{RecordingLowerer, signature};
 use super::*;
-use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::abi::canonical::CanonicalType;
+use crate::abi::test_support::import;
 use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
+
 #[test]
 fn scalar_f64_results_are_called_directly() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:interface".into(),
-        name: "number".into(),
-        parameters: Vec::new(),
-        param_kinds: Vec::<WasiParamKind>::new(),
-        result: Some(ValueType::F64),
-        result_kind: WasiResultKind::Scalar,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:interface",
+        "number",
+        Vec::new(),
+        Some(CanonicalType::Float { width: 64 }),
+    );
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
 
@@ -43,18 +40,13 @@ fn scalar_f64_results_are_called_directly() {
 
 #[test]
 fn char_arguments_and_results_use_direct_i32_values() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:interface".into(),
-        name: "char-roundtrip".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Char],
-        result: Some(ValueType::I32),
-        result_kind: WasiResultKind::Char,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:interface",
+        "char-roundtrip",
+        vec![CanonicalType::Char],
+        Some(CanonicalType::Char),
+    );
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
     let argument = ValueId(3);
@@ -85,21 +77,15 @@ fn char_arguments_and_results_use_direct_i32_values() {
 
 #[test]
 fn enum_arguments_and_results_keep_the_validated_i32_tags() {
-    let cases = vec!["Red".to_string(), "GreenBlue".to_string()];
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:enums".into(),
-        name: "convert".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Enum {
-            cases: cases.clone(),
-        }],
-        result: Some(ValueType::I32),
-        result_kind: WasiResultKind::Enum { cases },
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let cases = vec!["red".to_string(), "green-blue".to_string()];
+    let enum_type = CanonicalType::Enum(cases);
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:enums",
+        "convert",
+        vec![enum_type.clone()],
+        Some(enum_type),
+    );
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
     let argument = ValueId(3);
@@ -130,18 +116,13 @@ fn enum_arguments_and_results_keep_the_validated_i32_tags() {
 
 #[test]
 fn f32_arguments_and_results_are_adapted_to_source_numbers() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:interface".into(),
-        name: "f32-roundtrip".into(),
-        parameters: vec![ValueType::F32],
-        param_kinds: vec![WasiParamKind::Float32],
-        result: Some(ValueType::F32),
-        result_kind: WasiResultKind::Scalar,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:interface",
+        "f32-roundtrip",
+        vec![CanonicalType::Float { width: 32 }],
+        Some(CanonicalType::Float { width: 32 }),
+    );
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(7);
     let argument = ValueId(3);

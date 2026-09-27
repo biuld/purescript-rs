@@ -2,8 +2,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadNode, ReprId,
-    Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
+    ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -82,17 +82,6 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(2),
-            cases: vec![
-                Some(PayloadNode::Value(ValueShape::Integer)),
-                Some(PayloadNode::Value(ValueShape::Number)),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "WideScalarAbi".into(),
         externals: vec![External {
@@ -101,7 +90,6 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: Vec::new(),
                 result: reference(2),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {
@@ -230,14 +218,6 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: vec![PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![None, Some(PayloadNode::Value(ValueShape::Number))],
-        }],
-        result: PayloadNode::None,
-    };
-
     let module = cc::Module {
         name: "WideScalarParameterAbi".into(),
         externals: vec![External {
@@ -246,7 +226,6 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
                 parameters: vec![reference(1)],
                 result: ValueShape::Integer,
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {

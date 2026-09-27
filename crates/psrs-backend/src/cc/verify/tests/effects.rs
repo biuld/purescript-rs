@@ -255,7 +255,6 @@ fn rejects_a_direct_call_to_an_unbound_runner_external() {
         externals: vec![crate::cc::External {
             symbol: runner,
             signature: None,
-            payloads: Default::default(),
         }],
         representations: table(),
         functions: vec![function],

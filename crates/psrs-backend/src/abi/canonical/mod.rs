@@ -3,16 +3,15 @@
 //! This is the single description of a WIT value the ABI layer consults: a
 //! [`CanonicalType`] resolved once from `wit_parser`, with `flatten`,
 //! `size_align`, and `despecialize` as recursive operations over it. Because
-//! classification and flattening read the same value, they cannot diverge the
-//! way the parallel `WasiParamKind` / `FlatSlot` descriptors could. See
-//! `docs/design/backend/wasm/canonical-abi-compositional.md`.
+//! every consumer reads the same value, classification and lowering cannot
+//! diverge. See `docs/design/backend/wasm/canonical-abi-compositional.md`.
 //!
-//! Migration step 1 introduces this model additively. The existing descriptor
-//! path still drives lowering, so the module is not yet consumed by production
-//! code; `dead_code` is allowed until the migration reaches its callers.
-#![allow(dead_code)]
+//! This model is the only ABI vocabulary: classification, flattening, layout,
+//! conformance, and MIR lowering all read a [`CanonicalType`] directly.
+//! `dead_code` is not allowed; every operation has a caller.
 
 mod flatten;
+mod leaves;
 mod memory;
 mod plan;
 mod resolve;
@@ -21,13 +20,14 @@ mod resolve;
 mod tests;
 
 pub(crate) use flatten::flatten;
-// `size_align` and `function_abi` are exercised by tests now and consumed by
-// lowering in migration step 2; allow the staged re-exports in the lib target.
+pub(crate) use leaves::{FlatLeaf, flat_leaves_of, handle_at_flat_index};
 #[allow(unused_imports)]
-pub(crate) use memory::{SizeAlign, size_align};
-#[allow(unused_imports)]
-pub(crate) use plan::function_abi;
+pub(crate) use memory::SizeAlign;
+pub(crate) use memory::size_align;
+pub(crate) use plan::{FnAbi, function_abi, function_abi_from_types};
 pub(crate) use resolve::resolve;
+
+use psrs_hir::SymbolId;
 
 /// A core WebAssembly value type a canonical type flattens to on the wasm32
 /// target.
@@ -46,7 +46,7 @@ pub(crate) enum CoreVal {
 /// source mapping and diagnostics keep the WIT form. `String` is a byte list on
 /// the wire but a GC UTF-16 value in the guest.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CanonicalType {
+pub enum CanonicalType {
     Bool,
     Int {
         width: u8,
@@ -82,37 +82,71 @@ impl CanonicalType {
     fn int(width: u8, signed: bool) -> Self {
         CanonicalType::Int { width, signed }
     }
+
+    /// Whether this is the byte element `u8`.
+    pub(crate) fn is_byte(&self) -> bool {
+        matches!(
+            self,
+            CanonicalType::Int {
+                width: 8,
+                signed: false,
+            }
+        )
+    }
+
+    /// Whether this is `string` or a list of bytes, which share the
+    /// `(pointer, length)` canonical representation.
+    pub(crate) fn is_byte_list(&self) -> bool {
+        match self {
+            CanonicalType::String => true,
+            CanonicalType::List(inner) | CanonicalType::FixedList { element: inner, .. } => {
+                inner.is_byte()
+            }
+            _ => false,
+        }
+    }
 }
 
 /// One labeled field of a canonical record, in WIT declaration order.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CanonicalField {
+pub struct CanonicalField {
     pub name: String,
     pub ty: CanonicalType,
 }
 
 /// One case of a canonical variant. `payload` is `None` for a nullary case.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CanonicalCase {
+pub struct CanonicalCase {
     pub name: String,
     pub payload: Option<Box<CanonicalType>>,
 }
 
 /// The WIT resource a handle refers to, named by its canonical interface id.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ResourceId {
+pub struct ResourceId {
     pub interface: String,
     pub name: String,
 }
 
 /// Whether a handle owns the resource or only borrows it for one call.
 ///
-/// Ownership is wire metadata on a handle; the drop symbol and interface are
-/// bound to the import by the ABI side table, not carried here.
+/// An owned handle carries the `[resource-drop]<T>` symbol that releases it.
+/// The symbol starts as [`super::handles::UNBOUND_DROP`] and is bound when the
+/// import that mentions the handle is interned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Ownership {
-    Own,
+pub enum Ownership {
+    Own { drop: SymbolId },
     Borrow,
+}
+
+impl Ownership {
+    /// The drop symbol for an owned handle; a borrow has none.
+    pub(crate) fn drop_symbol(&self) -> Option<SymbolId> {
+        match self {
+            Ownership::Own { drop } => Some(*drop),
+            Ownership::Borrow => None,
+        }
+    }
 }
 
 /// Rewrites `option`, `result`, and `enum` into an equivalent `variant` so a
@@ -184,5 +218,171 @@ fn discriminant_size(cases: usize) -> u32 {
         Some(tag) if tag <= u8::MAX as usize => 1,
         Some(tag) if tag <= u16::MAX as usize => 2,
         Some(_) => 4,
+    }
+}
+
+/// The source constructor name for a WIT case name: split on `-`, uppercase the
+/// first letter of each part, and join with no separator.
+pub(crate) fn source_constructor_name(wit_case: &str) -> String {
+    wit_case
+        .split('-')
+        .map(|part| {
+            let mut chars = part.chars();
+            let mut name = String::new();
+            if let Some(first) = chars.next() {
+                name.extend(first.to_uppercase());
+                name.extend(chars);
+            }
+            name
+        })
+        .collect()
+}
+
+/// Whether a tagged type (`option`, `result`, or `variant`) can be treated as a
+/// variant with tag-ordered payloads.
+pub(crate) fn is_variant(ty: &CanonicalType) -> bool {
+    matches!(
+        ty,
+        CanonicalType::Option(_) | CanonicalType::Result { .. } | CanonicalType::Variant(_)
+    )
+}
+
+/// The tag-ordered payloads of a tagged type. `None` when `ty` is not a variant.
+pub(crate) fn payload_cases(ty: &CanonicalType) -> Option<Vec<Option<&CanonicalType>>> {
+    Some(match ty {
+        CanonicalType::Option(payload) => vec![None, Some(payload)],
+        CanonicalType::Result { ok, err } => vec![ok.as_deref(), err.as_deref()],
+        CanonicalType::Variant(cases) => cases.iter().map(|case| case.payload.as_deref()).collect(),
+        _ => return None,
+    })
+}
+
+/// A top-level `list<T>` of a supported element is lowered. The same list nested
+/// in a record, tuple, option, result, or variant is still rejected, as is any
+/// list whose element has no scalar or string lowering.
+pub(crate) fn contains_rejected_list(ty: &CanonicalType, nested: bool) -> bool {
+    match ty {
+        CanonicalType::List(inner) => {
+            !(inner.is_byte() || (!nested && supported_list_element(inner)))
+        }
+        CanonicalType::FixedList { element, .. } => !element.is_byte(),
+        CanonicalType::Record(fields) => fields
+            .iter()
+            .any(|field| contains_rejected_list(&field.ty, true)),
+        CanonicalType::Option(inner) => contains_rejected_list(inner, nested),
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref()
+                .is_some_and(|ty| contains_rejected_list(ty, nested))
+                || err
+                    .as_deref()
+                    .is_some_and(|ty| contains_rejected_list(ty, nested))
+        }
+        CanonicalType::Variant(cases) => cases.iter().any(|case| {
+            case.payload
+                .as_deref()
+                .is_some_and(|ty| contains_rejected_list(ty, nested))
+        }),
+        _ => false,
+    }
+}
+
+fn supported_list_element(ty: &CanonicalType) -> bool {
+    match ty {
+        CanonicalType::String => true,
+        CanonicalType::List(inner) => inner.is_byte(),
+        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::Bool
+        | CanonicalType::Int { .. }
+        | CanonicalType::Float { .. }
+        | CanonicalType::Char
+        | CanonicalType::Enum(_)
+        | CanonicalType::Flags(_)
+        | CanonicalType::Handle { .. } => true,
+        CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
+        _ => false,
+    }
+}
+
+/// Whether a type can be a directly lowered payload of a record, option, result,
+/// or variant.
+fn direct_parameter(ty: &CanonicalType) -> bool {
+    match ty {
+        CanonicalType::Bool
+        | CanonicalType::Int { .. }
+        | CanonicalType::Float { .. }
+        | CanonicalType::Char
+        | CanonicalType::String
+        | CanonicalType::Enum(_)
+        | CanonicalType::Flags(_)
+        | CanonicalType::Handle { .. } => true,
+        CanonicalType::List(_) => true,
+        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
+        CanonicalType::Option(inner) => direct_parameter(inner),
+        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
+            (Some(ok), Some(err)) => direct_parameter(ok) && direct_parameter(err),
+            _ => false,
+        },
+        CanonicalType::Variant(cases) => cases
+            .iter()
+            .all(|case| case.payload.as_deref().is_none_or(direct_parameter)),
+    }
+}
+
+/// Whether an otherwise unsupported canonical type is only scalars, handles,
+/// byte lists, and `option` / `result` / tuple / variant structure around them.
+pub(crate) fn primitive_aggregate_allowed(ty: &CanonicalType) -> bool {
+    match ty {
+        CanonicalType::Bool
+        | CanonicalType::Int { .. }
+        | CanonicalType::Float { .. }
+        | CanonicalType::Char
+        | CanonicalType::String
+        | CanonicalType::Handle { .. }
+        | CanonicalType::Enum(_)
+        | CanonicalType::Flags(_) => true,
+        CanonicalType::List(element) | CanonicalType::FixedList { element, .. } => {
+            element.is_byte()
+        }
+        CanonicalType::Record(fields) => fields
+            .iter()
+            .all(|field| primitive_aggregate_allowed(&field.ty)),
+        CanonicalType::Option(payload) => primitive_aggregate_allowed(payload),
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(primitive_aggregate_allowed)
+                && err.as_deref().is_none_or(primitive_aggregate_allowed)
+        }
+        CanonicalType::Variant(cases) => cases.iter().all(|case| {
+            case.payload
+                .as_deref()
+                .is_none_or(primitive_aggregate_allowed)
+        }),
+    }
+}
+
+/// Whether a canonical type has a source-ABI parameter lowering. This mirrors
+/// the shapes the MIR lowering models directly; a false result combined with
+/// [`primitive_aggregate_allowed`] defers the shape to the primitive-FFI check.
+pub(crate) fn parameter_has_source_abi(ty: &CanonicalType) -> bool {
+    match ty {
+        CanonicalType::Bool
+        | CanonicalType::Int { .. }
+        | CanonicalType::Float { .. }
+        | CanonicalType::Char
+        | CanonicalType::String
+        | CanonicalType::Enum(_)
+        | CanonicalType::Flags(_)
+        | CanonicalType::Handle { .. }
+        | CanonicalType::List(_) => true,
+        CanonicalType::FixedList { element, .. } => element.is_byte(),
+        CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
+        CanonicalType::Option(inner) => direct_parameter(inner),
+        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
+            (Some(ok), Some(err)) => direct_parameter(ok) && direct_parameter(err),
+            _ => false,
+        },
+        CanonicalType::Variant(cases) => cases
+            .iter()
+            .all(|case| case.payload.as_deref().is_none_or(direct_parameter)),
     }
 }

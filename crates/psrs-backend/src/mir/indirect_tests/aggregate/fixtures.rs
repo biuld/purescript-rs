@@ -101,7 +101,6 @@ pub(super) fn fixture(
                 parameters: Vec::new(),
                 result: reference(1),
             }),
-            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {
@@ -237,7 +236,6 @@ pub(super) fn parameter_fixture() -> (cc::Module, ExternalBindings, Resolve) {
                 parameters: vec![reference(1)],
                 result: ValueShape::Integer,
             }),
-            payloads: Default::default(),
         }],
         representations,
         functions: vec![cc::Function {

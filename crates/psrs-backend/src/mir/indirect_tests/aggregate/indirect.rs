@@ -2,9 +2,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, AggregateConvert, Assignment, AssignmentKind, BoxKind, External, ExternalPayloads,
-    PayloadNode, ReprId, Representation, Signature, ValueConversion, ValueDecl, ValueShape,
-    VariantCase,
+    self, AggregateConvert, Assignment, AssignmentKind, BoxKind, External, ReprId, Representation,
+    Signature, ValueConversion, ValueDecl, ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -58,7 +57,6 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
     let mut assignments = Vec::new();
     let mut arguments = Vec::new();
     let mut parameter_shapes = Vec::new();
-    let mut parameter_nodes = Vec::new();
     for index in 0..scalars {
         let id = ValueId(index as u32);
         values.push(ValueDecl {
@@ -72,7 +70,6 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
         });
         arguments.push(id);
         parameter_shapes.push(ValueShape::Integer);
-        parameter_nodes.push(PayloadNode::Value(ValueShape::Integer));
     }
     let number = ValueId(scalars as u32);
     let erased_value = ValueId(scalars as u32 + 1);
@@ -130,10 +127,6 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
     });
     arguments.push(maybe);
     parameter_shapes.push(reference(1));
-    parameter_nodes.push(PayloadNode::Variant {
-        representation: ReprId(1),
-        cases: vec![None, Some(PayloadNode::Value(ValueShape::Integer))],
-    });
     assignments.push(Assignment {
         destination: result,
         kind: AssignmentKind::DirectCall {
@@ -151,10 +144,6 @@ pub(super) fn indirect_aggregate_fixture() -> (cc::Module, ExternalBindings, Res
                 parameters: parameter_shapes,
                 result: ValueShape::Integer,
             }),
-            payloads: ExternalPayloads {
-                parameters: parameter_nodes,
-                result: PayloadNode::None,
-            },
         }],
         representations,
         functions: vec![cc::Function {

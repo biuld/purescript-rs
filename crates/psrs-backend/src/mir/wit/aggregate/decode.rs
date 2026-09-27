@@ -5,112 +5,94 @@ use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8
 use super::*;
 use crate::abi::layout::{self, SlotKind};
 
-/// Reads a payload from the return area and erases it into the stored variant
-/// field. Returns the erased value and the block the caller continues in.
+/// Reads a payload from the return area into the shape its variant case field
+/// expects. A concrete field keeps the source value; an erased field is boxed
+/// (scalar) or cast to the erased reference. `field_shape` is the guest case
+/// field shape, or `None` for an unknown field.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_payload<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiParamKind,
-    node: Option<&crate::cc::PayloadNode>,
+    kind: &CanonicalType,
+    guest: Option<&GuestLayout>,
+    field_shape: Option<ValueShape>,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<(Option<ValueId>, BlockId), Vec<BackendError>> {
-    let Some(node) = node.filter(|node| !matches!(node, crate::cc::PayloadNode::None)) else {
-        return Ok((
-            Some(read_direct(lowerer, kind, address, offset, block, span)?),
-            block,
-        ));
-    };
-    let shape = node.shape().ok_or_else(|| unsupported(span))?;
-    let (value, block) = build_concrete(lowerer, kind, node, address, offset, block, span)?;
-    let erased = erase_payload(lowerer, value, shape, block, span)?;
-    Ok((Some(erased), block))
-}
-
-/// Stores a concrete payload in the erased variant field: a scalar is boxed and
-/// a reference is cast to the erased type.
-fn erase_payload<L: WitCallLowerer>(
-    lowerer: &mut L,
-    value: ValueId,
-    shape: ValueShape,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    match shape {
-        ValueShape::Integer | ValueShape::Boolean => box_scalar(lowerer, value, block, span),
-        ValueShape::Number => box_number(lowerer, value, block, span),
-        ValueShape::String | ValueShape::Reference(_) => {
-            erase_reference(lowerer, value, block, span)
+    let erased = is_erased(field_shape);
+    if direct_shape(kind).is_some() {
+        if kind.is_byte_list() {
+            let value = read_string(lowerer, address, offset, block, span)?;
+            let value = if erased {
+                erase_reference(lowerer, value, block, span)?
+            } else {
+                value
+            };
+            return Ok((Some(value), block));
         }
+        if matches!(kind, CanonicalType::Float { .. }) {
+            let value = read_number(lowerer, kind, address, offset, block, span)?;
+            let value = if erased {
+                box_number(lowerer, value, block, span)?
+            } else {
+                value
+            };
+            return Ok((Some(value), block));
+        }
+        let value = read_scalar(lowerer, kind, address, offset, block, span)?;
+        let value = if erased {
+            box_scalar(lowerer, value, block, span)?
+        } else {
+            value
+        };
+        return Ok((Some(value), block));
     }
+    let guest = guest.ok_or_else(|| unsupported(span))?;
+    let (value, block) = build_concrete(lowerer, kind, guest, address, offset, block, span)?;
+    let value = if erased {
+        erase_reference(lowerer, value, block, span)?
+    } else {
+        value
+    };
+    Ok((Some(value), block))
 }
 
 /// Reads a payload from the return area as its concrete source value.
 #[allow(clippy::too_many_arguments)]
 fn build_concrete<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiParamKind,
-    node: &crate::cc::PayloadNode,
+    kind: &CanonicalType,
+    guest: &GuestLayout,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<(ValueId, BlockId), Vec<BackendError>> {
-    match node {
-        crate::cc::PayloadNode::Variant {
-            representation,
-            cases,
-        } if is_variant_kind(kind) => build_variant(
-            lowerer,
-            kind,
-            *representation,
-            cases,
-            address,
-            offset,
-            block,
-            span,
-        ),
-        crate::cc::PayloadNode::Record {
-            representation,
+    match guest {
+        GuestLayout::Variant { repr, cases } if is_variant_kind(kind) => {
+            build_variant(lowerer, kind, *repr, cases, address, offset, block, span)
+        }
+        GuestLayout::Product {
+            repr,
+            labels,
             fields,
         } => match kind {
-            WasiParamKind::Record { fields: wit_fields } => read_record(
-                lowerer,
-                *representation,
-                fields,
-                wit_fields,
-                address,
-                offset,
-                block,
-                span,
+            CanonicalType::Record(wit_fields) => read_record(
+                lowerer, *repr, labels, fields, wit_fields, address, offset, block, span,
             ),
-            WasiParamKind::Flags { names } => Ok((
-                read_flags(
-                    lowerer,
-                    *representation,
-                    names,
-                    address,
-                    offset,
-                    block,
-                    span,
-                )?,
+            CanonicalType::Flags(names) => Ok((
+                read_flags(lowerer, *repr, labels, names, address, offset, block, span)?,
                 block,
             )),
             _ => Err(unsupported(span)),
         },
-        crate::cc::PayloadNode::List {
-            representation,
-            element,
-        } => match kind {
-            WasiParamKind::ValueList {
-                element: wit_element,
-            } => Ok((
+        GuestLayout::Array { repr, element } => match kind {
+            CanonicalType::List(wit_element) => Ok((
                 read_value_list(
                     lowerer,
-                    *representation,
-                    element,
+                    *repr,
+                    *element,
                     wit_element,
                     address,
                     offset,
@@ -121,30 +103,25 @@ fn build_concrete<L: WitCallLowerer>(
             )),
             _ => Err(unsupported(span)),
         },
-        crate::cc::PayloadNode::Value(shape) => Ok((
+        GuestLayout::Scalar { shape } => Ok((
             read_value_concrete(lowerer, *shape, kind, address, offset, block, span)?,
             block,
         )),
-        crate::cc::PayloadNode::None | crate::cc::PayloadNode::Variant { .. } => {
-            Err(unsupported(span))
-        }
+        GuestLayout::Variant { .. } | GuestLayout::Boxed { .. } => Err(unsupported(span)),
     }
 }
 
-fn is_variant_kind(kind: &WasiParamKind) -> bool {
-    matches!(
-        kind,
-        WasiParamKind::Option { .. } | WasiParamKind::Result { .. } | WasiParamKind::Variant { .. }
-    )
+fn is_variant_kind(kind: &CanonicalType) -> bool {
+    crate::abi::canonical::is_variant(kind)
 }
 
 /// Reads a nested source variant from the return area and rebuilds it.
 #[allow(clippy::too_many_arguments)]
 fn build_variant<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiParamKind,
+    kind: &CanonicalType,
     representation: crate::cc::ReprId,
-    cases: &[Option<crate::cc::PayloadNode>],
+    cases: &[crate::cc::VariantCase],
     address: ValueId,
     offset: u32,
     block: BlockId,
@@ -154,6 +131,17 @@ fn build_variant<L: WitCallLowerer>(
     let tag = load_discriminant(lowerer, address, offset, case_kinds.len(), block, span)?;
     let payload_offset =
         layout::variant_payload_offset(&case_kinds).ok_or_else(|| unsupported(span))?;
+    let field_shapes = (0..case_kinds.len())
+        .map(|index| {
+            cases
+                .get(index)
+                .and_then(|case| case.fields.first().copied())
+        })
+        .collect::<Vec<_>>();
+    let layouts = field_shapes
+        .iter()
+        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
+        .collect::<Vec<_>>();
     let case_blocks = cases
         .iter()
         .map(|_| lowerer.wit_new_block(Vec::new()))
@@ -180,13 +168,14 @@ fn build_variant<L: WitCallLowerer>(
     )?;
     lowerer.wit_jump(default, case_blocks[0], Vec::new(), span)?;
 
-    for (index, (case_kind, case_node)) in case_kinds.iter().zip(cases).enumerate() {
+    for (index, case_kind) in case_kinds.iter().enumerate() {
         let block = case_blocks[index];
         let (field, block) = match case_kind {
             Some(case_kind) => build_payload(
                 lowerer,
                 case_kind,
-                case_node.as_ref(),
+                layouts[index].as_ref(),
+                field_shapes[index],
                 address,
                 offset + payload_offset,
                 block,
@@ -228,7 +217,7 @@ fn build_variant<L: WitCallLowerer>(
 fn read_value_concrete<L: WitCallLowerer>(
     lowerer: &mut L,
     shape: ValueShape,
-    kind: &WasiParamKind,
+    kind: &CanonicalType,
     address: ValueId,
     offset: u32,
     block: BlockId,
@@ -247,15 +236,15 @@ fn read_value_concrete<L: WitCallLowerer>(
 /// Reads an `f32`/`f64` payload as a source `Number`.
 fn read_number<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiParamKind,
+    kind: &CanonicalType,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
     match kind {
-        WasiParamKind::Float64 => load_f64(lowerer, address, offset, block, span),
-        WasiParamKind::Float32 => {
+        CanonicalType::Float { width: 64 } => load_f64(lowerer, address, offset, block, span),
+        CanonicalType::Float { width: 32 } => {
             let narrow = load_f32(lowerer, address, offset, block, span)?;
             let wide = lowerer.fresh_wit_value(ValueType::F64);
             lowerer.append_wit_instruction(
@@ -277,13 +266,13 @@ fn read_number<L: WitCallLowerer>(
 /// Reads a scalar payload of a known WIT kind from memory.
 fn read_scalar<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiParamKind,
+    kind: &CanonicalType,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    if matches!(kind, WasiParamKind::Scalar64 { .. }) {
+    if matches!(kind, CanonicalType::Int { width: 64, .. }) {
         let wide = load_i64(lowerer, address, offset, block, span)?;
         let narrowed = lowerer.fresh_wit_value(ValueType::I32);
         lowerer.append_wit_instruction(
@@ -299,12 +288,11 @@ fn read_scalar<L: WitCallLowerer>(
     }
     if !matches!(
         kind,
-        WasiParamKind::Integer32
-            | WasiParamKind::IntegerNarrow { .. }
-            | WasiParamKind::Boolean
-            | WasiParamKind::Char
-            | WasiParamKind::Enum { .. }
-            | WasiParamKind::Handle(_)
+        CanonicalType::Int { .. }
+            | CanonicalType::Bool
+            | CanonicalType::Char
+            | CanonicalType::Enum(_)
+            | CanonicalType::Handle { .. }
     ) {
         return Err(unsupported(span));
     }
@@ -355,20 +343,18 @@ fn read_string<L: WitCallLowerer>(
 fn read_record<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
-    node_fields: &[crate::cc::PayloadField],
-    wit_fields: &[crate::abi::WasiField],
+    labels: &[String],
+    product: &[ValueShape],
+    wit_fields: &[crate::abi::canonical::CanonicalField],
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<(ValueId, BlockId), Vec<BackendError>> {
-    let (product, labels) = lowerer
-        .wit_product(representation)
-        .ok_or_else(|| unsupported(span))?;
     let layouts = layout::record_fields(
         wit_fields
             .iter()
-            .map(|field| layout::parameter_layout(&field.kind)),
+            .map(|field| layout::parameter_layout(&field.ty)),
     )
     .ok_or_else(|| unsupported(span))?;
     let mut values = vec![None; product.len()];
@@ -379,15 +365,14 @@ fn read_record<L: WitCallLowerer>(
             .iter()
             .position(|candidate| candidate == &label)
             .ok_or_else(|| unsupported(span))?;
-        let field_node = node_fields
-            .iter()
-            .find(|field| field.name == label)
-            .map(|field| &field.node)
-            .ok_or_else(|| unsupported(span))?;
+        let field_guest = lowerer.wit_guest_layout(product[index]);
+        let Some(field_guest) = field_guest else {
+            return Err(unsupported(span));
+        };
         let (value, next) = build_concrete(
             lowerer,
-            &wit_field.kind,
-            field_node,
+            &wit_field.ty,
+            &field_guest,
             address,
             offset + field_offset,
             block,
@@ -418,21 +403,4 @@ fn read_record<L: WitCallLowerer>(
         span,
     )?;
     Ok((destination, block))
-}
-
-/// The fallback path: reads a directly flattenable payload and erases it.
-fn read_direct<L: WitCallLowerer>(
-    lowerer: &mut L,
-    kind: &WasiParamKind,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    if matches!(kind, WasiParamKind::List) {
-        let value = read_string(lowerer, address, offset, block, span)?;
-        return erase_reference(lowerer, value, block, span);
-    }
-    let scalar = read_scalar(lowerer, kind, address, offset, block, span)?;
-    box_scalar(lowerer, scalar, block, span)
 }

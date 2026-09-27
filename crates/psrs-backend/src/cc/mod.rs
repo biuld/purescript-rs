@@ -16,16 +16,16 @@ mod source_abi;
 mod verify;
 
 pub(crate) use source_abi::abstract_signature;
-pub use source_abi::{ExternalPayloads, PayloadField, PayloadNode};
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};
 
 pub use crate::types::ValueId;
 pub use convert::{AggregateConvert, BoxKind, RecoveryEvidence, ValueConversion};
+pub(crate) use representation::guest_layout;
 pub use representation::{
-    RefShape, Reference, ReprId, Representation, RepresentationTable, Signature, SignatureId,
-    ValueDecl, ValueShape, VariantCase,
+    GuestLayout, RefShape, Reference, ReprId, Representation, RepresentationTable, Signature,
+    SignatureId, ValueDecl, ValueShape, VariantCase,
 };
 pub use scalar::{BinaryOp, UnaryOp};
 
@@ -49,9 +49,6 @@ pub struct Module {
 pub struct External {
     pub symbol: SymbolId,
     pub signature: Option<Signature>,
-    /// The concrete payload tree for a mapped aggregate parameter or result, so
-    /// the canonical adapter can lay out a nested payload.
-    pub payloads: ExternalPayloads,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,23 +258,19 @@ pub fn lower_module_with_bindings(
     }
     let mut externals = Vec::new();
     for binding in &bindings.imports {
-        let (signature, payloads) = match abstract_signature(
+        let signature = abstract_signature(
             binding.type_id,
             &module,
             &layout.record_types,
             &layout.array_types,
             &layout.constructor_types,
-        ) {
-            Some((signature, payloads)) => (Some(signature), payloads),
-            None => (None, ExternalPayloads::default()),
-        };
+        );
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());
         }
         externals.push(External {
             symbol: binding.symbol,
             signature,
-            payloads,
         });
     }
     let mut functions = Vec::with_capacity(module.declarations.len());

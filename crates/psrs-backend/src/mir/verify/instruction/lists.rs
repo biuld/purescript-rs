@@ -2,8 +2,8 @@
 
 use super::super::util::{composite_at, is_array_reference, mir_error, require_value};
 use crate::BackendError;
-use crate::abi::ListElement;
-use crate::abi::layout::SlotKind;
+use crate::abi::canonical::CanonicalType;
+use crate::cc::{GuestLayout, ValueShape};
 use crate::mir::{Function, Instruction, ListDirection, ValueId, ValueType};
 use crate::types::{CompositeType, DefinedType, StorageType};
 use std::collections::HashMap;
@@ -18,9 +18,11 @@ pub(super) fn verify_list_copy(
         direction,
         array,
         array_type,
+        struct_type,
         pointer,
         length,
         element,
+        element_guest,
         span,
     } = instruction
     else {
@@ -34,17 +36,36 @@ pub(super) fn verify_list_copy(
             "MIR list copy pointer and length must be i32",
         ));
     }
-    if *direction == ListDirection::FreeStrings {
+    if *direction == ListDirection::Free {
         return Ok(());
     }
     let Some(CompositeType::Array(field)) = composite_at(defined, *array_type) else {
         return Err(mir_error(*span, "MIR list copy type is not an array"));
     };
-    if !element_storage_matches(*element, &field.storage) {
+    if !element_storage_matches(element, &field.storage) {
         return Err(mir_error(
             *span,
             "MIR list copy element does not match the GC array",
         ));
+    }
+    if let GuestLayout::Product { labels, fields, .. } = element_guest {
+        let Some(CompositeType::Struct(field_types)) = composite_at(defined, *struct_type) else {
+            return Err(mir_error(*span, "MIR list copy element is not a struct"));
+        };
+        if field_types.len() != fields.len() || labels.len() != fields.len() {
+            return Err(mir_error(
+                *span,
+                "MIR list copy element fields do not match the struct",
+            ));
+        }
+        for (shape, storage) in fields.iter().zip(field_types) {
+            if !field_storage_matches(*shape, &storage.storage) {
+                return Err(mir_error(
+                    *span,
+                    "MIR list copy element field storage does not match the struct",
+                ));
+            }
+        }
     }
     let array_type_ok = match direction {
         ListDirection::Load => value_type(function, *array)
@@ -54,7 +75,7 @@ pub(super) fn verify_list_copy(
             *array_type,
             defined,
         ),
-        ListDirection::FreeStrings => true,
+        ListDirection::Free => true,
     };
     if !array_type_ok {
         return Err(mir_error(*span, "MIR list copy array has the wrong type"));
@@ -70,194 +91,25 @@ fn value_type(function: &Function, value: ValueId) -> Option<ValueType> {
         .map(|decl| decl.ty)
 }
 
-fn element_storage_matches(element: ListElement, storage: &StorageType) -> bool {
+/// Whether the GC array element storage can hold the canonical element.
+fn element_storage_matches(element: &CanonicalType, storage: &StorageType) -> bool {
     match element {
-        ListElement::Word
-        | ListElement::Narrow { .. }
-        | ListElement::Boolean
-        | ListElement::Scalar64 { .. } => *storage == StorageType::I32,
-        ListElement::Float32 | ListElement::Float64 => *storage == StorageType::F64,
-        ListElement::String => matches!(storage, StorageType::Ref(reference) if reference.nullable),
+        CanonicalType::String | CanonicalType::List(_) | CanonicalType::FixedList { .. } => {
+            matches!(storage, StorageType::Ref(_))
+        }
+        CanonicalType::Float { .. } => *storage == StorageType::F64,
+        CanonicalType::Record(_) | CanonicalType::Flags(_) => {
+            matches!(storage, StorageType::Ref(_))
+        }
+        _ => *storage == StorageType::I32,
     }
 }
 
-pub(super) fn verify_list_copy_flags(
-    function: &Function,
-    instruction: &Instruction,
-    definitions: &HashMap<ValueId, ValueType>,
-    defined: &[&DefinedType],
-) -> Result<(), Vec<BackendError>> {
-    let Instruction::ListCopyFlags {
-        direction,
-        array,
-        array_type,
-        struct_type,
-        pointer,
-        length,
-        fields,
-        span,
-        ..
-    } = instruction
-    else {
-        unreachable!("flags list verifier received another instruction")
-    };
-    if require_value(definitions, *pointer, *span)? != ValueType::I32
-        || require_value(definitions, *length, *span)? != ValueType::I32
-    {
-        return Err(mir_error(
-            *span,
-            "MIR flags list copy pointer and length must be i32",
-        ));
+/// Whether the struct field storage can hold a product field shape.
+fn field_storage_matches(shape: ValueShape, storage: &StorageType) -> bool {
+    match shape {
+        ValueShape::Integer | ValueShape::Boolean => *storage == StorageType::I32,
+        ValueShape::Number => *storage == StorageType::F64,
+        ValueShape::String | ValueShape::Reference(_) => matches!(storage, StorageType::Ref(_)),
     }
-    if *direction == ListDirection::FreeStrings {
-        return Ok(());
-    }
-    let Some(CompositeType::Array(_)) = composite_at(defined, *array_type) else {
-        return Err(mir_error(*span, "MIR flags list copy type is not an array"));
-    };
-    let Some(CompositeType::Struct(field_types)) = composite_at(defined, *struct_type) else {
-        return Err(mir_error(
-            *span,
-            "MIR flags list copy element is not a struct",
-        ));
-    };
-    if field_types.len() != fields.len()
-        || fields.iter().any(|field| field.bit >= 32)
-        || field_types
-            .iter()
-            .any(|field| field.storage != StorageType::I32)
-    {
-        return Err(mir_error(
-            *span,
-            "MIR flags list copy fields do not match the struct",
-        ));
-    }
-    let array_type_ok = match direction {
-        ListDirection::Load => value_type(function, *array)
-            .is_some_and(|ty| is_array_reference(ty, *array_type, defined)),
-        ListDirection::Store => is_array_reference(
-            require_value(definitions, *array, *span)?,
-            *array_type,
-            defined,
-        ),
-        ListDirection::FreeStrings => true,
-    };
-    if !array_type_ok {
-        return Err(mir_error(
-            *span,
-            "MIR flags list copy array has the wrong type",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn verify_list_copy_record(
-    function: &Function,
-    instruction: &Instruction,
-    definitions: &HashMap<ValueId, ValueType>,
-    defined: &[&DefinedType],
-) -> Result<(), Vec<BackendError>> {
-    let Instruction::ListCopyRecord {
-        direction,
-        array,
-        array_type,
-        struct_type,
-        pointer,
-        length,
-        fields,
-        span,
-        ..
-    } = instruction
-    else {
-        unreachable!("record list verifier received another instruction")
-    };
-    if require_value(definitions, *pointer, *span)? != ValueType::I32
-        || require_value(definitions, *length, *span)? != ValueType::I32
-    {
-        return Err(mir_error(
-            *span,
-            "MIR record list copy pointer and length must be i32",
-        ));
-    }
-    if *direction == ListDirection::FreeStrings {
-        return Ok(());
-    }
-    let Some(CompositeType::Array(_)) = composite_at(defined, *array_type) else {
-        return Err(mir_error(
-            *span,
-            "MIR record list copy type is not an array",
-        ));
-    };
-    let Some(CompositeType::Struct(field_types)) = composite_at(defined, *struct_type) else {
-        return Err(mir_error(
-            *span,
-            "MIR record list copy element is not a struct",
-        ));
-    };
-    if field_types.len() != fields.len() {
-        return Err(mir_error(
-            *span,
-            "MIR record list copy field count does not match the struct",
-        ));
-    }
-    let mut seen = vec![false; field_types.len()];
-    for field in fields {
-        let (index, matches) = match field {
-            crate::mir::ListFieldCopy::Scalar { index, kind, .. } => {
-                let expected = match kind {
-                    SlotKind::Byte | SlotKind::Half | SlotKind::Word => StorageType::I32,
-                    SlotKind::F64 => StorageType::F64,
-                    SlotKind::I64 | SlotKind::F32 => {
-                        return Err(mir_error(
-                            *span,
-                            "MIR record list copy field width is not supported yet",
-                        ));
-                    }
-                };
-                let matches = field_types
-                    .get(*index as usize)
-                    .is_some_and(|storage| storage.storage == expected);
-                (*index as usize, matches)
-            }
-            crate::mir::ListFieldCopy::String { index, .. } => {
-                let matches = field_types
-                    .get(*index as usize)
-                    .is_some_and(|storage| matches!(storage.storage, StorageType::Ref(_)));
-                (*index as usize, matches)
-            }
-        };
-        let Some(slot) = seen.get_mut(index) else {
-            return Err(mir_error(
-                *span,
-                "MIR record list copy field index is out of range",
-            ));
-        };
-        if *slot {
-            return Err(mir_error(*span, "MIR record list copy field is duplicated"));
-        }
-        *slot = true;
-        if !matches {
-            return Err(mir_error(
-                *span,
-                "MIR record list copy field storage does not match the struct",
-            ));
-        }
-    }
-    let array_type_ok = match direction {
-        ListDirection::Load => value_type(function, *array)
-            .is_some_and(|ty| is_array_reference(ty, *array_type, defined)),
-        ListDirection::Store => is_array_reference(
-            require_value(definitions, *array, *span)?,
-            *array_type,
-            defined,
-        ),
-        ListDirection::FreeStrings => true,
-    };
-    if !array_type_ok {
-        return Err(mir_error(
-            *span,
-            "MIR record list copy array has the wrong type",
-        ));
-    }
-    Ok(())
 }

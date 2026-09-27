@@ -165,15 +165,8 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         self.wit_product_field(block, value, field, span)
     }
 
-    fn wit_product(
-        &self,
-        repr: crate::cc::ReprId,
-    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
-        self.resolved_product(repr)
-    }
-
-    fn wit_array_element(&self, repr: crate::cc::ReprId) -> Option<crate::cc::ValueShape> {
-        self.resolved_array_element(repr)
+    fn wit_guest_layout(&self, shape: crate::cc::ValueShape) -> Option<crate::cc::GuestLayout> {
+        self.resolved_guest_layout(shape)
     }
 
     fn wit_repr_index(&self, repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {

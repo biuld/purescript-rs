@@ -1,9 +1,9 @@
 //! An aggregate result whose canonical return area exceeds the scratch region.
 
-use super::fixtures::{erased, reference, span};
+use super::fixtures::{reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadField, PayloadNode,
-    ReprId, Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
+    ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -34,11 +34,11 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![erased()],
+                        fields: vec![reference(1)],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![ValueShape::Integer],
                     },
                 ],
             },
@@ -83,33 +83,6 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(2),
-            cases: vec![
-                Some(PayloadNode::Record {
-                    representation: ReprId(1),
-                    fields: vec![
-                        PayloadField {
-                            name: "a".into(),
-                            node: PayloadNode::Value(ValueShape::Number),
-                        },
-                        PayloadField {
-                            name: "b".into(),
-                            node: PayloadNode::Value(ValueShape::Number),
-                        },
-                        PayloadField {
-                            name: "c".into(),
-                            node: PayloadNode::Value(ValueShape::Integer),
-                        },
-                    ],
-                }),
-                Some(PayloadNode::Value(ValueShape::Integer)),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "LargeRecordAbi".into(),
         externals: vec![External {
@@ -118,7 +91,6 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
                 parameters: Vec::new(),
                 result: reference(2),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {

@@ -1,25 +1,19 @@
 use super::common::{RecordingLowerer, record, signature};
 use super::*;
-use crate::abi::{WasiParamKind, WasiResultKind};
+use crate::abi::canonical::CanonicalType;
+use crate::abi::test_support::import;
 use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 #[test]
 fn flags_arguments_pack_boolean_fields_in_wit_declaration_order() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:flags".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Flags {
-            names: vec!["write".into(), "read".into()],
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:flags",
+        "take",
+        vec![CanonicalType::Flags(vec!["write".into(), "read".into()])],
+        None,
+    );
     let mut lowerer = RecordingLowerer {
         product_field_types: HashMap::from([(0, ValueType::Boolean), (1, ValueType::Boolean)]),
         ..RecordingLowerer::default()
@@ -94,20 +88,13 @@ fn flags_arguments_split_after_thirty_two_bits() {
     let names = (0..33)
         .map(|index| format!("flag{index:03}"))
         .collect::<Vec<_>>();
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:flags".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32, ValueType::I32],
-        param_kinds: vec![WasiParamKind::Flags {
-            names: names.clone(),
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:flags",
+        "take",
+        vec![CanonicalType::Flags(names.clone())],
+        None,
+    );
     let mut lowerer = RecordingLowerer {
         product_field_types: (0..33).map(|index| (index, ValueType::Boolean)).collect(),
         ..RecordingLowerer::default()

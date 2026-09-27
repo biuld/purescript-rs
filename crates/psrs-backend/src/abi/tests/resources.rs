@@ -1,5 +1,6 @@
+use super::canonical::CanonicalType;
+use super::test_support::import;
 use super::*;
-use crate::abi::{WasiImport, WasiParamKind, WasiResultKind as ResultKind};
 use crate::types::ValueType;
 use psrs_core::{Type as CoreType, TypeConstructor};
 use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
@@ -36,12 +37,11 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let stdout = registry
         .import("wasi:cli/stdout", "get-stdout")
         .expect("get-stdout should resolve");
-    let WasiResultKind::Handle(owned) = &stdout.result_kind else {
-        panic!(
-            "get-stdout should return an owned handle, got {:?}",
-            stdout.result_kind
-        );
-    };
+    let owned = stdout
+        .canonical_result
+        .as_ref()
+        .and_then(CanonicalType::handle_resource)
+        .expect("get-stdout should return an owned handle");
     assert_eq!(owned.mode, HandleMode::Own);
     assert_eq!(owned.name, "output-stream");
     assert_eq!(owned.interface, "wasi:io/streams@0.2.12");
@@ -64,15 +64,12 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             "[method]output-stream.blocking-write-and-flush",
         )
         .expect("blocking-write-and-flush should resolve");
-    let WasiParamKind::Handle(borrowed) = &write.param_kinds[0] else {
-        panic!(
-            "the method receiver should be a borrow, got {:?}",
-            write.param_kinds
-        );
-    };
+    let borrowed = write.params[0]
+        .handle_resource()
+        .expect("the method receiver should be a borrow");
     assert_eq!(borrowed.mode, HandleMode::Borrow);
     assert_eq!(borrowed.name, "output-stream");
-    assert_eq!(write.param_kinds[1], WasiParamKind::List);
+    assert!(write.params[1].is_byte_list());
     validate_against(&write, core.clone(), &[opaque, string], unit)
         .expect("the method should accept an opaque resource receiver");
     validate_against(&write, core.clone(), &[integer, string], unit)
@@ -104,8 +101,7 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
     )
-    .expect("a resource should have an abstract integer shape")
-    .0;
+    .expect("a resource should have an abstract integer shape");
     assert_eq!(shape.parameters, vec![crate::cc::ValueShape::Integer]);
     assert_eq!(shape.result, crate::cc::ValueShape::Integer);
 }
@@ -113,18 +109,19 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
 #[test]
 fn does_not_treat_an_opaque_type_as_an_integer_scalar() {
     let type_id = HirTypeId::new(ModuleId(1), 2);
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:scalar".into(),
-        name: "width".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Integer32],
-        result: Some(ValueType::I32),
-        result_kind: ResultKind::Scalar,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:scalar",
+        "width",
+        vec![CanonicalType::Int {
+            width: 32,
+            signed: true,
+        }],
+        Some(CanonicalType::Int {
+            width: 32,
+            signed: true,
+        }),
+    );
     let mut core = empty_core_module();
     core.opaque_ids.push(type_id);
     let opaque = intern_all(&mut core, vec![opaque_type(type_id)])
@@ -134,4 +131,5 @@ fn does_not_treat_an_opaque_type_as_an_integer_scalar() {
         validate_against(&import, core, &[opaque], opaque).is_err(),
         "a resource is not a substitute for a WIT integer"
     );
+    let _ = ValueType::I32;
 }

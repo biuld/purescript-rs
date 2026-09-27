@@ -2,22 +2,22 @@
 
 use super::memory::load;
 use super::*;
+use crate::mir::wit::free_buffer;
+use crate::mir::wit::lists::scale;
 
 /// Builds a GC flags record from the packed canonical words.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn read_flags<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
+    labels: &[String],
     names: &[String],
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    let (product, labels) = lowerer
-        .wit_product(representation)
-        .ok_or_else(|| unsupported(span))?;
-    if product.len() != labels.len() || names.len() != labels.len() {
+    if names.len() != labels.len() {
         return Err(unsupported(span));
     }
     let words = names.len().div_ceil(32);
@@ -31,7 +31,7 @@ pub(super) fn read_flags<L: WitCallLowerer>(
             span,
         )?);
     }
-    let mut values = vec![None; product.len()];
+    let mut values = vec![None; labels.len()];
     for (bit, name) in names.iter().enumerate() {
         let label = abi::source_field_name(name);
         let index = labels
@@ -118,8 +118,8 @@ pub(super) fn read_flags<L: WitCallLowerer>(
 pub(super) fn read_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
-    _element_node: &crate::cc::PayloadNode,
-    element: &WasiParamKind,
+    element_shape: ValueShape,
+    element: &CanonicalType,
     address: ValueId,
     offset: u32,
     block: BlockId,
@@ -128,57 +128,48 @@ pub(super) fn read_value_list<L: WitCallLowerer>(
     let array_type = lowerer
         .wit_repr_index(representation)
         .ok_or_else(|| unsupported(span))?;
+    let element_guest = lowerer
+        .wit_guest_layout(element_shape)
+        .ok_or_else(|| unsupported(span))?;
+    let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let destination = lowerer.fresh_wit_value(ValueType::Ref(RefType {
         nullable: false,
         heap: HeapType::Index(array_type),
     }));
-    let shape = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Repr(representation),
-    });
-    if let Some(element) = abi::list_element(element) {
-        let pointer = load(lowerer, address, offset, block, span)?;
-        let length = load(lowerer, address, offset + 4, block, span)?;
-        lowerer.append_wit_instruction(
-            block,
-            Instruction::ListCopy {
-                direction: crate::mir::ListDirection::Load,
-                array: destination,
-                array_type,
-                pointer,
-                length,
-                element,
-                span,
-            },
+    let pointer = load(lowerer, address, offset, block, span)?;
+    let length = load(lowerer, address, offset + 4, block, span)?;
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::ListCopy {
+            direction: crate::mir::ListDirection::Load,
+            array: destination,
+            array_type,
+            struct_type,
+            pointer,
+            length,
+            element: element.clone(),
+            element_guest,
             span,
-        )?;
-        let (size, align) = abi::element_layout(element);
-        let bytes = crate::mir::wit::lists::scale(lowerer, length, size, block, span)?;
-        free_buffer(lowerer, pointer, bytes, align, block, span)?;
-        return Ok(destination);
-    }
-    match element {
-        WasiParamKind::Record { .. } => crate::mir::wit::lists::read_record_value_list_from(
-            lowerer,
-            element,
-            &shape,
-            destination,
-            address,
-            offset,
-            block,
-            span,
-        )?,
-        WasiParamKind::Flags { .. } => crate::mir::wit::lists::read_flags_value_list_from(
-            lowerer,
-            element,
-            &shape,
-            destination,
-            address,
-            offset,
-            block,
-            span,
-        )?,
-        _ => return Err(unsupported(span)),
-    }
+        },
+        span,
+    )?;
+    let layout = crate::abi::canonical::size_align(element);
+    let bytes = scale(lowerer, length, layout.size as i32, block, span)?;
+    free_buffer(lowerer, pointer, bytes, layout.align as i32, block, span)?;
     Ok(destination)
+}
+
+/// The concrete element struct type for a record or flags element, or a
+/// placeholder for scalars and strings.
+pub(super) fn element_struct_type<L: WitCallLowerer>(
+    lowerer: &L,
+    element_guest: &GuestLayout,
+    span: TextRange,
+) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
+    match element_guest {
+        GuestLayout::Product { repr, .. } => lowerer
+            .wit_repr_index(*repr)
+            .ok_or_else(|| unsupported(span)),
+        _ => Ok(crate::types::DefinedTypeId(0)),
+    }
 }

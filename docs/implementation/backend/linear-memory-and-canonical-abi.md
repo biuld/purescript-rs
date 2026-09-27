@@ -23,6 +23,10 @@ source types
 The reclaiming allocator, transient buffer free, `post-return`, and buffer
 ownership moved to
 [canonical buffer allocation](canonical-buffer-allocation.md).
+The ABI now runs on a single normalized canonical type: `abi::canonical`
+resolves each WIT value once and derives flattening, layout, conformance, and
+lowering from it; the descriptor types and per-shape plans are gone
+([compositional canonical ABI lowering](../../design/backend/wasm/canonical-abi-compositional.md)).
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-11 and BE-17..BE-20.
 
@@ -265,15 +269,16 @@ ABI-07:
 
 ```text
 ABI-08:
-  Implementation: non-byte `list<T>` / `Array` classification in
-    crates/psrs-backend/src/abi/lists.rs and
-    crates/psrs-backend/src/abi/classification.rs; MIR lowering in
-    crates/psrs-backend/src/mir/wit/lists.rs and
-    crates/psrs-backend/src/mir/wit/mod.rs; Wasm loops in
-    crates/psrs-backend/src/wasm/lower/structure/lists.rs. Unsupported shapes
-    are still rejected at classification/lowering.
+  Implementation: canonical WIT classification and flattening in
+    crates/psrs-backend/src/abi/canonical/ (CanonicalType, resolve, flatten,
+    leaves, size_align); memory layout in crates/psrs-backend/src/abi/layout.rs;
+    MIR lowering in crates/psrs-backend/src/mir/wit/ (parameters, aggregate,
+    lists, free); Wasm loops in
+    crates/psrs-backend/src/wasm/lower/structure/lists/. A shape the source
+    cannot express is rejected at binding time; the guest half is CC's
+    RepresentationTable through guest_layout.
   Tests: psrs-backend abi::tests::lists::
-    maps_an_array_of_supported_elements_and_rejects_nested_arrays,
+    interns_an_array_of_supported_elements_and_rejects_nested_arrays,
     classifies_scalar_and_string_lists_and_rejects_aggregates;
     mir::wit::tests::lists::{a_list_of_strings_result_lowers_to_an_array,
     an_array_of_ints_lowers_to_a_list_parameter};

@@ -22,9 +22,6 @@ pub(super) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
     product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
-    /// Record products by representation handle, with their canonical labels,
-    /// so the WIT adapter can project fields by WIT name.
-    wit_products: HashMap<ReprId, (Vec<CcValueShape>, Vec<String>)>,
     array_elements: HashMap<ReprId, CcValueShape>,
     variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
     variant_fields: HashMap<(ReprId, u32), Vec<CcValueShape>>,
@@ -34,6 +31,9 @@ pub(super) struct PlannedLayout {
     boxed_integer_index: Option<DefinedTypeId>,
     boxed_number_index: Option<DefinedTypeId>,
     string_index: Option<DefinedTypeId>,
+    /// The target-neutral table this layout was planned from. The WIT adapter
+    /// reads it to resolve a value shape to its recursive guest layout.
+    representation_table: RepresentationTable,
 }
 
 impl PlannedLayout {
@@ -100,7 +100,6 @@ impl PlannedLayout {
         }
         let mut repr_indices = HashMap::new();
         let mut product_fields = HashMap::new();
-        let mut wit_products = HashMap::new();
         let mut array_elements = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len() + 1);
         // The GC string is `(array (mut i16))`: its length is the UTF-16 code
@@ -261,10 +260,6 @@ impl PlannedLayout {
                 }),
             };
             definitions[index as usize].composite = composite;
-            if let Representation::Product { fields } = representation {
-                let labels = table.product_labels.get(id).cloned().unwrap_or_default();
-                wit_products.insert(*id, (fields.clone(), labels));
-            }
         }
         for (index, fields) in variant_cases {
             let mut concrete = vec![FieldType {
@@ -352,7 +347,6 @@ impl PlannedLayout {
             },
             repr_indices,
             product_fields,
-            wit_products,
             array_elements,
             variant_indices,
             variant_fields,
@@ -362,7 +356,13 @@ impl PlannedLayout {
             boxed_integer_index,
             boxed_number_index,
             string_index,
+            representation_table: table.clone(),
         })
+    }
+
+    /// The target-neutral representation table this layout was planned from.
+    pub(super) fn representation_table(&self) -> &RepresentationTable {
+        &self.representation_table
     }
 }
 
