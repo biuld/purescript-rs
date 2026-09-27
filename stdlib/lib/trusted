@@ -4,8 +4,12 @@ Prelude
 Data.Maybe
 Data.Either
 WASI.Resource
-WASI.Console
+WASI.Streams
 WASI.Clock
 WASI.Random
+WASI.Poll
+WASI.Error
+WASI.Stdin
+WASI.Console
 WASI.Exit
 WASI.Environment

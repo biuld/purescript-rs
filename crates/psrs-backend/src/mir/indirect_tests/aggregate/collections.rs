@@ -60,6 +60,7 @@ fn base(
     let module = cc::Module {
         name: "CollectionAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),

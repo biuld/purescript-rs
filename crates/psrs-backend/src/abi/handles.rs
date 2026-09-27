@@ -178,24 +178,25 @@ impl super::WasiRegistry {
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
+        // The drop intrinsic's canonical parameter is the resource handle
+        // itself, not a bare `i32`, so a source declaration may name the opaque
+        // handle type (DEC-14).
+        let handle = CanonicalType::Handle {
+            resource: ResourceId {
+                interface: interface.to_string(),
+                name: resource.to_string(),
+            },
+            ownership: Ownership::Own { drop: symbol },
+        };
         self.imports.push(super::WasiImport {
             symbol,
             module: interface.to_string(),
             name: field,
             parameters: vec![crate::types::ValueType::I32],
             result: None,
-            params: vec![CanonicalType::Int {
-                width: 32,
-                signed: true,
-            }],
+            params: vec![handle.clone()],
             canonical_result: None,
-            abi: super::canonical::function_abi_from_types(
-                &[CanonicalType::Int {
-                    width: 32,
-                    signed: true,
-                }],
-                None,
-            ),
+            abi: super::canonical::function_abi_from_types(&[handle], None),
             unsupported: None,
         });
         let index = self.imports.len() - 1;

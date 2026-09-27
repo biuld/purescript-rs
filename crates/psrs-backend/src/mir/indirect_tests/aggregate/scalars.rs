@@ -85,6 +85,7 @@ pub(super) fn wide_scalar_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "WideScalarAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
@@ -221,6 +222,7 @@ pub(super) fn wide_scalar_parameter_fixture() -> (cc::Module, ExternalBindings, 
     let module = cc::Module {
         name: "WideScalarParameterAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: vec![reference(1)],

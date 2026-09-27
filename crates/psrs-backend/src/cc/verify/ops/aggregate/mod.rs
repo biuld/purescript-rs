@@ -113,9 +113,36 @@ fn verify_plan(
             destination,
             evidence,
         } => {
-            if source != erased_shape()
-                || !matches!(destination, ValueShape::Reference(_) | ValueShape::String)
-            {
+            // A recover is a reference cast. It either narrows the erased
+            // polymorphic value to a concrete reference/string, or reinterprets
+            // between the abstract aggregate supertype and a concrete
+            // representation. It never converts between two concrete
+            // representations.
+            let aggregate_reinterpretation = matches!(
+                (source, destination),
+                (
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Repr(_),
+                        ..
+                    }),
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Aggregate,
+                        ..
+                    }),
+                ) | (
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Aggregate,
+                        ..
+                    }),
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Repr(_),
+                        ..
+                    }),
+                )
+            );
+            let erased_source = source == erased_shape()
+                && matches!(destination, ValueShape::Reference(_) | ValueShape::String);
+            if !(aggregate_reinterpretation || erased_source) {
                 return Err(assignment_error(
                     assignment,
                     "reference recovery has incompatible shapes",

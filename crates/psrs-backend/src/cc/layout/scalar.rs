@@ -100,6 +100,15 @@ pub(crate) fn declaration_shape(
                 result: aggregate_value_type(),
             })
         }
+        // An opaque `foreign import data` type is a nominal resource handle: a
+        // single `i32` table index. DEC-14 makes it the source representation of
+        // an `own`/`borrow` handle.
+        Some(Type::Constructor(TypeConstructor::User(id))) if module.opaque_ids.contains(id) => {
+            Ok(Signature {
+                parameters,
+                result: ValueShape::Integer,
+            })
+        }
         Some(Type::OpenRecord { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -243,6 +252,10 @@ pub(crate) fn scalar_type(
         }
         Some(Type::Constructor(TypeConstructor::User(id))) if aggregate_types.contains(id) => {
             Ok(aggregate_value_type())
+        }
+        // An opaque resource handle is one `i32` table index (DEC-14).
+        Some(Type::Constructor(TypeConstructor::User(id))) if module.opaque_ids.contains(id) => {
+            Ok(ValueShape::Integer)
         }
         Some(Type::Application(_, _)) if array_types.contains_key(&id) => {
             Ok(ValueShape::Reference(Reference {

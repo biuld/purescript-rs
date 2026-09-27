@@ -154,6 +154,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         &mut lowerer,
         &import,
         &cc_signature(vec![ValueShape::Integer, ValueShape::String]),
+        None,
         ValueId(7),
         &[discriminant, text],
         span(),

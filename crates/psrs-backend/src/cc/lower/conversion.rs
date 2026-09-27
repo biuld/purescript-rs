@@ -120,7 +120,10 @@ impl FunctionLowerer<'_> {
                     });
                 }
                 (RefShape::Repr(_), RefShape::Aggregate) => {
-                    return Ok(ValueConversion::EraseReference);
+                    return Ok(ValueConversion::RecoverReference {
+                        destination: destination_shape,
+                        evidence: RecoveryEvidence::TypeInstantiation,
+                    });
                 }
                 _ => {}
             }
@@ -454,11 +457,11 @@ mod tests {
             lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span),
             Ok(ValueConversion::RecoverReference { .. })
         ));
-        assert_eq!(
+        assert!(matches!(
             lowerer
                 .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span)
-                .expect("a representation should erase to its aggregate"),
-            ValueConversion::EraseReference
-        );
+                .expect("a representation should recover its aggregate supertype"),
+            ValueConversion::RecoverReference { .. }
+        ));
     }
 }

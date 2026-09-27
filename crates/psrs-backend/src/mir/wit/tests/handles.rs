@@ -46,6 +46,7 @@ fn bound(import: WasiImport) -> BoundWasiImport {
             parameters: vec![ValueShape::Integer; import.params.len()],
             result: ValueShape::Integer,
         },
+        result_guest: None,
         import,
     }
 }
@@ -61,6 +62,7 @@ fn a_result_handle_is_not_released_by_the_compiler() {
         &mut lowerer,
         &import,
         &signature(Vec::new()),
+        None,
         destination,
         &[],
         span(),
@@ -96,6 +98,7 @@ fn an_owned_result_is_not_dropped_by_the_compiler() {
         &mut lowerer,
         &import,
         &signature(Vec::new()),
+        None,
         ValueId(4),
         &[],
         span(),

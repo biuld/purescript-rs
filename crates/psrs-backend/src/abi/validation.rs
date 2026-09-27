@@ -75,7 +75,10 @@ fn result_has_source_abi(ty: &CanonicalType) -> bool {
         CanonicalType::Variant(cases) => cases
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct)),
-        CanonicalType::Record(_) | CanonicalType::Flags(_) => false,
+        // A record result is returned through the canonical return area and
+        // rebuilt field by field, like a record nested in a variant payload.
+        CanonicalType::Record(fields) => fields.iter().all(|field| direct(&field.ty)),
+        CanonicalType::Flags(_) => false,
     }
 }
 

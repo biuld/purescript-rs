@@ -2,7 +2,7 @@ use super::canonical::CanonicalType;
 use super::test_support::import;
 use super::*;
 use crate::types::ValueType;
-use psrs_core::{Type as CoreType, TypeConstructor};
+use psrs_core::{ConstructorInfo, Type as CoreType, TypeConstructor};
 use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 
@@ -132,4 +132,82 @@ fn does_not_treat_an_opaque_type_as_an_integer_scalar() {
         "a resource is not a substitute for a WIT integer"
     );
     let _ = ValueType::I32;
+}
+
+#[test]
+fn maps_a_resource_drop_to_the_opaque_handle_parameter() {
+    let type_id = HirTypeId::new(ModuleId(0), 7);
+    let mut core = empty_core_module();
+    core.opaque_ids.push(type_id);
+    let opaque = intern_all(&mut core, vec![opaque_type(type_id)])
+        .pop()
+        .expect("one opaque type");
+    let unit = unit_type(&mut core);
+
+    let mut registry = WasiRegistry::load().expect("WASI WIT should load");
+    let drop = registry
+        .import("wasi:io/streams", "[resource-drop]input-stream")
+        .expect("the input-stream drop should resolve");
+    assert_eq!(drop.params.len(), 1);
+    let resource = drop.params[0]
+        .handle_resource()
+        .expect("the drop intrinsic takes a handle");
+    assert_eq!(resource.name, "input-stream");
+    validate_against(&drop, core.clone(), &[opaque], unit)
+        .expect("an opaque input-stream should match the drop handle");
+    let integer = intern_all(&mut core, vec![CoreType::I32])
+        .pop()
+        .expect("one integer");
+    validate_against(&drop, core.clone(), &[integer], unit)
+        .expect("a bare i32 handle index should match the drop handle");
+}
+
+#[test]
+fn erases_a_newtype_resource_wrapper_to_its_handle() {
+    // `newtype Resource a = Resource Int` applied to an opaque `InputStream`
+    // must match the `borrow<input-stream>` parameter by erasing to `Int`.
+    let resource_id = HirTypeId::new(ModuleId(0), 0);
+    let input_id = HirTypeId::new(ModuleId(0), 1);
+    let pollable_id = HirTypeId::new(ModuleId(0), 2);
+    let constructor_symbol = SymbolId::new(ModuleId(0), 0);
+    let mut core = empty_core_module();
+    core.newtype_ids.push(resource_id);
+    core.opaque_ids.push(input_id);
+    core.opaque_ids.push(pollable_id);
+    let input = intern_all(&mut core, vec![opaque_type(input_id)])
+        .pop()
+        .expect("one opaque input-stream");
+    let pollable = intern_all(&mut core, vec![opaque_type(pollable_id)])
+        .pop()
+        .expect("one opaque pollable");
+    let int = intern_all(&mut core, vec![CoreType::I32])
+        .pop()
+        .expect("one integer");
+    core.constructors.push(ConstructorInfo {
+        symbol: constructor_symbol,
+        name: "Resource".into(),
+        type_id: resource_id,
+        tag: 0,
+        field_count: 1,
+        field_types: vec![int],
+    });
+    let resource_constructor = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(TypeConstructor::User(resource_id))],
+    )
+    .pop()
+    .expect("one resource constructor");
+    let applied = intern_all(
+        &mut core,
+        vec![CoreType::Application(resource_constructor, input)],
+    )
+    .pop()
+    .expect("one applied resource");
+
+    let mut registry = WasiRegistry::load().expect("WASI WIT should load");
+    let subscribe = registry
+        .import("wasi:io/streams", "[method]input-stream.subscribe")
+        .expect("input-stream.subscribe should resolve");
+    validate_against(&subscribe, core.clone(), &[applied], pollable)
+        .expect("Resource InputStream should erase to the input-stream handle");
 }

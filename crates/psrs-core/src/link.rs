@@ -304,15 +304,52 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
         .retain(|declaration| reachable.contains(&declaration.symbol));
     // A reachable constructor keeps every case of its type so the variant
     // layout stays complete. Unused library types drop out with their cases.
-    let used_types = module
+    let mut used_types = module
         .constructors
         .iter()
         .filter(|constructor| reachable.contains(&constructor.symbol))
         .map(|constructor| constructor.type_id)
         .collect::<HashSet<_>>();
+    // A foreign import's declared signature can name a library type the program
+    // never constructs or matches, such as a newtype resource wrapper. Its
+    // constructors are still needed to resolve and lay out the binding, so keep
+    // every type the external signatures mention.
+    for external in &module.externals {
+        if let Some(signature) = &external.signature {
+            collect_type_ids(signature, &mut used_types);
+        }
+    }
     module
         .constructors
         .retain(|constructor| used_types.contains(&constructor.type_id));
+}
+
+fn collect_type_ids(ty: &psrs_hir::Type, out: &mut HashSet<psrs_hir::TypeId>) {
+    match &ty.kind {
+        psrs_hir::TypeKind::Named(id) | psrs_hir::TypeKind::Opaque(id) => {
+            out.insert(*id);
+        }
+        psrs_hir::TypeKind::Application(function, argument) => {
+            collect_type_ids(function, out);
+            collect_type_ids(argument, out);
+        }
+        psrs_hir::TypeKind::Function { parameter, result } => {
+            collect_type_ids(parameter, out);
+            collect_type_ids(result, out);
+        }
+        psrs_hir::TypeKind::Forall { body, .. } | psrs_hir::TypeKind::Constrained { body, .. } => {
+            collect_type_ids(body, out)
+        }
+        psrs_hir::TypeKind::Row { fields, tail } | psrs_hir::TypeKind::Record { fields, tail } => {
+            for field in fields {
+                collect_type_ids(&field.ty, out);
+            }
+            if let Some(tail) = tail {
+                collect_type_ids(tail, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {

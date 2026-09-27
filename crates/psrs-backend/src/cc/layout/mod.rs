@@ -182,11 +182,13 @@ pub(super) fn type_layout(
     for type_id in aggregate_ids {
         let id = representations.reserve();
         let mut cases = Vec::new();
-        for constructor in module
+        let mut constructors = module
             .constructors
             .iter()
             .filter(|constructor| constructor.type_id == type_id)
-        {
+            .collect::<Vec<_>>();
+        constructors.sort_by_key(|constructor| constructor.tag);
+        for constructor in constructors {
             if constructor.field_types.len() != constructor.field_count {
                 return Err(vec![BackendError::new(
                     "P8 closure conversion",

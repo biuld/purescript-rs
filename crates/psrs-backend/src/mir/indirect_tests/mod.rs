@@ -67,6 +67,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let module = cc::Module {
         name: "IndirectAbi".into(),
         externals: vec![External {
+            result_guest: None,
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: external_parameters,
