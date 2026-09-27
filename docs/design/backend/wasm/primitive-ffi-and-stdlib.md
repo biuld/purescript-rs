@@ -127,25 +127,28 @@ A PureScript foreign import has one result. The lowerer may rebuild one
 primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). The
 existing unit-success `result` that traps on failure stays a `Unit` return.
 A WIT `option`, `result`, or `variant` whose canonical form is several values
-in a return area is not wrapped, and is not given a compiler source type, until
-that whole result can be expressed as one primitive.
+in a return area follows the aggregate mapping below; a wrapper may also pass
+one as a sequence of primitive arguments whose flattening matches.
 
 ### What the source type is not
 
-The resolved source type has no `Option`, `Result`, or `Tuple` form. The lowerer
-does not recognize `Maybe`, `Either`, or tuples by constructor name
-(`Nothing`/`Just`, `Left`/`Right`) or by `_1`/`_2` record labels. Its array form
+The resolved source type has no compiler `Option`, `Result`, or `Tuple` form:
+the aggregate mappings below are ordinary library types, not a compiler
+vocabulary. The lowerer recognizes `Data.Maybe.Maybe` and `Data.Either.Either`
+by their qualified type names, never by constructor name (`Nothing`/`Just`,
+`Left`/`Right`) or by `_1`/`_2` record labels. Its array form
 is not an aggregate encoding either: it exists only for a non-byte WIT
 `list<T>` whose element already maps.
 
 The normative set for a new standard-library foreign import is the primitives
-above, plus `Array` of a supported element for a non-byte `list<T>`. A `Maybe`,
-`Either`, tuple, `option`, or other new aggregate still has no source mapping
-and is rejected.
+above, `Array` of a supported element for a non-byte `list<T>`, and the mapped
+aggregate forms below. `Maybe`, `Either`, and a non-unit variant are classified
+and validated against their WIT descriptor; their canonical read-back in MIR is
+still to come.
 
 The existing enum, closed-record, and flags-record lowering still accepts
 those declarations and is not deleted. They keep a resolved type and still
-lower. They are not the set new standard-library imports use.
+lower.
 
 ### Aggregate forms map to library types
 
@@ -202,9 +205,9 @@ module export list names the wrappers only.
 Today's lowerer also accepts nullary enums, closed records, and flags records,
 and it projects record fields in WIT order. This decision does not delete or
 rewrite that path. It is current lowering, not the way the standard library
-grows. New foreign imports in the standard library use the primitive set.
-The resolved type is not extended for `option`, `result`, non-unit `variant`, tuple,
-or any other aggregate WIT form. A public enum, flags record, or record is
+grows. New foreign imports in the standard library use the primitive set or the
+mapped aggregate forms ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)).
+A public enum, flags record, or record is
 still ordinary PureScript: the wrapper passes the tag `Int`, the packed flag
 words, or the fields as primitive arguments in canonical order.
 

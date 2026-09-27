@@ -223,6 +223,9 @@ fn lower_parameter<L: WitCallLowerer>(
                 )?;
             }
         }
+        abi::WasiParamKind::Option { .. }
+        | abi::WasiParamKind::Result { .. }
+        | abi::WasiParamKind::Variant { .. } => return Err(unsupported_parameter(span)),
         abi::WasiParamKind::Unsupported => return Err(unsupported_parameter(span)),
     }
     Ok(())

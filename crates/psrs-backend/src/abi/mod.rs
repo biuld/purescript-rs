@@ -142,6 +142,19 @@ pub enum WasiParamKind {
     /// A non-byte `list<T>` flattened to a `(pointer, length)` pair. `element`
     /// is one already-lowered scalar or string; the list is copied element-wise.
     ValueList { element: Box<WasiParamKind> },
+    /// A WIT `option<T>` mapped to `Data.Maybe.Maybe T`. The canonical form is
+    /// an `i32` discriminant followed by the joined payload slots.
+    Option { payload: Box<WasiParamKind> },
+    /// A WIT `result<O, E>` mapped to `Data.Either.Either O E`. The canonical
+    /// form is an `i32` discriminant followed by the joined payload slots.
+    Result {
+        ok: Box<WasiParamKind>,
+        err: Box<WasiParamKind>,
+    },
+    /// A WIT `variant { ... }` mapped to a source data type whose constructors
+    /// follow the WIT case order. The canonical form is an `i32` discriminant
+    /// followed by the joined case payload slots.
+    Variant { cases: Vec<WasiVariantCase> },
     /// A WIT shape with no source representation in the current ABI subset.
     Unsupported,
 }
@@ -150,6 +163,13 @@ pub enum WasiParamKind {
 pub struct WasiField {
     pub name: String,
     pub kind: WasiParamKind,
+}
+
+/// One case of a WIT `variant`. `kind` is `None` for a nullary case.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WasiVariantCase {
+    pub name: String,
+    pub kind: Option<Box<WasiParamKind>>,
 }
 
 /// How a WIT import's result is represented, which decides how the lowering
@@ -175,6 +195,16 @@ pub enum WasiResultKind {
     List,
     /// A non-byte `list<T>` returned indirectly. The guest rebuilds one array.
     ValueList { element: Box<WasiParamKind> },
+    /// A WIT `option<T>` returned indirectly and rebuilt as `Data.Maybe.Maybe T`.
+    Option { payload: Box<WasiParamKind> },
+    /// A WIT `result<O, E>` with both payloads returned indirectly and rebuilt
+    /// as `Data.Either.Either O E`.
+    ValueResult {
+        ok: Box<WasiParamKind>,
+        err: Box<WasiParamKind>,
+    },
+    /// A WIT `variant` returned indirectly and rebuilt as a source data type.
+    Variant { cases: Vec<WasiVariantCase> },
     /// A result returned indirectly but not modeled (for example a `result` or
     /// a record); the lowering rejects it. A WIT `result` with a source `Unit`
     /// declaration is represented separately because write-like operations

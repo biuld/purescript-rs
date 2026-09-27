@@ -69,7 +69,14 @@ pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
         WasiParamKind::Record { fields } => {
             record_layout(fields.iter().map(|field| parameter_layout(&field.kind)))
         }
-        WasiParamKind::ValueList { .. } | WasiParamKind::Unsupported => None,
+        // Aggregates with a discriminant are lowered directly by branching on
+        // the tag; an indirect parameter record that contains one is not
+        // modeled yet.
+        WasiParamKind::ValueList { .. }
+        | WasiParamKind::Option { .. }
+        | WasiParamKind::Result { .. }
+        | WasiParamKind::Variant { .. }
+        | WasiParamKind::Unsupported => None,
     }
 }
 

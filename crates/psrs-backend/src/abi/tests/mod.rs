@@ -2,6 +2,7 @@ use super::*;
 use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
 use wit_parser::Type as WitType;
 
+mod aggregates;
 mod capability_gates;
 mod enums;
 mod indirect;
@@ -132,11 +133,12 @@ fn resolves_stdout_and_exit_imports() {
     let read = registry
         .import("wasi:io/streams", "[method]input-stream.read")
         .expect("input-stream.read should resolve");
-    assert!(
-        read.unsupported
-            .as_deref()
-            .is_some_and(|message| { message.contains("payload on success") })
-    );
+    // DEC-13 maps `result<list<u8>, stream-error>` to `Either String StreamError`.
+    assert!(matches!(
+        read.result_kind,
+        WasiResultKind::ValueResult { .. }
+    ));
+    assert!(read.unsupported.is_none());
     let exit = registry
         .import(names::EXIT, names::EXIT_WITH_CODE)
         .expect("exit-with-code should resolve");

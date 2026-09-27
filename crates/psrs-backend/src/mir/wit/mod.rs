@@ -354,6 +354,15 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?;
         }
+        abi::WasiResultKind::Option { .. }
+        | abi::WasiResultKind::ValueResult { .. }
+        | abi::WasiResultKind::Variant { .. } => {
+            return Err(vec![BackendError::invalid_ir(
+                "P9 MIR lowering",
+                span,
+                "aggregate WIT results are not lowered yet",
+            )]);
+        }
         abi::WasiResultKind::Discarded => {
             // The ABI classification reports an unsupported shape before MIR
             // lowering, so a `Discarded` result here is invalid compiler IR.
