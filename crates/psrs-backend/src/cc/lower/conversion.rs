@@ -105,6 +105,26 @@ impl FunctionLowerer<'_> {
                 }
             };
         }
+        // An abstract aggregate value and the concrete variant representation of
+        // the same declaration are related by a reference cast (DEC-13).
+        if let (
+            ValueShape::Reference(source_reference),
+            ValueShape::Reference(destination_reference),
+        ) = (source_shape, destination_shape)
+        {
+            match (source_reference.heap, destination_reference.heap) {
+                (RefShape::Aggregate, RefShape::Repr(_)) => {
+                    return Ok(ValueConversion::RecoverReference {
+                        destination: destination_shape,
+                        evidence: RecoveryEvidence::TypeInstantiation,
+                    });
+                }
+                (RefShape::Repr(_), RefShape::Aggregate) => {
+                    return Ok(ValueConversion::EraseReference);
+                }
+                _ => {}
+            }
+        }
         if let (Some(source_element), Some(destination_element)) = (
             array_element_type(self.module, source_type),
             array_element_type(self.module, destination_type),
@@ -418,6 +438,27 @@ mod tests {
                 .any(|error| error.pass == "P8 closure conversion"
                     && error.span == span
                     && error.message.contains("unsupported aggregate conversion"))
+        );
+
+        // An abstract aggregate value and the concrete representation of the
+        // same declaration are related by a reference cast (DEC-13).
+        let aggregate = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Aggregate,
+        });
+        let representation = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Repr(ReprId(3)),
+        });
+        assert!(matches!(
+            lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span),
+            Ok(ValueConversion::RecoverReference { .. })
+        ));
+        assert_eq!(
+            lowerer
+                .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span)
+                .expect("a representation should erase to its aggregate"),
+            ValueConversion::EraseReference
         );
     }
 }

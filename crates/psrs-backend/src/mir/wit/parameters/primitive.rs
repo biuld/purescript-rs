@@ -18,13 +18,14 @@ pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
-    current: BlockId,
+    entry: BlockId,
     span: TextRange,
-) -> Result<(), Vec<BackendError>> {
+) -> Result<BlockId, Vec<BackendError>> {
     let mut index = 0;
+    let mut current = entry;
     for (argument, shape) in arguments.iter().zip(&signature.parameters) {
         let kind = slot_kind(import, shape, &mut index, span)?;
-        lower_parameter(lowerer, *argument, shape, &kind, flat, frees, current, span)?;
+        current = lower_parameter(lowerer, *argument, shape, &kind, flat, frees, current, span)?;
     }
     let direct = import
         .parameters
@@ -33,7 +34,7 @@ pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     if index != import.flat_slots.len() || index != direct {
         return Err(unsupported_parameter(span));
     }
-    Ok(())
+    Ok(current)
 }
 
 fn slot_kind(

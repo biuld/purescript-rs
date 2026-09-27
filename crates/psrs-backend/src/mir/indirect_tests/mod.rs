@@ -99,6 +99,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     (module, bindings, resolve)
 }
 
+mod aggregate;
 mod composite;
 mod record_list;
 

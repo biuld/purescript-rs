@@ -5,7 +5,7 @@ use crate::mir::{BlockId, Instruction};
 use crate::types::{HeapType, RefType, ValueType};
 
 impl FunctionLowerer<'_> {
-    pub(super) fn lower_variant(
+    pub(in crate::mir) fn lower_variant(
         &mut self,
         assignment: &Assignment,
         current: BlockId,

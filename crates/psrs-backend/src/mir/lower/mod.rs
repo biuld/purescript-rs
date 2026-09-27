@@ -165,7 +165,7 @@ impl FunctionLowerer<'_> {
         self.values.push(ValueDecl { id, ty });
         id
     }
-    fn new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
+    pub(in crate::mir) fn new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
         let id = BlockId(self.next_block);
         self.next_block += 1;
         self.blocks.push(BasicBlock {
@@ -175,6 +175,30 @@ impl FunctionLowerer<'_> {
             terminator: None,
         });
         id
+    }
+
+    /// The boxed-integer representation, when the module needs it.
+    pub(in crate::mir) fn wit_boxed_integer(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.boxed_integer_index()
+    }
+
+    /// The concrete GC string type, when the module needs it.
+    pub(in crate::mir) fn wit_string_index(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.string_index()
+    }
+
+    /// The concrete MIR type of a source variant case field.
+    pub(in crate::mir) fn wit_case_field_type(
+        &self,
+        representation: crate::cc::ReprId,
+        case: u32,
+        field: u32,
+    ) -> Option<crate::types::ValueType> {
+        let shape = self
+            .layout
+            .variant_field(representation, case, field)
+            .ok()?;
+        self.layout.value_type(&shape).ok()
     }
     pub(super) fn note_owned_handle(
         &mut self,
@@ -269,7 +293,7 @@ impl FunctionLowerer<'_> {
         Ok(destination)
     }
 
-    fn set_terminator(
+    pub(in crate::mir) fn set_terminator(
         &mut self,
         block: BlockId,
         terminator: Terminator,
