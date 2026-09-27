@@ -1,10 +1,10 @@
-//! Canonical ABI memory layout for a WIT value.
+//! Canonical ABI memory layout for a canonical type.
 //!
 //! Computes the canonical `(size, align)` and the scalar slots of a value in
 //! WIT declaration order. Shared by indirect parameter records and by non-byte
 //! list elements that are themselves aggregates.
 
-use super::{WasiParamKind, WasiResultKind};
+use super::canonical::{CanonicalType, despecialize, size_align};
 
 /// One scalar slot of a canonical value at a byte offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,69 +32,72 @@ pub(crate) struct MemoryLayout {
     pub slots: Vec<MemorySlot>,
 }
 
-/// The canonical layout of a directly flattenable parameter kind. `None` when
-/// the kind is not directly flattenable (a nested list or an unsupported shape).
-pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
-    match kind {
-        WasiParamKind::Boolean => scalar_layout(1, SlotKind::Byte),
-        WasiParamKind::Integer32 | WasiParamKind::Char | WasiParamKind::Handle(_) => {
-            scalar_layout(4, SlotKind::Word)
-        }
-        WasiParamKind::IntegerNarrow { bits, .. } => {
-            let width = u32::from(*bits) / 8;
-            scalar_layout(width, slot_for_width(width))
-        }
-        WasiParamKind::Scalar64 { .. } => scalar_layout(8, SlotKind::I64),
-        WasiParamKind::Float32 => scalar_layout(4, SlotKind::F32),
-        WasiParamKind::Float64 => scalar_layout(8, SlotKind::F64),
-        WasiParamKind::Enum { cases } => {
+/// The canonical layout of a directly flattenable type. `None` when the type is
+/// not directly flattenable (a nested list or an unsupported shape).
+pub(crate) fn parameter_layout(ty: &CanonicalType) -> Option<MemoryLayout> {
+    match ty {
+        CanonicalType::Bool => scalar_layout(1, SlotKind::Byte),
+        CanonicalType::Int { width: 8, .. } => scalar_layout(1, SlotKind::Byte),
+        CanonicalType::Int { width: 16, .. } => scalar_layout(2, SlotKind::Half),
+        CanonicalType::Int { width: 64, .. } => scalar_layout(8, SlotKind::I64),
+        CanonicalType::Int { .. } => scalar_layout(4, SlotKind::Word),
+        CanonicalType::Float { width: 32 } => scalar_layout(4, SlotKind::F32),
+        CanonicalType::Float { .. } => scalar_layout(8, SlotKind::F64),
+        CanonicalType::Char => scalar_layout(4, SlotKind::Word),
+        CanonicalType::Handle { .. } => scalar_layout(4, SlotKind::Word),
+        CanonicalType::String | CanonicalType::List(_) => list_layout(),
+        CanonicalType::FixedList { element, .. } if element.is_byte() => list_layout(),
+        CanonicalType::FixedList { .. } => None,
+        CanonicalType::Enum(cases) => {
             let width = discriminant_width(cases.len());
             scalar_layout(width, slot_for_width(width))
         }
-        WasiParamKind::Flags { names } => flags_layout(names.len()),
-        // A byte or non-byte list is a `(pointer, length)` pair.
-        WasiParamKind::List | WasiParamKind::ValueList { .. } => Some(MemoryLayout {
-            size: 8,
-            align: 4,
-            slots: vec![
-                MemorySlot {
-                    offset: 0,
-                    kind: SlotKind::Word,
-                },
-                MemorySlot {
-                    offset: 4,
-                    kind: SlotKind::Word,
-                },
-            ],
-        }),
-        WasiParamKind::Record { fields } => {
-            record_layout(fields.iter().map(|field| parameter_layout(&field.kind)))
+        CanonicalType::Flags(names) => flags_layout(names.len()),
+        CanonicalType::Record(fields) => {
+            record_layout(fields.iter().map(|field| parameter_layout(&field.ty)))
         }
         // A mapped aggregate is a discriminant followed by the joined payload.
-        WasiParamKind::Option { payload } => aggregate_layout(&[None, Some(payload)]),
-        WasiParamKind::Result { ok, err } => aggregate_layout(&[Some(ok), Some(err)]),
-        WasiParamKind::Variant { cases } => {
+        CanonicalType::Option(payload) => aggregate_layout(&[None, Some(payload)]),
+        CanonicalType::Result { ok, err } => aggregate_layout(&[ok.as_deref(), err.as_deref()]),
+        CanonicalType::Variant(cases) => {
             let cases = cases
                 .iter()
-                .map(|case| case.kind.as_deref())
+                .map(|case| case.payload.as_deref())
                 .collect::<Vec<_>>();
             aggregate_layout(&cases)
         }
-        WasiParamKind::Unsupported => None,
     }
+}
+
+/// A `(pointer, length)` pair.
+fn list_layout() -> Option<MemoryLayout> {
+    Some(MemoryLayout {
+        size: 8,
+        align: 4,
+        slots: vec![
+            MemorySlot {
+                offset: 0,
+                kind: SlotKind::Word,
+            },
+            MemorySlot {
+                offset: 4,
+                kind: SlotKind::Word,
+            },
+        ],
+    })
 }
 
 /// The canonical layout of a variant: its discriminant followed by the joined
 /// case payload. Cases must agree on each payload slot's offset, and their
 /// kinds must be joinable.
-fn aggregate_layout(cases: &[Option<&WasiParamKind>]) -> Option<MemoryLayout> {
+fn aggregate_layout(cases: &[Option<&CanonicalType>]) -> Option<MemoryLayout> {
     let discriminant = discriminant_width(cases.len());
     let mut payload_size = 0_u32;
     let mut payload_align = 1_u32;
     let mut positions: Vec<(u32, SlotKind)> = Vec::new();
     for case in cases {
         let layout = match case {
-            Some(kind) => parameter_layout(kind)?,
+            Some(ty) => parameter_layout(ty)?,
             None => MemoryLayout {
                 size: 0,
                 align: 1,
@@ -153,48 +156,32 @@ fn join_slot_kind(left: SlotKind, right: SlotKind) -> Option<SlotKind> {
 /// The canonical return-area `(size, align)` of a result passed through a
 /// return pointer. `None` when the result has no known indirect layout (a
 /// unit-success `result`, whose error payload the trap path does not read).
-pub(crate) fn result_area(kind: &WasiResultKind) -> Option<(u32, u32)> {
-    let cases: Vec<Option<&WasiParamKind>> = match kind {
-        WasiResultKind::Option { payload } => vec![None, Some(payload)],
-        WasiResultKind::ValueResult { ok, err } => vec![Some(ok), Some(err)],
-        WasiResultKind::Variant { cases } => {
-            cases.iter().map(|case| case.kind.as_deref()).collect()
-        }
-        WasiResultKind::List | WasiResultKind::ValueList { .. } => return Some((8, 4)),
-        _ => return None,
-    };
-    // Only the size and alignment are needed to reserve the return area; the
-    // joined payload slots are computed where the value is read.
-    let discriminant = discriminant_width(cases.len());
-    let mut payload_size = 0_u32;
-    let mut payload_align = 1_u32;
-    for case in cases {
-        let layout = match case {
-            Some(kind) => parameter_layout(kind)?,
-            None => MemoryLayout {
-                size: 0,
-                align: 1,
-                slots: Vec::new(),
-            },
-        };
-        payload_size = payload_size.max(layout.size);
-        payload_align = payload_align.max(layout.align);
+pub(crate) fn result_area(ty: &CanonicalType) -> Option<(u32, u32)> {
+    match ty {
+        CanonicalType::Result { ok: None, .. } => None,
+        CanonicalType::Option(_) | CanonicalType::Variant(_) => variant_area(ty),
+        CanonicalType::Result {
+            ok: Some(_),
+            err: Some(_),
+        } => variant_area(ty),
+        CanonicalType::String | CanonicalType::List(_) => Some((8, 4)),
+        CanonicalType::FixedList { element, .. } if element.is_byte() => Some((8, 4)),
+        _ => None,
     }
-    let payload_offset = align_to(discriminant, payload_align)?;
-    let align = discriminant.max(payload_align);
-    Some((
-        align_to(payload_offset.checked_add(payload_size)?, align)?,
-        align,
-    ))
+}
+
+fn variant_area(ty: &CanonicalType) -> Option<(u32, u32)> {
+    let size = size_align(&despecialize(ty));
+    Some((size.size, size.align))
 }
 
 /// The canonical byte offset of a variant payload, aligned to the maximum case
-/// alignment. `cases` are the payload kinds in tag order. The discriminant
-/// width follows the case count, matching the canonical ABI `variant`.
-pub(crate) fn variant_payload_offset(cases: &[Option<&WasiParamKind>]) -> Option<u32> {
+/// alignment. `cases` are the payloads in tag order. The discriminant width
+/// follows the case count, matching the canonical ABI `variant`.
+pub(crate) fn variant_payload_offset(cases: &[Option<&CanonicalType>]) -> Option<u32> {
     let mut max_align = 1_u32;
-    for kind in cases.iter().flatten() {
-        max_align = max_align.max(case_alignment(kind)?);
+    for ty in cases.iter().flatten() {
+        max_align = max_align.max(case_alignment(ty)?);
     }
     align_to(discriminant_width(cases.len()), max_align)
 }
@@ -202,18 +189,27 @@ pub(crate) fn variant_payload_offset(cases: &[Option<&WasiParamKind>]) -> Option
 /// The canonical alignment of one variant case payload. A non-byte list is a
 /// `(pointer, length)` pair, so it aligns like a byte list; a nested variant
 /// aligns to its discriminant and its widest case.
-fn case_alignment(kind: &WasiParamKind) -> Option<u32> {
-    match kind {
-        WasiParamKind::List | WasiParamKind::ValueList { .. } => Some(4),
-        WasiParamKind::Option { payload } => Some(case_alignment(payload)?.max(1)),
-        WasiParamKind::Result { ok, err } => {
-            Some(case_alignment(ok)?.max(case_alignment(err)?).max(1))
+fn case_alignment(ty: &CanonicalType) -> Option<u32> {
+    match ty {
+        CanonicalType::String | CanonicalType::List(_) => Some(4),
+        CanonicalType::FixedList { element, .. } if element.is_byte() => Some(4),
+        CanonicalType::Option(payload) => Some(case_alignment(payload)?.max(1)),
+        CanonicalType::Result { ok, err } => {
+            let ok = match ok {
+                Some(ok) => case_alignment(ok)?,
+                None => 1,
+            };
+            let err = match err {
+                Some(err) => case_alignment(err)?,
+                None => 1,
+            };
+            Some(ok.max(err).max(1))
         }
-        WasiParamKind::Variant { cases } => {
+        CanonicalType::Variant(cases) => {
             let mut align = discriminant_width(cases.len());
             for case in cases {
-                if let Some(kind) = &case.kind {
-                    align = align.max(case_alignment(kind)?);
+                if let Some(payload) = &case.payload {
+                    align = align.max(case_alignment(payload)?);
                 }
             }
             Some(align)

@@ -7,6 +7,7 @@
 //! rejects it rather than approximating it.
 
 use super::{CanonicalCase, CanonicalField, CanonicalType, Ownership, ResourceId};
+use crate::abi::handles::UNBOUND_DROP;
 use wit_parser::{Case, Field, Handle, Resolve, Type as WitType, TypeDefKind, TypeId};
 
 /// Resolves a WIT type, or `None` when it has no source-level canonical form.
@@ -109,7 +110,7 @@ fn resolve_optional(wit: &Resolve, ty: Option<&WitType>) -> Option<Option<Box<Ca
 fn resolve_handle(wit: &Resolve, handle: &Handle) -> Option<CanonicalType> {
     let handle = super::super::handles::classify(wit, handle)?;
     let ownership = match handle.mode {
-        super::super::HandleMode::Own => Ownership::Own,
+        super::super::HandleMode::Own => Ownership::Own { drop: UNBOUND_DROP },
         super::super::HandleMode::Borrow => Ownership::Borrow,
     };
     Some(CanonicalType::Handle {

@@ -2,9 +2,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, AggregateConvert, Assignment, AssignmentKind, External, ExternalPayloads, PayloadField,
-    PayloadNode, RefShape, Reference, ReprId, Representation, Signature, ValueConversion,
-    ValueDecl, ValueShape, VariantCase,
+    self, AggregateConvert, Assignment, AssignmentKind, External, RefShape, Reference, ReprId,
+    Representation, Signature, ValueConversion, ValueDecl, ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -30,11 +29,11 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![erased()],
+                        fields: vec![ValueShape::String],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![reference(2)],
                     },
                 ],
             },
@@ -91,20 +90,6 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![
-                Some(PayloadNode::Value(ValueShape::String)),
-                Some(PayloadNode::Variant {
-                    representation: ReprId(2),
-                    cases: vec![None, Some(PayloadNode::Value(ValueShape::Integer))],
-                }),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "NestedAggregateAbi".into(),
         externals: vec![External {
@@ -113,7 +98,6 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
                 parameters: Vec::new(),
                 result: reference(1),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {
@@ -164,7 +148,7 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![reference(2)],
                     },
                 ],
             },
@@ -210,29 +194,6 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![
-                None,
-                Some(PayloadNode::Record {
-                    representation: ReprId(2),
-                    fields: vec![
-                        PayloadField {
-                            name: "x".into(),
-                            node: PayloadNode::Value(ValueShape::Integer),
-                        },
-                        PayloadField {
-                            name: "y".into(),
-                            node: PayloadNode::Value(ValueShape::Boolean),
-                        },
-                    ],
-                }),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "NestedRecordAbi".into(),
         externals: vec![External {
@@ -241,7 +202,6 @@ pub(super) fn nested_record_fixture() -> (cc::Module, ExternalBindings, Resolve)
                 parameters: Vec::new(),
                 result: reference(1),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {
@@ -293,7 +253,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![reference(2)],
                     },
                 ],
             },
@@ -378,7 +338,7 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
                 destination: ValueId(4),
                 representation: ReprId(1),
                 case: 1,
-                fields: vec![ValueId(3)],
+                fields: vec![ValueId(2)],
             },
             span: span(),
         },
@@ -391,29 +351,6 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: vec![PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![
-                None,
-                Some(PayloadNode::Record {
-                    representation: ReprId(2),
-                    fields: vec![
-                        PayloadField {
-                            name: "x".into(),
-                            node: PayloadNode::Value(ValueShape::Integer),
-                        },
-                        PayloadField {
-                            name: "y".into(),
-                            node: PayloadNode::Value(ValueShape::Boolean),
-                        },
-                    ],
-                }),
-            ],
-        }],
-        result: PayloadNode::None,
-    };
-
     let module = cc::Module {
         name: "NestedRecordParameterAbi".into(),
         externals: vec![External {
@@ -422,7 +359,6 @@ pub(super) fn nested_record_parameter_fixture() -> (cc::Module, ExternalBindings
                 parameters: vec![reference(1)],
                 result: ValueShape::Integer,
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {

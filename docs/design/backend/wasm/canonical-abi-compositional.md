@@ -83,9 +83,11 @@ Because composition is handled by enumerating cross-product cases,
 classification and flattening
 (`crates/psrs-backend/src/abi/classification.rs:9`).
 [DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md) removed `SourceType`
-but kept the descriptors; a shape such as `list<option<T>>` still forces
+but kept the descriptors; a shape such as `list<option<T>>` still forced
 coordinated edits in classification, `FlatSlot`, `ListElement`, `PayloadNode`,
-`layout.rs`, and the MIR modules.
+`layout.rs`, and the MIR modules. Migration steps 1–2 removed the descriptors:
+classification, flattening, layout, conformance, and the MIR lowering now read
+`CanonicalType` directly, and only the CC `PayloadNode` guest shape remains.
 
 ```mermaid
 flowchart LR
@@ -122,7 +124,7 @@ CanonicalType =
 CanonicalField = { name: String, ty: CanonicalType }
 CanonicalCase  = { name: String, payload: Option<Box<CanonicalType>> }
 ResourceId = { interface: String, name: String }
-Ownership  = Own | Borrow
+Ownership  = Own { drop: SymbolId } | Borrow
 CoreVal    = I32 | I64 | F32 | F64
 SizeAlign  = { size: u32, align: u32 }         # align is a power of two <= 8
 ```
@@ -139,8 +141,8 @@ metadata on the type, never as a separate code path: an `Own` handle is an `i32`
 table index plus a drop obligation discharged by the standard library, and a
 `Borrow` handle is a call-scoped `i32` that must not appear in a result
 ([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). The drop
-symbol and interface are bound to the import by the ABI side table, not carried
-in the canonical type.
+symbol is interned and bound into the handle when the import is resolved; a
+borrow has no drop and never appears in a result.
 
 A canonical function is the parameter list, the optional result, and the derived
 ABI decisions. The thresholds are the canonical constants and the repo scratch
@@ -504,37 +506,34 @@ layout, or describe a WIT shape.
 crates/psrs-backend/src/
   abi/
     canonical/
-      mod.rs        CanonicalType, CanonicalFn, FnAbi, Constants, despecialize
+      mod.rs        CanonicalType, Ownership, despecialize, source-ABI predicates
       resolve.rs    Resolve/Type -> CanonicalType (the only wit_parser walk)
       flatten.rs    flatten, join
-      memory.rs     size_align, store, load, store_width, load_width, disc_width
+      leaves.rs     flat source leaves and handle-at-flat-index
+      memory.rs     size_align
       plan.rs       FnAbi derivation and the indirect/return-area decisions
-      free.rs       FreePlan and its derivation
-    handles.rs      Handle ownership metadata and drop symbols
-    layout.rs       thin adapters only; no independent layout recursion
+    handles.rs      Handle ownership metadata and bound drop symbols
+    layout.rs       canonical memory slots for indirect records and list elements
     link/           ExternalBindings, BoundExternal, bind, validate
   cc/
     representation.rs  RefShape, ValueShape, Signature, RepresentationTable,
-                       guest_layout (the one recursive layout accessor)
-    source_abi.rs      BoundType (CanonicalType + ValueShape) from Signature
+                       Representation, GuestLayout, guest_layout
+    source_abi.rs      Signature from the resolved Core type
   mir/
     wit/
-      lower.rs      lower_call: lower, call, lift, emit the free plan
-      lower/
-        params.rs   indirect parameter record
-        result.rs   return-area recovery
-      guest/
-        mod.rs      GuestProjection trait
-        project.rs  guest value -> canonical flat (lower)
-        construct.rs canonical flat/memory -> guest value (lift)
-      lowerer.rs    WitCallLowerer: the target-operation interface
+      mod.rs        BoundType/BoundFn and canonical call lowering
+      free.rs       FreePlan and its derivation
+      parameters/   direct and indirect parameter flattening
+      aggregate/    option/result/variant tag branching
+      lists/        non-byte list copy
+      call_lowerer.rs / function_lowerer.rs  the target-operation interface
 ```
 
 Key entry points the implementation must provide:
 
 ```rust
 pub enum CanonicalType { /* Model */ }
-pub enum Ownership { Own, Borrow }
+pub enum Ownership { Own { drop: SymbolId }, Borrow }
 pub struct SizeAlign { pub size: u32, pub align: u32 }
 pub struct FnAbi {
     pub flat_params: Vec<CoreVal>,
@@ -756,11 +755,23 @@ below 500 lines.
    evidence. ABI-08 stays `In progress` while the source-reachable subset is
    incomplete, even when new backend fixtures pass.
 
-Step 1 is implemented in `crates/psrs-backend/src/abi/canonical/`:
-`resolve`, `flatten`, `size_align`, `despecialize`, and `function_abi`, with a
-conformance test asserting the derived core signature equals
-`Resolve::wasm_signature` for every vendored WASI function. It is additive; the
-descriptor path still drives lowering.
+Migration steps 1–7 are implemented. `crates/psrs-backend/src/abi/canonical/`
+holds `resolve`, `flatten`, `size_align`, `despecialize`, `function_abi`, and
+the flat source leaves, with a conformance test asserting the derived core
+signature equals `Resolve::wasm_signature` for every vendored WASI function. The
+legacy `WasiParamKind`, `WasiResultKind`, and `FlatSlot` descriptors,
+`abi/classification.rs`, `abi/flatten.rs`, `abi/lists.rs`, and the transitional
+`view` adapter are deleted; `WasiImport` carries `params`/`canonical_result`/
+`FnAbi`, conformance compares the resolved Core type against `CanonicalType`,
+`layout.rs` computes its slots from `CanonicalType`, and `Ownership::Own` carries
+the bound drop symbol. The guest half is CC's `RepresentationTable` through
+`guest_layout`, paired with the canonical type as `BoundType` in `mir/wit`, and
+`PayloadNode`/`PayloadField`/`ExternalPayloads` are deleted. One `ListCopy`
+instruction and the recursive `FreePlan` replace the per-shape list and free
+plans. Two intentional behavior changes are recorded: a `flags` list element now
+uses its canonical 1/2/4-byte packed width (the old path hard-coded four bytes),
+and `free_plan` derives from the canonical type alone rather than the guest
+shape. Evidence rows still need updating.
 
 Issue #58's remaining shapes (non-byte lists of aggregate elements, nested
 lists) become ordinary recursive cases rather than new cross-product entries,

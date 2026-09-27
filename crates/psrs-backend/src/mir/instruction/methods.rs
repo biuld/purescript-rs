@@ -44,16 +44,6 @@ impl Instruction {
                 array,
                 ..
             } => Some(*array),
-            Self::ListCopyRecord {
-                direction: ListDirection::Load,
-                array,
-                ..
-            } => Some(*array),
-            Self::ListCopyFlags {
-                direction: ListDirection::Load,
-                array,
-                ..
-            } => Some(*array),
             Self::StructSet { .. }
             | Self::ArraySet { .. }
             | Self::Store { .. }
@@ -65,15 +55,7 @@ impl Instruction {
             | Self::CallVoid { .. }
             | Self::TrapIf { .. }
             | Self::ListCopy {
-                direction: ListDirection::Store | ListDirection::FreeStrings,
-                ..
-            }
-            | Self::ListCopyRecord {
-                direction: ListDirection::Store | ListDirection::FreeStrings,
-                ..
-            }
-            | Self::ListCopyFlags {
-                direction: ListDirection::Store | ListDirection::FreeStrings,
+                direction: ListDirection::Store | ListDirection::Free,
                 ..
             } => None,
         }
@@ -138,38 +120,12 @@ impl Instruction {
             | Self::LoadF32 { address, .. }
             | Self::LoadF64 { address, .. } => vec![*address],
             Self::ListCopy {
-                direction: ListDirection::Load | ListDirection::FreeStrings,
-                pointer,
-                length,
-                ..
-            } => vec![*pointer, *length],
-            Self::ListCopyRecord {
-                direction: ListDirection::Load | ListDirection::FreeStrings,
-                pointer,
-                length,
-                ..
-            } => vec![*pointer, *length],
-            Self::ListCopyFlags {
-                direction: ListDirection::Load | ListDirection::FreeStrings,
+                direction: ListDirection::Load | ListDirection::Free,
                 pointer,
                 length,
                 ..
             } => vec![*pointer, *length],
             Self::ListCopy {
-                direction: ListDirection::Store,
-                array,
-                pointer,
-                length,
-                ..
-            } => vec![*array, *pointer, *length],
-            Self::ListCopyRecord {
-                direction: ListDirection::Store,
-                array,
-                pointer,
-                length,
-                ..
-            } => vec![*array, *pointer, *length],
-            Self::ListCopyFlags {
                 direction: ListDirection::Store,
                 array,
                 pointer,
@@ -236,9 +192,7 @@ impl Instruction {
             | Self::WidenI64 { span, .. }
             | Self::TrapIf { span, .. }
             | Self::Unreachable { span, .. }
-            | Self::ListCopy { span, .. }
-            | Self::ListCopyRecord { span, .. }
-            | Self::ListCopyFlags { span, .. } => *span,
+            | Self::ListCopy { span, .. } => *span,
         }
     }
 }

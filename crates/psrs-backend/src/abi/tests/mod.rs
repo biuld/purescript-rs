@@ -1,3 +1,5 @@
+use super::canonical::{CanonicalType, resolve as canonical_resolve};
+use super::test_support::import;
 use super::*;
 use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
 use wit_parser::Type as WitType;
@@ -102,6 +104,28 @@ fn unit_type(module: &mut psrs_core::Module) -> CoreTypeId {
         .expect("one unit")
 }
 
+fn int(width: u8, signed: bool) -> CanonicalType {
+    CanonicalType::Int { width, signed }
+}
+
+/// The source-ABI surface reason for a resolved WIT function, if any.
+fn unsupported(resolve: &Resolve, function: &wit_parser::Function) -> Option<String> {
+    let params = function
+        .params
+        .iter()
+        .map(|param| canonical_resolve(resolve, &param.ty))
+        .collect::<Vec<_>>();
+    let result = function
+        .result
+        .as_ref()
+        .and_then(|ty| canonical_resolve(resolve, ty));
+    let result_shape = match &function.result {
+        None => Ok(None),
+        Some(_) => result.clone().map(Some).ok_or(()),
+    };
+    super::validation::unsupported_shape(&params, &result_shape, &result)
+}
+
 #[test]
 fn resolves_stdout_and_exit_imports() {
     let mut registry = WasiRegistry::load().expect("WASI WIT should load");
@@ -110,24 +134,24 @@ fn resolves_stdout_and_exit_imports() {
         .expect("get-stdout should resolve");
     assert_eq!(stdout.module, "wasi:cli/stdout@0.2.12");
     assert!(stdout.parameters.is_empty());
-    assert!(stdout.param_kinds.is_empty());
+    assert!(stdout.params.is_empty());
     assert_eq!(stdout.result, Some(ValueType::I32));
 
     let write = registry
         .import(names::STREAMS, names::WRITE_STDOUT)
         .expect("blocking-write-and-flush should resolve");
     assert_eq!(write.module, "wasi:io/streams@0.2.12");
-    let super::WasiParamKind::Handle(receiver) = &write.param_kinds[0] else {
-        panic!(
-            "the stream receiver should be a handle, got {:?}",
-            write.param_kinds
-        );
-    };
-    assert_eq!(receiver.mode, super::HandleMode::Borrow);
+    let receiver = write.params[0]
+        .handle_resource()
+        .expect("the stream receiver should be a handle");
+    assert_eq!(receiver.mode, HandleMode::Borrow);
     assert_eq!(receiver.name, "output-stream");
-    assert_eq!(write.param_kinds[1], WasiParamKind::List);
-    assert_eq!(write.result_kind, WasiResultKind::Result);
-    assert!(write.retptr);
+    assert!(write.params[1].is_byte_list());
+    assert!(matches!(
+        write.canonical_result,
+        Some(CanonicalType::Result { ok: None, .. })
+    ));
+    assert!(write.abi.retptr);
     assert!(write.unsupported.is_none());
 
     let read = registry
@@ -135,8 +159,11 @@ fn resolves_stdout_and_exit_imports() {
         .expect("input-stream.read should resolve");
     // DEC-13 maps `result<list<u8>, stream-error>` to `Either String StreamError`.
     assert!(matches!(
-        read.result_kind,
-        WasiResultKind::ValueResult { .. }
+        read.canonical_result,
+        Some(CanonicalType::Result {
+            ok: Some(_),
+            err: Some(_)
+        })
     ));
     assert!(read.unsupported.is_none());
     let exit = registry
@@ -159,35 +186,23 @@ fn classifies_a_64_bit_parameter_by_its_wit_signedness() {
     let random = registry
         .import("wasi:random/random", "get-random-bytes")
         .expect("get-random-bytes should resolve");
-    assert_eq!(
-        random.param_kinds,
-        vec![WasiParamKind::Scalar64 { signed: false }]
-    );
+    assert_eq!(random.params, vec![int(64, false)]);
 }
 
 #[test]
 fn maps_wit_char_to_the_source_char_type() {
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::Char),
-        WasiParamKind::Char
-    );
-    assert_eq!(
-        result_kind(&Resolve::default(), &WitType::Char),
-        WasiResultKind::Char
+        canonical_resolve(&Resolve::default(), &WitType::Char),
+        Some(CanonicalType::Char)
     );
 
-    let import = WasiImport {
-        symbol: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
-        module: "test:chars".into(),
-        name: "roundtrip".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Char],
-        result: Some(ValueType::I32),
-        result_kind: WasiResultKind::Char,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
+        "test:chars",
+        "roundtrip",
+        vec![CanonicalType::Char],
+        Some(CanonicalType::Char),
+    );
     validate_core(&import, vec![CoreType::Char], CoreType::Char)
         .expect("a Char declaration should match WIT char");
     assert!(
@@ -199,77 +214,60 @@ fn maps_wit_char_to_the_source_char_type() {
 #[test]
 fn classifies_wit_f32_for_number_conversion() {
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::F32),
-        WasiParamKind::Float32
+        canonical_resolve(&Resolve::default(), &WitType::F32),
+        Some(CanonicalType::Float { width: 32 })
     );
-    let import = WasiImport {
-        symbol: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
-        module: "test:floats".into(),
-        name: "roundtrip".into(),
-        parameters: vec![ValueType::F32],
-        param_kinds: vec![WasiParamKind::Float32],
-        result: Some(ValueType::F32),
-        result_kind: WasiResultKind::Scalar,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+    let import = import(
+        psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
+        "test:floats",
+        "roundtrip",
+        vec![CanonicalType::Float { width: 32 }],
+        Some(CanonicalType::Float { width: 32 }),
+    );
     validate_core(&import, vec![CoreType::F64], CoreType::F64)
         .expect("source Number should adapt to and from WIT f32");
 }
 
 #[test]
 fn classifies_only_source_compatible_wit_scalar_parameters() {
+    let resolve = Resolve::default();
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::Bool),
-        WasiParamKind::Boolean
+        canonical_resolve(&resolve, &WitType::Bool),
+        Some(CanonicalType::Bool)
     );
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::S32),
-        WasiParamKind::Integer32
+        canonical_resolve(&resolve, &WitType::S32),
+        Some(int(32, true))
     );
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::F64),
-        WasiParamKind::Float64
+        canonical_resolve(&resolve, &WitType::F64),
+        Some(CanonicalType::Float { width: 64 })
     );
     assert_eq!(
-        param_kind(&Resolve::default(), &WitType::U32),
-        WasiParamKind::Integer32
-    );
-    assert_eq!(
-        result_kind(&Resolve::default(), &WitType::Bool),
-        WasiResultKind::Boolean
-    );
-    assert_eq!(
-        result_kind(&Resolve::default(), &WitType::U32),
-        WasiResultKind::Scalar
+        canonical_resolve(&resolve, &WitType::U32),
+        Some(int(32, false))
     );
 }
 
 #[test]
 fn validates_wit_scalar_parameters_against_exact_source_types() {
     let cases = [
-        (WasiParamKind::Integer32, CoreType::I32, CoreType::Boolean),
-        (WasiParamKind::Boolean, CoreType::Boolean, CoreType::I32),
-        (WasiParamKind::Float64, CoreType::F64, CoreType::I32),
+        (int(32, false), CoreType::I32, CoreType::Boolean),
+        (CanonicalType::Bool, CoreType::Boolean, CoreType::I32),
+        (
+            CanonicalType::Float { width: 64 },
+            CoreType::F64,
+            CoreType::I32,
+        ),
     ];
-    for (index, (kind, accepted, rejected)) in cases.into_iter().enumerate() {
-        let import = WasiImport {
-            symbol: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), index as u32),
-            module: "test:scalar".into(),
-            name: "accepts-one-value".into(),
-            parameters: vec![match kind {
-                WasiParamKind::Integer32 | WasiParamKind::Boolean => ValueType::I32,
-                WasiParamKind::Float64 => ValueType::F64,
-                _ => unreachable!("this test only covers scalar parameters"),
-            }],
-            param_kinds: vec![kind],
-            result: None,
-            result_kind: WasiResultKind::None,
-            unsupported: None,
-            retptr: false,
-            flat_slots: Vec::new(),
-        };
+    for (index, (ty, accepted, rejected)) in cases.into_iter().enumerate() {
+        let import = import(
+            psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), index as u32),
+            "test:scalar",
+            "accepts-one-value",
+            vec![ty],
+            None,
+        );
         validate_core(&import, vec![accepted], CoreType::Unit)
             .expect("the matching source scalar should be accepted");
         assert!(
@@ -285,7 +283,7 @@ fn validates_a_vendored_wit_boolean_result_against_boolean_source_type() {
     let import = registry
         .import("wasi:io/poll", "[method]pollable.ready")
         .expect("pollable.ready should resolve");
-    assert_eq!(import.result_kind, WasiResultKind::Boolean);
+    assert_eq!(import.canonical_result, Some(CanonicalType::Bool));
     validate_core(&import, vec![CoreType::I32], CoreType::Boolean)
         .expect("pollable.ready should accept its Boolean source signature");
     assert!(validate_core(&import, vec![CoreType::I32], CoreType::I32).is_err());

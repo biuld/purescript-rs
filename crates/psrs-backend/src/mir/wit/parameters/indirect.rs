@@ -2,21 +2,22 @@ use super::super::super::instruction::Instruction;
 use super::super::BlockId;
 use super::super::{PendingFree, WitCallLowerer};
 use crate::BackendError;
-use crate::abi;
+use crate::abi::canonical::CanonicalType;
 use crate::abi::layout::{MemorySlot, SlotKind};
+use crate::abi::{self};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 pub(super) fn write_parameter_record<L: WitCallLowerer>(
     lowerer: &mut L,
-    kinds: &[abi::WasiParamKind],
+    params: &[CanonicalType],
     flattened: &[ValueId],
     output: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    let layout = abi::layout::record_layout(kinds.iter().map(abi::layout::parameter_layout))
+    let layout = abi::layout::record_layout(params.iter().map(abi::layout::parameter_layout))
         .ok_or_else(|| unsupported_parameter(span))?;
     if layout.slots.len() != flattened.len() || layout.size == 0 {
         return Err(unsupported_parameter(span));
@@ -40,7 +41,7 @@ pub(super) fn write_parameter_record<L: WitCallLowerer>(
         pointer: address,
         length: size,
         align: layout.align as i32,
-        string_elements: None,
+        elements: None,
     });
     output.push(address);
     Ok(())

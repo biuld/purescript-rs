@@ -24,7 +24,7 @@ use lower::lower_function;
 use planner::{GcPlanner, RepresentationPlanner};
 use scalar_helpers::lower_scalar_helpers;
 
-pub use instruction::{Instruction, ListDirection, ListFieldCopy, ListFlagsField};
+pub use instruction::{Instruction, ListDirection};
 pub use numeric::{NumericOp, UnaryOp};
 pub use verify::{verify_module, verify_module_with_capabilities};
 
@@ -76,8 +76,6 @@ pub struct Import {
 pub(crate) struct BoundWasiImport {
     pub import: crate::abi::WasiImport,
     pub signature: cc::Signature,
-    /// The concrete payload tree for a mapped aggregate parameter or result.
-    pub payloads: cc::ExternalPayloads,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,11 +209,6 @@ fn lower_module_after_binding_validation(
                 .map(|signature| (external.symbol, signature))
         })
         .collect();
-    let external_payloads: HashMap<SymbolId, cc::ExternalPayloads> = module
-        .externals
-        .iter()
-        .map(|external| (external.symbol, external.payloads.clone()))
-        .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
@@ -246,18 +239,7 @@ fn lower_module_after_binding_validation(
                 .with_module(external.symbol.module),
             ]);
         };
-        let payloads = external_payloads
-            .get(&external.symbol)
-            .cloned()
-            .unwrap_or_default();
-        wit_imports.insert(
-            external.symbol,
-            BoundWasiImport {
-                import,
-                signature,
-                payloads,
-            },
-        );
+        wit_imports.insert(external.symbol, BoundWasiImport { import, signature });
     }
     let layout = GcPlanner { target }.plan_module(&module).map_err(|error| {
         annotate_errors(
@@ -380,6 +362,18 @@ fn lower_module_after_binding_validation(
     Ok((mir, wasi))
 }
 
+/// Whether a list element carries byte-list payloads that need the UTF-8 codec.
+fn element_has_bytes(element: &crate::abi::canonical::CanonicalType) -> bool {
+    use crate::abi::canonical::CanonicalType;
+    match element {
+        CanonicalType::String | CanonicalType::List(_) | CanonicalType::FixedList { .. } => {
+            element.is_byte_list()
+        }
+        CanonicalType::Record(fields) => fields.iter().any(|field| field.ty.is_byte_list()),
+        _ => false,
+    }
+}
+
 /// The import symbols referenced by any call in the module.
 fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
     let mut used = HashSet::new();
@@ -390,19 +384,7 @@ fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
                     Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
                         used.insert(*function);
                     }
-                    Instruction::ListCopy {
-                        element: crate::abi::ListElement::String,
-                        ..
-                    } => {
-                        used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
-                        used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
-                        used.insert(crate::abi::REALLOC_SYMBOL);
-                    }
-                    Instruction::ListCopyRecord { fields, .. }
-                        if fields.iter().any(|field| {
-                            matches!(field, crate::mir::ListFieldCopy::String { .. })
-                        }) =>
-                    {
+                    Instruction::ListCopy { element, .. } if element_has_bytes(element) => {
                         used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
                         used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
                         used.insert(crate::abi::REALLOC_SYMBOL);

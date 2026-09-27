@@ -23,18 +23,8 @@ pub(super) fn project_reachable(module: &mut Module) {
                     }
                     // A canonical string-list copy names its codec and allocator
                     // helpers directly in Wasm lowering, not through a MIR call.
-                    Instruction::ListCopy {
-                        element: crate::abi::ListElement::String,
-                        ..
-                    } => {
-                        referenced.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
-                        referenced.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
-                        referenced.insert(crate::abi::REALLOC_SYMBOL);
-                    }
-                    Instruction::ListCopyRecord { fields, .. }
-                        if fields.iter().any(|field| {
-                            matches!(field, crate::mir::ListFieldCopy::String { .. })
-                        }) =>
+                    Instruction::ListCopy { element, .. }
+                        if crate::mir::element_has_bytes(element) =>
                     {
                         referenced.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
                         referenced.insert(crate::abi::BYTES_TO_STRING_SYMBOL);

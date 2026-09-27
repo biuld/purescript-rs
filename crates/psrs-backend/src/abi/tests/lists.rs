@@ -1,5 +1,4 @@
-use super::super::classification::{param_kind, result_kind, unsupported_shape};
-use super::super::{WasiParamKind, WasiResultKind};
+use super::canonical::{CanonicalType, resolve as canonical_resolve};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{BuiltinType, ModuleId, Type as HirType, TypeKind as HirTypeKind};
 use psrs_span::TextRange;
@@ -76,6 +75,14 @@ fn resolve_wit(wit: &str) -> Resolve {
     resolve
 }
 
+fn param(resolve: &Resolve, function: &wit_parser::Function) -> CanonicalType {
+    canonical_resolve(resolve, &function.params[0].ty).expect("parameter should resolve")
+}
+
+fn int(width: u8, signed: bool) -> CanonicalType {
+    CanonicalType::Int { width, signed }
+}
+
 #[test]
 fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     let resolve = resolve_wit(
@@ -96,64 +103,57 @@ fn classifies_scalar_and_string_lists_and_rejects_aggregates() {
     );
     let ints = function_named(&resolve, "take-ints");
     assert!(matches!(
-        param_kind(&resolve, &ints.params[0].ty),
-        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Integer32)
+        param(&resolve, ints),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::Int { .. })
     ));
-    assert!(unsupported_shape(&resolve, ints, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, ints).is_none());
 
     let strings = function_named(&resolve, "take-strings");
     assert!(matches!(
-        param_kind(&resolve, &strings.params[0].ty),
-        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::List)
+        param(&resolve, strings),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::String)
     ));
 
     let bytes = function_named(&resolve, "take-bytes");
     assert_eq!(
-        param_kind(&resolve, &bytes.params[0].ty),
-        WasiParamKind::List
+        param(&resolve, bytes),
+        CanonicalType::List(Box::new(int(8, false)))
     );
 
     let enums = function_named(&resolve, "take-enums");
     assert!(matches!(
-        param_kind(&resolve, &enums.params[0].ty),
-        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Enum { .. })
+        param(&resolve, enums),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::Enum(_))
     ));
-    assert!(unsupported_shape(&resolve, enums, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, enums).is_none());
 
     let items = function_named(&resolve, "take-items");
     assert!(matches!(
-        param_kind(&resolve, &items.params[0].ty),
-        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Record { .. })
+        param(&resolve, items),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::Record(_))
     ));
-    assert!(unsupported_shape(&resolve, items, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, items).is_none());
 
     let handles = function_named(&resolve, "take-handles");
     assert!(matches!(
-        param_kind(&resolve, &handles.params[0].ty),
-        WasiParamKind::ValueList { element } if matches!(element.as_ref(), WasiParamKind::Handle(_))
+        param(&resolve, handles),
+        CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::Handle { .. })
     ));
-    assert!(unsupported_shape(&resolve, handles, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, handles).is_none());
 
     for name in ["take-nested", "take-options"] {
         let function = function_named(&resolve, name);
         assert!(
-            unsupported_shape(&resolve, function, &WasiResultKind::None).is_some(),
+            super::unsupported(&resolve, function).is_some(),
             "{name} should be rejected"
         );
     }
 
     let returned = function_named(&resolve, "strings");
-    assert!(matches!(
-        result_kind(&resolve, returned.result.as_ref().unwrap()),
-        WasiResultKind::ValueList { .. }
-    ));
+    let returned = canonical_resolve(&resolve, returned.result.as_ref().unwrap())
+        .expect("result should resolve");
     assert!(
-        unsupported_shape(
-            &resolve,
-            returned,
-            &result_kind(&resolve, returned.result.as_ref().unwrap())
-        )
-        .is_none()
+        matches!(returned, CanonicalType::List(element) if matches!(element.as_ref(), CanonicalType::String))
     );
 }
 
@@ -163,19 +163,21 @@ fn maps_a_list_of_tuples_to_a_record_list() {
         "package test:lists@0.1.0; interface lists { take: func(values: list<tuple<string, string>>); }",
     );
     let function = function_named(&resolve, "take");
-    let kind = param_kind(&resolve, &function.params[0].ty);
-    let WasiParamKind::ValueList { element } = &kind else {
-        panic!("list<tuple<...>> should be a value list, got {kind:?}");
+    let CanonicalType::List(element) = param(&resolve, function) else {
+        panic!("list<tuple<...>> should be a value list");
     };
-    let WasiParamKind::Record { fields } = element.as_ref() else {
-        panic!("a tuple element should map to a record, got {element:?}");
+    let CanonicalType::Record(fields) = element.as_ref() else {
+        panic!("a tuple element should map to a record");
     };
     assert_eq!(
         fields
             .iter()
-            .map(|field| (field.name.as_str(), &field.kind))
+            .map(|field| (field.name.as_str(), &field.ty))
             .collect::<Vec<_>>(),
-        vec![("_1", &WasiParamKind::List), ("_2", &WasiParamKind::List),]
+        vec![
+            ("_1", &CanonicalType::String),
+            ("_2", &CanonicalType::String),
+        ]
     );
-    assert!(unsupported_shape(&resolve, function, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, function).is_none());
 }

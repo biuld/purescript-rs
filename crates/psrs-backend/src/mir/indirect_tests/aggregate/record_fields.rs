@@ -2,8 +2,8 @@
 
 use super::fixtures::{erased, reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadField, PayloadNode,
-    ReprId, Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
+    ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -48,11 +48,11 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![erased()],
+                        fields: vec![reference(2)],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![ValueShape::Integer],
                     },
                 ],
             },
@@ -98,26 +98,6 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: Vec::new(),
-        result: PayloadNode::Variant {
-            representation: ReprId(3),
-            cases: vec![
-                Some(PayloadNode::Record {
-                    representation: ReprId(2),
-                    fields: vec![PayloadField {
-                        name: "inner".into(),
-                        node: PayloadNode::Variant {
-                            representation: ReprId(1),
-                            cases: vec![None, Some(PayloadNode::Value(ValueShape::Integer))],
-                        },
-                    }],
-                }),
-                Some(PayloadNode::Value(ValueShape::Integer)),
-            ],
-        },
-    };
-
     let module = cc::Module {
         name: "RecordFieldAbi".into(),
         externals: vec![External {
@@ -126,7 +106,6 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
                 parameters: Vec::new(),
                 result: reference(3),
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {
@@ -172,6 +151,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
             Representation::Box {
                 value: ValueShape::Integer,
             },
+            // Repr 1: `Maybe Int`, the `inner` field type.
             Representation::Variant {
                 cases: vec![
                     VariantCase {
@@ -180,12 +160,26 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![ValueShape::Integer],
                     },
                 ],
             },
+            // Repr 2: `Outer`.
             Representation::Product {
                 fields: vec![reference(1)],
+            },
+            // Repr 3: the monomorphic `Maybe Outer` the import receives.
+            Representation::Variant {
+                cases: vec![
+                    VariantCase {
+                        tag: 0,
+                        fields: Vec::new(),
+                    },
+                    VariantCase {
+                        tag: 1,
+                        fields: vec![reference(2)],
+                    },
+                ],
             },
         ],
         signatures: Vec::new(),
@@ -265,7 +259,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
                 destination: ValueId(2),
                 representation: ReprId(1),
                 case: 1,
-                fields: vec![ValueId(1)],
+                fields: vec![ValueId(0)],
             },
             span: span(),
         },
@@ -311,9 +305,9 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
             destination: ValueId(6),
             kind: AssignmentKind::VariantNew {
                 destination: ValueId(6),
-                representation: ReprId(1),
+                representation: ReprId(3),
                 case: 1,
-                fields: vec![ValueId(5)],
+                fields: vec![ValueId(4)],
             },
             span: span(),
         },
@@ -326,35 +320,14 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
             span: span(),
         },
     ];
-    let payloads = ExternalPayloads {
-        parameters: vec![PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![
-                None,
-                Some(PayloadNode::Record {
-                    representation: ReprId(2),
-                    fields: vec![PayloadField {
-                        name: "inner".into(),
-                        node: PayloadNode::Variant {
-                            representation: ReprId(1),
-                            cases: vec![None, Some(PayloadNode::Value(ValueShape::Integer))],
-                        },
-                    }],
-                }),
-            ],
-        }],
-        result: PayloadNode::None,
-    };
-
     let module = cc::Module {
         name: "RecordFieldParameterAbi".into(),
         externals: vec![External {
             symbol: external_symbol,
             signature: Some(Signature {
-                parameters: vec![reference(1)],
+                parameters: vec![reference(3)],
                 result: ValueShape::Integer,
             }),
-            payloads,
         }],
         representations,
         functions: vec![cc::Function {

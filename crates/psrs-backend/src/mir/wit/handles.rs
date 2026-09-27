@@ -27,12 +27,17 @@ pub(in crate::mir) fn verify_function(
         if bound.import.name.starts_with("[resource-drop]") {
             drop_symbols.insert(bound.import.symbol);
         }
-        if let abi::WasiResultKind::Handle(handle) = &bound.import.result_kind {
+        if let Some(handle) = bound
+            .import
+            .canonical_result
+            .as_ref()
+            .and_then(abi::canonical::CanonicalType::handle_resource)
+        {
             drop_symbols.insert(handle.drop_symbol);
         }
         let mut own = Vec::new();
-        for (index, kind) in bound.import.param_kinds.iter().enumerate() {
-            if let abi::WasiParamKind::Handle(handle) = kind {
+        for (index, ty) in bound.import.params.iter().enumerate() {
+            if let Some(handle) = ty.handle_resource() {
                 drop_symbols.insert(handle.drop_symbol);
                 if handle.mode == HandleMode::Own {
                     own.push(index);

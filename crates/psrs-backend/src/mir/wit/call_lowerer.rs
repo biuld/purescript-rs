@@ -2,7 +2,7 @@
 
 use super::BlockId;
 use crate::BackendError;
-use crate::cc::ReprId;
+use crate::cc::{GuestLayout, ReprId, ValueShape};
 use crate::mir::instruction::Instruction;
 use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
@@ -117,18 +117,11 @@ pub(crate) trait WitCallLowerer {
         span: TextRange,
     ) -> Result<ValueId, Vec<BackendError>>;
 
-    /// The record product fields and their canonical labels for a representation
-    /// handle. `None` when the handle is not a product. The WIT adapter uses the
-    /// labels to project fields by WIT name without a source-type mirror.
-    fn wit_product(
-        &self,
-        _repr: crate::cc::ReprId,
-    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
-        None
-    }
-
-    /// The element shape of a GC array representation handle.
-    fn wit_array_element(&self, _repr: crate::cc::ReprId) -> Option<crate::cc::ValueShape> {
+    /// Resolves a value shape to its recursive guest layout through the
+    /// representation table. The canonical lowering walks this in lockstep with
+    /// the canonical type. `None` when the lowerer has no representation table
+    /// or the shape names an unknown representation.
+    fn wit_guest_layout(&self, _shape: ValueShape) -> Option<GuestLayout> {
         None
     }
 

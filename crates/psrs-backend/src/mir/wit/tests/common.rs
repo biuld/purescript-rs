@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::cc::{RefShape, Reference, ReprId, Signature, ValueShape};
+use crate::cc::{GuestLayout, RefShape, Reference, ReprId, Signature, ValueShape};
 use crate::mir::Terminator;
 use crate::types::{DefinedTypeId, ValueType};
 use std::collections::HashMap;
@@ -17,6 +17,8 @@ pub(super) struct RecordingLowerer {
     /// Record products by representation handle, with canonical labels. The
     /// adapter projects WIT fields by name through these.
     pub(super) products: HashMap<ReprId, (Vec<ValueShape>, Vec<String>)>,
+    /// Explicit guest layouts for representation handles that are not products.
+    pub(super) guest_layouts: HashMap<ReprId, GuestLayout>,
     pub(super) boxed_integer: Option<DefinedTypeId>,
     pub(super) string_index: Option<DefinedTypeId>,
     pub(super) case_field_types: HashMap<(ReprId, u32, u32), ValueType>,
@@ -190,8 +192,24 @@ impl WitCallLowerer for RecordingLowerer {
         })
     }
 
-    fn wit_product(&self, repr: ReprId) -> Option<(Vec<ValueShape>, Vec<String>)> {
-        self.products.get(&repr).cloned()
+    fn wit_guest_layout(&self, shape: ValueShape) -> Option<GuestLayout> {
+        match shape {
+            ValueShape::Reference(Reference {
+                heap: RefShape::Repr(repr),
+                ..
+            }) => {
+                if let Some((fields, labels)) = self.products.get(&repr) {
+                    Some(GuestLayout::Product {
+                        repr,
+                        labels: labels.clone(),
+                        fields: fields.clone(),
+                    })
+                } else {
+                    self.guest_layouts.get(&repr).cloned()
+                }
+            }
+            other => Some(GuestLayout::Scalar { shape: other }),
+        }
     }
 }
 

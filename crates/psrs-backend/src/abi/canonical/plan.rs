@@ -6,37 +6,54 @@
 //! through a return pointer. Both are length thresholds, so no shape needs a
 //! per-case decision.
 
-use super::{CoreVal, flatten};
+use super::{CanonicalType, CoreVal, flatten};
 use wit_parser::{Function, Resolve};
 
 /// The canonical ABI decisions for one function, with its flattened parameter
-/// and result core values.
+/// and result core values and the size of its indirect return area.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FnAbi {
     pub flat_params: Vec<CoreVal>,
     pub flat_results: Vec<CoreVal>,
     pub indirect_params: bool,
     pub retptr: bool,
+    /// The `(size, align)` of the indirect return area, when the result is an
+    /// aggregate the lowering reads. `None` for a result read directly.
+    pub result_area: Option<(u32, u32)>,
 }
 
 /// Derives the ABI decisions for `function`. Returns `None` when a parameter or
 /// the result has no canonical representation.
 pub(crate) fn function_abi(resolve: &Resolve, function: &Function) -> Option<FnAbi> {
-    let mut flat_params = Vec::new();
+    let mut params = Vec::new();
     for parameter in &function.params {
-        let ty = super::resolve(resolve, &parameter.ty)?;
-        flat_params.extend(flatten(&ty));
+        params.push(super::resolve(resolve, &parameter.ty)?);
     }
-    let flat_results = match &function.result {
-        Some(result) => flatten(&super::resolve(resolve, result)?),
-        None => Vec::new(),
+    let result = match &function.result {
+        Some(result) => Some(super::resolve(resolve, result)?),
+        None => None,
     };
+    Some(function_abi_from_types(&params, result.as_ref()))
+}
+
+/// Derives the ABI decisions from already-resolved canonical types.
+pub(crate) fn function_abi_from_types(
+    params: &[CanonicalType],
+    result: Option<&CanonicalType>,
+) -> FnAbi {
+    let mut flat_params = Vec::new();
+    for ty in params {
+        flat_params.extend(flatten(ty));
+    }
+    let flat_results = result.map(flatten).unwrap_or_default();
     let indirect_params = flat_params.len() > Resolve::MAX_FLAT_PARAMS;
     let retptr = flat_results.len() > Resolve::MAX_FLAT_RESULTS;
-    Some(FnAbi {
+    let result_area = result.and_then(crate::abi::layout::result_area);
+    FnAbi {
         flat_params,
         flat_results,
         indirect_params,
         retptr,
-    })
+        result_area,
+    }
 }

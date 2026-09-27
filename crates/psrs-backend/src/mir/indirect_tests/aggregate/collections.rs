@@ -1,9 +1,9 @@
 //! Flags and non-byte list aggregate fixtures.
 
-use super::fixtures::{erased, reference, span};
+use super::fixtures::{reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadField, PayloadNode,
-    ReprId, Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
+    ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -16,7 +16,6 @@ fn base(
     wit: &str,
     function: &str,
     inner: Representation,
-    result_payload: PayloadNode,
 ) -> (cc::Module, ExternalBindings, Resolve) {
     let mut resolve = Resolve::default();
     resolve
@@ -66,13 +65,6 @@ fn base(
                 parameters: Vec::new(),
                 result: reference(0),
             }),
-            payloads: ExternalPayloads {
-                parameters: Vec::new(),
-                result: PayloadNode::Variant {
-                    representation: ReprId(0),
-                    cases: vec![None, Some(result_payload)],
-                },
-            },
         }],
         representations: cc::RepresentationTable {
             representations: vec![
@@ -84,7 +76,7 @@ fn base(
                         },
                         VariantCase {
                             tag: 1,
-                            fields: vec![erased()],
+                            fields: vec![reference(1)],
                         },
                     ],
                 },
@@ -126,19 +118,6 @@ pub(super) fn flags_fixture() -> (cc::Module, ExternalBindings, Resolve) {
         Representation::Product {
             fields: vec![ValueShape::Boolean, ValueShape::Boolean],
         },
-        PayloadNode::Record {
-            representation: ReprId(1),
-            fields: vec![
-                PayloadField {
-                    name: "read".into(),
-                    node: PayloadNode::Value(ValueShape::Boolean),
-                },
-                PayloadField {
-                    name: "write".into(),
-                    node: PayloadNode::Value(ValueShape::Boolean),
-                },
-            ],
-        },
     );
     module.representations.product_labels =
         [(ReprId(1), vec!["read".to_string(), "write".to_string()])]
@@ -154,10 +133,6 @@ pub(super) fn non_byte_list_fixture() -> (cc::Module, ExternalBindings, Resolve)
         "get",
         Representation::Array {
             element: ValueShape::Integer,
-        },
-        PayloadNode::List {
-            representation: ReprId(1),
-            element: Box::new(PayloadNode::Value(ValueShape::Integer)),
         },
     )
 }

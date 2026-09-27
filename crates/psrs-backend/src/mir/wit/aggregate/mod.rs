@@ -17,8 +17,9 @@ pub(super) use result::retptr_buffer;
 
 use super::{BlockId, PendingFree, WitCallLowerer, free_buffer};
 use crate::BackendError;
-use crate::abi::{self, WasiParamKind, WasiResultKind};
-use crate::cc::{RefShape, Reference, ValueShape};
+use crate::abi;
+use crate::abi::canonical::{CanonicalType, payload_cases};
+use crate::cc::{GuestLayout, RefShape, Reference, ValueShape};
 use crate::mir::UnaryOp;
 use crate::mir::instruction::Instruction;
 use crate::types::{HeapType, MemoryId, RefType, ValueId, ValueType};
@@ -53,67 +54,64 @@ pub(super) fn aggregate_type() -> ValueType {
     })
 }
 
-/// The canonical flat value types produced by lowering `kind`, including its
+/// The canonical flat value types produced by lowering `ty`, including its
 /// discriminant for a mapped aggregate.
-pub(super) fn flat_types(kind: &WasiParamKind) -> Option<Vec<ValueType>> {
-    Some(match kind {
-        WasiParamKind::Boolean => vec![ValueType::Boolean],
-        WasiParamKind::Integer32
-        | WasiParamKind::IntegerNarrow { .. }
-        | WasiParamKind::Char
-        | WasiParamKind::Enum { .. }
-        | WasiParamKind::Handle(_) => vec![ValueType::I32],
-        WasiParamKind::Scalar64 { .. } => vec![ValueType::I64],
-        WasiParamKind::Float32 => vec![ValueType::F32],
-        WasiParamKind::Float64 => vec![ValueType::F64],
-        WasiParamKind::List | WasiParamKind::ValueList { .. } => {
+pub(super) fn flat_types(ty: &CanonicalType) -> Option<Vec<ValueType>> {
+    Some(match ty {
+        CanonicalType::Bool => vec![ValueType::Boolean],
+        CanonicalType::Int { .. }
+        | CanonicalType::Char
+        | CanonicalType::Enum(_)
+        | CanonicalType::Handle { .. } => vec![ValueType::I32],
+        CanonicalType::Float { width: 32 } => vec![ValueType::F32],
+        CanonicalType::Float { .. } => vec![ValueType::F64],
+        CanonicalType::String | CanonicalType::List(_) => vec![ValueType::I32, ValueType::I32],
+        CanonicalType::FixedList { element, .. } if element.is_byte() => {
             vec![ValueType::I32, ValueType::I32]
         }
-        WasiParamKind::Flags { names } => vec![ValueType::I32; names.len().div_ceil(32)],
-        WasiParamKind::Record { fields } => {
+        CanonicalType::FixedList { .. } => return None,
+        CanonicalType::Flags(names) => vec![ValueType::I32; names.len().div_ceil(32)],
+        CanonicalType::Record(fields) => {
             let mut types = Vec::new();
             for field in fields {
-                types.extend(flat_types(&field.kind)?);
+                types.extend(flat_types(&field.ty)?);
             }
             types
         }
-        WasiParamKind::Option { payload } => {
+        CanonicalType::Option(payload) => {
             let mut types = vec![ValueType::I32];
             types.extend(flat_types(payload)?);
             types
         }
-        WasiParamKind::Result { ok, err } => {
+        CanonicalType::Result { ok, err } => {
             let mut types = vec![ValueType::I32];
-            types.extend(join_types(flat_types(ok)?, flat_types(err)?)?);
+            let ok = match ok.as_deref() {
+                Some(ok) => flat_types(ok)?,
+                None => Vec::new(),
+            };
+            let err = match err.as_deref() {
+                Some(err) => flat_types(err)?,
+                None => Vec::new(),
+            };
+            types.extend(join_types(ok, err)?);
             types
         }
-        WasiParamKind::Variant { cases } => {
+        CanonicalType::Variant(cases) => {
             let mut types = vec![ValueType::I32];
             types.extend(joined_cases(
-                cases.iter().filter_map(|case| case.kind.as_deref()),
+                cases.iter().filter_map(|case| case.payload.as_deref()),
             )?);
             types
         }
-        WasiParamKind::Unsupported => return None,
-    })
-}
-
-/// The tag-ordered payload kinds of a mapped aggregate.
-pub(super) fn payload_cases(kind: &WasiParamKind) -> Option<Vec<Option<&WasiParamKind>>> {
-    Some(match kind {
-        WasiParamKind::Option { payload } => vec![None, Some(payload)],
-        WasiParamKind::Result { ok, err } => vec![Some(ok), Some(err)],
-        WasiParamKind::Variant { cases } => cases.iter().map(|case| case.kind.as_deref()).collect(),
-        _ => return None,
     })
 }
 
 /// The joined payload slot types of a mapped aggregate, excluding its tag.
-pub(super) fn joined_payload_types(kind: &WasiParamKind) -> Option<Vec<ValueType>> {
-    joined_cases(payload_cases(kind)?.into_iter().flatten())
+pub(super) fn joined_payload_types(ty: &CanonicalType) -> Option<Vec<ValueType>> {
+    joined_cases(payload_cases(ty)?.into_iter().flatten())
 }
 
-fn joined_cases<'a>(cases: impl IntoIterator<Item = &'a WasiParamKind>) -> Option<Vec<ValueType>> {
+fn joined_cases<'a>(cases: impl IntoIterator<Item = &'a CanonicalType>) -> Option<Vec<ValueType>> {
     let mut joined: Option<Vec<ValueType>> = None;
     for case in cases {
         let types = flat_types(case)?;
@@ -151,18 +149,18 @@ fn unify(left: ValueType, right: ValueType) -> Option<ValueType> {
     }
 }
 
-/// The source value shape of a directly lowered payload kind.
-pub(super) fn direct_shape(kind: &WasiParamKind) -> Option<ValueShape> {
-    Some(match kind {
-        WasiParamKind::Integer32
-        | WasiParamKind::IntegerNarrow { .. }
-        | WasiParamKind::Char
-        | WasiParamKind::Enum { .. }
-        | WasiParamKind::Handle(_) => ValueShape::Integer,
-        WasiParamKind::Boolean => ValueShape::Boolean,
-        WasiParamKind::Scalar64 { .. } => ValueShape::Integer,
-        WasiParamKind::Float32 | WasiParamKind::Float64 => ValueShape::Number,
-        WasiParamKind::List => ValueShape::String,
+/// The source value shape of a directly lowered payload type.
+pub(super) fn direct_shape(ty: &CanonicalType) -> Option<ValueShape> {
+    Some(match ty {
+        CanonicalType::Int { .. }
+        | CanonicalType::Char
+        | CanonicalType::Enum(_)
+        | CanonicalType::Handle { .. } => ValueShape::Integer,
+        CanonicalType::Bool => ValueShape::Boolean,
+        CanonicalType::Float { .. } => ValueShape::Number,
+        CanonicalType::String => ValueShape::String,
+        CanonicalType::List(inner) if inner.is_byte() => ValueShape::String,
+        CanonicalType::FixedList { element, .. } if element.is_byte() => ValueShape::String,
         _ => return None,
     })
 }
@@ -256,17 +254,15 @@ pub(super) fn recover_string<L: WitCallLowerer>(
     Ok(recovered)
 }
 
-/// Unboxes an erased variant field to its source value for a parameter.
-/// The nested payload node of case `index` of a variant node.
-pub(super) fn case_node(
-    node: Option<&crate::cc::PayloadNode>,
-    index: usize,
-) -> Option<&crate::cc::PayloadNode> {
-    match node? {
-        crate::cc::PayloadNode::Variant { cases, .. } => {
-            cases.get(index).and_then(|case| case.as_ref())
+/// Whether a variant case field stores an erased value that the erased
+/// aggregate protocol boxes or casts. An unknown field is treated as erased.
+pub(super) fn is_erased(shape: Option<ValueShape>) -> bool {
+    match shape {
+        None => true,
+        Some(ValueShape::Reference(reference)) => {
+            !matches!(reference.heap, crate::cc::RefShape::Repr(_))
         }
-        _ => None,
+        Some(_) => false,
     }
 }
 
@@ -317,15 +313,22 @@ pub(super) fn cast_reference<L: WitCallLowerer>(
 pub(super) fn recover_payload<L: WitCallLowerer>(
     lowerer: &mut L,
     value: ValueId,
-    kind: &WasiParamKind,
-    node: Option<&crate::cc::PayloadNode>,
+    kind: &CanonicalType,
+    guest: Option<&GuestLayout>,
+    field_shape: Option<ValueShape>,
     block: BlockId,
     span: TextRange,
 ) -> Result<(ValueId, ValueShape), Vec<BackendError>> {
-    let shape = match node {
-        Some(node) => node.shape().ok_or_else(|| unsupported(span))?,
-        None => direct_shape(kind).ok_or_else(|| unsupported(span))?,
-    };
+    // A concrete case field already stores the source value.
+    if !is_erased(field_shape) {
+        let shape = field_shape.ok_or_else(|| unsupported(span))?;
+        return Ok((value, shape));
+    }
+    // An erased field is a reference (scalar box or erased aggregate). Recover
+    // the concrete source shape from the canonical type or the guest layout.
+    let shape = direct_shape(kind)
+        .or_else(|| guest.map(GuestLayout::shape))
+        .ok_or_else(|| unsupported(span))?;
     let recovered = match shape {
         ValueShape::Integer => unbox_scalar(lowerer, value, false, block, span)?,
         ValueShape::Boolean => unbox_scalar(lowerer, value, true, block, span)?,

@@ -1,9 +1,10 @@
 use super::super::BlockId;
 use super::super::instruction::Instruction;
-use super::{PendingFree, WitCallLowerer};
+use super::{BoundFn, PendingFree, WitCallLowerer};
 use crate::BackendError;
+use crate::abi::canonical::CanonicalType;
 use crate::abi::{self, WasiImport};
-use crate::cc::{RefShape, Reference, ValueShape};
+use crate::cc::GuestLayout;
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
@@ -16,27 +17,27 @@ mod primitive;
 pub(super) fn lower_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    signature: &crate::cc::Signature,
-    payloads: &crate::cc::ExternalPayloads,
+    bound: &BoundFn,
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     entry: BlockId,
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
-    if signature.parameters.len() != arguments.len() {
+    if bound.guest_parameters.len() != arguments.len() {
         return Err(parameter_count(span));
     }
     let mut current = entry;
     let mut flattened = Vec::new();
     // A primitive import of an aggregate (`option<string>` as `Int -> String`)
-    // has a different source arity than `param_kinds`. Flatten each primitive
-    // in order. Nullary enums, closed records, and flags stay on the zip path.
-    if signature.parameters.len() != import.param_kinds.len() {
+    // has a different source arity than the WIT parameters. Flatten each
+    // primitive in order. Nullary enums, closed records, and flags stay on the
+    // zip path.
+    if bound.guest_parameters.len() != import.params.len() {
         current = primitive::lower_primitive_parameters(
             lowerer,
             import,
-            signature,
+            &bound.guest_parameters,
             arguments,
             &mut flattened,
             frees,
@@ -46,25 +47,14 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
         flat.extend(flattened);
         return Ok(current);
     }
-    let nodes = payloads
-        .parameters
-        .get(..arguments.len())
-        .filter(|nodes| nodes.len() == arguments.len());
-    for (index, ((argument, shape), kind)) in arguments
-        .iter()
-        .zip(&signature.parameters)
-        .zip(&import.param_kinds)
-        .enumerate()
-    {
-        let node = nodes
-            .and_then(|nodes| nodes.get(index))
-            .filter(|node| !matches!(node, crate::cc::PayloadNode::None));
+    for (argument, parameter) in arguments.iter().zip(&bound.parameters) {
+        let guest = lowerer.wit_guest_layout(parameter.guest);
         current = lower_parameter(
             lowerer,
             *argument,
-            shape,
-            node,
-            kind,
+            &parameter.guest,
+            guest.as_ref(),
+            &parameter.canonical,
             &mut flattened,
             frees,
             current,
@@ -74,7 +64,7 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     if import.has_indirect_parameters() {
         indirect::write_parameter_record(
             lowerer,
-            &import.param_kinds,
+            &import.params,
             &flattened,
             flat,
             frees,
@@ -91,24 +81,24 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
 pub(super) fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    shape: &ValueShape,
-    node: Option<&crate::cc::PayloadNode>,
-    kind: &abi::WasiParamKind,
+    shape: &crate::cc::ValueShape,
+    guest: Option<&GuestLayout>,
+    ty: &CanonicalType,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<BlockId, Vec<BackendError>> {
-    match kind {
-        abi::WasiParamKind::Integer32
-        | abi::WasiParamKind::Boolean
-        | abi::WasiParamKind::Char
-        | abi::WasiParamKind::Float64
-        | abi::WasiParamKind::Enum { .. } => flat.push(argument),
+    match ty {
+        CanonicalType::Int { width: 32, .. }
+        | CanonicalType::Bool
+        | CanonicalType::Char
+        | CanonicalType::Float { width: 64 }
+        | CanonicalType::Enum(_) => flat.push(argument),
         // A handle is one canonical `i32` index. The compiler does not track its
         // ownership; the standard library drops it explicitly (DEC-14).
-        abi::WasiParamKind::Handle(_) => flat.push(argument),
-        abi::WasiParamKind::Float32 => {
+        CanonicalType::Handle { .. } => flat.push(argument),
+        CanonicalType::Float { width: 32 } => {
             let narrowed = lowerer.fresh_wit_value(ValueType::F32);
             lowerer.append_wit_instruction(
                 current,
@@ -122,7 +112,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             )?;
             flat.push(narrowed);
         }
-        abi::WasiParamKind::Scalar64 { signed } => {
+        CanonicalType::Int { width: 64, signed } => {
             let wide = lowerer.fresh_wit_value(ValueType::I64);
             lowerer.append_wit_instruction(
                 current,
@@ -136,88 +126,48 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             )?;
             flat.push(wide);
         }
-        abi::WasiParamKind::IntegerNarrow { bits, signed } => {
+        CanonicalType::Int { width, signed } if *width == 8 || *width == 16 => {
             let narrowed =
-                narrow::narrow_integer(lowerer, argument, *bits, *signed, current, span)?;
+                narrow::narrow_integer(lowerer, argument, *width, *signed, current, span)?;
             flat.push(narrowed);
         }
-        abi::WasiParamKind::Flags { names } => {
-            lower_flags(lowerer, argument, shape, names, flat, current, span)?;
+        CanonicalType::Flags(names) => {
+            lower_flags(lowerer, argument, guest, names, flat, current, span)?;
         }
-        abi::WasiParamKind::Option { .. }
-        | abi::WasiParamKind::Result { .. }
-        | abi::WasiParamKind::Variant { .. } => {
+        CanonicalType::Option(_)
+        | CanonicalType::Result {
+            ok: Some(_),
+            err: Some(_),
+        }
+        | CanonicalType::Variant(_) => {
             return super::aggregate::lower_variant_parameter(
-                lowerer, argument, shape, node, kind, flat, frees, current, span,
+                lowerer, argument, shape, guest, ty, flat, frees, current, span,
             );
         }
-        abi::WasiParamKind::List => {
-            // Transcode the GC string's UTF-16 into a fresh UTF-8 linear
-            // buffer. The helper returns the address of a length prefix; the
-            // canonical exchange passes the payload pointer and byte length.
-            let prefix = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Call {
-                    destination: prefix,
-                    function: crate::abi::STRING_TO_BYTES_SYMBOL,
-                    arguments: vec![argument],
-                    span,
-                },
-                span,
-            )?;
-            let length = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Load {
-                    destination: length,
-                    address: prefix,
-                    memory: MemoryId(0),
-                    offset: 0,
-                    span,
-                },
-                span,
-            )?;
-            let four = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Constant {
-                    destination: four,
-                    value: 4,
-                    span,
-                },
-                span,
-            )?;
-            let bytes = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Primitive {
-                    destination: bytes,
-                    op: NumericOp::I32Add,
-                    left: prefix,
-                    right: four,
-                    span,
-                },
-                span,
-            )?;
-            flat.push(bytes);
-            flat.push(length);
-            // The transcode buffer is call-local: free it after the call returns.
-            frees.push(PendingFree {
-                pointer: bytes,
-                length,
-                align: 1,
-                string_elements: None,
-            });
+        CanonicalType::String => {
+            lower_string(lowerer, argument, flat, frees, current, span)?;
         }
-        abi::WasiParamKind::ValueList { element } => {
+        CanonicalType::List(inner) if inner.is_byte() => {
+            lower_string(lowerer, argument, flat, frees, current, span)?;
+        }
+        CanonicalType::FixedList { element, .. } if element.is_byte() => {
+            lower_string(lowerer, argument, flat, frees, current, span)?;
+        }
+        CanonicalType::List(element) => {
             super::lists::write_value_list(
-                lowerer, argument, shape, element, flat, frees, current, span,
+                lowerer, argument, element, guest, flat, frees, current, span,
             )?;
         }
-        abi::WasiParamKind::Record { fields } => {
-            let (product, labels) = product_of(lowerer, shape, span)?;
-            if fields.len() != labels.len() {
+        CanonicalType::Record(fields) => {
+            let Some(GuestLayout::Product {
+                labels,
+                fields: product,
+                ..
+            }) = guest
+            else {
+                return Err(unsupported_parameter(span));
+            };
+            if fields.len() != labels.len() || fields.len() != product.len() {
                 return Err(unsupported_parameter(span));
             }
             let mut current = current;
@@ -227,13 +177,13 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
                     return Err(unsupported_parameter(span));
                 };
                 let value = lowerer.wit_product_field(current, argument, index as u32, span)?;
-                let field_node = node.and_then(|node| node.field(&source_label));
+                let field_guest = lowerer.wit_guest_layout(product[index]);
                 current = lower_parameter(
                     lowerer,
                     value,
                     &product[index],
-                    field_node,
-                    &field.kind,
+                    field_guest.as_ref(),
+                    &field.ty,
                     flat,
                     frees,
                     current,
@@ -242,21 +192,95 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             }
             return Ok(current);
         }
-        abi::WasiParamKind::Unsupported => return Err(unsupported_parameter(span)),
+        CanonicalType::Int { .. } | CanonicalType::Float { .. } => {
+            return Err(unsupported_parameter(span));
+        }
+        CanonicalType::Result { .. } | CanonicalType::FixedList { .. } => {
+            return Err(unsupported_parameter(span));
+        }
     }
     Ok(current)
+}
+
+/// Transcodes a GC string's UTF-16 into a fresh UTF-8 linear buffer. The helper
+/// returns the address of a length prefix; the canonical exchange passes the
+/// payload pointer and byte length, and the buffer is freed after the call.
+fn lower_string<L: WitCallLowerer>(
+    lowerer: &mut L,
+    argument: ValueId,
+    flat: &mut Vec<ValueId>,
+    frees: &mut Vec<PendingFree>,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let prefix = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Call {
+            destination: prefix,
+            function: crate::abi::STRING_TO_BYTES_SYMBOL,
+            arguments: vec![argument],
+            span,
+        },
+        span,
+    )?;
+    let length = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Load {
+            destination: length,
+            address: prefix,
+            memory: MemoryId(0),
+            offset: 0,
+            span,
+        },
+        span,
+    )?;
+    let four = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: four,
+            value: 4,
+            span,
+        },
+        span,
+    )?;
+    let bytes = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Primitive {
+            destination: bytes,
+            op: NumericOp::I32Add,
+            left: prefix,
+            right: four,
+            span,
+        },
+        span,
+    )?;
+    flat.push(bytes);
+    flat.push(length);
+    frees.push(PendingFree {
+        pointer: bytes,
+        length,
+        align: 1,
+        elements: None,
+    });
+    Ok(())
 }
 
 fn lower_flags<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    shape: &ValueShape,
+    guest: Option<&GuestLayout>,
     names: &[String],
     flat: &mut Vec<ValueId>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    let (_, labels) = product_of(lowerer, shape, span)?;
+    let Some(GuestLayout::Product { labels, .. }) = guest else {
+        return Err(unsupported_parameter(span));
+    };
     if names.len() != labels.len() {
         return Err(unsupported_parameter(span));
     }
@@ -335,23 +359,6 @@ fn lower_flags<L: WitCallLowerer>(
         flat.push(word);
     }
     Ok(())
-}
-
-fn product_of<L: WitCallLowerer>(
-    lowerer: &L,
-    shape: &ValueShape,
-    span: TextRange,
-) -> Result<(Vec<ValueShape>, Vec<String>), Vec<BackendError>> {
-    let ValueShape::Reference(Reference {
-        heap: RefShape::Repr(repr),
-        ..
-    }) = shape
-    else {
-        return Err(unsupported_parameter(span));
-    };
-    lowerer
-        .wit_product(*repr)
-        .ok_or_else(|| unsupported_parameter(span))
 }
 
 fn parameter_count(span: TextRange) -> Vec<BackendError> {

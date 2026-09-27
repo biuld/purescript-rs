@@ -1,48 +1,35 @@
 //! Copy a source array to or from a non-byte canonical `list<T>`.
-
-mod record;
-
-mod flags;
-
-pub(super) use flags::read_flags_value_list_from;
-use flags::{read_flags_value_list_result, write_flags_value_list};
-pub(super) use record::free_record_string_elements;
-pub(super) use record::read_record_value_list_from;
-use record::{read_record_value_list_result, write_record_value_list};
+//!
+//! One parameterized instruction drives the copy: the canonical element and its
+//! guest layout select the scalar width, the string codec, or the record/flags
+//! struct projection. The same instruction frees a parameter buffer's element
+//! payloads after the call.
 
 use super::super::BlockId;
 use super::super::instruction::{Instruction, ListDirection};
-use super::{PendingFree, StringFree, WitCallLowerer, free_buffer};
+use super::{ElementFree, PendingFree, WitCallLowerer, free::free_plan, free_buffer};
 use crate::BackendError;
+use crate::abi::canonical::{CanonicalType, size_align};
 use crate::abi::{self, WasiImport};
-use crate::cc::ValueShape;
+use crate::cc::{GuestLayout, ValueShape};
 use crate::mir::NumericOp;
-use crate::types::{MemoryId, ValueId, ValueType};
+use crate::types::{DefinedTypeId, MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn write_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
-    shape: &ValueShape,
-    element: &abi::WasiParamKind,
+    element: &CanonicalType,
+    guest: Option<&GuestLayout>,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if matches!(element, abi::WasiParamKind::Record { .. }) {
-        return write_record_value_list(
-            lowerer, argument, shape, element, flat, frees, current, span,
-        );
-    }
-    if matches!(element, abi::WasiParamKind::Flags { .. }) {
-        return write_flags_value_list(
-            lowerer, argument, shape, element, flat, frees, current, span,
-        );
-    }
-    let element = list_element(element, span)?;
-    let (size, align) = abi::element_layout(element);
+    let layout = size_align(element);
+    let element_guest = element_guest(lowerer, guest, element, span)?;
+    let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let array_type = lowerer.wit_array_type(argument, span)?;
     let length = lowerer.fresh_wit_value(ValueType::I32);
     lowerer.append_wit_instruction(
@@ -54,29 +41,31 @@ pub(super) fn write_value_list<L: WitCallLowerer>(
         },
         span,
     )?;
-    let bytes = scale(lowerer, length, size, current, span)?;
-    let pointer = allocate(lowerer, bytes, align, current, span)?;
+    let bytes = scale(lowerer, length, layout.size as i32, current, span)?;
+    let pointer = allocate(lowerer, bytes, layout.align as i32, current, span)?;
     lowerer.append_wit_instruction(
         current,
         Instruction::ListCopy {
             direction: ListDirection::Store,
             array: argument,
             array_type,
+            struct_type,
             pointer,
             length,
-            element,
+            element: element.clone(),
+            element_guest: element_guest.clone(),
             span,
         },
         span,
     )?;
     flat.push(pointer);
     flat.push(length);
+    let elements = element_free(element, length, element_guest);
     frees.push(PendingFree {
         pointer,
         length: bytes,
-        align,
-        string_elements: matches!(element, abi::ListElement::String)
-            .then_some(StringFree::Scalars(length)),
+        align: layout.align as i32,
+        elements,
     });
     Ok(())
 }
@@ -85,7 +74,7 @@ pub(super) fn write_value_list<L: WitCallLowerer>(
 pub(super) fn read_value_list_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    element: &abi::WasiParamKind,
+    element: &CanonicalType,
     shape: &ValueShape,
     destination: ValueId,
     arguments: Vec<ValueId>,
@@ -93,33 +82,7 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    if matches!(element, abi::WasiParamKind::Record { .. }) {
-        return read_record_value_list_result(
-            lowerer,
-            import,
-            element,
-            shape,
-            destination,
-            arguments,
-            retptr,
-            current,
-            span,
-        );
-    }
-    if matches!(element, abi::WasiParamKind::Flags { .. }) {
-        return read_flags_value_list_result(
-            lowerer,
-            import,
-            element,
-            shape,
-            destination,
-            arguments,
-            retptr,
-            current,
-            span,
-        );
-    }
-    if matches!(element, abi::WasiParamKind::Handle(_)) {
+    if matches!(element, CanonicalType::Handle { .. }) {
         // A returned resource list would need per-element drop or borrow
         // release; only resource lists passed as parameters are supported.
         return Err(vec![BackendError::new(
@@ -128,7 +91,6 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
             "a resource list result is not supported yet",
         )]);
     }
-    let element = list_element(element, span)?;
     let address = retptr.ok_or_else(|| {
         vec![BackendError::invalid_ir(
             "P9 MIR lowering",
@@ -145,6 +107,9 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
         },
         span,
     )?;
+    let list_layout = lowerer.wit_guest_layout(*shape);
+    let element_guest = element_guest(lowerer, list_layout.as_ref(), element, span)?;
+    let struct_type = element_struct_type(lowerer, &element_guest, span)?;
     let pointer = load(lowerer, address, 0, current, span)?;
     let length = load(lowerer, address, 4, current, span)?;
     let array_type = lowerer.wit_array_type(destination, span)?;
@@ -154,51 +119,96 @@ pub(super) fn read_value_list_result<L: WitCallLowerer>(
             direction: ListDirection::Load,
             array: destination,
             array_type,
+            struct_type,
             pointer,
             length,
-            element,
+            element: element.clone(),
+            element_guest,
             span,
         },
         span,
     )?;
-    let (size, align) = abi::element_layout(element);
-    let bytes = scale(lowerer, length, size, current, span)?;
-    free_buffer(lowerer, pointer, bytes, align, current, span)
+    let layout = size_align(element);
+    let bytes = scale(lowerer, length, layout.size as i32, current, span)?;
+    free_buffer(lowerer, pointer, bytes, layout.align as i32, current, span)
 }
 
-pub(super) fn free_string_elements<L: WitCallLowerer>(
+/// Emits the element-payload frees of a call-local list buffer.
+pub(super) fn free_elements<L: WitCallLowerer>(
     lowerer: &mut L,
     pointer: ValueId,
-    length: ValueId,
+    elements: &ElementFree,
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
     lowerer.append_wit_instruction(
         current,
         Instruction::ListCopy {
-            direction: ListDirection::FreeStrings,
+            direction: ListDirection::Free,
             array: pointer,
-            array_type: crate::types::DefinedTypeId(0),
+            array_type: DefinedTypeId(0),
+            struct_type: DefinedTypeId(0),
             pointer,
-            length,
-            element: abi::ListElement::String,
+            length: elements.count,
+            element: elements.element.clone(),
+            element_guest: elements.element_guest.clone(),
             span,
         },
         span,
     )
 }
 
-fn list_element(
-    kind: &abi::WasiParamKind,
+/// The guest layout of a list's element. A record or flags element requires its
+/// product layout; a scalar or byte-list element is copied from the canonical
+/// type alone, so an unresolved layout falls back to a scalar placeholder.
+fn element_guest<L: WitCallLowerer>(
+    lowerer: &L,
+    list: Option<&GuestLayout>,
+    element: &CanonicalType,
     span: TextRange,
-) -> Result<abi::ListElement, Vec<BackendError>> {
-    abi::list_element(kind).ok_or_else(|| {
-        vec![BackendError::new(
-            "P9 MIR lowering",
-            span,
-            "this WIT list element has no source array lowering",
-        )]
+) -> Result<GuestLayout, Vec<BackendError>> {
+    if let Some(GuestLayout::Array { element: shape, .. }) = list
+        && let Some(layout) = lowerer.wit_guest_layout(*shape)
+    {
+        return Ok(layout);
+    }
+    if matches!(element, CanonicalType::Record(_) | CanonicalType::Flags(_)) {
+        return Err(unsupported_list(span));
+    }
+    Ok(GuestLayout::Scalar {
+        shape: ValueShape::Integer,
     })
+}
+
+/// The concrete element struct type for a record or flags element, or a
+/// placeholder for scalars and strings.
+pub(super) fn element_struct_type<L: WitCallLowerer>(
+    lowerer: &L,
+    element_guest: &GuestLayout,
+    span: TextRange,
+) -> Result<DefinedTypeId, Vec<BackendError>> {
+    match element_guest {
+        GuestLayout::Product { repr, .. } => lowerer
+            .wit_repr_index(*repr)
+            .ok_or_else(|| unsupported_list(span)),
+        _ => Ok(DefinedTypeId(0)),
+    }
+}
+
+fn element_free(
+    element: &CanonicalType,
+    count: ValueId,
+    element_guest: GuestLayout,
+) -> Option<ElementFree> {
+    if free_plan(element).is_no_free() {
+        None
+    } else {
+        Some(ElementFree {
+            count,
+            element: element.clone(),
+            element_guest,
+        })
+    }
 }
 
 pub(super) fn scale<L: WitCallLowerer>(
@@ -292,4 +302,12 @@ pub(super) fn load<L: WitCallLowerer>(
         span,
     )?;
     Ok(destination)
+}
+
+fn unsupported_list(span: TextRange) -> Vec<BackendError> {
+    vec![BackendError::new(
+        "P9 MIR lowering",
+        span,
+        "this WIT list element has no source array lowering",
+    )]
 }

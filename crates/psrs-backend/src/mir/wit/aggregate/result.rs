@@ -11,7 +11,7 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
     shape: &ValueShape,
-    node: Option<&crate::cc::PayloadNode>,
+    guest: Option<&GuestLayout>,
     destination: ValueId,
     arguments: Vec<ValueId>,
     retptr: Option<ValueId>,
@@ -20,9 +20,25 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
 ) -> Result<BlockId, Vec<BackendError>> {
     let address = retptr.ok_or_else(|| unsupported(span))?;
     let repr = shape_repr(shape).ok_or_else(|| unsupported(span))?;
-    let cases = result_cases(&import.result_kind).ok_or_else(|| unsupported(span))?;
+    let result = import
+        .canonical_result
+        .as_ref()
+        .ok_or_else(|| unsupported(span))?;
+    let cases = payload_cases(result).ok_or_else(|| unsupported(span))?;
     let payload_offset =
         abi::layout::variant_payload_offset(&cases).ok_or_else(|| unsupported(span))?;
+    let field_shapes = (0..cases.len())
+        .map(|index| match guest {
+            Some(GuestLayout::Variant { cases, .. }) => cases
+                .get(index)
+                .and_then(|case| case.fields.first().copied()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let layouts = field_shapes
+        .iter()
+        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
+        .collect::<Vec<_>>();
 
     lowerer.append_wit_instruction(
         current,
@@ -78,7 +94,8 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
             Some(payload) => build_payload(
                 lowerer,
                 payload,
-                case_node(node, index),
+                layouts[index].as_ref(),
+                field_shapes[index],
                 address,
                 payload_offset,
                 block,
@@ -111,28 +128,16 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     Ok(merge)
 }
 
-fn result_cases(kind: &WasiResultKind) -> Option<Vec<Option<&WasiParamKind>>> {
-    Some(match kind {
-        WasiResultKind::Option { payload } => vec![None, Some(payload)],
-        WasiResultKind::ValueResult { ok, err } => vec![Some(ok), Some(err)],
-        WasiResultKind::Variant { cases } => {
-            cases.iter().map(|case| case.kind.as_deref()).collect()
-        }
-        _ => return None,
-    })
-}
-
 /// The return pointer for an import whose result is passed indirectly. A small
 /// return area uses the fixed scratch region; a larger aggregate return area is
 /// allocated through `cabi_realloc` and freed once the result is read.
 pub(in crate::mir) fn retptr_buffer<L: WitCallLowerer>(
     lowerer: &mut L,
-    kind: &WasiResultKind,
+    area: Option<(u32, u32)>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    let area = abi::layout::result_area(kind);
     if let Some((size, align)) = area
         && size > abi::SCRATCH_SIZE
     {
@@ -152,7 +157,7 @@ pub(in crate::mir) fn retptr_buffer<L: WitCallLowerer>(
             pointer,
             length: size_value,
             align: align as i32,
-            string_elements: None,
+            elements: None,
         });
         return Ok(pointer);
     }

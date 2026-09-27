@@ -10,8 +10,8 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     shape: &ValueShape,
-    node: Option<&crate::cc::PayloadNode>,
-    kind: &WasiParamKind,
+    guest: Option<&GuestLayout>,
+    kind: &CanonicalType,
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
@@ -20,6 +20,9 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     let repr = shape_repr(shape).ok_or_else(|| unsupported(span))?;
     let cases = payload_cases(kind).ok_or_else(|| unsupported(span))?;
     let joined = joined_payload_types(kind).ok_or_else(|| unsupported(span))?;
+    let Some(GuestLayout::Variant { .. }) = guest else {
+        return Err(unsupported(span));
+    };
 
     let tag = lowerer.fresh_wit_value(ValueType::I32);
     lowerer.wit_variant_tag(current, tag, repr, argument, span)?;
@@ -48,6 +51,18 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
     )?;
     lowerer.wit_jump(default, case_blocks[0], Vec::new(), span)?;
 
+    let field_shapes = (0..cases.len())
+        .map(|index| match guest {
+            Some(GuestLayout::Variant { cases, .. }) => cases
+                .get(index)
+                .and_then(|case| case.fields.first().copied()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let layouts = field_shapes
+        .iter()
+        .map(|shape| shape.and_then(|shape| lowerer.wit_guest_layout(shape)))
+        .collect::<Vec<_>>();
     for (index, case) in cases.iter().enumerate() {
         let block = case_blocks[index];
         let Some(payload) = case else {
@@ -60,15 +75,22 @@ pub(in crate::mir) fn lower_variant_parameter<L: WitCallLowerer>(
             .ok_or_else(|| unsupported(span))?;
         let erased = lowerer.fresh_wit_value(field_type);
         lowerer.wit_variant_get(block, erased, repr, index as u32, 0, argument, span)?;
-        let case_node = case_node(node, index);
-        let (value, payload_shape) =
-            recover_payload(lowerer, erased, payload, case_node, block, span)?;
+        let case_guest = layouts[index].as_ref();
+        let (value, payload_shape) = recover_payload(
+            lowerer,
+            erased,
+            payload,
+            case_guest,
+            field_shapes[index],
+            block,
+            span,
+        )?;
         let mut case_flat = Vec::new();
         let end = lower_parameter(
             lowerer,
             value,
             &payload_shape,
-            case_node,
+            case_guest,
             payload,
             &mut case_flat,
             frees,

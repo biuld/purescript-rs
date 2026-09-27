@@ -7,6 +7,10 @@ mod fixtures;
 use super::lower_module_with_registry;
 use crate::TargetCapabilities;
 use crate::abi;
+use crate::abi::canonical::CanonicalType;
+use crate::abi::layout::SlotKind;
+use crate::cc::GuestLayout;
+use crate::mir::{Instruction, ListDirection};
 use fixtures::{
     fixture, flags_fixture, handle_fixture, result_fixture, string_fixture, tuple_fixture,
 };
@@ -22,42 +26,47 @@ fn record_list_parameters_lower_to_a_canonical_layout() {
     let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
         .expect("P9 should lower a list<record> parameter");
 
-    let copy = mir
+    let (direction, element, layout) = mir
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .find_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopyRecord {
+            Instruction::ListCopy {
                 direction,
-                size,
-                fields,
+                element,
+                element_guest,
                 ..
-            } => Some((*direction, *size, fields.clone())),
+            } => Some((*direction, element.clone(), element_guest.clone())),
             _ => None,
         })
-        .expect("a ListCopyRecord should be emitted");
-    assert_eq!(copy.0, crate::mir::ListDirection::Store);
-    assert_eq!(copy.1, 16, "pair {{ x: s32, y: f64 }} is 16 bytes");
-    let layout = copy
-        .2
-        .iter()
-        .map(|field| match field {
-            crate::mir::ListFieldCopy::Scalar {
-                offset,
-                index,
-                kind,
-            } => (*offset, *index, *kind),
-            other => panic!("expected a scalar field, got {other:?}"),
-        })
-        .collect::<Vec<_>>();
+        .expect("a ListCopy should be emitted");
+    assert_eq!(direction, ListDirection::Store);
     assert_eq!(
-        layout,
-        vec![
-            (0, 0, crate::abi::layout::SlotKind::Word),
-            (8, 1, crate::abi::layout::SlotKind::F64),
-        ]
+        abi::canonical::size_align(&element).size,
+        16,
+        "pair {{ x: s32, y: f64 }} is 16 bytes"
     );
+    let CanonicalType::Record(fields) = &element else {
+        panic!("the element should be a record, got {element:?}");
+    };
+    let offsets = crate::abi::layout::record_fields(
+        fields
+            .iter()
+            .map(|field| crate::abi::layout::parameter_layout(&field.ty)),
+    )
+    .expect("the pair fields have a canonical layout");
+    assert_eq!(
+        offsets
+            .iter()
+            .map(|(offset, layout)| (*offset, layout.slots[0].kind))
+            .collect::<Vec<_>>(),
+        vec![(0, SlotKind::Word), (8, SlotKind::F64)]
+    );
+    let GuestLayout::Product { labels, .. } = &layout else {
+        panic!("the element layout should be a product, got {layout:?}");
+    };
+    assert_eq!(labels, &["x".to_string(), "y".to_string()]);
 
     let mir =
         crate::mir::opt::optimize(mir, target).expect("P10 should preserve the record list copy");
@@ -85,10 +94,10 @@ fn record_list_results_rebuild_the_array() {
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .find_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopyRecord { direction, .. } => Some(*direction),
+            Instruction::ListCopy { direction, .. } => Some(*direction),
             _ => None,
         });
-    assert_eq!(direction, Some(crate::mir::ListDirection::Load));
+    assert_eq!(direction, Some(ListDirection::Load));
 
     let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
         .expect("P10 should lower the record list result");
@@ -116,41 +125,55 @@ fn record_list_string_fields_transcode_and_free() {
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .filter_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopyRecord {
+            Instruction::ListCopy {
                 direction,
-                size,
-                fields,
+                element,
+                element_guest,
                 ..
-            } => Some((*direction, *size, fields.clone())),
+            } => Some((*direction, element.clone(), element_guest.clone())),
             _ => None,
         })
         .collect::<Vec<_>>();
-    let store = copies
+    let (_, element, layout) = copies
         .iter()
-        .find(|(direction, ..)| *direction == crate::mir::ListDirection::Store)
-        .expect("a ListCopyRecord Store should be emitted");
+        .find(|(direction, ..)| *direction == ListDirection::Store)
+        .expect("a ListCopy Store should be emitted");
     assert_eq!(
-        store.1, 12,
+        abi::canonical::size_align(element).size,
+        12,
         "message {{ text: string, code: s32 }} is 12 bytes"
     );
+    let CanonicalType::Record(fields) = element else {
+        panic!("the element should be a record, got {element:?}");
+    };
+    let offsets = crate::abi::layout::record_fields(
+        fields
+            .iter()
+            .map(|field| crate::abi::layout::parameter_layout(&field.ty)),
+    )
+    .expect("the message fields have a canonical layout");
     assert_eq!(
-        store.2,
-        vec![
-            crate::mir::ListFieldCopy::String {
-                offset: 0,
-                index: 1,
-            },
-            crate::mir::ListFieldCopy::Scalar {
-                offset: 8,
-                index: 0,
-                kind: crate::abi::layout::SlotKind::Word,
-            },
-        ]
+        fields
+            .iter()
+            .map(|field| field.ty.is_byte_list())
+            .collect::<Vec<_>>(),
+        vec![true, false]
     );
+    assert_eq!(
+        offsets
+            .iter()
+            .map(|(offset, layout)| (*offset, layout.slots[0].kind))
+            .collect::<Vec<_>>(),
+        vec![(0, SlotKind::Word), (8, SlotKind::Word)]
+    );
+    let GuestLayout::Product { labels, .. } = layout else {
+        panic!("the element layout should be a product, got {layout:?}");
+    };
+    assert_eq!(labels, &["code".to_string(), "text".to_string()]);
     assert!(
         copies
             .iter()
-            .any(|(direction, ..)| *direction == crate::mir::ListDirection::FreeStrings),
+            .any(|(direction, ..)| *direction == ListDirection::Free),
         "the string fields must be freed after the call"
     );
 
@@ -174,30 +197,35 @@ fn flags_list_packs_boolean_fields() {
     let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
         .expect("P9 should lower a list<flags> parameter");
 
-    let flags = mir
+    let (direction, element, layout) = mir
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .find_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopyFlags {
+            Instruction::ListCopy {
                 direction,
-                size,
-                fields,
+                element,
+                element_guest,
                 ..
-            } => Some((*direction, *size, fields.clone())),
+            } => Some((*direction, element.clone(), element_guest.clone())),
             _ => None,
         })
-        .expect("a ListCopyFlags should be emitted");
-    assert_eq!(flags.0, crate::mir::ListDirection::Store);
-    assert_eq!(flags.1, 4, "one canonical word");
+        .expect("a ListCopy should be emitted");
+    assert_eq!(direction, ListDirection::Store);
     assert_eq!(
-        flags.2,
-        vec![
-            crate::mir::ListFlagsField { bit: 1, index: 0 },
-            crate::mir::ListFlagsField { bit: 0, index: 1 },
-        ]
+        abi::canonical::size_align(&element).size,
+        1,
+        "two flags pack into one canonical byte"
     );
+    let CanonicalType::Flags(names) = &element else {
+        panic!("the element should be flags, got {element:?}");
+    };
+    let GuestLayout::Product { labels, .. } = &layout else {
+        panic!("the element layout should be a product, got {layout:?}");
+    };
+    assert_eq!(names, &["write".to_string(), "read".to_string()]);
+    assert_eq!(labels, &["read".to_string(), "write".to_string()]);
 
     let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the flags copy");
     let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
@@ -219,20 +247,20 @@ fn handle_list_parameters_copy_the_indexes() {
     let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
         .expect("P9 should lower a list<own<resource>> parameter");
 
-    let element = mir
+    let (direction, element) = mir
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .find_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopy {
+            Instruction::ListCopy {
                 direction, element, ..
-            } => Some((*direction, *element)),
+            } => Some((*direction, element.clone())),
             _ => None,
         })
         .expect("a ListCopy should be emitted");
-    assert_eq!(element.0, crate::mir::ListDirection::Store);
-    assert_eq!(element.1, crate::abi::ListElement::Word);
+    assert_eq!(direction, ListDirection::Store);
+    assert!(matches!(element, CanonicalType::Handle { .. }));
 
     let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the handle copy");
     let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
@@ -254,34 +282,33 @@ fn tuple_list_maps_to_a_record_list() {
     let (mir, mut registry) = lower_module_with_registry(cc, bindings, target, registry)
         .expect("P9 should lower a list<tuple<string, string>> parameter");
 
-    let store = mir
+    let (element, layout) = mir
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
         .flat_map(|block| &block.instructions)
         .find_map(|instruction| match instruction {
-            crate::mir::Instruction::ListCopyRecord {
-                direction: crate::mir::ListDirection::Store,
-                size,
-                fields,
+            Instruction::ListCopy {
+                direction: ListDirection::Store,
+                element,
+                element_guest,
                 ..
-            } => Some((*size, fields.clone())),
+            } => Some((element.clone(), element_guest.clone())),
             _ => None,
         })
-        .expect("a ListCopyRecord Store should be emitted");
-    assert_eq!(store.0, 16, "two strings are 16 bytes");
+        .expect("a ListCopy Store should be emitted");
     assert_eq!(
-        store.1,
-        vec![
-            crate::mir::ListFieldCopy::String {
-                offset: 0,
-                index: 0,
-            },
-            crate::mir::ListFieldCopy::String {
-                offset: 8,
-                index: 1,
-            },
-        ]
+        abi::canonical::size_align(&element).size,
+        16,
+        "two strings are 16 bytes"
+    );
+    let GuestLayout::Product { labels, fields, .. } = &layout else {
+        panic!("the element layout should be a product, got {layout:?}");
+    };
+    assert_eq!(labels, &["_1".to_string(), "_2".to_string()]);
+    assert_eq!(
+        fields,
+        &[crate::cc::ValueShape::String, crate::cc::ValueShape::String]
     );
 
     let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the tuple copy");

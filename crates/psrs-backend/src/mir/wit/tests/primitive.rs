@@ -3,7 +3,8 @@
 
 use super::common::RecordingLowerer;
 use super::*;
-use crate::abi::{FlatSlot, WasiImport, WasiRegistry, WasiResultKind};
+use crate::abi::canonical::{CanonicalType, FlatLeaf, Ownership, flat_leaves_of};
+use crate::abi::{WasiImport, WasiRegistry};
 use crate::capability::TargetCapabilities;
 use crate::cc::ValueShape;
 use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
@@ -62,6 +63,10 @@ fn cc_signature(parameters: Vec<ValueShape>) -> crate::cc::Signature {
     }
 }
 
+fn option(inner: CanonicalType) -> CanonicalType {
+    CanonicalType::Option(Box::new(inner))
+}
+
 #[test]
 fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     let mut resolve = wit_parser::Resolve::default();
@@ -86,9 +91,10 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         .import("wasi:io/streams", "send")
         .expect("send should resolve");
     assert!(import.unsupported.is_none());
+    assert_eq!(import.params, vec![option(CanonicalType::String)]);
     assert_eq!(
-        import.flat_slots,
-        vec![FlatSlot::Int32, FlatSlot::Pointer, FlatSlot::Length]
+        flat_leaves_of(&import.params),
+        vec![FlatLeaf::Int32, FlatLeaf::Pointer, FlatLeaf::Length]
     );
     validate(
         &import,
@@ -180,7 +186,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         .import("wasi:io/streams", "read")
         .expect("read should resolve");
     // DEC-13 classifies `option<string>` as `Data.Maybe.Maybe String`.
-    assert!(matches!(read.result_kind, WasiResultKind::Option { .. }));
+    assert_eq!(read.canonical_result, Some(option(CanonicalType::String)));
     assert!(read.unsupported.is_none());
     assert!(
         validate(&read, Vec::new(), CoreType::String).is_err(),
@@ -190,7 +196,20 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     let take = registry
         .import("wasi:io/streams", "take")
         .expect("take should resolve");
-    assert_eq!(take.flat_slots, vec![FlatSlot::Int32, FlatSlot::Handle]);
+    assert_eq!(
+        take.params,
+        vec![option(CanonicalType::Handle {
+            resource: crate::abi::canonical::ResourceId {
+                interface: "wasi:io/streams@0.2.12".into(),
+                name: "output-stream".into(),
+            },
+            ownership: Ownership::Borrow,
+        })]
+    );
+    assert_eq!(
+        flat_leaves_of(&take.params),
+        vec![FlatLeaf::Int32, FlatLeaf::Handle]
+    );
     validate(&take, vec![CoreType::I32, CoreType::I32], CoreType::Unit)
         .expect("a handle payload is declared as Int");
     assert!(validate(&take, vec![CoreType::Char, CoreType::I32], CoreType::Unit,).is_err());

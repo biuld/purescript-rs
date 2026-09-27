@@ -1,9 +1,9 @@
 //! `list<record>` aggregate payloads.
 
-use super::fixtures::{erased, reference, span};
+use super::fixtures::{reference, span};
 use crate::cc::{
-    self, Assignment, AssignmentKind, External, ExternalPayloads, PayloadField, PayloadNode,
-    ReprId, Representation, Signature, ValueDecl, ValueShape, VariantCase,
+    self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
+    ValueShape, VariantCase,
 };
 use crate::types::ValueId;
 use crate::{ExternalBinding, ExternalBindings};
@@ -16,28 +16,11 @@ fn pair() -> Representation {
     }
 }
 
-fn pair_node() -> PayloadNode {
-    PayloadNode::Record {
-        representation: ReprId(2),
-        fields: vec![
-            PayloadField {
-                name: "x".into(),
-                node: PayloadNode::Value(ValueShape::Integer),
-            },
-            PayloadField {
-                name: "y".into(),
-                node: PayloadNode::Value(ValueShape::Boolean),
-            },
-        ],
-    }
-}
-
 fn finish(
     wit: &str,
     external_symbol: SymbolId,
     main_symbol: SymbolId,
     result: ValueShape,
-    result_payload: PayloadNode,
     representations: Vec<Representation>,
     product_labels: Vec<(ReprId, Vec<String>)>,
 ) -> (cc::Module, ExternalBindings, Resolve) {
@@ -54,10 +37,6 @@ fn finish(
                 parameters: Vec::new(),
                 result,
             }),
-            payloads: ExternalPayloads {
-                parameters: Vec::new(),
-                result: result_payload,
-            },
         }],
         representations: cc::RepresentationTable {
             representations,
@@ -120,19 +99,11 @@ fn finish(
 pub(super) fn option_list_record_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
-    let list = PayloadNode::List {
-        representation: ReprId(1),
-        element: Box::new(pair_node()),
-    };
     finish(
         "package wasi:io@0.2.12; interface streams { record pair { x: s32, y: bool } get: func() -> option<list<pair>>; }",
         external_symbol,
         main_symbol,
         reference(0),
-        PayloadNode::Variant {
-            representation: ReprId(0),
-            cases: vec![None, Some(list)],
-        },
         vec![
             Representation::Variant {
                 cases: vec![
@@ -142,7 +113,7 @@ pub(super) fn option_list_record_fixture() -> (cc::Module, ExternalBindings, Res
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![reference(1)],
                     },
                 ],
             },
@@ -159,22 +130,11 @@ pub(super) fn option_list_record_fixture() -> (cc::Module, ExternalBindings, Res
 pub(super) fn result_list_record_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
-    let list = PayloadNode::List {
-        representation: ReprId(2),
-        element: Box::new(PayloadNode::Record {
-            representation: ReprId(3),
-            fields: pair_node_fields(),
-        }),
-    };
     finish(
         "package wasi:io@0.2.12; interface streams { record pair { x: s32, y: bool } get: func() -> result<list<pair>, s32>; }",
         external_symbol,
         main_symbol,
         reference(1),
-        PayloadNode::Variant {
-            representation: ReprId(1),
-            cases: vec![Some(list), Some(PayloadNode::Value(ValueShape::Integer))],
-        },
         vec![
             Representation::Box {
                 value: ValueShape::Integer,
@@ -183,11 +143,11 @@ pub(super) fn result_list_record_fixture() -> (cc::Module, ExternalBindings, Res
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![erased()],
+                        fields: vec![reference(2)],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![erased()],
+                        fields: vec![ValueShape::Integer],
                     },
                 ],
             },
@@ -198,11 +158,4 @@ pub(super) fn result_list_record_fixture() -> (cc::Module, ExternalBindings, Res
         ],
         vec![(ReprId(3), vec!["x".to_string(), "y".to_string()])],
     )
-}
-
-fn pair_node_fields() -> Vec<PayloadField> {
-    match pair_node() {
-        PayloadNode::Record { fields, .. } => fields,
-        _ => unreachable!("pair_node is a record"),
-    }
 }

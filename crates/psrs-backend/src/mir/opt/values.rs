@@ -309,32 +309,12 @@ pub(crate) fn remap_instruction(
         }
         I::TrapIf { condition, .. } => replace(condition),
         I::ListCopy {
-            direction,
-            array,
-            pointer,
-            length,
-            ..
-        }
-        | I::ListCopyRecord {
-            direction,
-            array,
-            pointer,
-            length,
-            ..
-        }
-        | I::ListCopyFlags {
-            direction,
             array,
             pointer,
             length,
             ..
         } => {
-            if !matches!(
-                direction,
-                crate::mir::instruction::ListDirection::FreeStrings
-            ) {
-                replace(array);
-            }
+            replace(array);
             replace(pointer);
             replace(length);
         }
