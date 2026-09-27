@@ -1,8 +1,9 @@
 use super::WitCallLowerer;
 use crate::BackendError;
+use crate::cc::{Assignment, AssignmentKind, ReprId};
 use crate::mir::lower::FunctionLowerer;
-use crate::mir::{BlockId, Instruction};
-use crate::types::{ValueId, ValueType};
+use crate::mir::{BlockId, Instruction, Terminator};
+use crate::types::{DefinedTypeId, ValueId, ValueType};
 use psrs_span::TextRange;
 
 impl WitCallLowerer for FunctionLowerer<'_> {
@@ -17,6 +18,137 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         span: TextRange,
     ) -> Result<(), Vec<BackendError>> {
         self.append_instruction(block, instruction, span)
+    }
+
+    fn wit_new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
+        self.new_block(parameters)
+    }
+
+    fn wit_jump(
+        &mut self,
+        block: BlockId,
+        target: BlockId,
+        arguments: Vec<ValueId>,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.set_terminator(
+            block,
+            Terminator::Jump {
+                target,
+                arguments,
+                span,
+            },
+            span,
+        )
+    }
+
+    fn wit_switch(
+        &mut self,
+        block: BlockId,
+        value: ValueId,
+        cases: Vec<(i32, BlockId)>,
+        default: BlockId,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.set_terminator(
+            block,
+            Terminator::Switch {
+                value,
+                cases,
+                default,
+                span,
+            },
+            span,
+        )
+    }
+
+    fn wit_variant_tag(
+        &mut self,
+        block: BlockId,
+        destination: ValueId,
+        representation: ReprId,
+        value: ValueId,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.lower_variant(
+            &Assignment {
+                destination,
+                kind: AssignmentKind::VariantTag {
+                    destination,
+                    representation,
+                    value,
+                },
+                span,
+            },
+            block,
+        )
+    }
+
+    fn wit_variant_get(
+        &mut self,
+        block: BlockId,
+        destination: ValueId,
+        representation: ReprId,
+        case: u32,
+        field: u32,
+        value: ValueId,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.lower_variant(
+            &Assignment {
+                destination,
+                kind: AssignmentKind::VariantGet {
+                    destination,
+                    representation,
+                    case,
+                    field,
+                    value,
+                },
+                span,
+            },
+            block,
+        )
+    }
+
+    fn wit_variant_new(
+        &mut self,
+        block: BlockId,
+        destination: ValueId,
+        representation: ReprId,
+        case: u32,
+        fields: Vec<ValueId>,
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.lower_variant(
+            &Assignment {
+                destination,
+                kind: AssignmentKind::VariantNew {
+                    destination,
+                    representation,
+                    case,
+                    fields,
+                },
+                span,
+            },
+            block,
+        )
+    }
+
+    fn wit_boxed_integer(&self) -> Option<DefinedTypeId> {
+        self.wit_boxed_integer()
+    }
+
+    fn wit_string_index(&self) -> Option<DefinedTypeId> {
+        self.wit_string_index()
+    }
+
+    fn wit_case_field_type(
+        &self,
+        representation: ReprId,
+        case: u32,
+        field: u32,
+    ) -> Option<ValueType> {
+        self.wit_case_field_type(representation, case, field)
     }
 
     fn wit_product_field(

@@ -80,6 +80,26 @@ pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
     }
 }
 
+/// The canonical byte offset of a variant payload, aligned to the maximum case
+/// alignment. `cases` are the payload kinds in tag order. The discriminant
+/// width follows the case count, matching the canonical ABI `variant`.
+pub(crate) fn variant_payload_offset(cases: &[Option<&WasiParamKind>]) -> Option<u32> {
+    let mut max_align = 1_u32;
+    for kind in cases.iter().flatten() {
+        max_align = max_align.max(case_alignment(kind)?);
+    }
+    align_to(discriminant_width(cases.len()), max_align)
+}
+
+/// The canonical alignment of one variant case payload. A non-byte list is a
+/// `(pointer, length)` pair, so it aligns like a byte list.
+fn case_alignment(kind: &WasiParamKind) -> Option<u32> {
+    match kind {
+        WasiParamKind::List | WasiParamKind::ValueList { .. } => Some(4),
+        other => parameter_layout(other).map(|layout| layout.align),
+    }
+}
+
 /// The canonical layout of a sequence of fields, padded and aligned.
 pub(crate) fn record_layout(
     fields: impl IntoIterator<Item = Option<MemoryLayout>>,

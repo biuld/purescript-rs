@@ -49,6 +49,20 @@ impl PlannedLayout {
             .copied()
             .ok_or(LayoutError::UnknownField)
     }
+
+    /// The stored field shapes of a variant case, before the tag field.
+    pub(in crate::mir) fn variant_field(
+        &self,
+        id: ReprId,
+        case: u32,
+        field: u32,
+    ) -> Result<CcValueShape, LayoutError> {
+        self.variant_fields
+            .get(&(id, case))
+            .and_then(|fields| fields.get(field as usize))
+            .copied()
+            .ok_or(LayoutError::UnknownField)
+    }
     pub(in crate::mir) fn signature_index(
         &self,
         id: SignatureId,

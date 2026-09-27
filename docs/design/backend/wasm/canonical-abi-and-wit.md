@@ -553,15 +553,19 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 ## Open questions and future work
 
 - **Aggregate ABI.** `option`/`result`/`variant` are classified and validated
-  against `Maybe`/`Either`/a source data type, and CC derives their variant
-  representation, but the MIR branch lowering and payload read-back for those
-  shapes are not implemented. Indirect records are lowered for the classified
-  parameter kinds; a mapped aggregate inside an indirect parameter record is
-  not. Narrowed and unsigned WIT integers and non-byte `list<T>` results have a
-  source mapping and are lowered ([Source type mapping](#source-type-mapping)).
-  A non-byte `list<T>` is copied element-wise between a source GC array and the
-  canonical `(pointer, length)` buffer; `string` and `list<u8>` elements are
-  transcoded and their element buffers freed.
+  against `Maybe`/`Either`/a source data type, CC derives their variant
+  representation, and MIR branches on the tag and rebuilds the source value
+  ([Aggregate parameters and results](#lowering-a-call)). A payload is lowered
+  when it is a directly flattenable scalar, byte list, enum, or handle; a
+  nested `record`, non-byte list, `flags`, 64-bit or floating scalar, or another
+  aggregate payload is rejected with a named diagnostic. Indirect records are
+  lowered for the classified parameter kinds; a mapped aggregate inside an
+  indirect parameter record is not. Narrowed and unsigned WIT integers and
+  non-byte `list<T>` results have a source mapping and are lowered
+  ([Source type mapping](#source-type-mapping)). A non-byte `list<T>` is copied
+  element-wise between a source GC array and the canonical `(pointer, length)`
+  buffer; `string` and `list<u8>` elements are transcoded and their element
+  buffers freed.
 - **Resources.** `own`/`borrow` handles are lowered
   ([Resources and handles](#resources-and-handles)): an owned import result is
   dropped with `resource.drop` when the receiving function does not return it
@@ -648,10 +652,11 @@ implementation coverage, not design choices. The allocator, buffer free, and
   unless that function returns the index or passes it to an `own` parameter.
   A second drop, or a use after the borrow release, is rejected.
 - `option`/`result`/`variant` are classified and validated against
-  `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, and CC
-  derives their variant representation; their MIR branch lowering and payload
-  read-back are not implemented. Non-byte `list<T>` of a supported element is
-  lowered.
+  `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives
+  their variant representation, and MIR branches on the tag and rebuilds the
+  source value for a directly flattenable payload (scalar, byte list, enum,
+  handle). A nested aggregate or an unsupported scalar payload is rejected with
+  a named diagnostic. Non-byte `list<T>` of a supported element is lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table

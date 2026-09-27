@@ -6,11 +6,14 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod aggregate;
+mod call_lowerer;
 mod function_lowerer;
 mod handles;
 mod lists;
 mod parameters;
 
+pub(super) use call_lowerer::WitCallLowerer;
 pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
 
 use super::{BlockId, instruction::Instruction};
@@ -19,63 +22,6 @@ use crate::abi::{self, WasiImport};
 use crate::mir::{NumericOp, UnaryOp};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
-
-pub(super) trait WitCallLowerer {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId;
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>>;
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>>;
-
-    /// The record product fields and their canonical labels for a representation
-    /// handle. `None` when the handle is not a product. The WIT adapter uses the
-    /// labels to project fields by WIT name without a source-type mirror.
-    fn wit_product(
-        &self,
-        _repr: crate::cc::ReprId,
-    ) -> Option<(Vec<crate::cc::ValueShape>, Vec<String>)> {
-        None
-    }
-
-    /// The element shape of a GC array representation handle.
-    fn wit_array_element(&self, _repr: crate::cc::ReprId) -> Option<crate::cc::ValueShape> {
-        None
-    }
-
-    /// The concrete GC type of a representation handle.
-    fn wit_repr_index(&self, _repr: crate::cc::ReprId) -> Option<crate::types::DefinedTypeId> {
-        None
-    }
-
-    /// Records an `own<T>` result that this function must drop unless it
-    /// returns the index or passes it to another `own` parameter.
-    fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
-
-    /// An `own<T>` argument consumes a previously noted handle.
-    fn transfer_owned(&mut self, _value: ValueId) {}
-
-    /// The GC array type of a source array value, when this lowerer has layouts.
-    fn wit_array_type(
-        &self,
-        _value: ValueId,
-        span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
-        Err(vec![BackendError::new(
-            "P9 MIR lowering",
-            span,
-            "canonical list lowering has no GC array type",
-        )])
-    }
-}
 
 /// A call-local buffer that must be freed once the canonical call returns. The
 /// `align` is a compile-time constant; `length` is the payload length value.
@@ -114,12 +60,12 @@ pub(super) fn lower<L: WitCallLowerer>(
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
-    current: BlockId,
-) -> Result<(), Vec<BackendError>> {
+    entry: BlockId,
+) -> Result<BlockId, Vec<BackendError>> {
     let mut flat = Vec::new();
     let mut frees = Vec::new();
-    parameters::lower_parameters(
-        lowerer, import, signature, arguments, &mut flat, &mut frees, current, span,
+    let mut current = parameters::lower_parameters(
+        lowerer, import, signature, arguments, &mut flat, &mut frees, entry, span,
     )?;
     let mut retptr = None;
     if import.retptr {
@@ -357,11 +303,16 @@ pub(super) fn lower<L: WitCallLowerer>(
         abi::WasiResultKind::Option { .. }
         | abi::WasiResultKind::ValueResult { .. }
         | abi::WasiResultKind::Variant { .. } => {
-            return Err(vec![BackendError::invalid_ir(
-                "P9 MIR lowering",
+            current = aggregate::lower_variant_result(
+                lowerer,
+                import,
+                signature,
+                destination,
+                flat,
+                retptr,
+                current,
                 span,
-                "aggregate WIT results are not lowered yet",
-            )]);
+            )?;
         }
         abi::WasiResultKind::Discarded => {
             // The ABI classification reports an unsupported shape before MIR
@@ -421,7 +372,7 @@ pub(super) fn lower<L: WitCallLowerer>(
             abi::HandleMode::Own => lowerer.note_owned(destination, handle.drop_symbol, span),
         }
     }
-    Ok(())
+    Ok(current)
 }
 
 /// Frees a transient canonical buffer through `cabi_realloc(ptr, len, align, 0)`.

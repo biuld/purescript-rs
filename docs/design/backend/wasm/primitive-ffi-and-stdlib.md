@@ -143,8 +143,9 @@ is not an aggregate encoding either: it exists only for a non-byte WIT
 The normative set for a new standard-library foreign import is the primitives
 above, `Array` of a supported element for a non-byte `list<T>`, and the mapped
 aggregate forms below. `Maybe`, `Either`, and a non-unit variant are classified
-and validated against their WIT descriptor; their canonical read-back in MIR is
-still to come.
+and validated against their WIT descriptor, and their MIR tag-branch lowering
+rebuilds the source value for a directly flattenable payload; a nested
+aggregate payload is rejected with a named diagnostic.
 
 The existing enum, closed-record, and flags-record lowering still accepts
 those declarations and is not deleted. They keep a resolved type and still

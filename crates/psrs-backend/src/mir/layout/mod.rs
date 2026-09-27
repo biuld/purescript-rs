@@ -27,6 +27,7 @@ pub(super) struct PlannedLayout {
     wit_products: HashMap<ReprId, (Vec<CcValueShape>, Vec<String>)>,
     array_elements: HashMap<ReprId, CcValueShape>,
     variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
+    variant_fields: HashMap<(ReprId, u32), Vec<CcValueShape>>,
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
     capture_array_index: Option<DefinedTypeId>,
@@ -135,6 +136,7 @@ impl PlannedLayout {
             });
         }
         let mut variant_indices = HashMap::new();
+        let mut variant_fields = HashMap::new();
         let mut variant_cases = Vec::new();
         for id in repr_ids {
             if let Some(Representation::Variant { cases }) = table.representation(*id) {
@@ -142,6 +144,7 @@ impl PlannedLayout {
                 for case in cases {
                     let index = DefinedTypeId(definitions.len() as u32);
                     variant_indices.insert((*id, case.tag), index);
+                    variant_fields.insert((*id, case.tag), case.fields.clone());
                     variant_cases.push((index, case.fields.clone()));
                     definitions.push(DefinedType {
                         final_type: true,
@@ -352,6 +355,7 @@ impl PlannedLayout {
             wit_products,
             array_elements,
             variant_indices,
+            variant_fields,
             signature_indices,
             closure_index,
             capture_array_index,

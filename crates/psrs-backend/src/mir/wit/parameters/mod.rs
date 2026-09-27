@@ -20,18 +20,19 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
-    current: BlockId,
+    entry: BlockId,
     span: TextRange,
-) -> Result<(), Vec<BackendError>> {
+) -> Result<BlockId, Vec<BackendError>> {
     if signature.parameters.len() != arguments.len() {
         return Err(parameter_count(span));
     }
+    let mut current = entry;
     let mut flattened = Vec::new();
     // A primitive import of an aggregate (`option<string>` as `Int -> String`)
     // has a different source arity than `param_kinds`. Flatten each primitive
     // in order. Nullary enums, closed records, and flags stay on the zip path.
     if signature.parameters.len() != import.param_kinds.len() {
-        primitive::lower_primitive_parameters(
+        current = primitive::lower_primitive_parameters(
             lowerer,
             import,
             signature,
@@ -42,14 +43,14 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
             span,
         )?;
         flat.extend(flattened);
-        return Ok(());
+        return Ok(current);
     }
     for ((argument, shape), kind) in arguments
         .iter()
         .zip(&signature.parameters)
         .zip(&import.param_kinds)
     {
-        lower_parameter(
+        current = lower_parameter(
             lowerer,
             *argument,
             shape,
@@ -73,11 +74,11 @@ pub(super) fn lower_parameters<L: WitCallLowerer>(
     } else {
         flat.extend(flattened);
     }
-    Ok(())
+    Ok(current)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn lower_parameter<L: WitCallLowerer>(
+pub(super) fn lower_parameter<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,
     shape: &ValueShape,
@@ -86,7 +87,7 @@ fn lower_parameter<L: WitCallLowerer>(
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
-) -> Result<(), Vec<BackendError>> {
+) -> Result<BlockId, Vec<BackendError>> {
     match kind {
         abi::WasiParamKind::Integer32
         | abi::WasiParamKind::Boolean
@@ -135,6 +136,13 @@ fn lower_parameter<L: WitCallLowerer>(
         }
         abi::WasiParamKind::Flags { names } => {
             lower_flags(lowerer, argument, shape, names, flat, current, span)?;
+        }
+        abi::WasiParamKind::Option { .. }
+        | abi::WasiParamKind::Result { .. }
+        | abi::WasiParamKind::Variant { .. } => {
+            return super::aggregate::lower_variant_parameter(
+                lowerer, argument, shape, kind, flat, frees, current, span,
+            );
         }
         abi::WasiParamKind::List => {
             // Transcode the GC string's UTF-16 into a fresh UTF-8 linear
@@ -205,13 +213,14 @@ fn lower_parameter<L: WitCallLowerer>(
             if fields.len() != labels.len() {
                 return Err(unsupported_parameter(span));
             }
+            let mut current = current;
             for field in fields {
                 let source_label = abi::source_field_name(&field.name);
                 let Some(index) = labels.iter().position(|label| label == &source_label) else {
                     return Err(unsupported_parameter(span));
                 };
                 let value = lowerer.wit_product_field(current, argument, index as u32, span)?;
-                lower_parameter(
+                current = lower_parameter(
                     lowerer,
                     value,
                     &product[index],
@@ -222,13 +231,11 @@ fn lower_parameter<L: WitCallLowerer>(
                     span,
                 )?;
             }
+            return Ok(current);
         }
-        abi::WasiParamKind::Option { .. }
-        | abi::WasiParamKind::Result { .. }
-        | abi::WasiParamKind::Variant { .. } => return Err(unsupported_parameter(span)),
         abi::WasiParamKind::Unsupported => return Err(unsupported_parameter(span)),
     }
-    Ok(())
+    Ok(current)
 }
 
 fn lower_flags<L: WitCallLowerer>(
