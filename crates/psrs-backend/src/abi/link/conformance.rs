@@ -146,11 +146,10 @@ fn validate_zipped_parameters(
 
 fn core_matches_result(module: &CoreModule, result: CoreTypeId, import: &WasiImport) -> bool {
     match &import.canonical_result {
+        // A function with no WIT result maps to source `Unit`.
         None => matches!(core(module, result), Some(CoreType::Unit)),
-        // A unit-success result traps on failure and maps to source `Unit`.
-        Some(CanonicalType::Result { ok: None, .. }) => {
-            matches!(core(module, result), Some(CoreType::Unit))
-        }
+        // Every `result`, including a unit-success `result<_, E>`, maps to a
+        // source `Either`; the unit position is the `Unit` payload (DEC-13).
         Some(ty) => core_matches_kind(module, result, ty),
     }
 }
@@ -187,12 +186,11 @@ fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) ->
             _ => false,
         },
         CanonicalType::Option(payload) => core_matches_option(module, id, payload),
-        CanonicalType::Result {
-            ok: Some(ok),
-            err: Some(err),
-        } => core_matches_either(module, id, ok, err),
+        CanonicalType::Result { ok, err } => {
+            core_matches_either(module, id, ok.as_deref(), err.as_deref())
+        }
         CanonicalType::Variant(cases) => core_matches_variant(module, id, cases),
-        CanonicalType::FixedList { .. } | CanonicalType::Result { .. } => false,
+        CanonicalType::FixedList { .. } => false,
     }
 }
 
@@ -326,12 +324,14 @@ fn core_matches_option(module: &CoreModule, id: CoreTypeId, payload: &CanonicalT
 }
 
 /// WIT `result<O, E>` recognized as `Data.Either.Either O E`: two constructors
-/// in order, `Left` matching `ok` and `Right` matching `err`.
+/// in order, `Left` matching `ok` and `Right` matching `err`. An absent payload
+/// is a nullary WIT case whose source field is `Unit`, so `result<_, E>` matches
+/// `Either Unit E`.
 fn core_matches_either(
     module: &CoreModule,
     id: CoreTypeId,
-    ok: &CanonicalType,
-    err: &CanonicalType,
+    ok: Option<&CanonicalType>,
+    err: Option<&CanonicalType>,
 ) -> bool {
     let (hir, arguments) = applied_parts(module, id);
     let Some(hir) = hir else {
@@ -341,9 +341,22 @@ fn core_matches_either(
         return false;
     }
     let constructors = core_constructors(module, hir);
-    core_variant_shape(&constructors, &[Some(ok), Some(err)])
-        && core_matches_kind(module, arguments[0], ok)
-        && core_matches_kind(module, arguments[1], err)
+    first_constructor_shape(&constructors) == Some((1, 1))
+        && core_matches_payload(module, arguments[0], ok)
+        && core_matches_payload(module, arguments[1], err)
+}
+
+/// Whether a source field matches a canonical payload position. An absent
+/// payload position is a nullary case, so its source field must be `Unit`.
+fn core_matches_payload(
+    module: &CoreModule,
+    id: CoreTypeId,
+    payload: Option<&CanonicalType>,
+) -> bool {
+    match payload {
+        Some(ty) => core_matches_kind(module, id, ty),
+        None => matches!(core(module, id), Some(CoreType::Unit)),
+    }
 }
 
 /// WIT `variant { ... }` recognized as a source data type whose constructors

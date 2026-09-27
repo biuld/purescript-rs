@@ -74,7 +74,7 @@ A foreign import the lowerer accepts uses only these source types:
 | `Number` | `f32` or `f64` |
 | `Char` | canonical `i32`; not an `Int` and not a handle |
 | `String` | one source argument; the lowerer expands the GC string to `(pointer, length)` |
-| `Unit` | the one result of an empty return, or of the unit-success `result` that traps on failure |
+| `Unit` | the one result of an empty return, or the unit payload of a mapped `result` |
 
 `String` is in this set even though its canonical form is two core values. The
 lowerer already expands a GC string; the import does not take a pointer and a
@@ -124,8 +124,10 @@ checks the flat shape; it does not check that a discriminant is a legal tag.
 An illegal tag is a bug in the wrapper, as it would be in hand-written glue.
 
 A PureScript foreign import has one result. The lowerer may rebuild one
-primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). The
-existing unit-success `result` that traps on failure stays a `Unit` return.
+primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). A
+unit-success `result` is the aggregate `Either Unit E` mapping
+([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)), not a
+primitive `Unit` return: the wrapper observes the error as `Right`.
 A WIT `option`, `result`, or `variant` whose canonical form is several values
 in a return area follows the aggregate mapping below; a wrapper may also pass
 one as a sequence of primitive arguments whose flattening matches.
@@ -299,9 +301,6 @@ recoverable from the `i32` in MIR.
 
 ```text
 visible_return(canonical, wit_function):
-    if the result is the unit-success result
-       (success payload empty, failure not returned to source):
-        return Unit          # lowerer traps on a nonzero discriminant
     values = canonical result values
              (the single core result, or the words in the return area)
     if values rebuild to exactly one of Int, Boolean, Number, Char, String:
@@ -313,9 +312,7 @@ A wrapper is allowed to see a return only by calling a foreign import that
 validates. Concretely:
 
 - **Allowed.** The canonical result is one primitive. The wrapper receives
-  that primitive and may `case` on it in PureScript. The unit-success `result`
-  is the `Unit` case of this rule: the wrapper sees `Unit`, not the
-  discriminant, and failure traps inside the lowerer.
+  that primitive and may `case` on it in PureScript.
 - **Not allowed.** The canonical result is several values (a discriminant plus
   a payload, a tuple, a record, or a non-unit variant in the return area).
   The foreign import is rejected. The wrapper cannot bind those words, and the
@@ -387,8 +384,9 @@ standard-library imports do not use it.
   the declaration, including when the declaration is unused.
 - The import's source result is exactly `visible_return`. A multi-value
   canonical result is rejected, not approximated and not returned as a tuple.
-- The unit-success `result` is a `Unit` return that traps on failure. The
-  wrapper does not observe the discriminant.
+- The unit-success `result` maps to `Either Unit E`
+  ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)); the
+  wrapper observes the error as `Right` and does not trap.
 - Exported platform names are wrappers. Raw imports are absent from the module
   export list. Tests that import `WASI.Console` can name `log` and cannot name
   `writeStdout`.
@@ -407,7 +405,7 @@ The embedded console module is ordinary PureScript:
 ```purescript
 foreign import "wasi:cli/stdout#get-stdout" getStdout :: Int
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  writeStdout :: Int -> String -> Unit
+  writeStdout :: Int -> String -> Either Unit StreamError
 
 log :: String -> Effect Unit
 log s = \token ->
@@ -418,26 +416,29 @@ log s = \token ->
 `log` is the user-facing function. Its type uses `String`, `Effect`, and
 `Unit`. The effect body calls the raw imports. `getStdout` is a handle
 declared as `Int`. `writeStdout` takes that handle and a `String` and returns
-`Unit`. Neither raw import is part of the public API. The module exports
+the mapped result `Either Unit StreamError`, which `log` ignores. Neither raw
+import is part of the public API. The module exports
 `log` and `error` only. The call trace does not depend on that list.
 
 Before CC, `ExternalBindings::from_core` records `writeStdout` as parameters
-`Int` and `String` and result `Unit`, and records the WIT binding
+`Int` and `String` and the mapped result `Either Unit StreamError`, and records
+the WIT binding
 `wasi:io/streams` / `[method]output-stream.blocking-write-and-flush`. CC and
 MIR then see an `i32`, a GC string, and a call symbol. They do not see the
 names `Int`, `String`, or `output-stream`.
 
 P9 reads the side table. `Int` beside a handle kind pushes the `i32`. `String`
 is expanded to a transient `(pointer, length)` by the canonical ABI lowering.
-The WIT result is `result<_, stream-error>` with a unit success payload, so
-`visible_return` is `Unit`: the lowerer passes a return pointer, traps on a
-nonzero discriminant, and rebuilds `Unit`. The flattened parameters are the
+The WIT result is `result<_, stream-error>`, so the source result is
+`Either Unit StreamError`
+([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)): the
+lowerer passes a return pointer, decodes the error payload, and builds the
+`Either`. The flattened parameters are the
 handle plus `(pointer, length)`, which is `Resolve::wasm_signature` for that
 function, so componentize links the core import. The instructions are the ones
 in the worked example of
 [canonical ABI and WIT](canonical-abi-and-wit.md). `log` itself is not a
-foreign import; after the two `writeStdout` calls return `Unit`, the effect
-function returns `Unit`.
+foreign import; it ignores the two `writeStdout` results and returns `Unit`.
 
 ### A `Maybe` parameter, specified and not added to the library
 
@@ -495,7 +496,7 @@ on a success string it never receives. The function stays unexposed.
   not gain WIT types, HIR types, or a source-type mirror of its own.
 - **To the canonical ABI:** the primitive declaration and the resolved WIT
   function. That topic owns flattening, the return pointer, and the
-  unit-success trap. This topic owns the rule that the primitive flat list
+  unit-success `Either` mapping. This topic owns the rule that the primitive flat list
   must equal `Resolve::wasm_signature`, including when the WIT-level parameter
   is an aggregate with no compiler source type.
 - **To the platform library:** which services exist, the component world, and
@@ -532,7 +533,7 @@ path. No source type for `option`, `result`, or a tuple exists.
 - [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md).
 - [Canonical ABI and WIT](canonical-abi-and-wit.md), including
-  `Resolve::wasm_signature` and the unit-success `result`.
+  `Resolve::wasm_signature` and the unit-success `result` mapping.
 - [WASI platform library](wasi-platform-library.md).
 - [Linear memory and the canonical ABI boundary](linear-memory-and-canonical-abi-boundary.md).
 - WebAssembly Component Model Canonical ABI: flattening of `option`, `result`,

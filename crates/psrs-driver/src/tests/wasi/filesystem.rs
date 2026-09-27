@@ -48,6 +48,45 @@ main =
 }
 
 #[test]
+fn reports_a_unit_success_result_as_right_when_wasmtime_is_available() {
+    // DEC-13: `result<_, error-code>` maps to `Either Unit FileError`, so a
+    // failing unit-success operation reports `Right` instead of trapping.
+    let source = r#"module Main where
+import Prelude
+import Data.Either (Either(..))
+import WASI.Filesystem
+main :: Int
+main =
+  let dirs = runEffect preopens in
+  let dir = arrayIndex dirs 0 in
+  case runEffect (removeDirectoryAt (dir._1) "missing-directory") of
+    Left _ -> 1
+    Right _ -> 0
+"#;
+    let directory = std::env::temp_dir().join(format!(
+        "psrs-unit-result-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let Some(output) = run_wasmtime_with_dirs(source, &[], None, &[(directory.clone(), "/data")])
+    else {
+        eprintln!("skipping: wasmtime is not installed");
+        let _ = std::fs::remove_dir_all(&directory);
+        return;
+    };
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a unit-success failure must report Right without trapping: {output:?}"
+    );
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
 fn stats_and_reads_a_directory_through_preopens_when_wasmtime_is_available() {
     // `stat`/`statAt` and a `readDirectory`/`readDirectoryEntry` walk exercise
     // the nested `option<record>` payload: `descriptor-stat` carries

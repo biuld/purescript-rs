@@ -206,6 +206,44 @@ fn validates_option_result_and_variant_parameters() {
 }
 
 #[test]
+fn validates_a_unit_success_result_as_either_unit() {
+    // DEC-13: `result<_, E>` maps to `Either Unit E`, not to a trapping `Unit`.
+    let mut module = aggregate_module();
+    let unit = append(&mut module, CoreType::Unit);
+    let either_head = append(
+        &mut module,
+        CoreType::Constructor(TypeConstructor::User(user(1))),
+    );
+    let either_unit = append(&mut module, CoreType::Application(either_head, unit));
+    let either_unit_int = append(
+        &mut module,
+        CoreType::Application(either_unit, CoreTypeId(0)),
+    );
+    let unit_result = CanonicalType::Result {
+        ok: None,
+        err: Some(Box::new(int(32, false))),
+    };
+    let import = import(
+        SymbolId::new(ModuleId::INTRINSICS, 0),
+        "test:agg",
+        "unit-result",
+        Vec::new(),
+        Some(unit_result),
+    );
+
+    let function = function_type(&mut module, &[], either_unit_int);
+    crate::abi::link::validate_import_signature(&import, &module, function)
+        .expect("Either Unit Int should match WIT result<_, u32>");
+
+    // The removed `Unit`/trap mapping is no longer accepted.
+    let function = function_type(&mut module, &[], unit);
+    assert!(
+        crate::abi::link::validate_import_signature(&import, &module, function).is_err(),
+        "a bare Unit result is not the mapped Either"
+    );
+}
+
+#[test]
 fn cc_recognizes_a_payload_bearing_data_type_as_a_variant_reference() {
     let mut module = aggregate_module();
     let maybe_head = append(

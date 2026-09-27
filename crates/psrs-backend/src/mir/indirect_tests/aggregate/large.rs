@@ -1,6 +1,6 @@
 //! An aggregate result whose canonical return area exceeds the scratch region.
 
-use super::fixtures::{reference, span};
+use super::fixtures::{erased, reference, span};
 use crate::cc::{
     self, Assignment, AssignmentKind, External, ReprId, Representation, Signature, ValueDecl,
     ValueShape, VariantCase,
@@ -119,9 +119,9 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
     (module, bindings, resolve)
 }
 
-/// `result<_, big>` -> `Unit` where the error payload is a 24-byte record whose
-/// return area exceeds the scratch region. The trap path reads only the
-/// discriminant, but the area must still be allocated.
+/// `result<_, big>` -> `Either Unit Big` where the error payload is a 24-byte
+/// record whose return area exceeds the scratch region. The mapped `Either`
+/// result still decodes the error payload from the allocated area.
 pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let mut resolve = Resolve::default();
     resolve
@@ -138,6 +138,20 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
             },
             Representation::Product {
                 fields: vec![ValueShape::Number, ValueShape::Number, ValueShape::Integer],
+            },
+            Representation::Variant {
+                cases: vec![
+                    // `Left ()`: the absent ok payload is a `Unit` field.
+                    VariantCase {
+                        tag: 0,
+                        fields: vec![erased()],
+                    },
+                    // `Right big`: the decoded error payload.
+                    VariantCase {
+                        tag: 1,
+                        fields: vec![reference(1)],
+                    },
+                ],
             },
         ],
         signatures: Vec::new(),
@@ -158,7 +172,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
             symbol: external_symbol,
             signature: Some(Signature {
                 parameters: Vec::new(),
-                result: ValueShape::Integer,
+                result: reference(2),
             }),
         }],
         representations,
@@ -169,7 +183,7 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
             values: vec![
                 ValueDecl {
                     id: ValueId(0),
-                    ty: ValueShape::Integer,
+                    ty: reference(2),
                 },
                 ValueDecl {
                     id: ValueId(1),
@@ -216,6 +230,7 @@ mod tests {
     use super::large_unit_result_fixture;
     use crate::TargetCapabilities;
     use crate::abi;
+    use crate::mir::{Instruction, Terminator};
 
     #[test]
     fn large_unit_success_result_allocates_its_return_area() {
@@ -235,7 +250,7 @@ mod tests {
             .filter(|instruction| {
                 matches!(
                     instruction,
-                    crate::mir::Instruction::Call { function, .. }
+                    Instruction::Call { function, .. }
                         if *function == crate::abi::REALLOC_SYMBOL
                 )
             })
@@ -244,11 +259,40 @@ mod tests {
             reallocates >= 1,
             "the large error payload must size the return area"
         );
+        // The unit-success result lowers through the mapped `Either`: the
+        // descriptor dispatches on a switch and the err payload is decoded.
+        let has_switch = mir.functions.iter().any(|function| {
+            function
+                .blocks
+                .iter()
+                .any(|block| matches!(block.terminator, Some(Terminator::Switch { .. })))
+        });
+        assert!(
+            has_switch,
+            "the mapped `Either` result should dispatch on a switch"
+        );
+        let decoded_f64 = mir
+            .functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| matches!(instruction, Instruction::LoadF64 { .. }));
+        let decoded_i64 = mir
+            .functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instructions)
+            .any(|instruction| matches!(instruction, Instruction::LoadI64 { .. }));
+        assert!(
+            decoded_f64 && decoded_i64,
+            "the error payload fields are decoded from the return area"
+        );
 
-        let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the unit ABI");
+        let mir =
+            crate::mir::opt::optimize(mir, target).expect("P10 should preserve the Either ABI");
         let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
             .expect("P10 should lower the large unit-success result");
-        let binary = crate::wasm::encode_module(&wasm).expect("the unit Wasm should encode");
+        let binary = crate::wasm::encode_module(&wasm).expect("the Either Wasm should encode");
         crate::validator_for(target)
             .validate_all(&binary)
             .expect("the large unit-success Wasm should validate");

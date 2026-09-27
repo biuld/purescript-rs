@@ -67,11 +67,11 @@ fn result_has_source_abi(ty: &CanonicalType) -> bool {
         CanonicalType::List(element) => supported_list_element(element),
         CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Option(payload) => direct(payload),
-        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
-            (Some(ok), Some(err)) => direct(ok) && direct(err),
-            (None, _) => true,
-            (Some(_), None) => false,
-        },
+        // Every payload position is direct-or-absent; an absent payload is a
+        // nullary case, so `result<_, E>` is representable too (DEC-13).
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(direct) && err.as_deref().is_none_or(direct)
+        }
         CanonicalType::Variant(cases) => cases
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct)),
@@ -97,10 +97,11 @@ fn direct(ty: &CanonicalType) -> bool {
         CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct(&field.ty)),
         CanonicalType::Option(payload) => direct(payload),
-        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
-            (Some(ok), Some(err)) => direct(ok) && direct(err),
-            _ => false,
-        },
+        // An absent payload position is a nullary case; the corresponding
+        // source `Either` field is `Unit` (DEC-13).
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(direct) && err.as_deref().is_none_or(direct)
+        }
         CanonicalType::Variant(cases) => cases
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct)),

@@ -213,8 +213,8 @@ filesystemErrorCode :: Error -> Effect (Maybe FileError)
 filesystemErrorCode err = \token -> filesystemErrorCodeRaw err
 
 -- | Writes `contents` through an output stream. `Nothing` means the write
--- | succeeded; `Just` is the error from opening the stream. A stream-write
--- | failure traps, matching the WIT unit-success result.
+-- | succeeded; `Just` is the error from opening the stream. The `Either`
+-- | returned by `blockingWriteAndFlush` is ignored here.
 writeString :: Descriptor -> String -> Effect (Maybe FileError)
 writeString descriptor contents =
   bind (writeViaStream descriptor 0) (\opened ->
@@ -327,63 +327,62 @@ readDirectoryEntry stream = \token ->
 dropDirectoryEntryStream :: DirectoryEntryStream -> Effect Unit
 dropDirectoryEntryStream stream = \token -> dropDirectoryEntryStreamRaw stream
 
--- The remaining operations report `result<_, error-code>`: the canonical ABI
--- maps that to a `Unit` result that traps on failure, so these wrappers cannot
--- return a `FileError`.
-foreign import "wasi:filesystem/types#[method]descriptor.create-directory-at" createDirectoryAtRaw :: Descriptor -> String -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.remove-directory-at" removeDirectoryAtRaw :: Descriptor -> String -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.unlink-file-at" unlinkFileAtRaw :: Descriptor -> String -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.rename-at" renameAtRaw :: Descriptor -> String -> Descriptor -> String -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.symlink-at" symlinkAtRaw :: Descriptor -> String -> String -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.sync" syncRaw :: Descriptor -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.sync-data" syncDataRaw :: Descriptor -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.set-size" setSizeRaw :: Descriptor -> Int -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.advise" adviseRaw :: Descriptor -> Int -> Int -> Advice -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.link-at" linkAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Descriptor -> String -> Unit
+-- The remaining operations report `result<_, error-code>`, which DEC-13 maps
+-- to `Either Unit FileError`: `Left unit` on success, `Right` the error.
+foreign import "wasi:filesystem/types#[method]descriptor.create-directory-at" createDirectoryAtRaw :: Descriptor -> String -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.remove-directory-at" removeDirectoryAtRaw :: Descriptor -> String -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.unlink-file-at" unlinkFileAtRaw :: Descriptor -> String -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.rename-at" renameAtRaw :: Descriptor -> String -> Descriptor -> String -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.symlink-at" symlinkAtRaw :: Descriptor -> String -> String -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.sync" syncRaw :: Descriptor -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.sync-data" syncDataRaw :: Descriptor -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.set-size" setSizeRaw :: Descriptor -> Int -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.advise" adviseRaw :: Descriptor -> Int -> Int -> Advice -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.link-at" linkAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Descriptor -> String -> Either Unit FileError
 
-createDirectoryAt :: Descriptor -> String -> Effect Unit
+createDirectoryAt :: Descriptor -> String -> Effect (Either Unit FileError)
 createDirectoryAt descriptor path = \token -> createDirectoryAtRaw descriptor path
 
-removeDirectoryAt :: Descriptor -> String -> Effect Unit
+removeDirectoryAt :: Descriptor -> String -> Effect (Either Unit FileError)
 removeDirectoryAt descriptor path = \token -> removeDirectoryAtRaw descriptor path
 
-unlinkFileAt :: Descriptor -> String -> Effect Unit
+unlinkFileAt :: Descriptor -> String -> Effect (Either Unit FileError)
 unlinkFileAt descriptor path = \token -> unlinkFileAtRaw descriptor path
 
-renameAt :: Descriptor -> String -> Descriptor -> String -> Effect Unit
+renameAt :: Descriptor -> String -> Descriptor -> String -> Effect (Either Unit FileError)
 renameAt descriptor oldPath newDescriptor newPath = \token ->
   renameAtRaw descriptor oldPath newDescriptor newPath
 
-symlinkAt :: Descriptor -> String -> String -> Effect Unit
+symlinkAt :: Descriptor -> String -> String -> Effect (Either Unit FileError)
 symlinkAt descriptor oldPath newPath = \token -> symlinkAtRaw descriptor oldPath newPath
 
-sync :: Descriptor -> Effect Unit
+sync :: Descriptor -> Effect (Either Unit FileError)
 sync descriptor = \token -> syncRaw descriptor
 
-syncData :: Descriptor -> Effect Unit
+syncData :: Descriptor -> Effect (Either Unit FileError)
 syncData descriptor = \token -> syncDataRaw descriptor
 
-setSize :: Descriptor -> Int -> Effect Unit
+setSize :: Descriptor -> Int -> Effect (Either Unit FileError)
 setSize descriptor size = \token -> setSizeRaw descriptor size
 
-foreign import "wasi:filesystem/types#[method]descriptor.set-times" setTimesRaw :: Descriptor -> NewTimestamp -> NewTimestamp -> Unit
-foreign import "wasi:filesystem/types#[method]descriptor.set-times-at" setTimesAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Unit
+foreign import "wasi:filesystem/types#[method]descriptor.set-times" setTimesRaw :: Descriptor -> NewTimestamp -> NewTimestamp -> Either Unit FileError
+foreign import "wasi:filesystem/types#[method]descriptor.set-times-at" setTimesAtRaw :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Either Unit FileError
 
 -- | Adjusts the access and modification timestamps of an open file or
--- | directory. A unit-success result traps on failure (DEC-13).
-setTimes :: Descriptor -> NewTimestamp -> NewTimestamp -> Effect Unit
+-- | directory. `Left unit` reports success; `Right` is the `FileError`.
+setTimes :: Descriptor -> NewTimestamp -> NewTimestamp -> Effect (Either Unit FileError)
 setTimes descriptor accessTimestamp modificationTimestamp = \token ->
   setTimesRaw descriptor accessTimestamp modificationTimestamp
 
 -- | Adjusts the timestamps of a file or directory named by a relative path.
-setTimesAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Effect Unit
+setTimesAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> NewTimestamp -> NewTimestamp -> Effect (Either Unit FileError)
 setTimesAt descriptor pathFlags path accessTimestamp modificationTimestamp = \token ->
   setTimesAtRaw descriptor pathFlags path accessTimestamp modificationTimestamp
 
-advise :: Descriptor -> Int -> Int -> Advice -> Effect Unit
+advise :: Descriptor -> Int -> Int -> Advice -> Effect (Either Unit FileError)
 advise descriptor offset length advice = \token -> adviseRaw descriptor offset length advice
 
-linkAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Descriptor -> String -> Effect Unit
+linkAt :: Descriptor -> { symlinkFollow :: Boolean } -> String -> Descriptor -> String -> Effect (Either Unit FileError)
 linkAt descriptor pathFlags oldPath newDescriptor newPath = \token ->
   linkAtRaw descriptor pathFlags oldPath newDescriptor newPath
 

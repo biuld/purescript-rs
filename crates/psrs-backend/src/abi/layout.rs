@@ -123,7 +123,7 @@ fn aggregate_layout(cases: &[Option<&CanonicalType>]) -> Option<MemoryLayout> {
 /// The canonical return-area `(size, align)` of a result passed through a
 /// return pointer. A unit-success `result<_, E>` is still sized from its error
 /// payload so an error larger than the scratch region allocates its buffer; the
-/// trap path reads only the discriminant.
+/// mapped `Either` result decodes that error payload from the buffer.
 pub(crate) fn result_area(ty: &CanonicalType) -> Option<(u32, u32)> {
     match ty {
         CanonicalType::Result { .. } => variant_area(ty),

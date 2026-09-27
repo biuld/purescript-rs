@@ -170,14 +170,17 @@ aggregate WIT forms to the idiomatic library types: a tuple to a closed record,
 `option<T>` to `Data.Maybe.Maybe T`, `result<O, E>` to
 `Data.Either.Either O E`, and a non-unit `variant` to a source data type whose
 constructors follow the WIT case order. `Maybe` and `Either` are recognized by
-their qualified names, never by constructor shape. A standard-library wrapper
-may still pass one of those forms as a sequence of primitive arguments (`Int`,
-`Boolean`, `Number`, `Char`, `String`, `Unit`, with a handle declared as `Int`)
-whose flattening equals `Resolve::wasm_signature` for that function
+their qualified names, never by constructor shape. Every `result` maps to an
+`Either`, including a unit-success or unit-error one: an absent payload position
+is a nullary WIT case whose source field is `Unit`, so `result<_, E>` is
+`Either Unit E`, `result<O, _>` is `Either O Unit`, and plain `result` is
+`Either Unit Unit`. There is no `Unit`/trap special case. A standard-library
+wrapper may still pass one of those forms as a sequence of primitive arguments
+(`Int`, `Boolean`, `Number`, `Char`, `String`, `Unit`, with a handle declared as
+`Int`) whose flattening equals `Resolve::wasm_signature` for that function
 ([primitive FFI and the standard library](primitive-ffi-and-stdlib.md)).
 A canonical result that is several values stays unsupported until that whole
-result is one primitive or a mapped aggregate. The unit-success `result` keeps
-its existing `Unit` mapping (trap on failure).
+result is one primitive or a mapped aggregate.
 
 ### Resolving and validating
 
@@ -219,8 +222,9 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
   an `i32`/`f64` used directly, and a `list`/`string` read from the return area
   as `(pointer, length)`, copied into a fresh GC value, and the linear buffer
   freed. A
-  `result<_, _>` with a unit success payload reads the one-byte discriminant and
-  traps on a nonzero status rather than silently succeeding.
+  `result<_, E>` reads the one-byte discriminant, decodes the selected error
+  payload when present, and builds the mapped `Either` (its absent ok field is
+  the `Unit` value), exactly like any other mapped result.
 - **Aggregate parameters and results.** A mapped `option`, `result`, or
   `variant` carries a canonical discriminant followed by the joined payload
   slots. As a parameter the lowering branches on the source tag: the selected
@@ -526,15 +530,15 @@ Consider an import
 
 ```purescript
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  writeStdout :: Int -> String -> Unit
+  writeStdout :: Int -> String -> Either Unit StreamError
 ```
 
 and a call `writeStdout handle message`. Resolution yields `module =
 "wasi:io/streams@0.2.12"`, `name =
 "[method]output-stream.blocking-write-and-flush"`, `param_kinds = [Handle,
 List]` (the `String` is a byte list), `retptr = true`, and `result_kind =
-Result` (the WIT function returns `result<_, stream-error>` with a unit success
-payload). Lowering `writeStdout handle message` emits:
+Result` (the WIT function returns `result<_, stream-error>`; DEC-13 maps it to
+`Either Unit StreamError`). Lowering `writeStdout handle message` emits:
 
 ```text
 v_len   = Load [0] message            # message[0..4] is the byte length
@@ -542,10 +546,14 @@ v_bytes = message + 4
 v_ret   = Constant 0                  # PRINT_SCRATCH return pointer
 CallVoid writeStdout(handle, v_bytes, v_len, v_ret)
 v_stat  = Load8U [0] 0                # canonical result discriminant
-v_bad   = v_stat != 0
-TrapIf v_bad
-result  = Constant 0                  # Unit
+switch v_stat
+  case 0: result = VariantNew Left [Constant 0]        # Left (), the ok case
+  case 1: payload = Decode stream-error at v_ret       # the error payload
+          result = VariantNew Right [payload]
 ```
+
+A nonzero status no longer traps: the error payload is decoded and wrapped in
+`Right`, so the source program observes the failure as an `Either` value.
 
 If the same program also used a `list`-returning import, P10 would additionally
 synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
@@ -712,7 +720,8 @@ Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct
 records with nested byte-list fields, and flags words; indirect parameter tuples
 through `cabi_realloc`; non-byte lists of scalars, `bool`, `char`, strings, nullary enums, flags, resource handles, and directly flattened records of scalar or string fields;
-the unit-success `result` and scalar/list result paths.
+every `result` as a mapped `Either`, including unit-success/unit-error results,
+and scalar/list result paths.
 Regression tests cover those shapes.
 
 ## References

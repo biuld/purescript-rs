@@ -24,7 +24,7 @@ use crate::BackendError;
 use crate::abi::canonical::CanonicalType;
 use crate::abi::{self, WasiImport};
 use crate::cc::GuestLayout;
-use crate::mir::{NumericOp, UnaryOp};
+use crate::mir::UnaryOp;
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
@@ -251,68 +251,6 @@ pub(super) fn lower<L: WitCallLowerer>(
                 Instruction::CallVoid {
                     function: import.symbol,
                     arguments: flat,
-                    span,
-                },
-                span,
-            )?;
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Constant {
-                    destination,
-                    value: 0,
-                    span,
-                },
-                span,
-            )?;
-        }
-        Some(CanonicalType::Result { ok: None, .. }) => {
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::CallVoid {
-                    function: import.symbol,
-                    arguments: flat,
-                    span,
-                },
-                span,
-            )?;
-            let status = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Load8U {
-                    destination: status,
-                    address: retptr.expect("a result takes a return pointer"),
-                    memory: MemoryId(0),
-                    offset: 0,
-                    span,
-                },
-                span,
-            )?;
-            let zero = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Constant {
-                    destination: zero,
-                    value: 0,
-                    span,
-                },
-                span,
-            )?;
-            let failed = lowerer.fresh_wit_value(ValueType::Boolean);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Primitive {
-                    destination: failed,
-                    op: NumericOp::I32Ne,
-                    left: status,
-                    right: zero,
-                    span,
-                },
-                span,
-            )?;
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::TrapIf {
-                    condition: failed,
                     span,
                 },
                 span,

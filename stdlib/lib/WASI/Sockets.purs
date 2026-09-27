@@ -112,12 +112,12 @@ createUdpSocket family = \token ->
     Left socket -> Right socket
     Right err -> Left err
 
-foreign import "wasi:sockets/tcp#[method]tcp-socket.start-bind" tcpStartBindRaw :: TcpSocket -> Network -> IpSocketAddress -> Unit
-foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-bind" tcpFinishBindRaw :: TcpSocket -> Unit
-foreign import "wasi:sockets/tcp#[method]tcp-socket.start-connect" tcpStartConnectRaw :: TcpSocket -> Network -> IpSocketAddress -> Unit
-foreign import "wasi:sockets/tcp#[method]tcp-socket.start-listen" tcpStartListenRaw :: TcpSocket -> Unit
-foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-listen" tcpFinishListenRaw :: TcpSocket -> Unit
-foreign import "wasi:sockets/tcp#[method]tcp-socket.shutdown" tcpShutdownRaw :: TcpSocket -> ShutdownType -> Unit
+foreign import "wasi:sockets/tcp#[method]tcp-socket.start-bind" tcpStartBindRaw :: TcpSocket -> Network -> IpSocketAddress -> Either Unit NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-bind" tcpFinishBindRaw :: TcpSocket -> Either Unit NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.start-connect" tcpStartConnectRaw :: TcpSocket -> Network -> IpSocketAddress -> Either Unit NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.start-listen" tcpStartListenRaw :: TcpSocket -> Either Unit NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-listen" tcpFinishListenRaw :: TcpSocket -> Either Unit NetworkError
+foreign import "wasi:sockets/tcp#[method]tcp-socket.shutdown" tcpShutdownRaw :: TcpSocket -> ShutdownType -> Either Unit NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.finish-connect" tcpFinishConnectRaw :: TcpSocket -> Either { _1 :: InputStream, _2 :: OutputStream } NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.accept" tcpAcceptRaw :: TcpSocket -> Either { _1 :: TcpSocket, _2 :: InputStream, _3 :: OutputStream } NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.is-listening" tcpIsListeningRaw :: TcpSocket -> Boolean
@@ -126,22 +126,22 @@ foreign import "wasi:sockets/tcp#[method]tcp-socket.local-address" tcpLocalAddre
 foreign import "wasi:sockets/tcp#[method]tcp-socket.remote-address" tcpRemoteAddressRaw :: TcpSocket -> Either IpSocketAddress NetworkError
 foreign import "wasi:sockets/tcp#[method]tcp-socket.keep-alive-idle-time" tcpKeepAliveIdleTimeRaw :: TcpSocket -> Either Int NetworkError
 
-tcpStartBind :: TcpSocket -> Network -> IpSocketAddress -> Effect Unit
+tcpStartBind :: TcpSocket -> Network -> IpSocketAddress -> Effect (Either Unit NetworkError)
 tcpStartBind socket network address = \token -> tcpStartBindRaw socket network address
 
-tcpFinishBind :: TcpSocket -> Effect Unit
+tcpFinishBind :: TcpSocket -> Effect (Either Unit NetworkError)
 tcpFinishBind socket = \token -> tcpFinishBindRaw socket
 
-tcpStartConnect :: TcpSocket -> Network -> IpSocketAddress -> Effect Unit
+tcpStartConnect :: TcpSocket -> Network -> IpSocketAddress -> Effect (Either Unit NetworkError)
 tcpStartConnect socket network address = \token -> tcpStartConnectRaw socket network address
 
-tcpStartListen :: TcpSocket -> Effect Unit
+tcpStartListen :: TcpSocket -> Effect (Either Unit NetworkError)
 tcpStartListen socket = \token -> tcpStartListenRaw socket
 
-tcpFinishListen :: TcpSocket -> Effect Unit
+tcpFinishListen :: TcpSocket -> Effect (Either Unit NetworkError)
 tcpFinishListen socket = \token -> tcpFinishListenRaw socket
 
-tcpShutdown :: TcpSocket -> ShutdownType -> Effect Unit
+tcpShutdown :: TcpSocket -> ShutdownType -> Effect (Either Unit NetworkError)
 tcpShutdown socket how = \token -> tcpShutdownRaw socket how
 
 tcpFinishConnect :: TcpSocket -> Effect (Either NetworkError { _1 :: InputStream, _2 :: OutputStream })
@@ -180,17 +180,17 @@ tcpKeepAliveIdleTime socket = \token ->
     Left duration -> Right duration
     Right err -> Left err
 
-foreign import "wasi:sockets/udp#[method]udp-socket.start-bind" udpStartBindRaw :: UdpSocket -> Network -> IpSocketAddress -> Unit
-foreign import "wasi:sockets/udp#[method]udp-socket.finish-bind" udpFinishBindRaw :: UdpSocket -> Unit
+foreign import "wasi:sockets/udp#[method]udp-socket.start-bind" udpStartBindRaw :: UdpSocket -> Network -> IpSocketAddress -> Either Unit NetworkError
+foreign import "wasi:sockets/udp#[method]udp-socket.finish-bind" udpFinishBindRaw :: UdpSocket -> Either Unit NetworkError
 foreign import "wasi:sockets/udp#[method]udp-socket.address-family" udpAddressFamilyRaw :: UdpSocket -> IpAddressFamily
 foreign import "wasi:sockets/udp#[method]udp-socket.local-address" udpLocalAddressRaw :: UdpSocket -> Either IpSocketAddress NetworkError
 foreign import "wasi:sockets/udp#[method]udp-socket.remote-address" udpRemoteAddressRaw :: UdpSocket -> Either IpSocketAddress NetworkError
 foreign import "wasi:sockets/udp#[method]udp-socket.stream" udpSocketStreamRaw :: UdpSocket -> Maybe IpSocketAddress -> Either { _1 :: IncomingDatagramStream, _2 :: OutgoingDatagramStream } NetworkError
 
-udpStartBind :: UdpSocket -> Network -> IpSocketAddress -> Effect Unit
+udpStartBind :: UdpSocket -> Network -> IpSocketAddress -> Effect (Either Unit NetworkError)
 udpStartBind socket network address = \token -> udpStartBindRaw socket network address
 
-udpFinishBind :: UdpSocket -> Effect Unit
+udpFinishBind :: UdpSocket -> Effect (Either Unit NetworkError)
 udpFinishBind socket = \token -> udpFinishBindRaw socket
 
 udpAddressFamily :: UdpSocket -> Effect IpAddressFamily
