@@ -298,6 +298,148 @@ main =
 }
 
 #[test]
+fn lowers_the_filesystem_wrapper_surface() {
+    // Every wrapper exercises a distinct WIT shape: flags and record
+    // parameters, a `result<T, error-code>` result, an owned handle result,
+    // and stream handles.
+    let source = r#"module Main where
+import Prelude
+import Data.Either (Either(..))
+import WASI.Filesystem
+main =
+  let dirs = runEffect preopens in
+  let dir = arrayIndex dirs 0 in
+  let d = dir._1 in
+  let opened = runEffect (openRead d "a.txt") in
+  let wrote = runEffect (write d "x" 0) in
+  let bytes = runEffect (read d 1 0) in
+  let hash = runEffect (metadataHash d) in
+  let kind = runEffect (getType d) in
+  let flags = runEffect (getFlags d) in
+  let target = runEffect (readlinkAt d "a") in
+  let same = runEffect (isSameObject d d) in
+  let bracketed = runEffect (withDescriptor d (\handle -> getType handle)) in
+  let ignored = runEffect (setSize d 0) in
+  0
+"#;
+    let artifact =
+        compile_source("Main.purs", source).expect("every filesystem wrapper should lower");
+    assert!(artifact.wat.contains("wasi:filesystem/preopens@0.2.12"));
+    assert!(artifact.wat.contains("wasi:filesystem/types@0.2.12"));
+}
+
+#[test]
+fn lowers_the_sockets_wrapper_surface() {
+    let source = r#"module Main where
+import Prelude
+import Data.Either (Either(..))
+import WASI.Sockets
+addr :: IpSocketAddress
+addr = IpV4SocketAddress { port: 0, address: { _1: 0, _2: 0, _3: 0, _4: 0 } }
+main =
+  let network = runEffect instanceNetwork in
+  let created = runEffect (createTcpSocket Ipv4) in
+  case created of
+    Right socket ->
+      let ignored = runEffect (tcpStartBind socket network addr) in
+      let ignoredFinish = runEffect (tcpFinishBind socket) in
+      let family = runEffect (tcpAddressFamily socket) in
+      let dropped = runEffect (dropTcpSocket socket) in
+      0
+    Left _ -> 1
+"#;
+    let artifact = compile_source("Main.purs", source).expect("every sockets wrapper should lower");
+    assert!(
+        artifact
+            .wat
+            .contains("wasi:sockets/instance-network@0.2.12")
+    );
+    assert!(
+        artifact
+            .wat
+            .contains("wasi:sockets/tcp-create-socket@0.2.12")
+    );
+    assert!(artifact.wat.contains("wasi:sockets/tcp@0.2.12"));
+}
+
+#[test]
+fn rejects_a_raw_filesystem_import_from_the_library() {
+    let errors = check_source(
+        "Main.purs",
+        "module Main where\nimport WASI.Filesystem (openAtRaw)\nmain = 0\n",
+    )
+    .expect_err("openAtRaw is not part of the filesystem export list");
+    assert!(
+        errors.iter().any(|error| {
+            error.message.contains("openAtRaw") && error.message.contains("not exported")
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_raw_sockets_import_from_the_library() {
+    let errors = check_source(
+        "Main.purs",
+        "module Main where\nimport WASI.Sockets (createTcpSocketRaw)\nmain = 0\n",
+    )
+    .expect_err("createTcpSocketRaw is not part of the sockets export list");
+    assert!(
+        errors.iter().any(|error| {
+            error.message.contains("createTcpSocketRaw") && error.message.contains("not exported")
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn writes_and_reads_a_file_through_preopens_when_wasmtime_is_available() {
+    let source = r#"module Main where
+import Prelude
+import Data.Either (Either(..))
+import WASI.Console (log)
+import WASI.Filesystem
+main =
+  let dirs = runEffect preopens in
+  let dir = arrayIndex dirs 0 in
+  let created = runEffect (openWrite (dir._1) "roundtrip.txt") in
+  case created of
+    Left _ -> 1
+    Right file ->
+      let wrote = runEffect (writeString file "roundtrip") in
+      let closed = runEffect (dropDescriptor file) in
+      let reopened = runEffect (openRead (dir._1) "roundtrip.txt") in
+      case reopened of
+        Left _ -> 2
+        Right reader ->
+          let contents = runEffect (withDescriptor reader (\openReader -> readString openReader 64)) in
+          case contents of
+            Left _ -> 3
+            Right text -> let ignored = runEffect (log text) in 0
+"#;
+    let directory = std::env::temp_dir().join(format!(
+        "psrs-fs-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let Some(output) = run_wasmtime_with_dirs(source, &[], None, &[(directory.clone(), "/data")])
+    else {
+        eprintln!("skipping: wasmtime is not installed");
+        let _ = std::fs::remove_dir_all(&directory);
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(output.stdout, b"roundtrip\n", "{output:?}");
+    let written = std::fs::read(directory.join("roundtrip.txt")).expect("the guest wrote the file");
+    assert_eq!(written, b"roundtrip");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+#[test]
 fn drops_a_stream_handle_when_wasmtime_is_available() {
     let source = r#"module Main where
 import Prelude

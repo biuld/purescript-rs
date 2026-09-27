@@ -292,6 +292,8 @@ fn typecheck_program(
                     | "WASI.Random"
                     | "WASI.Exit"
                     | "WASI.Environment"
+                    | "WASI.Filesystem"
+                    | "WASI.Sockets"
             );
         let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
             module,

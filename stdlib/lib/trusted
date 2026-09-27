@@ -13,3 +13,5 @@ WASI.Stdin
 WASI.Console
 WASI.Exit
 WASI.Environment
+WASI.Filesystem
+WASI.Sockets

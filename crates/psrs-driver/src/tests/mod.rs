@@ -31,6 +31,17 @@ fn run_with_wasmtime_stdin(source: &str, input: &[u8]) -> Option<std::process::O
 }
 
 fn run_wasmtime(source: &str, args: &[&str], input: Option<&[u8]>) -> Option<std::process::Output> {
+    run_wasmtime_with_dirs(source, args, input, &[])
+}
+
+/// Runs a compiled program under Wasmtime with host directories exposed to the
+/// guest. Each `(host, guest)` pair becomes a `--dir host::guest` preopen.
+fn run_wasmtime_with_dirs(
+    source: &str,
+    args: &[&str],
+    input: Option<&[u8]>,
+    dirs: &[(std::path::PathBuf, &str)],
+) -> Option<std::process::Output> {
     if std::process::Command::new("wasmtime")
         .arg("--version")
         .output()
@@ -49,7 +60,13 @@ fn run_wasmtime(source: &str, args: &[&str], input: Option<&[u8]>) -> Option<std
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
     let mut command = std::process::Command::new("wasmtime");
-    command.arg("run").arg(&path).args(args);
+    command.arg("run");
+    for (host, guest) in dirs {
+        command
+            .arg("--dir")
+            .arg(format!("{}::{}", host.display(), guest));
+    }
+    command.arg(&path).args(args);
     let output = match input {
         None => command.output().unwrap(),
         Some(input) => {
