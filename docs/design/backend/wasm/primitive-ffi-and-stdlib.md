@@ -146,10 +146,10 @@ aggregate forms below. `Maybe`, `Either`, and a non-unit variant are classified
 and validated against their WIT descriptor, and their MIR tag-branch lowering
 rebuilds the source value recursively for a directly flattenable payload, a
 closed record of directly flattenable fields, and a nested
-`option`/`result`/`variant` (a scalar of any width, a byte or non-byte list of a
-supported element, an enum, `flags`, a handle, a closed record of flattenable
-fields, or a nested mapped aggregate); a result-handle or aggregate-record-field
-payload is rejected with a named diagnostic.
+`option`/`result`/`variant` (a scalar of any width, a byte or non-byte list, an
+enum, `flags`, a handle, a closed record, or a nested mapped aggregate, recursing
+through record fields and a `list<record>`/`list<flags>` element); a
+result-handle payload is rejected with a named diagnostic.
 
 The existing enum, closed-record, and flags-record lowering still accepts
 those declarations and is not deleted. They keep a resolved type and still

@@ -16,7 +16,7 @@ mod source_abi;
 mod verify;
 
 pub(crate) use source_abi::abstract_signature;
-pub use source_abi::{ExternalPayloads, PayloadNode};
+pub use source_abi::{ExternalPayloads, PayloadField, PayloadNode};
 
 use layout::{aggregate_type_ids, declaration_shape, enum_type_ids, type_layout};
 use lower::{GeneratedSymbolAllocator, LoweringContext, lower_function};

@@ -118,15 +118,13 @@ pub(super) fn read_flags<L: WitCallLowerer>(
 pub(super) fn read_value_list<L: WitCallLowerer>(
     lowerer: &mut L,
     representation: crate::cc::ReprId,
+    _element_node: &crate::cc::PayloadNode,
     element: &WasiParamKind,
     address: ValueId,
     offset: u32,
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    let element = abi::list_element(element).ok_or_else(|| unsupported(span))?;
-    let pointer = load(lowerer, address, offset, block, span)?;
-    let length = load(lowerer, address, offset + 4, block, span)?;
     let array_type = lowerer
         .wit_repr_index(representation)
         .ok_or_else(|| unsupported(span))?;
@@ -134,21 +132,53 @@ pub(super) fn read_value_list<L: WitCallLowerer>(
         nullable: false,
         heap: HeapType::Index(array_type),
     }));
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::ListCopy {
-            direction: crate::mir::ListDirection::Load,
-            array: destination,
-            array_type,
-            pointer,
-            length,
-            element,
+    let shape = ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Repr(representation),
+    });
+    if let Some(element) = abi::list_element(element) {
+        let pointer = load(lowerer, address, offset, block, span)?;
+        let length = load(lowerer, address, offset + 4, block, span)?;
+        lowerer.append_wit_instruction(
+            block,
+            Instruction::ListCopy {
+                direction: crate::mir::ListDirection::Load,
+                array: destination,
+                array_type,
+                pointer,
+                length,
+                element,
+                span,
+            },
             span,
-        },
-        span,
-    )?;
-    let (size, align) = abi::element_layout(element);
-    let bytes = crate::mir::wit::lists::scale(lowerer, length, size, block, span)?;
-    free_buffer(lowerer, pointer, bytes, align, block, span)?;
+        )?;
+        let (size, align) = abi::element_layout(element);
+        let bytes = crate::mir::wit::lists::scale(lowerer, length, size, block, span)?;
+        free_buffer(lowerer, pointer, bytes, align, block, span)?;
+        return Ok(destination);
+    }
+    match element {
+        WasiParamKind::Record { .. } => crate::mir::wit::lists::read_record_value_list_from(
+            lowerer,
+            element,
+            &shape,
+            destination,
+            address,
+            offset,
+            block,
+            span,
+        )?,
+        WasiParamKind::Flags { .. } => crate::mir::wit::lists::read_flags_value_list_from(
+            lowerer,
+            element,
+            &shape,
+            destination,
+            address,
+            offset,
+            block,
+            span,
+        )?,
+        _ => return Err(unsupported(span)),
+    }
     Ok(destination)
 }

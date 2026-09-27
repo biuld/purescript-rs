@@ -19,8 +19,19 @@ pub enum PayloadNode {
     /// No concrete shape (an unused default).
     #[default]
     None,
-    /// A scalar, string, closed record, or array value.
+    /// A scalar or string value.
     Value(ValueShape),
+    /// A closed record with its representation and per-field payloads. A `flags`
+    /// type is also a record of Booleans; the WIT kind selects the bit layout.
+    Record {
+        representation: ReprId,
+        fields: Vec<PayloadField>,
+    },
+    /// A non-byte list with its array representation and element payload.
+    List {
+        representation: ReprId,
+        element: Box<PayloadNode>,
+    },
     /// A source variant with its representation and per-case payloads in tag
     /// order. A nullary case is `None`.
     Variant {
@@ -29,13 +40,33 @@ pub enum PayloadNode {
     },
 }
 
+/// One record field of a [`PayloadNode`], keyed by its source label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PayloadField {
+    pub name: String,
+    pub node: PayloadNode,
+}
+
 impl PayloadNode {
     pub(crate) fn shape(&self) -> Option<ValueShape> {
         Some(match self {
             PayloadNode::None => return None,
             PayloadNode::Value(shape) => *shape,
-            PayloadNode::Variant { representation, .. } => reference(*representation),
+            PayloadNode::Record { representation, .. }
+            | PayloadNode::List { representation, .. }
+            | PayloadNode::Variant { representation, .. } => reference(*representation),
         })
+    }
+
+    /// The payload node of a record field by source label.
+    pub(crate) fn field(&self, name: &str) -> Option<&PayloadNode> {
+        let PayloadNode::Record { fields, .. } = self else {
+            return None;
+        };
+        fields
+            .iter()
+            .find(|field| field.name == name)
+            .map(|field| &field.node)
     }
 }
 
@@ -105,14 +136,40 @@ fn payload_node(
         CoreType::Boolean => PayloadNode::Value(ValueShape::Boolean),
         CoreType::F64 => PayloadNode::Value(ValueShape::Number),
         CoreType::String => PayloadNode::Value(ValueShape::String),
-        CoreType::Record(_) => PayloadNode::Value(reference(*record_types.get(&id)?)),
-        CoreType::Application(function, _)
+        CoreType::Record(fields) => {
+            let representation = *record_types.get(&id)?;
+            let fields = fields
+                .iter()
+                .map(|(name, field)| {
+                    payload_node(module, *field, record_types, array_types, type_reprs).map(
+                        |node| PayloadField {
+                            name: name.clone(),
+                            node,
+                        },
+                    )
+                })
+                .collect::<Option<Vec<_>>>()?;
+            PayloadNode::Record {
+                representation,
+                fields,
+            }
+        }
+        CoreType::Application(function, element)
             if matches!(
                 module.types.get(function.0 as usize),
                 Some(CoreType::Constructor(TypeConstructor::Array))
             ) =>
         {
-            PayloadNode::Value(reference(*array_types.get(&id)?))
+            PayloadNode::List {
+                representation: *array_types.get(&id)?,
+                element: Box::new(payload_node(
+                    module,
+                    *element,
+                    record_types,
+                    array_types,
+                    type_reprs,
+                )?),
+            }
         }
         CoreType::Constructor(TypeConstructor::User(_)) | CoreType::Application(_, _) => {
             user_payload_node(module, id, record_types, array_types, type_reprs)?

@@ -52,7 +52,8 @@ pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
             scalar_layout(width, slot_for_width(width))
         }
         WasiParamKind::Flags { names } => flags_layout(names.len()),
-        WasiParamKind::List => Some(MemoryLayout {
+        // A byte or non-byte list is a `(pointer, length)` pair.
+        WasiParamKind::List | WasiParamKind::ValueList { .. } => Some(MemoryLayout {
             size: 8,
             align: 4,
             slots: vec![
@@ -79,7 +80,7 @@ pub(crate) fn parameter_layout(kind: &WasiParamKind) -> Option<MemoryLayout> {
                 .collect::<Vec<_>>();
             aggregate_layout(&cases)
         }
-        WasiParamKind::ValueList { .. } | WasiParamKind::Unsupported => None,
+        WasiParamKind::Unsupported => None,
     }
 }
 

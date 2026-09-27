@@ -4,8 +4,10 @@ mod record;
 
 mod flags;
 
+pub(super) use flags::read_flags_value_list_from;
 use flags::{read_flags_value_list_result, write_flags_value_list};
 pub(super) use record::free_record_string_elements;
+pub(super) use record::read_record_value_list_from;
 use record::{read_record_value_list_result, write_record_value_list};
 
 use super::super::BlockId;
