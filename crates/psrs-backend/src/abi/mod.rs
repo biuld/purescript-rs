@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
+pub(crate) mod canonical;
 mod classification;
 mod flatten;
 mod handles;
