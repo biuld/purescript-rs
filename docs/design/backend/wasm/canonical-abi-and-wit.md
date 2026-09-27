@@ -609,6 +609,16 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   loader discovers user modules from the entry files' directories and follows
   the import graph ([WASI platform library](wasi-platform-library.md)). Loading
   the standard library from disk stays future work.
+- **Compositional, type-directed lowering.** The descriptor-classification and
+  per-shape lowering internals described here — `WasiParamKind`,
+  `WasiResultKind`, `FlatSlot`, `ListElement`, the CC payload tree, and the
+  per-shape MIR modules — are superseded by one normalized recursive canonical
+  type with generic flatten, size/align, store/load, lower/lift, and free-plan
+  operations, specified in
+  [compositional canonical ABI lowering](canonical-abi-compositional.md). That
+  document replaces only those shape-enumerating internals; this document
+  remains the owner of the WIT binding contract, the source type mapping, and
+  the boundary validation.
 
 ### GC canonical ABI
 
