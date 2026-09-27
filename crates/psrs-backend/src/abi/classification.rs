@@ -163,21 +163,24 @@ fn contains_rejected_list(resolve: &Resolve, ty: &WitType, nested: bool) -> bool
                 .types
                 .iter()
                 .any(|ty| contains_rejected_list(resolve, ty, true)),
-            TypeDefKind::Option(inner) => contains_rejected_list(resolve, inner, true),
+            // A mapped aggregate's payload is lowered recursively, so a
+            // non-byte list directly under `option`/`result`/`variant` is
+            // allowed at the same nesting level.
+            TypeDefKind::Option(inner) => contains_rejected_list(resolve, inner, nested),
             TypeDefKind::Result(result) => {
                 result
                     .ok
                     .as_ref()
-                    .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
+                    .is_some_and(|ty| contains_rejected_list(resolve, ty, nested))
                     || result
                         .err
                         .as_ref()
-                        .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
+                        .is_some_and(|ty| contains_rejected_list(resolve, ty, nested))
             }
             TypeDefKind::Variant(variant) => variant.cases.iter().any(|case| {
                 case.ty
                     .as_ref()
-                    .is_some_and(|ty| contains_rejected_list(resolve, ty, true))
+                    .is_some_and(|ty| contains_rejected_list(resolve, ty, nested))
             }),
             TypeDefKind::Type(inner) => contains_rejected_list(resolve, inner, nested),
             _ => false,

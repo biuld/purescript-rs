@@ -561,11 +561,12 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   representation and the concrete shape of every nested payload, and MIR
   branches on each tag and rebuilds the source value recursively
   ([Aggregate parameters and results](#lowering-a-call)). A payload is lowered
-  when it is a scalar of any width (`s8`..`u64`, `f32`/`f64`), a byte list, an
-  enum, a handle, a closed record of directly flattenable fields, or a nested
-  `option`/`result`/variant; a non-byte list, `flags`, resource handle in a
-  result, or a record field that is itself an aggregate is rejected with a named
-  diagnostic. Indirect records are lowered for the classified parameter kinds; a
+  when it is a scalar of any width (`s8`..`u64`, `f32`/`f64`), a byte or
+  non-byte list of a supported element, an enum, `flags`, a handle, a closed
+  record of directly flattenable fields, or a nested `option`/`result`/variant;
+  a resource handle in a result or a record field that is itself an aggregate is
+  rejected with a named diagnostic. Indirect records are lowered for the
+  classified parameter kinds; a
   mapped aggregate inside an indirect parameter record is not. Narrowed and
   unsigned WIT integers and non-byte `list<T>` results have a source mapping and
   are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
@@ -662,10 +663,11 @@ implementation coverage, not design choices. The allocator, buffer free, and
   their variant representation and a `PayloadNode` tree with each payload's
   concrete shape, and MIR branches on the tag and rebuilds the source value
   recursively. A scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte
-  list, an enum, a handle, a closed record of directly flattenable fields, and a
-  nested `option`, `result`, or `variant` are lowered; a non-byte list, `flags`,
-  resource handle in a result, or aggregate record field is rejected with a
-  named diagnostic. Non-byte `list<T>` of a supported element is lowered.
+  or non-byte list of a supported element, an enum, `flags`, a handle, a closed
+  record of directly flattenable fields, and a nested `option`, `result`, or
+  `variant` are lowered; a resource handle in a result or an aggregate record
+  field is rejected with a named diagnostic. Non-byte `list<T>` of a supported
+  element is lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table

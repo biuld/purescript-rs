@@ -5,6 +5,7 @@
 //! flattens the selected payload; as a result it branches on the return-area
 //! discriminant and rebuilds the source value.
 
+mod collections;
 mod decode;
 mod memory;
 mod parameter;
