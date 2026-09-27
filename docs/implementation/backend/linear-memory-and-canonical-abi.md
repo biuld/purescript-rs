@@ -53,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. A result-handle payload stays unsupported. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. | In progress |
 
 ## Evidence record and completion rule
 
@@ -301,8 +301,10 @@ ABI-08:
     ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)). An indirect
     parameter record carries a mapped aggregate as its discriminant and joined
     payload, and a large aggregate return area is allocated through
-    `cabi_realloc`. A resource handle in a result is rejected with a named
-    diagnostic. This keeps BE-19 `Partial`.
+    `cabi_realloc`. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md)
+    a handle in a result is an ordinary value, the compiler exposes
+    `resource.drop` to source, and a borrow result is rejected. This keeps BE-19
+    `Partial`.
 ```
 
 ## Remaining work and blockers
@@ -320,7 +322,9 @@ MIR recursive tag-branch lowering for a scalar payload of any width, a byte or
 non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`
 are implemented, recursing through record fields and a `list<record>`/
 `list<flags>` element; a large aggregate return area is allocated through
-`cabi_realloc`, while a result-handle payload remains. The non-byte `list<T>` /
+`cabi_realloc`. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md)
+the compiler drops no handle on its own and exposes `resource.drop` to source.
+The non-byte `list<T>` /
 `Array` part of ABI-08 is lowered for supported elements and now also for a
 `list<record>`/`list<flags>` aggregate payload. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

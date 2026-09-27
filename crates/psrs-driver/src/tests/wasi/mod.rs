@@ -9,6 +9,10 @@ fn lowers_string_log_to_wasi_stdout() {
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
+    assert!(
+        artifact.wat.contains("[resource-drop]output-stream"),
+        "the standard-library wrapper drops the stdout handle explicitly"
+    );
     // The literal is a passive UTF-16 data segment materialized once into a
     // lazily initialized global, so the WAT holds its code units rather than
     // ASCII and guards `array.new_data` with `ref.is_null`/`global.set`.
@@ -448,5 +452,19 @@ fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
     assert!(
         import_is_reached_only_from_a_closure(&forced_funcs, forced_entry, forced_import),
         "runEffect still calls exit-with-code from the closure, not the entry"
+    );
+}
+
+#[test]
+fn an_explicit_resource_drop_lowers_to_the_canonical_drop() {
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/stdout#get-stdout\" getStdout :: Int\n\
+        foreign import \"wasi:io/streams#[resource-drop]output-stream\" dropStdout :: Int -> Unit\n\
+        main = let ignored = dropStdout getStdout in 0\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("an explicit resource drop should lower to the canonical drop");
+    assert!(
+        artifact.wat.contains("[resource-drop]output-stream"),
+        "the drop intrinsic should be emitted"
     );
 }

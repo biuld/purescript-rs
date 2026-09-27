@@ -3,6 +3,7 @@
 Prelude
 Data.Maybe
 Data.Either
+WASI.Resource
 WASI.Console
 WASI.Clock
 WASI.Random

@@ -105,13 +105,9 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
         | abi::WasiParamKind::Char
         | abi::WasiParamKind::Float64
         | abi::WasiParamKind::Enum { .. } => flat.push(argument),
-        abi::WasiParamKind::Handle(handle) => {
-            // `own<T>` transfers the index; the host lifts it, so do not drop it too.
-            if handle.mode == abi::HandleMode::Own {
-                lowerer.transfer_owned(argument);
-            }
-            flat.push(argument);
-        }
+        // A handle is one canonical `i32` index. The compiler does not track its
+        // ownership; the standard library drops it explicitly (DEC-14).
+        abi::WasiParamKind::Handle(_) => flat.push(argument),
         abi::WasiParamKind::Float32 => {
             let narrowed = lowerer.fresh_wit_value(ValueType::F32);
             lowerer.append_wit_instruction(

@@ -103,6 +103,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "Prelude",
             "Data.Maybe",
             "Data.Either",
+            "WASI.Resource",
             "WASI.Console",
             "WASI.Clock",
             "WASI.Random",
@@ -116,6 +117,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             path.ends_with("lib/Prelude.purs")
                 || path.ends_with("lib/Data/Maybe.purs")
                 || path.ends_with("lib/Data/Either.purs")
+                || path.ends_with("lib/WASI/Resource.purs")
                 || path.ends_with("lib/WASI/Console.purs")
                 || path.ends_with("lib/WASI/Clock.purs")
                 || path.ends_with("lib/WASI/Random.purs")

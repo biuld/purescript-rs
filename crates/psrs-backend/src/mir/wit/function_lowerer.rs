@@ -180,14 +180,6 @@ impl WitCallLowerer for FunctionLowerer<'_> {
         self.resolved_repr_index(repr)
     }
 
-    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
-        self.note_owned_handle(value, drop_symbol, span);
-    }
-
-    fn transfer_owned(&mut self, value: ValueId) {
-        self.transfer_owned_handle(value);
-    }
-
     fn wit_array_type(
         &self,
         value: ValueId,
