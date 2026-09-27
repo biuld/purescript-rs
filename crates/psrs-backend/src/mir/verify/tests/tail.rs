@@ -20,6 +20,7 @@ fn module_with(caller: Function, callee: Function) -> Module {
         name: "TailVerifierTest".into(),
         types: Vec::new(),
         strings: Vec::new(),
+        layout: None,
         imports: Vec::new(),
         entry: Some(caller.symbol),
         functions: vec![caller, callee],

@@ -158,6 +158,11 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
                 lowerer, argument, element, guest, flat, frees, current, span,
             )?;
         }
+        CanonicalType::FixedList { element, length } => {
+            super::lists::write_fixed_list(
+                lowerer, argument, element, *length, guest, flat, frees, current, span,
+            )?;
+        }
         CanonicalType::Record(fields) => {
             let Some(GuestLayout::Product {
                 labels,
@@ -195,7 +200,7 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
         CanonicalType::Int { .. } | CanonicalType::Float { .. } => {
             return Err(unsupported_parameter(span));
         }
-        CanonicalType::Result { .. } | CanonicalType::FixedList { .. } => {
+        CanonicalType::Result { .. } => {
             return Err(unsupported_parameter(span));
         }
     }

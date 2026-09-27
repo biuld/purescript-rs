@@ -28,7 +28,7 @@ use crate::wasm::FunctionIndex;
 use closure::ClosureOps;
 use dispatcher::DispatcherOps;
 use helpers::ValueOps;
-pub(super) use lists::uses_list_copy;
+pub(super) use lists::list_copy_depth;
 use psrs_hir::SymbolId;
 use region::RegionOps;
 use std::collections::HashMap;
@@ -55,7 +55,11 @@ pub(super) struct Structurer<'a> {
     /// The interned global for each string literal, allocated by `runtime`.
     pub(super) literal_globals: &'a HashMap<DataId, GlobalIndex>,
     /// Loop index and scratch locals, present when the function copies a list.
-    pub(super) list_locals: Option<(u32, u32)>,
+    pub(super) list_locals: Option<super::ListLocals>,
+    /// The concrete target layout, used to resolve a list element's recursive
+    /// guest layout and representation type indices. `None` for a hand-built
+    /// test module with no representation table.
+    pub(super) layout: Option<&'a crate::mir::layout::PlannedLayout>,
 }
 impl Structurer<'_> {
     pub(super) fn emit_control_flow(&self, body: &mut Body) -> Result<bool, Vec<BackendError>> {

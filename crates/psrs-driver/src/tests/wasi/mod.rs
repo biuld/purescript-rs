@@ -219,6 +219,25 @@ fn reads_environment_arguments_when_wasmtime_is_available() {
 }
 
 #[test]
+fn reads_environment_variables_as_records_when_wasmtime_is_available() {
+    // `get-environment` returns the canonical `list<tuple<string, string>>`,
+    // which maps to an `Array` of two-field records. This exercises an
+    // aggregate list element end to end.
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/environment#get-environment\" env :: Array { _1 :: String, _2 :: String }\n\
+        main = arrayLength env\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("list<tuple<string, string>> should lower to an array of records");
+    assert!(artifact.wat.contains("get-environment"));
+    assert!(artifact.wat.contains("array.new_default"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
+#[test]
 fn rejects_a_wit_import_when_the_declared_source_type_does_not_match() {
     let source = "module Main where\n\
         foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: String -> String\n\

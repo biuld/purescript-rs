@@ -1,6 +1,6 @@
 //! Decodes a mapped aggregate payload from the canonical return area.
 
-use super::collections::{read_flags, read_value_list};
+use super::collections::{read_fixed_list, read_flags, read_value_list};
 use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8};
 use super::*;
 use crate::abi::layout::{self, SlotKind};
@@ -94,6 +94,23 @@ fn build_concrete<L: WitCallLowerer>(
                     *repr,
                     *element,
                     wit_element,
+                    address,
+                    offset,
+                    block,
+                    span,
+                )?,
+                block,
+            )),
+            CanonicalType::FixedList {
+                element: wit_element,
+                length,
+            } => Ok((
+                read_fixed_list(
+                    lowerer,
+                    *repr,
+                    *element,
+                    wit_element,
+                    *length,
                     address,
                     offset,
                     block,

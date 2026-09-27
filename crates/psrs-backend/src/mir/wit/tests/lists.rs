@@ -1,6 +1,6 @@
 use super::common::{RecordingLowerer, reference, signature};
 use super::*;
-use crate::abi::canonical::CanonicalType;
+use crate::abi::canonical::{CanonicalType, Ownership, ResourceId};
 use crate::abi::test_support::import;
 use crate::mir::ListDirection;
 use crate::types::DefinedTypeId;
@@ -110,4 +110,36 @@ fn an_array_of_enums_lowers_to_a_narrow_list_parameter() {
             }
         )
     }));
+}
+
+#[test]
+fn a_borrow_list_result_is_rejected_with_a_named_diagnostic() {
+    let mut lowerer = RecordingLowerer::default();
+    let handle = CanonicalType::Handle {
+        resource: ResourceId {
+            interface: "test:io/streams".into(),
+            name: "file".into(),
+        },
+        ownership: Ownership::Borrow,
+    };
+    let import = list_import(Vec::new(), Some(CanonicalType::List(Box::new(handle))));
+    let result = lower(
+        &mut lowerer,
+        &import,
+        &signature(Vec::new()),
+        ValueId(0),
+        &[],
+        TextRange::new(0, 1),
+        BlockId(0),
+    );
+    let errors = match result {
+        Ok(_) => panic!("a list<borrow<T>> result must be rejected"),
+        Err(errors) => errors,
+    };
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("list<borrow<T>> result cannot outlive")),
+        "{errors:?}"
+    );
 }

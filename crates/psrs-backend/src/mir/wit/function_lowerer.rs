@@ -194,4 +194,77 @@ impl WitCallLowerer for FunctionLowerer<'_> {
             )]),
         }
     }
+
+    fn wit_array_get(
+        &mut self,
+        block: BlockId,
+        array: ValueId,
+        array_type: crate::types::DefinedTypeId,
+        element: crate::cc::ValueShape,
+        index: u32,
+        span: TextRange,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let index_value = self.fresh(ValueType::I32);
+        self.append_instruction(
+            block,
+            Instruction::Constant {
+                destination: index_value,
+                value: index as i32,
+                span,
+            },
+            span,
+        )?;
+        let element_type = self.resolved_value_type(&element).ok_or_else(|| {
+            vec![BackendError::new(
+                "P9 MIR lowering",
+                span,
+                "fixed-length list element has no value type",
+            )]
+        })?;
+        if let ValueType::Ref(reference) = element_type
+            && !reference.nullable
+        {
+            let temporary = self.fresh(ValueType::Ref(crate::types::RefType {
+                nullable: true,
+                heap: reference.heap,
+            }));
+            self.append_instruction(
+                block,
+                Instruction::ArrayGet {
+                    destination: temporary,
+                    type_index: array_type,
+                    value: array,
+                    index: index_value,
+                    span,
+                },
+                span,
+            )?;
+            let destination = self.fresh(element_type);
+            self.append_instruction(
+                block,
+                Instruction::RefCast {
+                    destination,
+                    value: temporary,
+                    reference,
+                    span,
+                },
+                span,
+            )?;
+            Ok(destination)
+        } else {
+            let destination = self.fresh(element_type);
+            self.append_instruction(
+                block,
+                Instruction::ArrayGet {
+                    destination,
+                    type_index: array_type,
+                    value: array,
+                    index: index_value,
+                    span,
+                },
+                span,
+            )?;
+            Ok(destination)
+        }
+    }
 }

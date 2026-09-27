@@ -98,9 +98,11 @@ fn element_storage_matches(element: &CanonicalType, storage: &StorageType) -> bo
             matches!(storage, StorageType::Ref(_))
         }
         CanonicalType::Float { .. } => *storage == StorageType::F64,
-        CanonicalType::Record(_) | CanonicalType::Flags(_) => {
-            matches!(storage, StorageType::Ref(_))
-        }
+        CanonicalType::Record(_)
+        | CanonicalType::Flags(_)
+        | CanonicalType::Option(_)
+        | CanonicalType::Result { .. }
+        | CanonicalType::Variant(_) => matches!(storage, StorageType::Ref(_)),
         _ => *storage == StorageType::I32,
     }
 }

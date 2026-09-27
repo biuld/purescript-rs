@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) mod cfg;
 mod instruction;
-mod layout;
+pub(crate) mod layout;
 mod literals;
 mod lower;
 mod numeric;
@@ -55,6 +55,11 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver.
     pub entry: Option<SymbolId>,
+    /// The concrete target layout the module was planned from. P10 reads the
+    /// recursive representation table and representation-to-type mapping from
+    /// here to resolve a list element's guest layout. `None` for a hand-built
+    /// test module with no representation table.
+    pub(crate) layout: Option<layout::PlannedLayout>,
     pub span: TextRange,
 }
 
@@ -351,11 +356,12 @@ fn lower_module_after_binding_validation(
     let strings = literals.into_strings();
     let mir = Module {
         name: module.name,
-        types: layout.types,
+        types: layout.types.clone(),
         strings,
         imports,
         functions,
         entry: module.entry,
+        layout: Some(layout),
         span: module.span,
     };
     verify_module_with_capabilities(&mir, target)?;
@@ -366,10 +372,21 @@ fn lower_module_after_binding_validation(
 fn element_has_bytes(element: &crate::abi::canonical::CanonicalType) -> bool {
     use crate::abi::canonical::CanonicalType;
     match element {
-        CanonicalType::String | CanonicalType::List(_) | CanonicalType::FixedList { .. } => {
-            element.is_byte_list()
+        CanonicalType::String => true,
+        CanonicalType::List(inner) | CanonicalType::FixedList { element: inner, .. } => {
+            inner.is_byte() || element_has_bytes(inner)
         }
-        CanonicalType::Record(fields) => fields.iter().any(|field| field.ty.is_byte_list()),
+        CanonicalType::Record(fields) => fields
+            .iter()
+            .any(|field| field.ty.is_byte_list() || element_has_bytes(&field.ty)),
+        CanonicalType::Option(inner) => element_has_bytes(inner),
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_some_and(element_has_bytes)
+                || err.as_deref().is_some_and(element_has_bytes)
+        }
+        CanonicalType::Variant(cases) => cases
+            .iter()
+            .any(|case| case.payload.as_deref().is_some_and(element_has_bytes)),
         _ => false,
     }
 }

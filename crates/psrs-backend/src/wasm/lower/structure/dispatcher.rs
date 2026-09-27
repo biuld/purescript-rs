@@ -26,7 +26,9 @@ impl DispatcherOps for Structurer<'_> {
     ) -> Result<(), Vec<BackendError>> {
         let count = i32::try_from(block_ids.len())
             .map_err(|_| wasm_error(self.function.span, "MIR has too many blocks for dispatch"))?;
-        let list_locals = u32::from(self.list_locals.is_some()) * 2;
+        let list_locals = self.list_locals.map_or(0, |locals| {
+            locals.index_count() + locals.scratch_count() + locals.array_count()
+        });
         let state_local = u32::try_from(self.function.values.len())
             .map_err(|_| wasm_error(self.function.span, "MIR function has too many values"))?
             + list_locals;

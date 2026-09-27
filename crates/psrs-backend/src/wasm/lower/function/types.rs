@@ -4,7 +4,7 @@
 //! function whose signature matches one reuses its index, otherwise a fresh
 //! function type is appended after the defined types.
 
-use super::{value_type, wasm_error};
+use super::super::{value_type, wasm_error};
 use crate::BackendError;
 use crate::mir;
 use crate::types::CompositeType;
@@ -13,7 +13,7 @@ use crate::wasm::{FuncType, TypeIndex};
 use std::collections::HashMap;
 use wasm_encoder::ValType;
 
-pub(super) fn collect_function_types(
+pub(crate) fn collect_function_types(
     module: &mir::Module,
     defined: u32,
     initial_types: Vec<FuncType>,

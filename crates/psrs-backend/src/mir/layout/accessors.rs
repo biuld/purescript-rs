@@ -8,13 +8,13 @@ use crate::cc::{
 use crate::types::{DefinedTypeId, HeapType, RefType, ValueType};
 
 impl PlannedLayout {
-    pub(in crate::mir) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
+    pub(crate) fn repr_index(&self, id: ReprId) -> Result<DefinedTypeId, LayoutError> {
         self.repr_indices
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
     }
-    pub(in crate::mir) fn product_field(
+    pub(crate) fn product_field(
         &self,
         id: DefinedTypeId,
         field: u32,
@@ -25,14 +25,14 @@ impl PlannedLayout {
             .copied()
             .ok_or(LayoutError::UnknownField)
     }
-    pub(in crate::mir) fn array_element(&self, id: ReprId) -> Result<CcValueShape, LayoutError> {
+    pub(crate) fn array_element(&self, id: ReprId) -> Result<CcValueShape, LayoutError> {
         self.array_elements
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownRepresentation)
     }
 
-    pub(in crate::mir) fn variant_index(
+    pub(crate) fn variant_index(
         &self,
         id: ReprId,
         case: u32,
@@ -44,7 +44,7 @@ impl PlannedLayout {
     }
 
     /// The stored field shapes of a variant case, before the tag field.
-    pub(in crate::mir) fn variant_field(
+    pub(crate) fn variant_field(
         &self,
         id: ReprId,
         case: u32,
@@ -56,36 +56,28 @@ impl PlannedLayout {
             .copied()
             .ok_or(LayoutError::UnknownField)
     }
-    pub(in crate::mir) fn signature_index(
-        &self,
-        id: SignatureId,
-    ) -> Result<DefinedTypeId, LayoutError> {
+    pub(crate) fn signature_index(&self, id: SignatureId) -> Result<DefinedTypeId, LayoutError> {
         self.signature_indices
             .get(&id)
             .copied()
             .ok_or(LayoutError::UnknownSignature)
     }
 
-    pub(in crate::mir) fn closure_layout(
-        &self,
-    ) -> Result<(DefinedTypeId, DefinedTypeId), LayoutError> {
+    pub(crate) fn closure_layout(&self) -> Result<(DefinedTypeId, DefinedTypeId), LayoutError> {
         self.closure_index
             .zip(self.capture_array_index)
             .ok_or(LayoutError::UnknownClosureLayout)
     }
 
-    pub(in crate::mir) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
+    pub(crate) fn boxed_number_index(&self) -> Option<DefinedTypeId> {
         self.boxed_number_index
     }
 
-    pub(in crate::mir) fn boxed_integer_index(&self) -> Option<DefinedTypeId> {
+    pub(crate) fn boxed_integer_index(&self) -> Option<DefinedTypeId> {
         self.boxed_integer_index
     }
 
-    pub(in crate::mir) fn value_type(
-        &self,
-        value: &CcValueShape,
-    ) -> Result<ValueType, LayoutError> {
+    pub(crate) fn value_type(&self, value: &CcValueShape) -> Result<ValueType, LayoutError> {
         value_type(
             value,
             &self.repr_indices,
@@ -95,14 +87,11 @@ impl PlannedLayout {
     }
 
     /// The GC string type index, present exactly when a `String` is reachable.
-    pub(in crate::mir) fn string_index(&self) -> Option<DefinedTypeId> {
+    pub(crate) fn string_index(&self) -> Option<DefinedTypeId> {
         self.string_index
     }
 
-    pub(in crate::mir) fn reference(
-        &self,
-        reference: &CcReference,
-    ) -> Result<RefType, LayoutError> {
+    pub(crate) fn reference(&self, reference: &CcReference) -> Result<RefType, LayoutError> {
         Ok(RefType {
             nullable: reference.nullable,
             heap: match reference.heap {

@@ -159,6 +159,86 @@ pub(super) fn read_value_list<L: WitCallLowerer>(
     Ok(destination)
 }
 
+/// Rebuilds a non-byte GC array from a fixed-length list whose elements are
+/// inline at `offset` in the return area.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn read_fixed_list<L: WitCallLowerer>(
+    lowerer: &mut L,
+    representation: crate::cc::ReprId,
+    element_shape: ValueShape,
+    element: &CanonicalType,
+    length: u32,
+    address: ValueId,
+    offset: u32,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let array_type = lowerer
+        .wit_repr_index(representation)
+        .ok_or_else(|| unsupported(span))?;
+    let element_guest = lowerer
+        .wit_guest_layout(element_shape)
+        .ok_or_else(|| unsupported(span))?;
+    let struct_type = element_struct_type(lowerer, &element_guest, span)?;
+    let destination = lowerer.fresh_wit_value(ValueType::Ref(RefType {
+        nullable: false,
+        heap: HeapType::Index(array_type),
+    }));
+    let pointer = if offset == 0 {
+        address
+    } else {
+        let constant = lowerer.fresh_wit_value(ValueType::I32);
+        lowerer.append_wit_instruction(
+            block,
+            Instruction::Constant {
+                destination: constant,
+                value: offset as i32,
+                span,
+            },
+            span,
+        )?;
+        let sum = lowerer.fresh_wit_value(ValueType::I32);
+        lowerer.append_wit_instruction(
+            block,
+            Instruction::Primitive {
+                destination: sum,
+                op: crate::mir::NumericOp::I32Add,
+                left: address,
+                right: constant,
+                span,
+            },
+            span,
+        )?;
+        sum
+    };
+    let count = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::Constant {
+            destination: count,
+            value: length as i32,
+            span,
+        },
+        span,
+    )?;
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::ListCopy {
+            direction: crate::mir::ListDirection::Load,
+            array: destination,
+            array_type,
+            struct_type,
+            pointer,
+            length: count,
+            element: element.clone(),
+            element_guest,
+            span,
+        },
+        span,
+    )?;
+    Ok(destination)
+}
+
 /// The concrete element struct type for a record or flags element, or a
 /// placeholder for scalars and strings.
 pub(super) fn element_struct_type<L: WitCallLowerer>(

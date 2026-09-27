@@ -154,18 +154,19 @@ fn join_slot_kind(left: SlotKind, right: SlotKind) -> Option<SlotKind> {
 }
 
 /// The canonical return-area `(size, align)` of a result passed through a
-/// return pointer. `None` when the result has no known indirect layout (a
-/// unit-success `result`, whose error payload the trap path does not read).
+/// return pointer. A unit-success `result<_, E>` is still sized from its error
+/// payload so an error larger than the scratch region allocates its buffer; the
+/// trap path reads only the discriminant.
 pub(crate) fn result_area(ty: &CanonicalType) -> Option<(u32, u32)> {
     match ty {
-        CanonicalType::Result { ok: None, .. } => None,
+        CanonicalType::Result { .. } => variant_area(ty),
         CanonicalType::Option(_) | CanonicalType::Variant(_) => variant_area(ty),
-        CanonicalType::Result {
-            ok: Some(_),
-            err: Some(_),
-        } => variant_area(ty),
         CanonicalType::String | CanonicalType::List(_) => Some((8, 4)),
         CanonicalType::FixedList { element, .. } if element.is_byte() => Some((8, 4)),
+        CanonicalType::FixedList { .. } => {
+            let size = size_align(ty);
+            Some((size.size, size.align))
+        }
         _ => None,
     }
 }

@@ -57,7 +57,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. `list<option<T>>`, `list<result<O, E>>`, and `list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and inside aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are now classified and lowered (recursively from the canonical element and its guest layout), and a unit-success `result<_, E>` sizes its return area from the error payload; the aggregate, nested, fixed-length, and owned-handle-list shapes have synthesized lower/encode/validate fixtures and the source-reachable aggregate list runs under Wasmtime. | In progress |
 
 ## Evidence record and completion rule
 
@@ -273,16 +273,24 @@ ABI-08:
     crates/psrs-backend/src/abi/canonical/ (CanonicalType, resolve, flatten,
     leaves, size_align); memory layout in crates/psrs-backend/src/abi/layout.rs;
     MIR lowering in crates/psrs-backend/src/mir/wit/ (parameters, aggregate,
-    lists, free); Wasm loops in
-    crates/psrs-backend/src/wasm/lower/structure/lists/. A shape the source
-    cannot express is rejected at binding time; the guest half is CC's
-    RepresentationTable through guest_layout.
+    lists, free); Wasm loops in crates/psrs-backend/src/wasm/lower/structure/lists/
+    (element.rs, aggregate.rs, nested.rs, record.rs). A non-byte list element is
+    copied recursively from its canonical type and guest layout: scalars,
+    `string`/`list<u8>`, records, flags (including multi-word), `option`/`result`/
+    `variant`, nested lists, and owned-handle lists as parameters and results. A
+    shape the source cannot express is rejected at binding time; the guest half
+    is CC's RepresentationTable through guest_layout.
   Tests: psrs-backend abi::tests::lists::
     interns_an_array_of_supported_elements_and_rejects_nested_arrays,
-    classifies_scalar_and_string_lists_and_rejects_aggregates;
-    mir::wit::tests::lists::{a_list_of_strings_result_lowers_to_an_array,
-    an_array_of_ints_lowers_to_a_list_parameter};
+    classifies_scalar_and_string_lists_and_rejects_aggregates,
+    admits_a_non_byte_fixed_length_list;
+    abi::canonical::tests::result_area_sizes_a_unit_success_from_its_error_payload;
+    mir::wit::tests::lists::
+    a_borrow_list_result_is_rejected_with_a_named_diagnostic;
+    mir::indirect_tests::record_list::tests::* (aggregate, nested, fixed, and
+    multi-word-flags elements, lower/encode/validate);
     psrs-driver tests::wasi::{
+    reads_environment_variables_as_records_when_wasmtime_is_available,
     lowers_a_list_of_strings_to_an_array,
     lowers_the_environment_arguments_wrapper_to_an_array,
     reads_environment_arguments_when_wasmtime_is_available,
@@ -292,10 +300,14 @@ ABI-08:
   Input boundary: WIT signatures, source, and executed component.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
     cargo test -p psrs-backend --lib abi::tests::lists;
-    cargo test -p psrs-backend --lib mir::wit::tests::lists.
-  Result: pass under Wasmtime 49.0.1. A `list<string>` result is copied into a
-    GC array and `WASI.Environment.arguments` recovers it; non-byte lists of
-    aggregates are rejected with a source diagnostic.
+    cargo test -p psrs-backend --lib mir::wit::tests::lists;
+    cargo test -p psrs-backend --lib mir::indirect_tests::record_list.
+  Result: pass under Wasmtime 49.0.1. `list<string>` and an aggregate list
+    result are copied into a GC array; `option`/`result`/`variant`, nested lists,
+    multi-word flags, and non-byte fixed-length lists are classified and lowered;
+    a unit-success `result<_, E>` sizes its return area from the error payload;
+    a `list<own<T>>` result is an ordinary index array and a `list<borrow<T>>`
+    result is rejected by name.
   Gaps: `option`, `result`, and non-unit `variant` are classified and validated
     against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type,
     CC derives their variant representation and a concrete payload tree, and MIR
@@ -308,8 +320,11 @@ ABI-08:
     payload, and a large aggregate return area is allocated through
     `cabi_realloc`. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md)
     a handle in a result is an ordinary value, the compiler exposes
-    `resource.drop` to source, and a borrow result is rejected. This keeps BE-19
-    `Partial`.
+    `resource.drop` to source, and a borrow result is rejected. Aggregate,
+    nested, fixed-length, and `list<own<T>>` shapes are not source-reachable, so
+    they have synthesized lower/encode/validate evidence rather than a Wasmtime
+    run; the source-reachable aggregate list (`list<tuple<string, string>>`) runs
+    under Wasmtime. This keeps BE-19 `Partial`.
 ```
 
 ## Remaining work and blockers
