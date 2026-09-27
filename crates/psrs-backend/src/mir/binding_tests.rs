@@ -112,7 +112,7 @@ fn p9_emits_a_referenced_external_binding() {
 }
 
 #[test]
-fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
+fn p9_exposes_an_owned_handle_without_dropping_it() {
     let external = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let module = cc::Module {
         name: "Drop".into(),
@@ -170,33 +170,15 @@ fn p9_drops_an_owned_handle_that_the_function_does_not_return() {
             span: span(),
         }],
     };
-    let (mir, wasi) =
+    let (mir, _wasi) =
         lower_module_with_bindings(module, bindings, crate::TargetCapabilities::default())
-            .expect("an owned stdout handle should lower with a drop");
-    let drop_import = wasi
-        .imports()
-        .iter()
-        .find(|import| import.name == "[resource-drop]output-stream")
-        .expect("resource.drop should be interned");
-    assert_eq!(drop_import.module, "wasi:io/streams@0.2.12");
+            .expect("an owned stdout handle should lower");
     assert!(
-        mir.imports
+        mir.functions[0]
+            .blocks
             .iter()
-            .any(|import| import.symbol == drop_import.symbol),
-        "the drop intrinsic should be a core import"
-    );
-    let dropped = mir.functions[0].blocks.iter().any(|block| {
-        block.instructions.iter().any(|instruction| {
-            matches!(
-                instruction,
-                crate::mir::Instruction::CallVoid { function, arguments, .. }
-                    if *function == drop_import.symbol
-                        && arguments == &[crate::types::ValueId(0)]
-            )
-        })
-    });
-    assert!(
-        dropped,
-        "resource.drop should run when the owned handle is consumed"
+            .flat_map(|block| &block.instructions)
+            .all(|instruction| !matches!(instruction, crate::mir::Instruction::CallVoid { .. })),
+        "the compiler must not drop a handle on its own (DEC-14)"
     );
 }

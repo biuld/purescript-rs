@@ -252,14 +252,20 @@ ownership are fixed by
 
 ### Resources and handles
 
-A resource handle is an index into a guest-owned resource table. `own<T>`
-transfers ownership: the receiver must eventually `resource.drop` it, and the
-lowering inserts that drop when the owning value is consumed. `borrow<T>` is a
-non-owning reference whose borrow must not outlive the call; the lowering
-releases the borrow when the call returns. A handle owned by an export result is
-released by the export's `post-return`. Handle types are declared in source with
-`foreign import data`, which mirrors a WIT resource. The drop and borrow-release
-timing relative to the buffer ownership classes is fixed by
+A resource handle is an index into a guest-owned resource table. Under
+[DEC-14](../../../decision/DEC-14-resource-handle-ownership.md) the standard
+library owns the lifetime discipline: the compiler does not drop or release a
+handle on its own and does not track ownership through aggregates. It exposes
+the canonical `resource.drop` to source, so a `foreign import
+"<interface>#[resource-drop]<resource>"` names the drop and the library calls it
+at the right point. A handle nested in an aggregate is an ordinary value of the
+aggregate; the library wrapper that destructures it drops each owned handle it
+extracts. A `borrow<T>` in a result is rejected because the borrow scope is the
+call that produced it, which has ended; a `borrow<T>` parameter stays
+host-managed within the call. A handle owned by an export result is released by
+the export's `post-return`. Handle types are declared in source with
+`foreign import data`, which mirrors a WIT resource. The drop timing relative to
+the buffer ownership classes is fixed by
 [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ### Rejected alternatives
@@ -578,13 +584,14 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   `(pointer, length)` buffer; `string` and `list<u8>` elements are transcoded and
   their element buffers freed.
 - **Resources.** `own`/`borrow` handles are lowered
-  ([Resources and handles](#resources-and-handles)): an owned import result is
-  dropped with `resource.drop` when the receiving function does not return it
-  and does not pass it to an `own` parameter; a borrow result is released when
-  that call returns; an export whose result is `own<T>` releases the handle in
-  `cabi_post_<name>`. An owned handle returned as `Int` from a non-export
-  function is not tracked in the caller. Handles nested in an unsupported
-  aggregate are not dropped.
+  ([Resources and handles](#resources-and-handles)): the compiler does not drop
+  or release a handle on its own and exposes `resource.drop` to source, so the
+  standard library owns the lifetime discipline
+  ([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). An export
+  whose result is `own<T>` releases the handle in `cabi_post_<name>`; a
+  `borrow<T>` result is rejected; a handle nested in an aggregate is an ordinary
+  value the library wrapper drops. A source-declared
+  `[resource-drop]<resource>` import lowers to the canonical drop.
 - **Source integration.** Parsed source can declare `Array` foreign signatures
   and reaches the ABI boundary; non-byte lists of supported elements (scalars,
   `bool`, `char`, and `string`/`list<u8>`) are lowered.
@@ -655,13 +662,15 @@ implementation coverage, not design choices. The allocator, buffer free, and
   area; the synthesis is implemented and verified with a synthesized
   `string`-returning export because no source construct names a non-scalar
   export yet.
-- An owned handle that a non-export function returns as `Int` is not dropped
-  in that function and is not tracked after the return. Handles nested inside
-  an unsupported aggregate are not dropped. A borrow result is released by
-  `resource.drop` immediately after the import returns; a later use is
-  rejected. An owned handle is dropped once in the function that received it,
-  unless that function returns the index or passes it to an `own` parameter.
-  A second drop, or a use after the borrow release, is rejected.
+- The compiler never drops or releases a handle on its own; the standard
+  library calls `resource.drop` explicitly
+  ([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). A
+  source-declared `[resource-drop]<resource>` import lowers to the canonical
+  drop. A handle returned as `Int`, or nested in an aggregate, is an ordinary
+  value; the library wrapper that consumes it drops it. The verifier only
+  rejects dropping or transferring the same owned handle twice. A `borrow<T>`
+  result is rejected because its scope has ended; a `borrow<T>` parameter stays
+  host-managed within the call.
 - `option`/`result`/`variant` are classified and validated against
   `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives
   their variant representation and a `PayloadNode` tree with each payload's

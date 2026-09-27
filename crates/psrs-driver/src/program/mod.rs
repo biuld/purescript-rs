@@ -282,6 +282,7 @@ fn typecheck_program(
             && matches!(
                 module.name.as_str(),
                 "Prelude"
+                    | "WASI.Resource"
                     | "WASI.Console"
                     | "WASI.Clock"
                     | "WASI.Random"

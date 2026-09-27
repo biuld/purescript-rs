@@ -168,10 +168,17 @@ impl super::WasiRegistry {
     /// The guest calls this intrinsic to remove a handle from its table.
     /// wit-component lowers the import to `canon resource.drop`.
     fn intern_resource_drop(&mut self, interface: &str, resource: &str) -> SymbolId {
+        let index = self.intern_resource_drop_index(interface, resource);
+        self.imports[index].symbol
+    }
+
+    /// Interns `[resource-drop]<resource>` and returns its index. Shared by the
+    /// signature binding and a source-declared drop.
+    pub(super) fn intern_resource_drop_index(&mut self, interface: &str, resource: &str) -> usize {
         let field = drop_import_field(resource);
         let key = (interface.to_string(), field.clone());
         if let Some(index) = self.keys.get(&key) {
-            return self.imports[*index].symbol;
+            return *index;
         }
         let symbol = SymbolId::new(
             ModuleId::INTRINSICS,
@@ -189,7 +196,8 @@ impl super::WasiRegistry {
             retptr: false,
             flat_slots: vec![super::FlatSlot::Int32],
         });
-        self.keys.insert(key, self.imports.len() - 1);
-        symbol
+        let index = self.imports.len() - 1;
+        self.keys.insert(key, index);
+        index
     }
 }

@@ -8,6 +8,7 @@ mod large;
 mod list_record;
 mod nested;
 mod record_fields;
+mod resource_result;
 mod scalars;
 
 use super::lower_module_with_registry;
@@ -24,6 +25,7 @@ use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_vari
 use record_fields::{
     record_with_aggregate_field_fixture, record_with_aggregate_field_parameter_fixture,
 };
+use resource_result::resource_result_fixture;
 use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
 use wit_parser::Resolve;
 
@@ -323,6 +325,44 @@ fn indirect_aggregate_parameter_lowers_to_a_wasm_artifact() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the indirect aggregate parameter Wasm should validate");
+}
+
+#[test]
+fn nested_resource_result_is_exposed_without_an_automatic_drop() {
+    let (module, bindings, resolve) = resource_result_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower a nested resource result");
+    let drop_symbols = registry
+        .imports()
+        .iter()
+        .filter(|import| import.name.starts_with("[resource-drop]"))
+        .map(|import| import.symbol)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        mir.functions
+            .iter()
+            .flat_map(|function| &function.blocks)
+            .flat_map(|block| &block.instructions)
+            .all(|instruction| !matches!(
+                instruction,
+                crate::mir::Instruction::CallVoid { function, .. }
+                    if drop_symbols.contains(function)
+            )),
+        "the compiler must not drop a nested handle on its own"
+    );
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the resource ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the nested resource result");
+    let binary = crate::wasm::encode_module(&wasm).expect("the resource Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the nested resource result Wasm should validate");
 }
 
 #[test]

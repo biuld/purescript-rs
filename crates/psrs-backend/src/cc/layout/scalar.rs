@@ -139,6 +139,27 @@ pub(crate) fn declaration_shape(
                     parameters,
                     result: aggregate_value_type(),
                 })
+            } else if newtype_ids.contains(&type_id) {
+                let Some(inner) = newtype_field_type(module, type_id) else {
+                    return Err(layout_error(
+                        declaration.span,
+                        "newtype must have exactly one field",
+                    ));
+                };
+                Ok(Signature {
+                    parameters,
+                    result: scalar_type(
+                        module,
+                        inner,
+                        declaration.span,
+                        enum_types,
+                        aggregate_types,
+                        newtype_ids,
+                        array_types,
+                        record_types,
+                        function_types,
+                    )?,
+                })
             } else {
                 Err(vec![BackendError::new(
                     "P8 closure conversion",
@@ -252,6 +273,21 @@ pub(crate) fn scalar_type(
                 Ok(ValueShape::Integer)
             } else if aggregate_types.contains(&type_id) {
                 Ok(aggregate_value_type())
+            } else if newtype_ids.contains(&type_id) {
+                let Some(inner) = newtype_field_type(module, type_id) else {
+                    return Err(layout_error(span, "newtype must have exactly one field"));
+                };
+                scalar_type(
+                    module,
+                    inner,
+                    span,
+                    enum_types,
+                    aggregate_types,
+                    newtype_ids,
+                    array_types,
+                    record_types,
+                    function_types,
+                )
             } else {
                 Err(vec![BackendError::new(
                     "P8 closure conversion",

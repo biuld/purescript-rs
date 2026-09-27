@@ -137,13 +137,6 @@ pub(crate) trait WitCallLowerer {
         None
     }
 
-    /// Records an `own<T>` result that this function must drop unless it
-    /// returns the index or passes it to another `own` parameter.
-    fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
-
-    /// An `own<T>` argument consumes a previously noted handle.
-    fn transfer_owned(&mut self, _value: ValueId) {}
-
     /// The GC array type of a source array value, when this lowerer has layouts.
     fn wit_array_type(
         &self,

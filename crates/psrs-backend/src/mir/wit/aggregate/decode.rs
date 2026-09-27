@@ -304,6 +304,7 @@ fn read_scalar<L: WitCallLowerer>(
             | WasiParamKind::Boolean
             | WasiParamKind::Char
             | WasiParamKind::Enum { .. }
+            | WasiParamKind::Handle(_)
     ) {
         return Err(unsupported(span));
     }

@@ -14,7 +14,7 @@ mod lists;
 mod parameters;
 
 pub(super) use call_lowerer::WitCallLowerer;
-pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
+pub(super) use handles::verify_function;
 
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
@@ -380,21 +380,9 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
             span,
         )?;
     }
-    // A borrow result cannot outlive this call: release it before the caller
-    // can use the index. An owned result stays live until it is transferred
-    // or the function drops it.
-    if let abi::WasiResultKind::Handle(handle) = &import.result_kind {
-        match handle.mode {
-            abi::HandleMode::Borrow => {
-                lowerer.append_wit_instruction(
-                    current,
-                    handles::borrow_release(destination, handle.drop_symbol, span),
-                    span,
-                )?;
-            }
-            abi::HandleMode::Own => lowerer.note_owned(destination, handle.drop_symbol, span),
-        }
-    }
+    // The compiler does not drop or release a handle on its own: the standard
+    // library owns the lifetime discipline and calls `resource.drop` explicitly
+    // (DEC-14).
     Ok(current)
 }
 

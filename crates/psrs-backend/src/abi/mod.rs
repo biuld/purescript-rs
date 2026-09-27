@@ -320,11 +320,6 @@ impl WasiRegistry {
             .get(interface_name)
             .copied()
             .ok_or_else(|| format!("`{interface}` is not vendored"))?;
-        let wit_function = self.resolve.interfaces[interface_id]
-            .functions
-            .get(function)
-            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
-            .clone();
         let module = self
             .resolve
             .id_of(interface_id)
@@ -333,6 +328,20 @@ impl WasiRegistry {
         if let Some(index) = self.keys.get(&key) {
             return Ok(self.imports[*index].clone());
         }
+        // A source-declared `[resource-drop]<resource>` names the canonical drop
+        // import rather than a WIT function (DEC-14).
+        if let Some(resource) = function.strip_prefix("[resource-drop]") {
+            if resource.is_empty() {
+                return Err(format!("`{interface}.{function}` is not a resource drop"));
+            }
+            let index = self.intern_resource_drop_index(&module, resource);
+            return Ok(self.imports[index].clone());
+        }
+        let wit_function = self.resolve.interfaces[interface_id]
+            .functions
+            .get(function)
+            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
+            .clone();
         let signature = self
             .resolve
             .wasm_signature(AbiVariant::GuestImport, &wit_function);
@@ -346,6 +355,13 @@ impl WasiRegistry {
             Some(ty) => result_kind(&self.resolve, ty),
         };
         let unsupported = unsupported_shape(&self.resolve, &wit_function, &result_kind)
+            .or_else(|| {
+                matches!(&result_kind, WasiResultKind::Handle(handle) if handle.mode == HandleMode::Borrow)
+                    .then(|| {
+                        "a borrow<T> result cannot outlive the call that produced it; return own<T> instead"
+                            .into()
+                    })
+            })
             .or_else(|| {
                 (!crate::component::component_interface_supported(&module)).then(|| {
                     format!(
