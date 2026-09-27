@@ -489,9 +489,12 @@ emit_free(plan, buffer_values, tag):
   is metadata, so per [DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)
   the library drops each extracted handle. A `list<borrow<T>>` or `borrow<T>`
   result is rejected because the borrow scope is the ended call.
-- **Unit-success result** (`result<_, _>`): a variant with no ok payload; when
-  the error payload is also empty it flattens to `[I32]`, so the result is
-  direct and the library's trap-on-nonzero visitor reads the tag.
+- **Unit-success result** (`result<_, _>`): a variant whose ok position is
+  absent; `flatten` is `[I32]` when the error payload is also empty, so the
+  result is direct. `result<_, E>` maps to `Either Unit E`
+  ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)): `lift`
+  reads the tag, decodes the error payload when present, and builds `Left ()`
+  or `Right err`. There is no trap path.
 - **Large error payload** (`result<_, string>`): `flatten` is
   `[I32, I32, I32]`, so `retptr` is set and `size_align` sizes the return area;
   the error branch reads `(pointer, length)` and frees the buffer.

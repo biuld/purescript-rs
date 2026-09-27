@@ -336,10 +336,10 @@ fn direct_parameter(ty: &CanonicalType) -> bool {
         CanonicalType::FixedList { element, .. } => direct_parameter(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
         CanonicalType::Option(inner) => direct_parameter(inner),
-        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
-            (Some(ok), Some(err)) => direct_parameter(ok) && direct_parameter(err),
-            _ => false,
-        },
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(direct_parameter)
+                && err.as_deref().is_none_or(direct_parameter)
+        }
         CanonicalType::Variant(cases) => cases
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct_parameter)),
@@ -394,10 +394,10 @@ pub(crate) fn parameter_has_source_abi(ty: &CanonicalType) -> bool {
         CanonicalType::FixedList { element, .. } => supported_list_element(element),
         CanonicalType::Record(fields) => fields.iter().all(|field| direct_parameter(&field.ty)),
         CanonicalType::Option(inner) => direct_parameter(inner),
-        CanonicalType::Result { ok, err } => match (ok.as_deref(), err.as_deref()) {
-            (Some(ok), Some(err)) => direct_parameter(ok) && direct_parameter(err),
-            _ => false,
-        },
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_none_or(direct_parameter)
+                && err.as_deref().is_none_or(direct_parameter)
+        }
         CanonicalType::Variant(cases) => cases
             .iter()
             .all(|case| case.payload.as_deref().is_none_or(direct_parameter)),

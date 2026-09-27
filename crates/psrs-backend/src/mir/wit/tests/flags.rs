@@ -3,6 +3,7 @@ use super::*;
 use crate::abi::canonical::CanonicalType;
 use crate::abi::test_support::import;
 use crate::cc::ValueShape;
+use crate::mir::NumericOp;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 #[test]

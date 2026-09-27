@@ -33,6 +33,77 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         .expect("one string");
     let unit = unit_type(&mut core);
 
+    // DEC-13: `blocking-write-and-flush` returns `result<_, stream-error>`,
+    // which maps to `Either Unit StreamError`. Build that source type so the
+    // receiver parameters can still be validated against the resolved import.
+    let either = HirTypeId::new(ModuleId(2), 0);
+    let stream_error = HirTypeId::new(ModuleId(2), 1);
+    let error_handle_type = HirTypeId::new(ModuleId(2), 2);
+    core.opaque_ids.push(error_handle_type);
+    core.type_names.push((either, "Data.Either.Either".into()));
+    let stream_error_type = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(TypeConstructor::User(stream_error))],
+    )
+    .pop()
+    .expect("one stream error");
+    let error_handle = intern_all(&mut core, vec![opaque_type(error_handle_type)])
+        .pop()
+        .expect("one error handle");
+    let either_head = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(TypeConstructor::User(either))],
+    )
+    .pop()
+    .expect("one either");
+    core.constructors.extend([
+        ConstructorInfo {
+            symbol: SymbolId::new(ModuleId(2), 0),
+            name: "Left".into(),
+            type_id: either,
+            tag: 0,
+            field_count: 1,
+            field_types: vec![unit],
+            parameters: Vec::new(),
+        },
+        ConstructorInfo {
+            symbol: SymbolId::new(ModuleId(2), 1),
+            name: "Right".into(),
+            type_id: either,
+            tag: 1,
+            field_count: 1,
+            field_types: vec![stream_error_type],
+            parameters: Vec::new(),
+        },
+        ConstructorInfo {
+            symbol: SymbolId::new(ModuleId(2), 2),
+            name: "LastOperationFailed".into(),
+            type_id: stream_error,
+            tag: 0,
+            field_count: 1,
+            field_types: vec![error_handle],
+            parameters: Vec::new(),
+        },
+        ConstructorInfo {
+            symbol: SymbolId::new(ModuleId(2), 3),
+            name: "Closed".into(),
+            type_id: stream_error,
+            tag: 1,
+            field_count: 0,
+            field_types: Vec::new(),
+            parameters: Vec::new(),
+        },
+    ]);
+    let either_unit = intern_all(&mut core, vec![CoreType::Application(either_head, unit)])
+        .pop()
+        .expect("one partial either");
+    let either_unit_stream_error = intern_all(
+        &mut core,
+        vec![CoreType::Application(either_unit, stream_error_type)],
+    )
+    .pop()
+    .expect("one unit-success either");
+
     let mut registry = WasiRegistry::load().expect("WASI WIT should load");
     let stdout = registry
         .import("wasi:cli/stdout", "get-stdout")
@@ -70,10 +141,20 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     assert_eq!(borrowed.mode, HandleMode::Borrow);
     assert_eq!(borrowed.name, "output-stream");
     assert!(write.params[1].is_byte_list());
-    validate_against(&write, core.clone(), &[opaque, string], unit)
-        .expect("the method should accept an opaque resource receiver");
-    validate_against(&write, core.clone(), &[integer, string], unit)
-        .expect("the integer placeholder should still match a handle parameter");
+    validate_against(
+        &write,
+        core.clone(),
+        &[opaque, string],
+        either_unit_stream_error,
+    )
+    .expect("the method should accept an opaque resource receiver");
+    validate_against(
+        &write,
+        core.clone(),
+        &[integer, string],
+        either_unit_stream_error,
+    )
+    .expect("the integer placeholder should still match a handle parameter");
     assert!(
         validate_against(&write, core.clone(), &[boolean, string], unit).is_err(),
         "a Boolean is not a handle parameter"

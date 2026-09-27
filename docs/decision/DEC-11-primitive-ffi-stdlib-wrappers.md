@@ -48,7 +48,8 @@ The standard library and the lowerer are two layers. The mechanism is
   must equal `Resolve::wasm_signature` for that WIT function. Discriminants
   and dummy payloads are written in PureScript.
 - A foreign import has one result, which the lowerer rebuilds as one
-  primitive. The unit-success `result` that traps on failure stays `Unit`.
+  primitive. A unit-success `result` now maps to `Either Unit E`
+  ([DEC-13](DEC-13-wit-to-source-type-mapping.md)), not `Unit` with a trap.
   A canonical result that is several values is not wrapped and is not given a
   compiler source type until the whole result is one primitive. A tuple return
   is not added to carry the extra words.

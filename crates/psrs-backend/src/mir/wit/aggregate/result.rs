@@ -96,6 +96,10 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
                 block,
                 span,
             )?,
+            // An absent WIT payload is a nullary case; its source case still
+            // carries a `Unit` field (for example `Left ()` of `Either Unit E`),
+            // decoded as the zero integer into the declared storage slot.
+            (None, Some(case_field)) => absent_payload(lowerer, case_field, block, span)?,
             _ => (None, block),
         };
         let built = lowerer.fresh_wit_value(aggregate_type());
@@ -121,6 +125,34 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
         lowerer.wit_jump(block, merge, vec![cast], span)?;
     }
     Ok(merge)
+}
+
+/// Builds the source field of a WIT case whose payload is absent. Such a case
+/// maps to a nullary WIT case and a `Unit` source field, so the field value is
+/// the zero integer, boxed and erased when its storage slot is erased (like any
+/// other `Unit` field).
+fn absent_payload<L: WitCallLowerer>(
+    lowerer: &mut L,
+    case_field: &crate::cc::Field,
+    block: BlockId,
+    span: TextRange,
+) -> Result<(Option<ValueId>, BlockId), Vec<BackendError>> {
+    let value = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        block,
+        Instruction::Constant {
+            destination: value,
+            value: 0,
+            span,
+        },
+        span,
+    )?;
+    let value = if is_erased(case_field.stored) {
+        box_scalar(lowerer, value, block, span)?
+    } else {
+        value
+    };
+    Ok((Some(value), block))
 }
 
 /// Lowers a top-level record result. The call writes the record into the

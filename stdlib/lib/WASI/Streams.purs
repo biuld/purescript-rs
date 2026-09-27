@@ -35,7 +35,7 @@ foreign import "wasi:io/streams#[method]input-stream.read" readRaw :: InputStrea
 foreign import "wasi:io/streams#[method]input-stream.blocking-read" blockingReadRaw :: InputStream -> Int -> Either String StreamError
 foreign import "wasi:io/streams#[method]input-stream.skip" skipRaw :: InputStream -> Int -> Either Int StreamError
 foreign import "wasi:io/streams#[method]input-stream.blocking-skip" blockingSkipRaw :: InputStream -> Int -> Either Int StreamError
-foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush" blockingWriteAndFlushRaw :: OutputStream -> String -> Unit
+foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush" blockingWriteAndFlushRaw :: OutputStream -> String -> Either Unit StreamError
 foreign import "wasi:io/streams#[method]input-stream.subscribe" subscribeInputStreamRaw :: InputStream -> Pollable
 foreign import "wasi:io/streams#[method]output-stream.subscribe" subscribeOutputStreamRaw :: OutputStream -> Pollable
 foreign import "wasi:io/streams#[resource-drop]input-stream" dropInputStreamRaw :: InputStream -> Unit
@@ -61,7 +61,7 @@ skip stream len = \token -> skipRaw stream len
 blockingSkip :: InputStream -> Int -> Effect (Either Int StreamError)
 blockingSkip stream len = \token -> blockingSkipRaw stream len
 
-blockingWriteAndFlush :: OutputStream -> String -> Effect Unit
+blockingWriteAndFlush :: OutputStream -> String -> Effect (Either Unit StreamError)
 blockingWriteAndFlush stream contents = \token ->
   blockingWriteAndFlushRaw stream contents
 
