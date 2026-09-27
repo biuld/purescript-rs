@@ -33,6 +33,9 @@ impl Instruction {
             | Self::ArrayLen { destination, .. }
             | Self::Load { destination, .. }
             | Self::Load8U { destination, .. }
+            | Self::LoadI64 { destination, .. }
+            | Self::LoadF32 { destination, .. }
+            | Self::LoadF64 { destination, .. }
             | Self::WrapI64 { destination, .. }
             | Self::WidenI64 { destination, .. }
             | Self::Unreachable { destination, .. } => Some(*destination),
@@ -129,7 +132,11 @@ impl Instruction {
                 new_value,
                 ..
             } => vec![*value, *index, *new_value],
-            Self::Load { address, .. } | Self::Load8U { address, .. } => vec![*address],
+            Self::Load { address, .. }
+            | Self::Load8U { address, .. }
+            | Self::LoadI64 { address, .. }
+            | Self::LoadF32 { address, .. }
+            | Self::LoadF64 { address, .. } => vec![*address],
             Self::ListCopy {
                 direction: ListDirection::Load | ListDirection::FreeStrings,
                 pointer,
@@ -216,6 +223,9 @@ impl Instruction {
             | Self::ArrayLen { span, .. }
             | Self::Load { span, .. }
             | Self::Load8U { span, .. }
+            | Self::LoadI64 { span, .. }
+            | Self::LoadF32 { span, .. }
+            | Self::LoadF64 { span, .. }
             | Self::Store { span, .. }
             | Self::Store8 { span, .. }
             | Self::Store16 { span, .. }

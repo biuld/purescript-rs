@@ -279,6 +279,21 @@ pub(crate) fn remap_instruction(
             destination,
             address,
             ..
+        }
+        | I::LoadI64 {
+            destination,
+            address,
+            ..
+        }
+        | I::LoadF32 {
+            destination,
+            address,
+            ..
+        }
+        | I::LoadF64 {
+            destination,
+            address,
+            ..
         } => {
             replace(destination);
             replace(address);

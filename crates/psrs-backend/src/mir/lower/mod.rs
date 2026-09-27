@@ -182,6 +182,11 @@ impl FunctionLowerer<'_> {
         self.layout.boxed_integer_index()
     }
 
+    /// The boxed-number representation, when the module needs it.
+    pub(in crate::mir) fn wit_boxed_number(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.boxed_number_index()
+    }
+
     /// The concrete GC string type, when the module needs it.
     pub(in crate::mir) fn wit_string_index(&self) -> Option<crate::types::DefinedTypeId> {
         self.layout.string_index()

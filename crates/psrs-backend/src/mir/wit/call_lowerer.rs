@@ -90,6 +90,11 @@ pub(crate) trait WitCallLowerer {
         None
     }
 
+    /// The target representation of the boxed number, when reachable.
+    fn wit_boxed_number(&self) -> Option<DefinedTypeId> {
+        None
+    }
+
     /// The concrete GC string type, when reachable.
     fn wit_string_index(&self) -> Option<DefinedTypeId> {
         None

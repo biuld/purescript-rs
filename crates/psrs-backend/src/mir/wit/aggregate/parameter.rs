@@ -116,18 +116,57 @@ fn zero_argument<L: WitCallLowerer>(
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
-    if !matches!(ty, ValueType::I32 | ValueType::Boolean) {
-        return Err(unsupported(span));
+    match ty {
+        ValueType::I32 | ValueType::Boolean => {
+            let destination = lowerer.fresh_wit_value(ty);
+            lowerer.append_wit_instruction(
+                block,
+                Instruction::Constant {
+                    destination,
+                    value: 0,
+                    span,
+                },
+                span,
+            )?;
+            Ok(destination)
+        }
+        ValueType::F64 => {
+            let destination = lowerer.fresh_wit_value(ValueType::F64);
+            lowerer.append_wit_instruction(
+                block,
+                Instruction::NumberConstant {
+                    destination,
+                    value: "0".into(),
+                    span,
+                },
+                span,
+            )?;
+            Ok(destination)
+        }
+        ValueType::I64 => {
+            let zero = lowerer.fresh_wit_value(ValueType::I32);
+            lowerer.append_wit_instruction(
+                block,
+                Instruction::Constant {
+                    destination: zero,
+                    value: 0,
+                    span,
+                },
+                span,
+            )?;
+            let destination = lowerer.fresh_wit_value(ValueType::I64);
+            lowerer.append_wit_instruction(
+                block,
+                Instruction::WidenI64 {
+                    destination,
+                    value: zero,
+                    signed: false,
+                    span,
+                },
+                span,
+            )?;
+            Ok(destination)
+        }
+        _ => Err(unsupported(span)),
     }
-    let destination = lowerer.fresh_wit_value(ty);
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::Constant {
-            destination,
-            value: 0,
-            span,
-        },
-        span,
-    )?;
-    Ok(destination)
 }

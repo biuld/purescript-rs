@@ -1,5 +1,6 @@
 //! Decodes a mapped aggregate payload from the canonical return area.
 
+use super::memory::{load, load_discriminant, load_f32, load_f64, load_i64, load8};
 use super::*;
 use crate::abi::layout::{self, SlotKind};
 
@@ -154,6 +155,10 @@ fn read_value<L: WitCallLowerer>(
             let scalar = read_scalar(lowerer, kind, address, offset, block, span)?;
             box_scalar(lowerer, scalar, block, span)
         }
+        ValueShape::Number => {
+            let number = read_number(lowerer, kind, address, offset, block, span)?;
+            box_number(lowerer, number, block, span)
+        }
         ValueShape::String => read_string(lowerer, address, offset, block, span),
         ValueShape::Reference(reference) => match reference.heap {
             RefShape::Repr(repr) => {
@@ -165,7 +170,36 @@ fn read_value<L: WitCallLowerer>(
             }
             _ => Err(unsupported(span)),
         },
-        ValueShape::Number => Err(unsupported(span)),
+    }
+}
+
+/// Reads an `f32`/`f64` payload as a source `Number`.
+fn read_number<L: WitCallLowerer>(
+    lowerer: &mut L,
+    kind: &WasiParamKind,
+    address: ValueId,
+    offset: u32,
+    block: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    match kind {
+        WasiParamKind::Float64 => load_f64(lowerer, address, offset, block, span),
+        WasiParamKind::Float32 => {
+            let narrow = load_f32(lowerer, address, offset, block, span)?;
+            let wide = lowerer.fresh_wit_value(ValueType::F64);
+            lowerer.append_wit_instruction(
+                block,
+                Instruction::UnaryPrimitive {
+                    destination: wide,
+                    op: UnaryOp::F32ToF64,
+                    value: narrow,
+                    span,
+                },
+                span,
+            )?;
+            Ok(wide)
+        }
+        _ => Err(unsupported(span)),
     }
 }
 
@@ -178,6 +212,20 @@ fn read_scalar<L: WitCallLowerer>(
     block: BlockId,
     span: TextRange,
 ) -> Result<ValueId, Vec<BackendError>> {
+    if matches!(kind, WasiParamKind::Scalar64 { .. }) {
+        let wide = load_i64(lowerer, address, offset, block, span)?;
+        let narrowed = lowerer.fresh_wit_value(ValueType::I32);
+        lowerer.append_wit_instruction(
+            block,
+            Instruction::WrapI64 {
+                destination: narrowed,
+                value: wide,
+                span,
+            },
+            span,
+        )?;
+        return Ok(narrowed);
+    }
     if !matches!(
         kind,
         WasiParamKind::Integer32
@@ -322,6 +370,9 @@ fn read_field<L: WitCallLowerer>(
         free_buffer(lowerer, pointer, length, 1, block, span)?;
         return Ok(value);
     }
+    if matches!(kind, WasiParamKind::Float32 | WasiParamKind::Float64) {
+        return read_number(lowerer, kind, address, offset, block, span);
+    }
     read_scalar(lowerer, kind, address, offset, block, span)
 }
 
@@ -339,63 +390,4 @@ fn read_direct<L: WitCallLowerer>(
     }
     let scalar = read_scalar(lowerer, kind, address, offset, block, span)?;
     box_scalar(lowerer, scalar, block, span)
-}
-
-fn load_discriminant<L: WitCallLowerer>(
-    lowerer: &mut L,
-    address: ValueId,
-    offset: u32,
-    cases: usize,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    match layout::discriminant_width(cases) {
-        1 => load8(lowerer, address, offset, block, span),
-        4 => load(lowerer, address, offset, block, span),
-        _ => Err(unsupported(span)),
-    }
-}
-
-fn load<L: WitCallLowerer>(
-    lowerer: &mut L,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    let destination = lowerer.fresh_wit_value(ValueType::I32);
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::Load {
-            destination,
-            address,
-            memory: MemoryId(0),
-            offset,
-            span,
-        },
-        span,
-    )?;
-    Ok(destination)
-}
-
-fn load8<L: WitCallLowerer>(
-    lowerer: &mut L,
-    address: ValueId,
-    offset: u32,
-    block: BlockId,
-    span: TextRange,
-) -> Result<ValueId, Vec<BackendError>> {
-    let destination = lowerer.fresh_wit_value(ValueType::I32);
-    lowerer.append_wit_instruction(
-        block,
-        Instruction::Load8U {
-            destination,
-            address,
-            memory: MemoryId(0),
-            offset,
-            span,
-        },
-        span,
-    )?;
-    Ok(destination)
 }
