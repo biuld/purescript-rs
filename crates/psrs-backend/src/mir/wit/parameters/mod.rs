@@ -231,11 +231,12 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
                     return Err(unsupported_parameter(span));
                 };
                 let value = lowerer.wit_product_field(current, argument, index as u32, span)?;
+                let field_node = node.and_then(|node| node.field(&source_label));
                 current = lower_parameter(
                     lowerer,
                     value,
                     &product[index],
-                    None,
+                    field_node,
                     &field.kind,
                     flat,
                     frees,

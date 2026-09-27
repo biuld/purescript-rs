@@ -4,7 +4,9 @@
 mod collections;
 mod fixtures;
 mod indirect;
+mod list_record;
 mod nested;
+mod record_fields;
 mod scalars;
 
 use super::lower_module_with_registry;
@@ -15,7 +17,11 @@ use crate::cc::{self, VariantCase};
 use collections::{flags_fixture, non_byte_list_fixture};
 use fixtures::{erased, fixture, parameter_fixture};
 use indirect::indirect_aggregate_fixture;
+use list_record::{option_list_record_fixture, result_list_record_fixture};
 use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_variant_fixture};
+use record_fields::{
+    record_with_aggregate_field_fixture, record_with_aggregate_field_parameter_fixture,
+};
 use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
 use wit_parser::Resolve;
 
@@ -315,6 +321,30 @@ fn indirect_aggregate_parameter_lowers_to_a_wasm_artifact() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the indirect aggregate parameter Wasm should validate");
+}
+
+#[test]
+fn record_with_an_aggregate_field_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = record_with_aggregate_field_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
+}
+
+#[test]
+fn record_with_an_aggregate_field_parameter_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = record_with_aggregate_field_parameter_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
+}
+
+#[test]
+fn option_list_record_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = option_list_record_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
+}
+
+#[test]
+fn result_list_record_lowers_to_a_wasm_artifact() {
+    let (module, bindings, resolve) = result_list_record_fixture();
+    lower_and_validate_collection(module, bindings, resolve);
 }
 
 #[test]

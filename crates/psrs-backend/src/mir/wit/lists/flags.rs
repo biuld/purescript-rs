@@ -71,7 +71,6 @@ pub(super) fn read_flags_value_list_result<L: WitCallLowerer>(
     current: BlockId,
     span: TextRange,
 ) -> Result<(), Vec<BackendError>> {
-    let (struct_type, fields, size, align) = flags_plan(lowerer, shape, element, span)?;
     let address = retptr.ok_or_else(|| {
         vec![BackendError::invalid_ir(
             "P9 MIR lowering",
@@ -88,8 +87,34 @@ pub(super) fn read_flags_value_list_result<L: WitCallLowerer>(
         },
         span,
     )?;
-    let pointer = load(lowerer, address, 0, current, span)?;
-    let length = load(lowerer, address, 4, current, span)?;
+    read_flags_value_list_from(
+        lowerer,
+        element,
+        shape,
+        destination,
+        address,
+        0,
+        current,
+        span,
+    )
+}
+
+/// Rebuilds a `list<flags>` array from a `(pointer, length)` buffer at `offset`,
+/// without emitting the call.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn read_flags_value_list_from<L: WitCallLowerer>(
+    lowerer: &mut L,
+    element: &abi::WasiParamKind,
+    shape: &ValueShape,
+    destination: ValueId,
+    address: ValueId,
+    offset: u32,
+    current: BlockId,
+    span: TextRange,
+) -> Result<(), Vec<BackendError>> {
+    let (struct_type, fields, size, align) = flags_plan(lowerer, shape, element, span)?;
+    let pointer = load(lowerer, address, offset, current, span)?;
+    let length = load(lowerer, address, offset + 4, current, span)?;
     let array_type = lowerer.wit_array_type(destination, span)?;
     lowerer.append_wit_instruction(
         current,

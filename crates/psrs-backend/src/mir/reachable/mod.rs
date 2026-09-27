@@ -295,6 +295,22 @@ fn add_payload_node(
             ..
         })) => add_representation(*repr, representations, work),
         crate::cc::PayloadNode::Value(_) => {}
+        crate::cc::PayloadNode::Record {
+            representation,
+            fields,
+        } => {
+            add_representation(*representation, representations, work);
+            for field in fields {
+                add_payload_node(&field.node, representations, work);
+            }
+        }
+        crate::cc::PayloadNode::List {
+            representation,
+            element,
+        } => {
+            add_representation(*representation, representations, work);
+            add_payload_node(element, representations, work);
+        }
         crate::cc::PayloadNode::Variant {
             representation,
             cases,

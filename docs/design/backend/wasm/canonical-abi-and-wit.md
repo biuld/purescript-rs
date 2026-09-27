@@ -562,11 +562,13 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   branches on each tag and rebuilds the source value recursively
   ([Aggregate parameters and results](#lowering-a-call)). A payload is lowered
   when it is a scalar of any width (`s8`..`u64`, `f32`/`f64`), a byte or
-  non-byte list of a supported element, an enum, `flags`, a handle, a closed
-  record of directly flattenable fields, or a nested `option`/`result`/variant;
-  a resource handle in a result or a record field that is itself an aggregate is
-  rejected with a named diagnostic. An indirect parameter record carries a mapped
-  aggregate as its discriminant and joined payload. Narrowed and
+  non-byte list, an enum, `flags`, a handle, a closed record, or a nested
+  `option`/`result`/variant; the payload tree recurses through record fields and
+  through a `list<record>`/`list<flags>` element, so a field or element that is
+  itself an aggregate is encoded and decoded. A resource handle in a result is
+  rejected with a named diagnostic, as is an aggregate result whose return area
+  exceeds the 16-byte scratch region. An indirect parameter record carries a
+  mapped aggregate as its discriminant and joined payload. Narrowed and
   unsigned WIT integers and non-byte `list<T>` results have a source mapping and
   are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
   is copied element-wise between a source GC array and the canonical
@@ -662,11 +664,12 @@ implementation coverage, not design choices. The allocator, buffer free, and
   their variant representation and a `PayloadNode` tree with each payload's
   concrete shape, and MIR branches on the tag and rebuilds the source value
   recursively. A scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte
-  or non-byte list of a supported element, an enum, `flags`, a handle, a closed
-  record of directly flattenable fields, and a nested `option`, `result`, or
-  `variant` are lowered; a resource handle in a result or an aggregate record
-  field is rejected with a named diagnostic. Non-byte `list<T>` of a supported
-  element is lowered.
+  or non-byte list, an enum, `flags`, a handle, a closed record, and a nested
+  `option`, `result`, or `variant` are lowered; the tree recurses through record
+  fields and a `list<record>`/`list<flags>` element. A resource handle in a
+  result and an aggregate result whose return area exceeds the scratch region are
+  rejected with a named diagnostic. Non-byte `list<T>` of a supported element is
+  lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
 each foreign import's resolved source type is interned into the Core type table
