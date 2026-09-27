@@ -13,10 +13,11 @@ mod result;
 
 pub(super) use parameter::lower_variant_parameter;
 pub(super) use result::lower_variant_result;
+pub(super) use result::retptr_buffer;
 
-use super::{BlockId, WitCallLowerer, free_buffer};
+use super::{BlockId, PendingFree, WitCallLowerer, free_buffer};
 use crate::BackendError;
-use crate::abi::{self, WasiParamKind};
+use crate::abi::{self, WasiParamKind, WasiResultKind};
 use crate::cc::{RefShape, Reference, ValueShape};
 use crate::mir::UnaryOp;
 use crate::mir::instruction::Instruction;

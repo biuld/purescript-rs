@@ -95,18 +95,10 @@ pub(super) fn lower_with_payloads<L: WitCallLowerer>(
     )?;
     let mut retptr = None;
     if import.retptr {
-        let scratch = lowerer.fresh_wit_value(ValueType::I32);
-        lowerer.append_wit_instruction(
-            current,
-            Instruction::Constant {
-                destination: scratch,
-                value: abi::PRINT_SCRATCH,
-                span,
-            },
-            span,
-        )?;
-        flat.push(scratch);
-        retptr = Some(scratch);
+        let pointer =
+            aggregate::retptr_buffer(lowerer, &import.result_kind, &mut frees, current, span)?;
+        flat.push(pointer);
+        retptr = Some(pointer);
     }
     match &import.result_kind {
         // A returned list or string is written through the return pointer as

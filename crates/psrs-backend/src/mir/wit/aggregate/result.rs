@@ -1,7 +1,6 @@
 use super::decode::build_payload;
 use super::*;
 use crate::abi::WasiImport;
-use crate::abi::WasiResultKind;
 use crate::types::RefType;
 
 /// Lowers a mapped aggregate result. The call writes the discriminant and the
@@ -121,4 +120,51 @@ fn result_cases(kind: &WasiResultKind) -> Option<Vec<Option<&WasiParamKind>>> {
         }
         _ => return None,
     })
+}
+
+/// The return pointer for an import whose result is passed indirectly. A small
+/// return area uses the fixed scratch region; a larger aggregate return area is
+/// allocated through `cabi_realloc` and freed once the result is read.
+pub(in crate::mir) fn retptr_buffer<L: WitCallLowerer>(
+    lowerer: &mut L,
+    kind: &WasiResultKind,
+    frees: &mut Vec<PendingFree>,
+    current: BlockId,
+    span: TextRange,
+) -> Result<ValueId, Vec<BackendError>> {
+    let area = abi::layout::result_area(kind);
+    if let Some((size, align)) = area
+        && size > abi::SCRATCH_SIZE
+    {
+        let size_value = lowerer.fresh_wit_value(ValueType::I32);
+        lowerer.append_wit_instruction(
+            current,
+            Instruction::Constant {
+                destination: size_value,
+                value: size as i32,
+                span,
+            },
+            span,
+        )?;
+        let pointer =
+            crate::mir::wit::lists::allocate(lowerer, size_value, align as i32, current, span)?;
+        frees.push(PendingFree {
+            pointer,
+            length: size_value,
+            align: align as i32,
+            string_elements: None,
+        });
+        return Ok(pointer);
+    }
+    let scratch = lowerer.fresh_wit_value(ValueType::I32);
+    lowerer.append_wit_instruction(
+        current,
+        Instruction::Constant {
+            destination: scratch,
+            value: abi::PRINT_SCRATCH,
+            span,
+        },
+        span,
+    )?;
+    Ok(scratch)
 }

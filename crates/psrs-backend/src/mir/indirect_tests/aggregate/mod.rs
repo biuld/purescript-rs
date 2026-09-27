@@ -4,6 +4,7 @@
 mod collections;
 mod fixtures;
 mod indirect;
+mod large;
 mod list_record;
 mod nested;
 mod record_fields;
@@ -17,6 +18,7 @@ use crate::cc::{self, VariantCase};
 use collections::{flags_fixture, non_byte_list_fixture};
 use fixtures::{erased, fixture, parameter_fixture};
 use indirect::indirect_aggregate_fixture;
+use large::large_record_fixture;
 use list_record::{option_list_record_fixture, result_list_record_fixture};
 use nested::{nested_record_fixture, nested_record_parameter_fixture, nested_variant_fixture};
 use record_fields::{
@@ -321,6 +323,40 @@ fn indirect_aggregate_parameter_lowers_to_a_wasm_artifact() {
     crate::validator_for(target)
         .validate_all(&binary)
         .expect("the indirect aggregate parameter Wasm should validate");
+}
+
+#[test]
+fn large_record_result_allocates_its_return_area() {
+    let (module, bindings, resolve) = large_record_fixture();
+    let target = TargetCapabilities {
+        wasi_cli: false,
+        ..TargetCapabilities::default()
+    };
+    let registry = abi::WasiRegistry::from_resolve(resolve, target);
+    let (mir, mut registry) = lower_module_with_registry(module, bindings, target, registry)
+        .expect("P9 should lower a large aggregate result");
+    let reallocates = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .filter(|instruction| {
+            matches!(
+                instruction,
+                crate::mir::Instruction::Call { function, .. }
+                    if *function == crate::abi::REALLOC_SYMBOL
+            )
+        })
+        .count();
+    assert!(reallocates >= 1, "the return area should be allocated");
+
+    let mir = crate::mir::opt::optimize(mir, target).expect("P10 should preserve the large ABI");
+    let wasm = crate::wasm::lower_module_with_capabilities(&mir, &mut registry, target)
+        .expect("P10 should lower the large aggregate result");
+    let binary = crate::wasm::encode_module(&wasm).expect("the large Wasm should encode");
+    crate::validator_for(target)
+        .validate_all(&binary)
+        .expect("the large aggregate result Wasm should validate");
 }
 
 #[test]

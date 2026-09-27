@@ -4,7 +4,7 @@
 //! WIT declaration order. Shared by indirect parameter records and by non-byte
 //! list elements that are themselves aggregates.
 
-use super::WasiParamKind;
+use super::{WasiParamKind, WasiResultKind};
 
 /// One scalar slot of a canonical value at a byte offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,6 +148,44 @@ fn join_slot_kind(left: SlotKind, right: SlotKind) -> Option<SlotKind> {
         (SlotKind::F32, SlotKind::F64) | (SlotKind::F64, SlotKind::F32) => Some(SlotKind::F64),
         _ => None,
     }
+}
+
+/// The canonical return-area `(size, align)` of a result passed through a
+/// return pointer. `None` when the result has no known indirect layout (a
+/// unit-success `result`, whose error payload the trap path does not read).
+pub(crate) fn result_area(kind: &WasiResultKind) -> Option<(u32, u32)> {
+    let cases: Vec<Option<&WasiParamKind>> = match kind {
+        WasiResultKind::Option { payload } => vec![None, Some(payload)],
+        WasiResultKind::ValueResult { ok, err } => vec![Some(ok), Some(err)],
+        WasiResultKind::Variant { cases } => {
+            cases.iter().map(|case| case.kind.as_deref()).collect()
+        }
+        WasiResultKind::List | WasiResultKind::ValueList { .. } => return Some((8, 4)),
+        _ => return None,
+    };
+    // Only the size and alignment are needed to reserve the return area; the
+    // joined payload slots are computed where the value is read.
+    let discriminant = discriminant_width(cases.len());
+    let mut payload_size = 0_u32;
+    let mut payload_align = 1_u32;
+    for case in cases {
+        let layout = match case {
+            Some(kind) => parameter_layout(kind)?,
+            None => MemoryLayout {
+                size: 0,
+                align: 1,
+                slots: Vec::new(),
+            },
+        };
+        payload_size = payload_size.max(layout.size);
+        payload_align = payload_align.max(layout.align);
+    }
+    let payload_offset = align_to(discriminant, payload_align)?;
+    let align = discriminant.max(payload_align);
+    Some((
+        align_to(payload_offset.checked_add(payload_size)?, align)?,
+        align,
+    ))
 }
 
 /// The canonical byte offset of a variant payload, aligned to the maximum case
