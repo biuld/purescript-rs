@@ -108,6 +108,10 @@ fn cover<'a>(
             }
             None
         }
+        WasiParamKind::Option { payload } => {
+            *cursor += 1;
+            cover(payload, target, cursor)
+        }
         other => {
             *cursor += flattened_parameter_count(other);
             None
@@ -121,6 +125,18 @@ pub(super) fn bind_param(kind: &mut WasiParamKind, bind: &mut impl FnMut(&mut Ha
         WasiParamKind::Record { fields } => {
             for field in fields {
                 bind_param(&mut field.kind, bind);
+            }
+        }
+        WasiParamKind::Option { payload } => bind_param(payload, bind),
+        WasiParamKind::Result { ok, err } => {
+            bind_param(ok, bind);
+            bind_param(err, bind);
+        }
+        WasiParamKind::Variant { cases } => {
+            for case in cases {
+                if let Some(kind) = &mut case.kind {
+                    bind_param(kind, bind);
+                }
             }
         }
         _ => {}

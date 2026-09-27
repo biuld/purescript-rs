@@ -262,6 +262,7 @@ pub fn lower_module_with_bindings(
             &module,
             &layout.record_types,
             &layout.array_types,
+            &layout.constructor_types,
         );
         if let Some(signature) = &signature {
             signatures.insert(binding.symbol, signature.clone());

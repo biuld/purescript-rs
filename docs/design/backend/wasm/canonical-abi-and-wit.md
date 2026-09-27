@@ -148,7 +148,10 @@ never invents source values.
 | nullary `enum` | `Enum` | case order must match. |
 | `flags` | `Record` of `Boolean` | packed least-significant first. |
 | resource handle | opaque handle | `own<T>` transfers ownership with a drop obligation; `borrow<T>` is a call-scoped non-owning reference. |
-| `option`, `result`, non-unit `variant`, tuple | none | not a compiler source type. A standard-library wrapper may pass one only as primitive arguments whose flattening matches the canonical signature. A multi-value return stays unsupported. |
+| `tuple<A, B, ...>` | closed record | `{ _1 :: A, _2 :: B, ... }`. |
+| `option<T>` | `Data.Maybe.Maybe T` | recognized by the qualified type name. |
+| `result<O, E>` | `Data.Either.Either O E` | recognized by the qualified type name; a unit-`ok` result keeps the `Unit` mapping. |
+| other `variant { ... }` | source data type | constructors in WIT case order. |
 
 Two rules follow from the source language having no unsigned or narrowed integer
 types:
@@ -162,17 +165,19 @@ types:
 - `Array` is only produced for a non-byte `list<T>` whose element maps. Byte
   lists stay `String`, so `list<u8>` never becomes `Array Int`.
 
-`option`, `result`, non-unit `variant`, and tuple are not compiler source types.
-The lowerer does not add a source type for them and does not recognize `Maybe`,
-`Either`, or tuples. A standard-library wrapper may pass those forms only as a
-sequence of primitive arguments (`Int`, `Boolean`, `Number`, `Char`, `String`,
-`Unit`, with a handle declared as `Int`) whose flattening equals
-`Resolve::wasm_signature` for that function
-([primitive FFI and the standard library](primitive-ffi-and-stdlib.md),
-[DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
+[DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
+aggregate WIT forms to the idiomatic library types: a tuple to a closed record,
+`option<T>` to `Data.Maybe.Maybe T`, `result<O, E>` to
+`Data.Either.Either O E`, and a non-unit `variant` to a source data type whose
+constructors follow the WIT case order. `Maybe` and `Either` are recognized by
+their qualified names, never by constructor shape. A standard-library wrapper
+may still pass one of those forms as a sequence of primitive arguments (`Int`,
+`Boolean`, `Number`, `Char`, `String`, `Unit`, with a handle declared as `Int`)
+whose flattening equals `Resolve::wasm_signature` for that function
+([primitive FFI and the standard library](primitive-ffi-and-stdlib.md)).
 A canonical result that is several values stays unsupported until that whole
-result is one primitive. The unit-success `result` keeps its existing `Unit`
-mapping (trap on failure).
+result is one primitive or a mapped aggregate. The unit-success `result` keeps
+its existing `Unit` mapping (trap on failure).
 
 ### Resolving and validating
 
@@ -184,10 +189,8 @@ WASI 0.2.12 WIT once, before CC lowering. Resolution:
 - classifies each WIT parameter and the result into the WIT descriptor;
 - interns the declaration's resolved source type in the module type table;
 - records an `unsupported` reason when the shape has no source mapping, when a
-  list is not byte-valued, when a `result` has a payload on success, when
-  parameters are passed indirectly, when flattening does not agree with the
-  canonical signature, or when the interface's package is disabled by the
-  target; and
+  list is not byte-valued, when flattening does not agree with the canonical
+  signature, or when the interface's package is disabled by the target; and
 - interns the import and returns a `ResolvedExternal`.
 
 The stage validates the resolved source type against the WIT descriptor. A
@@ -216,6 +219,18 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
   freed. A
   `result<_, _>` with a unit success payload reads the one-byte discriminant and
   traps on a nonzero status rather than silently succeeding.
+- **Aggregate parameters and results.** A mapped `option`, `result`, or
+  `variant` carries a canonical discriminant followed by the joined payload
+  slots. As a parameter the lowering branches on the source tag: the selected
+  payload case is flattened, and the other case pushes placeholder slots. As a
+  result the lowering branches on the return-area discriminant, reads the
+  selected payload, and builds the source value with `VariantNew`. The payload
+  is recovered into the stored `Maybe`/`Either`/data-type field; a scalar is
+  boxed and a reference is cast, matching the erased aggregate field protocol.
+  Each branch joins at a merge block that carries the canonical slots.
+- **Indirect aggregates.** When a mapped aggregate participates in an indirect
+  parameter record, its canonical `(size, align, slots)` is computed the same
+  way as any other WIT value and written through the record pointer.
 
 ### Exports and `post-return`
 
@@ -537,15 +552,16 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 ## Open questions and future work
 
-- **Aggregate ABI.** Indirect records and tuples, and
-  `option`/`result`/`variant` results and payloads, need result memory-layout
-  computation and read-back. Narrowed and unsigned WIT integers and non-byte
-  `list<T>` results now have a source mapping and are lowered
-  ([Source type mapping](#source-type-mapping)); indirect parameter records are
-  implemented for the currently classified parameter kinds. A non-byte
-  `list<T>` is copied element-wise between a source GC array and the canonical
-  `(pointer, length)` buffer; `string` and `list<u8>` elements are transcoded and
-  their element buffers freed.
+- **Aggregate ABI.** `option`/`result`/`variant` are classified and validated
+  against `Maybe`/`Either`/a source data type, and CC derives their variant
+  representation, but the MIR branch lowering and payload read-back for those
+  shapes are not implemented. Indirect records are lowered for the classified
+  parameter kinds; a mapped aggregate inside an indirect parameter record is
+  not. Narrowed and unsigned WIT integers and non-byte `list<T>` results have a
+  source mapping and are lowered ([Source type mapping](#source-type-mapping)).
+  A non-byte `list<T>` is copied element-wise between a source GC array and the
+  canonical `(pointer, length)` buffer; `string` and `list<u8>` elements are
+  transcoded and their element buffers freed.
 - **Resources.** `own`/`borrow` handles are lowered
   ([Resources and handles](#resources-and-handles)): an owned import result is
   dropped with `resource.drop` when the receiving function does not return it
@@ -559,12 +575,14 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   `bool`, `char`, and `string`/`list<u8>`) are lowered.
   Record and flags foreign signatures are not known to be reachable from
   parsed source.
-- **No compiler source type for option/result/variant/tuple.** Those WIT forms
-  are not compiler source types
-  ([DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md)).
-  A standard-library wrapper may pass them only as a sequence of primitive
-  arguments whose flattening matches the canonical signature; multi-value
-  returns stay unsupported.
+- **Aggregate source mapping.** `option`, `result`, and non-unit `variant` map
+  to `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, and a
+  tuple maps to a closed record
+  ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)). Their
+  classification, Core conformance validation, and CC representation are
+  implemented; MIR/Wasm lowering remains. A standard-library wrapper may still
+  pass one of those forms as a sequence of primitive arguments whose flattening
+  matches the canonical signature; multi-value returns stay unsupported.
 - **Filesystem loader.** The standard library remains embedded; the driver's
   loader discovers user modules from the entry files' directories and follows
   the import graph ([WASI platform library](wasi-platform-library.md)). Loading
@@ -629,8 +647,10 @@ implementation coverage, not design choices. The allocator, buffer free, and
   rejected. An owned handle is dropped once in the function that received it,
   unless that function returns the index or passes it to an `own` parameter.
   A second drop, or a use after the borrow release, is rejected.
-- `option`/`result`/`variant` payload read-back and tuple
-  source types are not lowered. Non-byte `list<T>` of a supported element is
+- `option`/`result`/`variant` are classified and validated against
+  `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, and CC
+  derives their variant representation; their MIR branch lowering and payload
+  read-back are not implemented. Non-byte `list<T>` of a supported element is
   lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):

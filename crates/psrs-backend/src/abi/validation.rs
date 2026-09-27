@@ -11,6 +11,18 @@ pub(super) fn flattened_parameter_count(kind: &WasiParamKind) -> usize {
             .map(|field| flattened_parameter_count(&field.kind))
             .sum(),
         WasiParamKind::Flags { names } => names.len().div_ceil(32),
+        WasiParamKind::Option { payload } => 1 + flattened_parameter_count(payload),
+        WasiParamKind::Result { ok, err } => {
+            1 + flattened_parameter_count(ok).max(flattened_parameter_count(err))
+        }
+        WasiParamKind::Variant { cases } => {
+            1 + cases
+                .iter()
+                .filter_map(|case| case.kind.as_deref())
+                .map(flattened_parameter_count)
+                .max()
+                .unwrap_or(0)
+        }
         WasiParamKind::Unsupported => 0,
         _ => 1,
     }

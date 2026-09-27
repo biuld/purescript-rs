@@ -284,11 +284,63 @@ pub(super) fn param_kind(resolve: &Resolve, ty: &WitType) -> WasiParamKind {
                     WasiParamKind::Unsupported
                 }
             }
+            // DEC-13 maps WIT `option<T>` to `Data.Maybe.Maybe T`.
+            TypeDefKind::Option(inner) => {
+                let payload = param_kind(resolve, inner);
+                if direct_parameter(&payload) {
+                    WasiParamKind::Option {
+                        payload: Box::new(payload),
+                    }
+                } else {
+                    WasiParamKind::Unsupported
+                }
+            }
+            // DEC-13 maps WIT `result<O, E>` to `Data.Either.Either O E`. A
+            // result with a missing payload stays on the primitive/unit path.
+            TypeDefKind::Result(result) => match (result.ok.as_ref(), result.err.as_ref()) {
+                (Some(ok), Some(err)) => {
+                    let ok = param_kind(resolve, ok);
+                    let err = param_kind(resolve, err);
+                    if direct_parameter(&ok) && direct_parameter(&err) {
+                        WasiParamKind::Result {
+                            ok: Box::new(ok),
+                            err: Box::new(err),
+                        }
+                    } else {
+                        WasiParamKind::Unsupported
+                    }
+                }
+                _ => WasiParamKind::Unsupported,
+            },
+            // DEC-13 maps a WIT `variant` to a source data type whose
+            // constructors follow the WIT case order.
+            TypeDefKind::Variant(variant) => {
+                let cases = variant_cases(resolve, variant);
+                if cases
+                    .iter()
+                    .all(|case| case.kind.as_deref().is_none_or(direct_parameter))
+                {
+                    WasiParamKind::Variant { cases }
+                } else {
+                    WasiParamKind::Unsupported
+                }
+            }
             TypeDefKind::Type(inner) => param_kind(resolve, inner),
             _ => WasiParamKind::Unsupported,
         },
         _ => WasiParamKind::Unsupported,
     }
+}
+
+fn variant_cases(resolve: &Resolve, variant: &wit_parser::Variant) -> Vec<super::WasiVariantCase> {
+    variant
+        .cases
+        .iter()
+        .map(|case| super::WasiVariantCase {
+            name: source_constructor_name(&case.name),
+            kind: case.ty.as_ref().map(|ty| Box::new(param_kind(resolve, ty))),
+        })
+        .collect()
 }
 
 fn direct_parameter(kind: &WasiParamKind) -> bool {
@@ -307,6 +359,11 @@ fn direct_parameter(kind: &WasiParamKind) -> bool {
             fields.iter().all(|field| direct_parameter(&field.kind))
         }
         WasiParamKind::List | WasiParamKind::ValueList { .. } => true,
+        WasiParamKind::Option { payload } => direct_parameter(payload),
+        WasiParamKind::Result { ok, err } => direct_parameter(ok) && direct_parameter(err),
+        WasiParamKind::Variant { cases } => cases
+            .iter()
+            .all(|case| case.kind.as_deref().is_none_or(direct_parameter)),
         WasiParamKind::Unsupported => false,
     }
 }
@@ -331,7 +388,44 @@ pub(super) fn result_kind(resolve: &Resolve, ty: &WitType) -> WasiResultKind {
                 }
             }
             TypeDefKind::Handle(handle) => classify_result_handle(resolve, handle),
-            TypeDefKind::Result(_) => WasiResultKind::Result,
+            TypeDefKind::Result(result) => match (result.ok.as_ref(), result.err.as_ref()) {
+                // A unit success keeps the existing write-like trap path.
+                (None, _) => WasiResultKind::Result,
+                (Some(ok), Some(err)) => {
+                    let ok = param_kind(resolve, ok);
+                    let err = param_kind(resolve, err);
+                    if direct_parameter(&ok) && direct_parameter(&err) {
+                        WasiResultKind::ValueResult {
+                            ok: Box::new(ok),
+                            err: Box::new(err),
+                        }
+                    } else {
+                        WasiResultKind::Discarded
+                    }
+                }
+                (Some(_), None) => WasiResultKind::Discarded,
+            },
+            TypeDefKind::Option(inner) => {
+                let payload = param_kind(resolve, inner);
+                if direct_parameter(&payload) {
+                    WasiResultKind::Option {
+                        payload: Box::new(payload),
+                    }
+                } else {
+                    WasiResultKind::Discarded
+                }
+            }
+            TypeDefKind::Variant(variant) => {
+                let cases = variant_cases(resolve, variant);
+                if cases
+                    .iter()
+                    .all(|case| case.kind.as_deref().is_none_or(direct_parameter))
+                {
+                    WasiResultKind::Variant { cases }
+                } else {
+                    WasiResultKind::Discarded
+                }
+            }
             TypeDefKind::Enum(enum_) => WasiResultKind::Enum {
                 cases: enum_
                     .cases

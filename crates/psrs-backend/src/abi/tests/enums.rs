@@ -158,6 +158,7 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
             &core,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
         )
         .expect("a source enum should lower to an abstract scalar signature")
         .parameters,

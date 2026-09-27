@@ -1,4 +1,5 @@
 use super::*;
+use psrs_core::ConstructorInfo;
 use psrs_hir::{ModuleId, TypeField};
 use psrs_span::TextRange;
 

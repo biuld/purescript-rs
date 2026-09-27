@@ -53,7 +53,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
-| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant`/tuple remain non-source types; nested records and resource list results stay unsupported. | In progress |
+| ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, and CC derives their variant representation ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); their MIR/Wasm payload read-back remains. Nested records and resource list results stay unsupported. | In progress |
 
 ## Evidence record and completion rule
 
@@ -291,13 +291,14 @@ ABI-08:
   Result: pass under Wasmtime 49.0.1. A `list<string>` result is copied into a
     GC array and `WASI.Environment.arguments` recovers it; non-byte lists of
     aggregates are rejected with a source diagnostic.
-  Gaps: `option`, `result`, non-unit `variant`, tuple, and lists of aggregates
-    are not compiler source types
-    ([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
-    [primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
-    a wrapper may pass primitive arguments whose flattening matches, and
-    multi-value returns stay unsupported. Do not define `Maybe`/`Either`/tuple
-    source types. This keeps BE-19 `Partial`.
+  Gaps: `option`, `result`, and non-unit `variant` are classified and validated
+    against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type,
+    and CC derives their variant representation
+    ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); the MIR
+    branch, payload read-back, and Wasm lowering are not implemented, so a
+    declaration that reaches lowering is rejected with an invalid-IR
+    diagnostic. Indirect parameter records that contain one of these shapes and
+    lists of aggregates remain unsupported. This keeps BE-19 `Partial`.
 ```
 
 ## Remaining work and blockers
@@ -308,11 +309,10 @@ fixes one wasm32 memory. An owned handle returned as `Int` from a non-export
 function is not tracked in the caller. The reclaiming allocator,
 buffer free, and `post-return` are tracked by
 [canonical buffer allocation](canonical-buffer-allocation.md). ABI-08's
-`option`/`result`/`variant` and tuple forms are not compiler source types
-([DEC-11](../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md),
-[primitive FFI and the standard library](../../design/backend/wasm/primitive-ffi-and-stdlib.md)):
-a wrapper may pass primitive arguments whose flattening matches, and
-multi-value returns stay unsupported. The non-byte `list<T>` /
+`option`/`result`/`variant` forms are recognized on the resolved-type path
+([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)): classification,
+Core conformance validation, and CC's variant representation are implemented,
+while MIR branch lowering and payload read-back remain. The non-byte `list<T>` /
 `Array` part of ABI-08 is lowered for supported elements; its
 remaining gap is lists of aggregates. These are tracked on BE-11
 and BE-17..BE-20 in [D-04](../../design/D-04-suite-roadmap.md).

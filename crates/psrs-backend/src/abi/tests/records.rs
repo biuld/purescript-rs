@@ -103,6 +103,7 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         &core,
         &record_types,
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
     .expect("the record representation should be selected from Core layout metadata");
     assert_eq!(

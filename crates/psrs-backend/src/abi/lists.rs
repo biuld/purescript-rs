@@ -57,6 +57,9 @@ pub(crate) fn from_param(kind: &WasiParamKind) -> Option<ListElement> {
         WasiParamKind::ValueList { .. }
         | WasiParamKind::Flags { .. }
         | WasiParamKind::Record { .. }
+        | WasiParamKind::Option { .. }
+        | WasiParamKind::Result { .. }
+        | WasiParamKind::Variant { .. }
         | WasiParamKind::Unsupported => return None,
     })
 }

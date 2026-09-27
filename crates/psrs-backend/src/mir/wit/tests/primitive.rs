@@ -134,9 +134,11 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         entry: None,
         span: span(),
     };
+    // DEC-13 interns a payload-bearing source type such as `Maybe String`,
+    // whose conformance is validated against the WIT descriptor later.
     assert!(
-        crate::abi::intern_source_type(&mut module, &named).is_none(),
-        "a non-primitive source type such as Maybe String has no source mapping"
+        crate::abi::intern_source_type(&mut module, &named).is_some(),
+        "a named source type has a resolved source mapping"
     );
 
     let mut lowerer = RecordingLowerer::default();
@@ -177,15 +179,12 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     let read = registry
         .import("wasi:io/streams", "read")
         .expect("read should resolve");
-    assert_eq!(read.result_kind, WasiResultKind::Discarded);
-    assert!(
-        read.unsupported
-            .as_deref()
-            .is_some_and(|message| message.contains("result"))
-    );
+    // DEC-13 classifies `option<string>` as `Data.Maybe.Maybe String`.
+    assert!(matches!(read.result_kind, WasiResultKind::Option { .. }));
+    assert!(read.unsupported.is_none());
     assert!(
         validate(&read, Vec::new(), CoreType::String).is_err(),
-        "a multi-value canonical result is not one primitive"
+        "a bare String is not the mapped Maybe String"
     );
 
     let take = registry
