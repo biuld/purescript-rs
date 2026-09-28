@@ -132,12 +132,10 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
         CanonicalType::Flags(names) => {
             lower_flags(lowerer, argument, guest, names, flat, current, span)?;
         }
-        CanonicalType::Option(_)
-        | CanonicalType::Result {
-            ok: Some(_),
-            err: Some(_),
-        }
-        | CanonicalType::Variant(_) => {
+        // Every mapped `result` is an `Either`, including one with an absent
+        // payload position; `lower_variant_parameter` zero-fills the nullary
+        // case.
+        CanonicalType::Option(_) | CanonicalType::Result { .. } | CanonicalType::Variant(_) => {
             let guest = guest.ok_or_else(|| unsupported_parameter(span))?;
             return super::aggregate::lower_variant_parameter(
                 lowerer, argument, guest, ty, flat, frees, current, span,
@@ -195,9 +193,6 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
             return Ok(current);
         }
         CanonicalType::Int { .. } | CanonicalType::Float { .. } => {
-            return Err(unsupported_parameter(span));
-        }
-        CanonicalType::Result { .. } => {
             return Err(unsupported_parameter(span));
         }
     }

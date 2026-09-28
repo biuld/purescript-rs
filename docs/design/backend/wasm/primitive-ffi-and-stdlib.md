@@ -78,9 +78,12 @@ A foreign import the lowerer accepts uses only these source types:
 
 `String` is in this set even though its canonical form is two core values. The
 lowerer already expands a GC string; the import does not take a pointer and a
-length. A resource handle is an `i32` at the call and is declared as `Int`,
-which is what `WASI.Console` already does for `get-stdout`. There is no seventh
-source type for handles.
+length. A resource handle is an `i32` at the call. A raw import may declare it
+as `Int`, or as the library newtype `WASI.Resource.Resource a` over `Int`, which
+erases to the same handle slot; the standard library uses `Resource a` so every
+handle is a distinct phantom-typed value
+([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). There is no
+seventh primitive source type for handles.
 
 `Unit` is a result type. It contributes no canonical parameter, so a `Unit`
 parameter does not validate.
@@ -97,9 +100,11 @@ foreign import may use:
 
 `Array String` is a `list<string>`: its elements are themselves `(pointer,
 length)` pairs, transcoded element-wise and freed after the call. A `list<u8>`
-stays `String`, not `Array Int`. A nested `Array (Array _)`, an array of
-records, handles, tuples, or `option` values has no source mapping and is
-rejected. `Array` is not a compiler encoding of any aggregate; it is the source
+stays `String`, not `Array Int`. An element that is itself an aggregate follows
+the mapped aggregate forms below ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md));
+a nested `Array (Array _)` lowers recursively. This includes `Array (Resource a)`,
+which is a `list<own<T>>`/`list<borrow<T>>` whose element erases to the handle
+`i32`. `Array` is not a compiler encoding of any aggregate; it is the source
 type for a non-byte WIT list of an element that already maps.
 
 ### Two layers
@@ -125,9 +130,9 @@ An illegal tag is a bug in the wrapper, as it would be in hand-written glue.
 
 A PureScript foreign import has one result. The lowerer may rebuild one
 primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). A
-unit-success `result` is the aggregate `Either Unit E` mapping
+unit-success `result` is the aggregate `Either E Unit` mapping
 ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)), not a
-primitive `Unit` return: the wrapper observes the error as `Right`.
+primitive `Unit` return: the wrapper observes the error as `Left`.
 A WIT `option`, `result`, or `variant` whose canonical form is several values
 in a return area follows the aggregate mapping below; a wrapper may also pass
 one as a sequence of primitive arguments whose flattening matches.
@@ -162,8 +167,9 @@ lower.
 [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
 higher-level WIT forms to existing idiomatic library types rather than a
 compiler vocabulary: `tuple<A, B>` to a closed record `{ _1, _2 }`,
-`option<T>` to `Maybe T`, `result<O, E>` to `Either O E`, and `variant` to a
-data type whose constructors follow the WIT case order. The compiler carries a
+`option<T>` to `Maybe T`, `result<O, E>` to `Either E O` (the error on `Left`),
+and `variant` to a data type whose constructors follow the WIT case order. The
+compiler carries a
 small name table for `Data.Maybe.Maybe` and `Data.Either.Either` and lowers
 these through the resolved-type path fixed by
 [DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md). This supersedes
@@ -336,8 +342,15 @@ stdlib/lib/
   Prelude.purs                 ordinary library types (Effect)
   Data/Maybe.purs              data Maybe a = Nothing | Just a, plus eliminators
   Data/Either.purs             data Either a b = Left a | Right b, plus eliminators
+  WASI.purs                    umbrella re-exporting the curated API
+  WASI/Resource.purs           newtype Resource a = Resource Int
+  WASI/IO.purs                 streams, poll, and the error resource
   WASI/Console.purs            export list is the wrappers only
+  WASI/FileSystem.purs         descriptor operations
+  WASI/Network.purs            socket operations
   WASI/Clock.purs              same split
+  WASI/Random.purs             secure and insecure random
+  WASI/Process.purs            exit, arguments, environment
 crates/psrs-backend/src/
   bindings.rs                  ExternalBindings side table
   abi/link.rs                  intern the resolved type and validate conformance
@@ -347,9 +360,10 @@ crates/psrs-backend/src/
 
 - A platform module exports only user-facing functions. `WASI.Console` exports
   `log :: String -> Effect Unit` and `error :: String -> Effect Unit`. It does
-  not export `writeStdout`, `getStdout`, or `getStderr`. `WASI.Clock` exports
-  `now :: Effect Int` and does not export `monotonicNow`. `WASI.Exit` exports
+  not export its raw imports. `WASI.Clock` exports `now :: Effect Int` and does
+  not export `monotonicNow`. `WASI.Process` exports
   `exitWithCode :: Int -> Effect Unit` and does not export `exitWithCodeRaw`.
+  The `WASI` umbrella re-exports the curated API of every focused module.
 - Each raw binding is an unexported `foreign import` whose parameters and
   single result are in the primitive set. The binding string is
   `<interface>#<function>`, as in the canonical ABI topic.
@@ -384,9 +398,9 @@ standard-library imports do not use it.
   the declaration, including when the declaration is unused.
 - The import's source result is exactly `visible_return`. A multi-value
   canonical result is rejected, not approximated and not returned as a tuple.
-- The unit-success `result` maps to `Either Unit E`
+- The unit-success `result` maps to `Either E Unit`
   ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)); the
-  wrapper observes the error as `Right` and does not trap.
+  wrapper observes the error as `Left` and does not trap.
 - Exported platform names are wrappers. Raw imports are absent from the module
   export list. Tests that import `WASI.Console` can name `log` and cannot name
   `writeStdout`.
@@ -400,45 +414,48 @@ standard-library imports do not use it.
 
 ### `log`, as the library defines it today
 
-The embedded console module is ordinary PureScript:
+`WASI.Console` is convenience over `WASI.IO`, which owns the raw imports:
 
 ```purescript
-foreign import "wasi:cli/stdout#get-stdout" getStdout :: Int
+-- WASI.IO
+foreign import "wasi:cli/stdout#get-stdout" getStdoutRaw :: Resource OutputStream
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  writeStdout :: Int -> String -> Either Unit StreamError
+  blockingWriteAndFlushRaw :: Resource OutputStream -> String -> Either StreamError Unit
 
+-- WASI.Console
 log :: String -> Effect Unit
 log s = \token ->
-  let ignored = writeStdout getStdout s
-  in writeStdout getStdout "\n"
+  let handle = getStdout token in
+  let ignored = blockingWriteAndFlush handle s token in
+  let ignoredNewline = blockingWriteAndFlush handle "\n" token in
+  dropOutputStream handle token
 ```
 
 `log` is the user-facing function. Its type uses `String`, `Effect`, and
-`Unit`. The effect body calls the raw imports. `getStdout` is a handle
-declared as `Int`. `writeStdout` takes that handle and a `String` and returns
-the mapped result `Either Unit StreamError`, which `log` ignores. Neither raw
-import is part of the public API. The module exports
-`log` and `error` only. The call trace does not depend on that list.
+`Unit`. The handle is a `Resource OutputStream`, a library newtype over `Int`.
+`blockingWriteAndFlush` takes that handle and a `String` and returns the mapped
+result `Either StreamError Unit`, which `log` ignores. Neither raw import is
+part of the public API. The module exports `log` and `error` only.
 
-Before CC, `ExternalBindings::from_core` records `writeStdout` as parameters
-`Int` and `String` and the mapped result `Either Unit StreamError`, and records
-the WIT binding
-`wasi:io/streams` / `[method]output-stream.blocking-write-and-flush`. CC and
-MIR then see an `i32`, a GC string, and a call symbol. They do not see the
-names `Int`, `String`, or `output-stream`.
+Before CC, `ExternalBindings::from_core` records `blockingWriteAndFlush` as the
+erased handle and `String`, and the mapped result `Either StreamError Unit`,
+and records the WIT binding `wasi:io/streams` /
+`[method]output-stream.blocking-write-and-flush`. CC and MIR then see an `i32`,
+a GC string, and a call symbol. They do not see the names `Resource`,
+`OutputStream`, or `output-stream`.
 
-P9 reads the side table. `Int` beside a handle kind pushes the `i32`. `String`
-is expanded to a transient `(pointer, length)` by the canonical ABI lowering.
-The WIT result is `result<_, stream-error>`, so the source result is
-`Either Unit StreamError`
+P9 reads the side table. The `Resource` newtype erases to the handle `i32`.
+`String` is expanded to a transient `(pointer, length)` by the canonical ABI
+lowering. The WIT result is `result<_, stream-error>`, so the source result is
+`Either StreamError Unit`
 ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)): the
-lowerer passes a return pointer, decodes the error payload, and builds the
-`Either`. The flattened parameters are the
-handle plus `(pointer, length)`, which is `Resolve::wasm_signature` for that
+lowerer passes a return pointer, decodes the error payload into `Left`, and
+builds the `Either` with the ok `Unit` on `Right`. The flattened parameters are
+the handle plus `(pointer, length)`, which is `Resolve::wasm_signature` for that
 function, so componentize links the core import. The instructions are the ones
 in the worked example of
 [canonical ABI and WIT](canonical-abi-and-wit.md). `log` itself is not a
-foreign import; it ignores the two `writeStdout` results and returns `Unit`.
+foreign import; it ignores the two write results and returns `Unit`.
 
 ### A `Maybe` parameter, specified and not added to the library
 
@@ -514,11 +531,14 @@ on a success string it never receives. The function stays unexposed.
 
 ## Implementation notes
 
-`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`.
-`WASI.Random` exports `randomBytes` and `randomU64`. `WASI.Exit` exports
-`exitWithCode`. Raw imports (`writeStdout`, `getStdout`, `getStderr`,
-`monotonicNow`, `getRandomBytes`, `getRandomU64`, `exitWithCodeRaw`) stay in
-their modules and are not exported. `wasi:cli/exit.exit` is not wrapped; the
+The on-disk library is `WASI.Resource`, `WASI.IO`, `WASI.Console`,
+`WASI.FileSystem`, `WASI.Network`, `WASI.Clock`, `WASI.Random`, and
+`WASI.Process`, with a `WASI` umbrella re-exporting the curated API.
+`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`, `wallNow`,
+and `wallResolution`. `WASI.Random` exports `randomBytes` and `randomU64`.
+`WASI.Process` exports `exitWithCode`, `arguments`, and `environment`. Raw
+imports stay in their modules and are not exported. `wasi:cli/exit.exit` is not
+wrapped; the
 [capability matrix](wasi-platform-library.md#capability-matrix) records why.
 A primitive import
 of an `option` parameter is accepted when the declared primitives flatten to
@@ -526,7 +546,7 @@ the canonical parameter list; `option<string>` is `Int -> String -> Unit`.
 `Maybe` and `Either` are ordinary data types in `Data.Maybe` and `Data.Either`,
 not in `Prelude` and not compiler builtins. Nullary enum, closed record, and
 flags-record foreign imports still lower; new library code should not use that
-path. No source type for `option`, `result`, or a tuple exists.
+path. Handles are declared as the `Resource a` newtype over `Int`.
 
 ## References
 

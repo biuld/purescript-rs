@@ -101,7 +101,28 @@ fn layoutable_field_type_inner(
         | Some(Type::OpenRecord { .. })
         | Some(Type::Function { .. })
         | None => false,
-        Some(Type::Application(_, _)) => array_element_type(module, id).is_some(),
+        Some(Type::Application(_, _)) => {
+            if array_element_type(module, id).is_some() {
+                return true;
+            }
+            // An applied newtype such as `Resource a` erases to its single
+            // field, so a variant case may carry it as a storage field.
+            let Some(type_id) = user_type_id(module, id) else {
+                return false;
+            };
+            if !newtype_ids.contains(&type_id) {
+                return false;
+            }
+            let Some(inner) = newtype_field_type(module, type_id) else {
+                return false;
+            };
+            if !visiting.insert(type_id) {
+                return false;
+            }
+            let result = layoutable_field_type_inner(module, inner, newtype_ids, visiting);
+            visiting.remove(&type_id);
+            result
+        }
     }
 }
 

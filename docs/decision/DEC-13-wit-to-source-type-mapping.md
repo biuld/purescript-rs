@@ -37,8 +37,9 @@ declaration's resolved Core type.
 | --- | --- |
 | `tuple<A, B, ...>` | a closed record `{ _1 :: A, _2 :: B, ... }` |
 | `option<T>` | `Data.Maybe.Maybe T` |
-| `result<O, E>` | `Data.Either.Either O E` |
-| `result<_, E>` | `Data.Either.Either Unit E` |
+| `result<O, E>` | `Data.Either.Either E O` |
+| `result<_, E>` | `Data.Either.Either E Unit` |
+| `result<O, _>` | `Data.Either.Either Unit O` |
 | `result` | `Data.Either.Either Unit Unit` |
 | `variant { ... }` | a source data type whose constructors correspond to the WIT cases in order |
 | `enum { ... }` | a nullary source data type (existing) |
@@ -46,11 +47,15 @@ declaration's resolved Core type.
 | `flags { ... }` | a closed source record of `Boolean` (existing) |
 | a multi-value return | a closed record; a `result` return is `Either` |
 
-Every `result` maps to `Either`, following the positional convention
-`Left = ok`, `Right = err`. Each payload position that is absent in the WIT
-declaration is a nullary case, so its source field is `Unit`. There is no
-`Unit`/trap special case: a unit-success `result<_, E>` decodes its error
-payload and builds an `Either`, exactly like a `result<O, E>`.
+Every `result` maps to `Either` with the error on `Left` (`Left = err`,
+`Right = ok`), following the PureScript idiom. The canonical ABI orders a
+`result`'s cases `[ok, err]` while `Either`'s constructors are
+`Left`(err), `Right`(ok), so lowering swaps the discriminant: a canonical `ok`
+builds or reads the `Right` tag, and a canonical `err` the `Left` tag. Each
+payload position that is absent in the WIT declaration is a nullary case, so its
+source field is `Unit`. There is no `Unit`/trap special case: a unit-success
+`result<_, E>` decodes its error payload and builds an `Either`, exactly like a
+`result<O, E>`.
 
 - The compiler recognizes `Maybe` and `Either` by their standard-library
   qualified names (`Data.Maybe.Maybe`, `Data.Either.Either`), not by arbitrary

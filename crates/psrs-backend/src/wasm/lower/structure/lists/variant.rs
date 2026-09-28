@@ -9,7 +9,9 @@ use super::super::wasm_error;
 use super::{ListLoop, Projection, Structurer, concrete_ref};
 use crate::BackendError;
 use crate::abi;
-use crate::abi::canonical::{CanonicalType, payload_cases};
+use crate::abi::canonical::{
+    CanonicalType, canonical_case_for_tag, payload_cases, source_tag_for_case, swaps_case_tags,
+};
 use crate::wasm::{Body, Op};
 use psrs_span::TextRange;
 use wasm_encoder::Instruction;
@@ -40,6 +42,11 @@ impl Structurer<'_> {
         body.push(Op::Leaf(Instruction::LocalSet(scratch)));
         self.element_address(body, context, offset, span)?;
         body.push(Op::Leaf(Instruction::LocalGet(scratch)));
+        // The memory discriminant is canonical; a `result` swaps its tag
+        // relative to the source `Either` ([DEC-13]).
+        if swaps_case_tags(canonical) {
+            body.push(Op::Leaf(Instruction::I32Eqz));
+        }
         store_discriminant(body, cases.len());
         let payload_offset = abi::layout::variant_payload_offset(&cases)
             .ok_or_else(|| wasm_error(span, "variant"))?;
@@ -48,6 +55,7 @@ impl Structurer<'_> {
             &mut chain,
             context,
             offset + payload_offset,
+            canonical,
             repr,
             &cases,
             guest_cases,
@@ -67,6 +75,7 @@ impl Structurer<'_> {
         body: &mut Body,
         context: &ListLoop,
         offset: u32,
+        canonical: &CanonicalType,
         repr: crate::cc::ReprId,
         cases: &[Option<&CanonicalType>],
         guest_cases: &[crate::cc::GuestCase],
@@ -78,8 +87,11 @@ impl Structurer<'_> {
         if index >= cases.len() {
             return Ok(());
         }
+        // `index` is the guest constructor tag; the payload it carries is the
+        // canonical case that tag maps to.
+        let canonical_index = canonical_case_for_tag(canonical, index);
         let mut then_body = Body::new();
-        if let Some(payload) = cases[index] {
+        if let Some(payload) = cases[canonical_index] {
             let case_type = self.case_index(repr, index as u32, span)?;
             let shape = guest_cases
                 .get(index)
@@ -107,6 +119,7 @@ impl Structurer<'_> {
             &mut else_body,
             context,
             offset,
+            canonical,
             repr,
             cases,
             guest_cases,
@@ -152,6 +165,7 @@ impl Structurer<'_> {
         let chain = self.variant_load_chain(
             context,
             offset + payload_offset,
+            canonical,
             repr,
             cases.len(),
             &cases,
@@ -171,6 +185,7 @@ impl Structurer<'_> {
         &self,
         context: &ListLoop,
         offset: u32,
+        canonical: &CanonicalType,
         repr: crate::cc::ReprId,
         case_count: usize,
         cases: &[Option<&CanonicalType>],
@@ -180,12 +195,15 @@ impl Structurer<'_> {
         result: wasm_encoder::ValType,
         span: TextRange,
     ) -> Result<Body, Vec<BackendError>> {
-        let case_type = self.case_index(repr, index as u32, span)?;
+        // `index` is the canonical discriminant (the value in memory); the guest
+        // case it rebuilds uses the source tag that discriminant maps to.
+        let source_tag = source_tag_for_case(canonical, index);
+        let case_type = self.case_index(repr, source_tag as u32, span)?;
         let mut build = Body::new();
-        build.push(Op::Leaf(Instruction::I32Const(index as i32)));
+        build.push(Op::Leaf(Instruction::I32Const(source_tag as i32)));
         if let Some(payload) = cases[index] {
             let shape = guest_cases
-                .get(index)
+                .get(source_tag)
                 .and_then(|case| case.fields.first())
                 .map(|field| field.stored)
                 .ok_or_else(|| wasm_error(span, "variant case has no payload field"))?;
@@ -199,6 +217,7 @@ impl Structurer<'_> {
         let else_body = self.variant_load_chain(
             context,
             offset,
+            canonical,
             repr,
             case_count,
             cases,

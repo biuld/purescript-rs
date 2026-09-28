@@ -491,10 +491,12 @@ emit_free(plan, buffer_values, tag):
   result is rejected because the borrow scope is the ended call.
 - **Unit-success result** (`result<_, _>`): a variant whose ok position is
   absent; `flatten` is `[I32]` when the error payload is also empty, so the
-  result is direct. `result<_, E>` maps to `Either Unit E`
+  result is direct. `result<_, E>` maps to `Either E Unit`
   ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)): `lift`
-  reads the tag, decodes the error payload when present, and builds `Left ()`
-  or `Right err`. There is no trap path.
+  reads the canonical tag, decodes the error payload when present, and builds
+  `Left err` or `Right ()`. The canonical cases are `[ok, err]` while the
+  `Either` constructors are `Left`(err), `Right`(ok), so the tag swaps. There is
+  no trap path.
 - **Large error payload** (`result<_, string>`): `flatten` is
   `[I32, I32, I32]`, so `retptr` is set and `size_align` sizes the return area;
   the error branch reads `(pointer, length)` and frees the buffer.
@@ -662,9 +664,9 @@ payload begins at offset `4`.
   For each element `e` at `pointer + i*12`, `opt_tag = Load8U(e)`: if `0`, build
   `Nothing`; if `1`, read `(s_ptr, s_len) = Load(e + 4), Load(e + 8)`, call
   `BYTES_TO_STRING(s_ptr, s_len)`, and build `Just s`. Build a GC array from the
-  elements and `Left array` (the `Either` ok branch).
+  elements and `Right array` (the `Either` ok branch).
 - *tag 1 (`err`)*: read `(ptr, len)` at offset `4`, `BYTES_TO_STRING(ptr, len)`,
-  and build `Right string`.
+  and build `Left string` (the `Either` error branch).
 
 **Free.** `free_plan` for the result is
 `Case([Elements(free_plan(option<string>)), Buffer])`. On the `ok` branch it

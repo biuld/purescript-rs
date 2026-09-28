@@ -127,7 +127,7 @@ pub(super) fn option_list_record_fixture() -> (cc::Module, ExternalBindings, Res
     )
 }
 
-/// `result<list<pair>, s32>` -> `Either (Array Pair) Int`.
+/// `result<list<pair>, s32>` -> `Either Int (Array Pair)`, the error on `Left`.
 pub(super) fn result_list_record_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let external_symbol = SymbolId::new(ModuleId::INTRINSICS, FOREIGN_SYMBOL_BASE);
     let main_symbol = SymbolId::new(ModuleId(0), 0);
@@ -144,11 +144,11 @@ pub(super) fn result_list_record_fixture() -> (cc::Module, ExternalBindings, Res
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![reference(2)],
+                        fields: vec![ValueShape::Integer],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![ValueShape::Integer],
+                        fields: vec![reference(2)],
                     },
                 ],
             },

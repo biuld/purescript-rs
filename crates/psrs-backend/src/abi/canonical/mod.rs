@@ -257,6 +257,36 @@ pub(crate) fn payload_cases(ty: &CanonicalType) -> Option<Vec<Option<&CanonicalT
     })
 }
 
+/// The guest constructor tag of the source case that canonical case `index`
+/// maps to.
+///
+/// `option`, `variant`, and `enum` cases correspond to source constructors in
+/// tag order, so the mapping is the identity. A canonical `result` orders its
+/// cases `[ok, err]`, while the source `Either` constructors are `Left` (the
+/// error, tag 0) then `Right` (the ok value, tag 1) ([DEC-13]); the two tags
+/// swap. Every `result` has exactly two cases.
+pub(crate) fn source_tag_for_case(ty: &CanonicalType, index: usize) -> usize {
+    match ty {
+        CanonicalType::Result { .. } => 1 - index,
+        _ => index,
+    }
+}
+
+/// The canonical case index that a guest `source_tag` selects. The inverse of
+/// [`source_tag_for_case`].
+pub(crate) fn canonical_case_for_tag(ty: &CanonicalType, source_tag: usize) -> usize {
+    match ty {
+        CanonicalType::Result { .. } => 1 - source_tag,
+        _ => source_tag,
+    }
+}
+
+/// Whether a tagged type swaps canonical and source case tags. Only `result`
+/// does; `option`, `variant`, and `enum` keep tag order.
+pub(crate) fn swaps_case_tags(ty: &CanonicalType) -> bool {
+    matches!(ty, CanonicalType::Result { .. })
+}
+
 /// A top-level `list<T>` of a supported element is lowered. A non-byte `list`
 /// nested directly in a record field is still rejected, but a list nested in a
 /// `list`, `option`, `result`, or `variant` is lowered recursively.

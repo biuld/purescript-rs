@@ -34,8 +34,9 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let unit = unit_type(&mut core);
 
     // DEC-13: `blocking-write-and-flush` returns `result<_, stream-error>`,
-    // which maps to `Either Unit StreamError`. Build that source type so the
-    // receiver parameters can still be validated against the resolved import.
+    // which maps to `Either StreamError Unit` (the error is `Left`). Build that
+    // source type so the receiver parameters can still be validated against the
+    // resolved import.
     let either = HirTypeId::new(ModuleId(2), 0);
     let stream_error = HirTypeId::new(ModuleId(2), 1);
     let error_handle_type = HirTypeId::new(ModuleId(2), 2);
@@ -63,7 +64,7 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             type_id: either,
             tag: 0,
             field_count: 1,
-            field_types: vec![unit],
+            field_types: vec![stream_error_type],
             parameters: Vec::new(),
         },
         ConstructorInfo {
@@ -72,7 +73,7 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             type_id: either,
             tag: 1,
             field_count: 1,
-            field_types: vec![stream_error_type],
+            field_types: vec![unit],
             parameters: Vec::new(),
         },
         ConstructorInfo {
@@ -94,12 +95,15 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
             parameters: Vec::new(),
         },
     ]);
-    let either_unit = intern_all(&mut core, vec![CoreType::Application(either_head, unit)])
-        .pop()
-        .expect("one partial either");
-    let either_unit_stream_error = intern_all(
+    let either_stream_error = intern_all(
         &mut core,
-        vec![CoreType::Application(either_unit, stream_error_type)],
+        vec![CoreType::Application(either_head, stream_error_type)],
+    )
+    .pop()
+    .expect("one partial either");
+    let either_stream_error_unit = intern_all(
+        &mut core,
+        vec![CoreType::Application(either_stream_error, unit)],
     )
     .pop()
     .expect("one unit-success either");
@@ -145,14 +149,14 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         &write,
         core.clone(),
         &[opaque, string],
-        either_unit_stream_error,
+        either_stream_error_unit,
     )
     .expect("the method should accept an opaque resource receiver");
     validate_against(
         &write,
         core.clone(),
         &[integer, string],
-        either_unit_stream_error,
+        either_stream_error_unit,
     )
     .expect("the integer placeholder should still match a handle parameter");
     assert!(

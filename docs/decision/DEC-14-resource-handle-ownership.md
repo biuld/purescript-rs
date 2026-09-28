@@ -52,10 +52,13 @@ aggregates.
   path. For example:
 
   ```purescript
-  foreign import data Resource :: Type -> Type
-  drop :: forall a. Resource a -> Effect Unit
-  withResource :: forall a b. Resource a -> (Resource a -> Effect b) -> Effect b
+  newtype Resource a = Resource Int
+  withResource :: forall a b. (Resource a -> Effect Unit) -> Resource a -> (Resource a -> Effect b) -> Effect b
   ```
+
+  The phantom `a` is an opaque `foreign import data X :: Type` naming the
+  resource, so `Resource X` is representationally the handle `Int` and erases to
+  it at the ABI boundary.
 
 ## Consequences
 

@@ -153,13 +153,16 @@ fn validates_option_result_and_variant_parameters() {
         &mut module,
         CoreType::Application(maybe_head, CoreTypeId(1)),
     );
-    let either_int = append(
+    // DEC-13 maps WIT `result<O, E>` to `Either E O`: the error is `Left`.
+    // `result<u32, string>` is `Either String Int`, so the first argument is the
+    // error payload.
+    let either_string = append(
         &mut module,
-        CoreType::Application(either_head, CoreTypeId(0)),
+        CoreType::Application(either_head, CoreTypeId(1)),
     );
-    let either_int_string = append(
+    let either_string_int = append(
         &mut module,
-        CoreType::Application(either_int, CoreTypeId(1)),
+        CoreType::Application(either_string, CoreTypeId(0)),
     );
     let shape = append(
         &mut module,
@@ -173,9 +176,9 @@ fn validates_option_result_and_variant_parameters() {
         .expect("Maybe String should match WIT option<string>");
 
     let result = aggregate_import("result", vec![result_type()]);
-    let function = function_type(&mut module, &[either_int_string], unit);
+    let function = function_type(&mut module, &[either_string_int], unit);
     crate::abi::link::validate_import_signature(&result, &module, function)
-        .expect("Either Int String should match WIT result<u32, string>");
+        .expect("Either String Int should match WIT result<u32, string>");
 
     let variant = aggregate_import("variant", vec![variant_type()]);
     let function = function_type(&mut module, &[shape], unit);
@@ -207,18 +210,19 @@ fn validates_option_result_and_variant_parameters() {
 
 #[test]
 fn validates_a_unit_success_result_as_either_unit() {
-    // DEC-13: `result<_, E>` maps to `Either Unit E`, not to a trapping `Unit`.
+    // DEC-13: `result<_, E>` maps to `Either E Unit`, with the error on `Left`,
+    // not to a trapping `Unit`.
     let mut module = aggregate_module();
     let unit = append(&mut module, CoreType::Unit);
     let either_head = append(
         &mut module,
         CoreType::Constructor(TypeConstructor::User(user(1))),
     );
-    let either_unit = append(&mut module, CoreType::Application(either_head, unit));
-    let either_unit_int = append(
+    let either_int = append(
         &mut module,
-        CoreType::Application(either_unit, CoreTypeId(0)),
+        CoreType::Application(either_head, CoreTypeId(0)),
     );
+    let either_int_unit = append(&mut module, CoreType::Application(either_int, unit));
     let unit_result = CanonicalType::Result {
         ok: None,
         err: Some(Box::new(int(32, false))),
@@ -231,9 +235,9 @@ fn validates_a_unit_success_result_as_either_unit() {
         Some(unit_result),
     );
 
-    let function = function_type(&mut module, &[], either_unit_int);
+    let function = function_type(&mut module, &[], either_int_unit);
     crate::abi::link::validate_import_signature(&import, &module, function)
-        .expect("Either Unit Int should match WIT result<_, u32>");
+        .expect("Either Int Unit should match WIT result<_, u32>");
 
     // The removed `Unit`/trap mapping is no longer accepted.
     let function = function_type(&mut module, &[], unit);

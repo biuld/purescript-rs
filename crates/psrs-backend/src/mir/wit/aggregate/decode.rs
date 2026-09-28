@@ -149,8 +149,15 @@ fn build_variant<L: WitCallLowerer>(
     let tag = load_discriminant(lowerer, address, offset, case_kinds.len(), block, span)?;
     let payload_offset =
         layout::variant_payload_offset(&case_kinds).ok_or_else(|| unsupported(span))?;
-    let case_fields = (0..case_kinds.len())
-        .map(|index| cases.get(index).and_then(|case| case.fields.first()))
+    // A canonical `result` swaps its tag relative to the source `Either`
+    // ([DEC-13]); the memory discriminant is canonical and the built guest case
+    // uses the source tag.
+    let source_tags = (0..case_kinds.len())
+        .map(|index| source_tag_for_case(kind, index))
+        .collect::<Vec<_>>();
+    let case_fields = source_tags
+        .iter()
+        .map(|&tag| cases.get(tag).and_then(|case| case.fields.first()))
         .collect::<Vec<_>>();
     let case_blocks = cases
         .iter()
@@ -198,7 +205,7 @@ fn build_variant<L: WitCallLowerer>(
             block,
             built,
             representation,
-            index as u32,
+            source_tags[index] as u32,
             field.into_iter().collect(),
             span,
         )?;

@@ -4,6 +4,7 @@ mod filesystem;
 mod wat;
 use wat::*;
 
+mod umbrella;
 mod wrappers;
 
 #[test]
@@ -181,10 +182,10 @@ fn lowers_a_list_of_strings_to_an_array() {
 fn lowers_the_environment_arguments_wrapper_to_an_array() {
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Environment\n\
+        import WASI.Process\n\
         main = arrayLength (runEffect arguments)\n";
     let artifact = compile_source("Main.purs", source)
-        .expect("WASI.Environment.arguments should lower to an array");
+        .expect("WASI.Process.arguments should lower to an array");
     assert!(artifact.wat.contains("wasi:cli/environment@0.2.12"));
     assert!(artifact.wat.contains("get-arguments"));
     assert!(artifact.wat.contains("array.new_default"));
@@ -194,7 +195,7 @@ fn lowers_the_environment_arguments_wrapper_to_an_array() {
 fn rejects_an_import_of_unexported_get_arguments() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Environment (getArguments)\nmain = 0\n",
+        "module Main where\nimport WASI.Process (getArguments)\nmain = 0\n",
     )
     .expect_err("getArguments is not part of the environment export list");
     assert!(
@@ -212,7 +213,7 @@ fn reads_environment_arguments_when_wasmtime_is_available() {
     // is the module path under Wasmtime.
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Environment\n\
+        import WASI.Process\n\
         main = arrayLength (runEffect arguments)\n";
     let Some(output) = run_with_wasmtime_args(source, &["alpha", "beta"]) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -413,7 +414,7 @@ fn keeps_multiple_returned_wit_strings_in_distinct_allocations() {
 fn rejects_an_import_of_unexported_exit_with_code_raw() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Exit (exitWithCodeRaw)\nmain = 0\n",
+        "module Main where\nimport WASI.Process (exitWithCodeRaw)\nmain = 0\n",
     )
     .expect_err("exitWithCodeRaw is not part of the exit export list");
     assert!(
@@ -432,11 +433,11 @@ fn rejects_an_import_of_unexported_exit_with_code_raw() {
 #[test]
 fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
     let stored = "module Main where\n\
-        import WASI.Exit\n\
+        import WASI.Process\n\
         main = let action = exitWithCode 0 in 0\n";
     let forced = "module Main where\n\
         import Prelude\n\
-        import WASI.Exit\n\
+        import WASI.Process\n\
         main = let value = runEffect (exitWithCode 0) in 0\n";
     let stored_wat = compile_source("Main.purs", stored)
         .expect("a stored exitWithCode action should compile")

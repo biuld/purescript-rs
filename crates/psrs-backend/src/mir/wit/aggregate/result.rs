@@ -29,10 +29,18 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
     let case_kinds = payload_cases(result).ok_or_else(|| unsupported(span))?;
     let payload_offset =
         abi::layout::variant_payload_offset(&case_kinds).ok_or_else(|| unsupported(span))?;
+    // A canonical `result` swaps its tag relative to the source `Either`: the
+    // canonical discriminant is `[ok, err]`, but the guest constructors are
+    // `Left` (err) then `Right` (ok) ([DEC-13]). The return-area discriminant is
+    // still keyed by canonical index; the built guest case uses the source tag.
+    let source_tags = (0..case_kinds.len())
+        .map(|index| source_tag_for_case(result, index))
+        .collect::<Vec<_>>();
     // Each case's projected field carries both the concrete source value and the
     // storage slot; MIR decodes the value and erases it when the slot is erased.
-    let case_fields = (0..case_kinds.len())
-        .map(|index| cases.get(index).and_then(|case| case.fields.first()))
+    let case_fields = source_tags
+        .iter()
+        .map(|&tag| cases.get(tag).and_then(|case| case.fields.first()))
         .collect::<Vec<_>>();
 
     lowerer.append_wit_instruction(
@@ -107,7 +115,7 @@ pub(in crate::mir) fn lower_variant_result<L: WitCallLowerer>(
             block,
             built,
             repr,
-            index as u32,
+            source_tags[index] as u32,
             field.into_iter().collect(),
             span,
         )?;

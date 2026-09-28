@@ -241,7 +241,19 @@ fn typecheck_program(
         .iter()
         .flat_map(|module| module.types.iter().cloned())
         .collect::<Vec<_>>();
-    let exported = modules.iter().map(exported_signatures).collect::<Vec<_>>();
+    // A re-exported symbol is declared in the module that owns it, so the
+    // signature table is global: a module that imports an exported symbol finds
+    // its declared type even when it imported it through an umbrella module.
+    let signatures = modules
+        .iter()
+        .flat_map(|module| module.declarations.iter())
+        .filter_map(|declaration| {
+            declaration
+                .signature
+                .clone()
+                .map(|signature| (declaration.symbol, signature))
+        })
+        .collect::<HashMap<_, _>>();
     let order = typecheck_order(&modules);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
@@ -277,23 +289,20 @@ fn typecheck_program(
             }
             continue;
         }
-        let imported = imported_signatures(&module, &exported);
+        let imported = imported_signatures(&module, &signatures);
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
                 "Prelude"
                     | "WASI.Resource"
-                    | "WASI.Streams"
-                    | "WASI.Poll"
-                    | "WASI.Error"
-                    | "WASI.Stdin"
-                    | "WASI.Console"
+                    | "WASI.IO"
                     | "WASI.Clock"
                     | "WASI.Random"
-                    | "WASI.Exit"
-                    | "WASI.Environment"
-                    | "WASI.Filesystem"
-                    | "WASI.Sockets"
+                    | "WASI.Console"
+                    | "WASI.Process"
+                    | "WASI.FileSystem"
+                    | "WASI.Network"
+                    | "WASI"
             );
         let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
             module,
@@ -321,35 +330,17 @@ fn typecheck_program(
     }
 }
 
-/// The declared value types a module exposes to its importers, taken from each
-/// declaration's annotation. A declaration without an annotation is not
-/// exported for cross-module use yet.
-fn exported_signatures(module: &psrs_hir::Module) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
-    module
-        .declarations
-        .iter()
-        .filter_map(|declaration| {
-            declaration
-                .signature
-                .clone()
-                .map(|signature| (declaration.symbol, signature))
-        })
-        .collect()
-}
-
-/// Resolves a module's imported symbols to their exporting declaration's
-/// declared type.
+/// Resolves a module's imported symbols to their declared type from the global
+/// declaration table. A symbol re-exported by an umbrella module keeps the
+/// signature of the declaration that owns it.
 fn imported_signatures(
     module: &psrs_hir::Module,
-    exported: &[HashMap<psrs_hir::SymbolId, psrs_hir::Type>],
+    signatures: &HashMap<psrs_hir::SymbolId, psrs_hir::Type>,
 ) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
     let mut imported = HashMap::new();
     for import in &module.imports {
-        let Some(table) = exported.get(import.module.0 as usize) else {
-            continue;
-        };
         for symbol in &import.symbols {
-            if let Some(ty) = table.get(&symbol.symbol) {
+            if let Some(ty) = signatures.get(&symbol.symbol) {
                 imported.insert(symbol.symbol, ty.clone());
             }
         }
