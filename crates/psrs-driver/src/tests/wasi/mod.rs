@@ -1,5 +1,6 @@
 use super::*;
 
+mod do_notation;
 mod filesystem;
 mod wat;
 use wat::*;

@@ -7,15 +7,15 @@ import Prelude
 import WASI.IO (blockingWriteAndFlush, dropOutputStream, getStderr, getStdout)
 
 log :: String -> Effect Unit
-log s = \token ->
-  let handle = getStdout token in
-  let ignored = blockingWriteAndFlush handle s token in
-  let ignoredNewline = blockingWriteAndFlush handle "\n" token in
-  dropOutputStream handle token
+log s = do
+  handle <- getStdout
+  _ <- blockingWriteAndFlush handle s
+  _ <- blockingWriteAndFlush handle "\n"
+  dropOutputStream handle
 
 error :: String -> Effect Unit
-error s = \token ->
-  let handle = getStderr token in
-  let ignored = blockingWriteAndFlush handle s token in
-  let ignoredNewline = blockingWriteAndFlush handle "\n" token in
-  dropOutputStream handle token
+error s = do
+  handle <- getStderr
+  _ <- blockingWriteAndFlush handle s
+  _ <- blockingWriteAndFlush handle "\n"
+  dropOutputStream handle

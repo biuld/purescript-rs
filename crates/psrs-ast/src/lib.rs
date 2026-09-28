@@ -2,6 +2,7 @@ use psrs_cst::{self as cst, ExprKind as CstExprKind};
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
+mod do_notation;
 mod export;
 mod expr;
 mod import;
@@ -385,9 +386,20 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .map(|(index, item)| Ok((tuple_label(index), lower_expr(item)?)))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        CstExprKind::Do {
+            result: Some(_), ..
+        } => {
+            return Err(LowerError::new(span, "`ado` notation is not supported yet"));
+        }
+        CstExprKind::Do {
+            do_keyword_span,
+            statements,
+            ..
+        } => {
+            return do_notation::lower_do(statements, do_keyword_span, span);
+        }
         CstExprKind::Hole(_)
         | CstExprKind::Negate { .. }
-        | CstExprKind::Do { .. }
         | CstExprKind::Typed { .. }
         | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError::new(
