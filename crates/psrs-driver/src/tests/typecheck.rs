@@ -101,6 +101,58 @@ main = sum (Pair 20 22)
 }
 
 #[test]
+fn typechecks_do_notation_over_effect() {
+    // `do` desugars to `bind`/`discard`/`let`; without dictionaries both names
+    // resolve from the enclosing scope, here the imported Prelude. Type
+    // inference must see through the desugaring and give the block `Effect Int`.
+    let source = "\
+module Main where
+import Prelude
+import WASI.Console
+action :: Effect Int
+action = do
+  handle <- pure 1
+  let doubled = handle + handle
+  _ <- log \"value\"
+  pure doubled
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_non_variable_do_binder() {
+    // A non-variable binder desugars through a `case`; inference must bind the
+    // data constructor's fields from the scrutinee type.
+    let source = "\
+module Main where
+import Prelude
+data Pair = Pair Int Int
+action :: Effect Int
+action = do
+  Pair x y <- pure (Pair 1 2)
+  pure (x + y)
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn rejects_a_do_binder_with_the_wrong_case_type() {
+    let source = "\
+module Main where
+import Prelude
+data Pair = Pair Int Int
+action :: Effect Int
+action = do
+  Pair x y <- pure 1
+  pure (x + y)
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_err());
+}
+
+#[test]
 fn lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int() {
     let source = "\
 module Main where
