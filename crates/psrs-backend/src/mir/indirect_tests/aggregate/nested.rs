@@ -24,16 +24,16 @@ pub(super) fn nested_variant_fixture() -> (cc::Module, ExternalBindings, Resolve
             Representation::Box {
                 value: ValueShape::Integer,
             },
-            // Repr 1: the outer `Either String Err`.
+            // Repr 1: the outer `Either Err String` (the error is `Left`).
             Representation::Variant {
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![ValueShape::String],
+                        fields: vec![reference(2)],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![reference(2)],
+                        fields: vec![ValueShape::String],
                     },
                 ],
             },

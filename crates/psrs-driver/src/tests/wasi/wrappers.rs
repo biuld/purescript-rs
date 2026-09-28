@@ -69,7 +69,7 @@ fn polls_a_clock_subscription_when_wasmtime_is_available() {
     let source = "module Main where\n\
         import Prelude\n\
         import WASI.Clock (subscribeDuration)\n\
-        import WASI.Poll\n\
+        import WASI.IO\n\
         main = let waiter = runEffect (subscribeDuration 0) in arrayLength (runEffect (poll [waiter])) * 0\n";
     let artifact = compile_source("Main.purs", source).expect("the poll wrapper should lower");
     assert!(artifact.wat.contains("wasi:io/poll@0.2.12"));
@@ -85,7 +85,7 @@ fn reads_a_pollable_readiness_when_wasmtime_is_available() {
     let source = "module Main where\n\
         import Prelude\n\
         import WASI.Clock (subscribeDuration)\n\
-        import WASI.Poll (ready, block)\n\
+        import WASI.IO (ready, block)\n\
         main = let waiter = runEffect (subscribeDuration 0) in let ignored = runEffect (block waiter) in if runEffect (ready waiter) then 0 else 1\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -98,7 +98,7 @@ fn reads_a_pollable_readiness_when_wasmtime_is_available() {
 fn writes_to_a_stream_when_wasmtime_is_available() {
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Streams\n\
+        import WASI.IO\n\
         main = let out = runEffect getStdout in let ignored = runEffect (blockingWriteAndFlush out \"streamed\") in 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the stream write wrapper should lower");
@@ -115,7 +115,7 @@ fn writes_to_a_stream_when_wasmtime_is_available() {
 fn gets_stdin_when_wasmtime_is_available() {
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Stdin\n\
+        import WASI.IO\n\
         main = let input = runEffect getStdin in 0\n";
     let artifact = compile_source("Main.purs", source).expect("the stdin wrapper should lower");
     assert!(artifact.wat.contains("wasi:cli/stdin@0.2.12"));
@@ -130,7 +130,7 @@ fn gets_stdin_when_wasmtime_is_available() {
 fn lowers_the_error_debug_string_wrapper() {
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Error\n\
+        import WASI.IO\n\
         main = let render = toDebugString in 0\n";
     compile_source("Main.purs", source).expect("the error debug-string wrapper should lower");
 }
@@ -142,9 +142,13 @@ fn lowers_the_error_debug_string_wrapper() {
 fn stdlib_export_lists_do_not_expose_raw_foreign_imports() {
     let sources = crate::prelude::sources().expect("the standard library should load");
     let mut raw_imports = 0;
+    let mut modules_with_raw = Vec::new();
     for module in sources {
         let imports = raw_foreign_value_names(&module.text);
         raw_imports += imports.len();
+        if !imports.is_empty() {
+            modules_with_raw.push(module.module_name.clone());
+        }
         let exports = export_names(&module.text);
         for name in imports {
             match &exports {
@@ -163,6 +167,35 @@ fn stdlib_export_lists_do_not_expose_raw_foreign_imports() {
     assert!(
         raw_imports > 0,
         "the standard library should declare raw imports"
+    );
+    // Each consolidated service module owns its raw imports and exports only the
+    // curated wrappers. The umbrella re-exports those modules and declares no
+    // raw import itself.
+    let mut expected = vec![
+        "WASI.Clock",
+        "WASI.FileSystem",
+        "WASI.IO",
+        "WASI.Network",
+        "WASI.Process",
+        "WASI.Random",
+    ];
+    expected.sort_unstable();
+    modules_with_raw.sort_unstable();
+    assert_eq!(
+        modules_with_raw, expected,
+        "only the consolidated service modules declare raw imports"
+    );
+    let umbrella = sources
+        .iter()
+        .find(|module| module.module_name == "WASI")
+        .expect("the WASI umbrella module should be part of the standard library");
+    assert!(
+        raw_foreign_value_names(&umbrella.text).is_empty(),
+        "the umbrella must declare no raw import"
+    );
+    assert!(
+        export_names(&umbrella.text).is_some(),
+        "the umbrella must have an explicit export list"
     );
 }
 
@@ -222,19 +255,18 @@ fn raw_foreign_value_names(text: &str) -> Vec<String> {
 
 #[test]
 fn lowers_a_mapped_result_with_a_variant_payload() {
-    // `result<list<u8>, stream-error>` maps to `Either String StreamError`
-    // (DEC-13). The `err` payload is itself a variant whose case field is an
-    // opaque handle, so the decode has to build the nested source value before
-    // erasing it into the `Either` case field.
+    // `result<list<u8>, stream-error>` maps to `Either StreamError String`
+    // (DEC-13, the error on `Left`). The `err` payload is itself a variant
+    // whose case field is a resource handle, so the decode has to build the
+    // nested source value before erasing it into the `Either` case field.
     let source = r#"module Main where
 import Prelude
 import Data.Either (Either(..))
-import WASI.Stdin (getStdin)
-import WASI.Streams (blockingRead, StreamError(..))
+import WASI.IO (getStdin, blockingRead, StreamError(..))
 main = case runEffect (blockingRead (runEffect getStdin) 1) of
-        Left s -> 0
-        Right (LastOperationFailed e) -> 1
-        Right Closed -> 2
+        Right bytes -> 0
+        Left (LastOperationFailed _) -> 1
+        Left Closed -> 2
 "#;
     let artifact = compile_source("Main.purs", source)
         .expect("a result whose payload is a variant should lower");
@@ -249,7 +281,7 @@ fn accepts_a_newtype_resource_in_a_foreign_signature() {
     let source = r#"module Main where
 import Prelude
 import WASI.Resource (Resource)
-import WASI.Streams (InputStream)
+import WASI.IO (InputStream)
 foreign import "wasi:io/streams#[method]input-stream.subscribe" subscribe :: Resource InputStream -> Int
 main = 0
 "#;
@@ -263,8 +295,8 @@ fn lowers_an_opaque_handle_resource_drop() {
     // so a source declaration may name it rather than a bare `Int`.
     let source = r#"module Main where
 import Prelude
-import WASI.Stdin (getStdin)
-import WASI.Streams (dropInputStream)
+import WASI.IO (getStdin)
+import WASI.IO (dropInputStream)
 main = let ignored = runEffect (dropInputStream (runEffect getStdin)) in 0
 "#;
     let artifact = compile_source("Main.purs", source)
@@ -278,14 +310,14 @@ fn reads_stdin_with_blocking_read_when_wasmtime_is_available() {
 import Prelude
 import Data.Either (Either(..))
 import WASI.Console (log)
-import WASI.Stdin (getStdin)
-import WASI.Streams (blockingRead, StreamError(..))
+import WASI.IO (getStdin)
+import WASI.IO (blockingRead, StreamError(..))
 main =
   let result = runEffect (blockingRead (runEffect getStdin) 5) in
   case result of
-    Left text -> let ignored = runEffect (log text) in 0
-    Right (LastOperationFailed _) -> 1
-    Right Closed -> 2
+    Right text -> let ignored = runEffect (log text) in 0
+    Left (LastOperationFailed _) -> 1
+    Left Closed -> 2
 "#;
     let artifact = compile_source("Main.purs", source).expect("blockingRead should lower");
     assert!(artifact.wat.contains("wasi:cli/stdin@0.2.12"));
@@ -305,14 +337,14 @@ fn lowers_the_filesystem_wrapper_surface() {
     let source = r#"module Main where
 import Prelude
 import Data.Either (Either(..))
-import WASI.Filesystem
+import WASI.FileSystem
 main =
   let dirs = runEffect preopens in
   let dir = arrayIndex dirs 0 in
   let d = dir._1 in
   let opened = runEffect (openRead d "a.txt") in
-  let wrote = runEffect (write d "x" 0) in
-  let bytes = runEffect (read d 1 0) in
+  let wrote = runEffect (writeFile d "x" 0) in
+  let bytes = runEffect (readFile d 1 0) in
   let hash = runEffect (metadataHash d) in
   let kind = runEffect (getType d) in
   let flags = runEffect (getFlags d) in
@@ -346,7 +378,7 @@ fn lowers_the_sockets_wrapper_surface() {
 import Prelude
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import WASI.Sockets
+import WASI.Network
 addr :: IpSocketAddress
 addr = IpV4SocketAddress { port: 0, address: { _1: 0, _2: 0, _3: 0, _4: 0 } }
 main =
@@ -393,7 +425,7 @@ main =
 fn rejects_a_raw_filesystem_import_from_the_library() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Filesystem (openAtRaw)\nmain = 0\n",
+        "module Main where\nimport WASI.FileSystem (openAtRaw)\nmain = 0\n",
     )
     .expect_err("openAtRaw is not part of the filesystem export list");
     assert!(
@@ -408,7 +440,7 @@ fn rejects_a_raw_filesystem_import_from_the_library() {
 fn rejects_a_raw_sockets_import_from_the_library() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Sockets (createTcpSocketRaw)\nmain = 0\n",
+        "module Main where\nimport WASI.Network (createTcpSocketRaw)\nmain = 0\n",
     )
     .expect_err("createTcpSocketRaw is not part of the sockets export list");
     assert!(
@@ -423,8 +455,8 @@ fn rejects_a_raw_sockets_import_from_the_library() {
 fn drops_a_stream_handle_when_wasmtime_is_available() {
     let source = r#"module Main where
 import Prelude
-import WASI.Stdin (getStdin)
-import WASI.Streams (dropInputStream)
+import WASI.IO (getStdin)
+import WASI.IO (dropInputStream)
 main = let ignored = runEffect (dropInputStream (runEffect getStdin)) in 7
 "#;
     let artifact = compile_source("Main.purs", source).expect("the drop wrapper should lower");

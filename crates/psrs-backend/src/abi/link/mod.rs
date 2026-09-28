@@ -83,10 +83,22 @@ fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
             // reaches here.
             | CoreType::Constructor(TypeConstructor::User(_)),
         ) => true,
-        // A nested `Array T` element lowers recursively.
-        Some(CoreType::Application(function, _)) => is_array_constructor(types, *function),
+        // A nested `Array T` element lowers recursively; an applied user type
+        // is either a newtype such as `Resource a` or a parameterized data type
+        // (`Maybe a`, `Either e a`), whose element conformance is validated
+        // against the canonical WIT element.
+        Some(CoreType::Application(function, _)) => {
+            is_array_constructor(types, *function) || is_user_type(types, *function)
+        }
         _ => false,
     }
+}
+
+fn is_user_type(types: &[CoreType], id: CoreTypeId) -> bool {
+    matches!(
+        types.get(id.0 as usize),
+        Some(CoreType::Constructor(TypeConstructor::User(_)))
+    )
 }
 
 fn intern_core_type(types: &mut Vec<CoreType>, core: CoreType) -> CoreTypeId {

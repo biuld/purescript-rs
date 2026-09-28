@@ -34,11 +34,11 @@ pub(super) fn large_record_fixture() -> (cc::Module, ExternalBindings, Resolve) 
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![reference(1)],
+                        fields: vec![ValueShape::Integer],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![ValueShape::Integer],
+                        fields: vec![reference(1)],
                     },
                 ],
             },
@@ -141,15 +141,15 @@ pub(super) fn large_unit_result_fixture() -> (cc::Module, ExternalBindings, Reso
             },
             Representation::Variant {
                 cases: vec![
-                    // `Left ()`: the absent ok payload is a `Unit` field.
+                    // `Left big`: the decoded error payload.
                     VariantCase {
                         tag: 0,
-                        fields: vec![erased()],
+                        fields: vec![reference(1)],
                     },
-                    // `Right big`: the decoded error payload.
+                    // `Right ()`: the absent ok payload is a `Unit` field.
                     VariantCase {
                         tag: 1,
-                        fields: vec![reference(1)],
+                        fields: vec![erased()],
                     },
                 ],
             },

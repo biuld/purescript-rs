@@ -150,7 +150,7 @@ never invents source values.
 | resource handle | opaque handle | `own<T>` transfers ownership with a drop obligation; `borrow<T>` is a call-scoped non-owning reference. |
 | `tuple<A, B, ...>` | closed record | `{ _1 :: A, _2 :: B, ... }`. |
 | `option<T>` | `Data.Maybe.Maybe T` | recognized by the qualified type name. |
-| `result<O, E>` | `Data.Either.Either O E` | recognized by the qualified type name; a unit-`ok` result keeps the `Unit` mapping. |
+| `result<O, E>` | `Data.Either.Either E O` | recognized by the qualified type name; the error is `Left`, the ok value `Right`. |
 | other `variant { ... }` | source data type | constructors in WIT case order. |
 
 Two rules follow from the source language having no unsigned or narrowed integer
@@ -168,13 +168,16 @@ types:
 [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
 aggregate WIT forms to the idiomatic library types: a tuple to a closed record,
 `option<T>` to `Data.Maybe.Maybe T`, `result<O, E>` to
-`Data.Either.Either O E`, and a non-unit `variant` to a source data type whose
+`Data.Either.Either E O`, and a non-unit `variant` to a source data type whose
 constructors follow the WIT case order. `Maybe` and `Either` are recognized by
 their qualified names, never by constructor shape. Every `result` maps to an
-`Either`, including a unit-success or unit-error one: an absent payload position
-is a nullary WIT case whose source field is `Unit`, so `result<_, E>` is
-`Either Unit E`, `result<O, _>` is `Either O Unit`, and plain `result` is
-`Either Unit Unit`. There is no `Unit`/trap special case. A standard-library
+`Either` with the error on `Left`, including a unit-success or unit-error one:
+an absent payload position is a nullary WIT case whose source field is `Unit`,
+so `result<_, E>` is `Either E Unit`, `result<O, _>` is `Either Unit O`, and
+plain `result` is `Either Unit Unit`. A canonical `result` orders its cases
+`[ok, err]` while `Either` orders its constructors `Left`(err), `Right`(ok), so
+lowering swaps the discriminant. There is no `Unit`/trap special case. A
+standard-library
 wrapper may still pass one of those forms as a sequence of primitive arguments
 (`Int`, `Boolean`, `Number`, `Char`, `String`, `Unit`, with a handle declared as
 `Int`) whose flattening equals `Resolve::wasm_signature` for that function
@@ -221,16 +224,21 @@ recovers the result. All adaptation instructions are ordinary MIR operations:
 - **Results.** A scalar `i64` is wrapped to `Int`, an `f32` widened to `Number`,
   an `i32`/`f64` used directly, and a `list`/`string` read from the return area
   as `(pointer, length)`, copied into a fresh GC value, and the linear buffer
-  freed. A
-  `result<_, E>` reads the one-byte discriminant, decodes the selected error
-  payload when present, and builds the mapped `Either` (its absent ok field is
-  the `Unit` value), exactly like any other mapped result.
+  freed. A `result` reads the one-byte canonical discriminant, decodes the
+  selected payload when present, and builds the mapped `Either`: the canonical
+  `ok` case (discriminant `0`) builds `Right`, and the canonical `err` case
+  (discriminant `1`) builds `Left`, so the source error lands on `Left`. An
+  absent payload position builds the corresponding `Unit` field. This is exactly
+  like any other mapped result except for the swapped tag.
 - **Aggregate parameters and results.** A mapped `option`, `result`, or
   `variant` carries a canonical discriminant followed by the joined payload
-  slots. As a parameter the lowering branches on the source tag: the selected
-  payload case is flattened, and the other case pushes placeholder slots. As a
-  result the lowering branches on the return-area discriminant, reads the
-  selected payload, and builds the source value with `VariantNew`. The payload
+  slots. As a parameter the lowering branches on the guest constructor tag,
+  flattens the payload that tag selects, pushes placeholder slots for the other
+  case, and writes the canonical discriminant: `option`/`variant` keep tag
+  order, while a `result` swaps it (`Left`/err is guest tag `0` and canonical
+  discriminant `1`). As a result the lowering branches on the return-area
+  discriminant, reads the selected payload, and builds the source value with
+  `VariantNew`, using the swapped tag for a `result`. The payload
   is recovered into the stored `Maybe`/`Either`/data-type field; a scalar is
   boxed and a reference is cast, matching the erased aggregate field protocol.
   Each branch joins at a merge block that carries the canonical slots. A payload
@@ -378,11 +386,14 @@ lower_result(import, destination, flat):
         None =>
             CallVoid(import, flat); destination = Constant(0)
         Result =>
+            # A mapped result, decoded through the return-area discriminant.
+            # The canonical cases are [ok, err]; the source Either swaps them,
+            # so canonical ok builds Right and canonical err builds Left.
             CallVoid(import, flat)
-            status   = Load8U(PRINT_SCRATCH)
-            failed   = status != 0
-            TrapIf(failed)
-            destination = Constant(0)
+            status = Load8U(PRINT_SCRATCH)
+            switch status
+                case 0 => destination = build_right(ok_payload_at PRINT_SCRATCH)
+                case 1 => destination = build_left(err_payload_at PRINT_SCRATCH)
         Discarded => error
 ```
 
@@ -402,7 +413,7 @@ validate_import_signature(import, module, type_id):
         List      => String (byte list)
         IntegerNarrow { .. } => Int
         ValueList { element } => Array(source) whose element matches `element`
-        Result    => Unit
+        Result    => the mapped Either source type (`Either err ok`)
         Discarded => always reject
 ```
 
@@ -530,7 +541,7 @@ Consider an import
 
 ```purescript
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  writeStdout :: Int -> String -> Either Unit StreamError
+  writeStdout :: Int -> String -> Either StreamError Unit
 ```
 
 and a call `writeStdout handle message`. Resolution yields `module =
@@ -538,7 +549,7 @@ and a call `writeStdout handle message`. Resolution yields `module =
 "[method]output-stream.blocking-write-and-flush"`, `param_kinds = [Handle,
 List]` (the `String` is a byte list), `retptr = true`, and `result_kind =
 Result` (the WIT function returns `result<_, stream-error>`; DEC-13 maps it to
-`Either Unit StreamError`). Lowering `writeStdout handle message` emits:
+`Either StreamError Unit`). Lowering `writeStdout handle message` emits:
 
 ```text
 v_len   = Load [0] message            # message[0..4] is the byte length
@@ -547,13 +558,14 @@ v_ret   = Constant 0                  # PRINT_SCRATCH return pointer
 CallVoid writeStdout(handle, v_bytes, v_len, v_ret)
 v_stat  = Load8U [0] 0                # canonical result discriminant
 switch v_stat
-  case 0: result = VariantNew Left [Constant 0]        # Left (), the ok case
+  case 0: result = VariantNew Right [Constant 0]       # ok -> Right ()
   case 1: payload = Decode stream-error at v_ret       # the error payload
-          result = VariantNew Right [payload]
+          result = VariantNew Left [payload]           # err -> Left
 ```
 
 A nonzero status no longer traps: the error payload is decoded and wrapped in
-`Right`, so the source program observes the failure as an `Either` value.
+`Left`, so the source program observes the failure as an `Either` value with the
+error first.
 
 If the same program also used a `list`-returning import, P10 would additionally
 synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).

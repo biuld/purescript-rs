@@ -43,16 +43,16 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
             Representation::Product {
                 fields: vec![reference(1)],
             },
-            // Repr 3: `Either Outer Int`.
+            // Repr 3: `Either Int Outer` (the error is `Left`).
             Representation::Variant {
                 cases: vec![
                     VariantCase {
                         tag: 0,
-                        fields: vec![reference(2)],
+                        fields: vec![ValueShape::Integer],
                     },
                     VariantCase {
                         tag: 1,
-                        fields: vec![ValueShape::Integer],
+                        fields: vec![reference(2)],
                     },
                 ],
             },

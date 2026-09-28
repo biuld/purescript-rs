@@ -48,11 +48,11 @@ The standard library and the lowerer are two layers. The mechanism is
   must equal `Resolve::wasm_signature` for that WIT function. Discriminants
   and dummy payloads are written in PureScript.
 - A foreign import has one result, which the lowerer rebuilds as one
-  primitive. A unit-success `result` now maps to `Either Unit E`
-  ([DEC-13](DEC-13-wit-to-source-type-mapping.md)), not `Unit` with a trap.
-  A canonical result that is several values is not wrapped and is not given a
-  compiler source type until the whole result is one primitive. A tuple return
-  is not added to carry the extra words.
+  primitive. A unit-success `result` maps to `Either E Unit`
+  ([DEC-13](DEC-13-wit-to-source-type-mapping.md)), with the error on `Left`,
+  not `Unit` with a trap. A canonical result that is several values is not
+  wrapped and is not given a compiler source type until the whole result is one
+  primitive. A tuple return is not added to carry the extra words.
 - Raw imports are not exported. Users do not pass pointers, lengths, or
   discriminants.
 
@@ -82,7 +82,7 @@ does not extend it.
 The narrowed scope of issue #58 adds one exception to the primitive set: a
 non-byte WIT `list<T>` of an element that already maps may be declared as
 `Array a`. The `Array String` raw import behind
-`WASI.Environment.arguments :: Effect (Array String)` is the first use. This is
+`WASI.Process.arguments :: Effect (Array String)` is the first use. This is
 not the rejected `Maybe`/`Either`/tuple path: `Array` is the source type for a
 canonical list, not an aggregate encoding, and `option`, `result`, `variant`,
 and tuples remain non-source types. A future list of aggregates, and every

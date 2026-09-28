@@ -141,3 +141,45 @@ fn interns_an_array_of_a_nullary_enum() {
         "list<enum> should intern"
     );
 }
+
+/// `Array (Resource Pollable)` must intern: a resource handle in a non-byte
+/// list element is an applied newtype, not a bare scalar. The element's
+/// conformance against the canonical list element is validated later.
+#[test]
+fn interns_an_array_of_a_resource_newtype() {
+    use psrs_hir::TypeId as HirTypeId;
+    let mut module = module();
+    let resource = HirTypeId::new(ModuleId(0), 0);
+    let pollable = HirTypeId::new(ModuleId(0), 1);
+    module.newtype_ids.push(resource);
+    module.opaque_ids.push(pollable);
+    module
+        .type_names
+        .push((resource, "WASI.Resource.Resource".into()));
+    let array = HirType {
+        kind: HirTypeKind::Application(
+            Box::new(HirType {
+                kind: HirTypeKind::Constructor(BuiltinType::Array),
+                span: span(),
+            }),
+            Box::new(HirType {
+                kind: HirTypeKind::Application(
+                    Box::new(HirType {
+                        kind: HirTypeKind::Named(resource),
+                        span: span(),
+                    }),
+                    Box::new(HirType {
+                        kind: HirTypeKind::Opaque(pollable),
+                        span: span(),
+                    }),
+                ),
+                span: span(),
+            }),
+        ),
+        span: span(),
+    };
+    assert!(
+        intern_source_type(&mut module, &array).is_some(),
+        "list<Resource a> should intern"
+    );
+}

@@ -323,10 +323,12 @@ fn core_matches_option(module: &CoreModule, id: CoreTypeId, payload: &CanonicalT
         && core_matches_kind(module, arguments[0], payload)
 }
 
-/// WIT `result<O, E>` recognized as `Data.Either.Either O E`: two constructors
-/// in order, `Left` matching `ok` and `Right` matching `err`. An absent payload
-/// is a nullary WIT case whose source field is `Unit`, so `result<_, E>` matches
-/// `Either Unit E`.
+/// WIT `result<O, E>` recognized as `Data.Either.Either E O`: two constructors
+/// in order, `Left` matching `err` and `Right` matching `ok`. The error is the
+/// `Left` payload, following the PureScript idiom: canonical `result` orders its
+/// cases `[ok, err]` while `Either` orders its constructors `Left`(err),
+/// `Right`(ok) ([DEC-13]). An absent payload is a nullary WIT case whose source
+/// field is `Unit`, so `result<_, E>` matches `Either E Unit`.
 fn core_matches_either(
     module: &CoreModule,
     id: CoreTypeId,
@@ -342,8 +344,8 @@ fn core_matches_either(
     }
     let constructors = core_constructors(module, hir);
     first_constructor_shape(&constructors) == Some((1, 1))
-        && core_matches_payload(module, arguments[0], ok)
-        && core_matches_payload(module, arguments[1], err)
+        && core_matches_payload(module, arguments[0], err)
+        && core_matches_payload(module, arguments[1], ok)
 }
 
 /// Whether a source field matches a canonical payload position. An absent

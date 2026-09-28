@@ -6,7 +6,7 @@ fn writes_and_reads_a_file_through_preopens_when_wasmtime_is_available() {
 import Prelude
 import Data.Either (Either(..))
 import WASI.Console (log)
-import WASI.Filesystem
+import WASI.FileSystem
 main =
   let dirs = runEffect preopens in
   let dir = arrayIndex dirs 0 in
@@ -48,20 +48,21 @@ main =
 }
 
 #[test]
-fn reports_a_unit_success_result_as_right_when_wasmtime_is_available() {
-    // DEC-13: `result<_, error-code>` maps to `Either Unit FileError`, so a
-    // failing unit-success operation reports `Right` instead of trapping.
+fn reports_a_unit_success_result_as_left_when_wasmtime_is_available() {
+    // DEC-13: `result<_, error-code>` maps to `Either FileError Unit` with the
+    // error on `Left`, so a failing unit-success operation reports `Left`
+    // instead of trapping.
     let source = r#"module Main where
 import Prelude
 import Data.Either (Either(..))
-import WASI.Filesystem
+import WASI.FileSystem
 main :: Int
 main =
   let dirs = runEffect preopens in
   let dir = arrayIndex dirs 0 in
   case runEffect (removeDirectoryAt (dir._1) "missing-directory") of
-    Left _ -> 1
-    Right _ -> 0
+    Right _ -> 1
+    Left _ -> 0
 "#;
     let directory = std::env::temp_dir().join(format!(
         "psrs-unit-result-{}-{}",
@@ -97,7 +98,7 @@ import Prelude
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import WASI.Console (log)
-import WASI.Filesystem
+import WASI.FileSystem
 main :: Int
 main =
   let dirs = runEffect preopens in

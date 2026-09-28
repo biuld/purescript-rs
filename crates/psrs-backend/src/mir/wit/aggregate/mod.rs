@@ -19,7 +19,9 @@ pub(super) use result::retptr_buffer;
 use super::{BlockId, PendingFree, WitCallLowerer, free_buffer};
 use crate::BackendError;
 use crate::abi;
-use crate::abi::canonical::{CanonicalType, payload_cases};
+use crate::abi::canonical::{
+    CanonicalType, canonical_case_for_tag, payload_cases, source_tag_for_case, swaps_case_tags,
+};
 use crate::cc::{GuestLayout, RefShape, ValueShape};
 use crate::mir::UnaryOp;
 use crate::mir::instruction::Instruction;
