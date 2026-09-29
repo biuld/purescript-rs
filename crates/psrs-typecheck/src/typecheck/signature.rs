@@ -1,22 +1,72 @@
 use super::*;
 
 impl Checker {
-    /// Elaborates a resolved source signature into an inference type.
-    ///
-    /// Every type variable in a signature is rigid (universally quantified).
-    /// Repeated occurrences of the same name share one inference variable, so
-    /// `a -> a` is elaborated as one variable appearing twice.
-    pub(super) fn elaborate_signature(&mut self, ty: &hir::Type) -> InferType {
-        let mut variables = HashMap::new();
-        self.elaborate_type_mode(ty, &mut variables, true)
-    }
-
     /// Elaborates a signature at a use site. Its universally quantified
     /// variables must be fresh and flexible so each imported use can choose a
     /// different concrete type.
     pub(super) fn elaborate_imported_signature(&mut self, ty: &hir::Type) -> InferType {
+        let (_, body) = self.elaborate_constrained_signature(ty, false);
+        body
+    }
+
+    /// Elaborates an imported signature together with its class constraints.
+    pub(super) fn elaborate_imported_constraints(
+        &mut self,
+        ty: &hir::Type,
+    ) -> (Vec<ClassConstraint>, InferType) {
+        self.elaborate_constrained_signature(ty, false)
+    }
+
+    /// Elaborates a declaration's signature, flattening its constraints and
+    /// synthesizing one dictionary parameter per constraint in source order.
+    pub(super) fn elaborate_declaration_signature(
+        &mut self,
+        ty: &hir::Type,
+    ) -> (Vec<ClassConstraint>, Vec<(LocalId, InferType)>, InferType) {
+        let (constraints, body) = self.elaborate_constrained_signature(ty, true);
+        let mut parameters = Vec::with_capacity(constraints.len());
+        for constraint in &constraints {
+            let dictionary_type = self.dictionary_type(constraint);
+            let id = LocalId(self.next_dictionary_local);
+            self.next_dictionary_local += 1;
+            parameters.push((id, dictionary_type));
+        }
+        (constraints, parameters, body)
+    }
+
+    /// Walks a signature's `forall`/`=>` spine, elaborating every constraint
+    /// before its body. Constraints appear in source order.
+    pub(super) fn elaborate_constrained_signature(
+        &mut self,
+        ty: &hir::Type,
+        rigid: bool,
+    ) -> (Vec<ClassConstraint>, InferType) {
         let mut variables = HashMap::new();
-        self.elaborate_type_mode(ty, &mut variables, false)
+        self.elaborate_constraint_spine(ty, &mut variables, rigid)
+    }
+
+    fn elaborate_constraint_spine(
+        &mut self,
+        ty: &hir::Type,
+        variables: &mut HashMap<String, InferType>,
+        rigid: bool,
+    ) -> (Vec<ClassConstraint>, InferType) {
+        match &ty.kind {
+            hir::TypeKind::Forall { body, .. } => {
+                self.elaborate_constraint_spine(body, variables, rigid)
+            }
+            hir::TypeKind::Constrained { constraint, body } => {
+                let class = self.elaborate_constraint(constraint, variables, rigid);
+                let (rest, body_ty) = self.elaborate_constraint_spine(body, variables, rigid);
+                let mut constraints = Vec::new();
+                if let Some(class) = class {
+                    constraints.push(class);
+                }
+                constraints.extend(rest);
+                (constraints, body_ty)
+            }
+            _ => (Vec::new(), self.elaborate_type_mode(ty, variables, rigid)),
+        }
     }
 
     pub(super) fn elaborate_type(
@@ -27,7 +77,7 @@ impl Checker {
         self.elaborate_type_mode(ty, variables, true)
     }
 
-    fn elaborate_type_mode(
+    pub(super) fn elaborate_type_mode(
         &mut self,
         ty: &hir::Type,
         variables: &mut HashMap<String, InferType>,
@@ -124,8 +174,16 @@ impl Checker {
             hir::TypeKind::Forall { body, .. } => {
                 self.elaborate_type_mode(body, variables, rigid_variables)
             }
-            hir::TypeKind::Constrained { body, .. } => {
-                self.elaborate_type_mode(body, variables, rigid_variables)
+            hir::TypeKind::Constrained { .. } => {
+                // A top-level constraint is consumed by
+                // `elaborate_constraint_spine`; reaching here means the
+                // constraint is nested, which requires higher-rank evidence.
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedType,
+                    ty.span,
+                    "an inner class constraint is not supported yet",
+                ));
+                self.fresh()
             }
             hir::TypeKind::Record { fields, tail } => {
                 let mut seen = HashSet::new();
@@ -212,14 +270,14 @@ impl Checker {
     }
 }
 
-fn nominal_type_id(ty: &hir::Type) -> Option<hir::TypeId> {
+pub(super) fn nominal_type_id(ty: &hir::Type) -> Option<hir::TypeId> {
     match &ty.kind {
         hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => Some(*id),
         _ => None,
     }
 }
 
-fn flatten_spine(ty: &hir::Type) -> (&hir::Type, Vec<&hir::Type>) {
+pub(super) fn flatten_spine(ty: &hir::Type) -> (&hir::Type, Vec<&hir::Type>) {
     let mut arguments = Vec::new();
     let mut head = ty;
     while let hir::TypeKind::Application(function, argument) = &head.kind {

@@ -202,21 +202,21 @@ impl Checker {
         }
     }
 
-    pub(super) fn instantiate(&mut self, scheme: &Scheme) -> InferType {
-        if scheme.variables.is_empty() {
-            return scheme.ty.clone();
-        }
-        let mut mapping = HashMap::new();
-        for variable in &scheme.variables {
-            mapping.insert(*variable, self.fresh());
-        }
-        substitute(&scheme.ty, &mapping)
-    }
-
-    pub(super) fn generalize(&mut self, ty: &InferType, outer_level: u32) -> Scheme {
+    pub(super) fn generalize(
+        &mut self,
+        ty: &InferType,
+        constraints: &[ClassConstraint],
+        outer_level: u32,
+    ) -> Scheme {
         let resolved = self.resolve_type(ty.clone());
         let mut variables = Vec::new();
         self.collect_generalizable(&resolved, outer_level, &mut variables);
+        for constraint in constraints {
+            for argument in &constraint.arguments {
+                let resolved = self.resolve_type(argument.clone());
+                self.collect_generalizable(&resolved, outer_level, &mut variables);
+            }
+        }
         variables.sort_unstable();
         variables.dedup();
         for variable in &variables {
@@ -224,6 +224,7 @@ impl Checker {
         }
         Scheme {
             variables,
+            constraints: constraints.to_vec(),
             ty: resolved,
         }
     }
@@ -326,7 +327,7 @@ impl Checker {
     }
 }
 
-fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
+pub(super) fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
     match ty {
         InferType::Variable(variable) => mapping
             .get(variable)

@@ -14,6 +14,7 @@ pub use program::{
 
 mod bootstrap;
 mod exports;
+mod instances;
 mod names;
 mod type_resolution;
 
@@ -213,7 +214,7 @@ pub(crate) fn resolve_ast_module(
     }
 
     let mut type_declarations = module.type_declarations;
-    let (plans, type_names, opaque_types) = plan_type_declarations(
+    let (plans, type_names, opaque_types, mut next_symbol) = plan_type_declarations(
         module_id,
         &type_declarations,
         module.declarations.len() as u32,
@@ -335,6 +336,14 @@ pub(crate) fn resolve_ast_module(
         .filter_map(|(declaration, plan)| resolver.resolve_type_declaration(plan, declaration))
         .collect();
     let exports = resolver.build_exports(&types);
+    let instances: Vec<hir::InstanceDeclaration> = module
+        .instances
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, instance)| {
+            instances::resolve_instance(&mut resolver, module_id, index, instance, &mut next_symbol)
+        })
+        .collect();
 
     if resolver.errors.is_empty() {
         let resolved = hir::Module {
@@ -345,6 +354,7 @@ pub(crate) fn resolve_ast_module(
             exports,
             declarations,
             types,
+            instances,
             span: module.span,
         };
         match resolved.verify() {
@@ -377,7 +387,12 @@ fn plan_type_declarations(
     first_symbol: u32,
     globals: &mut HashMap<String, SymbolId>,
     errors: &mut Vec<ResolveError>,
-) -> (Vec<PlannedType>, HashMap<String, TypeId>, HashSet<TypeId>) {
+) -> (
+    Vec<PlannedType>,
+    HashMap<String, TypeId>,
+    HashSet<TypeId>,
+    u32,
+) {
     let mut plans = Vec::with_capacity(declarations.len());
     let mut type_names = HashMap::new();
     let mut opaque_types = HashSet::new();
@@ -439,7 +454,7 @@ fn plan_type_declarations(
         });
     }
 
-    (plans, type_names, opaque_types)
+    (plans, type_names, opaque_types, next_symbol)
 }
 
 fn type_constructors(declaration: &ast::TypeDeclaration) -> Vec<&ast::DataConstructor> {

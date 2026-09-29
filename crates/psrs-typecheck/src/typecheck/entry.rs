@@ -74,29 +74,51 @@ pub fn typecheck_module_with_imports_and_effect_context(
     for component in &components {
         for &index in component {
             let declaration = &module.declarations[index];
-            let ty = match &declaration.signature {
-                Some(signature) => checker.elaborate_signature(signature),
-                None => checker.fresh(),
+            let (scheme, parameters) = match &declaration.signature {
+                Some(signature) => {
+                    let (constraints, parameters, body) =
+                        checker.elaborate_declaration_signature(signature);
+                    (
+                        Scheme {
+                            variables: Vec::new(),
+                            constraints,
+                            ty: body,
+                        },
+                        parameters,
+                    )
+                }
+                None => (Scheme::monomorphic(checker.fresh()), Vec::new()),
             };
             checker
-                .globals
-                .insert(declaration.symbol, Scheme::monomorphic(ty));
+                .pending_signatures
+                .insert(declaration.symbol, parameters);
+            checker.globals.insert(declaration.symbol, scheme);
         }
         for &index in component {
             let declaration = &module.declarations[index];
+            let scheme = checker.globals[&declaration.symbol].clone();
+            let parameters = checker
+                .pending_signatures
+                .get(&declaration.symbol)
+                .cloned()
+                .unwrap_or_default();
+            checker.begin_givens(&scheme.constraints, &parameters);
             let expected = declaration
                 .signature
                 .as_ref()
                 .map(|_| checker.globals[&declaration.symbol].ty.clone());
             let Some(value) = checker.infer_expr_with_expected(&declaration.value, expected) else {
+                checker.end_givens();
                 continue;
             };
-            let scheme = checker.globals[&declaration.symbol].clone();
             let span = declaration
                 .signature
                 .as_ref()
                 .map_or(declaration.name_span, |signature| signature.span);
             checker.unify(scheme.ty.clone(), value.ty.clone(), span);
+            checker.solve_wanted_constraints();
+            checker.end_givens();
+            let value = checker.wrap_dictionary_lambdas(value, &parameters);
             inferred[index] = Some(InferredDeclaration {
                 symbol: declaration.symbol,
                 name: declaration.name.clone(),
@@ -109,14 +131,27 @@ pub fn typecheck_module_with_imports_and_effect_context(
         // Generalize after the component is inferred so later components
         // instantiate polymorphic definitions.
         for &index in component {
-            let Some(monomorphic) = inferred[index].as_ref().map(|d| d.scheme.ty.clone()) else {
+            let Some((monomorphic, constraints)) = inferred[index].as_ref().map(|declaration| {
+                (
+                    declaration.scheme.ty.clone(),
+                    declaration.scheme.constraints.clone(),
+                )
+            }) else {
                 continue;
             };
-            let scheme = checker.generalize(&monomorphic, TOP_LEVEL);
+            let scheme = checker.generalize(&monomorphic, &constraints, TOP_LEVEL);
             if let Some(declaration) = inferred[index].as_mut() {
                 declaration.scheme = scheme.clone();
                 checker.globals.insert(declaration.symbol, scheme);
             }
+        }
+    }
+
+    // Instance dictionaries are ordinary declarations emitted after the value
+    // declarations they may reference.
+    for instance in &module.instances {
+        if let Some(declaration) = checker.infer_instance_declaration(instance) {
+            inferred.push(Some(declaration));
         }
     }
 
@@ -137,19 +172,13 @@ pub fn typecheck_module_with_imports_and_effect_context(
                 .copied()
                 .map(TypeVariableId)
                 .collect();
-            let ty = checker.finalize_type(
-                &declaration.scheme.ty,
-                declaration.name_span,
-                &mut types,
-                &generics,
-            )?;
             let value = checker.finalize_expr(declaration.value, &mut types, &generics)?;
             Some(thir::Declaration {
                 symbol: declaration.symbol,
                 name: declaration.name,
                 name_span: declaration.name_span,
                 quantified,
-                ty,
+                ty: value.ty,
                 value,
                 span: declaration.span,
             })

@@ -16,7 +16,8 @@ pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
     ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, ForeignDataDeclaration,
-    NewtypeDeclaration, TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
+    InstanceDeclaration, NewtypeDeclaration, TypeDeclaration, TypeParameter,
+    TypeSynonymDeclaration,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +28,7 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     pub foreign_imports: Vec<ForeignImport>,
     pub type_declarations: Vec<TypeDeclaration>,
+    pub instances: Vec<InstanceDeclaration>,
     pub span: TextRange,
 }
 
@@ -84,6 +86,7 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut declarations = Vec::new();
     let mut foreign_imports = Vec::new();
     let mut type_declarations = Vec::new();
+    let mut instances = Vec::new();
     let mut index = 0;
     while index < module.declarations.len() {
         let declaration = module.declarations[index].clone();
@@ -111,6 +114,13 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
             | cst::Declaration::Class(_) => {
                 match type_decl::lower_type_declaration(None, declaration) {
                     Ok(declaration) => type_declarations.push(declaration),
+                    Err(error) => errors.push(error),
+                }
+                index += 1;
+            }
+            cst::Declaration::Instance(declaration) => {
+                match type_decl::lower_instance(declaration) {
+                    Ok(instance) => instances.push(instance),
                     Err(error) => errors.push(error),
                 }
                 index += 1;
@@ -150,6 +160,7 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
             declarations,
             foreign_imports,
             type_declarations,
+            instances,
             span: module.span,
         })
     } else {
@@ -215,7 +226,9 @@ fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, Lower
     }
 }
 
-fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declaration, LowerError> {
+pub(crate) fn lower_value_declaration(
+    declaration: cst::ValueDeclaration,
+) -> Result<Declaration, LowerError> {
     if let Some(error) = check_argument_names(&declaration.parameters) {
         return Err(error);
     }
