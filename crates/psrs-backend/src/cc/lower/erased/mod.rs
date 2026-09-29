@@ -13,7 +13,57 @@ use psrs_core::TypeId;
 
 mod curried;
 
+#[cfg(test)]
+mod tests;
+
 impl FunctionLowerer<'_> {
+    /// Adapts the erased value of a generalized local binding to the concrete
+    /// type at its use site. A `let`/`where` binding that is generalized is
+    /// lowered at its polymorphic type, so its runtime value is erased. Using
+    /// it at an instantiated type needs the same boxing of arguments and
+    /// recovery of the result that the top-level polymorphic path performs.
+    pub(super) fn adapt_erased_function_use(
+        &mut self,
+        value: ValueId,
+        target_type: TypeId,
+        span: psrs_span::TextRange,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(source_type) = self.erased_function_types.get(&value).copied() else {
+            return Ok(value);
+        };
+        // Only an erased value needs the erased adaptation. The table also
+        // records concrete function-typed results, which already carry their
+        // exact closure shape.
+        let erased = ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        });
+        if self
+            .values
+            .iter()
+            .find(|declaration| declaration.id == value)
+            .map(|declaration| declaration.ty)
+            != Some(erased)
+        {
+            return Ok(value);
+        }
+        if source_type == target_type || !is_function_type(self.module, target_type) {
+            return Ok(value);
+        }
+        // Instantiating a type variable at a function type can flatten the use
+        // into more parameters than the polymorphic value was lowered with
+        // (`(id id) 42`). That higher-order case needs an intermediate closure
+        // recovery this adapter does not build, so leave the value untouched
+        // rather than report a misleading arity error.
+        let source_arity = function_arrow_parameters(self.module, source_type).0.len();
+        let target_arity = function_arrow_parameters(self.module, target_type).0.len();
+        if source_arity != target_arity {
+            return Ok(value);
+        }
+        self.adapt_erased_function_value(value, source_type, target_type, span, assignments)
+    }
+
     pub(super) fn adapt_erased_function_value(
         &mut self,
         value: ValueId,
