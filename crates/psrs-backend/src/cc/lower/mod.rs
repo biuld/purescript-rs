@@ -249,13 +249,16 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         match &expression.kind {
-            ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
-                vec![BackendError::new(
-                    "P8 closure conversion",
-                    expression.span,
-                    "local value is unavailable before its binding is lowered",
-                )]
-            }),
+            ExprKind::Local(local) => {
+                let value = self.locals.get(local).copied().ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "local value is unavailable before its binding is lowered",
+                    )]
+                })?;
+                self.adapt_erased_function_use(value, expression.ty, expression.span, assignments)
+            }
             ExprKind::Global(function) => self.lower_global(expression, *function, ty, assignments),
             ExprKind::Integer(value) => {
                 let destination = self.fresh(ty);

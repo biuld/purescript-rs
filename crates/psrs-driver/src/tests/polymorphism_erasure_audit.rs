@@ -287,3 +287,52 @@ fn linked_modules_round_trip_an_erased_high_bit_int() {
         Err(error) => panic!("{error}"),
     }
 }
+
+#[test]
+fn a_locally_generalized_binding_instantiates_at_int() {
+    // `id` is generalized at the local `let`, so its runtime value is erased.
+    // The `id 42` use must box the erased argument and recover the integer
+    // result exactly as a top-level polymorphic declaration would.
+    let source = "module Main where\nmain = let id = \\x -> x in id 42\n";
+    expect_exit("local_polymorphic_int", source, 42);
+}
+
+#[test]
+fn a_locally_generalized_binding_instantiates_at_two_types() {
+    // The same erased local value is recovered at `String` and at `Int`.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let id = \\x -> x in runEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("the two-type local use should compile");
+    match execute_component("local_polymorphic_two_types", &artifact.wasm) {
+        Ok(Some(output)) => {
+            assert_eq!(output.status.code(), Some(42), "{output:?}");
+            assert_eq!(output.stdout, b"hello\n");
+        }
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn a_locally_generalized_binding_passes_to_a_polymorphic_function() {
+    // `apply :: forall a. (a -> a) -> a -> a` receives the erased local value,
+    // so the argument and result cross the erased boundary at the concrete type.
+    let source = "module Main where\napply :: forall a. (a -> a) -> a -> a\napply f x = f x\nmain = let id = \\x -> x in apply id 42\n";
+    expect_exit("local_polymorphic_argument", source, 42);
+}
+
+#[test]
+fn a_curried_locally_generalized_binding_instantiates() {
+    // A locally generalized curried function with an argument: the flattened
+    // erased source has two parameters, matching the concrete use.
+    let source = "module Main where\nmain = let const = \\x -> \\y -> x in const 42 \"ignored\"\n";
+    expect_exit("local_polymorphic_curried", source, 42);
+}
+
+#[test]
+fn a_local_value_of_a_polymorphic_function_type_instantiates() {
+    // A local value of polymorphic function type copied through another local
+    // binding and then instantiated at `Int`.
+    let source = "module Main where\nidentity :: forall a. a -> a\nidentity x = x\nmain = let f = identity in let g = f in g 42\n";
+    expect_exit("local_polymorphic_value", source, 42);
+}

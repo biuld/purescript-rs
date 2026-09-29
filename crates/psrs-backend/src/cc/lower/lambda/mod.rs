@@ -130,10 +130,13 @@ impl LambdaLowering for FunctionLowerer<'_> {
         }
         let mut nested_assignments = Vec::new();
         for (index, capture) in captures.into_iter().enumerate() {
+            let Some(outer_value) = self.locals.get(&capture).copied() else {
+                return Err(capture_error(expression));
+            };
             let Some(capture_type) = self
-                .locals
-                .get(&capture)
-                .and_then(|value| self.values.iter().find(|decl| decl.id == *value))
+                .values
+                .iter()
+                .find(|decl| decl.id == outer_value)
                 .map(|decl| decl.ty)
             else {
                 return Err(capture_error(expression));
@@ -147,6 +150,14 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
+            // A captured generalized local keeps its erased source type, so a
+            // use at an instantiated type inside the closure can restore the
+            // concrete call signature.
+            if let Some(source_type) = self.erased_function_types.get(&outer_value).copied() {
+                nested
+                    .erased_function_types
+                    .insert(destination, source_type);
+            }
             nested.locals.insert(capture, destination);
         }
         let result = nested
