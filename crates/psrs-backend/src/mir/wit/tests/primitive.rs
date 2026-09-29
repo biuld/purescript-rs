@@ -132,11 +132,37 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         .is_err(),
         "Char is not the option discriminant"
     );
+    let mut empty_record_module = psrs_core::Module {
+        type_names: Vec::new(),
+        id: ModuleId(0),
+        name: "Main".into(),
+        externals: Vec::new(),
+        types: Vec::new(),
+        newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
+        constructors: Vec::new(),
+        declarations: Vec::new(),
+        entry: None,
+        span: span(),
+    };
+    empty_record_module.types.push(CoreType::RowEmpty);
+    empty_record_module
+        .types
+        .push(CoreType::Constructor(CoreTypeConstructor::Record));
+    empty_record_module
+        .types
+        .push(CoreType::Application(CoreTypeId(1), CoreTypeId(0)));
+    empty_record_module
+        .types
+        .push(CoreType::Constructor(CoreTypeConstructor::Unit));
+    let empty_record_function =
+        push_core_arrow(&mut empty_record_module, CoreTypeId(2), CoreTypeId(3));
     assert!(
-        validate(
+        crate::abi::link::validate_import_signature(
             &import,
-            vec![CoreType::Record(vec![])],
-            CoreType::Constructor(psrs_core::TypeConstructor::Unit)
+            &empty_record_module,
+            empty_record_function
         )
         .is_err()
     );

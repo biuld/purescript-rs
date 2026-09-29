@@ -272,7 +272,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
 fn generic_record_pattern_projects_its_canonical_array_field() {
     let module_id = ModuleId(0);
     let array_a = psrs_core::TypeId(2);
-    let record_a = psrs_core::TypeId(3);
+    let record_a = psrs_core::TypeId(6);
     let local = LocalId(88);
     let module = Module {
         type_names: Vec::new(),
@@ -283,7 +283,14 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
             Type::Variable(TypeVariableId(0)),
             Type::Constructor(TypeConstructor::Array),
             Type::Application(psrs_core::TypeId(1), psrs_core::TypeId(0)),
-            Type::Record(vec![("values".into(), array_a)]),
+            Type::RowEmpty,
+            Type::RowExtend {
+                label: "values".into(),
+                ty: array_a,
+                tail: psrs_core::TypeId(3),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

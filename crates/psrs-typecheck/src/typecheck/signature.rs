@@ -146,25 +146,22 @@ impl Checker {
                 }
                 elaborated.sort_by(|left, right| left.0.cmp(&right.0));
                 let tail = match tail {
-                    None => RowTail::Closed,
+                    None => InferType::RowEmpty,
                     Some(tail) => {
                         match self.elaborate_type_mode(tail, variables, rigid_variables) {
-                            InferType::Variable(variable) => RowTail::Open(variable),
+                            InferType::Variable(variable) => InferType::Variable(variable),
                             _ => {
                                 self.errors.push(TypeCheckError::new(
                                     TypeCheckErrorKind::UnsupportedType,
                                     tail.span,
                                     "a record row tail must be a type variable",
                                 ));
-                                RowTail::Closed
+                                InferType::RowEmpty
                             }
                         }
                     }
                 };
-                InferType::Record(InferRecord {
-                    fields: elaborated,
-                    tail,
-                })
+                record_type(elaborated, tail)
             }
             hir::TypeKind::Row { .. } | hir::TypeKind::Integer(_) | hir::TypeKind::String(_) => {
                 self.errors.push(TypeCheckError::new(

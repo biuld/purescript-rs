@@ -21,7 +21,7 @@ impl Types {
             boolean: thir::TypeId(1),
             // `integer -> boolean` is the application spine at ids 2..4.
             method: thir::TypeId(4),
-            dictionary: thir::TypeId(5),
+            dictionary: thir::TypeId(8),
         }
     }
 
@@ -32,7 +32,14 @@ impl Types {
             thir::Type::Constructor(thir::TypeConstructor::Function),
             thir::Type::Application(thir::TypeId(2), self.integer),
             thir::Type::Application(thir::TypeId(3), self.boolean),
-            thir::Type::Record(vec![("isPositive".into(), self.method)]),
+            thir::Type::RowEmpty,
+            thir::Type::RowExtend {
+                label: "isPositive".into(),
+                ty: self.method,
+                tail: thir::TypeId(5),
+            },
+            thir::Type::Constructor(thir::TypeConstructor::Record),
+            thir::Type::Application(thir::TypeId(7), thir::TypeId(6)),
         ]
     }
 }

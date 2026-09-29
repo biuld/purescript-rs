@@ -29,7 +29,10 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
         TypeConstructor::String => ValueShape::String,
         TypeConstructor::Number => ValueShape::Number,
         TypeConstructor::Boolean => ValueShape::Boolean,
-        TypeConstructor::Function | TypeConstructor::Array | TypeConstructor::User(_) => {
+        TypeConstructor::Function
+        | TypeConstructor::Record
+        | TypeConstructor::Array
+        | TypeConstructor::User(_) => {
             return None;
         }
     })
@@ -118,11 +121,13 @@ fn layoutable_field_type_inner(
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
         // A closed record has its own representation handle, so a variant case
         // may carry one as a referenced payload (WIT `datetime`, socket
-        // addresses, and directory entries are records).
-        Some(Type::Record(_)) => true,
+        // addresses, and directory entries are records). An open row has no
+        // fixed layout.
+        Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
         Some(Type::Variable(_))
         | Some(Type::Constructor(_))
-        | Some(Type::OpenRecord { .. })
+        | Some(Type::RowEmpty)
+        | Some(Type::RowExtend { .. })
         | None => false,
         Some(Type::Application(_, _)) => {
             if array_element_type(module, id).is_some() {
@@ -394,15 +399,10 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
             Some(Type::Application(function, argument)) => {
                 visit(module, *function, visiting) || visit(module, *argument, visiting)
             }
-            Some(Type::Record(fields)) => fields
-                .iter()
-                .any(|(_, field)| visit(module, *field, visiting)),
-            Some(Type::OpenRecord { fields, tail }) => {
-                visit(module, *tail, visiting)
-                    || fields
-                        .iter()
-                        .any(|(_, field)| visit(module, *field, visiting))
+            Some(Type::RowExtend { ty, tail, .. }) => {
+                visit(module, *ty, visiting) || visit(module, *tail, visiting)
             }
+            Some(Type::RowEmpty) => false,
             _ => false,
         };
         visiting.remove(&id);

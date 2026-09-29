@@ -16,10 +16,19 @@ fn module() -> CoreModule {
         types: vec![
             CoreType::Constructor(psrs_core::TypeConstructor::Int),
             CoreType::Constructor(psrs_core::TypeConstructor::Number),
-            CoreType::Record(vec![
-                ("first".into(), CoreTypeId(0)),
-                ("secondValue".into(), CoreTypeId(1)),
-            ]),
+            CoreType::RowEmpty,
+            CoreType::RowExtend {
+                label: "secondValue".into(),
+                ty: CoreTypeId(1),
+                tail: CoreTypeId(2),
+            },
+            CoreType::RowExtend {
+                label: "first".into(),
+                ty: CoreTypeId(0),
+                tail: CoreTypeId(3),
+            },
+            CoreType::Constructor(psrs_core::TypeConstructor::Record),
+            CoreType::Application(CoreTypeId(5), CoreTypeId(4)),
             CoreType::Constructor(psrs_core::TypeConstructor::Unit),
         ],
         newtype_ids: Vec::new(),
@@ -72,18 +81,18 @@ fn reuses_a_structurally_equal_record_and_appends_the_function_type() {
     let id = intern_source_type(&mut module, &record_function()).expect("supported signature");
     // The arrow is interned as the application spine
     // `Application(Application(Constructor(Function), record), unit)`.
-    assert_eq!(id, CoreTypeId(6));
+    assert_eq!(id, CoreTypeId(10));
     assert_eq!(
-        module.types[4],
+        module.types[8],
         CoreType::Constructor(TypeConstructor::Function)
     );
     assert_eq!(
-        module.types[5],
-        CoreType::Application(CoreTypeId(4), CoreTypeId(2))
+        module.types[9],
+        CoreType::Application(CoreTypeId(8), CoreTypeId(6))
     );
     assert_eq!(
-        module.types[6],
-        CoreType::Application(CoreTypeId(5), CoreTypeId(3))
+        module.types[10],
+        CoreType::Application(CoreTypeId(9), CoreTypeId(7))
     );
 }
 

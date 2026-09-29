@@ -10,11 +10,10 @@ fn creates_distinct_specializations_for_distinct_concrete_type_arguments() {
     types.push(Type::Constructor(crate::TypeConstructor::Boolean));
     let int_function_type = arrow_type(&mut types, int_type, int_type);
     let boolean_function_type = arrow_type(&mut types, boolean_type, boolean_type);
-    let record_type = TypeId(types.len() as u32);
-    types.push(Type::Record(vec![
-        ("number".into(), int_type),
-        ("flag".into(), boolean_type),
-    ]));
+    let record_type = record_type(
+        &mut types,
+        vec![("number", int_type), ("flag", boolean_type)],
+    );
     let boolean_call = expression(
         ExprKind::Application(
             Box::new(expression(

@@ -49,12 +49,15 @@ impl Checker {
             {
                 self.unify(*argument, *result, span);
             }
+            (InferType::Application(f1, a1), InferType::Application(f2, a2))
+                if matches!(*f1, InferType::Constructor(TypeConstructor::Record))
+                    && matches!(*f2, InferType::Constructor(TypeConstructor::Record)) =>
+            {
+                self.unify_rows(*a1, *a2, span);
+            }
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
-            }
-            (InferType::Record(left), InferType::Record(right)) => {
-                self.unify_rows(left, right, span);
             }
             (expected, actual) => {
                 let expected = self.display_type(&expected);
@@ -99,6 +102,7 @@ impl Checker {
             InferType::Variable(variable) => format!("_T{variable}"),
             InferType::Constructor(constructor) => match constructor {
                 TypeConstructor::Function => "Function".into(),
+                TypeConstructor::Record => "Record".into(),
                 TypeConstructor::Array => "Array".into(),
                 TypeConstructor::Effect => "Effect".into(),
                 TypeConstructor::Int => "Int".into(),
@@ -113,6 +117,11 @@ impl Checker {
                     .cloned()
                     .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
             },
+            InferType::Application(function, argument)
+                if matches!(*function, InferType::Constructor(TypeConstructor::Record)) =>
+            {
+                self.display_record(&argument)
+            }
             InferType::Application(function, argument) => {
                 if let Some((parameter, result)) = infer_arrow_parts(&function, &argument) {
                     format!(
@@ -128,22 +137,25 @@ impl Checker {
                     )
                 }
             }
-            InferType::Record(record) => {
-                let fields = record
-                    .fields
-                    .iter()
-                    .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                match record.tail {
-                    RowTail::Closed => format!("{{{fields}}}"),
-                    RowTail::Open(variable) => {
-                        if fields.is_empty() {
-                            format!("{{ | _T{variable} }}")
-                        } else {
-                            format!("{{{fields} | _T{variable}}}")
-                        }
-                    }
+            InferType::RowEmpty => "{ }".into(),
+            row @ InferType::RowExtend { .. } => self.display_record(&row),
+        }
+    }
+
+    fn display_record(&self, row: &InferType) -> String {
+        let FlatRow { fields, tail } = self.flatten_row(row.clone());
+        let rendered = fields
+            .iter()
+            .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        match tail {
+            RowTail::Closed => format!("{{{rendered}}}"),
+            RowTail::Open(variable) => {
+                if rendered.is_empty() {
+                    format!("{{ | _T{variable} }}")
+                } else {
+                    format!("{{{rendered} | _T{variable}}}")
                 }
             }
         }
@@ -160,7 +172,11 @@ impl Checker {
                 Box::new(self.resolve_type(*function)),
                 Box::new(self.resolve_type(*argument)),
             ),
-            InferType::Record(record) => self.resolve_record(record),
+            InferType::RowExtend { label, ty, tail } => InferType::RowExtend {
+                label,
+                ty: Box::new(self.resolve_type(*ty)),
+                tail: Box::new(self.resolve_type(*tail)),
+            },
             other => other,
         }
     }
@@ -178,15 +194,11 @@ impl Checker {
                 self.adjust_levels(function, max_level);
                 self.adjust_levels(argument, max_level);
             }
-            InferType::Record(record) => {
-                for (_, field) in &record.fields {
-                    self.adjust_levels(field, max_level);
-                }
-                if let RowTail::Open(variable) = record.tail {
-                    self.adjust_levels(&InferType::Variable(variable), max_level);
-                }
+            InferType::RowExtend { ty, tail, .. } => {
+                self.adjust_levels(ty, max_level);
+                self.adjust_levels(tail, max_level);
             }
-            InferType::Constructor(_) => {}
+            InferType::RowEmpty | InferType::Constructor(_) => {}
         }
     }
 
@@ -227,15 +239,11 @@ impl Checker {
                 self.collect_generalizable(function, outer_level, out);
                 self.collect_generalizable(argument, outer_level, out);
             }
-            InferType::Record(record) => {
-                for (_, field) in &record.fields {
-                    self.collect_generalizable(field, outer_level, out);
-                }
-                if let RowTail::Open(variable) = record.tail {
-                    self.collect_generalizable(&InferType::Variable(variable), outer_level, out);
-                }
+            InferType::RowExtend { ty, tail, .. } => {
+                self.collect_generalizable(ty, outer_level, out);
+                self.collect_generalizable(tail, outer_level, out);
             }
-            InferType::Constructor(_) => {}
+            InferType::RowEmpty | InferType::Constructor(_) => {}
         }
     }
 
@@ -269,6 +277,7 @@ impl Checker {
             InferType::Constructor(constructor) => {
                 Some(interner.intern(Type::Constructor(match constructor {
                     TypeConstructor::Function => thir::TypeConstructor::Function,
+                    TypeConstructor::Record => thir::TypeConstructor::Record,
                     TypeConstructor::Array => thir::TypeConstructor::Array,
                     TypeConstructor::Int => thir::TypeConstructor::Int,
                     TypeConstructor::Number => thir::TypeConstructor::Number,
@@ -281,6 +290,11 @@ impl Checker {
                 })))
             }
             InferType::Application(function, argument) => {
+                if matches!(*function, InferType::Constructor(TypeConstructor::Record)) {
+                    let row = self.finalize_row(*argument, span, interner, generics)?;
+                    let head = interner.intern(Type::Constructor(thir::TypeConstructor::Record));
+                    return Some(interner.intern(Type::Application(head, row)));
+                }
                 if matches!(
                     self.resolve_type(*function.clone()),
                     InferType::Constructor(TypeConstructor::Effect)
@@ -306,7 +320,8 @@ impl Checker {
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
-            InferType::Record(record) => self.finalize_record(record, span, interner, generics),
+            InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
+            row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
         }
     }
 }
@@ -321,26 +336,12 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
             Box::new(substitute(function, mapping)),
             Box::new(substitute(argument, mapping)),
         ),
-        InferType::Record(record) => InferType::Record(InferRecord {
-            fields: record
-                .fields
-                .iter()
-                .map(|(label, field)| (label.clone(), substitute(field, mapping)))
-                .collect(),
-            tail: match record.tail {
-                RowTail::Closed => RowTail::Closed,
-                RowTail::Open(variable) => match mapping.get(&variable) {
-                    Some(InferType::Variable(renamed)) => RowTail::Open(*renamed),
-                    Some(other) => {
-                        // Instantiation replaces a row variable with a fresh
-                        // variable. Any other mapping is a solved row, which
-                        // resolve flattens before generalization.
-                        return substitute(other, mapping);
-                    }
-                    None => RowTail::Open(variable),
-                },
-            },
-        }),
+        InferType::RowExtend { label, ty, tail } => InferType::RowExtend {
+            label: label.clone(),
+            ty: Box::new(substitute(ty, mapping)),
+            tail: Box::new(substitute(tail, mapping)),
+        },
+        InferType::RowEmpty => InferType::RowEmpty,
         other => other.clone(),
     }
 }

@@ -72,7 +72,19 @@ fn intern_into(types: &mut Vec<CoreType>, ty: &HirType) -> Option<CoreTypeId> {
                 })
                 .collect::<Option<Vec<_>>>()?;
             fields.sort_by(|left, right| left.0.cmp(&right.0));
-            CoreType::Record(fields)
+            let mut row = intern_core_type(types, CoreType::RowEmpty);
+            for (label, ty) in fields.into_iter().rev() {
+                row = intern_core_type(
+                    types,
+                    CoreType::RowExtend {
+                        label,
+                        ty,
+                        tail: row,
+                    },
+                );
+            }
+            let head = intern_core_type(types, CoreType::Constructor(TypeConstructor::Record));
+            return Some(intern_core_type(types, CoreType::Application(head, row)));
         }
         _ => return None,
     };
@@ -94,13 +106,11 @@ fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
         {
             true
         }
-        Some(
-            CoreType::Record(_)
-            // A nullary enum or an opaque handle. The interner only admits
-            // `Named` for a nullary enum, so a field-bearing type never
-            // reaches here.
-            | CoreType::Constructor(TypeConstructor::User(_)),
-        ) => true,
+        // A nullary enum or an opaque handle. The interner only admits `Named`
+        // for a nullary enum, so a field-bearing type never reaches here.
+        Some(CoreType::Constructor(TypeConstructor::User(_))) => true,
+        // A closed record has its own representation.
+        Some(_) if is_record(types, id) => true,
         // A nested `Array T` element lowers recursively; an applied user type
         // is either a newtype such as `Resource a` or a parameterized data type
         // (`Maybe a`, `Either e a`), whose element conformance is validated
@@ -110,6 +120,16 @@ fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
         }
         _ => false,
     }
+}
+
+fn is_record(types: &[CoreType], id: CoreTypeId) -> bool {
+    let Some(CoreType::Application(function, _)) = types.get(id.0 as usize) else {
+        return false;
+    };
+    matches!(
+        types.get(function.0 as usize),
+        Some(CoreType::Constructor(TypeConstructor::Record))
+    )
 }
 
 fn is_user_type(types: &[CoreType], id: CoreTypeId) -> bool {

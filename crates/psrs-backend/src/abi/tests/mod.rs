@@ -106,10 +106,33 @@ fn record_module(fields: &[(&str, CoreType)]) -> (psrs_core::Module, CoreTypeId)
             .expect("one field type");
         ids.push(((*label).to_string(), id));
     }
-    let record = intern_all(&mut module, vec![CoreType::Record(ids)])
-        .pop()
-        .expect("one record");
+    let record = push_record(&mut module, ids);
     (module, record)
+}
+
+/// Appends a closed record as `Application(Constructor(Record), row)` and
+/// returns its id.
+fn push_record(module: &mut psrs_core::Module, fields: Vec<(String, CoreTypeId)>) -> CoreTypeId {
+    let mut fields = fields;
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let row_empty = intern_all(module, vec![CoreType::RowEmpty])
+        .pop()
+        .expect("one row empty");
+    let mut tail = row_empty;
+    for (label, ty) in fields.into_iter().rev() {
+        tail = intern_all(module, vec![CoreType::RowExtend { label, ty, tail }])
+            .pop()
+            .expect("one row extend");
+    }
+    let head = intern_all(
+        module,
+        vec![CoreType::Constructor(CoreTypeConstructor::Record)],
+    )
+    .pop()
+    .expect("one record head");
+    intern_all(module, vec![CoreType::Application(head, tail)])
+        .pop()
+        .expect("one record")
 }
 
 fn unit_type(module: &mut psrs_core::Module) -> CoreTypeId {

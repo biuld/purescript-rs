@@ -97,17 +97,9 @@ fn shift_type(ty: &Type, offset: u32) -> Type {
         Type::Application(parameter, argument) => {
             Type::Application(shift_id(*parameter, offset), shift_id(*argument, offset))
         }
-        Type::Record(fields) => Type::Record(
-            fields
-                .iter()
-                .map(|(label, field)| (label.clone(), shift_id(*field, offset)))
-                .collect(),
-        ),
-        Type::OpenRecord { fields, tail } => Type::OpenRecord {
-            fields: fields
-                .iter()
-                .map(|(label, field)| (label.clone(), shift_id(*field, offset)))
-                .collect(),
+        Type::RowExtend { label, ty, tail } => Type::RowExtend {
+            label: label.clone(),
+            ty: shift_id(*ty, offset),
             tail: shift_id(*tail, offset),
         },
         other => other.clone(),

@@ -94,18 +94,29 @@ pub(crate) fn declaration_shape(
                 result: ValueShape::Integer,
             })
         }
-        Some(Type::OpenRecord { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "open record rows have no runtime layout",
-        )]),
-        Some(Type::Record(_)) if record_types.contains_key(&ty) => Ok(Signature {
-            parameters,
-            result: ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Repr(record_types[&ty]),
-            }),
-        }),
+        Some(_) if module.is_record_type(ty) => {
+            if module.record_is_open(ty).unwrap_or(false) {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "open record rows have no runtime layout",
+                )])
+            } else if let Some(repr) = record_types.get(&ty) {
+                Ok(Signature {
+                    parameters,
+                    result: ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: RefShape::Repr(*repr),
+                    }),
+                })
+            } else {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "record type has no representation requirement",
+                )])
+            }
+        }
         Some(Type::Application(_, _)) => {
             if let Some(array_repr) = array_types.get(&ty) {
                 return Ok(Signature {
@@ -180,16 +191,13 @@ pub(crate) fn declaration_shape(
                 )?,
             })
         }
-        Some(Type::Constructor(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "the first backend slice cannot represent aggregate or parameterized types",
-        )]),
-        Some(Type::Record(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            declaration.span,
-            "record type has no representation requirement",
-        )]),
+        Some(Type::Constructor(_)) | Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
+            Err(vec![BackendError::new(
+                "P8 closure conversion",
+                declaration.span,
+                "the first backend slice cannot represent aggregate or parameterized types",
+            )])
+        }
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -239,16 +247,25 @@ pub(crate) fn scalar_type(
                 heap: RefShape::Repr(array_types[&id]),
             }))
         }
-        Some(Type::OpenRecord { .. }) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "open record rows have no runtime layout",
-        )]),
-        Some(Type::Record(_)) if record_types.contains_key(&id) => {
-            Ok(ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Repr(record_types[&id]),
-            }))
+        Some(_) if module.is_record_type(id) => {
+            if module.record_is_open(id).unwrap_or(false) {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    span,
+                    "open record rows have no runtime layout",
+                )])
+            } else if let Some(repr) = record_types.get(&id) {
+                Ok(ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Repr(*repr),
+                }))
+            } else {
+                Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    span,
+                    "record type has no representation requirement",
+                )])
+            }
         }
         Some(Type::Application(_, _)) => {
             let Some(type_id) = user_type_id(module, id) else {
@@ -303,16 +320,13 @@ pub(crate) fn scalar_type(
                 function_types,
             )
         }
-        Some(Type::Constructor(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "aggregate and parameterized types are not supported by the first backend slice",
-        )]),
-        Some(Type::Record(_)) => Err(vec![BackendError::new(
-            "P8 closure conversion",
-            span,
-            "record type has no representation requirement",
-        )]),
+        Some(Type::Constructor(_)) | Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
+            Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "aggregate and parameterized types are not supported by the first backend slice",
+            )])
+        }
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,

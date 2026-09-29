@@ -38,7 +38,7 @@ fn verifier_rejects_invalid_type_references() {
 
 #[test]
 fn verifier_checks_instance_context_against_constructor_parameters() {
-    let dictionary = TypeId(1);
+    let dictionary = TypeId(3);
     let module = Module {
         type_names: Vec::new(),
         id: ModuleId(0),
@@ -46,10 +46,12 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
         externals: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
-            Type::Record(Vec::new()),
+            Type::Constructor(TypeConstructor::Record),
+            Type::RowEmpty,
+            Type::Application(TypeId(1), TypeId(2)),
             Type::Constructor(TypeConstructor::Function),
-            Type::Application(TypeId(2), TypeId(0)),
-            Type::Application(TypeId(3), TypeId(1)),
+            Type::Application(TypeId(4), TypeId(0)),
+            Type::Application(TypeId(5), TypeId(3)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -65,11 +67,11 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
                 kind: ExprKind::Evidence(Evidence {
                     kind: EvidenceKind::Instance {
                         constructor: SymbolId::new(ModuleId(0), 1),
-                        constructor_type: TypeId(4),
+                        constructor_type: TypeId(6),
                         context: vec![Evidence {
                             kind: EvidenceKind::Given(LocalId(0)),
                             class_id: psrs_hir::TypeId::new(ModuleId(0), 0),
-                            ty: TypeId(1),
+                            ty: TypeId(3),
                             span: TextRange::new(8, 9),
                         }],
                     },
@@ -93,7 +95,7 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
 
 #[test]
 fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
-    let dictionary = TypeId(1);
+    let dictionary = TypeId(4);
     let module = Module {
         type_names: Vec::new(),
         id: ModuleId(0),
@@ -101,7 +103,14 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
         externals: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
-            Type::Record(vec![("super".into(), TypeId(0))]),
+            Type::RowEmpty,
+            Type::RowExtend {
+                label: "super".into(),
+                ty: TypeId(0),
+                tail: TypeId(1),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(TypeId(3), TypeId(2)),
             Type::Constructor(TypeConstructor::Boolean),
         ],
         newtype_ids: Vec::new(),
@@ -113,7 +122,7 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
             name: "main".into(),
             name_span: TextRange::new(0, 4),
             quantified: Vec::new(),
-            ty: TypeId(2),
+            ty: TypeId(5),
             value: Expr {
                 kind: ExprKind::Evidence(Evidence {
                     kind: EvidenceKind::Superclass {
@@ -126,10 +135,10 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
                         field: "super".into(),
                     },
                     class_id: psrs_hir::TypeId::new(ModuleId(0), 0),
-                    ty: TypeId(2),
+                    ty: TypeId(5),
                     span: TextRange::new(8, 18),
                 }),
-                ty: TypeId(2),
+                ty: TypeId(5),
                 span: TextRange::new(8, 18),
             },
             span: TextRange::new(0, 18),

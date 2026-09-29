@@ -144,14 +144,26 @@ fn generic_record_module(include_read: bool, include_build_update: bool) -> Modu
     let array_constructor = TypeId(1);
     let array_a = TypeId(2);
     let integer = TypeId(3);
-    let record_a = TypeId(4);
     let mut types = vec![
         Type::Variable(TypeVariableId(0)),
         Type::Constructor(psrs_core::TypeConstructor::Array),
         Type::Application(array_constructor, variable),
         Type::Constructor(psrs_core::TypeConstructor::Int),
-        Type::Record(vec![("count".into(), integer), ("values".into(), array_a)]),
+        Type::RowEmpty,
+        Type::RowExtend {
+            label: "count".into(),
+            ty: integer,
+            tail: TypeId(4),
+        },
+        Type::RowExtend {
+            label: "values".into(),
+            ty: array_a,
+            tail: TypeId(5),
+        },
+        Type::Constructor(psrs_core::TypeConstructor::Record),
+        Type::Application(TypeId(7), TypeId(6)),
     ];
+    let record_a = TypeId(8);
     let build_type = push_arrow(&mut types, array_a, record_a);
     let update_values_type = push_arrow(&mut types, array_a, record_a);
     let update_type = push_arrow(&mut types, record_a, update_values_type);

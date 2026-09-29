@@ -19,12 +19,11 @@ impl Checker {
             }
             inferred.push((label.clone(), self.infer_expr(value)?));
         }
-        let mut record_fields = inferred
+        let record_fields = inferred
             .iter()
             .map(|(label, value)| (label.clone(), value.ty.clone()))
             .collect::<Vec<_>>();
-        record_fields.sort_by(|left, right| left.0.cmp(&right.0));
-        let ty = InferType::Record(InferRecord::closed(record_fields));
+        let ty = record_type(record_fields, InferType::RowEmpty);
         Some((InferredExprKind::Record(inferred), ty))
     }
 
@@ -44,10 +43,10 @@ impl Checker {
         // cannot extend a closed or rigid tail.
         self.unify(
             expression.ty.clone(),
-            InferType::Record(InferRecord {
-                fields: vec![(field.to_owned(), field_ty.clone())],
-                tail: RowTail::Open(tail),
-            }),
+            record_type(
+                vec![(field.to_owned(), field_ty.clone())],
+                InferType::Variable(tail),
+            ),
             span,
         );
         Some((
@@ -82,7 +81,6 @@ impl Checker {
             probed.push((label.clone(), self.fresh()));
             inferred.push((label.clone(), value));
         }
-        probed.sort_by(|left, right| left.0.cmp(&right.0));
         let tail = match self.fresh() {
             InferType::Variable(variable) => variable,
             _ => unreachable!("fresh inference types are variables"),
@@ -92,26 +90,19 @@ impl Checker {
         // would be required to update a label that is only in an unknown tail.
         self.unify(
             expression.ty.clone(),
-            InferType::Record(InferRecord {
-                fields: probed,
-                tail: RowTail::Open(tail),
-            }),
+            record_type(probed, InferType::Variable(tail)),
             span,
         );
-        let mut result_fields = inferred
+        let result_fields = inferred
             .iter()
             .map(|(label, value)| (label.clone(), value.ty.clone()))
             .collect::<Vec<_>>();
-        result_fields.sort_by(|left, right| left.0.cmp(&right.0));
         Some((
             InferredExprKind::RecordUpdate {
                 expression: Box::new(expression),
                 fields: inferred,
             },
-            InferType::Record(InferRecord {
-                fields: result_fields,
-                tail: RowTail::Open(tail),
-            }),
+            record_type(result_fields, InferType::Variable(tail)),
         ))
     }
 }

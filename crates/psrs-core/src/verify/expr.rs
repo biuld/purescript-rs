@@ -107,9 +107,7 @@ impl Context<'_> {
                 }
             }
             ExprKind::Record { fields } => {
-                let Some(Type::Record(expected_fields)) =
-                    self.module.types.get(expression.ty.0 as usize).cloned()
-                else {
+                let Some(expected_fields) = self.module.record_fields(expression.ty) else {
                     self.errors.push(error(
                         self.owner,
                         expression.span,

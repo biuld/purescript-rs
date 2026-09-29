@@ -11,9 +11,9 @@ use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
-const R: psrs_core::TypeId = psrs_core::TypeId(0);
-const U: psrs_core::TypeId = psrs_core::TypeId(1);
-const I32: psrs_core::TypeId = psrs_core::TypeId(2);
+const U: psrs_core::TypeId = psrs_core::TypeId(0);
+const I32: psrs_core::TypeId = psrs_core::TypeId(1);
+const R: psrs_core::TypeId = psrs_core::TypeId(6);
 
 fn symbol(index: u32) -> SymbolId {
     SymbolId::new(ModuleId(0), index)
@@ -27,9 +27,21 @@ fn module() -> Module {
         name: "RecordOracleTest".into(),
         externals: Vec::new(),
         types: vec![
-            Type::Record(vec![("x".into(), U), ("y".into(), U)]),
             Type::Constructor(TypeConstructor::User(u)),
             Type::Constructor(psrs_core::TypeConstructor::Int),
+            Type::RowEmpty,
+            Type::RowExtend {
+                label: "x".into(),
+                ty: U,
+                tail: psrs_core::TypeId(2),
+            },
+            Type::RowExtend {
+                label: "y".into(),
+                ty: U,
+                tail: psrs_core::TypeId(3),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

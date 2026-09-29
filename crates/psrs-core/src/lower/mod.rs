@@ -11,6 +11,7 @@ mod dictionary;
 fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::TypeConstructor {
     match constructor {
         psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
+        psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
         psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
         psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
         psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
@@ -54,17 +55,10 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             psrs_thir::Type::Application(function, argument) => {
                 Type::Application(TypeId(function.0), TypeId(argument.0))
             }
-            psrs_thir::Type::Record(fields) => Type::Record(
-                fields
-                    .into_iter()
-                    .map(|(label, field)| (label, TypeId(field.0)))
-                    .collect(),
-            ),
-            psrs_thir::Type::OpenRecord { fields, tail } => Type::OpenRecord {
-                fields: fields
-                    .into_iter()
-                    .map(|(label, field)| (label, TypeId(field.0)))
-                    .collect(),
+            psrs_thir::Type::RowEmpty => Type::RowEmpty,
+            psrs_thir::Type::RowExtend { label, ty, tail } => Type::RowExtend {
+                label,
+                ty: TypeId(ty.0),
                 tail: TypeId(tail.0),
             },
         })

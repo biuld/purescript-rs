@@ -461,14 +461,14 @@ top-level recursion through `Global` and the generated closure wrappers are —
 and constraint evidence and the final effect representation are not yet
 produced.
 
-The uniform application spine in the Model is the target. THIR's and Core's
-current `Type` still carries the ad-hoc `Function { parameter, result }`,
-`Record([...])`, `OpenRecord`, and inline primitive (`I32`, `F64`, `Boolean`,
-`String`, `Char`, `Unit`) variants; those are the deviation being removed
-([DEC-15](../../../decision/DEC-15-unified-type-representation.md)). The migration
-is staged: every site that matches on `Type` moves to the spine, starting with
-the representation and lowering sites that already need a head constructor. An
-open row becomes `Application(Constructor(Record), row)` over
-`RowEmpty`/`RowExtend`, so closure conversion still rejects an open row when it
-cannot choose a field layout. Nothing in the model above depends on the
-deviations.
+The uniform application spine in the Model is implemented for the nodes the
+current frontend produces: functions, primitives, records, rows, arrays, and
+user data types all use `Constructor`/`Application` with `RowEmpty`/`RowExtend`
+rows, and the ad-hoc `Function`, `Record`, `OpenRecord`, and inline primitive
+variants are gone ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
+An open row is `Application(Constructor(Record), Variable)`, so closure
+conversion still rejects it when it cannot choose a field layout. The remaining
+`CheckedType` nodes the design lists — `KindApplication`, `ForAll`,
+`Constrained`, `TypeLevel*`, and `Skolem` — arrive with the kind, class, and
+higher-rank frontend work, not as a second representation. Nothing in the model
+above depends on those.

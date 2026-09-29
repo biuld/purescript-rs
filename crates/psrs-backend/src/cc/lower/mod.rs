@@ -4,7 +4,7 @@ use super::{
     ValueDecl, ValueId, ValueShape,
 };
 use crate::{BackendError, BackendWarning};
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, dictionary::ClassLayout};
+use psrs_core::{Expr, ExprKind, Module as CoreModule, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -228,10 +228,7 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        if matches!(
-            self.module.types.get(expression.ty.0 as usize),
-            Some(Type::Record(_))
-        ) {
+        if self.module.is_record_type(expression.ty) {
             let layout =
                 ClassLayout::from_record_type(self.module, expression.ty).map_err(|message| {
                     vec![BackendError::new(

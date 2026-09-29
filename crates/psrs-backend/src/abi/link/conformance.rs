@@ -254,7 +254,7 @@ fn core_enum_cases(module: &CoreModule, id: CoreTypeId) -> Option<Vec<String>> {
 }
 
 fn core_matches_flags(module: &CoreModule, id: CoreTypeId, names: &[String]) -> bool {
-    let Some(CoreType::Record(fields)) = core(module, id) else {
+    let Some(fields) = module.record_fields(id) else {
         return false;
     };
     names.len() == fields.len()
@@ -271,7 +271,7 @@ fn core_matches_flags(module: &CoreModule, id: CoreTypeId, names: &[String]) -> 
 }
 
 fn core_matches_record(module: &CoreModule, id: CoreTypeId, fields: &[CanonicalField]) -> bool {
-    let Some(CoreType::Record(source_fields)) = core(module, id) else {
+    let Some(source_fields) = module.record_fields(id) else {
         return false;
     };
     if fields.len() != source_fields.len() {

@@ -28,6 +28,28 @@ fn arrow_type(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeI
     outer
 }
 
+fn record_type(types: &mut Vec<Type>, fields: Vec<(&str, TypeId)>) -> TypeId {
+    let mut sorted = fields;
+    sorted.sort_by(|left, right| left.0.cmp(right.0));
+    let row_empty = TypeId(types.len() as u32);
+    types.push(Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in sorted.into_iter().rev() {
+        let id = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: label.into(),
+            ty,
+            tail,
+        });
+        tail = id;
+    }
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Record));
+    let id = TypeId(types.len() as u32);
+    types.push(Type::Application(head, tail));
+    id
+}
+
 fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
     Module {
         type_names: Vec::new(),
@@ -317,14 +339,8 @@ fn beta_reduction_binds_an_effectful_argument_once_and_before_the_body() {
 #[test]
 fn projection_from_a_known_record_preserves_field_evaluation_order() {
     let int_type = TypeId(0);
-    let record_type = TypeId(1);
-    let mut types = vec![
-        Type::Constructor(crate::TypeConstructor::Int),
-        Type::Record(vec![
-            ("first".into(), int_type),
-            ("second".into(), int_type),
-        ]),
-    ];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
+    let record_type = record_type(&mut types, vec![("first", int_type), ("second", int_type)]);
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::FieldAccess {
