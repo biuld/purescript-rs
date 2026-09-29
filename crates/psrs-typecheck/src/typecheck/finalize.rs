@@ -43,6 +43,30 @@ impl Checker {
                 expression: Box::new(self.finalize_expr(*expression, interner, generics)?),
                 field,
             },
+            InferredExprKind::Method { method, wanted } => {
+                let evidence = self.wanted_evidence(wanted, interner, generics)?;
+                let dictionary_ty = evidence.ty;
+                let evidence = thir::Expr {
+                    kind: thir::ExprKind::Evidence(evidence),
+                    ty: dictionary_ty,
+                    span: expression.span,
+                };
+                thir::ExprKind::FieldAccess {
+                    expression: Box::new(evidence),
+                    field: method,
+                }
+            }
+            InferredExprKind::DictionaryApplication { function, wanted } => {
+                let function = self.finalize_expr(*function, interner, generics)?;
+                let evidence = self.wanted_evidence(wanted, interner, generics)?;
+                let dictionary_ty = evidence.ty;
+                let evidence = thir::Expr {
+                    kind: thir::ExprKind::Evidence(evidence),
+                    ty: dictionary_ty,
+                    span: expression.span,
+                };
+                thir::ExprKind::Application(Box::new(function), Box::new(evidence))
+            }
             InferredExprKind::Application(function, argument) => {
                 let function = self.finalize_expr(*function, interner, generics);
                 let argument = self.finalize_expr(*argument, interner, generics);

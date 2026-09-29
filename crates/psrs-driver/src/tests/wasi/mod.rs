@@ -6,6 +6,7 @@ mod wat;
 mod where_clause;
 use wat::*;
 
+mod classes;
 mod umbrella;
 mod wrappers;
 

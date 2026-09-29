@@ -12,7 +12,10 @@ pub use expr::{
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
-pub use types::{ClassMember, Constructor, TypeDeclaration, TypeDeclarationKind};
+pub use types::{
+    ClassMember, Constructor, InstanceDeclaration, InstanceMember, TypeDeclaration,
+    TypeDeclarationKind,
+};
 pub use verify::VerifyError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -156,6 +159,7 @@ pub struct Module {
     pub exports: Option<ExportList>,
     pub declarations: Vec<Declaration>,
     pub types: Vec<TypeDeclaration>,
+    pub instances: Vec<InstanceDeclaration>,
     pub span: TextRange,
 }
 
@@ -304,6 +308,34 @@ impl Module {
             }
         }
 
+        for instance in &self.instances {
+            if instance.symbol.module != self.id {
+                errors.push(VerifyError {
+                    span: instance.name_span,
+                    message: "instance symbol belongs to a different module",
+                });
+            }
+            if !globals.insert(instance.symbol) {
+                errors.push(VerifyError {
+                    span: instance.name_span,
+                    message: "duplicate instance symbol ID",
+                });
+            }
+            if instance.class_id.module == self.id {
+                if !type_ids.contains(&instance.class_id) {
+                    errors.push(VerifyError {
+                        span: instance.name_span,
+                        message: "instance class is not declared in this module",
+                    });
+                }
+            } else if !imported_type_ids.contains(&instance.class_id) {
+                errors.push(VerifyError {
+                    span: instance.name_span,
+                    message: "instance class is not declared or imported",
+                });
+            }
+        }
+
         let mut declared_locals = HashSet::new();
         for declaration in &self.declarations {
             let mut visible_locals = HashSet::new();
@@ -314,6 +346,18 @@ impl Module {
                 &mut declared_locals,
                 &mut errors,
             );
+        }
+        for instance in &self.instances {
+            for member in &instance.members {
+                let mut visible_locals = HashSet::new();
+                verify_expr(
+                    &member.value,
+                    &globals,
+                    &mut visible_locals,
+                    &mut declared_locals,
+                    &mut errors,
+                );
+            }
         }
 
         if errors.is_empty() {
@@ -349,6 +393,7 @@ mod tests {
                 span: TextRange::new(0, 8),
             }],
             types: Vec::new(),
+            instances: Vec::new(),
             span: TextRange::new(0, 8),
         };
 

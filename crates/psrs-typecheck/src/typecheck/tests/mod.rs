@@ -55,6 +55,7 @@ fn module(declarations: Vec<HirDeclaration>, with_intrinsics: bool) -> hir::Modu
         exports: None,
         declarations,
         types: Vec::new(),
+        instances: Vec::new(),
         span: TextRange::new(0, 100),
     }
 }

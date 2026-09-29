@@ -111,6 +111,18 @@ pub struct ClassMember {
     pub span: TextRange,
 }
 
+/// An `instance` declaration before name resolution. `context` holds the
+/// instance's context constraints (empty for a nullary instance) and `members`
+/// are its method implementations as ordinary value declarations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceDeclaration {
+    pub name: Name,
+    pub context: Vec<Type>,
+    pub head: Type,
+    pub members: Vec<crate::Declaration>,
+    pub span: TextRange,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataConstructor {
     pub name: Name,
@@ -157,21 +169,29 @@ pub(crate) fn lower_type_declaration(
                 span: declaration.span,
             }))
         }
-        cst::Declaration::Class(declaration) => Ok(TypeDeclaration::Class(ClassDeclaration {
-            name: lower_name(declaration.name),
-            parameters: lower_class_parameters(&declaration.head)?,
-            superclasses: match declaration.superclasses {
-                Some(superclasses) => vec![lower_type(*superclasses)?],
-                None => Vec::new(),
-            },
-            members: declaration
-                .where_block
-                .map(|block| lower_class_members(block.declarations))
-                .transpose()?
-                .unwrap_or_default(),
-            kind_signature,
-            span: declaration.span,
-        })),
+        cst::Declaration::Class(declaration) => {
+            if !declaration.fundeps.is_empty() {
+                return Err(LowerError::new(
+                    declaration.span,
+                    "functional dependencies are not supported yet",
+                ));
+            }
+            Ok(TypeDeclaration::Class(ClassDeclaration {
+                name: lower_name(declaration.name),
+                parameters: lower_class_parameters(&declaration.head)?,
+                superclasses: match declaration.superclasses {
+                    Some(superclasses) => vec![lower_type(*superclasses)?],
+                    None => Vec::new(),
+                },
+                members: declaration
+                    .where_block
+                    .map(|block| lower_class_members(block.declarations))
+                    .transpose()?
+                    .unwrap_or_default(),
+                kind_signature,
+                span: declaration.span,
+            }))
+        }
         other => Err(LowerError::new(
             other.span(),
             "expected a data, newtype, type, or class declaration",
@@ -273,6 +293,49 @@ fn strip_parens(expression: &cst::TypeExpr) -> &cst::TypeExpr {
         cst::TypeExprKind::Parens { expression, .. } => strip_parens(expression),
         _ => expression,
     }
+}
+
+/// Lowers an `instance` declaration. Its where-block members become ordinary
+/// value declarations, one per method implementation.
+pub(crate) fn lower_instance(
+    declaration: cst::InstanceDeclaration,
+) -> Result<InstanceDeclaration, LowerError> {
+    let context = match declaration.constraints {
+        Some(constraints) => vec![lower_type(*constraints)?],
+        None => Vec::new(),
+    };
+    let head = lower_type(declaration.head)?;
+    let mut members = Vec::new();
+    if let Some(block) = declaration.where_block {
+        for member in block.declarations {
+            match member {
+                cst::Declaration::Value(value) => {
+                    members.push(crate::lower_value_declaration(value)?);
+                }
+                cst::Declaration::TypeSignature(_) => {}
+                other => {
+                    return Err(LowerError::new(
+                        other.span(),
+                        "this instance member is not supported yet",
+                    ));
+                }
+            }
+        }
+    }
+    let name = match declaration.name {
+        Some(name) => lower_name(name),
+        None => Name {
+            text: String::new(),
+            span: declaration.span,
+        },
+    };
+    Ok(InstanceDeclaration {
+        name,
+        context,
+        head,
+        members,
+        span: declaration.span,
+    })
 }
 
 fn lower_class_members(

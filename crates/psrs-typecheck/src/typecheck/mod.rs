@@ -17,6 +17,9 @@ pub enum TypeCheckErrorKind {
     UnsupportedType,
     UnsupportedIntrinsic,
     UnloweredOperator,
+    UnsupportedClass,
+    NoInstance,
+    MissingInstanceMethod,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -164,10 +167,12 @@ enum TypeConstructor {
     User(hir::TypeId),
 }
 
-/// A type with a set of universally quantified variables.
+/// A type with a set of universally quantified variables and the class
+/// constraints those variables must satisfy.
 #[derive(Clone, Debug)]
 struct Scheme {
     variables: Vec<u32>,
+    constraints: Vec<ClassConstraint>,
     ty: InferType,
 }
 
@@ -175,9 +180,60 @@ impl Scheme {
     fn monomorphic(ty: InferType) -> Self {
         Self {
             variables: Vec::new(),
+            constraints: Vec::new(),
             ty,
         }
     }
+}
+
+/// A class constraint `C τ...` recorded during inference. Its `arguments` are
+/// the instantiated class type arguments in declaration order.
+#[derive(Clone, Debug)]
+struct ClassConstraint {
+    class_id: hir::TypeId,
+    arguments: Vec<InferType>,
+    span: TextRange,
+}
+
+/// A class method declaration recorded in the class environment.
+#[derive(Clone, Debug)]
+struct MethodInfo {
+    name: String,
+    signature: hir::Type,
+}
+
+/// A class with its ordered type parameters and methods.
+#[derive(Clone, Debug)]
+struct ClassInfo {
+    parameters: Vec<String>,
+    superclasses: usize,
+    methods: Vec<MethodInfo>,
+}
+
+/// An instance's class, concrete head arguments, and dictionary symbol.
+#[derive(Clone, Debug)]
+struct InstanceInfo {
+    symbol: SymbolId,
+    class_id: hir::TypeId,
+    head_arguments: Vec<InferType>,
+}
+
+/// The dictionary selected for a wanted constraint during solving.
+#[derive(Clone, Debug)]
+enum WantedSolution {
+    Given(LocalId),
+    Global(SymbolId),
+}
+
+/// A constraint that still needs a dictionary. Its solution is filled in by
+/// `solve_wanted_constraints` before finalization.
+#[derive(Clone, Debug)]
+struct WantedConstraint {
+    class_id: hir::TypeId,
+    arguments: Vec<InferType>,
+    dictionary_type: InferType,
+    span: TextRange,
+    solution: Option<WantedSolution>,
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +284,16 @@ enum InferredExprKind {
     FieldAccess {
         expression: Box<InferredExpr>,
         field: String,
+    },
+    /// A class method selected from the dictionary solved for `wanted`.
+    Method {
+        method: String,
+        wanted: usize,
+    },
+    /// A constrained function applied to the dictionary solved for `wanted`.
+    DictionaryApplication {
+        function: Box<InferredExpr>,
+        wanted: usize,
     },
     Application(Box<InferredExpr>, Box<InferredExpr>),
     Lambda {
@@ -318,6 +384,16 @@ struct Checker {
     rigid: HashSet<u32>,
     next_variable: u32,
     level: u32,
+    classes: HashMap<hir::TypeId, ClassInfo>,
+    class_methods: HashMap<SymbolId, (hir::TypeId, MethodInfo)>,
+    instances: Vec<InstanceInfo>,
+    /// Dictionary parameters synthesized for the declaration being checked.
+    pending_signatures: HashMap<SymbolId, Vec<(LocalId, InferType)>>,
+    /// The constraints a constrained declaration may discharge from its
+    /// dictionary parameters while checking its body.
+    givens: Vec<(ClassConstraint, WantedSolution)>,
+    wanted: Vec<WantedConstraint>,
+    next_dictionary_local: u32,
     errors: Vec<TypeCheckError>,
 }
 
@@ -354,6 +430,7 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
 #[cfg(test)]
 mod tests;
 
+mod classes;
 mod finalize;
 mod infer;
 mod order;

@@ -1,4 +1,4 @@
-use super::{SymbolId, Type, TypeId, TypeParameter};
+use super::{Expr, SymbolId, Type, TypeId, TypeParameter};
 use psrs_span::TextRange;
 
 /// The declaration form a named type-level entity comes from.
@@ -49,5 +49,29 @@ pub struct ClassMember {
     pub name: String,
     pub name_span: TextRange,
     pub signature: Option<Type>,
+    pub span: TextRange,
+}
+
+/// A resolved `instance` declaration. Its `symbol` names the dictionary value
+/// the instance elaborates to; `head` is the class applied to the instance's
+/// type arguments and `context` lists the instance's context constraints.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceDeclaration {
+    pub symbol: SymbolId,
+    pub name: String,
+    pub name_span: TextRange,
+    pub class_id: TypeId,
+    pub context: Vec<Type>,
+    pub head: Type,
+    pub members: Vec<InstanceMember>,
+    pub span: TextRange,
+}
+
+/// One method implementation supplied by an instance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceMember {
+    pub name: String,
+    pub name_span: TextRange,
+    pub value: Expr,
     pub span: TextRange,
 }

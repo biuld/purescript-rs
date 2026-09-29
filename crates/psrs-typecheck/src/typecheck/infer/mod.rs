@@ -1,5 +1,6 @@
 use super::*;
 
+mod case;
 mod expected;
 mod intrinsics;
 mod pattern;
@@ -96,10 +97,20 @@ impl Checker {
             rigid: HashSet::new(),
             next_variable: 0,
             level: 1,
+            classes: HashMap::new(),
+            class_methods: HashMap::new(),
+            instances: Vec::new(),
+            pending_signatures: HashMap::new(),
+            givens: Vec::new(),
+            wanted: Vec::new(),
+            next_dictionary_local: 0,
             errors: Vec::new(),
         };
         checker.import_known_types(known_types);
         checker.register_constructors();
+        checker.next_dictionary_local = classes::next_local_id(module);
+        checker.build_class_environment(module, known_types);
+        checker.build_instance_environment(module);
         checker
     }
 
@@ -160,7 +171,7 @@ impl Checker {
                 let field = self.elaborate_type(field, &mut variables);
                 ty = arrow(field, ty);
             }
-            let scheme = self.generalize(&ty, TOP_LEVEL);
+            let scheme = self.generalize(&ty, &[], TOP_LEVEL);
             self.globals.insert(constructor.symbol, scheme);
         }
     }
@@ -170,8 +181,14 @@ impl Checker {
         let (kind, ty) = match &expression.kind {
             hir::ExprKind::Local(id) => match self.locals.get(id).cloned() {
                 Some(scheme) => {
-                    let ty = self.instantiate(&scheme);
-                    (InferredExprKind::Local(*id), ty)
+                    let (constraints, ty) = self.instantiate_use(&scheme);
+                    let base = InferredExpr {
+                        kind: InferredExprKind::Local(*id),
+                        ty: ty.clone(),
+                        span,
+                    };
+                    let applied = self.apply_constraints(base, constraints, span);
+                    (applied.kind, applied.ty)
                 }
                 None => {
                     self.errors.push(TypeCheckError::new(
@@ -183,12 +200,29 @@ impl Checker {
                 }
             },
             hir::ExprKind::Global(symbol) => {
+                if let Some((class_id, method)) = self.class_methods.get(symbol).cloned() {
+                    return self
+                        .infer_method_use(class_id, method, span)
+                        .map(|(kind, ty)| InferredExpr { kind, ty, span });
+                }
                 if let Some(scheme) = self.globals.get(symbol).cloned() {
-                    let ty = self.instantiate(&scheme);
-                    (InferredExprKind::Global(*symbol), ty)
+                    let (constraints, ty) = self.instantiate_use(&scheme);
+                    let base = InferredExpr {
+                        kind: InferredExprKind::Global(*symbol),
+                        ty: ty.clone(),
+                        span,
+                    };
+                    let applied = self.apply_constraints(base, constraints, span);
+                    (applied.kind, applied.ty)
                 } else if let Some(signature) = self.imported.get(symbol).cloned() {
-                    let ty = self.elaborate_imported_signature(&signature);
-                    (InferredExprKind::Global(*symbol), ty)
+                    let (constraints, ty) = self.elaborate_imported_constraints(&signature);
+                    let base = InferredExpr {
+                        kind: InferredExprKind::Global(*symbol),
+                        ty: ty.clone(),
+                        span,
+                    };
+                    let applied = self.apply_constraints(base, constraints, span);
+                    (applied.kind, applied.ty)
                 } else {
                     let external = self.external_kinds.get(symbol).cloned();
                     match external {
@@ -376,7 +410,7 @@ impl Checker {
                 // Generalize the recursive group before the body, which is where
                 // uses of the bindings are instantiated.
                 for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-                    let scheme = self.generalize(&inferred.binder.scheme.ty, outer_level);
+                    let scheme = self.generalize(&inferred.binder.scheme.ty, &[], outer_level);
                     inferred.binder.scheme = scheme.clone();
                     self.locals.insert(binding.binder.id, scheme);
                 }
@@ -434,64 +468,5 @@ impl Checker {
             } => return self.infer_case(scrutinee, branches, span),
         };
         Some(InferredExpr { kind, ty, span })
-    }
-
-    fn infer_case(
-        &mut self,
-        scrutinee: &hir::Expr,
-        branches: &[hir::CaseBranch],
-        span: TextRange,
-    ) -> Option<InferredExpr> {
-        let scrutinee = self.infer_expr(scrutinee)?;
-        let mut result_ty: Option<InferType> = None;
-        let mut inferred = Vec::with_capacity(branches.len());
-        for branch in branches {
-            let mut inserted = Vec::new();
-            let pattern = self.check_pattern(&branch.pattern, &scrutinee.ty, &mut inserted)?;
-            let value = self.infer_expr(&branch.value)?;
-            for id in inserted {
-                self.locals.remove(&id);
-            }
-            match &result_ty {
-                None => result_ty = Some(value.ty.clone()),
-                Some(existing) => self.unify(existing.clone(), value.ty.clone(), branch.span),
-            }
-            inferred.push(InferredCaseBranch {
-                pattern,
-                value,
-                span: branch.span,
-            });
-        }
-        let ty = result_ty.unwrap_or_else(|| self.fresh());
-        Some(InferredExpr {
-            kind: InferredExprKind::Case {
-                scrutinee: Box::new(scrutinee),
-                branches: inferred,
-            },
-            ty,
-            span,
-        })
-    }
-
-    /// Instantiates a constructor's parameter variables and returns its result
-    /// type together with its field types.
-    fn instantiate_constructor(&mut self, info: &ConstructorInfo) -> (InferType, Vec<InferType>) {
-        let mut variables = HashMap::new();
-        let mut arguments = Vec::new();
-        for parameter in &info.parameters {
-            let variable = self.fresh();
-            variables.insert(parameter.clone(), variable.clone());
-            arguments.push(variable);
-        }
-        let mut result = InferType::Constructor(TypeConstructor::User(info.type_id));
-        for argument in arguments {
-            result = InferType::Application(Box::new(result), Box::new(argument));
-        }
-        let fields = info
-            .fields
-            .iter()
-            .map(|field| self.elaborate_type(field, &mut variables))
-            .collect();
-        (result, fields)
     }
 }

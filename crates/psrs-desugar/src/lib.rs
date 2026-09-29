@@ -11,8 +11,24 @@ pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<hir::Verif
             declaration
         })
         .collect();
+    let instances = module
+        .instances
+        .into_iter()
+        .map(|instance| hir::InstanceDeclaration {
+            members: instance
+                .members
+                .into_iter()
+                .map(|member| hir::InstanceMember {
+                    value: desugar_expr(member.value),
+                    ..member
+                })
+                .collect(),
+            ..instance
+        })
+        .collect();
     let lowered = hir::Module {
         declarations,
+        instances,
         ..module
     };
     lowered.verify()?;
@@ -125,6 +141,7 @@ mod tests {
             imports: Vec::new(),
             exports: None,
             types: Vec::new(),
+            instances: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(module_id, 0),
                 name: "main".into(),
