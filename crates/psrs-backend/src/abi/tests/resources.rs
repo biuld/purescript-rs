@@ -22,15 +22,24 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     let opaque = intern_all(&mut core, vec![opaque_type(type_id)])
         .pop()
         .expect("one opaque type");
-    let integer = intern_all(&mut core, vec![CoreType::I32])
-        .pop()
-        .expect("one integer");
-    let boolean = intern_all(&mut core, vec![CoreType::Boolean])
-        .pop()
-        .expect("one boolean");
-    let string = intern_all(&mut core, vec![CoreType::String])
-        .pop()
-        .expect("one string");
+    let integer = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+    )
+    .pop()
+    .expect("one integer");
+    let boolean = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Boolean)],
+    )
+    .pop()
+    .expect("one boolean");
+    let string = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::String)],
+    )
+    .pop()
+    .expect("one string");
     let unit = unit_type(&mut core);
 
     // DEC-13: `blocking-write-and-flush` returns `result<_, stream-error>`,
@@ -240,9 +249,12 @@ fn maps_a_resource_drop_to_the_opaque_handle_parameter() {
     assert_eq!(resource.name, "input-stream");
     validate_against(&drop, core.clone(), &[opaque], unit)
         .expect("an opaque input-stream should match the drop handle");
-    let integer = intern_all(&mut core, vec![CoreType::I32])
-        .pop()
-        .expect("one integer");
+    let integer = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+    )
+    .pop()
+    .expect("one integer");
     validate_against(&drop, core.clone(), &[integer], unit)
         .expect("a bare i32 handle index should match the drop handle");
 }
@@ -265,9 +277,12 @@ fn erases_a_newtype_resource_wrapper_to_its_handle() {
     let pollable = intern_all(&mut core, vec![opaque_type(pollable_id)])
         .pop()
         .expect("one opaque pollable");
-    let int = intern_all(&mut core, vec![CoreType::I32])
-        .pop()
-        .expect("one integer");
+    let int = intern_all(
+        &mut core,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+    )
+    .pop()
+    .expect("one integer");
     core.constructors.push(ConstructorInfo {
         symbol: constructor_symbol,
         name: "Resource".into(),

@@ -149,7 +149,7 @@ fn generic_record_module(include_read: bool, include_build_update: bool) -> Modu
         Type::Variable(TypeVariableId(0)),
         Type::Constructor(psrs_core::TypeConstructor::Array),
         Type::Application(array_constructor, variable),
-        Type::I32,
+        Type::Constructor(psrs_core::TypeConstructor::Int),
         Type::Record(vec![("count".into(), integer), ("values".into(), array_a)]),
     ];
     let build_type = push_arrow(&mut types, array_a, record_a);

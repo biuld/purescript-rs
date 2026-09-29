@@ -55,16 +55,31 @@ const TOP_LEVEL: u32 = 0;
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InferType {
     Variable(u32),
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(Box<InferType>, Box<InferType>),
     Record(InferRecord),
-    Function(Box<InferType>, Box<InferType>),
+}
+
+/// The arrow `parameter -> result` as the application spine
+/// `Application(Application(Constructor(Function), parameter), result)`.
+fn arrow(parameter: InferType, result: InferType) -> InferType {
+    InferType::Application(
+        Box::new(InferType::Application(
+            Box::new(InferType::Constructor(TypeConstructor::Function)),
+            Box::new(parameter),
+        )),
+        Box::new(result),
+    )
+}
+
+/// The parameter and result of an arrow spine `Application(Application(
+/// Constructor(Function), parameter), result)`.
+fn infer_arrow_parts(function: &InferType, result: &InferType) -> Option<(InferType, InferType)> {
+    let InferType::Application(head, parameter) = function else {
+        return None;
+    };
+    matches!(**head, InferType::Constructor(TypeConstructor::Function))
+        .then(|| ((**parameter).clone(), result.clone()))
 }
 
 /// A record row during inference. `Closed` is the empty tail. `Open` is a row
@@ -92,13 +107,20 @@ impl InferRecord {
     }
 }
 
-/// A type constructor during inference. `Array` is the only built-in the
-/// current front end elaborates; user constructors keep their resolved HIR ID so
-/// distinct declarations never unify by accident.
+/// A type constructor during inference. The arrow and scalar primitives share
+/// this head; `Effect` is the trusted effect constructor; user constructors keep
+/// their resolved HIR ID so distinct declarations never unify by accident.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TypeConstructor {
+    Function,
     Array,
     Effect,
+    Int,
+    Number,
+    Boolean,
+    String,
+    Char,
+    Unit,
     User(hir::TypeId),
 }
 
@@ -275,20 +297,12 @@ impl TypeInterner {
         self.ids.insert(ty, id);
         id
     }
-
-    /// Interns the arrow `parameter -> result` as the application spine
-    /// `Application(Application(Constructor(Function), parameter), result)`.
-    fn arrow(&mut self, parameter: TypeId, result: TypeId) -> TypeId {
-        let head = self.intern(Type::Constructor(thir::TypeConstructor::Function));
-        let inner = self.intern(Type::Application(head, parameter));
-        self.intern(Type::Application(inner, result))
-    }
 }
 
 fn occurs(variable: u32, ty: &InferType) -> bool {
     match ty {
         InferType::Variable(other) => variable == *other,
-        InferType::Application(function, argument) | InferType::Function(function, argument) => {
+        InferType::Application(function, argument) => {
             occurs(variable, function) || occurs(variable, argument)
         }
         InferType::Record(record) => {
@@ -298,13 +312,7 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
                 .any(|(_, field)| occurs(variable, field))
                 || matches!(record.tail, RowTail::Open(tail) if tail == variable)
         }
-        InferType::I32
-        | InferType::F64
-        | InferType::Boolean
-        | InferType::String
-        | InferType::Char
-        | InferType::Unit
-        | InferType::Constructor(_) => false,
+        InferType::Constructor(_) => false,
     }
 }
 

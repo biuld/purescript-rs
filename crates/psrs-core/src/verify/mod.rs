@@ -9,8 +9,8 @@ mod types;
 use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
-    array_element, callable_result, compatible, error, primitive_types, record_field,
-    restore_local, type_id_for, unary_primitive_types, user_type_constructor, verify_type,
+    array_element, callable_result, compatible, error, primitive_type_id, primitive_types,
+    record_field, restore_local, unary_primitive_types, user_type_constructor, verify_type,
 };
 
 type Locals = HashMap<LocalId, TypeId>;

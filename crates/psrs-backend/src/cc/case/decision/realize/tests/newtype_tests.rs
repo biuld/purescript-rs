@@ -26,7 +26,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         types: vec![
             Type::Constructor(TypeConstructor::User(wrapper_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: vec![wrapper_type],
         opaque_ids: Vec::new(),

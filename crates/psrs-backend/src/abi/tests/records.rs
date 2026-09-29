@@ -66,13 +66,13 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     };
     let mut core = empty_core_module();
     core.types = vec![
-        CoreType::I32,
-        CoreType::F64,
+        CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        CoreType::Constructor(psrs_core::TypeConstructor::Number),
         CoreType::Record(vec![
             ("first".into(), CoreTypeId(0)),
             ("secondValue".into(), CoreTypeId(1)),
         ]),
-        CoreType::Unit,
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
     ];
     let function = HirType {
         kind: HirTypeKind::Function {
@@ -93,8 +93,16 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     crate::abi::link::validate_import_signature(&import, &core, type_id)
         .expect("source fields should match WIT names and types");
 
-    let (bad_module, bad_record) =
-        record_module(&[("first", CoreType::I32), ("secondValue", CoreType::Boolean)]);
+    let (bad_module, bad_record) = record_module(&[
+        (
+            "first",
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        ),
+        (
+            "secondValue",
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+    ]);
     let mut bad_module = bad_module;
     let bad_unit = unit_type(&mut bad_module);
     assert!(
@@ -185,12 +193,18 @@ fn validates_a_list_of_records() {
     use psrs_hir::SymbolId;
 
     let mut module = empty_core_module();
-    let x = intern_all(&mut module, vec![CoreType::I32])
-        .pop()
-        .expect("one integer");
-    let y = intern_all(&mut module, vec![CoreType::F64])
-        .pop()
-        .expect("one number");
+    let x = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+    )
+    .pop()
+    .expect("one integer");
+    let y = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Number)],
+    )
+    .pop()
+    .expect("one number");
     let record = intern_all(
         &mut module,
         vec![CoreType::Record(vec![("x".into(), x), ("y".into(), y)])],

@@ -22,6 +22,7 @@ pub(super) fn verify_type(
 }
 
 pub(super) fn primitive_types(op: Primitive, module: &Module) -> (TypeId, TypeId) {
+    use TypeConstructor::{Boolean, Char, Int, Number};
     let (operand_type, result_type) = match op {
         Primitive::IntAdd
         | Primitive::IntSub
@@ -35,53 +36,64 @@ pub(super) fn primitive_types(op: Primitive, module: &Module) -> (TypeId, TypeId
         | Primitive::IntXor
         | Primitive::IntShl
         | Primitive::IntShr
-        | Primitive::IntZshr => (Type::I32, Type::I32),
+        | Primitive::IntZshr => (Int, Int),
         Primitive::IntEq
         | Primitive::IntNe
         | Primitive::IntLt
         | Primitive::IntLe
         | Primitive::IntGt
-        | Primitive::IntGe => (Type::I32, Type::Boolean),
+        | Primitive::IntGe => (Int, Boolean),
         Primitive::CharEq
         | Primitive::CharNe
         | Primitive::CharLt
         | Primitive::CharLe
         | Primitive::CharGt
-        | Primitive::CharGe => (Type::Char, Type::Boolean),
+        | Primitive::CharGe => (Char, Boolean),
         Primitive::NumberAdd
         | Primitive::NumberSub
         | Primitive::NumberMul
-        | Primitive::NumberDiv => (Type::F64, Type::F64),
+        | Primitive::NumberDiv => (Number, Number),
         Primitive::NumberEq
         | Primitive::NumberNe
         | Primitive::NumberLt
         | Primitive::NumberLe
         | Primitive::NumberGt
-        | Primitive::NumberGe => (Type::F64, Type::Boolean),
+        | Primitive::NumberGe => (Number, Boolean),
         Primitive::BooleanAnd
         | Primitive::BooleanOr
         | Primitive::BooleanEq
-        | Primitive::BooleanNe => (Type::Boolean, Type::Boolean),
+        | Primitive::BooleanNe => (Boolean, Boolean),
     };
     (
-        type_id_for(module, &operand_type),
-        type_id_for(module, &result_type),
+        primitive_type_id(module, operand_type),
+        primitive_type_id(module, result_type),
     )
 }
 
 pub(super) fn unary_primitive_types(op: UnaryPrimitive, module: &Module) -> (TypeId, TypeId) {
+    use TypeConstructor::{Boolean, Char, Int, Number};
     let (operand, result) = match op {
-        UnaryPrimitive::IntNeg | UnaryPrimitive::IntComplement => (Type::I32, Type::I32),
-        UnaryPrimitive::NumberNeg => (Type::F64, Type::F64),
-        UnaryPrimitive::BooleanNot => (Type::Boolean, Type::Boolean),
-        UnaryPrimitive::IntToNumber => (Type::I32, Type::F64),
-        UnaryPrimitive::NumberToInt => (Type::F64, Type::I32),
-        UnaryPrimitive::BooleanToInt => (Type::Boolean, Type::I32),
-        UnaryPrimitive::IntToBoolean => (Type::I32, Type::Boolean),
-        UnaryPrimitive::CharToInt => (Type::Char, Type::I32),
-        UnaryPrimitive::IntToChar => (Type::I32, Type::Char),
+        UnaryPrimitive::IntNeg | UnaryPrimitive::IntComplement => (Int, Int),
+        UnaryPrimitive::NumberNeg => (Number, Number),
+        UnaryPrimitive::BooleanNot => (Boolean, Boolean),
+        UnaryPrimitive::IntToNumber => (Int, Number),
+        UnaryPrimitive::NumberToInt => (Number, Int),
+        UnaryPrimitive::BooleanToInt => (Boolean, Int),
+        UnaryPrimitive::IntToBoolean => (Int, Boolean),
+        UnaryPrimitive::CharToInt => (Char, Int),
+        UnaryPrimitive::IntToChar => (Int, Char),
     };
-    (type_id_for(module, &operand), type_id_for(module, &result))
+    (
+        primitive_type_id(module, operand),
+        primitive_type_id(module, result),
+    )
+}
+
+/// The type id of a primitive scalar constructor, or an out-of-range id when
+/// the module has no such scalar. The runtime mapping from a primitive
+/// constructor lives at the backend layout boundary.
+pub(super) fn primitive_type_id(module: &Module, constructor: TypeConstructor) -> TypeId {
+    type_id_for(module, &Type::Constructor(constructor))
 }
 
 pub(super) fn type_id_for(module: &Module, shape: &Type) -> TypeId {
@@ -166,12 +178,6 @@ fn types_compatible(
     };
     match (left, right) {
         (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
-        (Type::I32, Type::I32)
-        | (Type::F64, Type::F64)
-        | (Type::Boolean, Type::Boolean)
-        | (Type::String, Type::String)
-        | (Type::Char, Type::Char)
-        | (Type::Unit, Type::Unit) => true,
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
         (Type::Application(a1, a2), Type::Application(b1, b2)) => {
             types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)

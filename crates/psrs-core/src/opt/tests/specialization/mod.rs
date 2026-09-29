@@ -69,7 +69,7 @@ fn specializes_concrete_calls_deduplicates_and_keeps_generic_fallback() {
     let mut types = vec![Type::Variable(TypeVariableId(0))];
     let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let int_type = TypeId(types.len() as u32);
-    types.push(Type::I32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::Let {
@@ -136,7 +136,7 @@ fn inlines_a_small_specialization_without_discarding_the_generic_declaration() {
     let mut types = vec![Type::Variable(TypeVariableId(0))];
     let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let int_type = TypeId(types.len() as u32);
-    types.push(Type::I32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = identity_call(function_type.0, int_type.0, 9, 10);
     let mut input = module(types, int_type.0, value);
@@ -217,7 +217,7 @@ fn keeps_cross_module_calls_on_the_generic_declaration() {
     let mut types = vec![Type::Variable(TypeVariableId(0))];
     let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let int_type = TypeId(types.len() as u32);
-    types.push(Type::I32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
     let function_type = arrow_type(&mut types, int_type, int_type);
     let mut value = identity_call(function_type.0, int_type.0, 9, 10);
     let ExprKind::Application(function, _) = &mut value.kind else {
@@ -251,7 +251,7 @@ fn specializes_nested_concrete_types_and_respects_budgets() {
     types.push(Type::Application(array_constructor, TypeId(0)));
     let generic_function = arrow_type(&mut types, array_of_variable, array_of_variable);
     let int_type = TypeId(types.len() as u32);
-    types.push(Type::I32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
     let array_of_int = TypeId(types.len() as u32);
     types.push(Type::Application(array_constructor, int_type));
     let function_type = arrow_type(&mut types, array_of_int, array_of_int);

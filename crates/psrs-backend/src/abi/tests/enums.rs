@@ -82,14 +82,30 @@ fn maps_nullary_source_constructors_to_matching_wit_enum_cases() {
         vec![flags_type],
         None,
     );
-    let (flags_module, flags_record) =
-        record_module(&[("read", CoreType::Boolean), ("write", CoreType::Boolean)]);
+    let (flags_module, flags_record) = record_module(&[
+        (
+            "read",
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+        (
+            "write",
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+    ]);
     let mut flags_module = flags_module;
     let flags_unit = unit_type(&mut flags_module);
     validate_against(&flags_import, flags_module, &[flags_record], flags_unit)
         .expect("Boolean record fields should map to named WIT flags");
-    let (bad_module, bad_record) =
-        record_module(&[("read", CoreType::Boolean), ("write", CoreType::I32)]);
+    let (bad_module, bad_record) = record_module(&[
+        (
+            "read",
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+        (
+            "write",
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        ),
+    ]);
     let mut bad_module = bad_module;
     let bad_unit = unit_type(&mut bad_module);
     assert!(

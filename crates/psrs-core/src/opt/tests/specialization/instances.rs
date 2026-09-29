@@ -5,9 +5,9 @@ fn creates_distinct_specializations_for_distinct_concrete_type_arguments() {
     let mut types = vec![Type::Variable(TypeVariableId(0))];
     let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let int_type = TypeId(types.len() as u32);
-    types.push(Type::I32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
     let boolean_type = TypeId(types.len() as u32);
-    types.push(Type::Boolean);
+    types.push(Type::Constructor(crate::TypeConstructor::Boolean));
     let int_function_type = arrow_type(&mut types, int_type, int_type);
     let boolean_function_type = arrow_type(&mut types, boolean_type, boolean_type);
     let record_type = TypeId(types.len() as u32);

@@ -17,7 +17,10 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let dict = push_record(
         &mut types,
@@ -25,7 +28,7 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
     );
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 
@@ -112,14 +115,17 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let tail = push_arrow(&mut types, dictionary, dictionary);
     let make_eq_type = push_arrow(&mut types, integer, tail);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
     let sub_partial = push_arrow(&mut types, integer, integer);

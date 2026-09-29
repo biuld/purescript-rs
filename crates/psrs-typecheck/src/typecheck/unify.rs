@@ -33,23 +33,19 @@ impl Checker {
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
                 self.bind_variable(variable, ty, span);
             }
-            (InferType::I32, InferType::I32)
-            | (InferType::F64, InferType::F64)
-            | (InferType::Boolean, InferType::Boolean)
-            | (InferType::String, InferType::String)
-            | (InferType::Char, InferType::Char)
-            | (InferType::Unit, InferType::Unit) => {}
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
             // A trusted effect-library definition applies an `Effect a` value to
             // its hidden context parameter. At the source level that is an
             // application of an effect to an integer context, so unify the
             // effect's result with the application's result. Ordinary modules
             // never reach this arm because they keep `Effect` nominal and never
-            // name the context.
-            (InferType::Application(function, argument), InferType::Function(_, result))
-            | (InferType::Function(_, result), InferType::Application(function, argument))
+            // name the context. The expected arrow is itself an application
+            // spine whose inner node is the partial application.
+            (InferType::Application(function, argument), InferType::Application(inner, result))
+            | (InferType::Application(inner, result), InferType::Application(function, argument))
                 if self.effect_runtime_representation
-                    && matches!(*function, InferType::Constructor(TypeConstructor::Effect)) =>
+                    && matches!(*function, InferType::Constructor(TypeConstructor::Effect))
+                    && matches!(*inner, InferType::Application(_, _)) =>
             {
                 self.unify(*argument, *result, span);
             }
@@ -59,10 +55,6 @@ impl Checker {
             }
             (InferType::Record(left), InferType::Record(right)) => {
                 self.unify_rows(left, right, span);
-            }
-            (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
-                self.unify(*a1, *a2, span);
-                self.unify(*r1, *r2, span);
             }
             (expected, actual) => {
                 let expected = self.display_type(&expected);
@@ -105,25 +97,36 @@ impl Checker {
     pub(super) fn display_type(&self, ty: &InferType) -> String {
         match self.resolve_type(ty.clone()) {
             InferType::Variable(variable) => format!("_T{variable}"),
-            InferType::I32 => "Int".into(),
-            InferType::F64 => "Number".into(),
-            InferType::Boolean => "Boolean".into(),
-            InferType::String => "String".into(),
-            InferType::Char => "Char".into(),
-            InferType::Unit => "Unit".into(),
-            InferType::Constructor(TypeConstructor::Array) => "Array".into(),
-            InferType::Constructor(TypeConstructor::Effect) => "Effect".into(),
-            InferType::Constructor(TypeConstructor::User(id)) => self
-                .type_names
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
+            InferType::Constructor(constructor) => match constructor {
+                TypeConstructor::Function => "Function".into(),
+                TypeConstructor::Array => "Array".into(),
+                TypeConstructor::Effect => "Effect".into(),
+                TypeConstructor::Int => "Int".into(),
+                TypeConstructor::Number => "Number".into(),
+                TypeConstructor::Boolean => "Boolean".into(),
+                TypeConstructor::String => "String".into(),
+                TypeConstructor::Char => "Char".into(),
+                TypeConstructor::Unit => "Unit".into(),
+                TypeConstructor::User(id) => self
+                    .type_names
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
+            },
             InferType::Application(function, argument) => {
-                format!(
-                    "({} {})",
-                    self.display_type(&function),
-                    self.display_type(&argument)
-                )
+                if let Some((parameter, result)) = infer_arrow_parts(&function, &argument) {
+                    format!(
+                        "({} -> {})",
+                        self.display_type(&parameter),
+                        self.display_type(&result)
+                    )
+                } else {
+                    format!(
+                        "({} {})",
+                        self.display_type(&function),
+                        self.display_type(&argument)
+                    )
+                }
             }
             InferType::Record(record) => {
                 let fields = record
@@ -143,11 +146,6 @@ impl Checker {
                     }
                 }
             }
-            InferType::Function(parameter, result) => format!(
-                "({} -> {})",
-                self.display_type(&parameter),
-                self.display_type(&result)
-            ),
         }
     }
 
@@ -163,11 +161,7 @@ impl Checker {
                 Box::new(self.resolve_type(*argument)),
             ),
             InferType::Record(record) => self.resolve_record(record),
-            InferType::Function(parameter, result) => InferType::Function(
-                Box::new(self.resolve_type(*parameter)),
-                Box::new(self.resolve_type(*result)),
-            ),
-            primitive => primitive,
+            other => other,
         }
     }
 
@@ -180,8 +174,7 @@ impl Checker {
                     *level = max_level;
                 }
             }
-            InferType::Application(function, argument)
-            | InferType::Function(function, argument) => {
+            InferType::Application(function, argument) => {
                 self.adjust_levels(function, max_level);
                 self.adjust_levels(argument, max_level);
             }
@@ -193,13 +186,7 @@ impl Checker {
                     self.adjust_levels(&InferType::Variable(variable), max_level);
                 }
             }
-            InferType::I32
-            | InferType::F64
-            | InferType::Boolean
-            | InferType::String
-            | InferType::Char
-            | InferType::Unit
-            | InferType::Constructor(_) => {}
+            InferType::Constructor(_) => {}
         }
     }
 
@@ -236,8 +223,7 @@ impl Checker {
                     out.push(*variable);
                 }
             }
-            InferType::Application(function, argument)
-            | InferType::Function(function, argument) => {
+            InferType::Application(function, argument) => {
                 self.collect_generalizable(function, outer_level, out);
                 self.collect_generalizable(argument, outer_level, out);
             }
@@ -249,13 +235,7 @@ impl Checker {
                     self.collect_generalizable(&InferType::Variable(variable), outer_level, out);
                 }
             }
-            InferType::I32
-            | InferType::F64
-            | InferType::Boolean
-            | InferType::String
-            | InferType::Char
-            | InferType::Unit
-            | InferType::Constructor(_) => {}
+            InferType::Constructor(_) => {}
         }
     }
 
@@ -278,15 +258,6 @@ impl Checker {
                 ));
                 None
             }
-            InferType::I32 => Some(interner.intern(Type::I32)),
-            InferType::F64 => Some(interner.intern(Type::F64)),
-            InferType::Boolean => Some(interner.intern(Type::Boolean)),
-            InferType::String => Some(interner.intern(Type::String)),
-            InferType::Char => Some(interner.intern(Type::Char)),
-            InferType::Unit => Some(interner.intern(Type::Unit)),
-            InferType::Constructor(TypeConstructor::Array) => {
-                Some(interner.intern(Type::Constructor(thir::TypeConstructor::Array)))
-            }
             InferType::Constructor(TypeConstructor::Effect) => {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedType,
@@ -295,8 +266,19 @@ impl Checker {
                 ));
                 None
             }
-            InferType::Constructor(TypeConstructor::User(id)) => {
-                Some(interner.intern(Type::Constructor(thir::TypeConstructor::User(id))))
+            InferType::Constructor(constructor) => {
+                Some(interner.intern(Type::Constructor(match constructor {
+                    TypeConstructor::Function => thir::TypeConstructor::Function,
+                    TypeConstructor::Array => thir::TypeConstructor::Array,
+                    TypeConstructor::Int => thir::TypeConstructor::Int,
+                    TypeConstructor::Number => thir::TypeConstructor::Number,
+                    TypeConstructor::Boolean => thir::TypeConstructor::Boolean,
+                    TypeConstructor::String => thir::TypeConstructor::String,
+                    TypeConstructor::Char => thir::TypeConstructor::Char,
+                    TypeConstructor::Unit => thir::TypeConstructor::Unit,
+                    TypeConstructor::Effect => unreachable!("handled above"),
+                    TypeConstructor::User(id) => thir::TypeConstructor::User(id),
+                })))
             }
             InferType::Application(function, argument) => {
                 if matches!(
@@ -325,11 +307,6 @@ impl Checker {
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
             InferType::Record(record) => self.finalize_record(record, span, interner, generics),
-            InferType::Function(parameter, result) => {
-                let parameter = self.finalize_type(&parameter, span, interner, generics);
-                let result = self.finalize_type(&result, span, interner, generics);
-                Some(interner.arrow(parameter?, result?))
-            }
         }
     }
 }
@@ -343,10 +320,6 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
         InferType::Application(function, argument) => InferType::Application(
             Box::new(substitute(function, mapping)),
             Box::new(substitute(argument, mapping)),
-        ),
-        InferType::Function(parameter, result) => InferType::Function(
-            Box::new(substitute(parameter, mapping)),
-            Box::new(substitute(result, mapping)),
         ),
         InferType::Record(record) => InferType::Record(InferRecord {
             fields: record
@@ -368,6 +341,6 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
                 },
             },
         }),
-        primitive => primitive.clone(),
+        other => other.clone(),
     }
 }

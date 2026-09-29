@@ -105,7 +105,7 @@ fn a_variant_case_may_carry_a_record_payload() {
         name: "RecordPayloadVariantLayoutTest".into(),
         externals: Vec::new(),
         types: vec![
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
             Type::Record(vec![("value".into(), TypeId(0))]),
             Type::Constructor(TypeConstructor::User(wrap_type)),
         ],
@@ -178,7 +178,7 @@ fn layout_for(module: &Module) -> TypeLayout {
 fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
     let module = empty_module(vec![
         Type::Variable(TypeVariableId(0)),
-        Type::I32,
+        Type::Constructor(psrs_core::TypeConstructor::Int),
         Type::Record(vec![("x".into(), TypeId(0)), ("y".into(), TypeId(1))]),
         Type::Record(vec![("y".into(), TypeId(1)), ("x".into(), TypeId(0))]),
     ]);
@@ -213,7 +213,7 @@ fn canonical_arrays_key_by_element_shape() {
         Type::Variable(TypeVariableId(0)),
         Type::Constructor(TypeConstructor::Array),
         Type::Application(TypeId(1), TypeId(0)),
-        Type::I32,
+        Type::Constructor(psrs_core::TypeConstructor::Int),
         Type::Application(TypeId(1), TypeId(3)),
         Type::Application(TypeId(1), TypeId(2)),
     ]);
@@ -282,8 +282,8 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let array_int_b = TypeId(5);
     let mut types = vec![
         Type::Constructor(TypeConstructor::Array),
-        Type::I32,
-        Type::String,
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+        Type::Constructor(psrs_core::TypeConstructor::String),
         Type::Application(array, int),
         Type::Application(array, string),
         Type::Application(array, int),
@@ -380,7 +380,7 @@ fn integer_capture_module(capture: Type) -> Module {
         id: ModuleId(0),
         name: "IntegerCaptureTest".into(),
         externals: Vec::new(),
-        types: vec![capture, Type::I32],
+        types: vec![capture, Type::Constructor(psrs_core::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
@@ -417,7 +417,10 @@ fn integer_capture_module(capture: Type) -> Module {
 
 #[test]
 fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
-    for capture in [Type::Char, Type::Unit] {
+    for capture in [
+        Type::Constructor(psrs_core::TypeConstructor::Char),
+        Type::Constructor(psrs_core::TypeConstructor::Unit),
+    ] {
         let module = integer_capture_module(capture.clone());
         assert!(
             !module
@@ -438,7 +441,7 @@ fn non_i32_integer_shaped_captures_reserve_the_integer_box() {
     }
     // A `String` capture is a GC reference erased through the `eq` reference,
     // not through the one-field integer box.
-    let module = integer_capture_module(Type::String);
+    let module = integer_capture_module(Type::Constructor(psrs_core::TypeConstructor::String));
     let newtypes = HashSet::new();
     let enums = enum_type_ids(&module, &newtypes);
     let aggregates = aggregate_type_ids(&module, &newtypes);

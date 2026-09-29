@@ -19,6 +19,30 @@ pub(crate) use functions::function_signature;
 use scalar::field_storage_shape;
 pub(super) use scalar::{declaration_shape, scalar_type};
 
+/// The runtime value shape of a Core primitive constructor, keyed by the
+/// constructor. This is the single mapping from a source primitive to its
+/// runtime representation; every layout site consults it rather than matching
+/// the scalar node itself.
+pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<ValueShape> {
+    Some(match constructor {
+        TypeConstructor::Int | TypeConstructor::Char | TypeConstructor::Unit => ValueShape::Integer,
+        TypeConstructor::String => ValueShape::String,
+        TypeConstructor::Number => ValueShape::Number,
+        TypeConstructor::Boolean => ValueShape::Boolean,
+        TypeConstructor::Function | TypeConstructor::Array | TypeConstructor::User(_) => {
+            return None;
+        }
+    })
+}
+
+/// The primitive shape of a Core type when its head is a primitive constructor.
+pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
+    match module.types.get(id.0 as usize)? {
+        Type::Constructor(constructor) => primitive_value_shape(*constructor),
+        _ => None,
+    }
+}
+
 pub(super) fn enum_type_ids(
     module: &CoreModule,
     newtype_ids: &HashSet<HirTypeId>,
@@ -74,10 +98,10 @@ fn layoutable_field_type_inner(
     if depends_on_type_variable(module, id) {
         return true;
     }
+    if primitive_shape_of(module, id).is_some() {
+        return true;
+    }
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Boolean | Type::F64 | Type::Char | Type::String | Type::Unit) => {
-            true
-        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
@@ -97,7 +121,7 @@ fn layoutable_field_type_inner(
         // addresses, and directory entries are records).
         Some(Type::Record(_)) => true,
         Some(Type::Variable(_))
-        | Some(Type::Constructor(TypeConstructor::Array | TypeConstructor::Function))
+        | Some(Type::Constructor(_))
         | Some(Type::OpenRecord { .. })
         | None => false,
         Some(Type::Application(_, _)) => {
@@ -161,7 +185,9 @@ pub(super) fn type_layout(
     } else {
         None
     };
-    let boxed_number_type = if module.types.iter().any(|ty| matches!(ty, Type::F64)) {
+    let boxed_number_type = if module.types.iter().any(|ty| {
+        matches!(ty, Type::Constructor(c) if primitive_value_shape(*c) == Some(ValueShape::Number))
+    }) {
         let id = representations.reserve();
         representations.set(
             id,
@@ -332,11 +358,13 @@ pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec
 /// integer-shaped Core type stands for its shape. Falls back to an out-of-range
 /// id only when the module has no integer scalar to name.
 pub(super) fn context_parameter_type(module: &CoreModule) -> TypeId {
-    if let Some(index) = module
-        .types
-        .iter()
-        .position(|ty| matches!(ty, Type::I32 | Type::Char | Type::Boolean | Type::Unit))
-    {
+    if let Some(index) = module.types.iter().position(|ty| {
+        matches!(ty, Type::Constructor(c)
+        if matches!(
+            primitive_value_shape(*c),
+            Some(ValueShape::Integer | ValueShape::Boolean)
+        ))
+    }) {
         return TypeId(index as u32);
     }
     TypeId(u32::MAX)

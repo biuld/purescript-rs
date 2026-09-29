@@ -27,8 +27,8 @@ impl Types {
 
     fn list(&self) -> Vec<thir::Type> {
         vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
+            thir::Type::Constructor(thir::TypeConstructor::Int),
+            thir::Type::Constructor(thir::TypeConstructor::Boolean),
             thir::Type::Constructor(thir::TypeConstructor::Function),
             thir::Type::Application(thir::TypeId(2), self.integer),
             thir::Type::Application(thir::TypeId(3), self.boolean),

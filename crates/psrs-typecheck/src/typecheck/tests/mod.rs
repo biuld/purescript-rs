@@ -130,9 +130,18 @@ fn infers_functions_arithmetic_conditionals_and_intrinsic_booleans() {
     else {
         panic!("increment should have an arrow type");
     };
-    assert_eq!(typed.types[parameter.0 as usize], Type::I32);
-    assert_eq!(typed.types[result.0 as usize], Type::I32);
-    assert_eq!(typed.types[typed.declarations[1].ty.0 as usize], Type::I32);
+    assert_eq!(
+        typed.types[parameter.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
+    );
+    assert_eq!(
+        typed.types[result.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
+    );
+    assert_eq!(
+        typed.types[typed.declarations[1].ty.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
+    );
     typed.verify().unwrap();
 }
 
@@ -195,7 +204,7 @@ fn generalizes_top_level_functions() {
         typed.types[parameter.0 as usize],
         Type::Variable(_)
     ));
-    assert!(matches!(typed.types[0], Type::Variable(_)));
+    assert!(typed.types.iter().any(|ty| matches!(ty, Type::Variable(_))));
     typed.verify().unwrap();
 }
 

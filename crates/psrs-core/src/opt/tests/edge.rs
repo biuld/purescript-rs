@@ -7,7 +7,7 @@ fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
     let user_type = HirTypeId::new(ModuleId(0), 0);
     let constructor = SymbolId::new(ModuleId(0), 10);
     let mut types = vec![
-        Type::I32,
+        Type::Constructor(crate::TypeConstructor::Int),
         Type::Constructor(TypeConstructor::User(user_type)),
     ];
     let function_type = arrow_type(&mut types, data_type, int_type);
@@ -95,7 +95,7 @@ fn out_of_range_array_index_remains_a_trapping_operation() {
     let result = optimize(
         module(
             vec![
-                Type::I32,
+                Type::Constructor(crate::TypeConstructor::Int),
                 Type::Constructor(TypeConstructor::Array),
                 Type::Application(TypeId(1), int_type),
             ],

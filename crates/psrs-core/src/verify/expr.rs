@@ -1,9 +1,9 @@
 use super::{
-    Locals, array_element, callable_result, compatible, error, primitive_types, record_field,
-    restore_local, type_id_for, unary_primitive_types, user_type_constructor, verify_pattern,
+    Locals, array_element, callable_result, compatible, error, primitive_type_id, primitive_types,
+    record_field, restore_local, unary_primitive_types, user_type_constructor, verify_pattern,
     verify_type,
 };
-use crate::{Expr, ExprKind, Module, Type, TypeId, VerifyError};
+use crate::{Expr, ExprKind, Module, Type, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
@@ -88,11 +88,11 @@ impl Context<'_> {
                     "global reference is not declared",
                 )),
             },
-            ExprKind::Integer(_) => self.shape(expression, Type::I32),
-            ExprKind::Number(_) => self.shape(expression, Type::F64),
-            ExprKind::Boolean(_) => self.shape(expression, Type::Boolean),
-            ExprKind::String(_) => self.shape(expression, Type::String),
-            ExprKind::Char(_) => self.shape(expression, Type::Char),
+            ExprKind::Integer(_) => self.shape(expression, TypeConstructor::Int),
+            ExprKind::Number(_) => self.shape(expression, TypeConstructor::Number),
+            ExprKind::Boolean(_) => self.shape(expression, TypeConstructor::Boolean),
+            ExprKind::String(_) => self.shape(expression, TypeConstructor::String),
+            ExprKind::Char(_) => self.shape(expression, TypeConstructor::Char),
             ExprKind::Array { elements } => {
                 let Some(element_type) = array_element(expression.ty, self.module) else {
                     self.errors.push(error(
@@ -188,7 +188,7 @@ impl Context<'_> {
                         "arrayLength expects an Array value",
                     ));
                 }
-                self.shape(expression, Type::I32);
+                self.shape(expression, TypeConstructor::Int);
             }
             ExprKind::ArrayIndex { array, index } => {
                 let Some(element_type) = array_element(array.ty, self.module) else {
@@ -200,7 +200,10 @@ impl Context<'_> {
                     return;
                 };
                 self.expr(array, None);
-                self.expr(index, Some(type_id_for(self.module, &Type::I32)));
+                self.expr(
+                    index,
+                    Some(primitive_type_id(self.module, TypeConstructor::Int)),
+                );
                 compatible(
                     element_type,
                     expression.ty,
@@ -224,7 +227,10 @@ impl Context<'_> {
                     return;
                 };
                 self.expr(array, None);
-                self.expr(index, Some(type_id_for(self.module, &Type::I32)));
+                self.expr(
+                    index,
+                    Some(primitive_type_id(self.module, TypeConstructor::Int)),
+                );
                 self.expr(value, Some(element_type));
                 compatible(
                     array.ty,
@@ -397,7 +403,10 @@ impl Context<'_> {
                 then_branch,
                 else_branch,
             } => {
-                self.expr(condition, Some(type_id_for(self.module, &Type::Boolean)));
+                self.expr(
+                    condition,
+                    Some(primitive_type_id(self.module, TypeConstructor::Boolean)),
+                );
                 self.expr(then_branch, Some(expression.ty));
                 self.expr(else_branch, Some(expression.ty));
             }
@@ -429,10 +438,10 @@ impl Context<'_> {
         }
     }
 
-    fn shape(&mut self, expression: &Expr, shape: Type) {
+    fn shape(&mut self, expression: &Expr, shape: TypeConstructor) {
         compatible(
             expression.ty,
-            type_id_for(self.module, &shape),
+            primitive_type_id(self.module, shape),
             self.module,
             self.owner,
             expression.span,

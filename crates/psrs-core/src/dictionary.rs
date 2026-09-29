@@ -114,12 +114,6 @@ fn types_compatible(
     };
     match (left, right) {
         (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
-        (Type::I32, Type::I32)
-        | (Type::F64, Type::F64)
-        | (Type::Boolean, Type::Boolean)
-        | (Type::String, Type::String)
-        | (Type::Char, Type::Char)
-        | (Type::Unit, Type::Unit) => true,
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
         (Type::Application(a1, a2), Type::Application(b1, b2)) => {
             types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
@@ -145,8 +139,8 @@ mod tests {
     #[test]
     fn layout_keeps_declared_indices_and_accepts_compatible_core_field_types() {
         let module = module(vec![
-            Type::I32,
-            Type::I32,
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Int),
             Type::Record(vec![
                 ("method".into(), TypeId(0)),
                 ("super".into(), TypeId(0)),
@@ -179,7 +173,7 @@ mod tests {
     #[test]
     fn layout_rejects_duplicate_field_labels() {
         let module = module(vec![
-            Type::I32,
+            Type::Constructor(crate::TypeConstructor::Int),
             Type::Record(vec![("method".into(), TypeId(0)); 2]),
         ]);
         assert_eq!(
@@ -229,8 +223,8 @@ mod tests {
 
     fn method_layout_module() -> Module {
         module(vec![
-            Type::I32,
-            Type::Boolean,
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
             Type::Record(vec![
                 ("method".into(), TypeId(1)),
                 ("super".into(), TypeId(1)),

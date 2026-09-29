@@ -21,19 +21,29 @@ pub struct TypeId(pub u32);
 pub enum TypeConstructor {
     Function,
     Array,
+    Int,
+    Number,
+    Boolean,
+    String,
+    Char,
+    Unit,
     User(HirTypeId),
+}
+
+impl TypeConstructor {
+    /// Whether this constructor names one of the source primitive scalars.
+    pub fn is_primitive(self) -> bool {
+        matches!(
+            self,
+            Self::Int | Self::Number | Self::Boolean | Self::String | Self::Char | Self::Unit
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     /// A generalized type variable; quantifiers are stored at each binding site.
     Variable(TypeVariableId),
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
     Record(Vec<(String, TypeId)>),

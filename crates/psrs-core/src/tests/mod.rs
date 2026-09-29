@@ -20,7 +20,7 @@ fn verifier_rejects_out_of_range_types() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![Type::I32],
+        types: vec![Type::Constructor(crate::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
@@ -55,7 +55,7 @@ fn verifier_attributes_declaration_errors_to_their_source_module() {
         id: ModuleId(0),
         name: "Linked".into(),
         externals: Vec::new(),
-        types: vec![Type::I32],
+        types: vec![Type::Constructor(crate::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
         callable_types: Vec::new(),
@@ -117,7 +117,10 @@ fn has_message(module: &Module, message: &str) -> bool {
 #[test]
 fn verifier_rejects_a_declaration_body_with_the_wrong_type() {
     let module = single_declaration(
-        vec![Type::I32, Type::Boolean],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::Boolean(true),
@@ -134,7 +137,10 @@ fn verifier_rejects_a_declaration_body_with_the_wrong_type() {
 #[test]
 fn verifier_checks_exact_types_for_scalar_intrinsics() {
     let wrong_conversion = single_declaration(
-        vec![Type::I32, Type::F64],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Number),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::UnaryPrimitive {
@@ -155,7 +161,11 @@ fn verifier_checks_exact_types_for_scalar_intrinsics() {
     ));
 
     let wrong_character_comparison = single_declaration(
-        vec![Type::I32, Type::Boolean, Type::Char],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+            Type::Constructor(crate::TypeConstructor::Char),
+        ],
         TypeId(1),
         Expr {
             kind: ExprKind::Primitive {
@@ -183,7 +193,10 @@ fn verifier_checks_exact_types_for_scalar_intrinsics() {
 
 #[test]
 fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
-    let mut types = vec![Type::I32, Type::Boolean];
+    let mut types = vec![
+        Type::Constructor(crate::TypeConstructor::Int),
+        Type::Constructor(crate::TypeConstructor::Boolean),
+    ];
     let function = arrow_type(&mut types, TypeId(0), TypeId(1));
     let module = single_declaration(
         types,
@@ -215,7 +228,10 @@ fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
 #[test]
 fn verifier_rejects_a_global_use_with_the_wrong_annotation() {
     let mut module = single_declaration(
-        vec![Type::I32, Type::Boolean],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ],
         TypeId(1),
         Expr {
             kind: ExprKind::Global(SymbolId::new(ModuleId(0), 1)),
@@ -245,7 +261,10 @@ fn verifier_rejects_a_global_use_with_the_wrong_annotation() {
 #[test]
 fn verifier_rejects_non_functions_and_wrong_application_arguments() {
     let non_function = single_declaration(
-        vec![Type::I32, Type::Boolean],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::Application(
@@ -269,7 +288,10 @@ fn verifier_rejects_non_functions_and_wrong_application_arguments() {
         "application target is not a function"
     ));
 
-    let mut types = vec![Type::I32, Type::Boolean];
+    let mut types = vec![
+        Type::Constructor(crate::TypeConstructor::Int),
+        Type::Constructor(crate::TypeConstructor::Boolean),
+    ];
     let function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let wrong_argument = single_declaration(
         types,
@@ -312,7 +334,10 @@ fn verifier_rejects_non_functions_and_wrong_application_arguments() {
 #[test]
 fn verifier_rejects_invalid_if_constructor_and_array_types() {
     let invalid_if = single_declaration(
-        vec![Type::I32, Type::Boolean],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::If {
@@ -342,7 +367,10 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
     ));
 
     let mut invalid_constructor = single_declaration(
-        vec![Type::I32, Type::Boolean],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::Constructor {
@@ -373,8 +401,8 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
 
     let invalid_array = single_declaration(
         vec![
-            Type::I32,
-            Type::Boolean,
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
             Type::Constructor(TypeConstructor::Array),
             Type::Application(TypeId(2), TypeId(0)),
         ],
@@ -401,7 +429,10 @@ fn verifier_rejects_invalid_if_constructor_and_array_types() {
 fn verifier_rejects_a_constructor_annotated_as_an_unrelated_type() {
     let parent = psrs_hir::TypeId::new(ModuleId(0), 0);
     let mut module = single_declaration(
-        vec![Type::I32, Type::Constructor(TypeConstructor::User(parent))],
+        vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(TypeConstructor::User(parent)),
+        ],
         TypeId(0),
         Expr {
             kind: ExprKind::Constructor {

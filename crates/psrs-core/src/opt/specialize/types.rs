@@ -7,12 +7,6 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum TypeKey {
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(Box<TypeKey>, Box<TypeKey>),
     Record(Vec<(String, TypeKey)>),
@@ -87,12 +81,6 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
     }
     let result = match module.types.get(id.0 as usize)? {
         Type::Variable(_) => None,
-        Type::I32 => Some(TypeKey::I32),
-        Type::F64 => Some(TypeKey::F64),
-        Type::Boolean => Some(TypeKey::Boolean),
-        Type::String => Some(TypeKey::String),
-        Type::Char => Some(TypeKey::Char),
-        Type::Unit => Some(TypeKey::Unit),
         Type::Constructor(constructor) => Some(TypeKey::Constructor(*constructor)),
         Type::Application(function, argument) => Some(TypeKey::Application(
             Box::new(type_key(module, *function, active)?),
@@ -142,12 +130,6 @@ fn match_type(
         return true;
     }
     match (generic_type, concrete_type) {
-        (Type::I32, Type::I32)
-        | (Type::F64, Type::F64)
-        | (Type::Boolean, Type::Boolean)
-        | (Type::String, Type::String)
-        | (Type::Char, Type::Char)
-        | (Type::Unit, Type::Unit) => true,
         (Type::Constructor(left), Type::Constructor(right)) => left == right,
         (Type::Application(gf, ga), Type::Application(cf, ca)) => {
             match_type(module, *gf, *cf, quantifiers, replacements, active)

@@ -166,7 +166,10 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
 fn mutual_recursion_module() -> Module {
     let int = TypeId(0);
     let boolean = TypeId(1);
-    let mut types = vec![Type::I32, Type::Boolean];
+    let mut types = vec![
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+        Type::Constructor(psrs_core::TypeConstructor::Boolean),
+    ];
     let int_function = push_arrow(&mut types, int, int);
     let module_id = ModuleId(0);
     let main_symbol = SymbolId::new(module_id, 0);
@@ -242,7 +245,10 @@ fn mutual_recursion_module() -> Module {
 fn escaping_recursive_module() -> Module {
     let int = TypeId(0);
     let boolean = TypeId(1);
-    let mut types = vec![Type::I32, Type::Boolean];
+    let mut types = vec![
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+        Type::Constructor(psrs_core::TypeConstructor::Boolean),
+    ];
     let int_function = push_arrow(&mut types, int, int);
     let module_id = ModuleId(0);
     let main_symbol = SymbolId::new(module_id, 0);

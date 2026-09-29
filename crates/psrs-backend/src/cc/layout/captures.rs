@@ -1,4 +1,5 @@
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind, Type};
+use crate::cc::ValueShape;
+use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind};
 use psrs_hir::LocalId;
 use std::collections::HashSet;
 
@@ -94,10 +95,7 @@ fn free_integer_local(
     match &expression.kind {
         ExprKind::Local(id) => {
             !bound.contains(id)
-                && matches!(
-                    module.types.get(expression.ty.0 as usize),
-                    Some(Type::I32 | Type::Char | Type::Unit)
-                )
+                && super::primitive_shape_of(module, expression.ty) == Some(ValueShape::Integer)
         }
         ExprKind::Lambda { binder, body } => {
             let inserted = bound.insert(binder.id);

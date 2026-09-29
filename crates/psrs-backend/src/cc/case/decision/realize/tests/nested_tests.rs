@@ -30,7 +30,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         types: vec![
             Type::Constructor(TypeConstructor::User(outer_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

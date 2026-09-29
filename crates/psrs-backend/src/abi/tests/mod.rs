@@ -113,9 +113,12 @@ fn record_module(fields: &[(&str, CoreType)]) -> (psrs_core::Module, CoreTypeId)
 }
 
 fn unit_type(module: &mut psrs_core::Module) -> CoreTypeId {
-    intern_all(module, vec![CoreType::Unit])
-        .pop()
-        .expect("one unit")
+    intern_all(
+        module,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Unit)],
+    )
+    .pop()
+    .expect("one unit")
 }
 
 fn int(width: u8, signed: bool) -> CanonicalType {
@@ -217,10 +220,19 @@ fn maps_wit_char_to_the_source_char_type() {
         vec![CanonicalType::Char],
         Some(CanonicalType::Char),
     );
-    validate_core(&import, vec![CoreType::Char], CoreType::Char)
-        .expect("a Char declaration should match WIT char");
+    validate_core(
+        &import,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Char)],
+        CoreType::Constructor(psrs_core::TypeConstructor::Char),
+    )
+    .expect("a Char declaration should match WIT char");
     assert!(
-        validate_core(&import, vec![CoreType::I32], CoreType::I32).is_err(),
+        validate_core(
+            &import,
+            vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+            CoreType::Constructor(psrs_core::TypeConstructor::Int)
+        )
+        .is_err(),
         "an Int is not the source Char type"
     );
 }
@@ -238,8 +250,12 @@ fn classifies_wit_f32_for_number_conversion() {
         vec![CanonicalType::Float { width: 32 }],
         Some(CanonicalType::Float { width: 32 }),
     );
-    validate_core(&import, vec![CoreType::F64], CoreType::F64)
-        .expect("source Number should adapt to and from WIT f32");
+    validate_core(
+        &import,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Number)],
+        CoreType::Constructor(psrs_core::TypeConstructor::Number),
+    )
+    .expect("source Number should adapt to and from WIT f32");
 }
 
 #[test]
@@ -266,12 +282,20 @@ fn classifies_only_source_compatible_wit_scalar_parameters() {
 #[test]
 fn validates_wit_scalar_parameters_against_exact_source_types() {
     let cases = [
-        (int(32, false), CoreType::I32, CoreType::Boolean),
-        (CanonicalType::Bool, CoreType::Boolean, CoreType::I32),
+        (
+            int(32, false),
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+        (
+            CanonicalType::Bool,
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        ),
         (
             CanonicalType::Float { width: 64 },
-            CoreType::F64,
-            CoreType::I32,
+            CoreType::Constructor(psrs_core::TypeConstructor::Number),
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
         ),
     ];
     for (index, (ty, accepted, rejected)) in cases.into_iter().enumerate() {
@@ -282,10 +306,19 @@ fn validates_wit_scalar_parameters_against_exact_source_types() {
             vec![ty],
             None,
         );
-        validate_core(&import, vec![accepted], CoreType::Unit)
-            .expect("the matching source scalar should be accepted");
+        validate_core(
+            &import,
+            vec![accepted],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+        )
+        .expect("the matching source scalar should be accepted");
         assert!(
-            validate_core(&import, vec![rejected], CoreType::Unit).is_err(),
+            validate_core(
+                &import,
+                vec![rejected],
+                CoreType::Constructor(psrs_core::TypeConstructor::Unit)
+            )
+            .is_err(),
             "an incompatible source scalar must be rejected"
         );
     }
@@ -298,9 +331,20 @@ fn validates_a_vendored_wit_boolean_result_against_boolean_source_type() {
         .import("wasi:io/poll", "[method]pollable.ready")
         .expect("pollable.ready should resolve");
     assert_eq!(import.canonical_result, Some(CanonicalType::Bool));
-    validate_core(&import, vec![CoreType::I32], CoreType::Boolean)
-        .expect("pollable.ready should accept its Boolean source signature");
-    assert!(validate_core(&import, vec![CoreType::I32], CoreType::I32).is_err());
+    validate_core(
+        &import,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+        CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+    )
+    .expect("pollable.ready should accept its Boolean source signature");
+    assert!(
+        validate_core(
+            &import,
+            vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+            CoreType::Constructor(psrs_core::TypeConstructor::Int)
+        )
+        .is_err()
+    );
 }
 
 #[test]
