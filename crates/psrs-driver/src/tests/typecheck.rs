@@ -168,14 +168,14 @@ main = keep
         .iter()
         .find(|declaration| declaration.name == "main")
         .expect("main");
-    let psrs_core::Type::Function { parameter, result } = &core.types[main.ty.0 as usize] else {
+    let Some((parameter, result)) = psrs_core::arrow_parts(&core.types, main.ty) else {
         panic!(
             "main should be a function, got {:?}",
             core.types[main.ty.0 as usize]
         );
     };
     let mut handle = None;
-    for end in [*parameter, *result] {
+    for end in [parameter, result] {
         match &core.types[end.0 as usize] {
             psrs_core::Type::Constructor(psrs_core::TypeConstructor::User(id)) => {
                 assert!(
@@ -202,4 +202,36 @@ main = keep
         "Other must stay a distinct opaque type, got {:?}",
         core.opaque_ids
     );
+}
+
+#[test]
+fn typechecks_ado_notation_over_effect() {
+    // `ado` desugars to `map`/`apply`/`pure`; inference must see through the
+    // curried continuation and give the block `Effect Int`.
+    let source = "\
+module Main where
+import Prelude
+action :: Effect Int
+action = ado
+  x <- pure 20
+  y <- pure 22
+  in x + y
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_an_ado_value_and_let() {
+    let source = "\
+module Main where
+import Prelude
+action :: Effect Int
+action = ado
+  _ <- pure 1
+  let base = 40
+  in base + 2
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
 }

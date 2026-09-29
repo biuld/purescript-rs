@@ -4,9 +4,13 @@ use super::*;
 fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
     let int_type = TypeId(0);
     let data_type = TypeId(1);
-    let function_type = TypeId(2);
     let user_type = HirTypeId::new(ModuleId(0), 0);
     let constructor = SymbolId::new(ModuleId(0), 10);
+    let mut types = vec![
+        Type::I32,
+        Type::Constructor(TypeConstructor::User(user_type)),
+    ];
+    let function_type = arrow_type(&mut types, data_type, int_type);
     let value = expression(
         ExprKind::Lambda {
             binder: Binder {
@@ -51,18 +55,7 @@ fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
         1,
         37,
     );
-    let mut module = module(
-        vec![
-            Type::I32,
-            Type::Constructor(TypeConstructor::User(user_type)),
-            Type::Function {
-                parameter: data_type,
-                result: int_type,
-            },
-        ],
-        function_type.0,
-        value,
-    );
+    let mut module = module(types, function_type.0, value);
     module.constructors.push(crate::ConstructorInfo {
         symbol: constructor,
         name: "Only".into(),

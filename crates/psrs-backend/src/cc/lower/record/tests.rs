@@ -4,6 +4,16 @@ use psrs_core::{Binder, Declaration, Expr, ExprKind, Module, Type};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
+fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(psrs_core::TypeConstructor::Function));
+    let inner = TypeId(types.len() as u32);
+    types.push(Type::Application(head, parameter));
+    let outer = TypeId(types.len() as u32);
+    types.push(Type::Application(inner, result));
+    outer
+}
+
 #[test]
 fn typed_core_generic_record_build_and_update_use_canonical_array_storage() {
     let module = generic_record_module(false, true);
@@ -135,33 +145,17 @@ fn generic_record_module(include_read: bool, include_build_update: bool) -> Modu
     let array_a = TypeId(2);
     let integer = TypeId(3);
     let record_a = TypeId(4);
-    let build_type = TypeId(5);
-    let update_values_type = TypeId(6);
-    let update_type = TypeId(7);
-    let read_type = TypeId(8);
-    let types = vec![
+    let mut types = vec![
         Type::Variable(TypeVariableId(0)),
         Type::Constructor(psrs_core::TypeConstructor::Array),
         Type::Application(array_constructor, variable),
         Type::I32,
         Type::Record(vec![("count".into(), integer), ("values".into(), array_a)]),
-        Type::Function {
-            parameter: array_a,
-            result: record_a,
-        },
-        Type::Function {
-            parameter: array_a,
-            result: record_a,
-        },
-        Type::Function {
-            parameter: record_a,
-            result: update_values_type,
-        },
-        Type::Function {
-            parameter: record_a,
-            result: integer,
-        },
     ];
+    let build_type = push_arrow(&mut types, array_a, record_a);
+    let update_values_type = push_arrow(&mut types, array_a, record_a);
+    let update_type = push_arrow(&mut types, record_a, update_values_type);
+    let read_type = push_arrow(&mut types, record_a, integer);
     let declarations = if include_build_update {
         vec![
             build_declaration(module_id, array_a, record_a, build_type),
@@ -188,6 +182,7 @@ fn generic_record_module(include_read: bool, include_build_update: bool) -> Modu
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations,
         entry: None,

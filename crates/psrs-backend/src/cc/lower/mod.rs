@@ -117,8 +117,16 @@ pub(super) fn lower_function(
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
+    let mut declaration_type = declaration.ty;
     let mut parameters = Vec::new();
     while let ExprKind::Lambda { binder, body } = &value.kind {
+        // Peel only ordinary function arrows. A lambda at a callable-constructor
+        // boundary is the representation's hidden context closure returned as
+        // the declaration's value and is lowered as a nested closure by
+        // `lower_value`.
+        let Some((_, result)) = psrs_core::arrow_parts(&module.types, declaration_type) else {
+            break;
+        };
         let ty = scalar_type(
             module,
             binder.ty,
@@ -133,6 +141,7 @@ pub(super) fn lower_function(
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
         parameters.push(id);
+        declaration_type = result;
         value = body;
     }
     let mut assignments = Vec::new();

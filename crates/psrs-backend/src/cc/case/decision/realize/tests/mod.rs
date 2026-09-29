@@ -32,6 +32,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         types: vec![Type::Constructor(TypeConstructor::User(type_id))],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: true_symbol,

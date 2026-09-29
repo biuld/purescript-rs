@@ -1,6 +1,6 @@
 //! Fixtures for dictionary parameter ordering and dictionary sharing.
 
-use super::{binder, declaration, typed};
+use super::{binder, declaration, push_arrow, push_record, typed};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use psrs_thir as thir;
@@ -19,13 +19,18 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let dict_a = thir::TypeId(3);
-    let dict_b = thir::TypeId(4);
-    let tail = thir::TypeId(5);
-    let tail_after_b = thir::TypeId(6);
-    let constrained_type = thir::TypeId(7);
-    let main_type = thir::TypeId(8);
+    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let method = push_arrow(&mut types, integer, boolean);
+    let dict_a = push_record(&mut types, vec![("a".into(), method)]);
+    let dict_b = push_record(&mut types, vec![("b".into(), method)]);
+    let tail = push_arrow(&mut types, integer, integer);
+    let tail_after_b = push_arrow(&mut types, dict_b, tail);
+    let constrained_type = push_arrow(&mut types, dict_a, tail_after_b);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::I32);
+        id
+    };
 
     let is_positive_value = typed(
         thir::ExprKind::Lambda {
@@ -145,31 +150,10 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("a".into(), method)]),
-            thir::Type::Record(vec![("b".into(), method)]),
-            thir::Type::Function {
-                parameter: integer,
-                result: integer,
-            },
-            thir::Type::Function {
-                parameter: dict_b,
-                result: tail,
-            },
-            thir::Type::Function {
-                parameter: dict_a,
-                result: tail_after_b,
-            },
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -203,11 +187,23 @@ pub(crate) fn shared_dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let eq_dictionary = thir::TypeId(3);
-    let ord_dictionary = thir::TypeId(4);
-    let make_ord_type = thir::TypeId(5);
-    let main_type = thir::TypeId(6);
+    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let method = push_arrow(&mut types, integer, boolean);
+    let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let ord_dictionary = push_record(
+        &mut types,
+        vec![
+            ("compare".into(), method),
+            ("rank".into(), method),
+            ("super".into(), eq_dictionary),
+        ],
+    );
+    let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::I32);
+        id
+    };
 
     let eq_evidence = thir::Evidence {
         kind: thir::EvidenceKind::Global(eq_int),
@@ -343,27 +339,10 @@ pub(crate) fn shared_dictionary_module() -> (thir::Module, SymbolId) {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            thir::Type::Record(vec![
-                ("compare".into(), method),
-                ("rank".into(), method),
-                ("super".into(), eq_dictionary),
-            ]),
-            thir::Type::Function {
-                parameter: eq_dictionary,
-                result: ord_dictionary,
-            },
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

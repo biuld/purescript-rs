@@ -1,7 +1,7 @@
 use super::canonical::{CanonicalType, resolve as canonical_resolve};
 use super::test_support::import;
 use super::*;
-use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
+use psrs_core::{Type as CoreType, TypeConstructor as CoreTypeConstructor, TypeId as CoreTypeId};
 use wit_parser::Type as WitType;
 
 mod aggregates;
@@ -22,6 +22,7 @@ fn empty_core_module() -> psrs_core::Module {
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -46,13 +47,26 @@ fn function_type(
 ) -> CoreTypeId {
     let mut current = result;
     for parameter in parameters.iter().rev() {
-        module.types.push(CoreType::Function {
-            parameter: *parameter,
-            result: current,
-        });
-        current = CoreTypeId((module.types.len() - 1) as u32);
+        current = push_core_arrow(module, *parameter, current);
     }
     current
+}
+
+/// Appends `parameter -> result` as the application spine and returns its id.
+fn push_core_arrow(
+    module: &mut psrs_core::Module,
+    parameter: CoreTypeId,
+    result: CoreTypeId,
+) -> CoreTypeId {
+    let head = CoreTypeId(module.types.len() as u32);
+    module
+        .types
+        .push(CoreType::Constructor(CoreTypeConstructor::Function));
+    let inner = CoreTypeId(module.types.len() as u32);
+    module.types.push(CoreType::Application(head, parameter));
+    let outer = CoreTypeId(module.types.len() as u32);
+    module.types.push(CoreType::Application(inner, result));
+    outer
 }
 
 /// Validates a declaration whose parameters and result are the given Core types

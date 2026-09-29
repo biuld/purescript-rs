@@ -40,6 +40,19 @@ impl Checker {
             | (InferType::Char, InferType::Char)
             | (InferType::Unit, InferType::Unit) => {}
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            // A trusted effect-library definition applies an `Effect a` value to
+            // its hidden context parameter. At the source level that is an
+            // application of an effect to an integer context, so unify the
+            // effect's result with the application's result. Ordinary modules
+            // never reach this arm because they keep `Effect` nominal and never
+            // name the context.
+            (InferType::Application(function, argument), InferType::Function(_, result))
+            | (InferType::Function(_, result), InferType::Application(function, argument))
+                if self.effect_runtime_representation
+                    && matches!(*function, InferType::Constructor(TypeConstructor::Effect)) =>
+            {
+                self.unify(*argument, *result, span);
+            }
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
@@ -290,9 +303,22 @@ impl Checker {
                     self.resolve_type(*function.clone()),
                     InferType::Constructor(TypeConstructor::Effect)
                 ) {
-                    let parameter = interner.intern(Type::I32);
+                    // Keep the imported opaque `Effect` identity in Core. The
+                    // backend selects its closure representation after checking;
+                    // the execution context is a hidden parameter of that
+                    // representation, never a Core type.
+                    let Some(effect_type) = self.effect_type else {
+                        self.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::UnsupportedType,
+                            span,
+                            "`Effect` is not available in this module",
+                        ));
+                        return None;
+                    };
                     let result = self.finalize_type(&argument, span, interner, generics)?;
-                    return Some(interner.intern(Type::Function { parameter, result }));
+                    let constructor = interner
+                        .intern(Type::Constructor(thir::TypeConstructor::User(effect_type)));
+                    return Some(interner.intern(Type::Application(constructor, result)));
                 }
                 let function = self.finalize_type(&function, span, interner, generics);
                 let argument = self.finalize_type(&argument, span, interner, generics);
@@ -302,10 +328,7 @@ impl Checker {
             InferType::Function(parameter, result) => {
                 let parameter = self.finalize_type(&parameter, span, interner, generics);
                 let result = self.finalize_type(&result, span, interner, generics);
-                Some(interner.intern(Type::Function {
-                    parameter: parameter?,
-                    result: result?,
-                }))
+                Some(interner.arrow(parameter?, result?))
             }
         }
     }

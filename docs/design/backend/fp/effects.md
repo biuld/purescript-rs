@@ -96,9 +96,16 @@ checks it by ordinary kind, application, and subsumption rules. It adds no
 effect flag to syntax or typed nodes. The runtime representation is selected
 after source checking.
 
-- `Effect a` is a first-class value of an ordinary type.
+- `Effect a` is a first-class value of an ordinary type, written
+  `Application(Constructor(User(effect_id)), a)` on the uniform application
+  spine ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
 - No stage stores an "effect" flag on an expression; effects compose only
   through `pure`, `bind`, and `runEffect`.
+- The token-taking shape is derived from the application spine: the head
+  constructor's registered representation decides the arity and calling
+  convention. The trusted elaboration registers that representation by the
+  imported `Effect` type identity; it introduces no effect-specific type, flag,
+  or node, and no effect-specific token type.
 - Lowering the abstract type to a token-taking function is a trusted elaboration
   after source type checking. The token's concrete representation may change
   without changing the source API or the Core shape of `pure`/`bind`.

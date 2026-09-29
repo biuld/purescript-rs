@@ -125,6 +125,19 @@ impl FunctionLowerer<'_> {
                         evidence: RecoveryEvidence::TypeInstantiation,
                     });
                 }
+                // A generic callable value is represented erased. A concrete
+                // closure is widened to it, and an erased value is recovered by
+                // a reference cast. This is the erased protocol applied to
+                // function-valued arguments and results.
+                (_, RefShape::Erased) => {
+                    return Ok(ValueConversion::EraseReference);
+                }
+                (RefShape::Erased, _) => {
+                    return Ok(ValueConversion::RecoverReference {
+                        destination: destination_shape,
+                        evidence: RecoveryEvidence::TypeInstantiation,
+                    });
+                }
                 _ => {}
             }
         }
@@ -386,6 +399,7 @@ mod tests {
             types: vec![Type::I32, Type::F64],
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),
+            callable_types: Vec::new(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,

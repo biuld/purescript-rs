@@ -89,6 +89,77 @@ fn desugar_do(
     }
 }
 
+/// Lowers an `ado` block using the official PureScript `Sugar.AdoNotation`
+/// desugaring: each statement contributes an argument and a lambda around the
+/// `in` result, then the collected arguments are combined with `map`, `apply`,
+/// and `pure`.
+///
+/// For `ado x <- a; y <- b; in f x y` this produces
+/// `apply (map (\x -> \y -> f x y) a) b`. A `let` statement wraps only the
+/// result; a discarded expression uses a wildcard binder. With no argument
+/// statements the block is `pure` of its result.
+///
+/// As with `do`, `map`, `apply`, and `pure` stay unresolved here and resolve
+/// from the enclosing scope.
+pub(super) fn lower_ado(
+    statements: Vec<cst::DoStatement>,
+    result: cst::Expr,
+    span: TextRange,
+) -> Result<Expr, LowerError> {
+    let yield_expr = super::lower_expr(result)?;
+    let mut function = yield_expr;
+    let mut arguments: Vec<Expr> = Vec::new();
+    for statement in statements.iter().rev() {
+        match statement {
+            cst::DoStatement::Let { declarations, .. } => {
+                let declarations = declarations
+                    .iter()
+                    .cloned()
+                    .map(super::lower_declaration)
+                    .collect::<Result<Vec<_>, _>>()?;
+                function = Expr {
+                    kind: ExprKind::Let {
+                        declarations,
+                        body: Box::new(function),
+                    },
+                    span,
+                };
+            }
+            cst::DoStatement::Discard(value) => {
+                let value = super::lower_expr(value.clone())?;
+                let value_span = value.span;
+                arguments.insert(0, value);
+                function = wildcard_lambda(value_span, function);
+            }
+            cst::DoStatement::Bind { pattern, value, .. } => {
+                let value = super::lower_expr(value.clone())?;
+                arguments.insert(0, value);
+                function = super::expr::lower_pattern_lambda(pattern.clone(), function)?;
+            }
+        }
+    }
+    let mut expression = if arguments.is_empty() {
+        application(name("pure", span), function, span)
+    } else {
+        let mut arguments = arguments.into_iter();
+        let head = arguments
+            .next()
+            .expect("a non-empty ado argument list has a head");
+        let mut expression =
+            application(application(name("map", span), function, span), head, span);
+        for argument in arguments {
+            expression = application(
+                application(name("apply", span), expression, span),
+                argument,
+                span,
+            );
+        }
+        expression
+    };
+    expression.span = span;
+    Ok(expression)
+}
+
 fn name(text: &str, span: TextRange) -> Expr {
     Expr {
         kind: ExprKind::Name(Name {

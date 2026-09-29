@@ -1,6 +1,18 @@
 use super::*;
 use psrs_hir::{LocalId, ModuleId, SymbolId};
 
+/// Appends an arrow `parameter -> result` as the application spine and returns
+/// its type id.
+fn arrow_type(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Function));
+    let inner = TypeId(types.len() as u32);
+    types.push(Type::Application(head, parameter));
+    let outer = TypeId(types.len() as u32);
+    types.push(Type::Application(inner, result));
+    outer
+}
+
 #[test]
 fn verifier_rejects_out_of_range_types() {
     let module = Module {
@@ -11,6 +23,7 @@ fn verifier_rejects_out_of_range_types() {
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -45,6 +58,7 @@ fn verifier_attributes_declaration_errors_to_their_source_module() {
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(owner, 0),
@@ -76,6 +90,7 @@ fn single_declaration(types: Vec<Type>, declaration_type: TypeId, value: Expr) -
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -168,16 +183,11 @@ fn verifier_checks_exact_types_for_scalar_intrinsics() {
 
 #[test]
 fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
+    let mut types = vec![Type::I32, Type::Boolean];
+    let function = arrow_type(&mut types, TypeId(0), TypeId(1));
     let module = single_declaration(
-        vec![
-            Type::I32,
-            Type::Boolean,
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(1),
-            },
-        ],
-        TypeId(2),
+        types,
+        function,
         Expr {
             kind: ExprKind::Lambda {
                 binder: Binder {
@@ -192,7 +202,7 @@ fn verifier_rejects_a_local_use_with_the_wrong_annotation() {
                     span: TextRange::new(9, 14),
                 }),
             },
-            ty: TypeId(2),
+            ty: function,
             span: TextRange::new(0, 14),
         },
     );
@@ -259,15 +269,10 @@ fn verifier_rejects_non_functions_and_wrong_application_arguments() {
         "application target is not a function"
     ));
 
+    let mut types = vec![Type::I32, Type::Boolean];
+    let function = arrow_type(&mut types, TypeId(0), TypeId(0));
     let wrong_argument = single_declaration(
-        vec![
-            Type::I32,
-            Type::Boolean,
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-        ],
+        types,
         TypeId(0),
         Expr {
             kind: ExprKind::Application(
@@ -285,7 +290,7 @@ fn verifier_rejects_non_functions_and_wrong_application_arguments() {
                             span: TextRange::new(9, 14),
                         }),
                     },
-                    ty: TypeId(2),
+                    ty: function,
                     span: TextRange::new(0, 14),
                 }),
                 Box::new(Expr {

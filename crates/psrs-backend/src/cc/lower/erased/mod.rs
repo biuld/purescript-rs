@@ -1,13 +1,17 @@
 use super::super::layout::depends_on_type_variable;
-use super::super::layout::function_signature;
+use super::super::layout::{function_arrow_parameters, function_signature};
 use super::super::{
     AggregateConvert, Assignment, AssignmentKind, Function, RecoveryEvidence, RefShape, Reference,
     SignatureId, UnaryOp, ValueConversion, ValueId, ValueShape,
 };
-use super::call::{persist_reference, restore_reference};
+use super::call::{
+    is_function_type, is_generic_function_type, persist_reference, restore_reference,
+};
 use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
-use psrs_core::{Type, TypeId};
+use psrs_core::TypeId;
+
+mod curried;
 
 impl FunctionLowerer<'_> {
     pub(super) fn adapt_erased_function_value(
@@ -38,17 +42,8 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        let source_parameters = function_parameter_types(self.module, source_type);
-        let target_parameters = function_parameter_types(self.module, target_type);
-        if source_shape.parameters.len() != target_shape.parameters.len()
-            || source_parameters.len() != target_parameters.len()
-        {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "generic function adapter has incompatible arity",
-            )]);
-        }
+        let source_parameters = function_arrow_parameters(self.module, source_type).0;
+        let target_parameters = function_arrow_parameters(self.module, target_type).0;
         let Some(&source_signature_id) = self.function_types.get(&source_type) else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
@@ -63,6 +58,36 @@ impl FunctionLowerer<'_> {
                 "erased function adapter has no target function type",
             )]);
         };
+        if source_shape.parameters.len() != target_shape.parameters.len()
+            || source_parameters.len() != target_parameters.len()
+        {
+            // A concrete curried function (the `ado` block's `\x -> \y -> ...`)
+            // can be wider than the generic `a -> b` value it is adapted to:
+            // the target's result is a type variable, so its own function
+            // arguments are not part of the target arity. Partially apply the
+            // source and return a closure that accepts them later.
+            if source_shape.parameters.len() > target_shape.parameters.len()
+                && source_parameters.len() > target_parameters.len()
+                && is_erased_reference(target_shape.result)
+            {
+                return self.adapt_curried_function_value(
+                    value,
+                    source_type,
+                    target_type,
+                    source_signature_id,
+                    target_signature_id,
+                    &source_shape,
+                    &target_shape,
+                    span,
+                    assignments,
+                );
+            }
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                span,
+                "generic function adapter has incompatible arity",
+            )]);
+        }
 
         let mut adapter = self.child_lowerer();
         let adapter_closure = adapter.fresh(closure_value_type());
@@ -160,23 +185,41 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        let source_result_type = function_result_type(self.module, source_type);
-        let target_result_type = function_result_type(self.module, target_type);
-        let conversion = adapter.typed_conversion(
-            source_result_type,
-            target_result_type,
-            source_shape.result,
-            target_shape.result,
-            span,
-        )?;
-        let result = adapter.emit_conversion(
-            concrete_result,
-            source_shape.result,
-            target_shape.result,
-            conversion,
-            span,
-            &mut adapter_assignments,
-        );
+        let source_result_type = function_arrow_parameters(self.module, source_type).1;
+        let target_result_type = function_arrow_parameters(self.module, target_type).1;
+        // When the source result is a concrete function and the target result is
+        // a generic function value, a plain erase cast would leave the caller
+        // with a closure whose runtime call signature is concrete while the
+        // generic use site calls it through the erased signature. Adapt the
+        // nested function so the erased value is callable at the generic type.
+        let result = if source_shape.result != target_shape.result
+            && is_function_type(self.module, source_result_type)
+            && is_generic_function_type(self.module, target_result_type)
+        {
+            adapter.adapt_erased_function_value(
+                concrete_result,
+                source_result_type,
+                target_result_type,
+                span,
+                &mut adapter_assignments,
+            )?
+        } else {
+            let conversion = adapter.typed_conversion(
+                source_result_type,
+                target_result_type,
+                source_shape.result,
+                target_shape.result,
+                span,
+            )?;
+            adapter.emit_conversion(
+                concrete_result,
+                source_shape.result,
+                target_shape.result,
+                conversion,
+                span,
+                &mut adapter_assignments,
+            )
+        };
         let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let adapter_function = Function {
             symbol,
@@ -370,39 +413,33 @@ impl FunctionLowerer<'_> {
     }
 }
 
-fn function_parameter_types(module: &psrs_core::Module, mut type_id: TypeId) -> Vec<TypeId> {
-    let mut parameters = Vec::new();
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    parameters
-}
-
-fn function_result_type(module: &psrs_core::Module, mut type_id: TypeId) -> TypeId {
-    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-        type_id = *result;
-    }
-    type_id
-}
-
-fn erased_reference_type() -> ValueShape {
+pub(super) fn erased_reference_type() -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Erased,
     })
 }
 
-fn closure_value_type() -> ValueShape {
+pub(super) fn closure_value_type() -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Aggregate,
     })
 }
 
-fn closure_value_type_for(signature: SignatureId) -> ValueShape {
+pub(super) fn closure_value_type_for(signature: SignatureId) -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Closure(signature),
     })
+}
+
+fn is_erased_reference(shape: ValueShape) -> bool {
+    matches!(
+        shape,
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        })
+    )
 }

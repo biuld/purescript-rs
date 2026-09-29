@@ -41,6 +41,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             psrs_thir::Type::Char => Type::Char,
             psrs_thir::Type::Unit => Type::Unit,
             psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
+                psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
                 psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
                 psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
             }),
@@ -59,10 +60,6 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
                     .map(|(label, field)| (label, TypeId(field.0)))
                     .collect(),
                 tail: TypeId(tail.0),
-            },
-            psrs_thir::Type::Function { parameter, result } => Type::Function {
-                parameter: TypeId(parameter.0),
-                result: TypeId(result.0),
             },
         })
         .collect();
@@ -87,6 +84,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         types,
         newtype_ids: module.newtype_ids,
         opaque_ids: module.opaque_ids,
+        callable_types: module.callable_types,
         constructors: module
             .constructors
             .iter()

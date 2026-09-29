@@ -19,7 +19,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
         result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let (head, arguments) = collect_application(expression);
+        let (head, arguments) = collect_application(self.module, expression);
         if let ExprKind::Global(function) = head.kind {
             let signature = self.signatures.get(&function).cloned().ok_or_else(|| {
                 vec![BackendError::new(
@@ -172,12 +172,38 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 span: expression.span,
             });
             if is_erased_value_type(signature.result) && result_type != signature.result {
-                let result = self.unbox_erased_value(
-                    call_result,
+                // A polymorphic declaration whose body returns a callable value
+                // (`discard first next = bind first next`) produces an erased
+                // value whose runtime call signature is the declaration's
+                // generic body result, not the instantiated one. Adapt from the
+                // body result type to the concrete expected type instead of
+                // casting, so the closure can actually be called.
+                let source_type =
+                    callable_result_type(self.module, function, head.ty).ok_or_else(|| {
+                        vec![BackendError::new(
+                            "P8 closure conversion",
+                            expression.span,
+                            "call target has no declaration result type",
+                        )]
+                    })?;
+                let expected_closure = matches!(
                     result_type,
-                    expression.span,
-                    assignments,
-                )?;
+                    ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: RefShape::Closure(_),
+                    })
+                );
+                let result = if expected_closure && is_function_type(self.module, source_type) {
+                    self.adapt_erased_function_value(
+                        call_result,
+                        source_type,
+                        expression.ty,
+                        expression.span,
+                        assignments,
+                    )?
+                } else {
+                    self.unbox_erased_value(call_result, result_type, expression.span, assignments)?
+                };
                 if let Some(function_type) = returned_erased_function_type.or_else(|| {
                     is_function_type(self.module, expression.ty).then_some(expression.ty)
                 }) {
@@ -308,6 +334,18 @@ impl FunctionLowerer<'_> {
                         "generic call parameter has no source type",
                     )]
                 })?;
+                if is_generic_function_type(self.module, source_parameter)
+                    && is_function_type(self.module, argument.ty)
+                {
+                    values.push(self.adapt_erased_function_value(
+                        value,
+                        argument.ty,
+                        source_parameter,
+                        expression.span,
+                        assignments,
+                    )?);
+                    continue;
+                }
                 let argument_shape = self.value_shape(argument.ty, argument.span)?;
                 let expected = signature.parameters[index];
                 if argument_shape == expected {

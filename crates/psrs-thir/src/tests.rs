@@ -10,6 +10,7 @@ fn verifier_rejects_invalid_type_references() {
         types: vec![Type::I32],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -46,13 +47,13 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
         types: vec![
             Type::I32,
             Type::Record(Vec::new()),
-            Type::Function {
-                parameter: TypeId(0),
-                result: dictionary,
-            },
+            Type::Constructor(TypeConstructor::Function),
+            Type::Application(TypeId(2), TypeId(0)),
+            Type::Application(TypeId(3), TypeId(1)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),
@@ -64,7 +65,7 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
                 kind: ExprKind::Evidence(Evidence {
                     kind: EvidenceKind::Instance {
                         constructor: SymbolId::new(ModuleId(0), 1),
-                        constructor_type: TypeId(2),
+                        constructor_type: TypeId(4),
                         context: vec![Evidence {
                             kind: EvidenceKind::Given(LocalId(0)),
                             class_id: psrs_hir::TypeId::new(ModuleId(0), 0),
@@ -105,6 +106,7 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 0),

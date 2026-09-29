@@ -21,6 +21,7 @@ fn module(types: Vec<Type>, constructors: Vec<psrs_core::ConstructorInfo>) -> Mo
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors,
         declarations: Vec::new(),
         entry: None,

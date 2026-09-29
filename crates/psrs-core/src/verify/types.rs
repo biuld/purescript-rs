@@ -114,6 +114,14 @@ pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<T
         .map(|(_, id)| *id)
 }
 
+/// The value produced by applying a callable constructor's hidden
+/// calling-convention parameters: the last application argument. `None` when
+/// the head constructor has no registered closure representation.
+pub(super) fn callable_result(module: &Module, id: TypeId) -> Option<TypeId> {
+    let (_, arguments) = module.callable_application(id)?;
+    arguments.last().copied()
+}
+
 pub(super) fn user_type_constructor(mut id: TypeId, module: &Module) -> Option<HirTypeId> {
     loop {
         match module.types.get(id.0 as usize)? {
@@ -165,17 +173,9 @@ fn types_compatible(
         | (Type::Char, Type::Char)
         | (Type::Unit, Type::Unit) => true,
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
-        (Type::Application(a1, a2), Type::Application(b1, b2))
-        | (
-            Type::Function {
-                parameter: a1,
-                result: a2,
-            },
-            Type::Function {
-                parameter: b1,
-                result: b2,
-            },
-        ) => types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen),
+        (Type::Application(a1, a2), Type::Application(b1, b2)) => {
+            types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
+        }
         (Type::Record(a), Type::Record(b)) => {
             a.len() == b.len()
                 && a.iter().all(|(label, ty)| {

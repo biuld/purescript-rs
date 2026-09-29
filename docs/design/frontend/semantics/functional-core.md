@@ -72,40 +72,55 @@ following Wadler and, if the effect language grows, Levy's call-by-push-value.
 
 ```text
 Type = Variable(TypeVariableId)
-     | I32 | F64 | Boolean | String | Char | Unit
      | Constructor(TypeConstructor)
      | Application(TypeId, TypeId)
-     | Record([(String, TypeId)])
-     | Function { parameter: TypeId, result: TypeId }
+     | KindApplication(TypeId, TypeId)
+     | ForAll([TypeVariableId], TypeId)
+     | Constrained([TypeId], TypeId)
+     | RowEmpty
+     | RowExtend(String, TypeId, TypeId)
+     | TypeLevelString(String)
+     | TypeLevelInt(i64)
+     | Skolem(TypeVariableId)
 
-TypeConstructor = Array | User(HirTypeId)
+TypeConstructor = Function | Record | Array | Row
+                | Int | Number | Boolean | String | Char | Unit
+                | User(HirTypeId)
 ```
 
-`TypeId` is an index into `Module.types`. The source-level reading of the
+`TypeId` is an index into `Module.types`. This is one uniform application spine,
+matching the frontend checked-type design and official PureScript's `TypeApp`:
+functions and type constructors are both applications, and no variant carries
+arrow syntax or inline primitive structure. The source-level reading of the
 constructors is fixed:
 
 | Source type | Core type |
 | --- | --- |
-| `Int` | `I32` (signed 32-bit) |
-| `Number` | `F64` (IEEE-754 binary64) |
-| `Boolean` | `Boolean` |
-| `Char` | `Char` (a Unicode scalar) |
-| `Unit` | `Unit` (no payload) |
-| `a -> b` | `Function { parameter, result }` |
-| records and tuples | `Record([(label, TypeId)])`; a tuple is the closed record `{ _1, _2, ... }` |
+| `Int` | `Constructor(Int)` (signed 32-bit) |
+| `Number` | `Constructor(Number)` (IEEE-754 binary64) |
+| `Boolean` | `Constructor(Boolean)` |
+| `Char` | `Constructor(Char)` (a Unicode scalar) |
+| `Unit` | `Constructor(Unit)` (no payload) |
+| `String` | `Constructor(String)`, a platform value supplied by the WASI boundary |
+| `a -> b` | `Application(Application(Constructor(Function), a), b)` |
+| records and tuples | `Application(Constructor(Record), row)`, a row of `RowEmpty`/`RowExtend`; a tuple is the closed record `{ _1, _2, ... }` |
 | `Array a` | `Application(Constructor(Array), a)` |
 | data types | `Constructor(User(HirTypeId))`, optionally applied to arguments |
-| `String` | `String`, a platform value supplied by the WASI boundary |
+
+The primitive constructors name the source primitives; their concrete runtime
+representation is fixed later at MIR, not in Core.
 
 A data type's cases are not part of its `Type`; they are `ConstructorInfo`
 records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
-`Effect a` is an ordinary imported abstract type constructor in source typing.
-Target-specific lowering after source checking maps it to an
-internal token-taking function, so Core itself needs no `Effect` type node.
-The token and function representation are not source-visible API; the execution
-boundary and optimization rules are specified in [effects](../../backend/fp/effects.md).
+`Effect a` is `Application(Constructor(User(effect_id)), a)`: an ordinary
+imported abstract type constructor applied on the uniform spine. Target-specific
+lowering after source checking maps it to an internal token-taking function,
+registered by trusted elaboration for that constructor's type identity, so Core
+itself needs no `Effect` type node and no effect-specific token type. The token
+and function representation are not source-visible API; the execution boundary
+and optimization rules are specified in [effects](../../backend/fp/effects.md).
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
 field below Core. Erasing a newtype is representation metadata, not a change to
@@ -114,8 +129,8 @@ not allocate a wrapper for it.
 
 `Module.opaque_ids` records foreign data declarations. Their Core type is still
 `Constructor(User(HirTypeId))`, and they have no `ConstructorInfo`. The set is
-what distinguishes that constructor from an algebraic type and from `I32`. It
-is not a runtime layout. See [foreign imports](foreign-imports.md).
+what distinguishes that constructor from an algebraic type and from
+`Constructor(Int)`. It is not a runtime layout. See [foreign imports](foreign-imports.md).
 
 ### Terms
 
@@ -359,14 +374,22 @@ main = fromMaybe 0 (Just 42)
 The `Maybe` type is `Constructor(User(id))` with two `ConstructorInfo` records:
 `Nothing` (tag `0`, no fields) and `Just` (tag `1`, one field of
 `Variable(a)`). `Maybe a` is `Application(Constructor(User(id)), Variable(a))`.
-`fromMaybe`'s Core type is
-`Function(Variable(a), Function(Application(Constructor(User(id)), Variable(a)), Variable(a)))`,
+`fromMaybe`'s Core type is the application spine
+
+```text
+Application(
+  Application(Constructor(Function), Variable(a)),
+  Application(
+    Application(Constructor(Function), Application(Constructor(User(id)), Variable(a))),
+    Variable(a)))
+```
+
 with `quantified = [a]`. Its body is a `Lambda` over `d`, a `Lambda` over `m`,
 and a `Case` on `m` with two branches; the `Just` branch binds `x` and returns
 it.
 
 `main` is `Application(Application(Global(fromMaybe), Integer(0)), Constructor { symbol = Just, arguments = [Integer(42)] })`.
-Its `ty` is `I32`, the instantiation of `a` to `Int`.
+Its `ty` is `Constructor(Int)`, the instantiation of `a` to `Int`.
 
 P8 then peels the two `Lambda`s of `fromMaybe` into function parameters whose
 shapes are the erased `a` and the aggregate `Maybe a`, with an erased result.
@@ -436,6 +459,16 @@ ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
 the current effect encoding. Local recursive `Let` groups are not yet lowered — only
 top-level recursion through `Global` and the generated closure wrappers are —
 and constraint evidence and the final effect representation are not yet
-produced. Open record rows are checked and kept in Core as `OpenRecord`;
-closure conversion rejects them rather than choosing a field layout. Nothing
-in the model above depends on those deviations.
+produced.
+
+The uniform application spine in the Model is the target. THIR's and Core's
+current `Type` still carries the ad-hoc `Function { parameter, result }`,
+`Record([...])`, `OpenRecord`, and inline primitive (`I32`, `F64`, `Boolean`,
+`String`, `Char`, `Unit`) variants; those are the deviation being removed
+([DEC-15](../../../decision/DEC-15-unified-type-representation.md)). The migration
+is staged: every site that matches on `Type` moves to the spine, starting with
+the representation and lowering sites that already need a head constructor. An
+open row becomes `Application(Constructor(Record), row)` over
+`RowEmpty`/`RowExtend`, so closure conversion still rejects an open row when it
+cannot choose a field layout. Nothing in the model above depends on the
+deviations.

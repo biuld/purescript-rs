@@ -34,6 +34,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: true_symbol,

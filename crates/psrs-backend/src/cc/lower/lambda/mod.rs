@@ -50,13 +50,25 @@ impl LambdaLowering for FunctionLowerer<'_> {
             };
             capture_values.push(value);
         }
-        // A lambda chain `\x -> \y -> e` is one callable value. Peel every
-        // binder so the lifted function's arity matches its flattened runtime
-        // signature, exactly as a top-level declaration is peeled.
+        // A lambda chain `\x -> \y -> e` is one callable value. Peel binders
+        // while the current lambda's result is itself an arrow, so the lifted
+        // function's arity matches its flattened runtime signature exactly as a
+        // top-level declaration is peeled. A lambda at a callable-constructor
+        // boundary is that value's hidden context closure: it keeps its own
+        // binder and is returned as the value, even when the value is a
+        // function.
         let mut binders = vec![binder];
         let mut body = body;
-        while let ExprKind::Lambda { binder, body: rest } = &body.kind {
+        let mut lambda_type = expression.ty;
+        while let Some((_, result)) = psrs_core::arrow_parts(&self.module.types, lambda_type) {
+            let ExprKind::Lambda { binder, body: rest } = &body.kind else {
+                break;
+            };
+            if psrs_core::arrow_parts(&self.module.types, result).is_none() {
+                break;
+            }
             binders.push(binder);
+            lambda_type = result;
             body = rest;
         }
         let nested_result_type = scalar_type(
@@ -75,11 +87,16 @@ impl LambdaLowering for FunctionLowerer<'_> {
         // applying the remaining parameters to the returned closure.
         let signature_definition = self.representations.signature(signature).cloned();
         let body_signature = self.function_types.get(&body.ty).copied();
+        // The body can be a generic function value (an erased reference), such
+        // as a callable value returned by `pure`. It still has a runtime call
+        // signature, so the remaining parameters are applied to it after a
+        // representation cast.
         let eta_expand = matches!(
             (&signature_definition, body_signature),
             (Some(signature_definition), Some(body_signature))
                 if signature_definition.parameters.len() > binders.len()
-                    && nested_result_type == closure_value_type_for(body_signature)
+                    && (nested_result_type == closure_value_type_for(body_signature)
+                        || is_erased_reference(nested_result_type))
         );
         let mut nested = self.child_lowerer();
         let closure_parameter = nested.fresh(closure_value_type());
@@ -141,11 +158,31 @@ impl LambdaLowering for FunctionLowerer<'_> {
                 .expect("an eta-expanded lambda has an interned signature");
             let body_signature =
                 body_signature.expect("an eta-expanded lambda has a body signature");
+            // Recover the erased function value into its closure shape so the
+            // indirect call can name the body signature.
+            let callable = if is_erased_reference(nested_result_type) {
+                let closure = nested.fresh(closure_value_type_for(body_signature));
+                nested_assignments.push(Assignment {
+                    destination: closure,
+                    kind: AssignmentKind::RepresentationCast {
+                        destination: closure,
+                        value: result,
+                        reference: Reference {
+                            nullable: false,
+                            heap: RefShape::Closure(body_signature),
+                        },
+                    },
+                    span: expression.span,
+                });
+                closure
+            } else {
+                result
+            };
             let final_result = nested.fresh(signature_definition.result);
             nested_assignments.push(Assignment {
                 destination: final_result,
                 kind: AssignmentKind::IndirectCall {
-                    function: result,
+                    function: callable,
                     signature: body_signature,
                     arguments: extra_parameters,
                 },
@@ -244,6 +281,16 @@ impl LambdaLowering for FunctionLowerer<'_> {
             generated: Vec::new(),
         }
     }
+}
+
+pub(super) fn is_erased_reference(shape: ValueShape) -> bool {
+    matches!(
+        shape,
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        })
+    )
 }
 
 pub(super) fn closure_value_type() -> ValueShape {

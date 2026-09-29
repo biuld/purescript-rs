@@ -33,6 +33,7 @@ fn module() -> Module {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: symbol(0),

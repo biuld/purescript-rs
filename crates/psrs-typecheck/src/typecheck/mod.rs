@@ -275,6 +275,14 @@ impl TypeInterner {
         self.ids.insert(ty, id);
         id
     }
+
+    /// Interns the arrow `parameter -> result` as the application spine
+    /// `Application(Application(Constructor(Function), parameter), result)`.
+    fn arrow(&mut self, parameter: TypeId, result: TypeId) -> TypeId {
+        let head = self.intern(Type::Constructor(thir::TypeConstructor::Function));
+        let inner = self.intern(Type::Application(head, parameter));
+        self.intern(Type::Application(inner, result))
+    }
 }
 
 fn occurs(variable: u32, ty: &InferType) -> bool {

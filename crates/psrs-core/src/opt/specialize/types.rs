@@ -16,7 +16,6 @@ pub(super) enum TypeKey {
     Constructor(TypeConstructor),
     Application(Box<TypeKey>, Box<TypeKey>),
     Record(Vec<(String, TypeKey)>),
-    Function(Box<TypeKey>, Box<TypeKey>),
 }
 
 pub(super) fn concrete_type_key(module: &Module, id: TypeId) -> Option<TypeKey> {
@@ -99,10 +98,6 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
             Box::new(type_key(module, *function, active)?),
             Box::new(type_key(module, *argument, active)?),
         )),
-        Type::Function { parameter, result } => Some(TypeKey::Function(
-            Box::new(type_key(module, *parameter, active)?),
-            Box::new(type_key(module, *result, active)?),
-        )),
         Type::OpenRecord { .. } => None,
         Type::Record(fields) => {
             let mut keys = fields
@@ -158,19 +153,6 @@ fn match_type(
             match_type(module, *gf, *cf, quantifiers, replacements, active)
                 && match_type(module, *ga, *ca, quantifiers, replacements, active)
         }
-        (
-            Type::Function {
-                parameter: gp,
-                result: gr,
-            },
-            Type::Function {
-                parameter: cp,
-                result: cr,
-            },
-        ) => {
-            match_type(module, *gp, *cp, quantifiers, replacements, active)
-                && match_type(module, *gr, *cr, quantifiers, replacements, active)
-        }
         (Type::Record(generic_fields), Type::Record(concrete_fields)) => {
             if generic_fields.len() != concrete_fields.len() {
                 return false;
@@ -217,11 +199,6 @@ impl TypeSubstitution<'_> {
                 let function = self.type_id(function)?;
                 let argument = self.type_id(argument)?;
                 self.intern(Type::Application(function, argument))?
-            }
-            Type::Function { parameter, result } => {
-                let parameter = self.type_id(parameter)?;
-                let result = self.type_id(result)?;
-                self.intern(Type::Function { parameter, result })?
             }
             Type::Record(fields) => {
                 let fields = fields

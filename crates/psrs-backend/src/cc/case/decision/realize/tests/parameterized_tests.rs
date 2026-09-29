@@ -35,6 +35,7 @@ fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -149,6 +150,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: inner,
@@ -285,6 +287,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
