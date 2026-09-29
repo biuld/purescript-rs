@@ -147,7 +147,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = vec![Assignment {

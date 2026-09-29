@@ -446,7 +446,7 @@ mod tests {
             generated_symbols: Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module))),
             owner: module.id,
             warnings: Vec::new(),
-            erased_function_types: HashMap::new(),
+            local_types: HashMap::new(),
             generated: Vec::new(),
         };
         let span = TextRange::new(30, 45);

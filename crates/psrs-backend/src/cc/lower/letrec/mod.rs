@@ -4,7 +4,6 @@ use super::super::{
     ValueShape,
 };
 use super::FunctionLowerer;
-use super::call::is_generic_function_type;
 use super::lambda::{LambdaLowering, collect_captures};
 use crate::BackendError;
 use psrs_core::{Binder, Binding, Expr, ExprKind};
@@ -41,8 +40,9 @@ impl LetLowering for FunctionLowerer<'_> {
             if group.len() == 1 && !references_itself(&bindings[group[0]]) {
                 let binding = &bindings[group[0]];
                 let value = self.lower_value(&binding.value, assignments)?;
-                self.record_erased_local_binding(binding, value)?;
                 self.locals.insert(binding.binder.id, value);
+                self.local_types
+                    .insert(binding.binder.id, binding.binder.ty);
             } else {
                 self.lower_recursive_group(bindings, &group, assignments)?;
             }
@@ -113,8 +113,9 @@ impl FunctionLowerer<'_> {
                 binding.span,
                 assignments,
             )?;
-            self.record_erased_local_binding(binding, value)?;
             self.locals.insert(binding.binder.id, value);
+            self.local_types
+                .insert(binding.binder.id, binding.binder.ty);
         }
         Ok(())
     }
@@ -185,6 +186,7 @@ impl FunctionLowerer<'_> {
             }
             let parameter = nested.fresh(shape);
             nested.locals.insert(binder.id, parameter);
+            nested.local_types.insert(binder.id, binder.ty);
             parameters.push(parameter);
         }
 
@@ -199,12 +201,8 @@ impl FunctionLowerer<'_> {
                 },
                 span: function.binding.value.span,
             });
-            if let Some(outer_value) = self.locals.get(local).copied()
-                && let Some(source_type) = self.erased_function_types.get(&outer_value).copied()
-            {
-                nested
-                    .erased_function_types
-                    .insert(destination, source_type);
+            if let Some(source_type) = self.local_types.get(local).copied() {
+                nested.local_types.insert(*local, source_type);
             }
             nested.locals.insert(*local, destination);
         }
@@ -230,8 +228,10 @@ impl FunctionLowerer<'_> {
                 member.binding.span,
                 &mut nested_assignments,
             )?;
-            nested.record_erased_local_binding(member.binding, value)?;
             nested.locals.insert(member.binding.binder.id, value);
+            nested
+                .local_types
+                .insert(member.binding.binder.id, member.binding.binder.ty);
         }
 
         let result = nested.lower_value(function.body, &mut nested_assignments)?;
@@ -268,23 +268,6 @@ impl FunctionLowerer<'_> {
         self.generated.extend(nested_generated);
         self.generated.push(generated_function);
         self.warnings.extend(nested_warnings);
-        Ok(())
-    }
-
-    /// Records the polymorphic source type of a generalized local binding whose
-    /// runtime representation is erased. A use at an instantiated type then
-    /// recovers the concrete closure shape through the erased adapters, exactly
-    /// as the top-level polymorphic path does.
-    fn record_erased_local_binding(
-        &mut self,
-        binding: &Binding,
-        value: ValueId,
-    ) -> Result<(), Vec<BackendError>> {
-        if is_generic_function_type(self.module, binding.binder.ty)
-            && self.local_value_shape(value, binding.span)? == erased_shape()
-        {
-            self.erased_function_types.insert(value, binding.binder.ty);
-        }
         Ok(())
     }
 

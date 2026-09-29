@@ -1,8 +1,7 @@
 use super::super::layout::depends_on_type_variable;
 use super::super::layout::{function_arrow_parameters, function_signature};
 use super::super::{
-    AggregateConvert, Assignment, AssignmentKind, Function, RecoveryEvidence, RefShape, Reference,
-    SignatureId, UnaryOp, ValueConversion, ValueId, ValueShape,
+    Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
 };
 use super::call::{
     is_function_type, is_generic_function_type, persist_reference, restore_reference,
@@ -12,6 +11,8 @@ use crate::BackendError;
 use psrs_core::TypeId;
 
 mod curried;
+mod eta;
+mod unbox;
 
 #[cfg(test)]
 mod tests;
@@ -24,44 +25,36 @@ impl FunctionLowerer<'_> {
     /// recovery of the result that the top-level polymorphic path performs.
     pub(super) fn adapt_erased_function_use(
         &mut self,
+        local: psrs_hir::LocalId,
         value: ValueId,
         target_type: TypeId,
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(source_type) = self.erased_function_types.get(&value).copied() else {
+        // The binder's declared type, read from the lowering scope, is the
+        // polymorphic source type of the lowered value. Deriving the adaptation
+        // from this scope rather than a `ValueId` side table keeps it correct
+        // across closure capture, lifting, and inlining, which all rewrite the
+        // value.
+        let Some(source_type) = self.local_types.get(&local).copied() else {
             return Ok(value);
         };
-        // Only an erased value needs the erased adaptation. The table also
-        // records concrete function-typed results, which already carry their
-        // exact closure shape.
-        let erased = ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        });
-        if self
-            .values
-            .iter()
-            .find(|declaration| declaration.id == value)
-            .map(|declaration| declaration.ty)
-            != Some(erased)
-        {
+        // Only an erased value needs the erased adaptation. A local whose
+        // declared type is concrete already carries its exact closure shape.
+        if self.value_shape_of(value) != Some(erased_reference_type()) {
             return Ok(value);
         }
         if source_type == target_type || !is_function_type(self.module, target_type) {
             return Ok(value);
         }
-        // Instantiating a type variable at a function type can flatten the use
-        // into more parameters than the polymorphic value was lowered with
-        // (`(id id) 42`). That higher-order case needs an intermediate closure
-        // recovery this adapter does not build, so leave the value untouched
-        // rather than report a misleading arity error.
-        let source_arity = function_arrow_parameters(self.module, source_type).0.len();
-        let target_arity = function_arrow_parameters(self.module, target_type).0.len();
-        if source_arity != target_arity {
-            return Ok(value);
-        }
         self.adapt_erased_function_value(value, source_type, target_type, span, assignments)
+    }
+
+    fn value_shape_of(&self, value: ValueId) -> Option<ValueShape> {
+        self.values
+            .iter()
+            .find(|declaration| declaration.id == value)
+            .map(|declaration| declaration.ty)
     }
 
     pub(super) fn adapt_erased_function_value(
@@ -72,6 +65,27 @@ impl FunctionLowerer<'_> {
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        // A value that is not a function at its source type is an erased (or
+        // concrete) value recovered at the target function type, such as a type
+        // variable instantiated at a function type. No adapter closure is
+        // needed; the representation conversion recovers the closure directly.
+        if !is_function_type(self.module, source_type) {
+            let source_shape = self.value_shape(source_type, span)?;
+            let target_shape = self.value_shape(target_type, span)?;
+            if source_shape == target_shape {
+                return Ok(value);
+            }
+            let conversion =
+                self.typed_conversion(source_type, target_type, source_shape, target_shape, span)?;
+            return Ok(self.emit_conversion(
+                value,
+                source_shape,
+                target_shape,
+                conversion,
+                span,
+                assignments,
+            ));
+        }
         let source_shape = function_signature(
             self.module,
             source_type,
@@ -111,6 +125,27 @@ impl FunctionLowerer<'_> {
         if source_shape.parameters.len() != target_shape.parameters.len()
             || source_parameters.len() != target_parameters.len()
         {
+            // A type variable instantiated at a function type makes the target
+            // wider than the source: the source's result is itself a function at
+            // the instantiation, so its own arrows are flattened into extra
+            // target parameters (`(id id) 42`). Eta-expand the adapter over the
+            // full target arity and apply the remaining arguments to the
+            // recovered result.
+            if source_shape.parameters.len() < target_shape.parameters.len()
+                && source_parameters.len() < target_parameters.len()
+            {
+                return self.adapt_eta_expanded_function_value(
+                    value,
+                    source_type,
+                    target_type,
+                    source_signature_id,
+                    target_signature_id,
+                    &source_shape,
+                    &target_shape,
+                    span,
+                    assignments,
+                );
+            }
             // A concrete curried function (the `ado` block's `\x -> \y -> ...`)
             // can be wider than the generic `a -> b` value it is adapted to:
             // the target's result is a type variable, so its own function
@@ -315,150 +350,6 @@ impl FunctionLowerer<'_> {
             Ok(result)
         } else {
             Ok(closure_result)
-        }
-    }
-
-    pub(super) fn unbox_erased_value(
-        &mut self,
-        value: ValueId,
-        expected: ValueShape,
-        span: psrs_span::TextRange,
-        assignments: &mut Vec<Assignment>,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        match expected {
-            ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Erased,
-            }) => Ok(value),
-            // A `String` is a GC reference in the `eq` hierarchy, so it is
-            // recovered by a cast to `(ref $string)`, not by the integer box.
-            ValueShape::String => {
-                let result = self.fresh(ValueShape::String);
-                assignments.push(Assignment {
-                    destination: result,
-                    kind: AssignmentKind::AggregateConvert {
-                        destination: result,
-                        value,
-                        conversion: AggregateConvert {
-                            source: erased_reference_type(),
-                            destination: ValueShape::String,
-                            plan: ValueConversion::RecoverReference {
-                                destination: ValueShape::String,
-                                evidence: RecoveryEvidence::TypeInstantiation,
-                            },
-                        },
-                    },
-                    span,
-                });
-                Ok(result)
-            }
-            ValueShape::Integer | ValueShape::Boolean => {
-                let Some(boxed_type) = self.boxed_integer_type else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        span,
-                        "polymorphic result has no integer box representation",
-                    )]);
-                };
-                let concrete_box = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(boxed_type),
-                }));
-                assignments.push(Assignment {
-                    destination: concrete_box,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: concrete_box,
-                        value,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Repr(boxed_type),
-                        },
-                    },
-                    span,
-                });
-                // The box stores Wasm i32; a Boolean destination is recovered
-                // through an explicit `IntToBoolean` conversion so the product
-                // projection keeps the box field's integer shape.
-                let boxed_destination = if expected == ValueShape::Boolean {
-                    self.fresh(ValueShape::Integer)
-                } else {
-                    self.fresh(expected)
-                };
-                assignments.push(Assignment {
-                    destination: boxed_destination,
-                    kind: AssignmentKind::ProductGet {
-                        destination: boxed_destination,
-                        representation: boxed_type,
-                        field: 0,
-                        value: concrete_box,
-                    },
-                    span,
-                });
-                if expected == ValueShape::Boolean {
-                    let result = self.fresh(ValueShape::Boolean);
-                    assignments.push(Assignment {
-                        destination: result,
-                        kind: AssignmentKind::Unary {
-                            op: UnaryOp::IntToBoolean,
-                            value: boxed_destination,
-                        },
-                        span,
-                    });
-                    Ok(result)
-                } else {
-                    Ok(boxed_destination)
-                }
-            }
-            ValueShape::Number => {
-                let Some(boxed_type) = self.boxed_number_type else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        span,
-                        "polymorphic result has no number box representation",
-                    )]);
-                };
-                let concrete_box = self.fresh(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(boxed_type),
-                }));
-                assignments.push(Assignment {
-                    destination: concrete_box,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: concrete_box,
-                        value,
-                        reference: Reference {
-                            nullable: false,
-                            heap: RefShape::Repr(boxed_type),
-                        },
-                    },
-                    span,
-                });
-                let result = self.fresh(ValueShape::Number);
-                assignments.push(Assignment {
-                    destination: result,
-                    kind: AssignmentKind::ProductGet {
-                        destination: result,
-                        representation: boxed_type,
-                        field: 0,
-                        value: concrete_box,
-                    },
-                    span,
-                });
-                Ok(result)
-            }
-            ValueShape::Reference(reference) => {
-                let result = self.fresh(ValueShape::Reference(reference));
-                assignments.push(Assignment {
-                    destination: result,
-                    kind: AssignmentKind::RepresentationCast {
-                        destination: result,
-                        value,
-                        reference,
-                    },
-                    span,
-                });
-                Ok(result)
-            }
         }
     }
 }

@@ -256,7 +256,6 @@ impl FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            self.erased_function_types.insert(erased, expression.ty);
             Ok(erased)
         } else if result_type == closure_value_type_for(target_signature_id) {
             Ok(closure)

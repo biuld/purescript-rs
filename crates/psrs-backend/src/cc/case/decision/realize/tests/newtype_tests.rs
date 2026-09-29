@@ -137,7 +137,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();
