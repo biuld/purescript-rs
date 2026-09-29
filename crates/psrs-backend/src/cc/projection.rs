@@ -90,7 +90,13 @@ impl Projector<'_> {
                 };
                 self.project(*substituted, env)
             }
-            Some(Type::Record(_)) => self.project_record(id, env),
+            Some(_) if self.module.is_record_type(id) => {
+                if self.module.record_is_open(id).unwrap_or(false) {
+                    Err("open record rows have no runtime guest layout".into())
+                } else {
+                    self.project_record(id, env)
+                }
+            }
             Some(Type::Application(_, _)) => {
                 if let Some(element) = super::layout::array_element_type(self.module, id) {
                     self.project_array(id, element, env)
@@ -99,9 +105,6 @@ impl Projector<'_> {
                 }
             }
             Some(Type::Constructor(TypeConstructor::User(_))) => self.project_user(id, env),
-            Some(Type::OpenRecord { .. }) => {
-                Err("open record rows have no runtime guest layout".into())
-            }
             Some(Type::Constructor(TypeConstructor::Array)) => {
                 Err("an unapplied Array has no guest layout".into())
             }
@@ -109,6 +112,9 @@ impl Projector<'_> {
                 Err("function types have no canonical guest layout".into())
             }
             Some(Type::Constructor(_)) => Err("constructor has no canonical guest layout".into()),
+            Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
+                Err("a bare row has no canonical guest layout".into())
+            }
             None => Err("type is outside the Core type table".into()),
         }
     }
@@ -129,7 +135,7 @@ impl Projector<'_> {
             .table
             .product_labels(repr)
             .ok_or_else(|| "record representation has no labels".to_string())?;
-        let Some(Type::Record(core_fields)) = self.module.types.get(id.0 as usize) else {
+        let Some(core_fields) = self.module.record_fields(id) else {
             return Err("record type changed during projection".into());
         };
         if labels.len() != stored.len() {
@@ -321,21 +327,32 @@ mod tests {
     fn projects_a_nested_parameterized_payload() {
         let module_id = ModuleId(0);
         let maybe = HirTypeId::new(module_id, 0);
-        let record = TypeId(0);
-        let string = TypeId(1);
-        let maybe_ctor = TypeId(2);
-        let maybe_record = TypeId(3);
-        let unit = TypeId(4);
+        let string = TypeId(0);
+        let maybe_ctor = TypeId(1);
+        let unit = TypeId(2);
         let just = SymbolId::new(module_id, 0);
         let nothing = SymbolId::new(module_id, 1);
         let type_variable = TypeVariableId(7);
         let mut types = vec![
-            Type::Record(vec![("name".into(), string)]),
             Type::Constructor(psrs_core::TypeConstructor::String),
             Type::Constructor(TypeConstructor::User(maybe)),
-            Type::Application(maybe_ctor, record),
             Type::Constructor(psrs_core::TypeConstructor::Unit),
         ];
+        // The record `{ name :: String }` as `Application(Constructor(Record), row)`.
+        let row_empty = TypeId(types.len() as u32);
+        types.push(Type::RowEmpty);
+        let row = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: "name".into(),
+            ty: string,
+            tail: row_empty,
+        });
+        let record_head = TypeId(types.len() as u32);
+        types.push(Type::Constructor(TypeConstructor::Record));
+        let record = TypeId(types.len() as u32);
+        types.push(Type::Application(record_head, row));
+        let maybe_record = TypeId(types.len() as u32);
+        types.push(Type::Application(maybe_ctor, record));
         // The `Just` field template names the type variable.
         let variable = TypeId(types.len() as u32);
         types.push(Type::Variable(type_variable));

@@ -3,10 +3,12 @@ mod link;
 mod lower;
 pub mod opt;
 mod pattern;
+mod records;
 mod verify;
 
 pub use link::{link, prune_unreachable};
 pub use pattern::{Pattern, PatternKind};
+pub use records::{record_row, row_fields};
 
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
@@ -20,6 +22,7 @@ pub struct TypeId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
     Function,
+    Record,
     Array,
     Int,
     Number,
@@ -46,11 +49,14 @@ pub enum Type {
     Variable(TypeVariableId),
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
-    Record(Vec<(String, TypeId)>),
-    /// A record whose row ends in a type variable. Closed records stay
-    /// [`Type::Record`]. This is not a runtime field layout.
-    OpenRecord {
-        fields: Vec<(String, TypeId)>,
+    /// The empty row. A closed record's row ends here.
+    RowEmpty,
+    /// A row extended with one labeled field. A record type is
+    /// `Application(Constructor(Record), row)`; a closed row ends in
+    /// [`Type::RowEmpty`] and an open row ends in a [`Type::Variable`].
+    RowExtend {
+        label: String,
+        ty: TypeId,
         tail: TypeId,
     },
 }

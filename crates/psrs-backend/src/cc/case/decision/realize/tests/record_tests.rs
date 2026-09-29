@@ -19,18 +19,28 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     let bool_type = HirTypeId::new(module_id, 0);
     let true_symbol = SymbolId::new(module_id, 0);
     let false_symbol = SymbolId::new(module_id, 1);
+    let record = psrs_core::TypeId(6);
     let module = Module {
         type_names: Vec::new(),
         id: module_id,
         name: "RecordDecisionTest".into(),
         externals: Vec::new(),
         types: vec![
-            Type::Record(vec![
-                ("z".into(), psrs_core::TypeId(2)),
-                ("active".into(), psrs_core::TypeId(1)),
-            ]),
             Type::Constructor(TypeConstructor::User(bool_type)),
             Type::Constructor(psrs_core::TypeConstructor::Int),
+            Type::RowEmpty,
+            Type::RowExtend {
+                label: "active".into(),
+                ty: psrs_core::TypeId(0),
+                tail: psrs_core::TypeId(2),
+            },
+            Type::RowExtend {
+                label: "z".into(),
+                ty: psrs_core::TypeId(1),
+                tail: psrs_core::TypeId(3),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -68,12 +78,12 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
                         symbol,
                         arguments: Vec::new(),
                     },
-                    ty: psrs_core::TypeId(1),
+                    ty: psrs_core::TypeId(0),
                     span: TextRange::new(start + 2, start + 5),
                 },
             )],
         },
-        ty: psrs_core::TypeId(0),
+        ty: record,
         span: TextRange::new(start, start + 7),
     };
     let branches = vec![
@@ -81,7 +91,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
             pattern: record_pattern(true_symbol, 1),
             value: Expr {
                 kind: ExprKind::Integer(1),
-                ty: psrs_core::TypeId(2),
+                ty: psrs_core::TypeId(1),
                 span: TextRange::new(9, 10),
             },
             span: TextRange::new(1, 10),
@@ -90,7 +100,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
             pattern: record_pattern(false_symbol, 12),
             value: Expr {
                 kind: ExprKind::Integer(0),
-                ty: psrs_core::TypeId(2),
+                ty: psrs_core::TypeId(1),
                 span: TextRange::new(20, 21),
             },
             span: TextRange::new(12, 21),
@@ -111,7 +121,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     let aggregate_types = HashSet::new();
     let newtype_ids = HashSet::new();
     let array_types = HashMap::new();
-    let record_types = HashMap::from([(psrs_core::TypeId(0), record_repr)]);
+    let record_types = HashMap::from([(record, record_repr)]);
     let constructor_tags = HashMap::from([(true_symbol, 0), (false_symbol, 1)]);
     let constructors_by_type = HashMap::new();
     let constructor_types = HashMap::new();
@@ -153,7 +163,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     let mut assignments = Vec::new();
     let result = lowerer
         .lower_case(
-            psrs_core::TypeId(0),
+            record,
             crate::types::ValueId(0),
             &branches,
             ValueShape::Integer,

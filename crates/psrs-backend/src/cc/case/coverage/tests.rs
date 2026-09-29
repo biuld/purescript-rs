@@ -86,6 +86,24 @@ fn binder(ty: u32) -> Pattern {
     )
 }
 
+fn push_record(types: &mut Vec<Type>, fields: Vec<(String, TypeId)>) -> TypeId {
+    let mut fields = fields;
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let row_empty = TypeId(types.len() as u32);
+    types.push(Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in fields.into_iter().rev() {
+        let id = TypeId(types.len() as u32);
+        types.push(Type::RowExtend { label, ty, tail });
+        tail = id;
+    }
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Record));
+    let id = TypeId(types.len() as u32);
+    types.push(Type::Application(head, tail));
+    id
+}
+
 #[test]
 fn reports_the_missing_nullary_constructor() {
     let module = module(
@@ -165,28 +183,30 @@ fn reports_a_nested_missing_constructor() {
 
 #[test]
 fn record_products_are_covered_fieldwise_and_duplicate_rows_are_redundant() {
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+    ];
+    let record_ty = push_record(&mut types, vec![("color".to_owned(), TypeId(0))]);
     let module = module(
-        vec![
-            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
-            Type::Record(vec![("color".to_owned(), TypeId(0))]),
-            Type::Constructor(psrs_core::TypeConstructor::Int),
-        ],
+        types,
         vec![
             constructor(0, "Red", 0, Vec::new()),
             constructor(1, "Blue", 0, Vec::new()),
         ],
     );
     let record = |inner| {
-        branch(pat(
-            1,
-            PatternKind::Record {
+        branch(Pattern {
+            kind: PatternKind::Record {
                 fields: vec![("color".to_owned(), inner)],
             },
-        ))
+            ty: record_ty,
+            span: TextRange::new(0, 1),
+        })
     };
     let complete = analyze(
         &module,
-        TypeId(1),
+        record_ty,
         &[record(nullary(0, 0)), record(nullary(1, 0))],
     );
     assert!(complete.exhaustive, "{complete:?}");

@@ -57,7 +57,15 @@ enum InferType {
     Variable(u32),
     Constructor(TypeConstructor),
     Application(Box<InferType>, Box<InferType>),
-    Record(InferRecord),
+    /// The empty row. A closed record's row ends here.
+    RowEmpty,
+    /// A row extended with one labeled field. A record type is
+    /// `Application(Constructor(Record), row)`.
+    RowExtend {
+        label: String,
+        ty: Box<InferType>,
+        tail: Box<InferType>,
+    },
 }
 
 /// The arrow `parameter -> result` as the application spine
@@ -82,11 +90,42 @@ fn infer_arrow_parts(function: &InferType, result: &InferType) -> Option<(InferT
         .then(|| ((**parameter).clone(), result.clone()))
 }
 
-/// A record row during inference. `Closed` is the empty tail. `Open` is a row
-/// variable, rigid when it comes from a signature and flexible when it is
-/// inferred. Field order is not significant; labels are kept sorted.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct InferRecord {
+/// Builds the row `RowExtend` chain over `fields` in canonical (label-sorted)
+/// order, ending in `tail`.
+fn row_from_fields(mut fields: Vec<(String, InferType)>, tail: InferType) -> InferType {
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut row = tail;
+    for (label, ty) in fields.into_iter().rev() {
+        row = InferType::RowExtend {
+            label,
+            ty: Box::new(ty),
+            tail: Box::new(row),
+        };
+    }
+    row
+}
+
+/// A record type `Application(Constructor(Record), row)` over `fields` in
+/// canonical order, ending in `tail` (`RowEmpty` when closed).
+fn record_type(fields: Vec<(String, InferType)>, tail: InferType) -> InferType {
+    InferType::Application(
+        Box::new(InferType::Constructor(TypeConstructor::Record)),
+        Box::new(row_from_fields(fields, tail)),
+    )
+}
+
+/// The row of a record type, or `None` when `ty` is not a record.
+fn record_row(ty: &InferType) -> Option<InferType> {
+    let InferType::Application(function, row) = ty else {
+        return None;
+    };
+    matches!(**function, InferType::Constructor(TypeConstructor::Record)).then(|| (**row).clone())
+}
+
+/// A row flattened into its fields and its tail. `Closed` is the empty tail;
+/// `Open` is a row variable, rigid when it comes from a signature and flexible
+/// when it is inferred. Field order is not significant.
+struct FlatRow {
     fields: Vec<(String, InferType)>,
     tail: RowTail,
 }
@@ -97,22 +136,23 @@ enum RowTail {
     Open(u32),
 }
 
-impl InferRecord {
-    fn closed(mut fields: Vec<(String, InferType)>) -> Self {
-        fields.sort_by(|left, right| left.0.cmp(&right.0));
-        Self {
-            fields,
-            tail: RowTail::Closed,
+impl RowTail {
+    fn to_type(self) -> InferType {
+        match self {
+            RowTail::Closed => InferType::RowEmpty,
+            RowTail::Open(variable) => InferType::Variable(variable),
         }
     }
 }
 
-/// A type constructor during inference. The arrow and scalar primitives share
-/// this head; `Effect` is the trusted effect constructor; user constructors keep
-/// their resolved HIR ID so distinct declarations never unify by accident.
+/// A type constructor during inference. The arrow, record, and scalar
+/// primitives share this head; `Effect` is the trusted effect constructor; user
+/// constructors keep their resolved HIR ID so distinct declarations never unify
+/// by accident.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TypeConstructor {
     Function,
+    Record,
     Array,
     Effect,
     Int,
@@ -305,13 +345,8 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         InferType::Application(function, argument) => {
             occurs(variable, function) || occurs(variable, argument)
         }
-        InferType::Record(record) => {
-            record
-                .fields
-                .iter()
-                .any(|(_, field)| occurs(variable, field))
-                || matches!(record.tail, RowTail::Open(tail) if tail == variable)
-        }
+        InferType::RowExtend { ty, tail, .. } => occurs(variable, ty) || occurs(variable, tail),
+        InferType::RowEmpty => false,
         InferType::Constructor(_) => false,
     }
 }

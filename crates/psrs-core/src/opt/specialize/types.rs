@@ -79,25 +79,43 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
     if !active.insert(id) {
         return None;
     }
-    let result = match module.types.get(id.0 as usize)? {
-        Type::Variable(_) => None,
-        Type::Constructor(constructor) => Some(TypeKey::Constructor(*constructor)),
-        Type::Application(function, argument) => Some(TypeKey::Application(
-            Box::new(type_key(module, *function, active)?),
-            Box::new(type_key(module, *argument, active)?),
-        )),
-        Type::OpenRecord { .. } => None,
-        Type::Record(fields) => {
-            let mut keys = fields
-                .iter()
-                .map(|(label, field)| Some((label.clone(), type_key(module, *field, active)?)))
-                .collect::<Option<Vec<_>>>()?;
-            keys.sort_by(|left, right| left.0.cmp(&right.0));
-            Some(TypeKey::Record(keys))
+    let result = if let Some(row) = module.record_row(id) {
+        record_key(module, row, active)
+    } else {
+        match module.types.get(id.0 as usize)? {
+            Type::Variable(_) => None,
+            Type::Constructor(constructor) => Some(TypeKey::Constructor(*constructor)),
+            Type::Application(function, argument) => Some(TypeKey::Application(
+                Box::new(type_key(module, *function, active)?),
+                Box::new(type_key(module, *argument, active)?),
+            )),
+            Type::RowEmpty | Type::RowExtend { .. } => None,
         }
     };
     active.remove(&id);
     result
+}
+
+/// A concrete key for a record row: closed rows only, with the same field
+/// labels and recursively concrete field types.
+fn record_key(module: &Module, row: TypeId, active: &mut HashSet<TypeId>) -> Option<TypeKey> {
+    let (fields, tail) = module.row_fields(row)?;
+    if tail.is_some() {
+        return None;
+    }
+    let mut keys = fields
+        .iter()
+        .map(|(label, field)| Some((label.clone(), type_key(module, *field, active)?)))
+        .collect::<Option<Vec<_>>>()?;
+    keys.sort_by(|left, right| left.0.cmp(&right.0));
+    Some(TypeKey::Record(keys))
+}
+
+fn is_record_head(module: &Module, id: TypeId) -> bool {
+    matches!(
+        module.types.get(id.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Record))
+    )
 }
 
 fn match_type(
@@ -132,31 +150,49 @@ fn match_type(
     match (generic_type, concrete_type) {
         (Type::Constructor(left), Type::Constructor(right)) => left == right,
         (Type::Application(gf, ga), Type::Application(cf, ca)) => {
-            match_type(module, *gf, *cf, quantifiers, replacements, active)
-                && match_type(module, *ga, *ca, quantifiers, replacements, active)
-        }
-        (Type::Record(generic_fields), Type::Record(concrete_fields)) => {
-            if generic_fields.len() != concrete_fields.len() {
-                return false;
+            if is_record_head(module, *gf) && is_record_head(module, *cf) {
+                match_record_rows(module, *ga, *ca, quantifiers, replacements, active)
+            } else {
+                match_type(module, *gf, *cf, quantifiers, replacements, active)
+                    && match_type(module, *ga, *ca, quantifiers, replacements, active)
             }
-            generic_fields.iter().all(|(label, generic_field)| {
-                concrete_fields
-                    .iter()
-                    .find(|(other, _)| other == label)
-                    .is_some_and(|(_, concrete_field)| {
-                        match_type(
-                            module,
-                            *generic_field,
-                            *concrete_field,
-                            quantifiers,
-                            replacements,
-                            active,
-                        )
-                    })
-            })
         }
         _ => false,
     }
+}
+
+fn match_record_rows(
+    module: &Module,
+    generic_row: TypeId,
+    concrete_row: TypeId,
+    quantifiers: &HashSet<TypeVariableId>,
+    replacements: &mut HashMap<TypeVariableId, TypeId>,
+    active: &mut HashSet<(TypeId, TypeId)>,
+) -> bool {
+    let (Some((generic_fields, _)), Some((concrete_fields, _))) = (
+        module.row_fields(generic_row),
+        module.row_fields(concrete_row),
+    ) else {
+        return false;
+    };
+    if generic_fields.len() != concrete_fields.len() {
+        return false;
+    }
+    generic_fields.iter().all(|(label, generic_field)| {
+        concrete_fields
+            .iter()
+            .find(|(other, _)| other == label)
+            .is_some_and(|(_, concrete_field)| {
+                match_type(
+                    module,
+                    *generic_field,
+                    *concrete_field,
+                    quantifiers,
+                    replacements,
+                    active,
+                )
+            })
+    })
 }
 
 struct TypeSubstitution<'a> {
@@ -182,13 +218,12 @@ impl TypeSubstitution<'_> {
                 let argument = self.type_id(argument)?;
                 self.intern(Type::Application(function, argument))?
             }
-            Type::Record(fields) => {
-                let fields = fields
-                    .into_iter()
-                    .map(|(label, field)| Some((label, self.type_id(field)?)))
-                    .collect::<Option<Vec<_>>>()?;
-                self.intern(Type::Record(fields))?
+            Type::RowExtend { label, ty, tail } => {
+                let ty = self.type_id(ty)?;
+                let tail = self.type_id(tail)?;
+                self.intern(Type::RowExtend { label, ty, tail })?
             }
+            Type::RowEmpty => self.intern(Type::RowEmpty)?,
             other => id_for_existing(self.module, &other).unwrap_or(id),
         };
         self.active.remove(&id);

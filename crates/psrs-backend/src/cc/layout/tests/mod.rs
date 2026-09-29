@@ -5,6 +5,8 @@ use psrs_core::{
 };
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
+mod records;
+
 fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
     let head = TypeId(types.len() as u32);
     types.push(Type::Constructor(TypeConstructor::Function));
@@ -13,141 +15,6 @@ fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeI
     let outer = TypeId(types.len() as u32);
     types.push(Type::Application(inner, result));
     outer
-}
-
-#[test]
-fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot() {
-    let module_id = ModuleId(0);
-    let wrap_type = HirTypeId::new(module_id, 0);
-    let wrap = SymbolId::new(module_id, 0);
-    let array_a = TypeId(3);
-    let record_a = TypeId(4);
-    let module = Module {
-        type_names: Vec::new(),
-        id: module_id,
-        name: "RecordPayloadLayoutTest".into(),
-        externals: Vec::new(),
-        types: vec![
-            Type::Constructor(TypeConstructor::User(wrap_type)),
-            Type::Variable(TypeVariableId(0)),
-            Type::Constructor(TypeConstructor::Array),
-            Type::Application(TypeId(2), TypeId(1)),
-            Type::Record(vec![("values".into(), array_a)]),
-        ],
-        newtype_ids: Vec::new(),
-        opaque_ids: Vec::new(),
-        callable_types: Vec::new(),
-        constructors: vec![ConstructorInfo {
-            symbol: wrap,
-            name: "Wrap".into(),
-            type_id: wrap_type,
-            tag: 0,
-            field_count: 1,
-            field_types: vec![record_a],
-            parameters: Vec::new(),
-        }],
-        declarations: Vec::new(),
-        entry: None,
-        span: psrs_span::TextRange::new(0, 40),
-    };
-    let newtypes = HashSet::new();
-    let enums = enum_type_ids(&module, &newtypes);
-    let aggregates = aggregate_type_ids(&module, &newtypes);
-    assert!(aggregates.contains(&wrap_type));
-    let layout = type_layout(&module, &enums, &aggregates, &newtypes)
-        .expect("parameterized record field layout should be supported");
-    let array_repr = layout.array_types[&array_a];
-    let record_repr = layout.record_types[&record_a];
-    let erased_shape = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Erased,
-    });
-    let canonical_array_shape = ValueShape::Reference(Reference {
-        nullable: false,
-        heap: RefShape::Repr(array_repr),
-    });
-    assert_eq!(
-        layout.representations.representation(array_repr),
-        Some(&Representation::Array {
-            element: erased_shape,
-        })
-    );
-    assert_eq!(
-        layout.representations.representation(record_repr),
-        Some(&Representation::Product {
-            fields: vec![canonical_array_shape],
-        })
-    );
-    let representation = layout.constructor_types[&wrap];
-    assert_eq!(
-        layout.representations.representation(representation),
-        Some(&Representation::Variant {
-            cases: vec![VariantCase {
-                tag: 0,
-                fields: vec![erased_shape],
-            }],
-        })
-    );
-}
-
-#[test]
-fn a_variant_case_may_carry_a_record_payload() {
-    // WIT maps `datetime`, socket addresses, and directory entries to records,
-    // and a variant may carry one as a case payload. The record has its own
-    // representation handle, so the case field is a reference to it.
-    let module_id = ModuleId(0);
-    let wrap_type = HirTypeId::new(module_id, 0);
-    let wrap = SymbolId::new(module_id, 0);
-    let record = TypeId(1);
-    let module = Module {
-        type_names: Vec::new(),
-        id: module_id,
-        name: "RecordPayloadVariantLayoutTest".into(),
-        externals: Vec::new(),
-        types: vec![
-            Type::Constructor(psrs_core::TypeConstructor::Int),
-            Type::Record(vec![("value".into(), TypeId(0))]),
-            Type::Constructor(TypeConstructor::User(wrap_type)),
-        ],
-        newtype_ids: Vec::new(),
-        opaque_ids: Vec::new(),
-        callable_types: Vec::new(),
-        constructors: vec![ConstructorInfo {
-            symbol: wrap,
-            name: "Wrap".into(),
-            type_id: wrap_type,
-            tag: 0,
-            field_count: 1,
-            field_types: vec![record],
-            parameters: Vec::new(),
-        }],
-        declarations: Vec::new(),
-        entry: None,
-        span: psrs_span::TextRange::new(0, 40),
-    };
-    let newtypes = HashSet::new();
-    let enums = enum_type_ids(&module, &newtypes);
-    let aggregates = aggregate_type_ids(&module, &newtypes);
-    assert!(
-        aggregates.contains(&wrap_type),
-        "a variant with a record payload is an aggregate"
-    );
-    let layout = type_layout(&module, &enums, &aggregates, &newtypes)
-        .expect("a record-payload variant should have a layout");
-    let record_repr = layout.record_types[&record];
-    let representation = layout.constructor_types[&wrap];
-    assert_eq!(
-        layout.representations.representation(representation),
-        Some(&Representation::Variant {
-            cases: vec![VariantCase {
-                tag: 0,
-                fields: vec![ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Repr(record_repr),
-                })],
-            }],
-        })
-    );
 }
 
 fn empty_module(types: Vec<Type>) -> Module {
@@ -172,39 +39,6 @@ fn layout_for(module: &Module) -> TypeLayout {
     let enums = enum_type_ids(module, &newtypes);
     let aggregates = aggregate_type_ids(module, &newtypes);
     type_layout(module, &enums, &aggregates, &newtypes).expect("layout should succeed")
-}
-
-#[test]
-fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
-    let module = empty_module(vec![
-        Type::Variable(TypeVariableId(0)),
-        Type::Constructor(psrs_core::TypeConstructor::Int),
-        Type::Record(vec![("x".into(), TypeId(0)), ("y".into(), TypeId(1))]),
-        Type::Record(vec![("y".into(), TypeId(1)), ("x".into(), TypeId(0))]),
-    ]);
-    let layout = layout_for(&module);
-    let first = layout.record_types[&TypeId(2)];
-    let second = layout.record_types[&TypeId(3)];
-    assert_eq!(
-        first, second,
-        "records with the same canonical field set must share a handle"
-    );
-    assert_eq!(
-        layout.representations.product_labels(first),
-        Some(["x".to_owned(), "y".to_owned()].as_slice())
-    );
-    assert_eq!(
-        layout.representations.representation(first),
-        Some(&Representation::Product {
-            fields: vec![
-                ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                }),
-                ValueShape::Integer,
-            ],
-        })
-    );
 }
 
 #[test]

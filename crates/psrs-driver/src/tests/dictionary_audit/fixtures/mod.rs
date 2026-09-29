@@ -39,10 +39,21 @@ pub(super) fn push_arrow(
 /// Appends a record type to a type table and returns its id.
 pub(super) fn push_record(
     types: &mut Vec<thir::Type>,
-    fields: Vec<(String, thir::TypeId)>,
+    mut fields: Vec<(String, thir::TypeId)>,
 ) -> thir::TypeId {
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let row_empty = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in fields.into_iter().rev() {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::RowExtend { label, ty, tail });
+        tail = id;
+    }
+    let head = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Record));
     let id = thir::TypeId(types.len() as u32);
-    types.push(thir::Type::Record(fields));
+    types.push(thir::Type::Application(head, tail));
     id
 }
 

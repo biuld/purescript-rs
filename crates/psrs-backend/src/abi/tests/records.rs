@@ -68,10 +68,19 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     core.types = vec![
         CoreType::Constructor(psrs_core::TypeConstructor::Int),
         CoreType::Constructor(psrs_core::TypeConstructor::Number),
-        CoreType::Record(vec![
-            ("first".into(), CoreTypeId(0)),
-            ("secondValue".into(), CoreTypeId(1)),
-        ]),
+        CoreType::RowEmpty,
+        CoreType::RowExtend {
+            label: "secondValue".into(),
+            ty: CoreTypeId(1),
+            tail: CoreTypeId(2),
+        },
+        CoreType::RowExtend {
+            label: "first".into(),
+            ty: CoreTypeId(0),
+            tail: CoreTypeId(3),
+        },
+        CoreType::Constructor(psrs_core::TypeConstructor::Record),
+        CoreType::Application(CoreTypeId(5), CoreTypeId(4)),
         CoreType::Constructor(psrs_core::TypeConstructor::Unit),
     ];
     let function = HirType {
@@ -110,7 +119,7 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         "a record field of the wrong type must be rejected"
     );
 
-    let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
+    let record_types = std::collections::HashMap::from([(CoreTypeId(6), crate::cc::ReprId(0))]);
     let abstract_signature = crate::cc::abstract_signature(
         Some(type_id),
         &core,
@@ -205,12 +214,7 @@ fn validates_a_list_of_records() {
     )
     .pop()
     .expect("one number");
-    let record = intern_all(
-        &mut module,
-        vec![CoreType::Record(vec![("x".into(), x), ("y".into(), y)])],
-    )
-    .pop()
-    .expect("one record");
+    let record = push_record(&mut module, vec![("x".into(), x), ("y".into(), y)]);
     let array_ctor = intern_all(
         &mut module,
         vec![CoreType::Constructor(TypeConstructor::Array)],

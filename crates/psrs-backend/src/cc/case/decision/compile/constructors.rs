@@ -1,6 +1,5 @@
 use super::matrix::{available_inputs, canonicalize, map_actions, needed_fields, pattern_type};
 use super::*;
-use psrs_core::Type;
 
 impl Compiler<'_> {
     pub(super) fn compile_product(
@@ -349,9 +348,8 @@ impl Compiler<'_> {
 
     pub(super) fn surface(&self, ty: TypeId) -> Result<DecisionSurface, &'static str> {
         match self.module.types.get(ty.0 as usize) {
-            Some(Type::Record(fields)) => {
-                let mut record_fields = fields.clone();
-                record_fields.sort_by(|left, right| left.0.cmp(&right.0));
+            _ if self.module.is_record_type(ty) => {
+                let record_fields = self.module.record_fields(ty).unwrap_or_default();
                 Ok(DecisionSurface {
                     cases: Vec::new(),
                     record_fields,

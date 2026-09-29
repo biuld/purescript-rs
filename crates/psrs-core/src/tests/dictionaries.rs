@@ -22,13 +22,24 @@ fn push_arrow(
 }
 
 fn push_record(types: &mut Vec<thir::Type>, fields: Vec<(&str, thir::TypeId)>) -> thir::TypeId {
+    let mut sorted = fields;
+    sorted.sort_by(|left, right| left.0.cmp(right.0));
+    let row_empty = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in sorted.into_iter().rev() {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::RowExtend {
+            label: label.to_string(),
+            ty,
+            tail,
+        });
+        tail = id;
+    }
+    let head = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Record));
     let id = thir::TypeId(types.len() as u32);
-    types.push(thir::Type::Record(
-        fields
-            .into_iter()
-            .map(|(label, ty)| (label.to_string(), ty))
-            .collect(),
-    ));
+    types.push(thir::Type::Application(head, tail));
     id
 }
 
@@ -190,7 +201,14 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
         externals: Vec::new(),
         types: vec![
             thir::Type::Constructor(thir::TypeConstructor::Int),
-            thir::Type::Record(vec![("value".into(), thir::TypeId(0))]),
+            thir::Type::RowEmpty,
+            thir::Type::RowExtend {
+                label: "value".into(),
+                ty: thir::TypeId(0),
+                tail: thir::TypeId(1),
+            },
+            thir::Type::Constructor(thir::TypeConstructor::Record),
+            thir::Type::Application(thir::TypeId(3), thir::TypeId(2)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -202,13 +220,13 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
                 name: "numberDictionary".into(),
                 name_span: span,
                 quantified: Vec::new(),
-                ty: thir::TypeId(1),
+                ty: thir::TypeId(4),
                 value: typed(
                     thir::ExprKind::Record(vec![(
                         "value".into(),
                         typed(thir::ExprKind::Integer(7), thir::TypeId(0), span),
                     )]),
-                    thir::TypeId(1),
+                    thir::TypeId(4),
                     span,
                 ),
                 span,
@@ -225,10 +243,10 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
                             thir::ExprKind::Evidence(thir::Evidence {
                                 kind: thir::EvidenceKind::Global(dictionary_symbol),
                                 class_id: psrs_hir::TypeId::new(module_id, 0),
-                                ty: thir::TypeId(1),
+                                ty: thir::TypeId(4),
                                 span,
                             }),
-                            thir::TypeId(1),
+                            thir::TypeId(4),
                             span,
                         )),
                         field: "value".into(),

@@ -132,16 +132,9 @@ fn record_type(
             record_type(module, *function, visiting, referenced);
             record_type(module, *argument, visiting, referenced);
         }
-        Some(Type::Record(fields)) => {
-            for (_, field) in fields {
-                record_type(module, *field, visiting, referenced);
-            }
-        }
-        Some(Type::OpenRecord { fields, tail }) => {
+        Some(Type::RowExtend { ty, tail, .. }) => {
+            record_type(module, *ty, visiting, referenced);
             record_type(module, *tail, visiting, referenced);
-            for (_, field) in fields {
-                record_type(module, *field, visiting, referenced);
-            }
         }
         _ => {}
     }

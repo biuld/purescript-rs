@@ -116,14 +116,7 @@ pub(super) fn array_element(id: TypeId, module: &Module) -> Option<TypeId> {
 }
 
 pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<TypeId> {
-    let fields = match module.types.get(id.0 as usize)? {
-        Type::Record(fields) | Type::OpenRecord { fields, .. } => fields,
-        _ => return None,
-    };
-    fields
-        .iter()
-        .find(|(field, _)| field == label)
-        .map(|(_, id)| *id)
+    module.record_field(id, label)
 }
 
 /// The value produced by applying a callable constructor's hidden
@@ -179,32 +172,68 @@ fn types_compatible(
     match (left, right) {
         (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
+        (Type::Application(a1, a2), Type::Application(b1, b2))
+            if is_record_head(module, *a1) && is_record_head(module, *b1) =>
+        {
+            record_rows_compatible(module, *a2, *b2, seen)
+        }
         (Type::Application(a1, a2), Type::Application(b1, b2)) => {
             types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
         }
-        (Type::Record(a), Type::Record(b)) => {
-            a.len() == b.len()
-                && a.iter().all(|(label, ty)| {
-                    b.iter()
-                        .find(|(other, _)| other == label)
-                        .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
-                })
-        }
+        (Type::RowEmpty, Type::RowEmpty) => true,
         (
-            Type::OpenRecord {
-                fields: expected, ..
+            Type::RowExtend {
+                label: left_label,
+                ty: left_ty,
+                tail: left_tail,
             },
-            Type::Record(actual) | Type::OpenRecord { fields: actual, .. },
-        ) => expected.iter().all(|(label, ty)| {
-            // The row tail of `expected` can hold labels the argument still
-            // has. A missing expected label, or a field whose type disagrees,
-            // is not compatible. Tail variables themselves match any type.
-            actual
+            Type::RowExtend {
+                label: right_label,
+                ty: right_ty,
+                tail: right_tail,
+            },
+        ) => {
+            left_label == right_label
+                && types_compatible(*left_ty, *right_ty, module, seen)
+                && types_compatible(*left_tail, *right_tail, module, seen)
+        }
+        _ => false,
+    }
+}
+
+fn is_record_head(module: &Module, id: TypeId) -> bool {
+    matches!(
+        module.types.get(id.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Record))
+    )
+}
+
+/// Compares two record rows. A closed left row requires the same labels as the
+/// right; an open left row requires every one of its labels to be present on the
+/// right. A closed left row is never compatible with an open right row.
+fn record_rows_compatible(
+    module: &Module,
+    left_row: TypeId,
+    right_row: TypeId,
+    seen: &mut HashSet<(TypeId, TypeId)>,
+) -> bool {
+    let (Some((left_fields, left_tail)), Some((right_fields, right_tail))) =
+        (module.row_fields(left_row), module.row_fields(right_row))
+    else {
+        return false;
+    };
+    let mut present = |fields: &[(String, TypeId)]| {
+        left_fields.iter().all(|(label, ty)| {
+            fields
                 .iter()
                 .find(|(other, _)| other == label)
                 .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
-        }),
-        _ => false,
+        })
+    };
+    match (left_tail, right_tail) {
+        (None, None) => left_fields.len() == right_fields.len() && present(&right_fields),
+        (Some(_), _) => present(&right_fields),
+        (None, Some(_)) => false,
     }
 }
 

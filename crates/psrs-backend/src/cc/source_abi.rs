@@ -58,7 +58,9 @@ fn payload_shape(
         return Some(shape);
     }
     Some(match module.types.get(id.0 as usize)? {
-        CoreType::Record(_) => reference(*record_types.get(&id)?),
+        CoreType::Application(_, _) if module.is_record_type(id) => {
+            reference(*record_types.get(&id)?)
+        }
         CoreType::Application(function, _)
             if matches!(
                 module.types.get(function.0 as usize),

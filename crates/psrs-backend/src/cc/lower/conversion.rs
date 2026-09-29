@@ -169,9 +169,16 @@ impl FunctionLowerer<'_> {
                 element: Box::new(element),
             });
         }
-        if let (Some(Type::Record(source_fields)), Some(Type::Record(destination_fields))) =
-            (source, destination)
-        {
+        if self.module.is_record_type(source_type) && self.module.is_record_type(destination_type) {
+            let (Some(source_fields), Some(destination_fields)) = (
+                self.module.record_fields(source_type),
+                self.module.record_fields(destination_type),
+            ) else {
+                return Err(conversion_error(
+                    span,
+                    "record conversion requires closed rows",
+                ));
+            };
             let (Some(source_repr), Some(destination_repr)) = (
                 self.record_types.get(&source_type),
                 self.record_types.get(&destination_type),

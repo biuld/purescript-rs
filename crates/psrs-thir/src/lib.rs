@@ -8,12 +8,14 @@ pub use evidence::{Evidence, EvidenceKind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
-/// A type constructor reference. `Function` is the arrow head; `Array` is the
-/// array head; the scalar constructors name the source primitives; user
-/// constructors are identified by their resolved HIR declaration.
+/// A type constructor reference. `Function` is the arrow head; `Record` is the
+/// record head applied to a row; `Array` is the array head; the scalar
+/// constructors name the source primitives; user constructors are identified by
+/// their resolved HIR declaration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
     Function,
+    Record,
     Array,
     Int,
     Number,
@@ -41,13 +43,61 @@ pub enum Type {
     Variable(TypeVariableId),
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
-    Record(Vec<(String, TypeId)>),
-    /// A record whose row ends in a type variable. The tail is not a runtime
-    /// layout; closed records stay [`Type::Record`].
-    OpenRecord {
-        fields: Vec<(String, TypeId)>,
+    /// The empty row. A closed record's row ends here.
+    RowEmpty,
+    /// A row extended with one labeled field. A record type is
+    /// `Application(Constructor(Record), row)`; a closed row ends in
+    /// [`Type::RowEmpty`] and an open row ends in a [`Type::Variable`].
+    RowExtend {
+        label: String,
+        ty: TypeId,
         tail: TypeId,
     },
+}
+
+/// A row flattened into its fields and its tail. The tail is `None` for a
+/// closed row and `Some(variable)` for an open row.
+pub type RowFields = (Vec<(String, TypeId)>, Option<TypeId>);
+
+/// The row of a record type `Application(Constructor(Record), row)`, or `None`
+/// when `id` is not a record type.
+pub fn record_row(types: &[Type], id: TypeId) -> Option<TypeId> {
+    let Type::Application(function, row) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(function.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Record))
+    )
+    .then_some(*row)
+}
+
+/// Flattens a row into its fields and its tail. The tail is `None` for a closed
+/// row and `Some(variable)` for an open row. `None` is returned when `row`
+/// reaches a node that is neither a row constructor nor a row variable.
+pub fn row_fields(types: &[Type], mut row: TypeId) -> Option<RowFields> {
+    let mut fields = Vec::new();
+    loop {
+        match types.get(row.0 as usize)? {
+            Type::RowEmpty => return Some((fields, None)),
+            Type::RowExtend { label, ty, tail } => {
+                fields.push((label.clone(), *ty));
+                row = *tail;
+            }
+            Type::Variable(_) => return Some((fields, Some(row))),
+            _ => return None,
+        }
+    }
+}
+
+/// The fields of a record type in canonical (label-sorted) order, or `None`
+/// when `id` is not a record type. An open row's fields are those present
+/// before its tail variable.
+pub fn record_fields(types: &[Type], id: TypeId) -> Option<Vec<(String, TypeId)>> {
+    let row = record_row(types, id)?;
+    let (mut fields, _) = row_fields(types, row)?;
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    Some(fields)
 }
 
 /// The parameter and result of an arrow type `a -> b`, spelled as the
@@ -238,15 +288,8 @@ impl Module {
                     verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
                     verify_type_id(*result, self.types.len(), self.span, &mut errors);
                 }
-                Type::Record(fields) => {
-                    for (_, field) in fields {
-                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
-                    }
-                }
-                Type::OpenRecord { fields, tail } => {
-                    for (_, field) in fields {
-                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
-                    }
+                Type::RowExtend { ty, tail, .. } => {
+                    verify_type_id(*ty, self.types.len(), self.span, &mut errors);
                     verify_type_id(*tail, self.types.len(), self.span, &mut errors);
                 }
                 _ => {}
@@ -348,7 +391,7 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
         EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
         EvidenceKind::Superclass { parent, field } => {
             verify_evidence(parent, types, errors);
-            let Some(Type::Record(fields)) = types.get(parent.ty.0 as usize) else {
+            let Some(fields) = record_fields(types, parent.ty) else {
                 errors.push(VerifyError {
                     span: evidence.span,
                     message: "superclass evidence parent is not a dictionary record",

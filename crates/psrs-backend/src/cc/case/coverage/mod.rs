@@ -211,16 +211,14 @@ fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
                 .collect(),
         );
     }
-    match module.types.get(ty.0 as usize)? {
-        Type::Record(fields) => Some(vec![Shape {
-            head: Head::Record,
-            fields: fields
-                .iter()
-                .map(|(label, ty)| (Some(label.clone()), *ty))
-                .collect(),
-        }]),
-        _ => None,
-    }
+    let fields = module.record_fields(ty)?;
+    Some(vec![Shape {
+        head: Head::Record,
+        fields: fields
+            .iter()
+            .map(|(label, ty)| (Some(label.clone()), *ty))
+            .collect(),
+    }])
 }
 
 fn user_type_id(module: &Module, mut ty: TypeId) -> Option<HirTypeId> {

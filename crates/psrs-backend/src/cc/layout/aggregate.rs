@@ -3,7 +3,7 @@ use super::scalar::scalar_type;
 use super::{array_element_type, depends_on_type_variable};
 use crate::BackendError;
 use crate::cc::{RefShape, ReprId, Representation, RepresentationTable, SignatureId, ValueShape};
-use psrs_core::{Module, Type, TypeId};
+use psrs_core::{Module, TypeId};
 use psrs_hir::TypeId as HirTypeId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -28,11 +28,11 @@ pub(super) fn reserve_aggregate_layouts(
 ) -> AggregateLayouts {
     let mut arrays = HashMap::new();
     let mut records = HashMap::new();
-    for (index, ty) in module.types.iter().enumerate() {
+    for index in 0..module.types.len() {
         let id = TypeId(index as u32);
         if array_element_type(module, id).is_some() {
             arrays.insert(id, representations.reserve());
-        } else if matches!(ty, Type::Record(_)) {
+        } else if module.is_record_type(id) && !module.record_is_open(id).unwrap_or(false) {
             records.insert(id, representations.reserve());
         }
     }
@@ -136,7 +136,7 @@ impl Builder<'_> {
                     None,
                 )
             } else {
-                let Some(Type::Record(fields)) = self.module.types.get(id.0 as usize) else {
+                let Some(fields) = self.module.record_fields(id) else {
                     self.active.remove(&id);
                     return Err(layout_error(
                         span,
