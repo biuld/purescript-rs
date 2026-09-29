@@ -1,5 +1,6 @@
 use super::{
-    depends_on_type_variable, is_callable_type, layout_error, newtype_field_type, user_type_id,
+    depends_on_type_variable, is_callable_type, layout_error, newtype_field_type,
+    primitive_shape_of, user_type_id,
 };
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
@@ -58,23 +59,13 @@ pub(crate) fn declaration_shape(
             result: callable_value_shape(module, ty, declaration.span, function_types)?,
         });
     }
+    if let Some(shape) = primitive_shape_of(module, ty) {
+        return Ok(Signature {
+            parameters,
+            result: shape,
+        });
+    }
     match module.types.get(ty.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::Unit) => Ok(Signature {
-            parameters,
-            result: ValueShape::Integer,
-        }),
-        Some(Type::String) => Ok(Signature {
-            parameters,
-            result: ValueShape::String,
-        }),
-        Some(Type::F64) => Ok(Signature {
-            parameters,
-            result: ValueShape::Number,
-        }),
-        Some(Type::Boolean) => Ok(Signature {
-            parameters,
-            result: ValueShape::Boolean,
-        }),
         Some(Type::Variable(_)) => Ok(Signature {
             parameters,
             result: ValueShape::Reference(Reference {
@@ -224,11 +215,10 @@ pub(crate) fn scalar_type(
     if is_callable_type(module, id) {
         return callable_value_shape(module, id, span, function_types);
     }
+    if let Some(shape) = primitive_shape_of(module, id) {
+        return Ok(shape);
+    }
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Char | Type::Unit) => Ok(ValueShape::Integer),
-        Some(Type::String) => Ok(ValueShape::String),
-        Some(Type::F64) => Ok(ValueShape::Number),
-        Some(Type::Boolean) => Ok(ValueShape::Boolean),
         Some(Type::Variable(_)) => Ok(ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Erased,

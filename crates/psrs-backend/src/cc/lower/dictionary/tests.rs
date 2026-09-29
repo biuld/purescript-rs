@@ -160,7 +160,10 @@ fn dictionary_evidence_module() -> thir::Module {
     let span = TextRange::new(0, 32);
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let ord_dictionary = push_record(

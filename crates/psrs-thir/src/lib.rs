@@ -9,13 +9,29 @@ pub use evidence::{Evidence, EvidenceKind};
 pub struct TypeId(pub u32);
 
 /// A type constructor reference. `Function` is the arrow head; `Array` is the
-/// only other built-in constructor the current type system elaborates; user
+/// array head; the scalar constructors name the source primitives; user
 /// constructors are identified by their resolved HIR declaration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
     Function,
     Array,
+    Int,
+    Number,
+    Boolean,
+    String,
+    Char,
+    Unit,
     User(HirTypeId),
+}
+
+impl TypeConstructor {
+    /// Whether this constructor names one of the source primitive scalars.
+    pub fn is_primitive(self) -> bool {
+        matches!(
+            self,
+            Self::Int | Self::Number | Self::Boolean | Self::String | Self::Char | Self::Unit
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -23,12 +39,6 @@ pub enum Type {
     /// A generalized type variable. See [`Declaration::quantified`] and
     /// [`Binding::quantified`] for the variables bound at each site.
     Variable(TypeVariableId),
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
     Record(Vec<(String, TypeId)>),

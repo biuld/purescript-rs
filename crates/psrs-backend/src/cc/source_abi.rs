@@ -54,11 +54,10 @@ fn payload_shape(
     array_types: &HashMap<TypeId, ReprId>,
     type_reprs: &HashMap<HirTypeId, ReprId>,
 ) -> Option<ValueShape> {
+    if let Some(shape) = super::layout::primitive_shape_of(module, id) {
+        return Some(shape);
+    }
     Some(match module.types.get(id.0 as usize)? {
-        CoreType::I32 | CoreType::Char | CoreType::Unit => ValueShape::Integer,
-        CoreType::Boolean => ValueShape::Boolean,
-        CoreType::F64 => ValueShape::Number,
-        CoreType::String => ValueShape::String,
         CoreType::Record(_) => reference(*record_types.get(&id)?),
         CoreType::Application(function, _)
             if matches!(

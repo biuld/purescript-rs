@@ -26,7 +26,7 @@ impl Checker {
             && matches!(**function, InferType::Constructor(TypeConstructor::Effect))
         {
             let argument = (**argument).clone();
-            let binder_ty = InferType::I32;
+            let binder_ty = InferType::Constructor(TypeConstructor::Int);
             self.locals
                 .insert(binder.id, Scheme::monomorphic(binder_ty.clone()));
             let body = self.infer_expr_with_expected(body, Some(argument.clone()));
@@ -47,17 +47,19 @@ impl Checker {
                 span: expression.span,
             });
         }
-        let InferType::Function(parameter, result) = expected else {
+        let InferType::Application(inner, result) = expected else {
             return self.infer_expr(expression);
         };
-        let parameter = *parameter;
+        let Some((parameter, _)) = infer_arrow_parts(&inner, &result) else {
+            return self.infer_expr(expression);
+        };
         let body_expected = Some(*result);
         self.locals
             .insert(binder.id, Scheme::monomorphic(parameter.clone()));
         let body = self.infer_expr_with_expected(body, body_expected);
         self.locals.remove(&binder.id);
         let body = body?;
-        let ty = InferType::Function(Box::new(parameter.clone()), Box::new(body.ty.clone()));
+        let ty = arrow(parameter.clone(), body.ty.clone());
         Some(InferredExpr {
             kind: InferredExprKind::Lambda {
                 binder: InferredBinder {

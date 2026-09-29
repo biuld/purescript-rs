@@ -158,7 +158,7 @@ impl Checker {
             let mut ty = result;
             for field in constructor.fields.iter().rev() {
                 let field = self.elaborate_type(field, &mut variables);
-                ty = InferType::Function(Box::new(field), Box::new(ty));
+                ty = arrow(field, ty);
             }
             let scheme = self.generalize(&ty, TOP_LEVEL);
             self.globals.insert(constructor.symbol, scheme);
@@ -192,12 +192,14 @@ impl Checker {
                 } else {
                     let external = self.external_kinds.get(symbol).cloned();
                     match external {
-                        Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => {
-                            (InferredExprKind::Boolean(true), InferType::Boolean)
-                        }
-                        Some(ExternalKind::Intrinsic(Intrinsic::BoolFalse)) => {
-                            (InferredExprKind::Boolean(false), InferType::Boolean)
-                        }
+                        Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => (
+                            InferredExprKind::Boolean(true),
+                            InferType::Constructor(TypeConstructor::Boolean),
+                        ),
+                        Some(ExternalKind::Intrinsic(Intrinsic::BoolFalse)) => (
+                            InferredExprKind::Boolean(false),
+                            InferType::Constructor(TypeConstructor::Boolean),
+                        ),
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
                             self.intrinsic_type(intrinsic)?,
@@ -227,7 +229,10 @@ impl Checker {
                 }
             }
             hir::ExprKind::Integer(text) => match text.parse::<i32>() {
-                Ok(value) => (InferredExprKind::Integer(value), InferType::I32),
+                Ok(value) => (
+                    InferredExprKind::Integer(value),
+                    InferType::Constructor(TypeConstructor::Int),
+                ),
                 Err(_) => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
@@ -238,7 +243,10 @@ impl Checker {
                 }
             },
             hir::ExprKind::Number(text) => match text.parse::<f64>() {
-                Ok(_) => (InferredExprKind::Number(text.clone()), InferType::F64),
+                Ok(_) => (
+                    InferredExprKind::Number(text.clone()),
+                    InferType::Constructor(TypeConstructor::Number),
+                ),
                 Err(_) => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NumberOutOfRange,
@@ -248,9 +256,10 @@ impl Checker {
                     return None;
                 }
             },
-            hir::ExprKind::String(value) => {
-                (InferredExprKind::String(value.clone()), InferType::String)
-            }
+            hir::ExprKind::String(value) => (
+                InferredExprKind::String(value.clone()),
+                InferType::Constructor(TypeConstructor::String),
+            ),
             hir::ExprKind::Array(elements) => {
                 if elements.is_empty() {
                     // The element type is a fresh variable. A signature or a
@@ -293,7 +302,10 @@ impl Checker {
             hir::ExprKind::FieldAccess { expression, field } => {
                 self.infer_field_access(expression, field, span)?
             }
-            hir::ExprKind::Char(value) => (InferredExprKind::Char(*value), InferType::Char),
+            hir::ExprKind::Char(value) => (
+                InferredExprKind::Char(*value),
+                InferType::Constructor(TypeConstructor::Char),
+            ),
             hir::ExprKind::Application(function, argument) => {
                 let function = self.infer_expr(function);
                 let argument = self.infer_expr(argument);
@@ -301,10 +313,7 @@ impl Checker {
                 if let (Some(function), Some(argument)) = (&function, &argument) {
                     self.unify(
                         function.ty.clone(),
-                        InferType::Function(
-                            Box::new(argument.ty.clone()),
-                            Box::new(result_ty.clone()),
-                        ),
+                        arrow(argument.ty.clone(), result_ty.clone()),
                         span,
                     );
                 }
@@ -328,8 +337,7 @@ impl Checker {
                 let body = self.infer_expr(body);
                 self.locals.remove(&binder.id);
                 let body = body?;
-                let ty =
-                    InferType::Function(Box::new(binder_ty.clone()), Box::new(body.ty.clone()));
+                let ty = arrow(binder_ty.clone(), body.ty.clone());
                 (
                     InferredExprKind::Lambda {
                         binder: InferredBinder {
@@ -396,7 +404,11 @@ impl Checker {
                 let then_branch = self.infer_expr(then_branch);
                 let else_branch = self.infer_expr(else_branch);
                 if let Some(condition) = &condition {
-                    self.unify(condition.ty.clone(), InferType::Boolean, condition.span);
+                    self.unify(
+                        condition.ty.clone(),
+                        InferType::Constructor(TypeConstructor::Boolean),
+                        condition.span,
+                    );
                 }
                 if let (Some(then_branch), Some(else_branch)) = (&then_branch, &else_branch) {
                     self.unify(then_branch.ty.clone(), else_branch.ty.clone(), span);

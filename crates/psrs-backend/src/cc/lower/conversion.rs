@@ -396,7 +396,10 @@ mod tests {
             id: ModuleId(0),
             name: "ConversionDiagnostic".into(),
             externals: Vec::new(),
-            types: vec![Type::I32, Type::F64],
+            types: vec![
+                Type::Constructor(psrs_core::TypeConstructor::Int),
+                Type::Constructor(psrs_core::TypeConstructor::Number),
+            ],
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),
             callable_types: Vec::new(),

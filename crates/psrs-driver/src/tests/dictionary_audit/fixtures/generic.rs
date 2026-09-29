@@ -18,7 +18,10 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let variable = {
@@ -29,7 +32,7 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
     let identity_type = push_arrow(&mut types, variable, variable);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 
@@ -143,7 +146,10 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let variable = {
         let id = thir::TypeId(types.len() as u32);
         types.push(thir::Type::Variable(TypeVariableId(0)));
@@ -153,7 +159,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let dictionary = push_record(&mut types, vec![("poly".into(), method)]);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 

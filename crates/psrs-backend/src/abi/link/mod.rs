@@ -18,12 +18,24 @@ pub(crate) fn intern_source_type(module: &mut CoreModule, ty: &HirType) -> Optio
 
 fn intern_into(types: &mut Vec<CoreType>, ty: &HirType) -> Option<CoreTypeId> {
     let core = match &ty.kind {
-        HirTypeKind::Constructor(BuiltinType::Int) => CoreType::I32,
-        HirTypeKind::Constructor(BuiltinType::Boolean) => CoreType::Boolean,
-        HirTypeKind::Constructor(BuiltinType::Number) => CoreType::F64,
-        HirTypeKind::Constructor(BuiltinType::Char) => CoreType::Char,
-        HirTypeKind::Constructor(BuiltinType::String) => CoreType::String,
-        HirTypeKind::Constructor(BuiltinType::Unit) => CoreType::Unit,
+        HirTypeKind::Constructor(BuiltinType::Int) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::Int)
+        }
+        HirTypeKind::Constructor(BuiltinType::Boolean) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean)
+        }
+        HirTypeKind::Constructor(BuiltinType::Number) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::Number)
+        }
+        HirTypeKind::Constructor(BuiltinType::Char) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::Char)
+        }
+        HirTypeKind::Constructor(BuiltinType::String) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::String)
+        }
+        HirTypeKind::Constructor(BuiltinType::Unit) => {
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit)
+        }
         HirTypeKind::Constructor(BuiltinType::Array) => {
             CoreType::Constructor(TypeConstructor::Array)
         }
@@ -76,13 +88,14 @@ fn is_array_constructor(types: &[CoreType], id: CoreTypeId) -> bool {
 
 fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
     match types.get(id.0 as usize) {
+        // `Unit` is a primitive but has no canonical list element.
+        Some(CoreType::Constructor(constructor))
+            if constructor.is_primitive() && *constructor != TypeConstructor::Unit =>
+        {
+            true
+        }
         Some(
-            CoreType::I32
-            | CoreType::Boolean
-            | CoreType::F64
-            | CoreType::Char
-            | CoreType::String
-            | CoreType::Record(_)
+            CoreType::Record(_)
             // A nullary enum or an opaque handle. The interner only admits
             // `Named` for a nullary enum, so a field-bearing type never
             // reaches here.

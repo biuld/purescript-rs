@@ -47,8 +47,8 @@ fn aggregate_module() -> psrs_core::Module {
     let _ = intern_all(
         &mut module,
         vec![
-            CoreType::I32,
-            CoreType::String,
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+            CoreType::Constructor(psrs_core::TypeConstructor::String),
             CoreType::Constructor(TypeConstructor::User(shape)),
         ],
     );
@@ -168,7 +168,10 @@ fn validates_option_result_and_variant_parameters() {
         &mut module,
         CoreType::Constructor(TypeConstructor::User(user(2))),
     );
-    let unit = append(&mut module, CoreType::Unit);
+    let unit = append(
+        &mut module,
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+    );
 
     let option = aggregate_import("option", vec![option_type()]);
     let function = function_type(&mut module, &[maybe_string], unit);
@@ -213,7 +216,10 @@ fn validates_a_unit_success_result_as_either_unit() {
     // DEC-13: `result<_, E>` maps to `Either E Unit`, with the error on `Left`,
     // not to a trapping `Unit`.
     let mut module = aggregate_module();
-    let unit = append(&mut module, CoreType::Unit);
+    let unit = append(
+        &mut module,
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+    );
     let either_head = append(
         &mut module,
         CoreType::Constructor(TypeConstructor::User(user(1))),

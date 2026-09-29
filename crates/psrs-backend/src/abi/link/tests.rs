@@ -14,13 +14,13 @@ fn module() -> CoreModule {
         name: "Main".into(),
         externals: Vec::new(),
         types: vec![
-            CoreType::I32,
-            CoreType::F64,
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+            CoreType::Constructor(psrs_core::TypeConstructor::Number),
             CoreType::Record(vec![
                 ("first".into(), CoreTypeId(0)),
                 ("secondValue".into(), CoreTypeId(1)),
             ]),
-            CoreType::Unit,
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

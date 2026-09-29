@@ -41,10 +41,19 @@ fn classifies_narrow_and_unsigned_wit_integers() {
         vec![int(8, false)],
         None,
     );
-    validate_core(&import, vec![CoreType::I32], CoreType::Unit)
-        .expect("a narrowed WIT integer accepts source Int");
+    validate_core(
+        &import,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+    )
+    .expect("a narrowed WIT integer accepts source Int");
     assert!(
-        validate_core(&import, vec![CoreType::Boolean], CoreType::Unit).is_err(),
+        validate_core(
+            &import,
+            vec![CoreType::Constructor(psrs_core::TypeConstructor::Boolean)],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit)
+        )
+        .is_err(),
         "a narrowed WIT integer rejects a Boolean"
     );
 }

@@ -46,12 +46,12 @@ impl Checker {
                 variable
             }
             hir::TypeKind::Constructor(builtin) => match builtin {
-                hir::BuiltinType::Int => InferType::I32,
-                hir::BuiltinType::Number => InferType::F64,
-                hir::BuiltinType::Boolean => InferType::Boolean,
-                hir::BuiltinType::String => InferType::String,
-                hir::BuiltinType::Char => InferType::Char,
-                hir::BuiltinType::Unit => InferType::Unit,
+                hir::BuiltinType::Int => InferType::Constructor(TypeConstructor::Int),
+                hir::BuiltinType::Number => InferType::Constructor(TypeConstructor::Number),
+                hir::BuiltinType::Boolean => InferType::Constructor(TypeConstructor::Boolean),
+                hir::BuiltinType::String => InferType::Constructor(TypeConstructor::String),
+                hir::BuiltinType::Char => InferType::Constructor(TypeConstructor::Char),
+                hir::BuiltinType::Unit => InferType::Constructor(TypeConstructor::Unit),
                 hir::BuiltinType::Array => InferType::Constructor(TypeConstructor::Array),
                 hir::BuiltinType::Type
                 | hir::BuiltinType::Constraint
@@ -117,9 +117,9 @@ impl Checker {
                     Box::new(self.elaborate_type_mode(argument, variables, rigid_variables)),
                 )
             }
-            hir::TypeKind::Function { parameter, result } => InferType::Function(
-                Box::new(self.elaborate_type_mode(parameter, variables, rigid_variables)),
-                Box::new(self.elaborate_type_mode(result, variables, rigid_variables)),
+            hir::TypeKind::Function { parameter, result } => arrow(
+                self.elaborate_type_mode(parameter, variables, rigid_variables),
+                self.elaborate_type_mode(result, variables, rigid_variables),
             ),
             hir::TypeKind::Forall { body, .. } => {
                 self.elaborate_type_mode(body, variables, rigid_variables)

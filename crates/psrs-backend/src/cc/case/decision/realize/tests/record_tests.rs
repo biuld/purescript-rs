@@ -30,7 +30,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
                 ("active".into(), psrs_core::TypeId(1)),
             ]),
             Type::Constructor(TypeConstructor::User(bool_type)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

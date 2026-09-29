@@ -39,7 +39,10 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
     let eq_class = psrs_hir::TypeId::new(module_id, 0);
     let ord_class = psrs_hir::TypeId::new(module_id, 1);
     let span = TextRange::new(0, 20);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let i32_to_boolean = push_arrow(&mut types, thir::TypeId(0), thir::TypeId(1));
     let dictionary = push_record(&mut types, vec![("isPositive", i32_to_boolean)]);
     let parent_dictionary = push_record(
@@ -186,7 +189,7 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
         name: "Main".into(),
         externals: Vec::new(),
         types: vec![
-            thir::Type::I32,
+            thir::Type::Constructor(thir::TypeConstructor::Int),
             thir::Type::Record(vec![("value".into(), thir::TypeId(0))]),
         ],
         newtype_ids: Vec::new(),

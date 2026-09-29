@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[test]
 fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans() {
     let int_type = TypeId(0);
-    let mut types = vec![Type::I32];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let argument = trace_call(function_type.0, int_type.0, 42, 25);
@@ -268,7 +268,7 @@ fn evaluate(
 #[test]
 fn named_global_recursion_stays_as_a_call() {
     let int_type = TypeId(0);
-    let mut types = vec![Type::I32];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let call = expression(
@@ -333,7 +333,10 @@ fn named_global_recursion_stays_as_a_call() {
 fn leaves_case_bodies_out_of_global_inlining_to_keep_diagnostics_singular() {
     let boolean_type = TypeId(0);
     let int_type = TypeId(1);
-    let mut types = vec![Type::Boolean, Type::I32];
+    let mut types = vec![
+        Type::Constructor(crate::TypeConstructor::Boolean),
+        Type::Constructor(crate::TypeConstructor::Int),
+    ];
     let function_type = arrow_type(&mut types, boolean_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let call = expression(

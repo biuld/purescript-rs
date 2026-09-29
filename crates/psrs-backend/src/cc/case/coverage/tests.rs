@@ -91,7 +91,7 @@ fn reports_the_missing_nullary_constructor() {
     let module = module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Red", 0, Vec::new()),
@@ -109,7 +109,7 @@ fn recognizes_exhaustive_nested_constructor_patterns() {
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
             Type::Constructor(TypeConstructor::User(hir_type_id(1))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Wrap", 0, vec![TypeId(1)]),
@@ -144,7 +144,7 @@ fn reports_a_nested_missing_constructor() {
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
             Type::Constructor(TypeConstructor::User(hir_type_id(1))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Wrap", 0, vec![TypeId(1)]),
@@ -169,7 +169,7 @@ fn record_products_are_covered_fieldwise_and_duplicate_rows_are_redundant() {
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
             Type::Record(vec![("color".to_owned(), TypeId(0))]),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Red", 0, Vec::new()),
@@ -204,7 +204,7 @@ fn recursive_adt_wildcard_coverage_terminates() {
     let module = module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Cons", 0, vec![TypeId(0)]),
@@ -220,7 +220,7 @@ fn recursive_adt_analysis_finds_a_finite_uncovered_witness() {
     let module = module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Cons", 0, vec![TypeId(0)]),
@@ -249,7 +249,7 @@ fn recursive_module() -> Module {
     module(
         vec![
             Type::Constructor(TypeConstructor::User(hir_type_id(0))),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         vec![
             constructor(0, "Cons", 0, vec![TypeId(0)]),

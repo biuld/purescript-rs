@@ -8,6 +8,20 @@ use std::collections::HashMap;
 
 mod dictionary;
 
+fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::TypeConstructor {
+    match constructor {
+        psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
+        psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
+        psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
+        psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
+        psrs_thir::TypeConstructor::Boolean => crate::TypeConstructor::Boolean,
+        psrs_thir::TypeConstructor::String => crate::TypeConstructor::String,
+        psrs_thir::TypeConstructor::Char => crate::TypeConstructor::Char,
+        psrs_thir::TypeConstructor::Unit => crate::TypeConstructor::Unit,
+        psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
+    }
+}
+
 fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -34,17 +48,9 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         .cloned()
         .map(|ty| match ty {
             psrs_thir::Type::Variable(variable) => Type::Variable(variable),
-            psrs_thir::Type::I32 => Type::I32,
-            psrs_thir::Type::F64 => Type::F64,
-            psrs_thir::Type::Boolean => Type::Boolean,
-            psrs_thir::Type::String => Type::String,
-            psrs_thir::Type::Char => Type::Char,
-            psrs_thir::Type::Unit => Type::Unit,
-            psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
-                psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
-                psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
-                psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
-            }),
+            psrs_thir::Type::Constructor(constructor) => {
+                Type::Constructor(lower_type_constructor(constructor))
+            }
             psrs_thir::Type::Application(function, argument) => {
                 Type::Application(TypeId(function.0), TypeId(argument.0))
             }

@@ -19,7 +19,10 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let ord_dictionary = push_record(
@@ -33,7 +36,7 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
     let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 
@@ -181,7 +184,10 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let ord_dictionary = push_record(
@@ -191,7 +197,7 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
     let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 

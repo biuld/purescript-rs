@@ -112,21 +112,34 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     );
     validate(
         &import,
-        vec![CoreType::I32, CoreType::String],
-        CoreType::Unit,
+        vec![
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+            CoreType::Constructor(psrs_core::TypeConstructor::String),
+        ],
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
     )
     .expect("option<string> flattens to Int -> String -> Unit");
 
     assert!(
         validate(
             &import,
-            vec![CoreType::Char, CoreType::String],
-            CoreType::Unit,
+            vec![
+                CoreType::Constructor(psrs_core::TypeConstructor::Char),
+                CoreType::Constructor(psrs_core::TypeConstructor::String)
+            ],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit),
         )
         .is_err(),
         "Char is not the option discriminant"
     );
-    assert!(validate(&import, vec![CoreType::Record(vec![])], CoreType::Unit).is_err());
+    assert!(
+        validate(
+            &import,
+            vec![CoreType::Record(vec![])],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit)
+        )
+        .is_err()
+    );
 
     let named = HirType {
         kind: HirTypeKind::Function {
@@ -205,7 +218,12 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
     assert_eq!(read.canonical_result, Some(option(CanonicalType::String)));
     assert!(read.unsupported.is_none());
     assert!(
-        validate(&read, Vec::new(), CoreType::String).is_err(),
+        validate(
+            &read,
+            Vec::new(),
+            CoreType::Constructor(psrs_core::TypeConstructor::String)
+        )
+        .is_err(),
         "a bare String is not the mapped Maybe String"
     );
 
@@ -226,11 +244,36 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         flat_leaves_of(&take.params),
         vec![FlatLeaf::Int32, FlatLeaf::Handle]
     );
-    validate(&take, vec![CoreType::I32, CoreType::I32], CoreType::Unit)
-        .expect("a handle payload is declared as Int");
-    assert!(validate(&take, vec![CoreType::Char, CoreType::I32], CoreType::Unit,).is_err());
+    validate(
+        &take,
+        vec![
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        ],
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+    )
+    .expect("a handle payload is declared as Int");
     assert!(
-        validate(&take, vec![CoreType::I32, CoreType::Char], CoreType::Unit,).is_err(),
+        validate(
+            &take,
+            vec![
+                CoreType::Constructor(psrs_core::TypeConstructor::Char),
+                CoreType::Constructor(psrs_core::TypeConstructor::Int)
+            ],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+        )
+        .is_err()
+    );
+    assert!(
+        validate(
+            &take,
+            vec![
+                CoreType::Constructor(psrs_core::TypeConstructor::Int),
+                CoreType::Constructor(psrs_core::TypeConstructor::Char)
+            ],
+            CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+        )
+        .is_err(),
         "a handle slot is not a Char"
     );
 }

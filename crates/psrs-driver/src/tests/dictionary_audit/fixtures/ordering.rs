@@ -19,7 +19,10 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let dict_a = push_record(&mut types, vec![("a".into(), method)]);
     let dict_b = push_record(&mut types, vec![("b".into(), method)]);
@@ -28,7 +31,7 @@ pub(crate) fn ordered_dictionaries_module() -> (thir::Module, SymbolId) {
     let constrained_type = push_arrow(&mut types, dict_a, tail_after_b);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 
@@ -187,7 +190,10 @@ pub(crate) fn shared_dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
     let method = push_arrow(&mut types, integer, boolean);
     let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
     let ord_dictionary = push_record(
@@ -201,7 +207,7 @@ pub(crate) fn shared_dictionary_module() -> (thir::Module, SymbolId) {
     let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
-        types.push(thir::Type::I32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
         id
     };
 

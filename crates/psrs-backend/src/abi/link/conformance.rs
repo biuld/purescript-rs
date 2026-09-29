@@ -79,17 +79,7 @@ fn core(module: &CoreModule, id: CoreTypeId) -> Option<&CoreType> {
 }
 
 fn is_primitive(module: &CoreModule, id: CoreTypeId) -> bool {
-    matches!(
-        core(module, id),
-        Some(
-            CoreType::I32
-                | CoreType::Boolean
-                | CoreType::F64
-                | CoreType::Char
-                | CoreType::String
-                | CoreType::Unit
-        )
-    )
+    matches!(core(module, id), Some(CoreType::Constructor(c)) if c.is_primitive())
 }
 
 fn validate_primitive_flattening(
@@ -97,10 +87,12 @@ fn validate_primitive_flattening(
     module: &CoreModule,
     parameters: &[CoreTypeId],
 ) -> Result<(), String> {
-    if parameters
-        .iter()
-        .any(|id| matches!(core(module, *id), Some(CoreType::Unit)))
-    {
+    if parameters.iter().any(|id| {
+        matches!(
+            core(module, *id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Unit))
+        )
+    }) {
         return Err(format!(
             "WIT import `{}` uses Unit as a parameter, but Unit is not a canonical parameter",
             import.name
@@ -147,7 +139,10 @@ fn validate_zipped_parameters(
 fn core_matches_result(module: &CoreModule, result: CoreTypeId, import: &WasiImport) -> bool {
     match &import.canonical_result {
         // A function with no WIT result maps to source `Unit`.
-        None => matches!(core(module, result), Some(CoreType::Unit)),
+        None => matches!(
+            core(module, result),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Unit))
+        ),
         // Every `result`, including a unit-success `result<_, E>`, maps to a
         // source `Either`; the unit position is the `Unit` payload (DEC-13).
         Some(ty) => core_matches_kind(module, result, ty),
@@ -162,22 +157,43 @@ fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) ->
         return core_matches_kind(module, inner, ty);
     }
     match ty {
-        CanonicalType::Int { .. } => matches!(core(module, id), Some(CoreType::I32)),
-        CanonicalType::Bool => matches!(core(module, id), Some(CoreType::Boolean)),
-        CanonicalType::Char => matches!(core(module, id), Some(CoreType::Char)),
-        CanonicalType::Float { .. } => matches!(core(module, id), Some(CoreType::F64)),
+        CanonicalType::Int { .. } => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Int))
+        ),
+        CanonicalType::Bool => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Boolean))
+        ),
+        CanonicalType::Char => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Char))
+        ),
+        CanonicalType::Float { .. } => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Number))
+        ),
         CanonicalType::Enum(cases) => {
             core_enum_cases(module, id).as_ref() == Some(&wit_cases(cases))
         }
         CanonicalType::Flags(names) => core_matches_flags(module, id, names),
         CanonicalType::Record(fields) => core_matches_record(module, id, fields),
         CanonicalType::Handle { .. } => core_is_handle(module, id),
-        CanonicalType::String => matches!(core(module, id), Some(CoreType::String)),
+        CanonicalType::String => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
+        ),
         CanonicalType::List(element) if element.is_byte() => {
-            matches!(core(module, id), Some(CoreType::String))
+            matches!(
+                core(module, id),
+                Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
+            )
         }
         CanonicalType::FixedList { element, .. } if element.is_byte() => {
-            matches!(core(module, id), Some(CoreType::String))
+            matches!(
+                core(module, id),
+                Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
+            )
         }
         CanonicalType::List(element) => match core(module, id) {
             Some(CoreType::Application(function, argument)) if is_array(module, *function) => {
@@ -220,7 +236,7 @@ fn newtype_underlying(module: &CoreModule, id: CoreTypeId) -> Option<CoreTypeId>
 
 fn core_is_handle(module: &CoreModule, id: CoreTypeId) -> bool {
     match core(module, id) {
-        Some(CoreType::I32) => true,
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::Int)) => true,
         Some(CoreType::Constructor(TypeConstructor::User(type_id))) => {
             module.opaque_ids.contains(type_id)
         }
@@ -245,7 +261,11 @@ fn core_matches_flags(module: &CoreModule, id: CoreTypeId, names: &[String]) -> 
         && names.iter().all(|name| {
             let source_name = source_field_name(name);
             fields.iter().any(|(label, field)| {
-                label == &source_name && matches!(core(module, *field), Some(CoreType::Boolean))
+                label == &source_name
+                    && matches!(
+                        core(module, *field),
+                        Some(CoreType::Constructor(psrs_core::TypeConstructor::Boolean))
+                    )
             })
         })
 }
@@ -357,7 +377,10 @@ fn core_matches_payload(
 ) -> bool {
     match payload {
         Some(ty) => core_matches_kind(module, id, ty),
-        None => matches!(core(module, id), Some(CoreType::Unit)),
+        None => matches!(
+            core(module, id),
+            Some(CoreType::Constructor(psrs_core::TypeConstructor::Unit))
+        ),
     }
 }
 
@@ -445,14 +468,20 @@ fn consume(module: &CoreModule, id: CoreTypeId, leaves: &[FlatLeaf], index: &mut
         return false;
     };
     match core(module, id) {
-        Some(CoreType::I32) => matches!(
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::Int)) => matches!(
             leaf,
             FlatLeaf::Int32 | FlatLeaf::Int64 { .. } | FlatLeaf::Handle
         ),
-        Some(CoreType::Boolean) => matches!(leaf, FlatLeaf::Boolean),
-        Some(CoreType::Char) => matches!(leaf, FlatLeaf::Char),
-        Some(CoreType::F64) => matches!(leaf, FlatLeaf::Float32 | FlatLeaf::Float64),
-        Some(CoreType::String) => {
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::Boolean)) => {
+            matches!(leaf, FlatLeaf::Boolean)
+        }
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::Char)) => {
+            matches!(leaf, FlatLeaf::Char)
+        }
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::Number)) => {
+            matches!(leaf, FlatLeaf::Float32 | FlatLeaf::Float64)
+        }
+        Some(CoreType::Constructor(psrs_core::TypeConstructor::String)) => {
             let length = leaves.get(*index + 1);
             if matches!((leaf, length), (FlatLeaf::Pointer, Some(FlatLeaf::Length))) {
                 *index += 2;

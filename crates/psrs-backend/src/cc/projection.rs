@@ -80,11 +80,10 @@ impl Projector<'_> {
         if super::layout::is_callable_type(self.module, id) {
             return Err("function types have no canonical guest layout".into());
         }
+        if let Some(shape) = super::layout::primitive_shape_of(self.module, id) {
+            return Ok(scalar(shape));
+        }
         match self.module.types.get(id.0 as usize) {
-            Some(Type::I32 | Type::Char | Type::Unit) => Ok(scalar(ValueShape::Integer)),
-            Some(Type::Boolean) => Ok(scalar(ValueShape::Boolean)),
-            Some(Type::F64) => Ok(scalar(ValueShape::Number)),
-            Some(Type::String) => Ok(scalar(ValueShape::String)),
             Some(Type::Variable(variable)) => {
                 let Some(substituted) = env.get(variable) else {
                     return Err("guest projection of a non-closed type".into());
@@ -109,6 +108,7 @@ impl Projector<'_> {
             Some(Type::Constructor(TypeConstructor::Function)) => {
                 Err("function types have no canonical guest layout".into())
             }
+            Some(Type::Constructor(_)) => Err("constructor has no canonical guest layout".into()),
             None => Err("type is outside the Core type table".into()),
         }
     }
@@ -331,10 +331,10 @@ mod tests {
         let type_variable = TypeVariableId(7);
         let mut types = vec![
             Type::Record(vec![("name".into(), string)]),
-            Type::String,
+            Type::Constructor(psrs_core::TypeConstructor::String),
             Type::Constructor(TypeConstructor::User(maybe)),
             Type::Application(maybe_ctor, record),
-            Type::Unit,
+            Type::Constructor(psrs_core::TypeConstructor::Unit),
         ];
         // The `Just` field template names the type variable.
         let variable = TypeId(types.len() as u32);

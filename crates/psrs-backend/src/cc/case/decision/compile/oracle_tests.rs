@@ -36,7 +36,7 @@ fn module() -> Module {
         types: vec![
             Type::Constructor(TypeConstructor::User(t)),
             Type::Constructor(TypeConstructor::User(u)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

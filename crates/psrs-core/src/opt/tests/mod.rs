@@ -100,7 +100,15 @@ fn folds_wrapping_integer_arithmetic_and_keeps_the_operation_span() {
         5,
         10,
     );
-    let result = optimize(module(vec![Type::I32], 0, value), Budget::default()).unwrap();
+    let result = optimize(
+        module(
+            vec![Type::Constructor(crate::TypeConstructor::Int)],
+            0,
+            value,
+        ),
+        Budget::default(),
+    )
+    .unwrap();
     assert_eq!(
         result.declarations[0].value.kind,
         ExprKind::Integer(i32::MIN)
@@ -120,7 +128,15 @@ fn leaves_constant_division_that_would_trap() {
         5,
         10,
     );
-    let result = optimize(module(vec![Type::I32], 0, value), Budget::default()).unwrap();
+    let result = optimize(
+        module(
+            vec![Type::Constructor(crate::TypeConstructor::Int)],
+            0,
+            value,
+        ),
+        Budget::default(),
+    )
+    .unwrap();
     assert!(matches!(
         result.declarations[0].value.kind,
         ExprKind::Primitive {
@@ -162,7 +178,15 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
         4,
         23,
     );
-    let result = optimize(module(vec![Type::I32], 0, value), Budget::default()).unwrap();
+    let result = optimize(
+        module(
+            vec![Type::Constructor(crate::TypeConstructor::Int)],
+            0,
+            value,
+        ),
+        Budget::default(),
+    )
+    .unwrap();
     let ExprKind::Let { bindings, .. } = &result.declarations[0].value.kind else {
         panic!("division by zero must remain observable even when unused")
     };
@@ -178,7 +202,7 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
 #[test]
 fn algebraic_zero_does_not_remove_an_effectful_operand() {
     let int_type = TypeId(0);
-    let mut types = vec![Type::I32];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::Primitive {
@@ -207,7 +231,7 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
 #[test]
 fn removes_only_inert_unused_bindings() {
     let int_type = TypeId(0);
-    let mut types = vec![Type::I32];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let unused_inert = crate::Binding {
         binder: Binder {
@@ -251,7 +275,7 @@ fn removes_only_inert_unused_bindings() {
 #[test]
 fn beta_reduction_binds_an_effectful_argument_once_and_before_the_body() {
     let int_type = TypeId(0);
-    let mut types = vec![Type::I32];
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let lambda = expression(
         ExprKind::Lambda {
@@ -295,7 +319,7 @@ fn projection_from_a_known_record_preserves_field_evaluation_order() {
     let int_type = TypeId(0);
     let record_type = TypeId(1);
     let mut types = vec![
-        Type::I32,
+        Type::Constructor(crate::TypeConstructor::Int),
         Type::Record(vec![
             ("first".into(), int_type),
             ("second".into(), int_type),
@@ -382,7 +406,7 @@ fn selects_a_known_constructor_case_and_substitutes_its_field() {
     );
     let mut module = module(
         vec![
-            Type::I32,
+            Type::Constructor(crate::TypeConstructor::Int),
             Type::Constructor(TypeConstructor::User(user_type)),
         ],
         int_type.0,
