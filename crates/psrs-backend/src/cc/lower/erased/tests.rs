@@ -98,6 +98,98 @@ fn a_generalized_local_binding_is_adapted_at_a_concrete_use() {
         .expect("P9 should accept the adapted local-polymorphic module");
 }
 
+#[test]
+fn a_local_erased_value_instantiated_at_a_function_type_eta_expands() {
+    // `let id = \x -> x in (id id) 42`. The outer `id` use has the flattened
+    // type `(Int -> Int) -> (Int -> Int)`, wider than the erased source
+    // `a -> a`. The recursive adapter must eta-expand: call the erased source
+    // with the closure argument, recover the result at `Int -> Int`, and apply
+    // the remaining `42`.
+    let int = TypeId(0);
+    let variable = TypeId(1);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::Variable(TypeVariableId(0)),
+    ];
+    let polymorphic_function = push_arrow(&mut types, variable, variable);
+    let int_function = push_arrow(&mut types, int, int);
+    let function_function = push_arrow(&mut types, int_function, int_function);
+    let module_id = ModuleId(0);
+    let main_symbol = SymbolId::new(module_id, 0);
+    let id_local = LocalId(0);
+    let argument = LocalId(1);
+    let identity = lambda(
+        "x",
+        argument,
+        variable,
+        local(argument, variable, 39),
+        polymorphic_function,
+        34,
+        40,
+    );
+    let binding = Binding {
+        binder: Binder {
+            id: id_local,
+            name: "id".into(),
+            ty: polymorphic_function,
+            span: range(29, 31),
+        },
+        quantified: vec![TypeVariableId(0)],
+        value: identity,
+        span: range(29, 40),
+    };
+    let applied = expression(
+        ExprKind::Application(
+            Box::new(local(id_local, function_function, 46)),
+            Box::new(local(id_local, int_function, 49)),
+        ),
+        int_function,
+        45,
+        52,
+    );
+    let body = expression(
+        ExprKind::Application(Box::new(applied), Box::new(integer(42, int, 53))),
+        int,
+        45,
+        55,
+    );
+    let let_expression = expression(
+        ExprKind::Let {
+            bindings: vec![binding],
+            body: Box::new(body),
+        },
+        int,
+        20,
+        55,
+    );
+    let module = module(
+        types,
+        Declaration {
+            symbol: main_symbol,
+            name: "main".into(),
+            name_span: range(0, 4),
+            quantified: Vec::new(),
+            ty: int,
+            value: let_expression,
+            span: range(0, 55),
+        },
+        main_symbol,
+    );
+
+    let backend = crate::cc::lower_module(module)
+        .expect("a local value instantiated at a function type should lower to CC");
+    assert!(
+        backend
+            .cc
+            .functions
+            .iter()
+            .any(|function| function.name.starts_with("eta_adapter_")),
+        "the wider target must build an eta-expanded adapter"
+    );
+    crate::mir::lower_module(backend.cc.clone())
+        .expect("P9 should accept the eta-expanded adapter module");
+}
+
 #[allow(clippy::too_many_arguments)]
 fn lambda(
     name: &str,

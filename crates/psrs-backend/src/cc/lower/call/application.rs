@@ -1,4 +1,4 @@
-use super::super::super::layout::{depends_on_type_variable, function_signature};
+use super::super::super::layout::function_signature;
 use super::super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId};
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
@@ -62,24 +62,6 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 expression.span,
             )?;
             let source_parameters = callable_parameter_types(self.module, function, head.ty);
-            let returned_erased_function_type = if is_erased_value_type(signature.result)
-                && is_function_type(self.module, expression.ty)
-            {
-                source_parameters
-                    .iter()
-                    .zip(arguments.iter())
-                    .find(|(source_type, argument)| {
-                        is_generic_function_type(self.module, **source_type)
-                            && is_function_type(self.module, argument.ty)
-                    })
-                    .map(|(_, argument)| argument.ty)
-                    .or_else(|| {
-                        depends_on_type_variable(self.module, expression.ty)
-                            .then_some(expression.ty)
-                    })
-            } else {
-                None
-            };
             let mut conversions = Vec::with_capacity(arguments.len());
             for (index, (argument, expected)) in
                 arguments.iter().zip(&signature.parameters).enumerate()
@@ -204,11 +186,6 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 } else {
                     self.unbox_erased_value(call_result, result_type, expression.span, assignments)?
                 };
-                if let Some(function_type) = returned_erased_function_type.or_else(|| {
-                    is_function_type(self.module, expression.ty).then_some(expression.ty)
-                }) {
-                    self.erased_function_types.insert(result, function_type);
-                }
                 Ok(result)
             } else {
                 let source_type =
@@ -235,11 +212,6 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     expression.span,
                     assignments,
                 );
-                if let Some(function_type) = returned_erased_function_type.or_else(|| {
-                    is_function_type(self.module, expression.ty).then_some(expression.ty)
-                }) {
-                    self.erased_function_types.insert(result, function_type);
-                }
                 Ok(result)
             }
         } else {
@@ -285,20 +257,9 @@ impl FunctionLowerer<'_> {
         };
         let generic = is_generic_function_type(self.module, head.ty);
         let (source_parameters, source_result) = function_value_types(self.module, head.ty);
+        // The callee expression is lowered at its own use type, so its runtime
+        // value already matches `head.ty`; no side-table adaptation is needed.
         let function = self.lower_value(head, assignments)?;
-        let function = if let Some(source_type) = self.erased_function_types.get(&function).copied()
-            && source_type != head.ty
-        {
-            self.adapt_erased_function_value(
-                function,
-                source_type,
-                head.ty,
-                expression.span,
-                assignments,
-            )?
-        } else {
-            function
-        };
         let function = if generic {
             let cast = self.fresh(ValueShape::Reference(Reference {
                 nullable: false,
@@ -407,9 +368,6 @@ impl FunctionLowerer<'_> {
                 assignments,
             )
         };
-        if is_function_type(self.module, expression.ty) {
-            self.erased_function_types.insert(result, expression.ty);
-        }
         Ok(result)
     }
 }

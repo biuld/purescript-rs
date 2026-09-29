@@ -115,6 +115,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             )?;
             let parameter = nested.fresh(parameter_type);
             nested.locals.insert(binder.id, parameter);
+            nested.local_types.insert(binder.id, binder.ty);
             parameters.push(parameter);
         }
         let mut extra_parameters = Vec::new();
@@ -153,10 +154,8 @@ impl LambdaLowering for FunctionLowerer<'_> {
             // A captured generalized local keeps its erased source type, so a
             // use at an instantiated type inside the closure can restore the
             // concrete call signature.
-            if let Some(source_type) = self.erased_function_types.get(&outer_value).copied() {
-                nested
-                    .erased_function_types
-                    .insert(destination, source_type);
+            if let Some(source_type) = self.local_types.get(&capture).copied() {
+                nested.local_types.insert(capture, source_type);
             }
             nested.locals.insert(capture, destination);
         }
@@ -288,7 +287,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
             generated_symbols: std::rc::Rc::clone(&self.generated_symbols),
             owner: self.owner,
             warnings: Vec::new(),
-            erased_function_types: HashMap::new(),
+            local_types: HashMap::new(),
             generated: Vec::new(),
         }
     }

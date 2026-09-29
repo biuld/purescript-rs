@@ -330,6 +330,33 @@ fn a_curried_locally_generalized_binding_instantiates() {
 }
 
 #[test]
+fn a_locally_generalized_identity_instantiates_at_a_function_type() {
+    // `(id id) 42`: the outer `id` is instantiated at `Int -> Int`, so its
+    // flattened use type `(Int -> Int) -> (Int -> Int)` is wider than the
+    // erased source `a -> a`. The recursive adapter must eta-expand, call the
+    // erased source with the inner `id`, recover the result at `Int -> Int`,
+    // and apply `42`.
+    let source = "module Main where\nmain = let id = \\x -> x in (id id) 42\n";
+    expect_exit("local_polymorphic_function_type_identity", source, 42);
+}
+
+#[test]
+fn a_local_polymorphic_value_is_applied_after_a_function_type_instantiation() {
+    // The same eta-expansion reached with a concrete function argument:
+    // `id` is instantiated at `Int -> Int`, applied to `\y -> y + 1`, and the
+    // recovered function is applied to `41`.
+    let source = "module Main where\nmain = let id = \\x -> x in (id (\\y -> y + 1)) 41\n";
+    expect_exit("local_polymorphic_function_type_argument", source, 42);
+}
+
+#[test]
+fn a_global_polymorphic_value_instantiates_at_a_function_type() {
+    // The top-level polymorphic declaration crossed at a function type.
+    let source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = (identity (\\y -> y + 1)) 41\n";
+    expect_exit("global_polymorphic_function_type", source, 42);
+}
+
+#[test]
 fn a_local_value_of_a_polymorphic_function_type_instantiates() {
     // A local value of polymorphic function type copied through another local
     // binding and then instantiated at `Int`.

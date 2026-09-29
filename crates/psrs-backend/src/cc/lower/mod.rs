@@ -95,6 +95,7 @@ pub(super) fn lower_function(
         next_value: 0,
         values: Vec::new(),
         locals: HashMap::new(),
+        local_types: HashMap::new(),
         signatures: context.signatures,
         representations: context.representations,
         module,
@@ -113,7 +114,6 @@ pub(super) fn lower_function(
         generated_symbols: Rc::clone(&context.generated_symbols),
         owner: declaration.symbol.module,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
@@ -140,6 +140,7 @@ pub(super) fn lower_function(
         )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
+        state.local_types.insert(binder.id, binder.ty);
         parameters.push(id);
         declaration_type = result;
         value = body;
@@ -182,6 +183,11 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) next_value: u32,
     pub(super) values: Vec<ValueDecl>,
     pub(super) locals: HashMap<LocalId, ValueId>,
+    /// The declared source type of every local binder in scope. Erased
+    /// adaptation is derived from this scope rather than from a side table:
+    /// a use of a local whose lowered representation is erased is adapted from
+    /// the binder's declared type to the use type.
+    pub(super) local_types: HashMap<LocalId, psrs_core::TypeId>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) module: &'a CoreModule,
@@ -200,7 +206,6 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
     pub(super) owner: ModuleId,
     pub(super) warnings: Vec<BackendWarning>,
-    pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }
 
@@ -257,7 +262,13 @@ impl FunctionLowerer<'_> {
                         "local value is unavailable before its binding is lowered",
                     )]
                 })?;
-                self.adapt_erased_function_use(value, expression.ty, expression.span, assignments)
+                self.adapt_erased_function_use(
+                    *local,
+                    value,
+                    expression.ty,
+                    expression.span,
+                    assignments,
+                )
             }
             ExprKind::Global(function) => self.lower_global(expression, *function, ty, assignments),
             ExprKind::Integer(value) => {

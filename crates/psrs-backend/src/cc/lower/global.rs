@@ -94,23 +94,18 @@ impl GlobalLowering for FunctionLowerer<'_> {
                         },
                         span: expression.span,
                     });
-                    self.erased_function_types.insert(erased, expression.ty);
                     Ok(erased)
                 } else {
                     Ok(destination)
                 }
             } else {
-                let adapted = self.adapt_erased_function_value(
+                self.adapt_erased_function_value(
                     destination,
                     source_type,
                     expression.ty,
                     expression.span,
                     assignments,
-                )?;
-                if is_generic_function_type(self.module, expression.ty) {
-                    self.erased_function_types.insert(adapted, expression.ty);
-                }
-                Ok(adapted)
+                )
             }
         } else {
             if !signature.parameters.is_empty() {

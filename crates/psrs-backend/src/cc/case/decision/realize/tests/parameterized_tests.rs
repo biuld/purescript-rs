@@ -433,7 +433,7 @@ fn lower_and_verify(
         generated_symbols,
         owner: module.id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();

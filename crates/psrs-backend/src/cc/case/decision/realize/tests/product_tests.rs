@@ -133,7 +133,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();
