@@ -230,8 +230,47 @@ action :: Effect Int
 action = ado
   _ <- pure 1
   let base = 40
-  in base + 2
+    in base + 2
 main = runEffect action
 ";
     assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_where_binding_in_the_right_hand_side() {
+    let source = "\
+module Main where
+value :: Int
+value = result where
+  result = 42
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_recursive_where_binding() {
+    let source = "\
+module Main where
+count :: Int
+count = go 3 0 where
+  go n acc = if n == 0 then acc else go (n - 1) (acc + 1)
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn rejects_a_where_binding_outside_its_right_hand_side() {
+    let source = "\
+module Main where
+hidden :: Int
+hidden = 1 where
+  scoped = 2
+leaked :: Int
+leaked = scoped
+";
+    let errors = check_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors.iter().any(|error| error.message.contains("scoped")),
+        "{errors:?}"
+    );
 }

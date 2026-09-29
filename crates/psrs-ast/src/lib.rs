@@ -225,13 +225,11 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
             "guarded equations are not supported yet",
         ));
     };
-    if let Some(block) = declaration.where_block {
-        return Err(LowerError::new(
-            block.span,
-            "where blocks are not supported yet",
-        ));
-    }
-    let mut value = lower_expr(value)?;
+    let value = lower_expr(value)?;
+    // `x args = body where decls` is `x args = let decls in body`: the `where`
+    // declarations are a local binding group scoped over the right-hand side,
+    // and its parameters remain in scope because the `let` is inside them.
+    let mut value = wrap_where(declaration.where_block, value)?;
     for parameter in declaration.parameters.into_iter().rev() {
         value = expr::lower_pattern_lambda(parameter, value)?;
     }
@@ -240,6 +238,28 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
         value,
         span: declaration.span,
         annotation: declaration.annotation.map(lower_type).transpose()?,
+    })
+}
+
+/// Wraps a right-hand side in a local `let` for its `where` declarations,
+/// matching the official PureScript `Where` desugaring. The declarations form a
+/// recursive binding group and stay unresolved, like any other `let`.
+fn wrap_where(block: Option<cst::DeclarationBlock>, value: Expr) -> Result<Expr, LowerError> {
+    let Some(block) = block else {
+        return Ok(value);
+    };
+    let declarations = block
+        .declarations
+        .into_iter()
+        .map(lower_declaration)
+        .collect::<Result<Vec<_>, _>>()?;
+    let span = value.span;
+    Ok(Expr {
+        kind: ExprKind::Let {
+            declarations,
+            body: Box::new(value),
+        },
+        span,
     })
 }
 
@@ -354,15 +374,10 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                         "guarded case alternatives are not supported yet",
                     ));
                 };
-                if let Some(block) = where_block {
-                    return Err(LowerError::new(
-                        block.span,
-                        "where blocks are not supported yet",
-                    ));
-                }
                 let pattern =
                     expr::lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
                 let value = lower_expr(value)?;
+                let value = wrap_where(where_block, value)?;
                 branches.push(CaseBranch {
                     pattern,
                     value,
