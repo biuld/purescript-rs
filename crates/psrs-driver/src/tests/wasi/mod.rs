@@ -3,6 +3,7 @@ use super::*;
 mod do_notation;
 mod filesystem;
 mod wat;
+mod where_clause;
 use wat::*;
 
 mod umbrella;
