@@ -18,6 +18,16 @@ fn expression(kind: ExprKind, ty: u32, start: u32, end: u32) -> Expr {
     }
 }
 
+fn arrow_type(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Function));
+    let inner = TypeId(types.len() as u32);
+    types.push(Type::Application(head, parameter));
+    let outer = TypeId(types.len() as u32);
+    types.push(Type::Application(inner, result));
+    outer
+}
+
 fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
     Module {
         type_names: Vec::new(),
@@ -27,6 +37,7 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(ModuleId(0), 1),
@@ -167,7 +178,8 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
 #[test]
 fn algebraic_zero_does_not_remove_an_effectful_operand() {
     let int_type = TypeId(0);
-    let function_type = TypeId(1);
+    let mut types = vec![Type::I32];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::Primitive {
             op: Primitive::IntMul,
@@ -179,17 +191,7 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
         15,
     );
     let result = optimize(
-        with_trace(module(
-            vec![
-                Type::I32,
-                Type::Function {
-                    parameter: int_type,
-                    result: int_type,
-                },
-            ],
-            int_type.0,
-            value,
-        )),
+        with_trace(module(types, int_type.0, value)),
         Budget::default(),
     )
     .unwrap();
@@ -205,14 +207,8 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
 #[test]
 fn removes_only_inert_unused_bindings() {
     let int_type = TypeId(0);
-    let function_type = TypeId(1);
-    let types = vec![
-        Type::I32,
-        Type::Function {
-            parameter: int_type,
-            result: int_type,
-        },
-    ];
+    let mut types = vec![Type::I32];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let unused_inert = crate::Binding {
         binder: Binder {
             id: LocalId(0),
@@ -255,14 +251,8 @@ fn removes_only_inert_unused_bindings() {
 #[test]
 fn beta_reduction_binds_an_effectful_argument_once_and_before_the_body() {
     let int_type = TypeId(0);
-    let function_type = TypeId(1);
-    let types = vec![
-        Type::I32,
-        Type::Function {
-            parameter: int_type,
-            result: int_type,
-        },
-    ];
+    let mut types = vec![Type::I32];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let lambda = expression(
         ExprKind::Lambda {
             binder: Binder {
@@ -304,18 +294,14 @@ fn beta_reduction_binds_an_effectful_argument_once_and_before_the_body() {
 fn projection_from_a_known_record_preserves_field_evaluation_order() {
     let int_type = TypeId(0);
     let record_type = TypeId(1);
-    let function_type = TypeId(2);
-    let types = vec![
+    let mut types = vec![
         Type::I32,
         Type::Record(vec![
             ("first".into(), int_type),
             ("second".into(), int_type),
         ]),
-        Type::Function {
-            parameter: int_type,
-            result: int_type,
-        },
     ];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::FieldAccess {
             record: Box::new(expression(

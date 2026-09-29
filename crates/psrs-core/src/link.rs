@@ -21,6 +21,7 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut types = Vec::new();
     let mut newtype_ids = Vec::new();
     let mut opaque_ids = Vec::new();
+    let mut callable_types: Vec<(psrs_hir::TypeId, u32)> = Vec::new();
     let mut constructors = Vec::new();
     let mut seen_constructors = HashSet::new();
     let mut declarations = Vec::new();
@@ -35,6 +36,11 @@ pub fn link(modules: Vec<Module>) -> Module {
         }
         newtype_ids.extend(module.newtype_ids);
         opaque_ids.extend(module.opaque_ids);
+        for callable in module.callable_types {
+            if !callable_types.contains(&callable) {
+                callable_types.push(callable);
+            }
+        }
         for constructor in module.constructors {
             if !seen_constructors.insert(constructor.symbol) {
                 continue;
@@ -72,6 +78,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         types,
         newtype_ids,
         opaque_ids,
+        callable_types,
         constructors,
         declarations,
         type_names,
@@ -90,10 +97,6 @@ fn shift_type(ty: &Type, offset: u32) -> Type {
         Type::Application(parameter, argument) => {
             Type::Application(shift_id(*parameter, offset), shift_id(*argument, offset))
         }
-        Type::Function { parameter, result } => Type::Function {
-            parameter: shift_id(*parameter, offset),
-            result: shift_id(*result, offset),
-        },
         Type::Record(fields) => Type::Record(
             fields
                 .iter()

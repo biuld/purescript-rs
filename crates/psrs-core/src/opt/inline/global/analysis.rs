@@ -17,13 +17,11 @@ pub(super) fn function_arity(mut type_id: TypeId, types: &[Type]) -> Option<usiz
     let mut count = 0;
     let mut visited = HashSet::new();
     while visited.insert(type_id) {
-        match types.get(type_id.0 as usize)? {
-            Type::Function { result, .. } => {
-                count += 1;
-                type_id = *result;
-            }
-            _ => return Some(count),
-        }
+        let Some((_, result)) = crate::arrow_parts(types, type_id) else {
+            return Some(count);
+        };
+        count += 1;
+        type_id = result;
     }
     None
 }

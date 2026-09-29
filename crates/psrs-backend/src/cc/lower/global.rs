@@ -1,8 +1,8 @@
 use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
-use super::call::is_generic_function_type;
+use super::call::{is_function_type, is_generic_function_type};
 use crate::BackendError;
-use psrs_core::{Expr, Type};
+use psrs_core::Expr;
 use psrs_hir::SymbolId;
 
 pub(super) trait GlobalLowering {
@@ -29,12 +29,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 "global is not a local top-level function",
             ));
         };
-        if !signature.parameters.is_empty()
-            && matches!(
-                self.module.types.get(expression.ty.0 as usize),
-                Some(Type::Function { .. })
-            )
-        {
+        if !signature.parameters.is_empty() && is_function_type(self.module, expression.ty) {
             let Some(source_type) = self
                 .module
                 .declarations

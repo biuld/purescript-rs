@@ -19,6 +19,7 @@ pub struct TypeId(pub u32);
 /// A type constructor reference, mirrored from THIR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
+    Function,
     Array,
     User(HirTypeId),
 }
@@ -42,10 +43,22 @@ pub enum Type {
         fields: Vec<(String, TypeId)>,
         tail: TypeId,
     },
-    Function {
-        parameter: TypeId,
-        result: TypeId,
-    },
+}
+
+/// The parameter and result of an arrow type `a -> b`, spelled as the
+/// application spine `Application(Application(Constructor(Function), a), b)`.
+pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
+    let Type::Application(inner, result) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    let Type::Application(head, parameter) = types.get(inner.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(head.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Function))
+    )
+    .then_some((*parameter, *result))
 }
 
 /// A data constructor known to the module, mirrored from THIR.
@@ -78,6 +91,12 @@ pub struct Module {
     /// `Constructor(User(HirTypeId))`; this set records that the type is opaque
     /// and has no constructors. It is not a calling-convention layout.
     pub opaque_ids: Vec<HirTypeId>,
+    /// Type constructors whose application has a callable closure
+    /// representation, registered by the trusted elaboration through their
+    /// resolved type identity. Each entry names the number of hidden
+    /// calling-convention parameters; the call result is the application's last
+    /// type argument. This is representation metadata, not a type.
+    pub callable_types: Vec<(HirTypeId, u32)>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     /// Qualified names of the type declarations in this module, keyed by their
@@ -362,6 +381,43 @@ pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
         verify::module(self)
+    }
+
+    /// The hidden calling-convention parameter count registered for a callable
+    /// type constructor identity, or `None` when the constructor is not
+    /// callable.
+    pub fn callable_parameters(&self, type_id: HirTypeId) -> Option<u32> {
+        self.callable_types
+            .iter()
+            .find(|(id, _)| *id == type_id)
+            .map(|(_, parameters)| *parameters)
+    }
+
+    /// Decomposes an applied type into its head constructor and the arguments
+    /// applied to it, in order. A non-applied constructor yields an empty
+    /// argument list; a non-constructor head yields `None`.
+    pub fn applied_constructor(&self, mut id: TypeId) -> Option<(TypeConstructor, Vec<TypeId>)> {
+        let mut arguments = Vec::new();
+        while let Some(Type::Application(function, argument)) = self.types.get(id.0 as usize) {
+            arguments.push(*argument);
+            id = *function;
+        }
+        arguments.reverse();
+        match self.types.get(id.0 as usize) {
+            Some(Type::Constructor(constructor)) => Some((*constructor, arguments)),
+            _ => None,
+        }
+    }
+
+    /// The name and arguments of a callable type-constructor application, when
+    /// its head constructor has a registered closure representation.
+    pub fn callable_application(&self, id: TypeId) -> Option<(HirTypeId, Vec<TypeId>)> {
+        let (constructor, arguments) = self.applied_constructor(id)?;
+        let TypeConstructor::User(type_id) = constructor else {
+            return None;
+        };
+        self.callable_parameters(type_id)?;
+        Some((type_id, arguments))
     }
 }
 

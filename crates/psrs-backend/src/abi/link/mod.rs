@@ -44,7 +44,12 @@ fn intern_into(types: &mut Vec<CoreType>, ty: &HirType) -> Option<CoreTypeId> {
         HirTypeKind::Function { parameter, result } => {
             let parameter = intern_into(types, parameter)?;
             let result = intern_into(types, result)?;
-            CoreType::Function { parameter, result }
+            let head = intern_core_type(types, CoreType::Constructor(TypeConstructor::Function));
+            let inner = intern_core_type(types, CoreType::Application(head, parameter));
+            return Some(intern_core_type(
+                types,
+                CoreType::Application(inner, result),
+            ));
         }
         HirTypeKind::Record { fields, tail: None } => {
             let mut fields = fields

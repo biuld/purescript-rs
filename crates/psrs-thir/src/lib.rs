@@ -8,11 +8,12 @@ pub use evidence::{Evidence, EvidenceKind};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
-/// A type constructor reference. `Array` is the only built-in constructor the
-/// current type system elaborates; user constructors are identified by their
-/// resolved HIR declaration.
+/// A type constructor reference. `Function` is the arrow head; `Array` is the
+/// only other built-in constructor the current type system elaborates; user
+/// constructors are identified by their resolved HIR declaration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
+    Function,
     Array,
     User(HirTypeId),
 }
@@ -37,10 +38,22 @@ pub enum Type {
         fields: Vec<(String, TypeId)>,
         tail: TypeId,
     },
-    Function {
-        parameter: TypeId,
-        result: TypeId,
-    },
+}
+
+/// The parameter and result of an arrow type `a -> b`, spelled as the
+/// application spine `Application(Application(Constructor(Function), a), b)`.
+pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
+    let Type::Application(inner, result) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    let Type::Application(head, parameter) = types.get(inner.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(head.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Function))
+    )
+    .then_some((*parameter, *result))
 }
 
 /// A data constructor known to the module. `tag` is its zero-based position in
@@ -78,6 +91,12 @@ pub struct Module {
     /// `Constructor(User(id))`; this set, with an empty constructor list, is
     /// what keeps the type opaque. It is not a runtime layout.
     pub opaque_ids: Vec<HirTypeId>,
+    /// Type constructors whose application has a callable closure
+    /// representation, registered by the trusted elaboration through their
+    /// resolved type identity. Each entry names the number of hidden
+    /// calling-convention parameters; the call result is the application's last
+    /// type argument. This is representation metadata, not a type.
+    pub callable_types: Vec<(HirTypeId, u32)>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
     /// Qualified names of the type declarations this module declares, keyed by
@@ -205,7 +224,7 @@ impl Module {
         let mut errors = Vec::new();
         for ty in &self.types {
             match ty {
-                Type::Function { parameter, result } | Type::Application(parameter, result) => {
+                Type::Application(parameter, result) => {
                     verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
                     verify_type_id(*result, self.types.len(), self.span, &mut errors);
                 }
@@ -343,24 +362,20 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
             let mut result = *constructor_type;
             for argument in context {
                 verify_evidence(argument, types, errors);
-                let Some(Type::Function {
-                    parameter,
-                    result: next,
-                }) = types.get(result.0 as usize)
-                else {
+                let Some((parameter, next)) = arrow_parts(types, result) else {
                     errors.push(VerifyError {
                         span: argument.span,
                         message: "instance dictionary constructor takes too few context arguments",
                     });
                     return;
                 };
-                if *parameter != argument.ty {
+                if parameter != argument.ty {
                     errors.push(VerifyError {
                         span: argument.span,
                         message: "instance evidence does not match its context parameter",
                     });
                 }
-                result = *next;
+                result = next;
             }
             if result != evidence.ty {
                 errors.push(VerifyError {

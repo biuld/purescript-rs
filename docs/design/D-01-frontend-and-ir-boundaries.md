@@ -121,6 +121,13 @@ and type-class constraints have explicit evidence. Patterns and source-level
 constructs may remain here. THIR has no runtime offsets, Wasm indices, or
 calling-convention fields.
 
+THIR's `Type` is the uniform application spine specified for the frontend
+checked types: an arrow is application of the `Function` constructor, a record
+is the `Record` constructor applied to a row, and rows, quantifiers,
+constraints, kinds, and type-level literals are dedicated structural nodes
+([type inference](frontend/type-system/type-inference.md),
+[DEC-15](../decision/DEC-15-unified-type-representation.md)).
+
 ### Typed Core
 
 Typed Core is the compiler's small functional language and the preferred
@@ -132,7 +139,10 @@ syntax, source guards, source pattern syntax, and declaration syntax have been
 lowered away. Core optimization transforms Typed Core into Typed Core; its pass
 contract is [backend Core optimization](backend/opt/core.md).
 The producer-owned type and term contract is
-[Functional Core](frontend/semantics/functional-core.md).
+[Functional Core](frontend/semantics/functional-core.md), and its `Type` uses
+the same uniform application spine as THIR: an arrow is application of the
+`Function` constructor and a record is the `Record` constructor applied to a
+row ([DEC-15](../decision/DEC-15-unified-type-representation.md)).
 
 ### CC IR and MIR
 

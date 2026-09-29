@@ -5,6 +5,16 @@ use psrs_core::{
 };
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
+fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Function));
+    let inner = TypeId(types.len() as u32);
+    types.push(Type::Application(head, parameter));
+    let outer = TypeId(types.len() as u32);
+    types.push(Type::Application(inner, result));
+    outer
+}
+
 #[test]
 fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot() {
     let module_id = ModuleId(0);
@@ -26,6 +36,7 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -100,6 +111,7 @@ fn a_variant_case_may_carry_a_record_payload() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: wrap,
             name: "Wrap".into(),
@@ -147,6 +159,7 @@ fn empty_module(types: Vec<Type>) -> Module {
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -267,9 +280,17 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
     let array_int = TypeId(3);
     let array_string = TypeId(4);
     let array_int_b = TypeId(5);
-    let f_int = TypeId(6);
-    let f_string = TypeId(7);
-    let f_int_b = TypeId(8);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Array),
+        Type::I32,
+        Type::String,
+        Type::Application(array, int),
+        Type::Application(array, string),
+        Type::Application(array, int),
+    ];
+    let f_int = push_arrow(&mut types, array_int, array_int);
+    let f_string = push_arrow(&mut types, array_string, array_string);
+    let f_int_b = push_arrow(&mut types, array_int_b, array_int_b);
     let lambda = |parameter: TypeId, symbol: SymbolId, name: &str| Declaration {
         symbol,
         name: name.into(),
@@ -300,28 +321,10 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         id: ModuleId(0),
         name: "SignatureInterningTest".into(),
         externals: Vec::new(),
-        types: vec![
-            Type::Constructor(TypeConstructor::Array),
-            Type::I32,
-            Type::String,
-            Type::Application(array, int),
-            Type::Application(array, string),
-            Type::Application(array, int),
-            Type::Function {
-                parameter: array_int,
-                result: array_int,
-            },
-            Type::Function {
-                parameter: array_string,
-                result: array_string,
-            },
-            Type::Function {
-                parameter: array_int_b,
-                result: array_int_b,
-            },
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             lambda(f_int, SymbolId::new(ModuleId(0), 0), "fInt"),
@@ -380,6 +383,7 @@ fn integer_capture_module(capture: Type) -> Module {
         types: vec![capture, Type::I32],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![Declaration {
             symbol,
@@ -464,6 +468,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: vec![opaque],
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

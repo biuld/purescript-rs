@@ -67,13 +67,13 @@ fn declares_an_opaque_foreign_type_and_rejects_source_construction() {
         .iter()
         .find(|declaration| declaration.name == "keep")
         .expect("keep should be elaborated");
-    let thir::Type::Function { parameter, result } = &typed.types[keep.ty.0 as usize] else {
+    let Some((parameter, result)) = psrs_thir::arrow_parts(&typed.types, keep.ty) else {
         panic!(
             "keep should be a function, got {:?}",
             typed.types[keep.ty.0 as usize]
         );
     };
-    for end in [*parameter, *result] {
+    for end in [parameter, result] {
         assert!(
             matches!(
                 &typed.types[end.0 as usize],

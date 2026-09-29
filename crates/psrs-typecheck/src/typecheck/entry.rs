@@ -222,6 +222,11 @@ pub fn typecheck_module_with_imports_and_effect_context(
             )
         })
         .collect();
+    // The trusted elaboration registers the runtime representation of the
+    // imported abstract `Effect` type by its resolved type identity: a closure
+    // with one hidden context parameter. It is representation metadata, not a
+    // type node, and no effect-specific type, flag, or token is introduced.
+    let callable_types = effect_type.map(|id| vec![(id, 1)]).unwrap_or_default();
     let typed = thir::Module {
         id: module.id,
         name: module.name,
@@ -229,6 +234,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
         types: types.values,
         newtype_ids,
         opaque_ids,
+        callable_types,
         constructors,
         declarations,
         type_names,

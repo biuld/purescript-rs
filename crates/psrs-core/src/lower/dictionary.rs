@@ -24,9 +24,7 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 span,
             };
             for evidence_argument in context {
-                let Some(Type::Function { parameter, result }) =
-                    types.get(function_type.0 as usize)
-                else {
+                let Some((parameter, result)) = psrs_thir::arrow_parts(types, function_type) else {
                     return Err(LowerError {
                         span: evidence_argument.span,
                         message: "instance dictionary constructor takes too few context arguments",
@@ -39,7 +37,6 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                         message: "instance evidence does not match its context parameter",
                     });
                 }
-                let result = *result;
                 function = Expr {
                     kind: ExprKind::Application(Box::new(function), Box::new(argument)),
                     ty: TypeId(result.0),

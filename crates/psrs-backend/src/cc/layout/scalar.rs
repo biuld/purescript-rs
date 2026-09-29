@@ -1,4 +1,6 @@
-use super::{depends_on_type_variable, layout_error, newtype_field_type, user_type_id};
+use super::{
+    depends_on_type_variable, is_callable_type, layout_error, newtype_field_type, user_type_id,
+};
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
 use psrs_core::ExprKind;
@@ -22,21 +24,21 @@ pub(crate) fn declaration_shape(
     let mut parameters = Vec::new();
     let mut value = &declaration.value;
     while let ExprKind::Lambda { binder, body } = &value.kind {
-        let Some(Type::Function { parameter, result }) = module.types.get(ty.0 as usize) else {
-            return Err(vec![BackendError::new(
-                "P8 closure conversion",
-                binder.span,
-                "lambda binder does not have a function type",
-            )]);
+        // Stop at the callable-constructor boundary: a lambda whose expression
+        // type is a callable closure (an `Effect a`) is the representation's
+        // hidden context closure, returned as the declaration's value rather
+        // than an extra parameter.
+        let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, ty) else {
+            break;
         };
-        if *parameter != binder.ty {
+        if parameter != binder.ty {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 binder.span,
                 "lambda binder type differs from the function parameter type",
             )]);
         }
-        ty = *result;
+        ty = result;
         parameters.push(scalar_type(
             module,
             binder.ty,
@@ -49,6 +51,12 @@ pub(crate) fn declaration_shape(
             function_types,
         )?);
         value = body;
+    }
+    if is_callable_type(module, ty) {
+        return Ok(Signature {
+            parameters,
+            result: callable_value_shape(module, ty, declaration.span, function_types)?,
+        });
     }
     match module.types.get(ty.0 as usize) {
         Some(Type::I32 | Type::Char | Type::Unit) => Ok(Signature {
@@ -73,20 +81,6 @@ pub(crate) fn declaration_shape(
                 nullable: false,
                 heap: RefShape::Erased,
             }),
-        }),
-        Some(Type::Function { .. }) => Ok(Signature {
-            parameters,
-            result: scalar_type(
-                module,
-                ty,
-                declaration.span,
-                enum_types,
-                aggregate_types,
-                newtype_ids,
-                array_types,
-                record_types,
-                function_types,
-            )?,
         }),
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok(Signature {
@@ -225,6 +219,11 @@ pub(crate) fn scalar_type(
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
+    // A callable closure value — an ordinary arrow or a registered callable
+    // constructor application — is represented by its closure signature.
+    if is_callable_type(module, id) {
+        return callable_value_shape(module, id, span, function_types);
+    }
     match module.types.get(id.0 as usize) {
         Some(Type::I32 | Type::Char | Type::Unit) => Ok(ValueShape::Integer),
         Some(Type::String) => Ok(ValueShape::String),
@@ -234,19 +233,6 @@ pub(crate) fn scalar_type(
             nullable: false,
             heap: RefShape::Erased,
         })),
-        Some(Type::Function { .. }) => {
-            if !function_types.contains_key(&id) {
-                return Err(layout_error(span, "function type has no runtime layout"));
-            }
-            if depends_on_type_variable(module, id) {
-                Ok(ValueShape::Reference(Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                }))
-            } else {
-                Ok(closure_value_type_for(function_types[&id]))
-            }
-        }
         Some(Type::Constructor(TypeConstructor::User(id))) if enum_types.contains(id) => {
             Ok(ValueShape::Integer)
         }
@@ -388,4 +374,26 @@ fn closure_value_type_for(signature: SignatureId) -> ValueShape {
         nullable: false,
         heap: RefShape::Closure(signature),
     })
+}
+
+/// The runtime shape of a callable closure value — an ordinary arrow or a
+/// registered callable constructor application. A value that depends on a type
+/// variable is erased; otherwise it is its closure signature. The hidden
+/// context parameter lives only in the signature, never in this value shape.
+fn callable_value_shape(
+    module: &CoreModule,
+    id: TypeId,
+    span: TextRange,
+    function_types: &HashMap<TypeId, SignatureId>,
+) -> Result<ValueShape, Vec<BackendError>> {
+    if depends_on_type_variable(module, id) {
+        return Ok(ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
+        }));
+    }
+    let Some(signature) = function_types.get(&id) else {
+        return Err(layout_error(span, "callable value has no runtime layout"));
+    };
+    Ok(closure_value_type_for(*signature))
 }

@@ -75,6 +75,11 @@ pub(crate) fn project_external(
 
 impl Projector<'_> {
     fn project(&self, id: TypeId, env: &Env) -> Result<GuestLayout, String> {
+        // A callable closure — an arrow or a callable constructor application —
+        // has no canonical guest layout.
+        if super::layout::is_callable_type(self.module, id) {
+            return Err("function types have no canonical guest layout".into());
+        }
         match self.module.types.get(id.0 as usize) {
             Some(Type::I32 | Type::Char | Type::Unit) => Ok(scalar(ValueShape::Integer)),
             Some(Type::Boolean) => Ok(scalar(ValueShape::Boolean)),
@@ -98,11 +103,11 @@ impl Projector<'_> {
             Some(Type::OpenRecord { .. }) => {
                 Err("open record rows have no runtime guest layout".into())
             }
-            Some(Type::Function { .. }) => {
-                Err("function types have no canonical guest layout".into())
-            }
             Some(Type::Constructor(TypeConstructor::Array)) => {
                 Err("an unapplied Array has no guest layout".into())
+            }
+            Some(Type::Constructor(TypeConstructor::Function)) => {
+                Err("function types have no canonical guest layout".into())
             }
             None => Err("type is outside the Core type table".into()),
         }
@@ -321,27 +326,33 @@ mod tests {
         let maybe_ctor = TypeId(2);
         let maybe_record = TypeId(3);
         let unit = TypeId(4);
-        let function = TypeId(5);
         let just = SymbolId::new(module_id, 0);
         let nothing = SymbolId::new(module_id, 1);
         let type_variable = TypeVariableId(7);
+        let mut types = vec![
+            Type::Record(vec![("name".into(), string)]),
+            Type::String,
+            Type::Constructor(TypeConstructor::User(maybe)),
+            Type::Application(maybe_ctor, record),
+            Type::Unit,
+        ];
+        // The `Just` field template names the type variable.
+        let variable = TypeId(types.len() as u32);
+        types.push(Type::Variable(type_variable));
+        let head = TypeId(types.len() as u32);
+        types.push(Type::Constructor(TypeConstructor::Function));
+        let inner = TypeId(types.len() as u32);
+        types.push(Type::Application(head, unit));
+        let function = TypeId(types.len() as u32);
+        types.push(Type::Application(inner, maybe_record));
         let module = Module {
             id: module_id,
             name: "ProjectionTest".into(),
             externals: Vec::new(),
-            types: vec![
-                Type::Record(vec![("name".into(), string)]),
-                Type::String,
-                Type::Constructor(TypeConstructor::User(maybe)),
-                Type::Application(maybe_ctor, record),
-                Type::Unit,
-                Type::Function {
-                    parameter: unit,
-                    result: maybe_record,
-                },
-            ],
+            types,
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),
+            callable_types: Vec::new(),
             type_names: vec![(maybe, "Data.Maybe.Maybe".into())],
             constructors: vec![
                 ConstructorInfo {
@@ -350,7 +361,7 @@ mod tests {
                     type_id: maybe,
                     tag: 1,
                     field_count: 1,
-                    field_types: vec![TypeId(6)],
+                    field_types: vec![variable],
                     parameters: vec![type_variable],
                 },
                 ConstructorInfo {
@@ -367,11 +378,10 @@ mod tests {
             entry: None,
             span: psrs_span::TextRange::new(0, 0),
         };
-        // Interning the type-variable template the `Just` field holds.
-        let mut module = module;
-        module.types.push(Type::Variable(type_variable));
-        // `field_types` referenced TypeId(6), which is now the variable.
-        assert_eq!(module.types.get(6), Some(&Type::Variable(type_variable)));
+        assert_eq!(
+            module.types.get(variable.0 as usize),
+            Some(&Type::Variable(type_variable))
+        );
         let erased = ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Erased,

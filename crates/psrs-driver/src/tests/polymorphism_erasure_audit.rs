@@ -241,6 +241,30 @@ fn higher_order_adapters_are_value_sensitive_in_both_directions() {
 }
 
 #[test]
+fn a_curried_function_argument_generates_a_partial_adapter() {
+    // `ado x <- a; y <- b; in f x y` passes the curried concrete
+    // `\x -> \y -> f x y` where `map` expects a generic `a -> b`. The erased
+    // adapter must partially apply it: the outer closure takes the target's
+    // arguments and returns an inner closure for the source's remaining ones.
+    let source = "module Main where\nimport Prelude\nmain = runEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
+    let mir = pre_optimization_mir(source);
+    let names = mir
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.iter().any(|name| name.starts_with("curried_outer_")),
+        "the curried adapter must expose a partial outer closure: {names:?}"
+    );
+    assert!(
+        names.iter().any(|name| name.starts_with("curried_inner_")),
+        "the curried adapter must expose an inner closure for the remaining arguments: {names:?}"
+    );
+    expect_exit("curried_adapter", source, 42);
+}
+
+#[test]
 fn linked_modules_round_trip_an_erased_high_bit_int() {
     let producer = (
         "Producer.purs",

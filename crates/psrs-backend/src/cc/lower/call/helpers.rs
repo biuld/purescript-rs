@@ -1,19 +1,30 @@
 use super::super::super::layout::depends_on_type_variable;
+use super::super::super::layout::function_arrow_parameters;
 use super::super::super::{
     Assignment, AssignmentKind, RefShape, Reference, SignatureId, ValueConversion, ValueId,
     ValueShape,
 };
 use super::super::FunctionLowerer;
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Type};
+use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
 
-pub(super) fn collect_application(expression: &Expr) -> (&Expr, Vec<&Expr>) {
+pub(super) fn collect_application<'a>(
+    module: &CoreModule,
+    expression: &'a Expr,
+) -> (&'a Expr, Vec<&'a Expr>) {
     let mut arguments = Vec::new();
     let mut head = expression;
     while let ExprKind::Application(function, argument) = &head.kind {
         arguments.push(argument.as_ref());
         head = function;
+        // A callable constructor application (an `Effect a` value) is itself
+        // callable, so applying it supplies its hidden context parameter. Stop
+        // flattening there so the remaining arguments belong to the closure it
+        // returns rather than to the outer function.
+        if module.callable_application(head.ty).is_some() {
+            break;
+        }
     }
     arguments.reverse();
     (head, arguments)
@@ -29,11 +40,16 @@ pub(in crate::cc::lower) fn is_erased_value_type(value_type: ValueShape) -> bool
     )
 }
 
-pub(super) fn is_function_type(module: &CoreModule, type_id: psrs_core::TypeId) -> bool {
-    matches!(
-        module.types.get(type_id.0 as usize),
-        Some(Type::Function { .. })
-    )
+/// Whether a value is a callable closure: an ordinary function arrow or the
+/// closure representation of a registered callable constructor (for example an
+/// `Effect a`). Both participate in the erased callable protocol, so a callable
+/// constructor's value is handled by the same adapters as a function.
+pub(in crate::cc::lower) fn is_function_type(
+    module: &CoreModule,
+    type_id: psrs_core::TypeId,
+) -> bool {
+    psrs_core::arrow_parts(&module.types, type_id).is_some()
+        || module.callable_application(type_id).is_some()
 }
 
 pub(in crate::cc::lower) fn is_generic_function_type(
@@ -68,15 +84,13 @@ pub(super) fn declaration_parameter_types(
     else {
         return Vec::new();
     };
-    let mut parameters = Vec::new();
-    let mut type_id = declaration.ty;
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    parameters
+    function_arrow_parameters(module, declaration.ty).0
 }
 
+/// The value type a declaration produces after its ordinary arguments: its
+/// declared type with every arrow peeled, stopping before a callable
+/// constructor's hidden parameters. For `discard :: Effect a -> (a -> Effect
+/// b) -> Effect b` this is `Effect b`, not the value `b` inside the effect.
 pub(super) fn declaration_result_type(
     module: &CoreModule,
     symbol: SymbolId,
@@ -85,23 +99,17 @@ pub(super) fn declaration_result_type(
         .declarations
         .iter()
         .find(|declaration| declaration.symbol == symbol)?;
-    let mut type_id = declaration.ty;
-    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-        type_id = *result;
-    }
-    Some(type_id)
+    Some(function_arrow_parameters(module, declaration.ty).1)
 }
 
-/// The final result type of a (possibly curried) function type. A non-function
-/// type is its own result.
+/// The result type of a (possibly curried) function type: the value produced
+/// after the last ordinary argument, stopping before an effect's returned
+/// function's own arguments. A non-function type is its own result.
 pub(super) fn function_result_type(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> psrs_core::TypeId {
-    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-        type_id = *result;
-    }
-    type_id
+    function_arrow_parameters(module, type_id).1
 }
 
 pub(super) fn callable_parameter_types(
@@ -125,38 +133,25 @@ pub(super) fn callable_result_type(
     callable_type: psrs_core::TypeId,
 ) -> Option<psrs_core::TypeId> {
     declaration_result_type(module, symbol).or_else(|| {
-        let mut type_id = callable_type;
-        while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-            type_id = *result;
-        }
-        module.types.get(type_id.0 as usize).map(|_| type_id)
+        let (_, result) = function_arrow_parameters(module, callable_type);
+        module.types.get(result.0 as usize).map(|_| result)
     })
 }
 
 fn function_parameter_types(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> Vec<psrs_core::TypeId> {
-    let mut parameters = Vec::new();
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    parameters
+    function_arrow_parameters(module, type_id).0
 }
 
 /// The source parameter and result types of a function-typed value, used to
 /// adapt concrete arguments and results across an erased method call.
 pub(super) fn function_value_types(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> (Vec<psrs_core::TypeId>, psrs_core::TypeId) {
-    let mut parameters = Vec::new();
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    (parameters, type_id)
+    function_arrow_parameters(module, type_id)
 }
 
 pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) -> bool {

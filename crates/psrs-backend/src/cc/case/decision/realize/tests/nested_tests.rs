@@ -34,6 +34,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: pick,

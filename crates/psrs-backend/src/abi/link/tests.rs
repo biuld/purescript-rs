@@ -24,6 +24,7 @@ fn module() -> CoreModule {
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -69,13 +70,20 @@ fn record_function() -> HirType {
 fn reuses_a_structurally_equal_record_and_appends_the_function_type() {
     let mut module = module();
     let id = intern_source_type(&mut module, &record_function()).expect("supported signature");
-    assert_eq!(id, CoreTypeId(4));
+    // The arrow is interned as the application spine
+    // `Application(Application(Constructor(Function), record), unit)`.
+    assert_eq!(id, CoreTypeId(6));
     assert_eq!(
         module.types[4],
-        CoreType::Function {
-            parameter: CoreTypeId(2),
-            result: CoreTypeId(3),
-        }
+        CoreType::Constructor(TypeConstructor::Function)
+    );
+    assert_eq!(
+        module.types[5],
+        CoreType::Application(CoreTypeId(4), CoreTypeId(2))
+    );
+    assert_eq!(
+        module.types[6],
+        CoreType::Application(CoreTypeId(5), CoreTypeId(3))
     );
 }
 

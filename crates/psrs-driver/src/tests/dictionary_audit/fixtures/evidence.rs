@@ -1,6 +1,6 @@
 //! Dictionary fixtures whose expressions carry explicit Typed Core evidence.
 
-use super::{binder, declaration, typed};
+use super::{binder, declaration, push_arrow, push_record, typed};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use psrs_thir as thir;
@@ -19,11 +19,23 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let eq_dictionary = thir::TypeId(3);
-    let ord_dictionary = thir::TypeId(4);
-    let make_ord_type = thir::TypeId(5);
-    let main_type = thir::TypeId(6);
+    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let method = push_arrow(&mut types, integer, boolean);
+    let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let ord_dictionary = push_record(
+        &mut types,
+        vec![
+            ("super".into(), eq_dictionary),
+            ("rank".into(), method),
+            ("compare".into(), method),
+        ],
+    );
+    let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::I32);
+        id
+    };
 
     let eq_evidence = thir::Evidence {
         kind: thir::EvidenceKind::Global(eq_int),
@@ -138,30 +150,10 @@ pub(crate) fn dictionary_module() -> (thir::Module, SymbolId) {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            // The declared field order deliberately differs from the canonical
-            // label order the product layout uses, so field addressing must be
-            // by label rather than by declared position.
-            thir::Type::Record(vec![
-                ("super".into(), eq_dictionary),
-                ("rank".into(), method),
-                ("compare".into(), method),
-            ]),
-            thir::Type::Function {
-                parameter: eq_dictionary,
-                result: ord_dictionary,
-            },
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -189,11 +181,19 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let eq_dictionary = thir::TypeId(3);
-    let ord_dictionary = thir::TypeId(4);
-    let make_ord_type = thir::TypeId(5);
-    let main_type = thir::TypeId(6);
+    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let method = push_arrow(&mut types, integer, boolean);
+    let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let ord_dictionary = push_record(
+        &mut types,
+        vec![("compare".into(), method), ("super".into(), eq_dictionary)],
+    );
+    let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::I32);
+        id
+    };
 
     let eq_evidence = thir::Evidence {
         kind: thir::EvidenceKind::Global(eq_int),
@@ -318,26 +318,10 @@ pub(crate) fn escaping_method_module() -> (thir::Module, SymbolId) {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            thir::Type::Record(vec![
-                ("compare".into(), method),
-                ("super".into(), eq_dictionary),
-            ]),
-            thir::Type::Function {
-                parameter: eq_dictionary,
-                result: ord_dictionary,
-            },
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

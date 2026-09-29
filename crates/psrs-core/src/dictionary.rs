@@ -121,17 +121,9 @@ fn types_compatible(
         | (Type::Char, Type::Char)
         | (Type::Unit, Type::Unit) => true,
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
-        (Type::Application(a1, a2), Type::Application(b1, b2))
-        | (
-            Type::Function {
-                parameter: a1,
-                result: a2,
-            },
-            Type::Function {
-                parameter: b1,
-                result: b2,
-            },
-        ) => types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen),
+        (Type::Application(a1, a2), Type::Application(b1, b2)) => {
+            types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
+        }
         (Type::Record(a), Type::Record(b)) => {
             a.len() == b.len()
                 && a.iter().all(|(label, ty)| {
@@ -238,10 +230,7 @@ mod tests {
     fn method_layout_module() -> Module {
         module(vec![
             Type::I32,
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
+            Type::Boolean,
             Type::Record(vec![
                 ("method".into(), TypeId(1)),
                 ("super".into(), TypeId(1)),
@@ -258,6 +247,7 @@ mod tests {
             types,
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),
+            callable_types: Vec::new(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,

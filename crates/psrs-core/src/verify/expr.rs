@@ -1,6 +1,7 @@
 use super::{
-    Locals, array_element, compatible, error, primitive_types, record_field, restore_local,
-    type_id_for, unary_primitive_types, user_type_constructor, verify_pattern, verify_type,
+    Locals, array_element, callable_result, compatible, error, primitive_types, record_field,
+    restore_local, type_id_for, unary_primitive_types, user_type_constructor, verify_pattern,
+    verify_type,
 };
 use crate::{Expr, ExprKind, Module, Type, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
@@ -295,36 +296,59 @@ impl Context<'_> {
             ExprKind::Application(function, argument) => {
                 self.expr(function, None);
                 self.expr(argument, None);
-                match self.module.types.get(function.ty.0 as usize).cloned() {
-                    Some(Type::Function { parameter, result }) => {
-                        compatible(
-                            parameter,
-                            argument.ty,
-                            self.module,
-                            self.owner,
-                            argument.span,
-                            self.errors,
-                        );
-                        compatible(
-                            result,
-                            expression.ty,
-                            self.module,
-                            self.owner,
-                            expression.span,
-                            self.errors,
-                        );
-                    }
-                    Some(Type::Variable(_)) => {}
-                    _ => self.errors.push(error(
+                if let Some((parameter, result)) =
+                    crate::arrow_parts(&self.module.types, function.ty)
+                {
+                    compatible(
+                        parameter,
+                        argument.ty,
+                        self.module,
                         self.owner,
-                        function.span,
-                        "application target is not a function",
-                    )),
+                        argument.span,
+                        self.errors,
+                    );
+                    compatible(
+                        result,
+                        expression.ty,
+                        self.module,
+                        self.owner,
+                        expression.span,
+                        self.errors,
+                    );
+                } else if let Some(result) = callable_result(self.module, function.ty) {
+                    compatible(
+                        result,
+                        expression.ty,
+                        self.module,
+                        self.owner,
+                        expression.span,
+                        self.errors,
+                    );
+                } else {
+                    match self.module.types.get(function.ty.0 as usize) {
+                        Some(Type::Variable(_)) => {}
+                        _ => self.errors.push(error(
+                            self.owner,
+                            function.span,
+                            "application target is not a function",
+                        )),
+                    }
                 }
             }
             ExprKind::Lambda { binder, body } => {
-                let Some(Type::Function { parameter, result }) =
-                    self.module.types.get(expression.ty.0 as usize).cloned()
+                // A lambda whose type is a callable constructor application is
+                // the runtime closure of that value: its binder is the hidden
+                // context parameter and its body produces the value type. The
+                // context parameter is a calling-convention detail, so only the
+                // body result is checked.
+                if let Some(result) = callable_result(self.module, expression.ty) {
+                    let previous = self.locals.insert(binder.id, binder.ty);
+                    self.expr(body, Some(result));
+                    restore_local(self.locals, binder.id, previous);
+                    return;
+                }
+                let Some((parameter, result)) =
+                    crate::arrow_parts(&self.module.types, expression.ty)
                 else {
                     self.errors.push(error(
                         self.owner,

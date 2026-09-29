@@ -66,8 +66,11 @@ fn identity_call(function_type: u32, value_type: u32, value: i32, start: u32) ->
 
 #[test]
 fn specializes_concrete_calls_deduplicates_and_keeps_generic_fallback() {
-    let int_type = TypeId(2);
-    let function_type = TypeId(3);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
+    let int_type = TypeId(types.len() as u32);
+    types.push(Type::I32);
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
         ExprKind::Let {
             bindings: vec![Binding {
@@ -87,25 +90,10 @@ fn specializes_concrete_calls_deduplicates_and_keeps_generic_fallback() {
         5,
         25,
     );
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::I32,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        value,
-    );
+    let mut input = module(types, int_type.0, value);
     input
         .declarations
-        .push(identity_declaration(1, TypeVariableId(0)));
+        .push(identity_declaration(generic_function.0, TypeVariableId(0)));
 
     let optimized = optimize(input, preserve_specializations()).unwrap();
     let generic = optimized
@@ -121,13 +109,11 @@ fn specializes_concrete_calls_deduplicates_and_keeps_generic_fallback() {
         .collect::<Vec<_>>();
     assert_eq!(specialized.len(), 1);
     assert!(specialized[0].quantified.is_empty());
-    assert_eq!(
-        optimized.types[specialized[0].ty.0 as usize],
-        Type::Function {
-            parameter: int_type,
-            result: int_type,
-        }
-    );
+    let Some((parameter, result)) = crate::arrow_parts(&optimized.types, specialized[0].ty) else {
+        panic!("the specialized declaration should have an arrow type")
+    };
+    assert_eq!(parameter, int_type);
+    assert_eq!(result, int_type);
     let ExprKind::Lambda { binder, body } = &specialized[0].value.kind else {
         panic!("the specialized declaration should retain its body")
     };
@@ -147,28 +133,16 @@ fn specializes_concrete_calls_deduplicates_and_keeps_generic_fallback() {
 
 #[test]
 fn inlines_a_small_specialization_without_discarding_the_generic_declaration() {
-    let int_type = TypeId(2);
-    let function_type = TypeId(3);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
+    let int_type = TypeId(types.len() as u32);
+    types.push(Type::I32);
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let value = identity_call(function_type.0, int_type.0, 9, 10);
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::I32,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        value,
-    );
+    let mut input = module(types, int_type.0, value);
     input
         .declarations
-        .push(identity_declaration(1, TypeVariableId(0)));
+        .push(identity_declaration(generic_function.0, TypeVariableId(0)));
 
     let optimized = optimize(input, Budget::default()).unwrap();
     assert_eq!(optimized.declarations.len(), 2);
@@ -186,13 +160,17 @@ fn inlines_a_small_specialization_without_discarding_the_generic_declaration() {
 #[test]
 fn does_not_specialize_a_call_that_still_has_a_type_variable() {
     let caller_variable = TypeVariableId(1);
-    let caller_type = TypeId(3);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
+    let caller_variable_type = TypeId(types.len() as u32);
+    types.push(Type::Variable(caller_variable));
+    let caller_type = arrow_type(&mut types, caller_variable_type, caller_variable_type);
     let main = expression(
         ExprKind::Lambda {
             binder: Binder {
                 id: LocalId(1),
                 name: "input".into(),
-                ty: TypeId(2),
+                ty: caller_variable_type,
                 span: span(3, 8),
             },
             body: Box::new(expression(
@@ -203,9 +181,14 @@ fn does_not_specialize_a_call_that_still_has_a_type_variable() {
                         10,
                         15,
                     )),
-                    Box::new(expression(ExprKind::Local(LocalId(1)), 2, 16, 21)),
+                    Box::new(expression(
+                        ExprKind::Local(LocalId(1)),
+                        caller_variable_type.0,
+                        16,
+                        21,
+                    )),
                 ),
-                2,
+                caller_variable_type.0,
                 10,
                 21,
             )),
@@ -214,26 +197,11 @@ fn does_not_specialize_a_call_that_still_has_a_type_variable() {
         3,
         21,
     );
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::Variable(caller_variable),
-            Type::Function {
-                parameter: TypeId(2),
-                result: TypeId(2),
-            },
-        ],
-        caller_type.0,
-        main,
-    );
+    let mut input = module(types, caller_type.0, main);
     input.declarations[0].quantified.push(caller_variable);
     input
         .declarations
-        .push(identity_declaration(1, TypeVariableId(0)));
+        .push(identity_declaration(generic_function.0, TypeVariableId(0)));
 
     let optimized = optimize(input, Budget::default()).unwrap();
     assert_eq!(optimized.declarations.len(), 2);
@@ -246,8 +214,11 @@ fn does_not_specialize_a_call_that_still_has_a_type_variable() {
 
 #[test]
 fn keeps_cross_module_calls_on_the_generic_declaration() {
-    let int_type = TypeId(2);
-    let function_type = TypeId(3);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
+    let int_type = TypeId(types.len() as u32);
+    types.push(Type::I32);
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let mut value = identity_call(function_type.0, int_type.0, 9, 10);
     let ExprKind::Application(function, _) = &mut value.kind else {
         panic!("expected an applied generic function")
@@ -257,23 +228,8 @@ fn keeps_cross_module_calls_on_the_generic_declaration() {
     };
     *symbol = SymbolId::new(ModuleId(1), 0);
 
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::I32,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        value,
-    );
-    let mut generic = identity_declaration(1, TypeVariableId(0));
+    let mut input = module(types, int_type.0, value);
+    let mut generic = identity_declaration(generic_function.0, TypeVariableId(0));
     generic.symbol = SymbolId::new(ModuleId(1), 0);
     input.declarations.push(generic);
 
@@ -288,11 +244,20 @@ fn keeps_cross_module_calls_on_the_generic_declaration() {
 
 #[test]
 fn specializes_nested_concrete_types_and_respects_budgets() {
-    let array_of_int = TypeId(5);
-    let function_type = TypeId(6);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let array_constructor = TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Array));
+    let array_of_variable = TypeId(types.len() as u32);
+    types.push(Type::Application(array_constructor, TypeId(0)));
+    let generic_function = arrow_type(&mut types, array_of_variable, array_of_variable);
+    let int_type = TypeId(types.len() as u32);
+    types.push(Type::I32);
+    let array_of_int = TypeId(types.len() as u32);
+    types.push(Type::Application(array_constructor, int_type));
+    let function_type = arrow_type(&mut types, array_of_int, array_of_int);
     let array_value = expression(
         ExprKind::Array {
-            elements: vec![expression(ExprKind::Integer(7), 4, 10, 11)],
+            elements: vec![expression(ExprKind::Integer(7), int_type.0, 10, 11)],
         },
         array_of_int.0,
         9,
@@ -312,28 +277,12 @@ fn specializes_nested_concrete_types_and_respects_budgets() {
         5,
         12,
     );
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Constructor(TypeConstructor::Array),
-            Type::Application(TypeId(1), TypeId(0)),
-            Type::Function {
-                parameter: TypeId(2),
-                result: TypeId(2),
-            },
-            Type::I32,
-            Type::Application(TypeId(1), TypeId(4)),
-            Type::Function {
-                parameter: array_of_int,
-                result: array_of_int,
-            },
-        ],
-        array_of_int.0,
-        value,
-    );
-    input
-        .declarations
-        .push(identity_declaration_of(3, TypeId(2), TypeVariableId(0)));
+    let mut input = module(types, array_of_int.0, value);
+    input.declarations.push(identity_declaration_of(
+        generic_function.0,
+        array_of_variable,
+        TypeVariableId(0),
+    ));
 
     let optimized = optimize(input.clone(), preserve_specializations()).unwrap();
     let specialized = optimized
@@ -341,14 +290,14 @@ fn specializes_nested_concrete_types_and_respects_budgets() {
         .iter()
         .find(|declaration| declaration.name.starts_with("identity$p7_"))
         .unwrap();
-    let Type::Function { parameter, result } = optimized.types[specialized.ty.0 as usize] else {
+    let Some((parameter, result)) = crate::arrow_parts(&optimized.types, specialized.ty) else {
         panic!("specialized function type should remain an arrow")
     };
     assert_eq!(parameter, array_of_int);
     assert_eq!(result, array_of_int);
     assert!(matches!(
         optimized.types[parameter.0 as usize],
-        Type::Application(_, element) if element == TypeId(4)
+        Type::Application(_, element) if element == int_type
     ));
 
     let no_count_budget = Budget {

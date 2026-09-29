@@ -19,8 +19,9 @@ impl Types {
         Self {
             integer: thir::TypeId(0),
             boolean: thir::TypeId(1),
-            method: thir::TypeId(2),
-            dictionary: thir::TypeId(3),
+            // `integer -> boolean` is the application spine at ids 2..4.
+            method: thir::TypeId(4),
+            dictionary: thir::TypeId(5),
         }
     }
 
@@ -28,10 +29,9 @@ impl Types {
         vec![
             thir::Type::I32,
             thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: self.integer,
-                result: self.boolean,
-            },
+            thir::Type::Constructor(thir::TypeConstructor::Function),
+            thir::Type::Application(thir::TypeId(2), self.integer),
+            thir::Type::Application(thir::TypeId(3), self.boolean),
             thir::Type::Record(vec![("isPositive".into(), self.method)]),
         ]
     }
@@ -48,6 +48,7 @@ fn module_with(bad: thir::Declaration, span: TextRange) -> thir::Module {
         types: types.list(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(

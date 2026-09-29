@@ -160,12 +160,20 @@ fn dictionary_evidence_module() -> thir::Module {
     let span = TextRange::new(0, 32);
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let eq_dictionary = thir::TypeId(3);
-    let ord_dictionary = thir::TypeId(4);
-    let make_ord_type = thir::TypeId(5);
-    let main_body = thir::TypeId(6);
-    let main_type = thir::TypeId(7);
+    let mut types = vec![thir::Type::I32, thir::Type::Boolean];
+    let method = push_arrow(&mut types, integer, boolean);
+    let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let ord_dictionary = push_record(
+        &mut types,
+        vec![
+            ("compare".into(), method),
+            ("rank".into(), method),
+            ("super".into(), eq_dictionary),
+        ],
+    );
+    let make_ord_type = push_arrow(&mut types, eq_dictionary, ord_dictionary);
+    let main_body = push_arrow(&mut types, integer, boolean);
+    let main_type = push_arrow(&mut types, eq_dictionary, main_body);
 
     let given = thir::Evidence {
         kind: thir::EvidenceKind::Given(LocalId(0)),
@@ -266,34 +274,10 @@ fn dictionary_evidence_module() -> thir::Module {
         id: module_id,
         name: "DictionaryLayout".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            thir::Type::Record(vec![
-                ("compare".into(), method),
-                ("rank".into(), method),
-                ("super".into(), eq_dictionary),
-            ]),
-            thir::Type::Function {
-                parameter: eq_dictionary,
-                result: ord_dictionary,
-            },
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Function {
-                parameter: eq_dictionary,
-                result: main_body,
-            },
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(entry, "main", main_type, main, span),
@@ -306,6 +290,26 @@ fn dictionary_evidence_module() -> thir::Module {
 
 fn typed(kind: thir::ExprKind, ty: thir::TypeId, span: TextRange) -> thir::Expr {
     thir::Expr { kind, ty, span }
+}
+
+fn push_arrow(
+    types: &mut Vec<thir::Type>,
+    parameter: thir::TypeId,
+    result: thir::TypeId,
+) -> thir::TypeId {
+    let head = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Function));
+    let inner = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Application(head, parameter));
+    let outer = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Application(inner, result));
+    outer
+}
+
+fn push_record(types: &mut Vec<thir::Type>, fields: Vec<(String, thir::TypeId)>) -> thir::TypeId {
+    let id = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Record(fields));
+    id
 }
 
 fn binder(id: u32, name: &str, ty: thir::TypeId, span: TextRange) -> thir::Binder {

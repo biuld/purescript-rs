@@ -7,7 +7,7 @@ use crate::abi::canonical::{CanonicalType, FlatLeaf, Ownership, flat_leaves_of};
 use crate::abi::{WasiImport, WasiRegistry};
 use crate::capability::TargetCapabilities;
 use crate::cc::ValueShape;
-use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
+use psrs_core::{Type as CoreType, TypeConstructor as CoreTypeConstructor, TypeId as CoreTypeId};
 use psrs_hir::{
     BuiltinType, ModuleId, Type as HirType, TypeId as HirTypeId, TypeKind as HirTypeKind,
 };
@@ -33,6 +33,7 @@ fn validate(
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,
@@ -46,13 +47,26 @@ fn validate(
     module.types.push(result);
     let mut current = CoreTypeId((module.types.len() - 1) as u32);
     for parameter in parameter_ids.iter().rev() {
-        module.types.push(CoreType::Function {
-            parameter: *parameter,
-            result: current,
-        });
-        current = CoreTypeId((module.types.len() - 1) as u32);
+        current = push_core_arrow(&mut module, *parameter, current);
     }
     crate::abi::link::validate_import_signature(import, &module, current)
+}
+
+/// Appends `parameter -> result` as the application spine and returns its id.
+fn push_core_arrow(
+    module: &mut psrs_core::Module,
+    parameter: CoreTypeId,
+    result: CoreTypeId,
+) -> CoreTypeId {
+    let head = CoreTypeId(module.types.len() as u32);
+    module
+        .types
+        .push(CoreType::Constructor(CoreTypeConstructor::Function));
+    let inner = CoreTypeId(module.types.len() as u32);
+    module.types.push(CoreType::Application(head, parameter));
+    let outer = CoreTypeId(module.types.len() as u32);
+    module.types.push(CoreType::Application(inner, result));
+    outer
 }
 
 /// The CC abstract signature used by MIR lowering.
@@ -135,6 +149,7 @@ fn option_string_validates_and_lowers_as_a_discriminant_and_string() {
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

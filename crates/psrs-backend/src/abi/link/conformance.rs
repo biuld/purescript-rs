@@ -64,12 +64,12 @@ pub(crate) fn function_parts(
     let mut parameters = Vec::new();
     let mut current = type_id;
     loop {
-        match module.types.get(current.0 as usize)? {
-            CoreType::Function { parameter, result } => {
-                parameters.push(*parameter);
-                current = *result;
+        match psrs_core::arrow_parts(&module.types, current) {
+            Some((parameter, result)) => {
+                parameters.push(parameter);
+                current = result;
             }
-            _ => return Some((parameters, current)),
+            None => return Some((parameters, current)),
         }
     }
 }

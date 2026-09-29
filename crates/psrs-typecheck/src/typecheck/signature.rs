@@ -104,14 +104,13 @@ impl Checker {
                         return self.fresh();
                     }
                     let argument = self.elaborate_type_mode(argument, variables, rigid_variables);
-                    return if self.effect_runtime_representation {
-                        InferType::Function(Box::new(InferType::I32), Box::new(argument))
-                    } else {
-                        InferType::Application(
-                            Box::new(InferType::Constructor(TypeConstructor::Effect)),
-                            Box::new(argument),
-                        )
-                    };
+                    // `Effect` stays an opaque applied type through checking.
+                    // Its closure representation and hidden context parameter
+                    // are selected by the backend after checking.
+                    return InferType::Application(
+                        Box::new(InferType::Constructor(TypeConstructor::Effect)),
+                        Box::new(argument),
+                    );
                 }
                 InferType::Application(
                     Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),

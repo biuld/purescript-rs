@@ -9,8 +9,8 @@ mod types;
 use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
-    array_element, compatible, error, primitive_types, record_field, restore_local, type_id_for,
-    unary_primitive_types, user_type_constructor, verify_type,
+    array_element, callable_result, compatible, error, primitive_types, record_field,
+    restore_local, type_id_for, unary_primitive_types, user_type_constructor, verify_type,
 };
 
 type Locals = HashMap<LocalId, TypeId>;
@@ -31,12 +31,10 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
     for (index, ty) in module.types.iter().enumerate() {
         let id = TypeId(index as u32);
         match ty {
-            Type::Function { parameter, result } | Type::Application(parameter, result) => {
+            Type::Application(parameter, result) => {
                 verify_type(*parameter, module, module.id, module.span, &mut errors);
                 verify_type(*result, module, module.id, module.span, &mut errors);
-                if matches!(ty, Type::Application(..)) {
-                    verify_type(id, module, module.id, module.span, &mut errors);
-                }
+                verify_type(id, module, module.id, module.span, &mut errors);
             }
             Type::Record(fields) => {
                 for (_, field) in fields {

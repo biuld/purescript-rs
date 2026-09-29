@@ -387,9 +387,11 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         CstExprKind::Do {
-            result: Some(_), ..
+            statements,
+            result: Some(result),
+            ..
         } => {
-            return Err(LowerError::new(span, "`ado` notation is not supported yet"));
+            return do_notation::lower_ado(statements, *result, span);
         }
         CstExprKind::Do {
             do_keyword_span,

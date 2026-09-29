@@ -30,6 +30,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         ],
         newtype_ids: vec![wrapper_type],
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: wrapper,
