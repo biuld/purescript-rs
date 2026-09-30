@@ -1,7 +1,4 @@
-use super::{
-    depends_on_type_variable, is_callable_type, layout_error, newtype_field_type,
-    primitive_shape_of, user_type_id,
-};
+use super::{is_callable_type, layout_error, newtype_field_type, primitive_shape_of, user_type_id};
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
 use psrs_core::ExprKind;
@@ -335,37 +332,6 @@ pub(crate) fn scalar_type(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn field_storage_shape(
-    module: &CoreModule,
-    id: TypeId,
-    span: TextRange,
-    enum_types: &HashSet<HirTypeId>,
-    aggregate_types: &HashSet<HirTypeId>,
-    newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, ReprId>,
-    record_types: &HashMap<TypeId, ReprId>,
-    function_types: &HashMap<TypeId, SignatureId>,
-) -> Result<ValueShape, Vec<BackendError>> {
-    if depends_on_type_variable(module, id) {
-        return Ok(ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        }));
-    }
-    scalar_type(
-        module,
-        id,
-        span,
-        enum_types,
-        aggregate_types,
-        newtype_ids,
-        array_types,
-        record_types,
-        function_types,
-    )
-}
-
 fn aggregate_value_type() -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
@@ -381,21 +347,15 @@ fn closure_value_type_for(signature: SignatureId) -> ValueShape {
 }
 
 /// The runtime shape of a callable closure value — an ordinary arrow or a
-/// registered callable constructor application. A value that depends on a type
-/// variable is erased; otherwise it is its closure signature. The hidden
+/// registered callable constructor application. It retains its normalized
+/// signature, including erased abstract arguments and results. The hidden
 /// context parameter lives only in the signature, never in this value shape.
 fn callable_value_shape(
-    module: &CoreModule,
+    _module: &CoreModule,
     id: TypeId,
     span: TextRange,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
-    if depends_on_type_variable(module, id) {
-        return Ok(ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        }));
-    }
     let Some(signature) = function_types.get(&id) else {
         return Err(layout_error(span, "callable value has no runtime layout"));
     };

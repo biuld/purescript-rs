@@ -22,7 +22,7 @@ mod letrec;
 mod record;
 mod scalar;
 use call::ApplicationLowering;
-pub(in crate::cc) use conversion::ErasedFieldRecovery;
+pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 use letrec::LetLowering;

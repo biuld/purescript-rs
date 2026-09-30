@@ -1,20 +1,16 @@
-use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
-use crate::cc::{
-    AssignmentKind, Function, RefShape, Reference, ReprId, Representation, RepresentationTable,
-    ValueDecl, ValueShape, VariantCase,
-};
+mod support;
+use crate::cc::{AssignmentKind, RefShape, Representation, RepresentationTable, VariantCase};
 use psrs_core::{
     CaseBranch, ConstructorInfo, Expr, ExprKind, Module, Pattern, PatternKind, Type,
     TypeConstructor,
 };
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 use psrs_span::TextRange;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
+use support::{LoweringContext, lower_and_verify, reference_shape};
 
 #[test]
-fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
+fn parameterized_array_field_projection_uses_its_stored_canonical_array() {
     let module_id = ModuleId(0);
     let wrap_type = HirTypeId::new(module_id, 0);
     let wrap = SymbolId::new(module_id, 0);
@@ -88,7 +84,7 @@ fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
         Representation::Variant {
             cases: vec![VariantCase {
                 tag: 0,
-                fields: vec![reference_shape(RefShape::Erased)],
+                fields: vec![array_shape],
             }],
         },
     );
@@ -116,15 +112,51 @@ fn parameterized_array_field_recovery_uses_the_canonical_generic_array() {
     .expect("generic array fields should recover through their canonical layout");
     assert_eq!(function.result_type, array_shape);
     assert!(
+        !function
+            .assignments
+            .iter()
+            .any(|assignment| matches!(assignment.kind, AssignmentKind::AggregateConvert { .. })),
+        "canonical field projections need no erased recovery"
+    );
+    assert!(
         function.assignments.iter().any(|assignment| matches!(
             assignment.kind,
             AssignmentKind::VariantGet { field: 0, .. }
         ))
     );
+    let mut legacy_table = representations.clone();
+    legacy_table.set(
+        wrap_repr,
+        Representation::Variant {
+            cases: vec![VariantCase {
+                tag: 0,
+                fields: vec![reference_shape(RefShape::Erased)],
+            }],
+        },
+    );
+    let legacy = LoweringContext {
+        representations: &legacy_table,
+        ..context
+    };
+    let errors = lower_and_verify(
+        &module,
+        wrap_a,
+        reference_shape(RefShape::Aggregate),
+        &branches,
+        array_shape,
+        &legacy,
+    )
+    .expect_err("an erased composite field is inconsistent with its canonical template");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("normalized template")
+                && error.kind == crate::BackendErrorKind::InvalidCompilerIr)
+    );
 }
 
 #[test]
-fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
+fn nested_parameterized_projection_keeps_each_canonical_field() {
     let module_id = ModuleId(0);
     let inner_type = HirTypeId::new(module_id, 0);
     let outer_type = HirTypeId::new(module_id, 1);
@@ -222,7 +254,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
         Representation::Variant {
             cases: vec![VariantCase {
                 tag: 0,
-                fields: vec![reference_shape(RefShape::Erased)],
+                fields: vec![array_shape],
             }],
         },
     );
@@ -231,7 +263,7 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
         Representation::Variant {
             cases: vec![VariantCase {
                 tag: 0,
-                fields: vec![reference_shape(RefShape::Erased)],
+                fields: vec![reference_shape(RefShape::Aggregate)],
             }],
         },
     );
@@ -258,6 +290,13 @@ fn nested_parameterized_array_projection_recovers_each_canonical_boundary() {
     )
     .expect("nested generic array fields should recover through canonical layouts");
     assert_eq!(function.result_type, array_shape);
+    assert!(
+        !function
+            .assignments
+            .iter()
+            .any(|assignment| matches!(assignment.kind, AssignmentKind::AggregateConvert { .. })),
+        "canonical field projections need no erased recovery"
+    );
     assert_eq!(
         function
             .assignments
@@ -367,103 +406,16 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
     .expect("generic record fields should project using the canonical array layout");
     assert_eq!(function.result_type, array_shape);
     assert!(
+        !function
+            .assignments
+            .iter()
+            .any(|assignment| matches!(assignment.kind, AssignmentKind::AggregateConvert { .. })),
+        "canonical field projections need no erased recovery"
+    );
+    assert!(
         function.assignments.iter().any(|assignment| matches!(
             assignment.kind,
             AssignmentKind::ProductGet { field: 0, .. }
         ))
     );
-}
-
-struct LoweringContext<'a> {
-    representations: &'a RepresentationTable,
-    enum_types: &'a HashSet<HirTypeId>,
-    aggregate_types: &'a HashSet<HirTypeId>,
-    array_types: &'a HashMap<psrs_core::TypeId, ReprId>,
-    record_types: &'a HashMap<psrs_core::TypeId, ReprId>,
-    constructor_types: &'a HashMap<SymbolId, ReprId>,
-}
-
-fn lower_and_verify(
-    module: &Module,
-    scrutinee_type: psrs_core::TypeId,
-    scrutinee_shape: ValueShape,
-    branches: &[CaseBranch],
-    result_shape: ValueShape,
-    context: &LoweringContext<'_>,
-) -> Result<Function, Vec<crate::BackendError>> {
-    let signatures = HashMap::new();
-    let newtype_ids = module.newtype_ids.iter().copied().collect();
-    let constructor_tags = module
-        .constructors
-        .iter()
-        .map(|constructor| (constructor.symbol, constructor.tag))
-        .collect();
-    let mut constructors_by_type = HashMap::<HirTypeId, Vec<(SymbolId, u32)>>::new();
-    for constructor in &module.constructors {
-        constructors_by_type
-            .entry(constructor.type_id)
-            .or_default()
-            .push((constructor.symbol, constructor.tag));
-    }
-    let function_types = HashMap::new();
-    let function_wrappers = HashMap::new();
-    let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(module)));
-    let mut lowerer = FunctionLowerer {
-        next_value: 1,
-        values: vec![ValueDecl {
-            id: crate::types::ValueId(0),
-            ty: scrutinee_shape,
-        }],
-        locals: HashMap::new(),
-        signatures: &signatures,
-        representations: context.representations,
-        module,
-        enum_types: context.enum_types,
-        aggregate_types: context.aggregate_types,
-        newtype_ids: &newtype_ids,
-        boxed_integer_type: None,
-        boxed_number_type: None,
-        array_types: context.array_types,
-        record_types: context.record_types,
-        constructor_tags: &constructor_tags,
-        constructors_by_type: &constructors_by_type,
-        constructor_types: context.constructor_types,
-        function_types: &function_types,
-        function_wrappers: &function_wrappers,
-        generated_symbols,
-        owner: module.id,
-        warnings: Vec::new(),
-        local_types: HashMap::new(),
-        generated: Vec::new(),
-    };
-    let mut assignments = Vec::new();
-    let span = TextRange::new(0, 50);
-    let result = lowerer.lower_case(
-        scrutinee_type,
-        crate::types::ValueId(0),
-        branches,
-        result_shape,
-        span,
-        &mut assignments,
-    )?;
-    let function = Function {
-        symbol: SymbolId::new(module.id, 100),
-        name: "projectParameterizedField".into(),
-        parameters: vec![crate::types::ValueId(0)],
-        values: lowerer.values,
-        assignments,
-        result,
-        result_type: result_shape,
-        span,
-    };
-    crate::cc::verify::verify_function(&function, &signatures, context.representations)
-        .expect("realized decision DAG should verify as CC");
-    Ok(function)
-}
-
-fn reference_shape(heap: RefShape) -> ValueShape {
-    ValueShape::Reference(Reference {
-        nullable: false,
-        heap,
-    })
 }

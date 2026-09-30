@@ -7,8 +7,9 @@
 **Progress:** Verified. Signature interning now re-dedupes after aggregate
 normalization, the CC adaptation verifier requires the exact non-null erased
 shape, integer-shaped captures reserve the integer box, and value-sensitive
-execution covers both scalar boxes and both adapter directions. The dead
-`ValueConversion::FunctionAdapter` variant was removed. Remaining deviations and
+execution covers both scalar boxes and both adapter directions. Function
+values retain their normalized template signatures, and recursive conversion
+plans include generated function-adapter factories. Remaining deviations and
 handoffs are recorded below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-02 and BE-08; FE-09 supplies typed polymorphic input.
@@ -87,7 +88,7 @@ PE-01:
     products), cc/layout/mod.rs (type_layout).
   Tests: cc::layout::tests::canonical_arrays_key_by_element_shape,
     canonical_record_keys_sort_labels_and_share_equal_keyed_records,
-    parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot;
+    parameter_dependent_record_field_keeps_its_canonical_template_in_the_adt_slot;
     mir::gc_tests::erased::executes_erased_identity_for_scalars_and_concrete_references_on_both_targets.
   Input boundary: verified Typed Core layout fixtures plus a verified CC module.
   Commands: cargo test -p psrs-backend cc::layout; cargo test -p psrs-backend mir::gc_tests::erased.
@@ -118,8 +119,8 @@ PE-02:
     representations, so `useInt`/`useStr` collapse onto the shared id.
 
 PE-03:
-  Implementation: cc/lower/conversion.rs (BoxScalar/UnboxScalar plans),
-    cc/lower/erased.rs (unbox_erased_value), mir/layout (Box{Integer},
+  Implementation: cc/lower/conversion/mod.rs (BoxScalar/UnboxScalar plans),
+    mir/lower/aggregate (UnboxScalar), mir/layout (Box{Integer},
     Box{Number}), mir/lower/assignments.rs.
   Tests: driver polymorphism_erasure_audit::erased_int_box_preserves_high_bit_values
     (2000000000), erased_boolean_box_preserves_both_values (`[true,false]` index 1),
@@ -138,7 +139,7 @@ PE-03:
 
 PE-04:
   Implementation: cc/lower/erased.rs (RepresentationCast recovery),
-    cc/lower/conversion.rs (RecoverReference), mir/lower (RefCast),
+    cc/lower/conversion/mod.rs (RecoverReference), mir/lower (RefCast),
     cc/verify/adaptation.rs, cc/verify/ops/aggregate.
   Tests: mir::gc_tests::erased executes identity recovery for a concrete
     product; cc::verify::tests::rejects_a_nullable_erased_source_crossing_to_a_concrete_reference;
@@ -169,8 +170,8 @@ PE-05:
   Gaps: none.
 
 PE-06:
-  Implementation: cc/lower/call/application.rs, cc/lower/erased.rs
-    (unbox_erased_value), cc/lower/conversion.rs, mir/lower/aggregate.
+  Implementation: cc/lower/call/application.rs, cc/lower/conversion/mod.rs
+    (typed conversion), mir/lower/aggregate (box/unbox and reconstruction).
   Tests: mir::gc_tests::erased executes one `identity` body at Int, Number, and
     a concrete reference; driver polymorphism_erasure_audit::
     linked_modules_round_trip_an_erased_high_bit_int; generic_aggregate_audit::
@@ -247,9 +248,10 @@ PE-10:
   Commands: cargo test -p psrs-backend cc::verify.
   Result: pass.
   Revision: cc5d0f4 + audit diff.
-  Gaps: none for CC. `ValueConversion::FunctionAdapter` was removed as dead
-    code (never constructed); function adaptation is generated directly by
-    `adapt_erased_function_value`.
+  Gaps: none for the recorded CC cases. Nested FunctionAdapter leaves verify
+    exact factory endpoints after generated functions are available. The
+    negative test nested_adapter_factories_require_exact_callable_endpoints
+    rejects a missing factory, wrong parameter, and wrong result.
 
 PE-11:
   Implementation: cc/lower/call/application.rs, cc/lower/erased.rs,
@@ -280,12 +282,14 @@ PE-11:
   reference; it does not use the integer box. `Array Int` and
   `Array String` therefore keep distinct canonical arrays and signatures; the
   PE-02 evidence was updated accordingly.
-- **Dead `FunctionAdapter` variant removed.** The design grammar in
-  [generic aggregate erasure](../../design/backend/fp/generic-aggregate-erasure.md)
-  still lists `FunctionAdapter`; CC performs function adaptation through
-  `adapt_erased_function_value`, not through `ValueConversion`. Removing the
-  never-constructed variant keeps the code honest; wiring it would require a
-  new MIR closure-adapter path.
+- **Recursive function conversion repaired.** The earlier removal of
+  `FunctionAdapter` left aggregate function fields outside the conversion
+  protocol. `cc/layout/scalar.rs` now retains template closure signatures;
+  `cc/lower/conversion/` generates adapter factories as recursive plan leaves.
+  Calls, partial applications, adapter bodies, arrays, and records share that
+  planner. The record-specific call-result workaround has been replaced.
+  Linked source execution covers imported instance methods, superclass
+  dictionaries, and function arrays nested in generic records.
 - **Source coverage.** Runtime evidence is source-level except the verified CC
   erased identity fixture; type-class dictionaries and returned polymorphic
   functions remain independently tracked in

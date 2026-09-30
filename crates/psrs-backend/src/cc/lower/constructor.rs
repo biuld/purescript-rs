@@ -1,6 +1,4 @@
-use super::super::{
-    Assignment, AssignmentKind, Representation, ValueConversion, ValueId, ValueShape,
-};
+use super::super::{Assignment, AssignmentKind, Representation, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_core::Expr;
@@ -115,11 +113,8 @@ impl FunctionLowerer<'_> {
                 let value = self.lower_value(argument, assignments)?;
                 let source_shape = self.value_shape(argument.ty, argument.span)?;
                 let template_shape = self.value_shape(template_type, expression.span)?;
-                if template_shape != stored
-                    && (stored != super::conversion::erased_shape()
-                        || !matches!(template_shape, ValueShape::Reference(_)))
-                {
-                    return Err(vec![BackendError::new(
+                if template_shape != stored {
+                    return Err(vec![BackendError::invalid_ir(
                         "P8 closure conversion",
                         expression.span,
                         "constructor field storage does not match its normalized template",
@@ -140,18 +135,6 @@ impl FunctionLowerer<'_> {
                     expression.span,
                     assignments,
                 );
-                let value = if template_shape == stored {
-                    value
-                } else {
-                    self.emit_conversion(
-                        value,
-                        template_shape,
-                        stored,
-                        ValueConversion::EraseReference,
-                        expression.span,
-                        assignments,
-                    )
-                };
                 values.push(value);
             }
             assignments.push(Assignment {

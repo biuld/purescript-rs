@@ -125,6 +125,7 @@ mod resolution;
 mod typecheck;
 mod wasi;
 
+mod adt_template_storage;
 mod adts;
 
 mod pattern_matching_audit;

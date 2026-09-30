@@ -136,7 +136,7 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
 
 /// Builds an instance whose method field is a global function with a generic
 /// type (`forall a. a -> a`). Storing and projecting that field must use the
-/// erased closure protocol and adapt back at the concrete use.
+/// template closure protocol and adapt arguments/results at the concrete use.
 pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let module_id = ModuleId(0);
     let main = SymbolId::new(module_id, 0);

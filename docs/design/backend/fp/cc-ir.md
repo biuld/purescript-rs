@@ -378,9 +378,13 @@ lower_lambda(lambda):
         result = lower_value(body)
     closure = fresh(Closure(signature))
     emit FunctionRef(f, signature, captures) -> closure
-    if lambda.ty is a generic function: emit RepresentationCast to Erased
     return closure
 ```
+
+Generic function values retain `Closure(signature)`; abstract parameters and
+results use their normalized erased shapes. Erasing the closure reference is
+required only by an erased storage boundary such as a bare type variable,
+a bare-variable ADT slot, or the uniform capture array.
 
 Capture order is the order `collect_captures` discovers free locals while
 walking the body, deduplicated on first sight; the lifted function reads them

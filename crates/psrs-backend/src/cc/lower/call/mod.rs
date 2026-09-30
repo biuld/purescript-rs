@@ -7,9 +7,7 @@ use crate::BackendError;
 use psrs_core::Expr;
 use psrs_span::TextRange;
 
-pub(super) use helpers::{
-    is_function_type, is_generic_function_type, persist_reference, restore_reference,
-};
+pub(super) use helpers::{is_function_type, persist_reference, restore_reference};
 
 pub(super) trait CallShape {
     fn check_call_shape(

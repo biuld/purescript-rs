@@ -23,7 +23,10 @@ pub(super) fn append_function_types(
     // ADT the program never references. Both source arrows and the closure
     // representation of a registered callable constructor are callable, so both
     // receive a signature here.
-    let referenced = referenced_types(module);
+    let referenced = referenced_types(
+        module,
+        array_types.keys().chain(record_types.keys()).copied(),
+    );
     let function_ids = module
         .types
         .iter()

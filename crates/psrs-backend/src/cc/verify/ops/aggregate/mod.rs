@@ -1,3 +1,6 @@
+mod functions;
+pub(super) use functions::verify_adapter_functions;
+
 use super::super::helpers::{assignment_error, repr_shape};
 use crate::BackendError;
 use crate::cc::{
@@ -174,6 +177,30 @@ fn verify_plan(
                     ));
                 }
             }
+            Ok(*destination)
+        }
+        ValueConversion::FunctionAdapter {
+            source: expected,
+            destination,
+            ..
+        } => {
+            if source != *expected
+                || !matches!(source, ValueShape::Reference(_))
+                || !matches!(
+                    destination,
+                    ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: RefShape::Closure(_),
+                    })
+                )
+            {
+                return Err(assignment_error(
+                    assignment,
+                    "function adapter has incompatible shapes",
+                ));
+            }
+            super::super::helpers::verify_value_shape(&source, table, assignment.span)?;
+            super::super::helpers::verify_value_shape(destination, table, assignment.span)?;
             Ok(*destination)
         }
         ValueConversion::Sequence(plans) => {

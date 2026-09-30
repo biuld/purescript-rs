@@ -150,6 +150,34 @@ impl FunctionLowerer<'_> {
             ValueConversion::RecoverReference { destination, .. } => {
                 self.lower_reference_cast(block, value, *destination, span)
             }
+            ValueConversion::FunctionAdapter {
+                function,
+                source: expected,
+                destination,
+            } => {
+                if source != *expected {
+                    return Err(aggregate_error(
+                        span,
+                        "function adapter source shape mismatch",
+                    ));
+                }
+                let result = self.fresh(
+                    self.layout
+                        .value_type(destination)
+                        .map_err(|error| layout_error(span, error))?,
+                );
+                self.append_instruction(
+                    block,
+                    Instruction::Call {
+                        destination: result,
+                        function: *function,
+                        arguments: vec![value],
+                        span,
+                    },
+                    span,
+                )?;
+                Ok((block, result, *destination))
+            }
             ValueConversion::Sequence(plans) => {
                 let mut current = block;
                 let mut current_value = value;

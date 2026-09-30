@@ -229,6 +229,14 @@ and on each call:
 4. boxes the concrete result if the erased signature requires it; and
 5. returns.
 
+A function value retains its normalized `Closure(SignatureId)` even when its
+source type contains variables. Erasure of its abstract arguments/results does
+not require erasing the closure itself. Uniform erased storage may hide the
+closure shape; recovery restores the signature established by the producer,
+then adaptation changes the calling convention if necessary. The recursive
+conversion plan includes function adapters inside records and arrays, so
+correctness does not depend on specialization or the kind of enclosing value.
+
 The reverse direction — a polymorphic function value returned from a generic
 function and later invoked at a concrete type — is recorded at the concrete
 consumer and adapted in the same way. Evaluation order is preserved: the
@@ -282,7 +290,7 @@ normalize(ty, substitution):
     Array(element)                   -> concrete or canonical array shape;
                                         record element conversion
     closed Record(fields)            -> product of recursively normalized fields
-    Parameterized ADT                -> nominal variant; dependent fields Erased
+    Parameterized ADT                -> nominal variant; declared template fields
     Function(parameters, result)     -> Closure(Signature(normalize each part))
     concrete scalar or other value   -> its concrete shape
 ```
@@ -515,13 +523,13 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 `RepresentationTest` is present in the CC model, the verifier, and the MIR
 lowering, but no current lowering pass generates it; only `RepresentationCast`
 is produced. The erased execution fixture covers scalars and a concrete
-reference through identity; higher-order adapter execution fixtures and
-type-class dictionaries are not yet wired to the frontend. Generic arrays and
-closed generic records now reconstruct across nominal layouts through explicit
-conversion plans. The
+reference through identity. Source execution covers higher-order adapters and
+type-class dictionaries, including imported generic instances. Generic arrays
+and closed generic records reconstruct across nominal layouts through explicit
+conversion plans, including recursive function-adapter leaves. The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 distinguishes source programs from verified Typed Core backend fixtures and
-records the remaining source limitation for empty array literals.
+records source coverage and remaining obligations.
 
 ## References
 

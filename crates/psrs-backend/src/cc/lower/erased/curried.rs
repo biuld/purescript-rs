@@ -1,6 +1,4 @@
-use super::super::super::layout::{
-    depends_on_type_variable, function_arrow_parameters, function_signature,
-};
+use super::super::super::layout::{function_arrow_parameters, function_signature};
 use super::super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, Signature, SignatureId, ValueId,
 };
@@ -184,19 +182,21 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        let result = outer.fresh(target_shape.result);
-        outer_assignments.push(Assignment {
-            destination: result,
-            kind: AssignmentKind::RepresentationCast {
-                destination: result,
-                value: inner_closure_value,
-                reference: Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                },
-            },
+        let conversion = outer.typed_conversion(
+            remaining_type,
+            function_arrow_parameters(self.module, target_type).1,
+            closure_value_type_for(remaining_signature_id),
+            target_shape.result,
             span,
-        });
+        )?;
+        let result = outer.emit_conversion(
+            inner_closure_value,
+            closure_value_type_for(remaining_signature_id),
+            target_shape.result,
+            conversion,
+            span,
+            &mut outer_assignments,
+        );
         let outer_symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let outer_function = Function {
             symbol: outer_symbol,
@@ -225,24 +225,7 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        if depends_on_type_variable(self.module, target_type) {
-            let erased = self.fresh(erased_reference_type());
-            assignments.push(Assignment {
-                destination: erased,
-                kind: AssignmentKind::RepresentationCast {
-                    destination: erased,
-                    value: closure_result,
-                    reference: Reference {
-                        nullable: false,
-                        heap: RefShape::Erased,
-                    },
-                },
-                span,
-            });
-            Ok(erased)
-        } else {
-            Ok(closure_result)
-        }
+        Ok(closure_result)
     }
 }
 

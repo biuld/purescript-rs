@@ -36,6 +36,14 @@ pub enum ValueConversion {
         destination: ValueShape,
         evidence: RecoveryEvidence,
     },
+    /// Calls a P8-generated factory that captures the source closure and returns
+    /// a closure with the destination calling convention. Nested maps use the
+    /// same operation as scalar function boundaries.
+    FunctionAdapter {
+        function: psrs_hir::SymbolId,
+        source: ValueShape,
+        destination: ValueShape,
+    },
     Sequence(Vec<ValueConversion>),
     ArrayMap {
         source: ReprId,
