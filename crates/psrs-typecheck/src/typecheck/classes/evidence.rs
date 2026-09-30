@@ -388,6 +388,10 @@ impl Checker {
                     field,
                 }
             }
+            WantedSolution::Coercible { source, target } => thir::EvidenceKind::Coercible {
+                source_type: self.finalize_type(&source, span, interner, generics)?,
+                target_type: self.finalize_type(&target, span, interner, generics)?,
+            },
         })
     }
 }

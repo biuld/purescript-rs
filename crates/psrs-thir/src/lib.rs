@@ -2,6 +2,7 @@ use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId,
 use psrs_span::TextRange;
 
 mod evidence;
+mod verify;
 
 pub use evidence::{Evidence, EvidenceKind};
 
@@ -223,6 +224,15 @@ pub enum ExprKind {
     /// Selected class evidence. Core lowering erases this to ordinary values,
     /// applications, and record projections.
     Evidence(Evidence),
+    /// A typechecked representational conversion authorized by `Coercible`
+    /// evidence. The source and result types are carried by the value and this
+    /// expression respectively.
+    Coerce {
+        value: Box<Expr>,
+        evidence: Evidence,
+        source_type: TypeId,
+        target_type: TypeId,
+    },
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -281,189 +291,7 @@ pub struct VerifyError {
 
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
-        let mut errors = Vec::new();
-        for ty in &self.types {
-            match ty {
-                Type::Application(parameter, result) => {
-                    verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
-                    verify_type_id(*result, self.types.len(), self.span, &mut errors);
-                }
-                Type::RowExtend { ty, tail, .. } => {
-                    verify_type_id(*ty, self.types.len(), self.span, &mut errors);
-                    verify_type_id(*tail, self.types.len(), self.span, &mut errors);
-                }
-                _ => {}
-            }
-        }
-        for constructor in &self.constructors {
-            if self.opaque_ids.contains(&constructor.type_id) {
-                errors.push(VerifyError {
-                    span: self.span,
-                    message: "an opaque type has no constructors",
-                });
-            }
-        }
-        for declaration in &self.declarations {
-            verify_type_id(
-                declaration.ty,
-                self.types.len(),
-                declaration.name_span,
-                &mut errors,
-            );
-            verify_expr(&declaration.value, &self.types, &mut errors);
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-}
-
-fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>) {
-    verify_type_id(expression.ty, types.len(), expression.span, errors);
-    match &expression.kind {
-        ExprKind::Local(_)
-        | ExprKind::Global(_)
-        | ExprKind::Integer(_)
-        | ExprKind::Number(_)
-        | ExprKind::Boolean(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
-        ExprKind::Array(elements) => {
-            for element in elements {
-                verify_expr(element, types, errors);
-            }
-        }
-        ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                verify_expr(value, types, errors);
-            }
-        }
-        ExprKind::RecordUpdate { expression, fields } => {
-            verify_expr(expression, types, errors);
-            for (_, value) in fields {
-                verify_expr(value, types, errors);
-            }
-        }
-        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, types, errors),
-        ExprKind::Evidence(evidence) => verify_evidence(evidence, types, errors),
-        ExprKind::Application(function, argument) => {
-            verify_expr(function, types, errors);
-            verify_expr(argument, types, errors);
-        }
-        ExprKind::Lambda { binder, body } => {
-            verify_type_id(binder.ty, types.len(), binder.span, errors);
-            verify_expr(body, types, errors);
-        }
-        ExprKind::Let { bindings, body } => {
-            for binding in bindings {
-                verify_type_id(binding.binder.ty, types.len(), binding.binder.span, errors);
-                verify_expr(&binding.value, types, errors);
-            }
-            verify_expr(body, types, errors);
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            verify_expr(condition, types, errors);
-            verify_expr(then_branch, types, errors);
-            verify_expr(else_branch, types, errors);
-        }
-        ExprKind::Case {
-            scrutinee,
-            branches,
-        } => {
-            verify_expr(scrutinee, types, errors);
-            for branch in branches {
-                verify_pattern(&branch.pattern, types.len(), errors);
-                verify_expr(&branch.value, types, errors);
-            }
-        }
-    }
-}
-
-fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyError>) {
-    verify_type_id(evidence.ty, types.len(), evidence.span, errors);
-    match &evidence.kind {
-        EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
-        EvidenceKind::Superclass { parent, field } => {
-            verify_evidence(parent, types, errors);
-            let Some(fields) = record_fields(types, parent.ty) else {
-                errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "superclass evidence parent is not a dictionary record",
-                });
-                return;
-            };
-            match fields.iter().find(|(label, _)| label == field) {
-                Some((_, field_ty)) if *field_ty == evidence.ty => {}
-                _ => errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "superclass evidence field has the wrong type",
-                }),
-            }
-        }
-        EvidenceKind::Instance {
-            constructor_type,
-            context,
-            ..
-        } => {
-            verify_type_id(*constructor_type, types.len(), evidence.span, errors);
-            let mut result = *constructor_type;
-            for argument in context {
-                verify_evidence(argument, types, errors);
-                let Some((parameter, next)) = arrow_parts(types, result) else {
-                    errors.push(VerifyError {
-                        span: argument.span,
-                        message: "instance dictionary constructor takes too few context arguments",
-                    });
-                    return;
-                };
-                if parameter != argument.ty {
-                    errors.push(VerifyError {
-                        span: argument.span,
-                        message: "instance evidence does not match its context parameter",
-                    });
-                }
-                result = next;
-            }
-            if result != evidence.ty {
-                errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "instance evidence result has the wrong dictionary type",
-                });
-            }
-        }
-    }
-}
-
-fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyError>) {
-    verify_type_id(pattern.ty, type_count, pattern.span, errors);
-    match &pattern.kind {
-        PatternKind::Wildcard => {}
-        PatternKind::Var { ty, .. } => verify_type_id(*ty, type_count, pattern.span, errors),
-        PatternKind::Constructor { arguments, .. } => {
-            for argument in arguments {
-                verify_pattern(argument, type_count, errors);
-            }
-        }
-        PatternKind::Record { fields } => {
-            for (_, field) in fields {
-                verify_pattern(field, type_count, errors);
-            }
-        }
-    }
-}
-
-fn verify_type_id(id: TypeId, type_count: usize, span: TextRange, errors: &mut Vec<VerifyError>) {
-    if id.0 as usize >= type_count {
-        errors.push(VerifyError {
-            span,
-            message: "type reference is outside the THIR type table",
-        });
+        verify::verify_module(self)
     }
 }
 

@@ -6,11 +6,13 @@ use super::{
     lower_source_to_ast,
 };
 
+pub use lenient::{check_program_kinds_lenient, check_program_lenient};
 pub use library::compile_program_sources_with_prelude;
 use std::collections::HashMap;
 
 mod effects;
 mod graph;
+mod lenient;
 mod library;
 
 use graph::{imported_instance_declarations, module_dependencies, typecheck_order};
@@ -229,6 +231,7 @@ fn typecheck_program(
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
+    let (checked_kinds, role_diagnostics) = psrs_kind::check_roles(&modules);
     let effect_type = modules
         .iter()
         .take(trusted_prefix)
@@ -268,7 +271,18 @@ fn typecheck_program(
     let order = typecheck_order(&dependencies);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
-    let mut errors = Vec::new();
+    let mut errors = role_diagnostics
+        .into_iter()
+        .map(|(module, error)| ProgramDiagnostic {
+            source: module.0 as usize,
+            diagnostic: coded_diagnostic(
+                "P5 kind check",
+                error.span,
+                Some(error.code),
+                error.message,
+            ),
+        })
+        .collect::<Vec<_>>();
     for index in order {
         let Some(module) = slots[index].take() else {
             continue;
@@ -317,13 +331,14 @@ fn typecheck_program(
                     | "WASI.Network"
                     | "WASI"
             );
-        let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
+        let check = psrs_typecheck::typecheck_module_with_checked_kinds(
             module,
             &imported,
             effect_type,
             trusted_effect_representation,
             &known_types,
             &imported_instances,
+            &checked_kinds,
         );
         match check {
             Ok(module) => typed[index] = Some(module),
@@ -331,7 +346,12 @@ fn typecheck_program(
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
                         source: index,
-                        diagnostic: diagnostic("P5 typecheck", error.span, error.message()),
+                        diagnostic: coded_diagnostic(
+                            "P5 typecheck",
+                            error.span,
+                            error.error_code(),
+                            error.message(),
+                        ),
                     });
                 }
             }
@@ -360,107 +380,4 @@ fn imported_signatures(
         }
     }
     imported
-}
-
-/// Resolves a program while tolerating imports whose modules are not provided,
-/// and reports every resolution diagnostic. This is used to measure module,
-/// import, export, and name resolution against the corpus, where support
-/// libraries such as `Prelude` are not part of the input.
-pub fn check_program_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
-    resolve_program_lenient(sources).map(|_| ())
-}
-
-/// Resolves a lenient program and then kind-checks every module that resolved.
-/// Missing support libraries still produce resolution diagnostics, but a module
-/// that resolves without them is kind-checked, so the M3 layer is measurable
-/// against the corpus.
-pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
-    let mut modules = lower_program_to_ast(sources)?;
-    let options = psrs_resolve::ResolveOptions {
-        tolerate_missing_modules: true,
-    };
-    let (resolved, program_errors) =
-        psrs_resolve::resolve_program_partial(std::mem::take(&mut modules), options);
-    let mut errors = Vec::new();
-    for error in program_errors {
-        errors.push(ProgramDiagnostic {
-            source: error.module,
-            diagnostic: coded_diagnostic(
-                "P3 resolve",
-                error.error.span,
-                error.error.error_code(),
-                error.error.message(),
-            ),
-        });
-    }
-    for (source, module) in resolved.iter().enumerate() {
-        let Some(module) = module else {
-            continue;
-        };
-        for error in psrs_kind::check_module(module) {
-            errors.push(ProgramDiagnostic {
-                source,
-                diagnostic: coded_diagnostic(
-                    "P5 kind check",
-                    error.span,
-                    Some(error.code),
-                    error.message,
-                ),
-            });
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
-fn resolve_program_lenient(
-    sources: &[(&str, &str)],
-) -> Result<Vec<psrs_hir::Module>, Vec<ProgramDiagnostic>> {
-    let modules = lower_program_to_ast(sources)?;
-    let options = psrs_resolve::ResolveOptions {
-        tolerate_missing_modules: true,
-    };
-    match psrs_resolve::resolve_program_with_options(modules, options) {
-        Ok(resolved) => Ok(resolved),
-        Err(program_errors) => Err(program_errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: error.module,
-                diagnostic: coded_diagnostic(
-                    "P3 resolve",
-                    error.error.span,
-                    error.error.error_code(),
-                    error.error.message(),
-                ),
-            })
-            .collect()),
-    }
-}
-
-fn lower_program_to_ast(
-    sources: &[(&str, &str)],
-) -> Result<Vec<psrs_ast::Module>, Vec<ProgramDiagnostic>> {
-    let mut modules = Vec::with_capacity(sources.len());
-    let mut errors = Vec::new();
-    for (index, (name, text)) in sources.iter().enumerate() {
-        match lower_source_to_ast(name, text) {
-            Ok(module) => modules.push(module),
-            Err(diagnostics) => {
-                for diagnostic in diagnostics {
-                    errors.push(ProgramDiagnostic {
-                        source: index,
-                        diagnostic,
-                    });
-                }
-            }
-        }
-    }
-    if errors.is_empty() {
-        Ok(modules)
-    } else {
-        Err(errors)
-    }
 }

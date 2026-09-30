@@ -13,6 +13,7 @@ fn class_type(module: ModuleId, index: u32) -> TypeDeclaration {
         superclasses: Vec::new(),
         fundeps: Vec::new(),
         declared_kind: None,
+        declared_roles: None,
         span: TextRange::default(),
     }
 }

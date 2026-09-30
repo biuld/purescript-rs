@@ -57,6 +57,7 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         ("charLe", Intrinsic::CharLe),
         ("charGt", Intrinsic::CharGt),
         ("charGe", Intrinsic::CharGe),
+        ("__psrs_coerce", Intrinsic::Coerce),
     ]
     .into_iter()
     .map(|(name, intrinsic)| ExternalSymbol {

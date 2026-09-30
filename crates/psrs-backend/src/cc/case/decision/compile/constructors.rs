@@ -149,7 +149,7 @@ impl Compiler<'_> {
                 declared_type: field_types[index],
                 target_type: child_columns[column + index].ty,
                 constructor,
-                newtype: false,
+                newtype: self.newtype_field(parent.ty).is_some(),
                 span: action_span,
             });
         }

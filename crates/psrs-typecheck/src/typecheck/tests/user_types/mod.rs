@@ -237,6 +237,7 @@ fn synonym(id: u32, name: &str, parameters: &[&str], body: HirType) -> psrs_hir:
         superclasses: Vec::new(),
         fundeps: Vec::new(),
         declared_kind: None,
+        declared_roles: None,
         span: TextRange::new(0, 1),
     }
 }
@@ -347,6 +348,7 @@ fn data_declaration(
         superclasses: Vec::new(),
         fundeps: Vec::new(),
         declared_kind: None,
+        declared_roles: None,
         span: TextRange::new(0, 1),
     }
 }

@@ -284,6 +284,15 @@ impl TypeSubstitution<'_> {
                 record: Box::new(self.expression(record)?),
                 field: field.clone(),
             },
+            ExprKind::RepresentationCast {
+                value,
+                source_type,
+                target_type,
+            } => ExprKind::RepresentationCast {
+                value: Box::new(self.expression(value)?),
+                source_type: self.type_id(*source_type)?,
+                target_type: self.type_id(*target_type)?,
+            },
             ExprKind::ArrayLength(array) => {
                 ExprKind::ArrayLength(Box::new(self.expression(array)?))
             }

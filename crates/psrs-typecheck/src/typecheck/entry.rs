@@ -52,6 +52,29 @@ pub fn typecheck_module_with_imports_and_effect_context(
     known_types: &[hir::TypeDeclaration],
     imported_instances: &[hir::InstanceDeclaration],
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_checked_kinds(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        known_types,
+        imported_instances,
+        &psrs_kind::CheckedKindEnv::default(),
+    )
+}
+
+/// Type checks a module against the program's checked kind and role metadata.
+/// The environment is keyed by resolved type identity, so imported type
+/// constructors retain the role contract of their defining module.
+pub fn typecheck_module_with_checked_kinds(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    known_types: &[hir::TypeDeclaration],
+    imported_instances: &[hir::InstanceDeclaration],
+    checked_kinds: &psrs_kind::CheckedKindEnv,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -72,6 +95,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
         effect_runtime_representation,
         known_types,
         imported_instances,
+        checked_kinds,
     );
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())

@@ -41,6 +41,7 @@ struct Seen {
     global: bool,
     superclass: bool,
     instance: bool,
+    coercible: bool,
 }
 
 fn collect(module: &psrs_thir::Module) -> Seen {
@@ -55,6 +56,13 @@ fn walk_expr(expression: &psrs_thir::Expr, seen: &mut Seen) {
     use psrs_thir::ExprKind;
     match &expression.kind {
         ExprKind::Evidence(evidence) => walk_evidence(evidence, seen),
+        ExprKind::Coerce {
+            value, evidence, ..
+        } => {
+            walk_expr(value, seen);
+            walk_evidence(evidence, seen);
+            seen.coercible = true;
+        }
         ExprKind::Array(elements) => {
             for element in elements {
                 walk_expr(element, seen);
@@ -126,6 +134,7 @@ fn walk_evidence(evidence: &psrs_thir::Evidence, seen: &mut Seen) {
                 walk_evidence(child, seen);
             }
         }
+        EvidenceKind::Coercible { .. } => seen.coercible = true,
     }
 }
 

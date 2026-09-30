@@ -6,12 +6,16 @@ mod do_notation;
 mod export;
 mod expr;
 mod import;
+mod lower;
+mod role;
 mod ty;
 mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind};
 pub use import::{Import, ImportList, ImportRef};
+pub use lower::lower_module;
+pub use role::{RoleAnnotation, RoleDeclaration, TypeRole};
 pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
@@ -28,6 +32,9 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     pub foreign_imports: Vec<ForeignImport>,
     pub type_declarations: Vec<TypeDeclaration>,
+    /// Source role annotations retained until name resolution attaches them to
+    /// their local type declaration.
+    pub role_declarations: Vec<RoleDeclaration>,
     pub instances: Vec<InstanceDeclaration>,
     pub span: TextRange,
 }
@@ -77,134 +84,6 @@ impl LowerError {
             message,
             code: Some(code),
         }
-    }
-}
-
-/// Converts source-oriented CST nodes into a normalized, unresolved surface AST.
-pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
-    let mut errors = Vec::new();
-    let mut declarations = Vec::new();
-    let mut foreign_imports = Vec::new();
-    let mut type_declarations = Vec::new();
-    let mut instances = Vec::new();
-    let mut instance_chains = type_decl::InstanceChainTracker::default();
-    let mut index = 0;
-    while index < module.declarations.len() {
-        let declaration = module.declarations[index].clone();
-        if !matches!(&declaration, cst::Declaration::Instance(_)) {
-            instance_chains.reset();
-        }
-        match declaration {
-            cst::Declaration::KindSignature(signature) => {
-                if matches_kind_declaration(&signature, module.declarations.get(index + 1)) {
-                    let target = module.declarations[index + 1].clone();
-                    match type_decl::lower_type_declaration(Some(signature), target) {
-                        Ok(declaration) => type_declarations.push(declaration),
-                        Err(error) => errors.push(error),
-                    }
-                    index += 2;
-                } else {
-                    errors.push(LowerError::coded(
-                        signature.span,
-                        "OrphanKindDeclaration",
-                        "a kind declaration must be followed by a matching declaration",
-                    ));
-                    index += 1;
-                }
-            }
-            cst::Declaration::Data(_)
-            | cst::Declaration::Newtype(_)
-            | cst::Declaration::TypeSynonym(_)
-            | cst::Declaration::Class(_) => {
-                match type_decl::lower_type_declaration(None, declaration) {
-                    Ok(declaration) => type_declarations.push(declaration),
-                    Err(error) => errors.push(error),
-                }
-                index += 1;
-            }
-            cst::Declaration::Instance(declaration) => {
-                let (chain_id, chain_position) = match instance_chains.next(&declaration) {
-                    Ok(position) => position,
-                    Err(error) => {
-                        errors.push(error);
-                        index += 1;
-                        continue;
-                    }
-                };
-                match type_decl::lower_instance(declaration, chain_id, chain_position) {
-                    Ok(instance) => instances.push(instance),
-                    Err(error) => {
-                        instance_chains.reset();
-                        errors.push(error);
-                    }
-                }
-                index += 1;
-            }
-            cst::Declaration::Foreign(declaration) => {
-                if declaration.data_keyword_span.is_some() {
-                    match type_decl::lower_foreign_data(declaration) {
-                        Ok(declaration) => type_declarations.push(declaration),
-                        Err(error) => errors.push(error),
-                    }
-                } else {
-                    match lower_foreign_import(declaration) {
-                        Ok(foreign) => foreign_imports.push(foreign),
-                        Err(error) => errors.push(error),
-                    }
-                }
-                index += 1;
-            }
-            other => {
-                match lower_declaration(other) {
-                    Ok(declaration) => declarations.push(declaration),
-                    Err(error) => errors.push(error),
-                }
-                index += 1;
-            }
-        }
-    }
-    if errors.is_empty() {
-        Ok(Module {
-            name: lower_name(module.name),
-            exports: module.exports.map(export::lower_export_list),
-            imports: module
-                .imports
-                .into_iter()
-                .map(import::lower_import)
-                .collect(),
-            declarations,
-            foreign_imports,
-            type_declarations,
-            instances,
-            span: module.span,
-        })
-    } else {
-        Err(errors)
-    }
-}
-
-/// A kind declaration is matched by the declaration that immediately follows it
-/// with the same name and the same declaration keyword, as `purs` requires.
-fn matches_kind_declaration(
-    signature: &cst::KindSignature,
-    next: Option<&cst::Declaration>,
-) -> bool {
-    let Some(next) = next else {
-        return false;
-    };
-    let name = signature.name.text.as_str();
-    match (signature.kind_for, next) {
-        (cst::KindFor::Data, cst::Declaration::Data(declaration)) => declaration.name.text == name,
-        (cst::KindFor::Newtype, cst::Declaration::Newtype(declaration)) => {
-            declaration.name.text == name
-        }
-        (cst::KindFor::TypeSynonym, cst::Declaration::TypeSynonym(declaration)) => {
-            declaration.name.text == name
-        }
-        (cst::KindFor::Class, cst::Declaration::Class(declaration)) => {
-            declaration.name.text == name
-        }
-        _ => false,
     }
 }
 

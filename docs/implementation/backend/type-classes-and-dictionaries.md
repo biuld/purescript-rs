@@ -7,7 +7,8 @@
 **Progress:** Backend dictionary lowering Verified (DICT-01..11), with Typed
 Core fixtures and source execution for constrained functions, instances,
 contexts, superclasses, imports, functional dependencies, and ordered instance
-chains. FE-14/15 remain partial: class defaults and deriving are unsupported,
+chains. FE-14/15 remain partial: method-local annotations are incomplete and
+deriving is tracked under FE-16,
 and official-suite reconciliation remains open.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.
@@ -21,8 +22,10 @@ present-tense contract is authoritative beyond this matrix. Frontend instance
 search, coherence, functional-dependency improvement, and deriving belong to
 FE-14/15. The backend must consume stable evidence chosen by the frontend and
 must never re-search instance heads. Source coverage and fixture-only coverage
-are recorded separately under DICT-11. Class defaults remain verified only
-through Typed Core fixtures. The design's Code map is the ownership target.
+are recorded separately under DICT-11. Dictionary default-field fixtures verify backend behavior only. PureScript
+class bodies contain method signatures, not source default implementations;
+method bodies belong in instances. This is a language restriction, not a
+missing frontend feature. The design's Code map is the ownership target.
 
 ## Acceptance matrix
 
@@ -98,7 +101,7 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: class defaults and deriving remain unsupported; official-suite
+  Gaps: method-local annotations and FE-16 deriving remain incomplete; official-suite
   reconciliation remains open (DICT-11).
 DICT-02:
   Implementation: crates/psrs-core/src/dictionary.rs ClassLayout::from_record_type
@@ -233,13 +236,13 @@ DICT-11:
     checks, and recursive application heads. `tests/upstream.rs` compares
     accepted and rejected chain cases with `purs 0.15.16`. Negative source tests cover unresolved constraints,
     overlap, ambiguous contexts, fundep conflicts, orphan `else`, class
-    defaults, and deriving.
+    method bodies in class declarations, and deriving.
     Defaults remain fixture-only under dictionary_audit::execution.
   Input boundary: source modules and verified Typed Core, tracked separately.
   Result: source tests pass with required Wasmtime execution for imported
     chains, transitive fundep selection, independent-argument fallback,
     repeated-head apartness, and recursive variable-headed application heads.
-  Gaps: class defaults, deriving, explicit foralls or constraints in method
+  Gaps: deriving under FE-16, explicit foralls or constraints in method
     signatures and full official-suite acceptance remain unverified or
     unsupported; FE-14/15 are partial.
 
@@ -279,9 +282,11 @@ DICT-11:
 
 ## Remaining work and blockers
 
-- FE-14/15: class defaults, deriving, and method-local
+- FE-14/15: method-local
   explicit foralls/constraints remain unsupported. Source tests reject these
-  forms explicitly; Typed Core defaults do not establish source acceptance.
+  forms explicitly. Deriving belongs to FE-16. Source default methods are not
+  part of PureScript syntax; Typed Core default-field fixtures establish only
+  the backend dictionary behavior.
 - Official test suite: class/instance upstream cases have not been individually
   reconciled with source coverage and are not counted as acceptance evidence.
 - Cross-topic handoff: DICT-08 required a fix in the shared CC indirect-call

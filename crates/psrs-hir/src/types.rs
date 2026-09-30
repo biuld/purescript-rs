@@ -8,8 +8,23 @@ pub enum TypeDeclarationKind {
     Newtype,
     TypeSynonym,
     Class,
-    /// `foreign import data`. Nominal, with a declared kind and no constructors.
+    /// `foreign import data`, with a declared kind and no constructors. Its
+    /// role vector is nominal unless an explicit role signature is supplied.
     Foreign,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Role {
+    /// The most restrictive role: arguments must be equal.
+    Nominal,
+    Representational,
+    Phantom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoleDeclaration {
+    pub roles: Vec<(Role, TextRange)>,
+    pub span: TextRange,
 }
 
 /// A resolved type-level declaration. Its `id` names the type, class, or
@@ -33,6 +48,9 @@ pub struct TypeDeclaration {
     pub fundeps: Vec<FunctionalDependency>,
     /// The kind declared by a standalone `data T :: K` signature, when present.
     pub declared_kind: Option<Type>,
+    /// A source role annotation attached to this local data, newtype, or
+    /// foreign-data type.
+    pub declared_roles: Option<RoleDeclaration>,
     pub span: TextRange,
 }
 

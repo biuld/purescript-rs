@@ -1,4 +1,6 @@
-use super::super::layout::{array_element_type, is_abstract_type, scalar_type};
+use super::super::layout::{
+    array_element_type, is_abstract_type, newtype_field_type, scalar_type, user_type_id,
+};
 use super::super::{
     AggregateConvert, Assignment, AssignmentKind, BoxKind, RecoveryEvidence, RefShape, Reference,
     ReprId, ValueConversion, ValueId, ValueShape,
@@ -66,6 +68,11 @@ impl FunctionLowerer<'_> {
         if source_shape == destination_shape {
             return Ok(ValueConversion::Identity);
         }
+        // Newtypes use their declared field template as their storage protocol.
+        // Keep the supplied physical shapes: instantiating the field here would
+        // incorrectly replace erased storage with the concrete argument shape.
+        let source_type = self.conversion_template(source_type, span)?;
+        let destination_type = self.conversion_template(destination_type, span)?;
         if super::call::is_function_type(self.module, source_type)
             && super::call::is_function_type(self.module, destination_type)
             && matches!(
@@ -252,6 +259,25 @@ impl FunctionLowerer<'_> {
             span,
             "unsupported aggregate conversion between normalized runtime shapes",
         ))
+    }
+
+    fn conversion_template(
+        &self,
+        mut ty: TypeId,
+        span: TextRange,
+    ) -> Result<TypeId, Vec<BackendError>> {
+        let mut visited = std::collections::HashSet::new();
+        while let Some(id) = user_type_id(self.module, ty) {
+            if !self.newtype_ids.contains(&id) {
+                break;
+            }
+            if !visited.insert(id) {
+                return Err(conversion_error(span, "recursive newtype storage template"));
+            }
+            ty = newtype_field_type(self.module, id)
+                .ok_or_else(|| conversion_error(span, "newtype has no storage template"))?;
+        }
+        Ok(ty)
     }
 
     fn box_plan(
