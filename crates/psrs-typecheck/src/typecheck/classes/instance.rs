@@ -44,6 +44,7 @@ impl Checker {
             span: instance.span,
         };
         let dictionary_type = self.dictionary_type(&constraint);
+        let wanted_start = self.wanted.len();
         self.begin_givens(&context, &context_parameters);
 
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
@@ -99,7 +100,7 @@ impl Checker {
             self.unify(expected, value.ty.clone(), member.span);
             fields.push((method.name.clone(), value));
         }
-        self.solve_wanted_constraints();
+        self.solve_wanted_constraints(Some(&dictionary_type), wanted_start);
         self.end_givens();
         let value = self.wrap_dictionary_lambdas(
             InferredExpr {

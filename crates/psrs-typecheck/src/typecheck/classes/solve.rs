@@ -8,9 +8,29 @@ const MAX_SOLVE_DEPTH: usize = 64;
 
 impl Checker {
     /// Solves every unsolved wanted constraint against the current givens and
-    /// the declared instances, reporting each unresolved constraint.
-    pub(in crate::typecheck) fn solve_wanted_constraints(&mut self) {
-        let wanted = std::mem::take(&mut self.wanted);
+    /// the declared instances, reporting each unresolved constraint. Functional
+    /// dependencies improve unknown types before the search (see `fundeps`).
+    ///
+    /// `wanted_start` is the index at which this declaration's constraints
+    /// begin; earlier entries are already solved and retained for evidence.
+    /// When `result` is supplied, the new constraints are also checked for
+    /// ambiguity: every remaining type variable must be determined by the
+    /// result type and the class functional dependencies.
+    pub(in crate::typecheck) fn solve_wanted_constraints(
+        &mut self,
+        result: Option<&InferType>,
+        wanted_start: usize,
+    ) {
+        let mut wanted = std::mem::take(&mut self.wanted);
+        let start = wanted_start.min(wanted.len());
+        for constraint in &mut wanted[start..] {
+            constraint.arguments = constraint
+                .arguments
+                .iter()
+                .map(|argument| self.resolve_type(argument.clone()))
+                .collect::<Vec<_>>();
+        }
+        self.improve_wanted(&mut wanted[start..]);
         let mut solved = Vec::with_capacity(wanted.len());
         for mut constraint in wanted {
             if constraint.solution.is_none() {
@@ -34,6 +54,9 @@ impl Checker {
             solved.push(constraint);
         }
         self.wanted = solved;
+        if let Some(result) = result {
+            self.check_ambiguity(result, start);
+        }
     }
 
     /// Searches givens, then superclass projections, then instances for a
@@ -249,7 +272,7 @@ impl Checker {
         Some(mapping)
     }
 
-    fn match_type(
+    pub(super) fn match_type(
         &self,
         pattern: &InferType,
         value: &InferType,

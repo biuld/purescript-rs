@@ -104,6 +104,7 @@ impl Checker {
             givens: Vec::new(),
             wanted: Vec::new(),
             next_dictionary_local: 0,
+            reported_fundep_conflicts: HashSet::new(),
             errors: Vec::new(),
         };
         checker.import_known_types(known_types);

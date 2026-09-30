@@ -13,8 +13,8 @@ pub use expr::{
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{
-    ClassMember, Constructor, InstanceDeclaration, InstanceMember, TypeDeclaration,
-    TypeDeclarationKind,
+    ClassMember, Constructor, FunctionalDependency, InstanceDeclaration, InstanceMember,
+    TypeDeclaration, TypeDeclarationKind,
 };
 pub use verify::VerifyError;
 

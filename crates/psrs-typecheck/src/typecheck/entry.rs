@@ -103,6 +103,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
                 .cloned()
                 .unwrap_or_default();
             checker.begin_givens(&scheme.constraints, &parameters);
+            let wanted_start = checker.wanted.len();
             let expected = declaration
                 .signature
                 .as_ref()
@@ -116,7 +117,11 @@ pub fn typecheck_module_with_imports_and_effect_context(
                 .as_ref()
                 .map_or(declaration.name_span, |signature| signature.span);
             checker.unify(scheme.ty.clone(), value.ty.clone(), span);
-            checker.solve_wanted_constraints();
+            // An inferred (signatureless) binding is generalized below, so its
+            // constraints must be determinate; a declared signature may name
+            // ambiguous variables for the caller to instantiate.
+            let result = declaration.signature.is_none().then(|| value.ty.clone());
+            checker.solve_wanted_constraints(result.as_ref(), wanted_start);
             checker.end_givens();
             let value = checker.wrap_dictionary_lambdas(value, &parameters);
             inferred[index] = Some(InferredDeclaration {
