@@ -6,8 +6,9 @@
 
 **Progress:** Backend dictionary lowering Verified (DICT-01..11), with Typed
 Core fixtures and source execution for constrained functions, instances,
-contexts, superclasses, imports, and functional dependencies. FE-14/15 remain
-partial: source instance chains, class defaults, and deriving are unsupported.
+contexts, superclasses, imports, functional dependencies, and ordered instance
+chains. FE-14/15 remain partial: class defaults and deriving are unsupported,
+and official-suite reconciliation remains open.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.
 
@@ -97,7 +98,8 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: source instance chains, defaults, and deriving remain unsupported (DICT-11).
+  Gaps: class defaults and deriving remain unsupported; official-suite
+  reconciliation remains open (DICT-11).
 DICT-02:
   Implementation: crates/psrs-core/src/dictionary.rs ClassLayout::from_record_type
     and validate_record_value; crates/psrs-backend/src/cc/layout/aggregate.rs
@@ -221,22 +223,43 @@ DICT-10:
 DICT-11:
   Implementation: source class environments, evidence solving, and dictionary
     elaboration in psrs-typecheck; Core dictionary lowering and module linking.
-  Tests: tests::wasi::classes, classes::imports, classes::fundeps execute
+  Tests: tests::wasi::classes, classes::imports, classes::fundeps, and
+    classes::instance_chains execute
     constrained calls, multi-parameter/contextual instances, superclass
-    projections, imported concrete/generic instances, and fundep improvement.
-    Negative source tests cover unresolved constraints, overlap, ambiguous
-    contexts, fundep conflicts, instance chains, class defaults, and deriving.
+    projections, imported concrete/generic instances, fundep improvement, and
+    imported ordered chains. Chain checks cover an unknown earlier head,
+    context failure after branch selection, ordinary overlap, independent
+    argument apartness, transitive fundep coverage, repeated-head occurs
+    checks, and recursive application heads. `tests/upstream.rs` compares
+    accepted and rejected chain cases with `purs 0.15.16`. Negative source tests cover unresolved constraints,
+    overlap, ambiguous contexts, fundep conflicts, orphan `else`, class
+    defaults, and deriving.
     Defaults remain fixture-only under dictionary_audit::execution.
   Input boundary: source modules and verified Typed Core, tracked separately.
-  Result: source tests pass with required Wasmtime execution.
-  Gaps: source instance chains, class defaults, deriving, explicit foralls or
-    constraints in method signatures, and official-suite acceptance remain
-    unverified or unsupported; FE-14/15 are partial.
+  Result: source tests pass with required Wasmtime execution for imported
+    chains, transitive fundep selection, independent-argument fallback,
+    repeated-head apartness, and recursive variable-headed application heads.
+  Gaps: class defaults, deriving, explicit foralls or constraints in method
+    signatures and full official-suite acceptance remain unverified or
+    unsupported; FE-14/15 are partial.
 
 ```
 
 ## Discovered obligations
 
+- **Nullary generic dictionary results.** A context-free polymorphic instance
+  is a top-level dictionary value produced by a zero-argument function. Its
+  template record result must convert to the instantiated consumer record,
+  including function adapters. `cc/lower/global.rs` now uses the shared typed
+  result conversion rather than requiring equal result shapes. The independent
+  class-argument and repeated-head occurs-conflict chain tests execute this
+  path and return 42 under required Wasmtime.
+- **Abstract constructor applications.** A template such as `f i` has an
+  unknown storage constructor and uses the erased protocol. CC layout,
+  signatures, and scalar conversion plans now share this normalization rule;
+  known applications such as `Array a` retain canonical layouts. The recursive
+  application-head chain test executes this boundary and its context under
+  required Wasmtime, returning 42.
 - **Indirect generic calls.** A class method projected from a dictionary can
   have a polymorphic type, so the template-signature closure is called indirectly
   at a concrete instantiation. `lower_indirect_application` must adapt each
@@ -256,7 +279,7 @@ DICT-11:
 
 ## Remaining work and blockers
 
-- FE-14/15: instance chains, class defaults, deriving, and method-local
+- FE-14/15: class defaults, deriving, and method-local
   explicit foralls/constraints remain unsupported. Source tests reject these
   forms explicitly; Typed Core defaults do not establish source acceptance.
 - Official test suite: class/instance upstream cases have not been individually

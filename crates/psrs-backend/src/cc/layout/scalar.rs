@@ -63,7 +63,7 @@ pub(crate) fn declaration_shape(
         });
     }
     match module.types.get(ty.0 as usize) {
-        Some(Type::Variable(_)) => Ok(Signature {
+        Some(_) if is_abstract_type(module, ty) => Ok(Signature {
             parameters,
             result: ValueShape::Reference(Reference {
                 nullable: false,
@@ -188,13 +188,14 @@ pub(crate) fn declaration_shape(
                 )?,
             })
         }
-        Some(Type::Constructor(_)) | Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
-            Err(vec![BackendError::new(
-                "P8 closure conversion",
-                declaration.span,
-                "the first backend slice cannot represent aggregate or parameterized types",
-            )])
-        }
+        Some(Type::Variable(_))
+        | Some(Type::Constructor(_))
+        | Some(Type::RowEmpty)
+        | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            declaration.span,
+            "the first backend slice cannot represent aggregate or parameterized types",
+        )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -224,7 +225,7 @@ pub(crate) fn scalar_type(
         return Ok(shape);
     }
     match module.types.get(id.0 as usize) {
-        Some(Type::Variable(_)) => Ok(ValueShape::Reference(Reference {
+        Some(_) if is_abstract_type(module, id) => Ok(ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Erased,
         })),
@@ -317,13 +318,14 @@ pub(crate) fn scalar_type(
                 function_types,
             )
         }
-        Some(Type::Constructor(_)) | Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
-            Err(vec![BackendError::new(
-                "P8 closure conversion",
-                span,
-                "aggregate and parameterized types are not supported by the first backend slice",
-            )])
-        }
+        Some(Type::Variable(_))
+        | Some(Type::Constructor(_))
+        | Some(Type::RowEmpty)
+        | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
+            "P8 closure conversion",
+            span,
+            "aggregate and parameterized types are not supported by the first backend slice",
+        )]),
         None => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,
@@ -360,4 +362,17 @@ fn callable_value_shape(
         return Err(layout_error(span, "callable value has no runtime layout"));
     };
     Ok(closure_value_type_for(*signature))
+}
+
+/// Bare variables and applications headed by a variable have no known storage
+/// constructor. Their instantiated value crosses the uniform erased protocol.
+pub(in crate::cc) fn is_abstract_type(module: &CoreModule, mut id: TypeId) -> bool {
+    for _ in 0..module.types.len() {
+        match module.types.get(id.0 as usize) {
+            Some(Type::Variable(_)) => return true,
+            Some(Type::Application(function, _)) => id = *function,
+            _ => return false,
+        }
+    }
+    false
 }

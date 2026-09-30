@@ -50,6 +50,8 @@ pub(super) fn resolve_instance(
         name,
         name_span,
         class_id,
+        chain_id: instance.chain_id,
+        chain_position: instance.chain_position,
         context,
         head,
         members,

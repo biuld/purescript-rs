@@ -23,6 +23,8 @@ pub enum TypeCheckErrorKind {
     /// A functional dependency's determined positions disagree, so no single
     /// type can satisfy the constraint.
     FundepConflict,
+    /// More than one unrelated visible instance proves the same constraint.
+    OverlappingInstances,
     /// A constraint still mentions variables that neither the result type nor
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
@@ -245,6 +247,8 @@ struct ClassInfo {
 struct InstanceInfo {
     symbol: SymbolId,
     class_id: hir::TypeId,
+    chain_id: u32,
+    chain_position: u32,
     head_arguments: Vec<InferType>,
     context: Vec<ClassConstraint>,
     context_parameters: Vec<(LocalId, InferType)>,

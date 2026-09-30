@@ -127,10 +127,54 @@ pub struct ClassMember {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstanceDeclaration {
     pub name: Name,
+    /// Module-local identity shared by the ordered alternatives in one
+    /// `instance ... else instance ...` chain. Ordinary instances each get a
+    /// singleton chain identity so later phases can group without guessing
+    /// from source spans or names.
+    pub chain_id: u32,
+    /// Zero-based source order within `chain_id`.
+    pub chain_position: u32,
     pub context: Vec<Type>,
     pub head: Type,
     pub members: Vec<crate::Declaration>,
     pub span: TextRange,
+}
+
+/// Assigns module-local identities and positions to singleton instances and
+/// `else instance` branches while AST lowering walks declarations in order.
+#[derive(Default)]
+pub(crate) struct InstanceChainTracker {
+    next_chain_id: u32,
+    previous: Option<(u32, u32)>,
+}
+
+impl InstanceChainTracker {
+    pub(crate) fn reset(&mut self) {
+        self.previous = None;
+    }
+
+    pub(crate) fn next(
+        &mut self,
+        declaration: &cst::InstanceDeclaration,
+    ) -> Result<(u32, u32), LowerError> {
+        let next = if declaration.else_keyword_span.is_some() {
+            match self.previous {
+                Some((chain_id, previous_position)) => (chain_id, previous_position + 1),
+                None => {
+                    return Err(LowerError::new(
+                        declaration.span,
+                        "an `else instance` must follow an instance in the same chain",
+                    ));
+                }
+            }
+        } else {
+            let chain_id = self.next_chain_id;
+            self.next_chain_id += 1;
+            (chain_id, 0)
+        };
+        self.previous = Some(next);
+        Ok(next)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,13 +376,9 @@ fn lower_constraints(expression: cst::TypeExpr) -> Result<Vec<Type>, LowerError>
 /// value declarations, one per method implementation.
 pub(crate) fn lower_instance(
     declaration: cst::InstanceDeclaration,
+    chain_id: u32,
+    chain_position: u32,
 ) -> Result<InstanceDeclaration, LowerError> {
-    if declaration.else_keyword_span.is_some() {
-        return Err(LowerError::new(
-            declaration.span,
-            "instance chains are not supported yet",
-        ));
-    }
     let context = match declaration.constraints {
         Some(constraints) => lower_constraints(*constraints)?,
         None => Vec::new(),
@@ -370,6 +410,8 @@ pub(crate) fn lower_instance(
     };
     Ok(InstanceDeclaration {
         name,
+        chain_id,
+        chain_position,
         context,
         head,
         members,

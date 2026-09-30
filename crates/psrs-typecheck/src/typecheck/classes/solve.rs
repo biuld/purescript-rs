@@ -1,5 +1,6 @@
 use super::super::unify::substitute;
 use super::super::*;
+use super::fundeps::collect_infer_variables;
 
 /// The maximum instance-context search depth. Recursive instances increase the
 /// structure of the wanted types, so a finite bound terminates every search
@@ -39,9 +40,16 @@ impl Checker {
                     .iter()
                     .map(|argument| self.resolve_type(argument.clone()))
                     .collect::<Vec<_>>();
+                let errors_before = self.errors.len();
                 let found = self.solve_constraint(&constraint, 0);
                 constraint.solution = found;
-                if constraint.solution.is_none() {
+                let reported_resolution_error = self.errors[errors_before..].iter().any(|error| {
+                    matches!(
+                        error.kind,
+                        TypeCheckErrorKind::OverlappingInstances | TypeCheckErrorKind::NoInstance
+                    )
+                });
+                if constraint.solution.is_none() && !reported_resolution_error {
                     let rendered =
                         self.display_constraint(constraint.class_id, &constraint.arguments);
                     self.errors.push(TypeCheckError::new(
@@ -80,27 +88,29 @@ impl Checker {
         if let Some(solution) = self.superclass_solution(constraint, depth) {
             return Some(solution);
         }
-        let candidates = self.instance_candidate_modules(class_id, &arguments);
-        for instance in self.instances.clone() {
-            if instance.class_id != class_id {
-                continue;
-            }
-            if !candidates.contains(&instance.symbol.module) {
-                continue;
-            }
-            let Some(mapping) = self.match_instance(&instance.head_arguments, &arguments) else {
-                continue;
-            };
-            // A context-free instance is an ordinary top-level dictionary
-            // value, preserving the direct `Global` selection form.
-            if instance.context.is_empty() {
-                return Some(WantedSolution::Global(instance.symbol));
-            }
-            if let Some(solution) = self.solve_instance(&instance, &mapping, constraint, depth) {
-                return Some(solution);
-            }
+        let mut selected = self.select_instance_groups(class_id, &arguments);
+
+        if selected.len() > 1 {
+            let rendered = self.display_constraint(class_id, &arguments);
+            self.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::OverlappingInstances,
+                constraint.span,
+                format!("overlapping instances for constraint {rendered}"),
+            ));
+            return None;
         }
-        None
+        let (instance, mapping) = selected.pop()?;
+        let errors_before = self.errors.len();
+        let mapping = self.instantiate_selected_instance(&instance, &mapping, constraint);
+        if self.errors.len() != errors_before {
+            return None;
+        }
+        // Selection commits to the first matching head before solving its
+        // context. A context failure cannot fall through to another branch.
+        if instance.context.is_empty() {
+            return Some(WantedSolution::Global(instance.symbol));
+        }
+        self.solve_instance(&instance, &mapping, constraint, depth)
     }
 
     /// Derives a wanted superclass constraint from a given subclass dictionary
@@ -193,7 +203,24 @@ impl Checker {
                 .map(|argument| self.resolve_type(substitute(argument, mapping)))
                 .collect::<Vec<_>>();
             let mut wanted = self.build_constraint(child.class_id, arguments, child.span);
-            let solution = self.solve_constraint(&wanted, depth + 1)?;
+            let errors_before = self.errors.len();
+            let Some(solution) = self.solve_constraint(&wanted, depth + 1) else {
+                let has_nested_diagnostic = self.errors[errors_before..].iter().any(|error| {
+                    matches!(
+                        error.kind,
+                        TypeCheckErrorKind::NoInstance | TypeCheckErrorKind::OverlappingInstances
+                    )
+                });
+                if !has_nested_diagnostic {
+                    let rendered = self.display_constraint(child.class_id, &wanted.arguments);
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::NoInstance,
+                        wanted.span,
+                        format!("no instance for constraint {rendered}"),
+                    ));
+                }
+                return None;
+            };
             wanted.solution = Some(solution);
             context.push(wanted);
         }
@@ -211,6 +238,42 @@ impl Checker {
             constructor_type,
             context,
         })
+    }
+
+    /// Freshens a selected instance for this particular use and unifies every
+    /// head position with the wanted constraint. Functional dependencies may
+    /// let matching choose a branch before all positions are known, so those
+    /// positions must be connected to fresh instance variables before solving
+    /// the instance context.
+    fn instantiate_selected_instance(
+        &mut self,
+        instance: &InstanceInfo,
+        mapping: &HashMap<u32, InferType>,
+        constraint: &WantedConstraint,
+    ) -> HashMap<u32, InferType> {
+        let mut mapping = mapping.clone();
+        let mut variables = HashSet::new();
+        for argument in &instance.head_arguments {
+            collect_infer_variables(argument, &mut variables);
+        }
+        for child in &instance.context {
+            for argument in &child.arguments {
+                collect_infer_variables(argument, &mut variables);
+            }
+        }
+        for variable in variables {
+            if let std::collections::hash_map::Entry::Vacant(entry) = mapping.entry(variable) {
+                entry.insert(self.fresh());
+            }
+        }
+
+        for (head, wanted) in instance.head_arguments.iter().zip(&constraint.arguments) {
+            self.unify(substitute(head, &mapping), wanted.clone(), constraint.span);
+        }
+        mapping
+            .into_iter()
+            .map(|(variable, ty)| (variable, self.resolve_type(ty)))
+            .collect()
     }
 
     /// Builds a solved constraint node for evidence elaboration.
@@ -262,7 +325,7 @@ impl Checker {
     /// declare the nominal types occurring in the constraint's type arguments.
     /// An instance declared in any other module is an orphan and is not visible
     /// from here, even if that module is in the program.
-    fn instance_candidate_modules(
+    pub(super) fn instance_candidate_modules(
         &self,
         class_id: hir::TypeId,
         arguments: &[InferType],
@@ -274,68 +337,6 @@ impl Checker {
             collect_user_type_modules(argument, &mut modules);
         }
         modules
-    }
-
-    /// One-way matches a wanted constraint's arguments against an instance
-    /// head, binding the head's variables. A concrete head position requires a
-    /// concrete wanted position so a wanted variable never grounds an
-    /// instance.
-    fn match_instance(
-        &self,
-        head: &[InferType],
-        actual: &[InferType],
-    ) -> Option<HashMap<u32, InferType>> {
-        if head.len() != actual.len() {
-            return None;
-        }
-        let mut mapping = HashMap::new();
-        for (pattern, value) in head.iter().zip(actual) {
-            if !self.match_type(pattern, value, &mut mapping) {
-                return None;
-            }
-        }
-        Some(mapping)
-    }
-
-    pub(super) fn match_type(
-        &self,
-        pattern: &InferType,
-        value: &InferType,
-        mapping: &mut HashMap<u32, InferType>,
-    ) -> bool {
-        let value = self.resolve_type(value.clone());
-        match pattern {
-            InferType::Variable(variable) => {
-                if let Some(bound) = mapping.get(variable) {
-                    self.infer_types_equal(bound, &value)
-                } else {
-                    mapping.insert(*variable, value);
-                    true
-                }
-            }
-            InferType::Constructor(constructor) => {
-                matches!(&value, InferType::Constructor(other) if other == constructor)
-            }
-            InferType::Application(function, argument) => match value {
-                InferType::Application(value_function, value_argument) => {
-                    self.match_type(function, &value_function, mapping)
-                        && self.match_type(argument, &value_argument, mapping)
-                }
-                _ => false,
-            },
-            InferType::RowEmpty => matches!(value, InferType::RowEmpty),
-            InferType::RowExtend { label, ty, tail } => match value {
-                InferType::RowExtend {
-                    label: value_label,
-                    ty: value_ty,
-                    tail: value_tail,
-                } if value_label == *label => {
-                    self.match_type(ty, &value_ty, mapping)
-                        && self.match_type(tail, &value_tail, mapping)
-                }
-                _ => false,
-            },
-        }
     }
 }
 

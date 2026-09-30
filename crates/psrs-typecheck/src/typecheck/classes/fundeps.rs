@@ -52,26 +52,37 @@ impl Checker {
                     sources.push(given.arguments.clone());
                 }
             }
-            for instance in self.instances.clone() {
-                if instance.class_id != constraint.class_id {
-                    continue;
+            for (instance, mapping) in
+                self.selected_instances(constraint.class_id, &constraint.arguments)
+            {
+                let mut instance_variables = HashSet::new();
+                for argument in &instance.head_arguments {
+                    collect_infer_variables(argument, &mut instance_variables);
                 }
-                let mut mapping = HashMap::new();
-                let matches = fundep.determining.iter().all(|&index| {
-                    self.match_type(
-                        &instance.head_arguments[index],
-                        &constraint.arguments[index],
-                        &mut mapping,
-                    )
+                let mapped_variables = mapping.keys().copied().collect::<HashSet<_>>();
+                let unmapped_variables = instance_variables
+                    .difference(&mapped_variables)
+                    .copied()
+                    .collect::<HashSet<_>>();
+                let source = instance
+                    .head_arguments
+                    .iter()
+                    .map(|argument| substitute(argument, &mapping))
+                    .collect::<Vec<_>>();
+                // A determined head variable absent from the matched
+                // positions is not an improvement. Keep it as an
+                // instance-local schema variable until branch selection
+                // freshens and unifies the full head. Linking a wanted type to
+                // this stored variable would leak one instance template into
+                // every use; freshening here would create endless progress
+                // across the improvement fixed-point loop.
+                let source_uses_unmapped_variables = source.iter().any(|argument| {
+                    let mut variables = HashSet::new();
+                    collect_infer_variables(argument, &mut variables);
+                    !variables.is_disjoint(&unmapped_variables)
                 });
-                if matches {
-                    sources.push(
-                        instance
-                            .head_arguments
-                            .iter()
-                            .map(|argument| substitute(argument, &mapping))
-                            .collect(),
-                    );
+                if !source_uses_unmapped_variables {
+                    sources.push(source);
                 }
             }
             for &index in &fundep.determined {
@@ -267,7 +278,7 @@ impl Checker {
 }
 
 /// The inference variables used anywhere in a type.
-fn collect_infer_variables(ty: &InferType, out: &mut HashSet<u32>) {
+pub(super) fn collect_infer_variables(ty: &InferType, out: &mut HashSet<u32>) {
     match ty {
         InferType::Variable(variable) => {
             out.insert(*variable);
