@@ -1,5 +1,5 @@
 use psrs_span::TextRange;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use verify::verify_expr;
 
 mod expr;
@@ -308,6 +308,9 @@ impl Module {
             }
         }
 
+        let mut instance_chains: HashMap<u32, (u32, TypeId)> = HashMap::new();
+        let mut completed_instance_chains = HashSet::new();
+        let mut previous_instance_chain = None;
         for instance in &self.instances {
             if instance.symbol.module != self.id {
                 errors.push(VerifyError {
@@ -320,6 +323,47 @@ impl Module {
                     span: instance.name_span,
                     message: "duplicate instance symbol ID",
                 });
+            }
+            if let Some(previous) = previous_instance_chain
+                && previous != instance.chain_id
+            {
+                completed_instance_chains.insert(previous);
+            }
+            if completed_instance_chains.contains(&instance.chain_id) {
+                errors.push(VerifyError {
+                    span: instance.name_span,
+                    message: "instance-chain branches must remain contiguous",
+                });
+            }
+            previous_instance_chain = Some(instance.chain_id);
+            match instance_chains.get_mut(&instance.chain_id) {
+                Some((next_position, class_id)) => {
+                    if *class_id != instance.class_id {
+                        errors.push(VerifyError {
+                            span: instance.name_span,
+                            message: "one instance chain contains different classes",
+                        });
+                    }
+                    if instance.chain_position != *next_position {
+                        errors.push(VerifyError {
+                            span: instance.name_span,
+                            message: "instance chain positions must be contiguous and ordered",
+                        });
+                    }
+                    *next_position = instance.chain_position.saturating_add(1);
+                }
+                None => {
+                    if instance.chain_position != 0 {
+                        errors.push(VerifyError {
+                            span: instance.name_span,
+                            message: "an instance chain must begin at position zero",
+                        });
+                    }
+                    instance_chains.insert(
+                        instance.chain_id,
+                        (instance.chain_position.saturating_add(1), instance.class_id),
+                    );
+                }
             }
             if instance.class_id.module == self.id {
                 if !type_ids.contains(&instance.class_id) {
@@ -369,38 +413,5 @@ impl Module {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn verifier_rejects_references_to_out_of_scope_locals() {
-        let module_id = ModuleId(0);
-        let module = Module {
-            id: module_id,
-            name: "Main".into(),
-            externals: Vec::new(),
-            imports: Vec::new(),
-            exports: None,
-            declarations: vec![Declaration {
-                symbol: SymbolId::new(module_id, 0),
-                name: "main".into(),
-                name_span: TextRange::new(0, 4),
-                value: Expr {
-                    kind: ExprKind::Local(LocalId(9)),
-                    span: TextRange::new(7, 8),
-                },
-                signature: None,
-                span: TextRange::new(0, 8),
-            }],
-            types: Vec::new(),
-            instances: Vec::new(),
-            span: TextRange::new(0, 8),
-        };
-
-        let errors = module.verify().unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].message, "local reference is not in scope");
-    }
-}
-
+mod tests;
 mod verify;

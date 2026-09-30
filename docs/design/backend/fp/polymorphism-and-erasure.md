@@ -287,6 +287,7 @@ consistent with the erased protocol: an erased capture is not boxed twice.
 normalize(ty, substitution):
     never revisit a (TypeId, substitution) pair
     Variable                         -> Erased
+    Application(variable head, args) -> Erased (unknown storage constructor)
     Array(element)                   -> concrete or canonical array shape;
                                         record element conversion
     closed Record(fields)            -> product of recursively normalized fields
@@ -297,7 +298,10 @@ normalize(ty, substitution):
 
 The array and record cases are defined by
 [generic aggregate erasure](generic-aggregate-erasure.md), including their
-conversion plans. A type variable nested in an ADT field continues to follow
+conversion plans. An application headed by an abstract constructor, such as
+`f a`, has no known aggregate layout and uses the erased value protocol; known
+constructors such as `Array a` still retain their canonical layouts. A type
+variable nested in an ADT field continues to follow
 [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 
 ### Boxing and unboxing

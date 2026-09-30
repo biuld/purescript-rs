@@ -87,9 +87,13 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut foreign_imports = Vec::new();
     let mut type_declarations = Vec::new();
     let mut instances = Vec::new();
+    let mut instance_chains = type_decl::InstanceChainTracker::default();
     let mut index = 0;
     while index < module.declarations.len() {
         let declaration = module.declarations[index].clone();
+        if !matches!(&declaration, cst::Declaration::Instance(_)) {
+            instance_chains.reset();
+        }
         match declaration {
             cst::Declaration::KindSignature(signature) => {
                 if matches_kind_declaration(&signature, module.declarations.get(index + 1)) {
@@ -119,9 +123,20 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                 index += 1;
             }
             cst::Declaration::Instance(declaration) => {
-                match type_decl::lower_instance(declaration) {
+                let (chain_id, chain_position) = match instance_chains.next(&declaration) {
+                    Ok(position) => position,
+                    Err(error) => {
+                        errors.push(error);
+                        index += 1;
+                        continue;
+                    }
+                };
+                match type_decl::lower_instance(declaration, chain_id, chain_position) {
                     Ok(instance) => instances.push(instance),
-                    Err(error) => errors.push(error),
+                    Err(error) => {
+                        instance_chains.reset();
+                        errors.push(error);
+                    }
                 }
                 index += 1;
             }

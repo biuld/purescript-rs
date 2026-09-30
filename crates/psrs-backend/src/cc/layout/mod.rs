@@ -16,7 +16,7 @@ mod tests;
 
 use captures::module_has_integer_capture;
 pub(crate) use functions::function_signature;
-pub(super) use scalar::{declaration_shape, scalar_type};
+pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
 
 /// The runtime value shape of a Core primitive constructor, keyed by the
 /// constructor. This is the single mapping from a source primitive to its

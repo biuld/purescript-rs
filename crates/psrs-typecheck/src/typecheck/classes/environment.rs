@@ -265,6 +265,7 @@ impl Checker {
             self.record_instance(instance, false);
             self.errors.truncate(errors_before);
         }
+        self.validate_instance_overlaps(module);
     }
 
     /// Records one instance in the searchable instance environment. `local`
@@ -341,6 +342,8 @@ impl Checker {
         self.instances.push(InstanceInfo {
             symbol: instance.symbol,
             class_id: instance.class_id,
+            chain_id: instance.chain_id,
+            chain_position: instance.chain_position,
             head_arguments,
             context,
             context_parameters,

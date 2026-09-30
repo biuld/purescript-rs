@@ -74,6 +74,10 @@ pub struct InstanceDeclaration {
     pub name: String,
     pub name_span: TextRange,
     pub class_id: TypeId,
+    /// Module-local ordered instance-chain identity retained across imports.
+    pub chain_id: u32,
+    /// Zero-based position within `chain_id`.
+    pub chain_position: u32,
     pub context: Vec<Type>,
     pub head: Type,
     pub members: Vec<InstanceMember>,

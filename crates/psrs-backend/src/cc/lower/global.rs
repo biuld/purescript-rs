@@ -93,13 +93,8 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "a function value escapes direct-call position",
                 ));
             }
-            if result_type != signature.result {
-                return Err(global_error(
-                    expression,
-                    "global value type differs from its function result type",
-                ));
-            }
-            let destination = self.fresh(result_type);
+            let source_shape = signature.result;
+            let destination = self.fresh(source_shape);
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::DirectCall {
@@ -108,7 +103,33 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            Ok(destination)
+            if source_shape == result_type {
+                return Ok(destination);
+            }
+            let source_type = self
+                .module
+                .declarations
+                .iter()
+                .find(|declaration| declaration.symbol == function)
+                .map(|declaration| declaration.ty)
+                .ok_or_else(|| {
+                    global_error(expression, "global value has no source declaration type")
+                })?;
+            let conversion = self.typed_conversion(
+                source_type,
+                expression.ty,
+                source_shape,
+                result_type,
+                expression.span,
+            )?;
+            Ok(self.emit_conversion(
+                destination,
+                source_shape,
+                result_type,
+                conversion,
+                expression.span,
+                assignments,
+            ))
         }
     }
 }

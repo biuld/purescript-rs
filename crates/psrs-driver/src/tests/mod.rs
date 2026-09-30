@@ -1,5 +1,8 @@
 use super::*;
 use crate::program::lower_program_to_core;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static WASM_ARTIFACT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 mod effects;
 mod scalars;
@@ -34,10 +37,8 @@ fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::O
         }
         return None;
     }
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
     let artifact = compile_program_sources(sources).unwrap();
-    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
     let output = std::process::Command::new("wasmtime")
@@ -82,10 +83,8 @@ fn run_wasmtime_with_dirs(
         return None;
     }
     use std::io::Write;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
     let artifact = compile_source("Main.purs", source).unwrap();
-    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
     let mut command = std::process::Command::new("wasmtime");

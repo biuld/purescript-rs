@@ -272,21 +272,6 @@ main :: Int
 main = toInt 42
 "#;
 
-const INSTANCE_CHAIN_SOURCE: &str = r#"
-module Main where
-
-class ToInt a where
-  toInt :: a -> Int
-
-instance toIntInt :: ToInt Int where
-  toInt x = x
-else instance toIntBoolean :: ToInt Boolean where
-  toInt x = 0
-
-main :: Int
-main = toInt 42
-"#;
-
 #[test]
 fn a_superclass_cycle_is_reported() {
     let errors =
@@ -319,18 +304,6 @@ fn an_ambiguous_instance_context_variable_is_reported() {
         errors.iter().any(|error| error
             .message
             .contains("an instance context variable must appear in the instance head")),
-        "unexpected diagnostics: {errors:?}"
-    );
-}
-
-#[test]
-fn an_instance_chain_is_reported_as_unsupported() {
-    let errors = compile_source("Main.purs", INSTANCE_CHAIN_SOURCE)
-        .expect_err("instance chains must be rejected");
-    assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("instance chains are not supported yet")),
         "unexpected diagnostics: {errors:?}"
     );
 }
@@ -385,3 +358,4 @@ fn a_deriving_declaration_is_reported_as_unsupported() {
 
 mod fundeps;
 mod imports;
+mod instance_chains;

@@ -72,6 +72,7 @@ the variables known at an actual call or construction boundary.
 | Typed Core type | Normalized runtime value shape |
 | --- | --- |
 | A bare type variable `a` | `Erased` |
+| An application `f a` headed by a type variable | `Erased`, because its storage constructor is unknown |
 | A concrete scalar such as `Int` | Its scalar CC shape |
 | A concrete `Array Int` | `Reference(Repr(Array(Integer)))` |
 | A type-dependent `Array a` | `Reference(Repr(Array(Erased)))`, the canonical generic array |
@@ -219,7 +220,9 @@ representation and the callee or storage representation differ:
   before writing; it never mutates the source.
 - **Direct calls and returns.** Arguments convert from the caller's actual
   shapes to the callee signature's normalized shapes. Results convert from the
-  callee result shape to the caller's instantiated result shape.
+  callee result shape to the caller's instantiated result shape. Reading a
+  top-level value invokes its zero-argument producer and uses this same result
+  conversion, including generic dictionary records.
 - **Higher-order calls.** The existing erased function adapter includes these
   argument and result conversions in its body, alongside scalar box/unbox and
   closure-signature adaptation.

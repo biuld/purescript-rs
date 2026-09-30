@@ -1,4 +1,4 @@
-use super::super::layout::{array_element_type, scalar_type};
+use super::super::layout::{array_element_type, is_abstract_type, scalar_type};
 use super::super::{
     AggregateConvert, Assignment, AssignmentKind, BoxKind, RecoveryEvidence, RefShape, Reference,
     ReprId, ValueConversion, ValueId, ValueShape,
@@ -84,9 +84,7 @@ impl FunctionLowerer<'_> {
                 span,
             );
         }
-        let source = self.module.types.get(source_type.0 as usize);
-        let destination = self.module.types.get(destination_type.0 as usize);
-        if matches!(destination, Some(Type::Variable(_))) {
+        if is_abstract_type(self.module, destination_type) {
             return match source_shape {
                 ValueShape::Integer | ValueShape::Boolean => self
                     .box_plan(BoxKind::Integer, self.boxed_integer_type, span)
@@ -101,7 +99,7 @@ impl FunctionLowerer<'_> {
                 }
             };
         }
-        if matches!(source, Some(Type::Variable(_))) {
+        if is_abstract_type(self.module, source_type) {
             return match destination_shape {
                 ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
                     BoxKind::Integer,

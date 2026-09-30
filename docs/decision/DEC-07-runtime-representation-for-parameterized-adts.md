@@ -31,8 +31,9 @@ constructor has one GC layout per constructor, independent of its type
 arguments.
 
 - Normalize each field's declared type template once to choose its storage
-  shape. A bare type variable becomes non-null erased `eqref`; scalars crossing
-  that boundary are boxed and unboxed at typed uses.
+  shape. A bare type variable, or an application headed by a type variable
+  such as `f a`, has unknown storage and becomes non-null erased `eqref`.
+  Scalars crossing that boundary are boxed and unboxed at typed uses.
 - Composite templates retain their canonical reference shape: `Array a` uses
   an array of erased elements, a closed record normalizes each field, and
   `a -> a` retains a closure signature with erased argument and result. Merely
