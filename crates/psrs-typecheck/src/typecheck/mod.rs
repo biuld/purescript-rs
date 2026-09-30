@@ -20,6 +20,12 @@ pub enum TypeCheckErrorKind {
     UnsupportedClass,
     NoInstance,
     MissingInstanceMethod,
+    /// A functional dependency's determined positions disagree, so no single
+    /// type can satisfy the constraint.
+    FundepConflict,
+    /// A constraint still mentions variables that neither the result type nor
+    /// the class's functional dependencies determine.
+    AmbiguousConstraint,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -214,11 +220,21 @@ struct SuperclassInfo {
     span: TextRange,
 }
 
-/// A class with its ordered type parameters, superclass edges, and methods.
+/// One functional dependency of a class, resolved to parameter positions. The
+/// `determining` parameters functionally determine the `determined` ones.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FundepInfo {
+    determining: Vec<usize>,
+    determined: Vec<usize>,
+}
+
+/// A class with its ordered type parameters, superclass edges, methods, and
+/// functional dependencies.
 #[derive(Clone, Debug)]
 struct ClassInfo {
     parameters: Vec<String>,
     superclasses: Vec<SuperclassInfo>,
+    fundeps: Vec<FundepInfo>,
     methods: Vec<MethodInfo>,
 }
 
@@ -425,6 +441,9 @@ struct Checker {
     givens: Vec<(ClassConstraint, WantedSolution)>,
     wanted: Vec<WantedConstraint>,
     next_dictionary_local: u32,
+    /// Functional-dependency conflicts already reported, keyed by span and
+    /// message, so the fixed-point improvement pass does not duplicate them.
+    reported_fundep_conflicts: HashSet<(TextRange, String)>,
     errors: Vec<TypeCheckError>,
 }
 

@@ -20,8 +20,12 @@ impl Checker {
                         InferType::Variable(b),
                         span,
                     ),
-                    (true, false) => self.bind_variable(b, InferType::Variable(a), span),
-                    (false, _) => self.bind_variable(a, InferType::Variable(b), span),
+                    (true, false) => {
+                        self.bind_variable(b, InferType::Variable(a), span);
+                    }
+                    (false, _) => {
+                        self.bind_variable(a, InferType::Variable(b), span);
+                    }
                 }
             }
             (InferType::Variable(variable), ty) if self.rigid.contains(&variable) => {
@@ -71,7 +75,10 @@ impl Checker {
         }
     }
 
-    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) {
+    /// Binds `variable` to `ty`, reporting an occurs-check failure and leaving
+    /// the substitution unchanged when it would be recursive. Returns whether a
+    /// binding was recorded, so a fixed-point caller can detect progress.
+    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
             self.errors.push(TypeCheckError::new(
@@ -79,10 +86,12 @@ impl Checker {
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
+            false
         } else {
             let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
             self.adjust_levels(&ty, level);
             self.substitutions.insert(variable, ty);
+            true
         }
     }
 

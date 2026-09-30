@@ -28,6 +28,7 @@ impl Checker {
                 .map(|parameter| parameter.name.clone())
                 .collect::<Vec<_>>();
             let local = declaration.id.module == module.id;
+            let fundeps = self.build_fundeps(declaration, &parameters, local);
             let mut methods = Vec::new();
             for member in &declaration.members {
                 let Some(signature) = &member.signature else {
@@ -60,6 +61,7 @@ impl Checker {
                 ClassInfo {
                     parameters,
                     superclasses: Vec::new(),
+                    fundeps,
                     methods,
                 },
             );
@@ -162,6 +164,50 @@ impl Checker {
             field: format!("{name}{index}"),
             span: superclass.span,
         })
+    }
+
+    /// Resolves a class's functional dependencies to parameter positions. A
+    /// name that is not one of the class's type parameters is reported and the
+    /// dependency is dropped so later improvement never indexes out of bounds.
+    fn build_fundeps(
+        &mut self,
+        declaration: &hir::TypeDeclaration,
+        parameters: &[String],
+        local: bool,
+    ) -> Vec<FundepInfo> {
+        let mut fundeps = Vec::with_capacity(declaration.fundeps.len());
+        for fundep in &declaration.fundeps {
+            let mut determining = Vec::with_capacity(fundep.from.len());
+            let mut determined = Vec::with_capacity(fundep.to.len());
+            let mut valid = true;
+            for (side, out) in [
+                (&fundep.from, &mut determining),
+                (&fundep.to, &mut determined),
+            ] {
+                for name in side {
+                    match parameters.iter().position(|parameter| parameter == name) {
+                        Some(index) => out.push(index),
+                        None => {
+                            if local {
+                                self.errors.push(TypeCheckError::new(
+                                    TypeCheckErrorKind::UnsupportedClass,
+                                    fundep.span,
+                                    "a functional dependency variable must be one of the class's type parameters",
+                                ));
+                            }
+                            valid = false;
+                        }
+                    }
+                }
+            }
+            if valid {
+                fundeps.push(FundepInfo {
+                    determining,
+                    determined,
+                });
+            }
+        }
+        fundeps
     }
 
     /// Reports superclass cycles, which would make the class environment

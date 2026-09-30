@@ -16,7 +16,7 @@ pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
     ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, ForeignDataDeclaration,
-    InstanceDeclaration, NewtypeDeclaration, TypeDeclaration, TypeParameter,
+    FunctionalDependency, InstanceDeclaration, NewtypeDeclaration, TypeDeclaration, TypeParameter,
     TypeSynonymDeclaration,
 };
 

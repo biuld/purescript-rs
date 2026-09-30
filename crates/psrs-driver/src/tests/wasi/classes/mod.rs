@@ -287,16 +287,6 @@ main :: Int
 main = toInt 42
 "#;
 
-const FUNCTIONAL_DEPENDENCY_SOURCE: &str = r#"
-module Main where
-
-class Convert a b | a -> b where
-  convert :: a -> b
-
-main :: Int
-main = 0
-"#;
-
 #[test]
 fn a_superclass_cycle_is_reported() {
     let errors =
@@ -393,14 +383,4 @@ fn a_deriving_declaration_is_reported_as_unsupported() {
     );
 }
 
-#[test]
-fn a_functional_dependency_is_reported_as_unsupported() {
-    let errors = compile_source("Main.purs", FUNCTIONAL_DEPENDENCY_SOURCE)
-        .expect_err("functional dependencies must be rejected");
-    assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("functional dependencies are not supported yet")),
-        "unexpected diagnostics: {errors:?}"
-    );
-}
+mod fundeps;

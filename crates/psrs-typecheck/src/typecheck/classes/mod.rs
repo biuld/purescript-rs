@@ -8,6 +8,7 @@
 
 mod environment;
 mod evidence;
+mod fundeps;
 mod instance;
 mod locals;
 mod solve;

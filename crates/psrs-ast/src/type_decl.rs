@@ -99,8 +99,18 @@ pub struct ClassDeclaration {
     pub name: Name,
     pub parameters: Vec<TypeParameter>,
     pub superclasses: Vec<Type>,
+    pub fundeps: Vec<FunctionalDependency>,
     pub members: Vec<ClassMember>,
     pub kind_signature: Option<Type>,
+    pub span: TextRange,
+}
+
+/// A functional dependency `from -> to` on a class head. Both sides name class
+/// type parameters, before resolution to parameter positions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionalDependency {
+    pub from: Vec<Name>,
+    pub to: Vec<Name>,
     pub span: TextRange,
 }
 
@@ -169,29 +179,22 @@ pub(crate) fn lower_type_declaration(
                 span: declaration.span,
             }))
         }
-        cst::Declaration::Class(declaration) => {
-            if !declaration.fundeps.is_empty() {
-                return Err(LowerError::new(
-                    declaration.span,
-                    "functional dependencies are not supported yet",
-                ));
-            }
-            Ok(TypeDeclaration::Class(ClassDeclaration {
-                name: lower_name(declaration.name),
-                parameters: lower_class_parameters(&declaration.head)?,
-                superclasses: match declaration.superclasses {
-                    Some(superclasses) => lower_constraints(*superclasses)?,
-                    None => Vec::new(),
-                },
-                members: declaration
-                    .where_block
-                    .map(|block| lower_class_members(block.declarations))
-                    .transpose()?
-                    .unwrap_or_default(),
-                kind_signature,
-                span: declaration.span,
-            }))
-        }
+        cst::Declaration::Class(declaration) => Ok(TypeDeclaration::Class(ClassDeclaration {
+            name: lower_name(declaration.name),
+            parameters: lower_class_parameters(&declaration.head)?,
+            superclasses: match declaration.superclasses {
+                Some(superclasses) => lower_constraints(*superclasses)?,
+                None => Vec::new(),
+            },
+            fundeps: lower_fundeps(&declaration.fundeps)?,
+            members: declaration
+                .where_block
+                .map(|block| lower_class_members(block.declarations))
+                .transpose()?
+                .unwrap_or_default(),
+            kind_signature,
+            span: declaration.span,
+        })),
         other => Err(LowerError::new(
             other.span(),
             "expected a data, newtype, type, or class declaration",
@@ -248,6 +251,21 @@ fn lower_class_parameters(head: &cst::TypeExpr) -> Result<Vec<TypeParameter>, Lo
     let mut parameters = Vec::new();
     collect_parameters(head, &mut parameters)?;
     Ok(parameters)
+}
+
+fn lower_fundeps(
+    fundeps: &[cst::FunctionalDependency],
+) -> Result<Vec<FunctionalDependency>, LowerError> {
+    fundeps
+        .iter()
+        .map(|fundep| {
+            Ok(FunctionalDependency {
+                from: fundep.from.iter().cloned().map(lower_name).collect(),
+                to: fundep.to.iter().cloned().map(lower_name).collect(),
+                span: fundep.span,
+            })
+        })
+        .collect()
 }
 
 fn collect_parameters(

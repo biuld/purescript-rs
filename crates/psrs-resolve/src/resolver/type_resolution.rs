@@ -199,6 +199,7 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
                     declaration.span,
                 )
@@ -231,6 +232,7 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
                     declaration.span,
                 )
@@ -246,6 +248,7 @@ impl Resolver {
                     Vec::new(),
                     Some(body),
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
                     declaration.span,
                 )
@@ -259,6 +262,7 @@ impl Resolver {
                 Vec::new(),
                 None,
                 Vec::new(),
+                Vec::new(),
                 Some(declaration.declared_kind),
                 declaration.span,
             ),
@@ -267,6 +271,15 @@ impl Resolver {
                 for superclass in declaration.superclasses {
                     superclasses.push(self.resolve_type(superclass)?);
                 }
+                let fundeps = declaration
+                    .fundeps
+                    .into_iter()
+                    .map(|fundep| hir::FunctionalDependency {
+                        from: fundep.from.into_iter().map(|name| name.text).collect(),
+                        to: fundep.to.into_iter().map(|name| name.text).collect(),
+                        span: fundep.span,
+                    })
+                    .collect();
                 let members = declaration
                     .members
                     .into_iter()
@@ -294,6 +307,7 @@ impl Resolver {
                     members,
                     None,
                     superclasses,
+                    fundeps,
                     declaration.kind_signature,
                     declaration.span,
                 )
@@ -312,6 +326,7 @@ impl Resolver {
         members: Vec<hir::ClassMember>,
         body: Option<HirType>,
         superclasses: Vec<HirType>,
+        fundeps: Vec<hir::FunctionalDependency>,
         kind_signature: Option<ast::Type>,
         span: TextRange,
     ) -> Option<hir::TypeDeclaration> {
@@ -333,6 +348,7 @@ impl Resolver {
             members,
             body,
             superclasses,
+            fundeps,
             declared_kind,
             span,
         })
