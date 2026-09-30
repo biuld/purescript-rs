@@ -8,7 +8,7 @@ use crate::BackendError;
 use psrs_core::{Type, TypeId};
 use psrs_span::TextRange;
 
-pub(in crate::cc) struct ErasedFieldRecovery {
+pub(in crate::cc) struct VariantFieldConversion {
     pub(in crate::cc) variant: ReprId,
     pub(in crate::cc) tag: u32,
     pub(in crate::cc) field: u32,
@@ -39,7 +39,7 @@ impl FunctionLowerer<'_> {
     }
 
     pub(in crate::cc) fn typed_conversion(
-        &self,
+        &mut self,
         source_type: TypeId,
         destination_type: TypeId,
         source_shape: ValueShape,
@@ -56,7 +56,7 @@ impl FunctionLowerer<'_> {
     }
 
     fn plan_conversion(
-        &self,
+        &mut self,
         source_type: TypeId,
         destination_type: TypeId,
         source_shape: ValueShape,
@@ -65,6 +65,24 @@ impl FunctionLowerer<'_> {
     ) -> Result<ValueConversion, Vec<BackendError>> {
         if source_shape == destination_shape {
             return Ok(ValueConversion::Identity);
+        }
+        if super::call::is_function_type(self.module, source_type)
+            && super::call::is_function_type(self.module, destination_type)
+            && matches!(
+                destination_shape,
+                ValueShape::Reference(Reference {
+                    heap: RefShape::Closure(_),
+                    ..
+                })
+            )
+        {
+            return self.function_adapter_plan(
+                source_type,
+                destination_type,
+                source_shape,
+                destination_shape,
+                span,
+            );
         }
         let source = self.module.types.get(source_type.0 as usize);
         let destination = self.module.types.get(destination_type.0 as usize);
@@ -125,10 +143,9 @@ impl FunctionLowerer<'_> {
                         evidence: RecoveryEvidence::TypeInstantiation,
                     });
                 }
-                // A generic callable value is represented erased. A concrete
-                // closure is widened to it, and an erased value is recovered by
-                // a reference cast. This is the erased protocol applied to
-                // function-valued arguments and results.
+                // Erased storage hides an existing object shape. Callable
+                // signature changes are handled above by FunctionAdapter;
+                // these casts only enter or recover an erased storage slot.
                 (_, RefShape::Erased) => {
                     return Ok(ValueConversion::EraseReference);
                 }
@@ -146,8 +163,8 @@ impl FunctionLowerer<'_> {
             array_element_type(self.module, destination_type),
         ) {
             let (Some(source_repr), Some(destination_repr)) = (
-                self.array_types.get(&source_type),
-                self.array_types.get(&destination_type),
+                self.array_types.get(&source_type).copied(),
+                self.array_types.get(&destination_type).copied(),
             ) else {
                 return Err(conversion_error(
                     span,
@@ -164,8 +181,8 @@ impl FunctionLowerer<'_> {
                 span,
             )?;
             return Ok(ValueConversion::ArrayMap {
-                source: *source_repr,
-                target: *destination_repr,
+                source: source_repr,
+                target: destination_repr,
                 element: Box::new(element),
             });
         }
@@ -180,8 +197,8 @@ impl FunctionLowerer<'_> {
                 ));
             };
             let (Some(source_repr), Some(destination_repr)) = (
-                self.record_types.get(&source_type),
-                self.record_types.get(&destination_type),
+                self.record_types.get(&source_type).copied(),
+                self.record_types.get(&destination_type).copied(),
             ) else {
                 return Err(conversion_error(
                     span,
@@ -190,13 +207,14 @@ impl FunctionLowerer<'_> {
             };
             let labels = self
                 .representations
-                .product_labels(*source_repr)
-                .ok_or_else(|| conversion_error(span, "source record has no canonical labels"))?;
+                .product_labels(source_repr)
+                .ok_or_else(|| conversion_error(span, "source record has no canonical labels"))?
+                .to_vec();
             let target_labels = self
                 .representations
-                .product_labels(*destination_repr)
+                .product_labels(destination_repr)
                 .ok_or_else(|| conversion_error(span, "target record has no canonical labels"))?;
-            if labels != target_labels
+            if labels.as_slice() != target_labels
                 || source_fields.len() != destination_fields.len()
                 || labels.len() != source_fields.len()
             {
@@ -206,7 +224,7 @@ impl FunctionLowerer<'_> {
                 ));
             }
             let mut plans = Vec::with_capacity(labels.len());
-            for label in labels {
+            for label in &labels {
                 let source_field = source_fields
                     .iter()
                     .find(|(name, _)| name == label)
@@ -226,8 +244,8 @@ impl FunctionLowerer<'_> {
                 )?);
             }
             return Ok(ValueConversion::ProductMap {
-                source: *source_repr,
-                target: *destination_repr,
+                source: source_repr,
+                target: destination_repr,
                 labels: labels.to_vec(),
                 fields: plans,
             });
@@ -297,11 +315,11 @@ impl FunctionLowerer<'_> {
         result
     }
 
-    pub(in crate::cc) fn erased_field_recovery(
-        &self,
-        recovery: ErasedFieldRecovery,
+    pub(in crate::cc) fn variant_field_conversion(
+        &mut self,
+        recovery: VariantFieldConversion,
     ) -> Result<ValueConversion, Vec<BackendError>> {
-        let ErasedFieldRecovery {
+        let VariantFieldConversion {
             variant,
             tag,
             field,
@@ -312,7 +330,6 @@ impl FunctionLowerer<'_> {
             span,
         } = recovery;
         let template_shape = self.value_shape(template_type, span)?;
-        let mut steps = Vec::new();
         if stored_shape == erased_shape()
             && matches!(
                 template_type_of(self.module, template_type),
@@ -332,34 +349,19 @@ impl FunctionLowerer<'_> {
             });
         }
         if stored_shape != template_shape {
-            if stored_shape != erased_shape() || !matches!(template_shape, ValueShape::Reference(_))
-            {
-                return Err(conversion_error(
-                    span,
-                    "erased variant recovery has incompatible shapes",
-                ));
-            }
-            steps.push(ValueConversion::RecoverReference {
-                destination: template_shape,
-                evidence: RecoveryEvidence::ErasedVariantField {
-                    variant,
-                    tag,
-                    field,
-                    template: template_shape,
-                },
-            });
+            return Err(vec![BackendError::invalid_ir(
+                "P8 closure conversion",
+                span,
+                "variant field storage does not match its normalized template",
+            )]);
         }
-        let specialize = self.plan_conversion(
+        self.plan_conversion(
             template_type,
             target_type,
             template_shape,
             target_shape,
             span,
-        )?;
-        if !matches!(specialize, ValueConversion::Identity) {
-            steps.push(specialize);
-        }
-        Ok(sequence(steps))
+        )
     }
 }
 
@@ -387,105 +389,4 @@ fn conversion_error(span: TextRange, message: &'static str) -> Vec<BackendError>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cc::RepresentationTable;
-    use crate::cc::lower::GeneratedSymbolAllocator;
-    use psrs_hir::ModuleId;
-    use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
-    use std::rc::Rc;
-
-    #[test]
-    fn unsupported_typed_boundary_reports_its_source_span() {
-        let module = psrs_core::Module {
-            type_names: Vec::new(),
-            id: ModuleId(0),
-            name: "ConversionDiagnostic".into(),
-            externals: Vec::new(),
-            types: vec![
-                Type::Constructor(psrs_core::TypeConstructor::Int),
-                Type::Constructor(psrs_core::TypeConstructor::Number),
-            ],
-            newtype_ids: Vec::new(),
-            opaque_ids: Vec::new(),
-            callable_types: Vec::new(),
-            constructors: Vec::new(),
-            declarations: Vec::new(),
-            entry: None,
-            span: TextRange::new(0, 80),
-        };
-        let signatures = HashMap::new();
-        let representations = RepresentationTable::default();
-        let ids = HashSet::new();
-        let reprs = HashMap::new();
-        let tags = HashMap::new();
-        let constructors = HashMap::new();
-        let constructor_reprs = HashMap::new();
-        let function_types = HashMap::new();
-        let function_wrappers = HashMap::new();
-        let lowerer = FunctionLowerer {
-            next_value: 0,
-            values: Vec::new(),
-            locals: HashMap::new(),
-            signatures: &signatures,
-            representations: &representations,
-            module: &module,
-            enum_types: &ids,
-            aggregate_types: &ids,
-            newtype_ids: &ids,
-            boxed_integer_type: None,
-            boxed_number_type: None,
-            array_types: &reprs,
-            record_types: &reprs,
-            constructor_tags: &tags,
-            constructors_by_type: &constructors,
-            constructor_types: &constructor_reprs,
-            function_types: &function_types,
-            function_wrappers: &function_wrappers,
-            generated_symbols: Rc::new(RefCell::new(GeneratedSymbolAllocator::new(&module))),
-            owner: module.id,
-            warnings: Vec::new(),
-            local_types: HashMap::new(),
-            generated: Vec::new(),
-        };
-        let span = TextRange::new(30, 45);
-        let errors = lowerer
-            .plan_conversion(
-                TypeId(0),
-                TypeId(1),
-                ValueShape::Integer,
-                ValueShape::Number,
-                span,
-            )
-            .unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|error| error.pass == "P8 closure conversion"
-                    && error.span == span
-                    && error.message.contains("unsupported aggregate conversion"))
-        );
-
-        // An abstract aggregate value and the concrete representation of the
-        // same declaration are related by a reference cast (DEC-13).
-        let aggregate = ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Aggregate,
-        });
-        let representation = ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Repr(ReprId(3)),
-        });
-        assert!(matches!(
-            lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span),
-            Ok(ValueConversion::RecoverReference { .. })
-        ));
-        assert!(matches!(
-            lowerer
-                .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span)
-                .expect("a representation should recover its aggregate supertype"),
-            ValueConversion::RecoverReference { .. }
-        ));
-    }
-}
+mod tests;

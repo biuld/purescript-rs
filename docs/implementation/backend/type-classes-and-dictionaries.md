@@ -4,9 +4,10 @@
 
 **Design:** [Type classes and dictionaries](../../design/backend/fp/type-classes-and-dictionaries.md)
 
-**Progress:** Backend dictionary lowering Verified (DICT-01..11) from verified
-Typed Core fixtures; source-level FE-14/15 elaboration remains a separate,
-unfinished frontend gate.
+**Progress:** Backend dictionary lowering Verified (DICT-01..11), with Typed
+Core fixtures and source execution for constrained functions, instances,
+contexts, superclasses, imports, and functional dependencies. FE-14/15 remain
+partial: source instance chains, class defaults, and deriving are unsupported.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.
 
@@ -18,9 +19,9 @@ projection, recursive contexts, defaults, and erasure. The linked design's
 present-tense contract is authoritative beyond this matrix. Frontend instance
 search, coherence, functional-dependency improvement, and deriving belong to
 FE-14/15. The backend must consume stable evidence chosen by the frontend and
-must never re-search instance heads. Source lowering cannot yet produce a valid
-class case, so this matrix uses verified Typed Core fixtures and tracks the
-source gate under DICT-11. The design's Code map is the ownership target.
+must never re-search instance heads. Source coverage and fixture-only coverage
+are recorded separately under DICT-11. Class defaults remain verified only
+through Typed Core fixtures. The design's Code map is the ownership target.
 
 ## Acceptance matrix
 
@@ -96,7 +97,7 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: the frontend does not yet emit these evidence terms (see DICT-11).
+  Gaps: source instance chains, defaults, and deriving remain unsupported (DICT-11).
 DICT-02:
   Implementation: crates/psrs-core/src/dictionary.rs ClassLayout::from_record_type
     and validate_record_value; crates/psrs-backend/src/cc/layout/aggregate.rs
@@ -177,19 +178,19 @@ DICT-07:
   Result: pass; both executed.
   Gaps: none.
 DICT-08:
-  Implementation: cc/lower/call/application.rs lower_indirect_application now
-    adapts concrete arguments to the erased signature and recovers the concrete
-    result for a generic (erased) callee (this is the method-selection closure
-    call); cc/lower/erased.rs unbox_erased_value converts a boxed integer to
-    Boolean through IntToBoolean; cc/lower/conversion.rs plans box, erase, and
-    aggregate conversions.
-  Tests: dictionary_audit::execution::dictionary_through_erased_polymorphism_executes
-    (a dictionary crosses an erased polymorphic identity and its method is
-    selected) and polymorphic_method_field_executes (a generic method field
-    `forall a. a -> a` crosses the erased protocol and is applied at Boolean).
-  Input boundary: verified Typed Core.
-  Result: pass; both executed.
-  Gaps: none. This fix touches shared CC call lowering; see cross-topic note.
+  Implementation: cc/layout/scalar.rs retains template closure signatures;
+    cc/lower/conversion/ plans scalar, aggregate, and function conversions;
+    cc/lower/erased/conversion.rs generates function-adapter factories.
+    Calls and nested product/array conversions use the same protocol.
+  Tests: dictionary_audit::execution::dictionary_through_erased_polymorphism_executes,
+    polymorphic_method_field_executes; cc_ir_audit::a_polymorphic_imported_instance_method_recovers_through_an_adapter;
+    tests::wasi::classes::imports::{selects_a_polymorphic_imported_instance_when_wasmtime_is_available,
+    projects_a_polymorphic_imported_superclass_when_wasmtime_is_available,
+    adapts_function_arrays_in_imported_generic_records_when_wasmtime_is_available}.
+  Input boundary: verified Typed Core and linked source modules.
+  Result: pass; required Wasmtime execution covers both adaptation directions
+    and recursive arrays of records containing function arrays.
+  Gaps: none for these cases; specialization is not a correctness prerequisite.
 DICT-09:
   Implementation: crates/psrs-backend/src/mir/lower/assignments.rs lowers
     ProductNew/ProductGet to StructNew/StructGet; mir/verify/instruction/mod.rs
@@ -218,21 +219,26 @@ DICT-10:
   Gaps: no dedicated specialization-vs-unspecialized differential fixture; the
     current optimizer does not eliminate the dictionary path.
 DICT-11:
-  Implementation: this record.
-  Tests: source cases: none. Fixture-only cases: all execution and structural
-    tests listed above start from verified Typed Core (the source frontend
-    rejects instance syntax and erases `TypeKind::Constrained`).
-  Input boundary: verified Typed Core; source gate recorded separately.
-  Result: pass; backend dictionary acceptance does not imply FE-14/15.
-  Gaps: FE-14/15 elaboration (class environment, instance selection, coherent
-    evidence) is not implemented. Official-suite class cases remain blocked on
-    that frontend work; none are counted as backend evidence.
+  Implementation: source class environments, evidence solving, and dictionary
+    elaboration in psrs-typecheck; Core dictionary lowering and module linking.
+  Tests: tests::wasi::classes, classes::imports, classes::fundeps execute
+    constrained calls, multi-parameter/contextual instances, superclass
+    projections, imported concrete/generic instances, and fundep improvement.
+    Negative source tests cover unresolved constraints, overlap, ambiguous
+    contexts, fundep conflicts, instance chains, class defaults, and deriving.
+    Defaults remain fixture-only under dictionary_audit::execution.
+  Input boundary: source modules and verified Typed Core, tracked separately.
+  Result: source tests pass with required Wasmtime execution.
+  Gaps: source instance chains, class defaults, deriving, explicit foralls or
+    constraints in method signatures, and official-suite acceptance remain
+    unverified or unsupported; FE-14/15 are partial.
+
 ```
 
 ## Discovered obligations
 
 - **Indirect generic calls.** A class method projected from a dictionary can
-  have a polymorphic type, so the resulting erased closure is called indirectly
+  have a polymorphic type, so the template-signature closure is called indirectly
   at a concrete instantiation. `lower_indirect_application` must adapt each
   concrete argument to the erased signature and recover the concrete result;
   previously it compared the concrete result against the erased signature
@@ -240,9 +246,9 @@ DICT-11:
   `crates/psrs-backend/src/cc/lower/call/application.rs`.
 - **Boxed Boolean recovery.** `unbox_erased_value` built a `ProductGet` whose
   destination was `Boolean` while the integer box field stores `Integer`, which
-  the CC verifier rejects. Recovering a Boolean now projects the integer box
-  slot and applies `IntToBoolean`. Fixed in
-  `crates/psrs-backend/src/cc/lower/erased.rs`.
+  the CC verifier rejects. Recovery now uses the shared `UnboxScalar` plan: P9 reads the integer
+  box slot and explicitly converts its integer to Boolean in
+  `crates/psrs-backend/src/mir/lower/aggregate/mod.rs`.
 - **Canonical field addressing.** The target product order is the canonical
   (label-sorted) closed-record order, so dictionary fields are addressed by
   label, not by `ClassField::index`. The tests pin this for a dictionary whose
@@ -250,15 +256,14 @@ DICT-11:
 
 ## Remaining work and blockers
 
-- FE-14/15: the type checker still erases `TypeKind::Constrained` and AST
-  lowering rejects instance syntax, so no source program produces class
-  evidence. The source column of DICT-11 stays empty until that frontend work
-  lands.
-- Official test suite: class/instance upstream cases are not runnable against
-  the source frontend and are not part of this backend acceptance.
+- FE-14/15: instance chains, class defaults, deriving, and method-local
+  explicit foralls/constraints remain unsupported. Source tests reject these
+  forms explicitly; Typed Core defaults do not establish source acceptance.
+- Official test suite: class/instance upstream cases have not been individually
+  reconciled with source coverage and are not counted as acceptance evidence.
 - Cross-topic handoff: DICT-08 required a fix in the shared CC indirect-call
   lowering (`cc/lower/call/application.rs`) and boxed-value recovery
-  (`cc/lower/erased.rs`). Both preserve the erased protocol and the
+  (`cc/lower/conversion/`). Both preserve the erased protocol and the
   data-representation and CC-IR verifier checks; the owning topics should be
   aware that the erased indirect-call path now handles concrete-to-erased
   argument adaptation.

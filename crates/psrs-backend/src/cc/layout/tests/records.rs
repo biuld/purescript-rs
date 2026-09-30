@@ -25,7 +25,7 @@ fn push_record(types: &mut Vec<Type>, fields: Vec<(&str, TypeId)>) -> TypeId {
 }
 
 #[test]
-fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot() {
+fn parameter_dependent_record_field_keeps_its_canonical_template_in_the_adt_slot() {
     let module_id = ModuleId(0);
     let wrap_type = HirTypeId::new(module_id, 0);
     let wrap = SymbolId::new(module_id, 0);
@@ -93,7 +93,10 @@ fn parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slo
         Some(&Representation::Variant {
             cases: vec![VariantCase {
                 tag: 0,
-                fields: vec![erased_shape],
+                fields: vec![ValueShape::Reference(Reference {
+                    nullable: false,
+                    heap: RefShape::Repr(record_repr),
+                })],
             }],
         })
     );

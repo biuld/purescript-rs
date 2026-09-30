@@ -1,4 +1,4 @@
-use super::super::super::layout::{depends_on_type_variable, function_arrow_parameters};
+use super::super::super::layout::function_arrow_parameters;
 use super::super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, Signature, SignatureId, ValueId,
 };
@@ -206,24 +206,7 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        if depends_on_type_variable(self.module, target_type) {
-            let erased = self.fresh(erased_reference_type());
-            assignments.push(Assignment {
-                destination: erased,
-                kind: AssignmentKind::RepresentationCast {
-                    destination: erased,
-                    value: closure_result,
-                    reference: Reference {
-                        nullable: false,
-                        heap: RefShape::Erased,
-                    },
-                },
-                span,
-            });
-            Ok(erased)
-        } else {
-            Ok(closure_result)
-        }
+        Ok(closure_result)
     }
 }
 

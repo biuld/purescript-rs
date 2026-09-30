@@ -1,5 +1,5 @@
 use super::super::super::layout::user_type_id;
-use super::super::super::lower::{ErasedFieldRecovery, FunctionLowerer};
+use super::super::super::lower::{FunctionLowerer, VariantFieldConversion};
 use super::{Action, ColumnKey, Decision, DecisionDag, DecisionEdge, NodeId, Test};
 use crate::BackendError;
 use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
@@ -200,7 +200,7 @@ impl FunctionLowerer<'_> {
                     },
                     span: *span,
                 });
-                let conversion = self.erased_field_recovery(ErasedFieldRecovery {
+                let conversion = self.variant_field_conversion(VariantFieldConversion {
                     variant: representation,
                     tag: *tag,
                     field: *field,

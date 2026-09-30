@@ -1,4 +1,3 @@
-use super::super::super::layout::depends_on_type_variable;
 use super::super::super::layout::function_arrow_parameters;
 use super::super::super::{
     Assignment, AssignmentKind, RefShape, Reference, SignatureId, ValueConversion, ValueId,
@@ -30,16 +29,6 @@ pub(super) fn collect_application<'a>(
     (head, arguments)
 }
 
-pub(in crate::cc::lower) fn is_erased_value_type(value_type: ValueShape) -> bool {
-    matches!(
-        value_type,
-        ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        })
-    )
-}
-
 /// Whether a value is a callable closure: an ordinary function arrow or the
 /// closure representation of a registered callable constructor (for example an
 /// `Effect a`). Both participate in the erased callable protocol, so a callable
@@ -50,13 +39,6 @@ pub(in crate::cc::lower) fn is_function_type(
 ) -> bool {
     psrs_core::arrow_parts(&module.types, type_id).is_some()
         || module.callable_application(type_id).is_some()
-}
-
-pub(in crate::cc::lower) fn is_generic_function_type(
-    module: &CoreModule,
-    type_id: psrs_core::TypeId,
-) -> bool {
-    is_function_type(module, type_id) && depends_on_type_variable(module, type_id)
 }
 
 pub(super) fn closure_value_type() -> ValueShape {
@@ -162,7 +144,8 @@ pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) ->
         | ValueConversion::BoxScalar { .. }
         | ValueConversion::UnboxScalar { .. }
         | ValueConversion::EraseReference
-        | ValueConversion::RecoverReference { .. } => false,
+        | ValueConversion::RecoverReference { .. }
+        | ValueConversion::FunctionAdapter { .. } => false,
     }
 }
 

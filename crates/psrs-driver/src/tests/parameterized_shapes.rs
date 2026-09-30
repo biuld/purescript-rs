@@ -56,7 +56,9 @@ main = arrayIndex (unwrap (wrap [40, 42])) 1
             .iter()
             .any(|representation| {
                 matches!(representation, psrs_backend::cc::Representation::Variant { cases }
-            if cases.iter().any(|case| case.fields.contains(&erased)))
+            if cases.iter().any(|case| case.fields.contains(&psrs_backend::cc::ValueShape::Reference(
+                psrs_backend::cc::Reference { nullable: false, heap: psrs_backend::cc::RefShape::Repr(generic_array) }
+            ))))
             })
     );
     let array_maps = stages

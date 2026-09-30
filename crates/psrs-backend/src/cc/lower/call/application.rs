@@ -1,10 +1,9 @@
 use super::super::super::layout::function_signature;
-use super::super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId};
+use super::super::super::{Assignment, AssignmentKind, ValueId};
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
     callable_parameter_types, callable_result_type, collect_application,
-    conversion_reconstructs_aggregate, function_value_types, is_erased_value_type,
-    is_function_type, is_generic_function_type, persist_reference, restore_reference,
+    conversion_reconstructs_aggregate, function_value_types, persist_reference, restore_reference,
 };
 use super::partial::PartialApplication;
 use super::{ApplicationLowering, CallShape};
@@ -73,60 +72,32 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                         "call parameter has no declaration type",
                     )]
                 })?;
-                if is_generic_function_type(self.module, source_type)
-                    && is_function_type(self.module, argument.ty)
-                {
-                    conversions.push(None);
-                } else {
-                    let source_shape = self.value_shape(argument.ty, argument.span)?;
-                    let conversion = self.typed_conversion(
-                        argument.ty,
-                        source_type,
-                        source_shape,
-                        *expected,
-                        expression.span,
-                    )?;
-                    conversions.push(Some((source_shape, conversion)));
-                }
+                let source_shape = self.value_shape(argument.ty, argument.span)?;
+                let conversion = self.typed_conversion(
+                    argument.ty,
+                    source_type,
+                    source_shape,
+                    *expected,
+                    expression.span,
+                )?;
+                conversions.push((source_shape, conversion));
             }
             let mut values = Vec::with_capacity(arguments.len());
             for (index, (argument, expected)) in
                 arguments.iter().zip(&signature.parameters).enumerate()
             {
                 let value = self.lower_value(argument, assignments)?;
-                let Some(source_type) = source_parameters.get(index).copied() else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        argument.span,
-                        "call parameter has no declaration type",
-                    )]);
-                };
-                let converted = if is_generic_function_type(self.module, source_type)
-                    && is_function_type(self.module, argument.ty)
-                {
-                    self.adapt_erased_function_value(
-                        value,
-                        argument.ty,
-                        source_type,
-                        expression.span,
-                        assignments,
-                    )?
-                } else {
-                    let (source_shape, conversion) = conversions[index]
-                        .clone()
-                        .expect("non-function argument has a conversion plan");
-                    self.emit_conversion(
-                        value,
-                        source_shape,
-                        *expected,
-                        conversion,
-                        expression.span,
-                        assignments,
-                    )
-                };
+                let (source_shape, conversion) = conversions[index].clone();
+                let converted = self.emit_conversion(
+                    value,
+                    source_shape,
+                    *expected,
+                    conversion,
+                    expression.span,
+                    assignments,
+                );
                 let later_reconstructs = conversions[index + 1..]
                     .iter()
-                    .flatten()
                     .any(|(_, conversion)| conversion_reconstructs_aggregate(conversion));
                 let (converted, restore_shape) = if later_reconstructs {
                     persist_reference(self, converted, *expected, expression.span, assignments)
@@ -153,67 +124,29 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            if is_erased_value_type(signature.result) && result_type != signature.result {
-                // A polymorphic declaration whose body returns a callable value
-                // (`discard first next = bind first next`) produces an erased
-                // value whose runtime call signature is the declaration's
-                // generic body result, not the instantiated one. Adapt from the
-                // body result type to the concrete expected type instead of
-                // casting, so the closure can actually be called.
-                let source_type =
-                    callable_result_type(self.module, function, head.ty).ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "call target has no declaration result type",
-                        )]
-                    })?;
-                let expected_closure = matches!(
-                    result_type,
-                    ValueShape::Reference(Reference {
-                        nullable: false,
-                        heap: RefShape::Closure(_),
-                    })
-                );
-                let result = if expected_closure && is_function_type(self.module, source_type) {
-                    self.adapt_erased_function_value(
-                        call_result,
-                        source_type,
-                        expression.ty,
+            let source_type =
+                callable_result_type(self.module, function, head.ty).ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
                         expression.span,
-                        assignments,
-                    )?
-                } else {
-                    self.unbox_erased_value(call_result, result_type, expression.span, assignments)?
-                };
-                Ok(result)
-            } else {
-                let source_type =
-                    callable_result_type(self.module, function, head.ty).ok_or_else(|| {
-                        vec![BackendError::new(
-                            "P8 closure conversion",
-                            expression.span,
-                            "call target has no declaration result type",
-                        )]
-                    })?;
-                let source_shape = signature.result;
-                let conversion = self.typed_conversion(
-                    source_type,
-                    expression.ty,
-                    source_shape,
-                    result_type,
-                    expression.span,
-                )?;
-                let result = self.emit_conversion(
-                    call_result,
-                    source_shape,
-                    result_type,
-                    conversion,
-                    expression.span,
-                    assignments,
-                );
-                Ok(result)
-            }
+                        "call target has no declaration result type",
+                    )]
+                })?;
+            let conversion = self.typed_conversion(
+                source_type,
+                expression.ty,
+                signature.result,
+                result_type,
+                expression.span,
+            )?;
+            Ok(self.emit_conversion(
+                call_result,
+                signature.result,
+                result_type,
+                conversion,
+                expression.span,
+                assignments,
+            ))
         } else {
             self.lower_indirect_application(expression, head, arguments, result_type, assignments)
         }
@@ -255,87 +188,79 @@ impl FunctionLowerer<'_> {
                 "higher-order call has no runtime function type",
             )]);
         };
-        let generic = is_generic_function_type(self.module, head.ty);
         let (source_parameters, source_result) = function_value_types(self.module, head.ty);
         // The callee expression is lowered at its own use type, so its runtime
         // value already matches `head.ty`; no side-table adaptation is needed.
         let function = self.lower_value(head, assignments)?;
-        let function = if generic {
-            let cast = self.fresh(ValueShape::Reference(Reference {
-                nullable: false,
-                heap: RefShape::Closure(signature_id),
-            }));
-            assignments.push(Assignment {
-                destination: cast,
-                kind: AssignmentKind::RepresentationCast {
-                    destination: cast,
-                    value: function,
-                    reference: Reference {
-                        nullable: false,
-                        heap: RefShape::Closure(signature_id),
-                    },
-                },
-                span: expression.span,
-            });
-            cast
+        let mut conversions = Vec::with_capacity(arguments.len());
+        for (index, argument) in arguments.iter().enumerate() {
+            let source_parameter = source_parameters.get(index).copied().ok_or_else(|| {
+                vec![BackendError::new(
+                    "P8 closure conversion",
+                    argument.span,
+                    "call parameter has no source type",
+                )]
+            })?;
+            let shape = self.value_shape(argument.ty, argument.span)?;
+            let conversion = self.typed_conversion(
+                argument.ty,
+                source_parameter,
+                shape,
+                signature.parameters[index],
+                expression.span,
+            )?;
+            conversions.push((shape, conversion));
+        }
+        let mut values = Vec::with_capacity(arguments.len());
+        let function = if conversions
+            .iter()
+            .any(|(_, plan)| conversion_reconstructs_aggregate(plan))
+        {
+            persist_reference(
+                self,
+                function,
+                self.value_shape(head.ty, expression.span)?,
+                expression.span,
+                assignments,
+            )
         } else {
-            function
+            (function, None)
         };
-        let values = if generic {
-            // A generic method value carries erased parameters, so each concrete
-            // argument is adapted to the erased signature shape and the erased
-            // result is recovered at its concrete source type.
-            let mut values = Vec::with_capacity(arguments.len());
-            for (index, argument) in arguments.iter().enumerate() {
-                let value = self.lower_value(argument, assignments)?;
-                let source_parameter = source_parameters.get(index).copied().ok_or_else(|| {
-                    vec![BackendError::new(
-                        "P8 closure conversion",
-                        argument.span,
-                        "generic call parameter has no source type",
-                    )]
-                })?;
-                if is_generic_function_type(self.module, source_parameter)
-                    && is_function_type(self.module, argument.ty)
-                {
-                    values.push(self.adapt_erased_function_value(
-                        value,
-                        argument.ty,
-                        source_parameter,
-                        expression.span,
-                        assignments,
-                    )?);
-                    continue;
-                }
-                let argument_shape = self.value_shape(argument.ty, argument.span)?;
-                let expected = signature.parameters[index];
-                if argument_shape == expected {
-                    values.push(value);
-                    continue;
-                }
-                let conversion = self.typed_conversion(
-                    argument.ty,
-                    source_parameter,
-                    argument_shape,
-                    expected,
-                    expression.span,
-                )?;
-                values.push(self.emit_conversion(
-                    value,
-                    argument_shape,
-                    expected,
-                    conversion,
-                    expression.span,
-                    assignments,
-                ));
+        for (index, argument) in arguments.iter().enumerate() {
+            let value = self.lower_value(argument, assignments)?;
+            let (shape, conversion) = conversions[index].clone();
+            let expected = signature.parameters[index];
+            let value = self.emit_conversion(
+                value,
+                shape,
+                expected,
+                conversion,
+                expression.span,
+                assignments,
+            );
+            let persistent = if conversions[index + 1..]
+                .iter()
+                .any(|(_, plan)| conversion_reconstructs_aggregate(plan))
+            {
+                persist_reference(self, value, expected, expression.span, assignments)
+            } else {
+                (value, None)
+            };
+            values.push(persistent);
+        }
+        let function = match function {
+            (value, Some(shape)) => {
+                restore_reference(self, value, shape, expression.span, assignments)
             }
-            values
-        } else {
-            arguments
-                .into_iter()
-                .map(|argument| self.lower_value(argument, assignments))
-                .collect::<Result<Vec<_>, _>>()?
+            (value, None) => value,
         };
+        let values = values
+            .into_iter()
+            .map(|(value, shape)| match shape {
+                Some(shape) => restore_reference(self, value, shape, expression.span, assignments),
+                None => value,
+            })
+            .collect();
         let destination = self.fresh(signature.result);
         assignments.push(Assignment {
             destination,
@@ -349,25 +274,21 @@ impl FunctionLowerer<'_> {
         if signature.result == result_type {
             return Ok(destination);
         }
-        let result = if is_erased_value_type(signature.result) {
-            self.unbox_erased_value(destination, result_type, expression.span, assignments)?
-        } else {
-            let conversion = self.typed_conversion(
-                source_result,
-                expression.ty,
-                signature.result,
-                result_type,
-                expression.span,
-            )?;
-            self.emit_conversion(
-                destination,
-                signature.result,
-                result_type,
-                conversion,
-                expression.span,
-                assignments,
-            )
-        };
+        let conversion = self.typed_conversion(
+            source_result,
+            expression.ty,
+            signature.result,
+            result_type,
+            expression.span,
+        )?;
+        let result = self.emit_conversion(
+            destination,
+            signature.result,
+            result_type,
+            conversion,
+            expression.span,
+            assignments,
+        );
         Ok(result)
     }
 }

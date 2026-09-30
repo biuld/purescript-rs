@@ -10,10 +10,10 @@
 This document owns representation normalization and conversion for generic
 arrays and closed records, including their use as fields of parameterized ADTs.
 It defines the CC conversion contract and its lowering and verifier obligations
-through MIR. It does not change the erased-value policy for ADT fields in
-[DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md),
-define open-row records, change source type inference, or define independent
-Wasm artifact linking. Scalar boxing and polymorphic function adapters remain
+through MIR. It refines field normalization while preserving the single-layout
+invariant in [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md),
+and does not define open-row records, change source type inference, or define
+independent Wasm artifact linking. Scalar boxing and polymorphic function adapters remain
 specified by [polymorphism and erasure](polymorphism-and-erasure.md); concrete
 GC objects and pure array update remain specified by
 [data representation](data-representation.md).
@@ -79,6 +79,7 @@ the variables known at an actual call or construction boundary.
 | A closed record `{ x :: Int }` | A product with the concrete `Integer` field |
 | A dependent closed record `{ x :: a }` | A canonical product with an `Erased` field |
 | A dependent closed record `{ xs :: Array a }` | A canonical product with an `Array(Erased)` reference field |
+| A function `a -> Int` | `Reference(Closure(Signature([Erased], Integer)))` |
 | A parameterized ADT | Its nominal variant representation, independent of type arguments |
 
 For a type-dependent `Array T`, P8 recursively normalizes `T` and interns the
@@ -98,12 +99,11 @@ aggregate fields retain their canonical aggregate reference shape. Open rows
 have no canonical product in this design and remain unsupported.
 
 An ADT's variant layout continues to be keyed by its resolved declaration. A
-constructor field whose declared type depends on an ADT parameter is stored as
-`Erased`, as DEC-07 requires. Before storage or after projection, however, the
-field value is adapted through the normalized shape of the declared field
-template. Consequently a field declared `Array a` is canonicalized to
-`Array(Erased)` before it is placed in the erased slot. A field declared just
-`a` remains an ordinary erased value and does not force an aggregate copy.
+constructor field is stored in the normalized shape of its declared template,
+independent of concrete substitutions. A field declared `Array a` directly
+stores its canonical `Array(Erased)` reference; closed records and function
+fields likewise retain canonical product and closure shapes. A field declared
+just `a` uses ordinary erased storage and does not force an aggregate copy.
 
 ### Layout identity and conversion plans
 
@@ -118,7 +118,7 @@ runtime layout identities. CC interns requirements by canonical shape:
   still contains only physical field shapes, while P8 keeps each record's
   label-to-index mapping for lowering; and
 - ADT variants are keyed by resolved declaration identity, with one set of
-  dependent erased fields for all type arguments.
+  normalized template fields for all type arguments.
 
 P8 reserves a representation handle before recursively normalizing its fields,
 so recursive references are cycle-safe. Equal canonical keys share a CC
@@ -146,7 +146,8 @@ ValueConversion = Identity
                             element: ValueConversion }
                 | ProductMap { source: ReprId, target: ReprId,
                               fields: [ValueConversion] }
-                | FunctionAdapter { source: SignatureId, target: SignatureId }
+                | FunctionAdapter { function: SymbolId, source: ValueShape,
+                                    destination: ValueShape }
 
 RecoveryEvidence = TypeInstantiation
                  | ErasedVariantField { variant: ReprId, tag: u32,
@@ -155,6 +156,15 @@ RecoveryEvidence = TypeInstantiation
 AggregateConvert = { value: ValueId, source: ValueShape,
                      destination: ValueShape, plan: ValueConversion }
 ```
+
+`FunctionAdapter` names a P8-generated factory with one parameter of the
+source shape and a result of the destination closure shape. The factory
+captures the original closure once and returns an adapter; the adapter converts
+arguments and results when called. This leaf participates recursively in both
+`ArrayMap` and `ProductMap`, in either conversion direction. A field declared
+as a function retains its normalized template closure signature; instantiation
+never casts it directly to a different call signature. A bare variable
+instantiated as a function can recover the already-stored concrete closure.
 
 The exact Rust names may differ, but CC must state the source and destination
 shapes and the recursive work. The plan contains no Wasm type index, physical
@@ -195,10 +205,9 @@ Conversions are inserted at every typed boundary where the caller's actual
 representation and the callee or storage representation differ:
 
 - **Parameterized ADT construction and projection.** Convert the field value
-  to the normalized shape of its declared field template, then store an
-  erased field as required by DEC-07. Projection first recovers that normalized
-  template shape; an instantiation-specific caller then converts to its
-  concrete shape if needed.
+  to the normalized shape of its declared field template and store that shape
+  directly. Projection converts from the same template shape to the consumer's
+  concrete shape if needed. Only bare-variable slots require erased recovery.
 - **Record construction, access, and update.** Construct the product required
   by the record type at that boundary. Access reads the current record layout
   and converts its field to the typed result shape. Update converts assigned
@@ -304,57 +313,41 @@ convert(source_type, source_role, destination_type, destination_role, substituti
         report UnsupportedAggregateConversion at the boundary's source span
 ```
 
-For an ADT field projection from erased storage, P8 emits a separate recovery
-plan: recover a scalar box or cast to `Template(field_type)`, attaching
-`ErasedVariantField { variant, tag, field, template }` evidence. CC verifies
-that the referenced variant slot is physically `Erased` and that the recovery
-target agrees with the evidence. The constructor invariant proves the
-canonical template value was placed there. If the field template itself is
-`a`, this recovery is identity and leaves the value erased.
-
-For a dependent ADT field, normalization uses its declared field template, not
-just the substituted field type. Construction first converts the actual field
-value to `Template(field_type)`, then adapts that canonical value to the
-variant's `Erased` storage shape. If the template is `Array a`, an actual
-`Array Int` is first mapped to canonical `Array(Erased)`, then that reference
-is erased. If the template is only `a`, an actual `Array Int` is erased
-directly. Projection reverses those steps: recover the stored value as the
-normalized field template, then convert from that template to the pattern's
-instantiated actual shape. Thus a concrete match on `Wrap Int` recovers
-`Array(Erased)` before mapping to `Array Int`; a polymorphic `unwrap` keeps the
-canonical layout.
-
-The order is explicit in the lowering contract:
+ADT construction and projection use the declared field template as the storage
+contract. The variant slot must equal `Template(field_type)`; a mismatch is a
+compiler IR error. A concrete substitution never changes that slot's layout.
+For `Array a`, construction maps `Array Int` to canonical `Array(Erased)` and
+stores that reference directly. A polymorphic projection reads the canonical
+reference directly; a concrete projection maps its elements to `Array Int`.
+For a bare `a`, construction erases the actual value without canonicalizing its
+internal structure, and projection boxes/unboxes or recovers that actual shape.
 
 ```text
-construct_dependent_field(actual_value, field_template, substitution):
+construct_field(actual_value, field_template, substitution, stored_shape):
     template_shape = Template(field_template)       # never substitute first
+    assert stored_shape == template_shape
     actual_shape = Actual(actual_value.ty, substitution)
-    logical = plan_conversion(actual_value.ty, Actual, field_template, Template,
-                              substitution, actual_shape, template_shape)
-    storage = Erased
-    return Sequence([logical, adapt_to_storage(template_shape, storage)])
+    return plan_conversion(actual_value.ty, Actual, field_template, Template,
+                           substitution, actual_shape, template_shape)
 
-project_dependent_field(stored_value, field_template, substitution):
-    template_shape = Template(field_template)       # same key as construction
-    recover = if template_shape == Erased: Identity
-              else RecoverReference(template_shape,
-                  ErasedVariantField(variant, tag, field, template_shape))
+project_field(stored_value, field_template, substitution, stored_shape):
+    template_shape = Template(field_template)
+    assert stored_shape == template_shape
     actual_type = substitute(field_template, substitution)
     actual_shape = normalize_actual(actual_type, substitution)
-    specialize = plan_conversion(field_template, Template,
-                                actual_type, Actual,
-                                substitution, template_shape, actual_shape)
-    return Sequence([recover, specialize])
+    if field_template is a bare variable and actual_shape is a concrete reference:
+        return RecoverReference(actual_shape,
+            ErasedVariantField(variant, tag, field, actual_shape))
+    return plan_conversion(field_template, Template, actual_type, Actual,
+                           substitution, template_shape, actual_shape)
 ```
 
-`adapt_to_storage` boxes scalar template values or erases a reference. It is
-identity when the canonical template shape is already `Erased`. The
-`ErasedVariantField` token is produced only by P8 for the corresponding
-dependent `VariantGet`; the CC verifier checks that its named case field is
-stored as `Erased` and that its target agrees with the token. The type
-substitution affects only the final `specialize` step, never the canonical
-shape used by construction and generic projection.
+`ErasedVariantField` evidence is produced only for an erased slot's reference
+recovery. CC verifies that the named slot is physically `Erased` and the target
+agrees with the token. Construction proves that a bare-variable slot received
+the actual reference without changing its layout. Scalar recovery uses typed
+box plans. Composite template fields require no outer erased recovery, and
+function signature changes require adapters rather than reference casts.
 
 ### Lowering conversion plans
 
@@ -368,6 +361,12 @@ MIR includes an explicit `ArrayNewDefault` operation for this construction;
 the verifier proves that the target element storage is defaultable and that
 every slot is initialized before the array escapes. The Wasm encoder maps this
 operation to `array.new_default` and emits the already-verified loop.
+
+P9 lowers a `FunctionAdapter` leaf to a direct call to its generated factory,
+including inside an array loop or a product conversion. CC module verification
+checks the factory's actual parameter and result against the plan's endpoints;
+reachability includes the factory and its captured closure implementation.
+P9 introduces no source-type reasoning or adapter-generation policy.
 
 Conversion helpers are interned by their complete source shape, target shape,
 and nested conversion plan. This shares identical work without conflating
@@ -444,9 +443,10 @@ plans carry only `ValueShape`s, representation handles, and recovery evidence.
   same field-label set. Corresponding field types agree under the boundary
   substitution; field plans match labels and normalized shapes and the result
   has the target product shape.
-- A generic ADT dependent field is physically `Erased`. Construction converts
-  through the normalized declared field template before erasing. Projection
-  recovers that normalized template shape, not an arbitrary instantiation.
+- Every ADT field's storage equals its normalized declared template. Bare
+  variables are `Erased`; composite references retain canonical aggregate or
+  closure shapes. Construction and projection convert between actual and
+  template shapes without changing the variant layout.
 - Pure array and record updates produce fresh values. Conversion cannot mutate
   its input or change any language-observable alias.
 - CC verification rejects plans with unresolved handles, incompatible source
@@ -479,17 +479,17 @@ The concrete literal and `wrap` argument use `Array Int`, whose runtime layout
 is `(array (mut i32))`. The declared field template is `Array a`, so its
 canonical shape is `Array(Erased)`. At construction P8 records `ArrayMap` with
 an `Integer -> Erased` element conversion; P9 allocates the canonical array,
-boxes each integer, then upcasts the canonical array reference into the ADT's
-erased field:
+boxes each integer, then stores the canonical array reference directly in the
+ADT's canonical array field:
 
 ```text
 ArrayInt([40, 42])
   -> ArrayMap(BoxInteger)
   -> ArrayErased([box(40), box(42)])
-  -> Erased variant field
+  -> Canonical array variant field
 ```
 
-`unwrap` is compiled once. Its pattern projection recovers the canonical
+`unwrap` is compiled once. Its pattern projection directly reads the canonical
 `Array(Erased)` layout established by the constructor path, and its generic
 result uses that same layout. At the concrete call site, the result boundary
 maps the canonical array back to `Array Int`, unboxing each element before

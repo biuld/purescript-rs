@@ -16,7 +16,6 @@ mod tests;
 
 use captures::module_has_integer_capture;
 pub(crate) use functions::function_signature;
-use scalar::field_storage_shape;
 pub(super) use scalar::{declaration_shape, scalar_type};
 
 /// The runtime value shape of a Core primitive constructor, keyed by the
@@ -98,7 +97,7 @@ fn layoutable_field_type_inner(
     newtype_ids: &HashSet<HirTypeId>,
     visiting: &mut HashSet<HirTypeId>,
 ) -> bool {
-    if depends_on_type_variable(module, id) {
+    if is_callable_type(module, id) || depends_on_type_variable(module, id) {
         return true;
     }
     if primitive_shape_of(module, id).is_some() {
@@ -255,7 +254,7 @@ pub(super) fn type_layout(
                 .field_types
                 .iter()
                 .map(|field| {
-                    field_storage_shape(
+                    scalar_type(
                         module,
                         *field,
                         module.span,

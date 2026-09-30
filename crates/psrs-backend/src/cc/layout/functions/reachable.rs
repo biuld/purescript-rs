@@ -2,10 +2,20 @@ use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, TypeId};
 use std::collections::HashSet;
 
 /// Callable types that occur on a remaining declaration, expression, or
-/// constructor field. Types left behind by pruned library code are omitted.
-pub(super) fn referenced_types(module: &CoreModule) -> HashSet<TypeId> {
+/// constructor field, or reserved aggregate layout. Other residual callable
+/// types left behind by pruned library code are omitted.
+pub(super) fn referenced_types(
+    module: &CoreModule,
+    aggregate_roots: impl Iterator<Item = TypeId>,
+) -> HashSet<TypeId> {
     let mut referenced = HashSet::new();
     let mut visiting = HashSet::new();
+    // Every reserved aggregate is normalized by the layout builder. Its nested
+    // callable fields therefore need signatures even when its Core type is a
+    // residual template without a remaining expression of that exact type.
+    for ty in aggregate_roots {
+        record_type(module, ty, &mut visiting, &mut referenced);
+    }
     for declaration in &module.declarations {
         record_type(module, declaration.ty, &mut visiting, &mut referenced);
         record_expr(module, &declaration.value, &mut visiting, &mut referenced);

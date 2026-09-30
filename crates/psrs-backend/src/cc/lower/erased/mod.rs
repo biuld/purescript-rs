@@ -1,18 +1,15 @@
-use super::super::layout::depends_on_type_variable;
 use super::super::layout::{function_arrow_parameters, function_signature};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
 };
-use super::call::{
-    is_function_type, is_generic_function_type, persist_reference, restore_reference,
-};
+use super::call::{is_function_type, persist_reference, restore_reference};
 use super::{FunctionLowerer, LambdaLowering};
 use crate::BackendError;
 use psrs_core::TypeId;
 
+mod conversion;
 mod curried;
 mod eta;
-mod unbox;
 
 #[cfg(test)]
 mod tests;
@@ -39,9 +36,9 @@ impl FunctionLowerer<'_> {
         let Some(source_type) = self.local_types.get(&local).copied() else {
             return Ok(value);
         };
-        // Only an erased value needs the erased adaptation. A local whose
-        // declared type is concrete already carries its exact closure shape.
-        if self.value_shape_of(value) != Some(erased_reference_type()) {
+        // Equal normalized signatures need no adaptation, including generic
+        // closures whose parameter and result representations already agree.
+        if self.value_shape_of(value) == Some(self.value_shape(target_type, span)?) {
             return Ok(value);
         }
         if source_type == target_type || !is_function_type(self.module, target_type) {
@@ -272,39 +269,21 @@ impl FunctionLowerer<'_> {
         });
         let source_result_type = function_arrow_parameters(self.module, source_type).1;
         let target_result_type = function_arrow_parameters(self.module, target_type).1;
-        // When the source result is a concrete function and the target result is
-        // a generic function value, a plain erase cast would leave the caller
-        // with a closure whose runtime call signature is concrete while the
-        // generic use site calls it through the erased signature. Adapt the
-        // nested function so the erased value is callable at the generic type.
-        let result = if source_shape.result != target_shape.result
-            && is_function_type(self.module, source_result_type)
-            && is_generic_function_type(self.module, target_result_type)
-        {
-            adapter.adapt_erased_function_value(
-                concrete_result,
-                source_result_type,
-                target_result_type,
-                span,
-                &mut adapter_assignments,
-            )?
-        } else {
-            let conversion = adapter.typed_conversion(
-                source_result_type,
-                target_result_type,
-                source_shape.result,
-                target_shape.result,
-                span,
-            )?;
-            adapter.emit_conversion(
-                concrete_result,
-                source_shape.result,
-                target_shape.result,
-                conversion,
-                span,
-                &mut adapter_assignments,
-            )
-        };
+        let conversion = adapter.typed_conversion(
+            source_result_type,
+            target_result_type,
+            source_shape.result,
+            target_shape.result,
+            span,
+        )?;
+        let result = adapter.emit_conversion(
+            concrete_result,
+            source_shape.result,
+            target_shape.result,
+            conversion,
+            span,
+            &mut adapter_assignments,
+        );
         let symbol = self.generated_symbols.borrow_mut().fresh(self.owner);
         let adapter_function = Function {
             symbol,
@@ -333,24 +312,7 @@ impl FunctionLowerer<'_> {
             },
             span,
         });
-        if depends_on_type_variable(self.module, target_type) {
-            let result = self.fresh(erased_reference_type());
-            assignments.push(Assignment {
-                destination: result,
-                kind: AssignmentKind::RepresentationCast {
-                    destination: result,
-                    value: closure_result,
-                    reference: Reference {
-                        nullable: false,
-                        heap: RefShape::Erased,
-                    },
-                },
-                span,
-            });
-            Ok(result)
-        } else {
-            Ok(closure_result)
-        }
+        Ok(closure_result)
     }
 }
 

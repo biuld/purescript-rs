@@ -45,6 +45,9 @@ pub(super) fn verify_assignments(
                 let source = declared_shape(declared, *value, assignment)?;
                 let target = declared_shape(declared, *destination, assignment)?;
                 aggregate::verify_conversion(assignment, conversion, source, target, table)?;
+                if functions.is_some() {
+                    aggregate::verify_adapter_functions(assignment, &conversion.plan, signatures)?;
+                }
                 uses.push(*value);
             }
             AssignmentKind::Constant(value) => {
