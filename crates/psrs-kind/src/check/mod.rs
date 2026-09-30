@@ -23,6 +23,35 @@ pub fn check_module(module: &hir::Module) -> Vec<KindDiagnostic> {
     checker.errors
 }
 
+pub(super) fn kind_schemes_for_program(modules: &[hir::Module]) -> HashMap<TypeId, KindScheme> {
+    let Some(first) = modules.first() else {
+        return HashMap::new();
+    };
+    let combined = hir::Module {
+        id: first.id,
+        name: first.name.clone(),
+        externals: Vec::new(),
+        imports: Vec::new(),
+        exports: None,
+        declarations: modules
+            .iter()
+            .flat_map(|module| module.declarations.iter().cloned())
+            .collect(),
+        types: modules
+            .iter()
+            .flat_map(|module| module.types.iter().cloned())
+            .collect(),
+        instances: modules
+            .iter()
+            .flat_map(|module| module.instances.iter().cloned())
+            .collect(),
+        span: first.span,
+    };
+    let mut checker = Checker::new(&combined);
+    checker.run();
+    checker.checked_schemes()
+}
+
 struct Checker<'a> {
     module: &'a hir::Module,
     schemes: HashMap<TypeId, KindScheme>,
@@ -61,7 +90,9 @@ impl<'a> Checker<'a> {
             synonym_arity,
             substitutions: HashMap::new(),
             rigid: HashSet::new(),
-            next_var: 0,
+            // Variable 0 is reserved for the polymorphic kind parameter of
+            // the compiler-owned Coercible class scheme.
+            next_var: 1,
             errors: Vec::new(),
         }
     }

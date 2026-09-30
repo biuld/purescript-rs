@@ -1,184 +1,4 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
-type SourceFile = (&'static str, &'static str);
-type SourceSet<'a> = &'a [SourceFile];
-type CoercionDifferentialCase<'a> = (&'a str, SourceSet<'a>, SourceSet<'a>, bool);
-
-fn corpus_root() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("PURESCRIPT_REPO") {
-        let base = PathBuf::from(path).join("tests/purs");
-        if base.is_dir() {
-            return Some(base);
-        }
-        return None;
-    }
-    let vendored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/upstream");
-    vendored.is_dir().then_some(vendored)
-}
-
-fn purs_available() -> bool {
-    Command::new("purs")
-        .arg("--version")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-fn purs_accepts(source: &Path) -> bool {
-    let output_dir = std::env::temp_dir().join(format!("psrs-purs-out-{}", std::process::id()));
-    Command::new("purs")
-        .arg("compile")
-        .arg(source)
-        .arg("-o")
-        .arg(&output_dir)
-        .output()
-        .expect("failed to run purs")
-        .status
-        .success()
-}
-
-fn purs_accepts_sources(name: &str, sources: &[SourceFile]) -> bool {
-    let case_dir =
-        std::env::temp_dir().join(format!("psrs-purs-upstream-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&case_dir);
-    std::fs::create_dir_all(&case_dir).expect("create upstream fixture directory");
-    let paths = sources
-        .iter()
-        .map(|(name, source)| {
-            let path = case_dir.join(name);
-            std::fs::write(&path, source).expect("write upstream fixture");
-            if *name == "Safe.Coerce.purs" {
-                std::fs::write(
-                    case_dir.join("Safe.Coerce.js"),
-                    "export const unsafeCoerce = value => value;\n",
-                )
-                .expect("write minimal coercion FFI");
-            }
-            path
-        })
-        .collect::<Vec<_>>();
-    let output_dir = case_dir.join("output");
-    let accepted = Command::new("purs")
-        .arg("compile")
-        .args(&paths)
-        .arg("-o")
-        .arg(output_dir)
-        .output()
-        .expect("failed to run purs")
-        .status
-        .success();
-    let _ = std::fs::remove_dir_all(case_dir);
-    accepted
-}
-
-#[test]
-fn differential_against_purs_on_selected_cases() {
-    let Some(repo) = corpus_root() else {
-        eprintln!("skipping: vendored corpus not found and PURESCRIPT_REPO is unset");
-        return;
-    };
-    if !purs_available() {
-        eprintln!("skipping: purs is not installed");
-        return;
-    }
-
-    let mut failures = Vec::new();
-
-    let reject_cases = ["failing/InfiniteType.purs", "failing/IntOutOfRange.purs"];
-    for relative in reject_cases {
-        let path = repo.join(relative);
-        if !path.is_file() {
-            failures.push(format!("missing upstream case `{relative}`"));
-            continue;
-        }
-        if purs_accepts(&path) {
-            failures.push(format!("`{relative}`: purs accepted a failing test"));
-        }
-        let text = std::fs::read_to_string(&path).expect("read upstream test");
-        if psrs_driver::check_source(&path.to_string_lossy(), &text).is_ok() {
-            failures.push(format!("`{relative}`: psrs accepted but should reject"));
-        }
-    }
-
-    let accept_cases: [(&str, &str); 2] = [
-        (
-            "identity.purs",
-            "module Main where\nidentity :: forall a. a -> a\nidentity x = x\n",
-        ),
-        (
-            "const.purs",
-            "module Main where\nconst :: forall a b. a -> b -> a\nconst x y = x\n",
-        ),
-    ];
-    for (name, source) in accept_cases {
-        let path = std::env::temp_dir().join(format!("psrs-{}-{name}", std::process::id()));
-        std::fs::write(&path, source).expect("write fixture");
-        if !purs_accepts(&path) {
-            failures.push(format!("`{name}`: purs rejected an accept case"));
-        }
-        if let Err(errors) = psrs_driver::check_source(name, source) {
-            failures.push(format!("`{name}`: psrs rejected: {errors:?}"));
-        }
-        let _ = std::fs::remove_file(&path);
-    }
-
-    let chain_cases: [(&str, &str, bool); 6] = [
-        (
-            "instance-chain.purs",
-            "module Main where\nclass Mark a where\n  mark :: a -> Int\ninstance markBoolean :: Mark Boolean where\n  mark _ = 1\nelse instance markFallback :: Mark a where\n  mark _ = 2\nmain :: Int\nmain = mark true\n",
-            true,
-        ),
-        (
-            "instance-chain-unknown.purs",
-            "module Main where\nclass Same a b where\n  same :: a -> b -> Int\ninstance sameInt :: Same Int Int where\n  same _ _ = 1\nelse instance sameFallback :: Same a b where\n  same _ _ = 2\nuse :: forall a. a -> Int\nuse x = same x 0\nmain :: Int\nmain = use true\n",
-            false,
-        ),
-        (
-            "instance-chain-independent-fundep-argument.purs",
-            "module Main where\nclass Select a b c | a -> b where\n  choose :: a -> c -> Int\ninstance first :: Select Int Boolean Int where\n  choose _ _ = 0\nelse instance fallback :: Select a Int c where\n  choose _ _ = 42\nmain :: Int\nmain = choose 1 true\n",
-            true,
-        ),
-        (
-            "instance-chain-transitive-fundep.purs",
-            "module Main where\nclass Select a b c | a -> b, b -> c where\n  choose :: a -> Int\ninstance first :: Select Int Boolean Number where\n  choose _ = 42\nelse instance fallback :: Select Int String Char where\n  choose _ = 0\nmain :: Int\nmain = choose 1\n",
-            true,
-        ),
-        (
-            "instance-chain-repeated-head-occurs.purs",
-            "module Main where\nclass Same a b where\n  same :: a -> b -> Int\ninstance repeated :: Same a a where\n  same _ _ = 0\nelse instance fallback :: Same a b where\n  same _ _ = 42\nuse :: forall a. a -> Array a -> Int\nuse x xs = same x xs\nmain :: Int\nmain = use 1 [1]\n",
-            true,
-        ),
-        (
-            "instance-chain-recursive-application-head.purs",
-            "module Main where\nclass Arg i o | i -> o where\n  arg :: i -> Int\ninstance appArg :: Arg i o => Arg (f i) o where\n  arg _ = 42\nelse instance reflArg :: Arg a a where\n  arg _ = 0\nidentity :: Int -> Int\nidentity x = x\nmain :: Int\nmain = arg identity\n",
-            true,
-        ),
-    ];
-    for (name, source, expected_acceptance) in chain_cases {
-        let path = std::env::temp_dir().join(format!("psrs-{}-{name}", std::process::id()));
-        std::fs::write(&path, source).expect("write instance-chain fixture");
-        let purs_accepted = purs_accepts(&path);
-        let psrs_accepted = psrs_driver::check_source(name, source).is_ok();
-        if purs_accepted != expected_acceptance {
-            failures.push(format!(
-                "`{name}`: purs accepted={purs_accepted}, expected={expected_acceptance}"
-            ));
-        }
-        if psrs_accepted != expected_acceptance {
-            failures.push(format!(
-                "`{name}`: psrs accepted={psrs_accepted}, expected={expected_acceptance}"
-            ));
-        }
-        let _ = std::fs::remove_file(&path);
-    }
-
-    assert!(
-        failures.is_empty(),
-        "upstream differential failures:\n{}",
-        failures.join("\n")
-    );
-}
+use super::*;
 
 #[test]
 fn differential_role_and_coercible_rules_against_purs() {
@@ -296,7 +116,58 @@ main = coerceEndo (Endo (\value -> value)) 37
         main :: Int\n\
         main = 0\n";
 
-    let cases: [CoercionDifferentialCase<'_>; 12] = [
+    let canonical_role_rewrite = "module Main where\n\
+        import Prim.Coerce (class Coercible)\n\
+        import Safe.Coerce (coerce)\n\
+        data D a b = D a\n\
+        rewrite :: forall a b d e. Coercible a (D b e) => Coercible b d => a -> D d e\n\
+        rewrite = coerce\n";
+    let canonical_higher_kinded_rewrite = "module Main where\n\
+        import Prim.Coerce (class Coercible)\n\
+        import Safe.Coerce (coerce)\n\
+        rewrite :: forall f g a b. Coercible a (f b) => Coercible f g => a -> g b\n\
+        rewrite = coerce\n";
+    let canonical_open_row = "module Main where\n\
+        import Prim.Coerce (class Coercible)\n\
+        import Safe.Coerce (coerce)\n\
+        newtype Age = Age Int\n\
+        convert :: forall r s. Coercible r s => { left :: Age, value :: Age | r } -> { value :: Int, left :: Int | s }\n\
+        convert = coerce\n";
+    let incompatible_open_row = "module Main where\n\
+        import Safe.Coerce (coerce)\n\
+        bad :: forall r s. { left :: Int | r } -> { right :: Int | s }\n\
+        bad = coerce\n";
+    let noncanonical_recursive_given = "module Main where\n\
+        import Prim.Coerce (class Coercible)\n\
+        import Safe.Coerce (coerce)\n\
+        data D a = D a\n\
+        bad :: forall a b. Coercible b (D b) => a -> b\n\
+        bad = coerce\n";
+    let noncanonical_transitive_given = "module Main where\n\
+        import Prim.Coerce (class Coercible)\n\
+        import Safe.Coerce (coerce)\n\
+        data D a = D a\n\
+        bad :: forall a b. Coercible a b => Coercible b (D b) => a -> D b\n\
+        bad = coerce\n";
+
+    let kind_mismatch = r#"module Main where
+import Safe.Coerce (coerce)
+data Unary a
+data Binary a b
+data Proxy :: forall k. k -> Type
+data Proxy a = Proxy
+type role Proxy representational
+bad :: Proxy Unary -> Proxy Binary
+bad = coerce
+"#;
+    let same_variable_interaction = r#"module Main where
+import Prim.Coerce (class Coercible)
+import Safe.Coerce (coerce)
+data D a = D a
+rewrite :: forall a b. Coercible a (D b) => Coercible a (D Int) => D b -> D Int
+rewrite = coerce
+"#;
+    let cases: [CoercionDifferentialCase<'_>; 20] = [
         (
             "role-local-nominal",
             &[
@@ -406,6 +277,78 @@ main = coerceEndo (Endo (\value -> value)) 37
                 ("Main.purs", parameterized_array),
             ],
             &[("Main.purs", parameterized_array)],
+            true,
+        ),
+        (
+            "coercible-canonical-role-rewrite",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", canonical_role_rewrite),
+            ],
+            &[("Main.purs", canonical_role_rewrite)],
+            true,
+        ),
+        (
+            "coercible-canonical-higher-kinded-rewrite",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", canonical_higher_kinded_rewrite),
+            ],
+            &[("Main.purs", canonical_higher_kinded_rewrite)],
+            true,
+        ),
+        (
+            "coercible-canonical-open-row-alignment",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", canonical_open_row),
+            ],
+            &[("Main.purs", canonical_open_row)],
+            true,
+        ),
+        (
+            "coercible-incompatible-open-row-labels",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", incompatible_open_row),
+            ],
+            &[("Main.purs", incompatible_open_row)],
+            false,
+        ),
+        (
+            "coercible-noncanonical-recursive-given",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", noncanonical_recursive_given),
+            ],
+            &[("Main.purs", noncanonical_recursive_given)],
+            false,
+        ),
+        (
+            "coercible-explicit-noncanonical-givens-compose",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", noncanonical_transitive_given),
+            ],
+            &[("Main.purs", noncanonical_transitive_given)],
+            true,
+        ),
+        (
+            "coercible-kind-mismatch",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", kind_mismatch),
+            ],
+            &[("Main.purs", kind_mismatch)],
+            false,
+        ),
+        (
+            "coercible-same-variable-given-interaction",
+            &[
+                ("Safe.Coerce.purs", coercion_module),
+                ("Main.purs", same_variable_interaction),
+            ],
+            &[("Main.purs", same_variable_interaction)],
             true,
         ),
     ];

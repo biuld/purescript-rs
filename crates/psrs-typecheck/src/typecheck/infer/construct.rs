@@ -6,10 +6,14 @@ impl Checker {
         imported: &HashMap<SymbolId, hir::Type>,
         effect_type: Option<hir::TypeId>,
         effect_runtime_representation: bool,
-        known_types: &[hir::TypeDeclaration],
-        imported_instances: &[hir::InstanceDeclaration],
-        checked_kinds: &psrs_kind::CheckedKindEnv,
+        context: TypecheckContext<'_>,
     ) -> Self {
+        let TypecheckContext {
+            known_types,
+            imported_instances,
+            module_names,
+            checked_kinds,
+        } = context;
         let type_declarations = module
             .types
             .iter()
@@ -32,6 +36,26 @@ impl Checker {
                 (visible_locally || visible_through_import).then_some(declaration.id)
             })
             .collect();
+        let mut type_modules = module
+            .types
+            .iter()
+            .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::Class)
+            .map(|declaration| (declaration.id, module.name.clone()))
+            .collect::<HashMap<_, _>>();
+        for declaration in known_types {
+            if declaration.kind == hir::TypeDeclarationKind::Class
+                && let Some(name) = module_names.get(&declaration.id.module)
+            {
+                type_modules.insert(declaration.id, name.clone());
+            }
+        }
+        for import in &module.imports {
+            for ty in &import.types {
+                type_modules
+                    .entry(ty.id)
+                    .or_insert_with(|| import.module_name.clone());
+            }
+        }
         let mut checker = Self {
             module_id: module.id,
             globals: HashMap::new(),
@@ -57,6 +81,7 @@ impl Checker {
                 .iter()
                 .map(|declaration| (declaration.id, declaration.name.clone()))
                 .collect(),
+            type_modules,
             type_declarations,
             visible_newtypes,
             synonyms: module
@@ -84,6 +109,8 @@ impl Checker {
             effect_type,
             effect_runtime_representation,
             checked_kinds: checked_kinds.clone(),
+            infer_variable_kinds: HashMap::new(),
+            next_kind_variable: 0,
             constructor_info: module
                 .types
                 .iter()
@@ -125,6 +152,7 @@ impl Checker {
             instances: Vec::new(),
             pending_signatures: HashMap::new(),
             givens: Vec::new(),
+            given_rigid: Vec::new(),
             wanted: Vec::new(),
             next_dictionary_local: 0,
             reported_fundep_conflicts: HashSet::new(),

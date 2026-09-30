@@ -75,6 +75,37 @@ pub fn typecheck_module_with_checked_kinds(
     imported_instances: &[hir::InstanceDeclaration],
     checked_kinds: &psrs_kind::CheckedKindEnv,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    let mut module_names = HashMap::from([(module.id, module.name.clone())]);
+    for import in &module.imports {
+        module_names
+            .entry(import.module)
+            .or_insert_with(|| import.module_name.clone());
+    }
+    typecheck_module_with_checked_kinds_and_module_names(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        TypecheckContext {
+            known_types,
+            imported_instances,
+            module_names: &module_names,
+            checked_kinds,
+        },
+    )
+}
+
+/// Type checks a module with the resolved name of every module in its program.
+/// Re-exported type identities use their declaring module name, so compiler
+/// rules that depend on canonical declaration identity remain stable through
+/// umbrella modules.
+pub fn typecheck_module_with_checked_kinds_and_module_names(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    context: TypecheckContext<'_>,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -93,9 +124,7 @@ pub fn typecheck_module_with_checked_kinds(
         imported,
         effect_type,
         effect_runtime_representation,
-        known_types,
-        imported_instances,
-        checked_kinds,
+        context,
     );
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())

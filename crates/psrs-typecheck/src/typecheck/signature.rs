@@ -52,8 +52,13 @@ impl Checker {
         rigid: bool,
     ) -> (Vec<ClassConstraint>, InferType) {
         match &ty.kind {
-            hir::TypeKind::Forall { body, .. } => {
-                self.elaborate_constraint_spine(body, variables, rigid)
+            hir::TypeKind::Forall {
+                variables: binders,
+                body,
+            } => {
+                let mut scoped_variables = variables.clone();
+                self.bind_forall_variables(binders, &mut scoped_variables, rigid);
+                self.elaborate_constraint_spine(body, &mut scoped_variables, rigid)
             }
             hir::TypeKind::Constrained { constraint, body } => {
                 let class = self.elaborate_constraint(constraint, variables, rigid);
@@ -103,10 +108,10 @@ impl Checker {
                 hir::BuiltinType::Char => InferType::Constructor(TypeConstructor::Char),
                 hir::BuiltinType::Unit => InferType::Constructor(TypeConstructor::Unit),
                 hir::BuiltinType::Array => InferType::Constructor(TypeConstructor::Array),
+                hir::BuiltinType::Function => InferType::Constructor(TypeConstructor::Function),
                 hir::BuiltinType::Type
                 | hir::BuiltinType::Constraint
                 | hir::BuiltinType::Symbol
-                | hir::BuiltinType::Function
                 | hir::BuiltinType::Row
                 | hir::BuiltinType::Record => {
                     self.errors.push(TypeCheckError::new(
@@ -171,8 +176,13 @@ impl Checker {
                 self.elaborate_type_mode(parameter, variables, rigid_variables),
                 self.elaborate_type_mode(result, variables, rigid_variables),
             ),
-            hir::TypeKind::Forall { body, .. } => {
-                self.elaborate_type_mode(body, variables, rigid_variables)
+            hir::TypeKind::Forall {
+                variables: binders,
+                body,
+            } => {
+                let mut scoped_variables = variables.clone();
+                self.bind_forall_variables(binders, &mut scoped_variables, rigid_variables);
+                self.elaborate_type_mode(body, &mut scoped_variables, rigid_variables)
             }
             hir::TypeKind::Constrained { .. } => {
                 // A top-level constraint is consumed by
@@ -229,6 +239,35 @@ impl Checker {
                 ));
                 self.fresh()
             }
+        }
+    }
+
+    fn bind_forall_variables(
+        &mut self,
+        binders: &[hir::TypeParameter],
+        variables: &mut HashMap<String, InferType>,
+        rigid: bool,
+    ) {
+        let mut kind_scope = HashMap::new();
+        for binder in binders {
+            let variable = self.fresh();
+            let kind = binder
+                .kind
+                .as_ref()
+                .map(|kind| self.kind_from_hir(kind, &kind_scope))
+                .unwrap_or_else(|| self.fresh_kind());
+            if let InferType::Variable(id) = variable {
+                self.infer_variable_kinds.insert(id, kind.clone());
+                if rigid {
+                    self.rigid.insert(id);
+                }
+            }
+            // An unannotated forall binder can itself be a kind variable; a
+            // later binder annotation may refer to it.
+            if binder.kind.is_none() {
+                kind_scope.insert(binder.name.clone(), kind);
+            }
+            variables.insert(binder.name.clone(), variable);
         }
     }
 

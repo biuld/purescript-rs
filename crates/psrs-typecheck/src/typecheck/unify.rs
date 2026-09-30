@@ -5,6 +5,10 @@ impl Checker {
         let id = self.next_variable;
         self.next_variable += 1;
         self.levels.insert(id, self.level);
+        let kind = self.next_kind_variable;
+        self.next_kind_variable += 1;
+        self.infer_variable_kinds
+            .insert(id, psrs_kind::Kind::Variable(kind));
         InferType::Variable(id)
     }
 

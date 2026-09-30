@@ -1,5 +1,8 @@
 use super::super::*;
 
+mod givens;
+mod kinds;
+
 impl Checker {
     pub(super) fn proves_coercible(&mut self, source: &InferType, target: &InferType) -> bool {
         self.proves_coercible_inner(source, target, 0, &mut HashSet::new())
@@ -17,6 +20,9 @@ impl Checker {
         }
         let source = self.resolve_type(source.clone());
         let target = self.resolve_type(target.clone());
+        if !self.coercion_kinds_compatible(&source, &target) {
+            return false;
+        }
         if self.infer_types_equal(&source, &target) || self.given_coercible(&source, &target) {
             return true;
         }
@@ -113,38 +119,6 @@ impl Checker {
         true
     }
 
-    fn given_coercible(&self, source: &InferType, target: &InferType) -> bool {
-        let target = self.resolve_type(target.clone());
-        let mut pending = vec![self.resolve_type(source.clone())];
-        let mut visited = Vec::new();
-        while let Some(current) = pending.pop() {
-            if self.infer_types_equal(&current, &target) {
-                return true;
-            }
-            if visited
-                .iter()
-                .any(|visited| self.infer_types_equal(visited, &current))
-            {
-                continue;
-            }
-            visited.push(current.clone());
-            for (given, _) in &self.givens {
-                if given.class_id != hir::TypeId::COERCIBLE || given.arguments.len() != 2 {
-                    continue;
-                }
-                let left = self.resolve_type(given.arguments[0].clone());
-                let right = self.resolve_type(given.arguments[1].clone());
-                if self.infer_types_equal(&current, &left) {
-                    pending.push(right.clone());
-                }
-                if self.infer_types_equal(&current, &right) {
-                    pending.push(left);
-                }
-            }
-        }
-        false
-    }
-
     fn roles_for_constructor(&self, constructor: TypeConstructor, arity: usize) -> Vec<hir::Role> {
         match constructor {
             TypeConstructor::Array | TypeConstructor::Record => {
@@ -195,7 +169,7 @@ impl Checker {
     }
 }
 
-fn flatten_infer_spine(ty: &InferType) -> (&InferType, Vec<InferType>) {
+pub(super) fn flatten_infer_spine(ty: &InferType) -> (&InferType, Vec<InferType>) {
     let mut head = ty;
     let mut arguments = Vec::new();
     while let InferType::Application(function, argument) = head {

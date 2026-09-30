@@ -1,4 +1,5 @@
 use super::super::*;
+use super::evidence::record_field_type;
 
 impl Checker {
     /// Types an instance's method bodies against the class method signatures
@@ -38,6 +39,22 @@ impl Checker {
                 return None;
             }
         }
+        let derived_newtype_underlying = match instance.derivation {
+            Some(hir::DerivationStrategy::KnownClass) => {
+                self.validate_known_deriving_class(instance.class_id, &class, instance.span)?;
+                None
+            }
+            Some(hir::DerivationStrategy::Newtype) => {
+                if class.parameters.len() != head_arguments.len() {
+                    return self.deriving_error(
+                        instance.span,
+                        "derive newtype class head has the wrong arity",
+                    );
+                }
+                Some(self.validate_newtype_deriving_instance(&head_arguments, instance.span)?)
+            }
+            None => None,
+        };
         let constraint = ClassConstraint {
             class_id: instance.class_id,
             arguments: head_arguments.clone(),
@@ -46,6 +63,18 @@ impl Checker {
         let dictionary_type = self.dictionary_type(&constraint);
         let wanted_start = self.wanted.len();
         self.begin_givens(&context, &context_parameters);
+
+        if let Some(underlying) = derived_newtype_underlying {
+            let mut underlying_arguments = head_arguments.clone();
+            *underlying_arguments.last_mut()? = underlying;
+            let underlying_constraint = ClassConstraint {
+                class_id: instance.class_id,
+                arguments: underlying_arguments,
+                span: instance.span,
+            };
+            let underlying_dictionary_type = self.dictionary_type(&underlying_constraint);
+            self.push_wanted(underlying_constraint, underlying_dictionary_type);
+        }
 
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
         for superclass in &class.superclasses {
@@ -78,26 +107,83 @@ impl Checker {
             variables.insert(parameter.clone(), argument.clone());
         }
         for method in &class.methods {
-            let Some(member) = instance
+            let value = match instance
                 .members
                 .iter()
                 .find(|member| member.name == method.name)
+            {
+                Some(member) => {
+                    let outer_level = self.level;
+                    self.level = outer_level + 1;
+                    let value = self.infer_expr(&member.value);
+                    self.level = outer_level;
+                    let Some(value) = value else {
+                        self.end_givens();
+                        return None;
+                    };
+                    Some(value)
+                }
+                None => match instance.derivation {
+                    Some(hir::DerivationStrategy::Newtype) => {
+                        let outer_level = self.level;
+                        self.level = outer_level + 1;
+                        let value = self.derive_newtype_method(
+                            instance.class_id,
+                            &class,
+                            method,
+                            &head_arguments,
+                            instance.span,
+                        );
+                        self.level = outer_level;
+                        value
+                    }
+                    Some(hir::DerivationStrategy::KnownClass) => {
+                        let outer_level = self.level;
+                        self.level = outer_level + 1;
+                        let value = self.derive_known_class_method(
+                            instance.class_id,
+                            &class,
+                            method,
+                            &head_arguments,
+                            instance.span,
+                        );
+                        self.level = outer_level;
+                        value
+                    }
+                    None => {
+                        self.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::MissingInstanceMethod,
+                            instance.span,
+                            format!("instance is missing method `{}`", method.name),
+                        ));
+                        None
+                    }
+                },
+            };
+            let Some(value) = value else {
+                self.end_givens();
+                return None;
+            };
+            if !self.check_instance_method_type(
+                &method.signature,
+                &variables,
+                &value.ty,
+                instance.span,
+            ) {
+                self.end_givens();
+                return None;
+            }
+            let Some(dictionary_method_type) = record_field_type(&dictionary_type, &method.name)
             else {
                 self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::MissingInstanceMethod,
+                    TypeCheckErrorKind::InvalidHir,
                     instance.span,
-                    format!("instance is missing method `{}`", method.name),
+                    format!("dictionary has no field for method `{}`", method.name),
                 ));
                 self.end_givens();
                 return None;
             };
-            let expected = self.elaborate_type(&method.signature, &mut variables);
-            let Some(value) = self.infer_expr_with_expected(&member.value, Some(expected.clone()))
-            else {
-                self.end_givens();
-                return None;
-            };
-            self.unify(expected, value.ty.clone(), member.span);
+            self.unify(dictionary_method_type, value.ty.clone(), instance.span);
             fields.push((method.name.clone(), value));
         }
         self.solve_wanted_constraints(Some(&dictionary_type), wanted_start);
@@ -122,5 +208,26 @@ impl Checker {
             value,
             span: instance.span,
         })
+    }
+
+    fn check_instance_method_type(
+        &mut self,
+        signature: &hir::Type,
+        class_variables: &HashMap<String, InferType>,
+        actual: &InferType,
+        span: TextRange,
+    ) -> bool {
+        let substitutions = self.substitutions.clone();
+        let levels = self.levels.clone();
+        let rigid = self.rigid.clone();
+        let error_count = self.errors.len();
+        let mut method_variables = class_variables.clone();
+        let expected = self.elaborate_type(signature, &mut method_variables);
+        self.unify(expected, actual.clone(), span);
+        let valid = self.errors.len() == error_count;
+        self.substitutions = substitutions;
+        self.levels = levels;
+        self.rigid = rigid;
+        valid
     }
 }

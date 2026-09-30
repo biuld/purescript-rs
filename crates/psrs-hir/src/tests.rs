@@ -18,6 +18,69 @@ fn class_type(module: ModuleId, index: u32) -> TypeDeclaration {
     }
 }
 
+#[test]
+fn type_substitution_renames_forall_binders_to_preserve_free_replacements() {
+    let span = TextRange::default();
+    let source = Type {
+        kind: TypeKind::Forall {
+            variables: vec![TypeParameter {
+                name: "b".into(),
+                name_span: span,
+                kind: None,
+            }],
+            body: Box::new(Type {
+                kind: TypeKind::Function {
+                    parameter: Box::new(Type {
+                        kind: TypeKind::Variable("b".into()),
+                        span,
+                    }),
+                    result: Box::new(Type {
+                        kind: TypeKind::Variable("a".into()),
+                        span,
+                    }),
+                },
+                span,
+            }),
+        },
+        span,
+    };
+    let replacement = Type {
+        kind: TypeKind::Variable("b".into()),
+        span,
+    };
+    let substitution_name = "__psrs_type_subst_b_0";
+    let substitutions = HashMap::from([
+        ("a".into(), replacement),
+        (
+            substitution_name.into(),
+            Type {
+                kind: TypeKind::Constructor(BuiltinType::Int),
+                span,
+            },
+        ),
+    ]);
+    let mut next_fresh = 0;
+    let substituted = substitute_type_variables(&source, &substitutions, &mut next_fresh);
+
+    let TypeKind::Forall { variables, body } = substituted.kind else {
+        panic!("substitution must preserve the forall");
+    };
+    let renamed_binder = &variables[0].name;
+    assert_ne!(
+        renamed_binder, "b",
+        "the replacement's free variable was captured"
+    );
+    assert_ne!(
+        renamed_binder, substitution_name,
+        "the fresh name collided with a substitution key"
+    );
+    let TypeKind::Function { parameter, result } = body.kind else {
+        panic!("substitution must preserve the function body");
+    };
+    assert_eq!(parameter.kind, TypeKind::Variable(renamed_binder.clone()));
+    assert_eq!(result.kind, TypeKind::Variable("b".into()));
+}
+
 fn chain_instance(
     module: ModuleId,
     symbol_index: u32,
@@ -38,6 +101,7 @@ fn chain_instance(
             span: TextRange::default(),
         },
         members: Vec::new(),
+        derivation: None,
         span: TextRange::default(),
     }
 }

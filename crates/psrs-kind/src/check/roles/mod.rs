@@ -131,7 +131,8 @@ pub fn check_roles(
             }
         }
     }
-    (CheckedKindEnv { roles }, diagnostics)
+    let kinds = super::kind_schemes_for_program(modules);
+    (CheckedKindEnv { roles, kinds }, diagnostics)
 }
 
 fn role_bearing(kind: TypeDeclarationKind) -> bool {

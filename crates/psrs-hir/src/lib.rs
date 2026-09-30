@@ -4,6 +4,7 @@ use verify::verify_expr;
 
 mod expr;
 mod module;
+mod substitution;
 mod ty;
 mod types;
 
@@ -11,10 +12,11 @@ pub use expr::{
     CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
+pub use substitution::substitute_type_variables;
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{
-    ClassMember, Constructor, FunctionalDependency, InstanceDeclaration, InstanceMember, Role,
-    RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
+    ClassMember, Constructor, DerivationStrategy, FunctionalDependency, InstanceDeclaration,
+    InstanceMember, Role, RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
 };
 pub use verify::VerifyError;
 

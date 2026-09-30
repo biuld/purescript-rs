@@ -100,6 +100,105 @@ fn composes_given_coercible_constraints_transitively() {
 }
 
 #[test]
+fn rewrites_canonical_given_constraints_through_representational_roles() {
+    let source = "module Main where\n\
+        import Safe.Coerce (class Coercible, coerce)\n\
+        data D a b = D a\n\
+        rewrite :: forall a b d e. Coercible a (D b e) => Coercible b d => a -> D d e\n\
+        rewrite = coerce\n\
+        main :: Int\n\
+        main = 42\n";
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("canonical givens should rewrite representational arguments: {errors:?}")
+    });
+}
+
+#[test]
+fn rewrites_a_canonical_given_in_a_higher_kinded_application_head() {
+    let source = "module Main where\n\
+        import Safe.Coerce (class Coercible, coerce)\n\
+        rewrite :: forall f g a b. Coercible a (f b) => Coercible f g => a -> g b\n\
+        rewrite = coerce\n\
+        main :: Int\n\
+        main = 42\n";
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("higher-kinded canonical givens should rewrite the application head: {errors:?}")
+    });
+}
+
+#[test]
+fn aligns_canonical_open_record_rows_before_proving_field_coercions() {
+    let source = "module Main where\n\
+        import Safe.Coerce (class Coercible, coerce)\n\
+        newtype Age = Age Int\n\
+        convert :: forall r s. Coercible r s => { left :: Age, value :: Age | r } -> { value :: Int, left :: Int | s }\n\
+        convert = coerce\n\
+        main :: Int\n\
+        main = 42\n";
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("canonical open-row tails and fields should be aligned: {errors:?}")
+    });
+}
+
+#[test]
+fn rejects_open_record_rows_with_different_known_labels() {
+    let source = "module Main where\n\
+        import Safe.Coerce (coerce)\n\
+        bad :: forall r s. { x :: Int | r } -> { y :: Int | s }\n\
+        bad = coerce\n\
+        main :: Int\n\
+        main = 0\n";
+    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+}
+
+#[test]
+fn does_not_rewrite_a_noncanonical_recursive_given() {
+    let source = "module Main where\n\
+        import Safe.Coerce (class Coercible, coerce)\n\
+        data D a = D a\n\
+        bad :: forall a b. Coercible b (D b) => a -> b\n\
+        bad = coerce\n\
+        main :: Int\n\
+        main = 42\n";
+    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+}
+
+#[test]
+fn composes_explicit_noncanonical_given_proofs_transitively() {
+    let source = r#"module Main where
+import Prim.Coerce (class Coercible)
+import Safe.Coerce (coerce)
+data D a = D a
+bad :: forall a b. Coercible a b => Coercible b (D b) => a -> D b
+bad = coerce
+main :: Int
+main = 0
+"#;
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("explicit given coercion proofs should compose: {errors:?}")
+    });
+}
+
+#[test]
+fn interacts_canonical_givens_with_a_shared_left_variable() {
+    let source = r#"module Main where
+import Prim.Coerce (class Coercible)
+import Safe.Coerce (coerce)
+
+data D a = D a
+
+rewrite :: forall a b. Coercible a (D b) => Coercible a (D Int) => D b -> D Int
+rewrite = coerce
+
+main :: Int
+main = 42
+"#;
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("same-variable canonical givens should interact: {errors:?}")
+    });
+}
+
+#[test]
 fn expands_an_imported_synonym_inside_a_data_field_before_role_inference() {
     let library = "module Lib (Alias, Box(..)) where\n\
         type Alias a = a\n\
@@ -228,4 +327,24 @@ fn foreign_data_roles_default_to_nominal_and_accept_explicit_signatures() {
         main = 0\n";
     crate::check_program(&[("Main.purs", annotated)])
         .unwrap_or_else(|errors| panic!("explicit foreign roles are trusted: {errors:?}"));
+}
+
+#[test]
+fn rejects_coercion_between_type_constructors_with_different_kinds() {
+    let source = r#"module Main where
+
+import Safe.Coerce (coerce)
+
+data Unary a
+data Binary a b
+
+data Proxy :: forall k. k -> Type
+data Proxy a = Proxy
+
+type role Proxy representational
+
+bad :: Proxy Unary -> Proxy Binary
+bad = coerce
+"#;
+    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
 }

@@ -35,6 +35,51 @@ main :: Int
 main = toInt 41
 "#;
 
+const POLYMORPHIC_METHOD_SOURCE: &str = r#"
+module Main where
+
+class Keep a where
+  keep :: forall b. a -> b -> a
+
+instance keepInt :: Keep Int where
+  keep value _ = value
+
+main :: Int
+main = keep (keep 42 "ignored") true
+"#;
+
+#[test]
+fn polymorphic_class_methods_instantiate_independently_at_each_use() {
+    let Some(output) = run_with_wasmtime(POLYMORPHIC_METHOD_SOURCE) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn rejects_an_instance_that_specializes_a_polymorphic_class_method() {
+    let source = r#"module Main where
+
+class Keep a where
+  keep :: forall b. a -> b -> a
+
+instance keepInt :: Keep Int where
+  keep value flag = if flag then value else value
+
+main :: Int
+main = keep 42 true
+"#;
+    let errors = compile_source("Main.purs", source)
+        .expect_err("an instance must implement every method forall polymorphically");
+    assert!(
+        errors.iter().any(|error| {
+            error.message.contains("signature mismatch") || error.message.contains("type mismatch")
+        }),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
 #[test]
 fn constrained_function_selects_an_instance_dictionary_when_wasmtime_is_available() {
     let Some(output) = run_with_wasmtime(CONSTRAINED_FUNCTION_SOURCE) else {
@@ -349,13 +394,17 @@ fn a_class_method_body_is_rejected_as_invalid_purescript() {
 fn a_deriving_declaration_is_reported_as_unsupported() {
     let errors = compile_source("Main.purs", DERIVE_SOURCE).expect_err("deriving must be rejected");
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("not supported yet")),
+        errors.iter().any(|error| {
+            error
+                .message
+                .contains("known-class deriving rule is unavailable")
+        }),
         "unexpected diagnostics: {errors:?}"
     );
 }
 
+mod deriving;
 mod fundeps;
 mod imports;
 mod instance_chains;
+mod polymorphic_methods;

@@ -78,7 +78,13 @@ impl Checker {
             fields.push((superclass.field.clone(), field_ty));
         }
         for method in &class.methods {
-            let field_ty = self.elaborate_type(&method.signature, &mut variables);
+            let mut method_variables = variables.clone();
+            let outer_level = self.level;
+            self.level = outer_level + 1;
+            let field_ty =
+                self.elaborate_type_mode(&method.signature, &mut method_variables, false);
+            self.level = outer_level;
+            let field_ty = self.generalize(&field_ty, &[], outer_level).ty;
             fields.push((method.name.clone(), field_ty));
         }
         record_type(fields, InferType::RowEmpty)
@@ -100,13 +106,16 @@ impl Checker {
             variables.insert(parameter.clone(), variable.clone());
             arguments.push(variable);
         }
-        let ty = self.elaborate_type(&method.signature, &mut variables);
+        let ty = self.elaborate_type_mode(&method.signature, &mut variables, false);
         let constraint = ClassConstraint {
             class_id,
             arguments,
             span,
         };
         let dictionary_type = self.dictionary_type(&constraint);
+        if let Some(dictionary_method_type) = record_field_type(&dictionary_type, &method.name) {
+            self.unify(ty.clone(), dictionary_method_type, span);
+        }
         let wanted = self.push_wanted(constraint, dictionary_type);
         Some((
             InferredExprKind::Method {
@@ -214,7 +223,17 @@ impl Checker {
         parameters: &[(LocalId, InferType)],
     ) {
         self.givens.clear();
+        self.given_rigid.clear();
         for (constraint, (id, _)) in constraints.iter().zip(parameters) {
+            for argument in &constraint.arguments {
+                let mut variables = HashSet::new();
+                super::fundeps::collect_infer_variables(argument, &mut variables);
+                for variable in variables {
+                    if self.rigid.insert(variable) {
+                        self.given_rigid.push(variable);
+                    }
+                }
+            }
             self.givens
                 .push((constraint.clone(), WantedSolution::Given(*id)));
         }
@@ -222,18 +241,9 @@ impl Checker {
 
     pub(in crate::typecheck) fn end_givens(&mut self) {
         self.givens.clear();
-    }
-
-    pub(in crate::typecheck) fn constraints_match(
-        &self,
-        expected: &[InferType],
-        actual: &[InferType],
-    ) -> bool {
-        expected.len() == actual.len()
-            && expected
-                .iter()
-                .zip(actual)
-                .all(|(left, right)| self.infer_types_equal(left, right))
+        for variable in self.given_rigid.drain(..) {
+            self.rigid.remove(&variable);
+        }
     }
 
     /// Structural equality of two resolved inference types. Distinct unsolved
@@ -393,5 +403,17 @@ impl Checker {
                 target_type: self.finalize_type(&target, span, interner, generics)?,
             },
         })
+    }
+}
+
+pub(super) fn record_field_type(record: &InferType, wanted: &str) -> Option<InferType> {
+    let mut row = super::super::record_row(record)?;
+    loop {
+        match row {
+            InferType::RowExtend { label, ty, .. } if label == wanted => return Some(*ty),
+            InferType::RowExtend { tail, .. } => row = *tail,
+            InferType::RowEmpty => return None,
+            _ => return None,
+        }
     }
 }

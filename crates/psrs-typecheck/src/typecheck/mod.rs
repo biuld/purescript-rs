@@ -1,7 +1,7 @@
 use psrs_hir::{
     self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, SymbolId, TypeVariableId,
 };
-use psrs_kind::CheckedKindEnv;
+use psrs_kind::{CheckedKindEnv, Kind};
 use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};
 use std::collections::{HashMap, HashSet};
@@ -9,10 +9,20 @@ use std::collections::{HashMap, HashSet};
 mod error;
 pub use error::{TypeCheckError, TypeCheckErrorKind};
 
+/// Program-wide semantic inputs needed when checking a module.
+#[derive(Clone, Copy)]
+pub struct TypecheckContext<'a> {
+    pub known_types: &'a [hir::TypeDeclaration],
+    pub imported_instances: &'a [hir::InstanceDeclaration],
+    pub module_names: &'a HashMap<hir::ModuleId, String>,
+    pub checked_kinds: &'a CheckedKindEnv,
+}
+
 mod entry;
 
 pub use entry::{
-    typecheck_module, typecheck_module_with_checked_kinds, typecheck_module_with_imports,
+    typecheck_module, typecheck_module_with_checked_kinds,
+    typecheck_module_with_checked_kinds_and_module_names, typecheck_module_with_imports,
     typecheck_module_with_imports_and_effect_context,
     typecheck_module_with_imports_and_effect_representation,
 };
@@ -164,6 +174,7 @@ struct ClassConstraint {
 /// A class method declaration recorded in the class environment.
 #[derive(Clone, Debug)]
 struct MethodInfo {
+    symbol: SymbolId,
     name: String,
     signature: hir::Type,
 }
@@ -398,12 +409,17 @@ struct Checker {
     imported: HashMap<SymbolId, hir::Type>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
+    type_modules: HashMap<hir::TypeId, String>,
     type_declarations: HashMap<hir::TypeId, hir::TypeDeclaration>,
     visible_newtypes: HashSet<hir::TypeId>,
     synonyms: HashMap<hir::TypeId, Synonym>,
     effect_type: Option<hir::TypeId>,
     effect_runtime_representation: bool,
     checked_kinds: CheckedKindEnv,
+    /// Kind assigned to each inference type variable. These variables are
+    /// shared with the role-aware Coercible solver.
+    infer_variable_kinds: HashMap<u32, Kind>,
+    next_kind_variable: u32,
     constructor_info: HashMap<SymbolId, ConstructorInfo>,
     expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,
@@ -420,6 +436,9 @@ struct Checker {
     /// The constraints a constrained declaration may discharge from its
     /// dictionary parameters while checking its body.
     givens: Vec<(ClassConstraint, WantedSolution)>,
+    /// Variables made rigid while checking a local given context. Signature
+    /// variables are already rigid; instance-head variables enter here.
+    given_rigid: Vec<u32>,
     wanted: Vec<WantedConstraint>,
     next_dictionary_local: u32,
     /// Functional-dependency conflicts already reported, keyed by span and
