@@ -384,3 +384,4 @@ fn a_deriving_declaration_is_reported_as_unsupported() {
 }
 
 mod fundeps;
+mod imports;

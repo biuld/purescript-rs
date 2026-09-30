@@ -130,7 +130,7 @@ fn walk_evidence(evidence: &psrs_thir::Evidence, seen: &mut Seen) {
 }
 
 #[test]
-fn cross_module_instance_selection_is_rejected() {
+fn selects_an_instance_declared_in_an_imported_module() {
     let library = "module A where\n\
         class ToInt a where\n\
         \x20 toInt :: a -> Int\n\
@@ -142,14 +142,40 @@ fn cross_module_instance_selection_is_rejected() {
         import A\n\
         main :: Int\n\
         main = convert 42\n";
-    let errors = crate::typecheck_program_sources(&[("A.purs", library), ("Main.purs", main)])
-        .expect_err("cross-module instance selection must be rejected");
+    let modules = crate::typecheck_program_sources(&[("A.purs", library), ("Main.purs", main)])
+        .unwrap_or_else(|errors| {
+            panic!("cross-module instance selection should type check: {errors:?}")
+        });
+    let seen = collect(&modules[1]);
     assert!(
-        errors.iter().any(|error| error
-            .diagnostic
-            .message
-            .contains("no instance for constraint ToInt Int")),
-        "unexpected diagnostics: {errors:?}"
+        seen.global,
+        "the imported instance dictionary must be selected as global evidence"
+    );
+}
+
+#[test]
+fn selects_an_imported_instance_with_a_context() {
+    let library = "module A where\n\
+        class Eq a where\n\
+        \x20 eq :: a -> a -> Boolean\n\
+        class ToInt a where\n\
+        \x20 toInt :: a -> Int\n\
+        instance eqInt :: Eq Int where\n\
+        \x20 eq x y = true\n\
+        instance toIntFromEq :: Eq a => ToInt a where\n\
+        \x20 toInt x = 1\n";
+    let main = "module Main where\n\
+        import A\n\
+        main :: Int\n\
+        main = toInt 42\n";
+    let modules = crate::typecheck_program_sources(&[("A.purs", library), ("Main.purs", main)])
+        .unwrap_or_else(|errors| {
+            panic!("an imported instance with a context should type check: {errors:?}")
+        });
+    let seen = collect(&modules[1]);
+    assert!(
+        seen.instance && seen.global,
+        "the imported context instance and its remote context dictionary must be selected"
     );
 }
 

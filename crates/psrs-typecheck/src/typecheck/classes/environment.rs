@@ -242,48 +242,83 @@ impl Checker {
     /// constraints, and the dictionary parameters synthesized for that
     /// context. The dictionary value and its context-solving are elaborated
     /// as a declaration.
-    pub(in crate::typecheck) fn build_instance_environment(&mut self, module: &hir::Module) {
+    ///
+    /// Local instances are validated; imported instances were checked in their
+    /// defining module and are re-elaborated only to make them searchable.
+    /// The dictionary parameters are synthesized for local instances only,
+    /// because an imported instance's dictionary is an ordinary top-level value
+    /// in its defining module.
+    pub(in crate::typecheck) fn build_instance_environment(
+        &mut self,
+        module: &hir::Module,
+        imported: &[hir::InstanceDeclaration],
+    ) {
         for instance in &module.instances {
-            let Some(class) = self.classes.get(&instance.class_id).cloned() else {
+            self.record_instance(instance, true);
+        }
+        for instance in imported {
+            // Re-elaboration of an imported instance must not produce
+            // diagnostics or consume local dictionary parameters: its defining
+            // module already validated it. Any error here is dropped so an
+            // unsupported form there does not surface as an error here.
+            let errors_before = self.errors.len();
+            self.record_instance(instance, false);
+            self.errors.truncate(errors_before);
+        }
+    }
+
+    /// Records one instance in the searchable instance environment. `local`
+    /// selects the validation and dictionary-parameter behavior: a local
+    /// instance is checked and gets fresh context parameters, while an imported
+    /// one is recorded as-is.
+    fn record_instance(&mut self, instance: &hir::InstanceDeclaration, local: bool) {
+        let Some(class) = self.classes.get(&instance.class_id).cloned() else {
+            if local {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedClass,
                     instance.span,
                     "an instance head names a type that is not a class",
                 ));
-                continue;
-            };
-            let (_, arguments) = flatten_spine(&instance.head);
-            if arguments.len() != class.parameters.len() {
+            }
+            return;
+        };
+        let (_, arguments) = flatten_spine(&instance.head);
+        if arguments.len() != class.parameters.len() {
+            if local {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedClass,
                     instance.span,
                     "an instance head must apply its class to one type argument per parameter",
                 ));
-                continue;
             }
-            let mut variables = HashMap::new();
-            let head_arguments = arguments
-                .iter()
-                .map(|argument| self.elaborate_type(argument, &mut variables))
-                .collect::<Vec<_>>();
-            let mut context = Vec::with_capacity(instance.context.len());
-            let mut context_parameters = Vec::with_capacity(instance.context.len());
-            let mut valid = true;
-            for constraint in &instance.context {
-                let Some(elaborated) = self.elaborate_constraint(constraint, &mut variables, true)
-                else {
-                    valid = false;
-                    continue;
-                };
+            return;
+        }
+        let mut variables = HashMap::new();
+        let head_arguments = arguments
+            .iter()
+            .map(|argument| self.elaborate_type(argument, &mut variables))
+            .collect::<Vec<_>>();
+        let mut context = Vec::with_capacity(instance.context.len());
+        let mut context_parameters = Vec::with_capacity(instance.context.len());
+        let mut valid = true;
+        for constraint in &instance.context {
+            let Some(elaborated) = self.elaborate_constraint(constraint, &mut variables, true)
+            else {
+                valid = false;
+                continue;
+            };
+            if local {
                 let dictionary_type = self.dictionary_type(&elaborated);
                 let id = LocalId(self.next_dictionary_local);
                 self.next_dictionary_local += 1;
                 context_parameters.push((id, dictionary_type));
-                context.push(elaborated);
             }
-            if !valid {
-                continue;
-            }
+            context.push(elaborated);
+        }
+        if !valid {
+            return;
+        }
+        if local {
             let head_names = head_variables(&arguments);
             for constraint in &instance.context {
                 let mut used = Vec::new();
@@ -299,17 +334,17 @@ impl Checker {
                     }
                 }
             }
-            if !valid {
-                continue;
-            }
-            self.instances.push(InstanceInfo {
-                symbol: instance.symbol,
-                class_id: instance.class_id,
-                head_arguments,
-                context,
-                context_parameters,
-            });
         }
+        if !valid {
+            return;
+        }
+        self.instances.push(InstanceInfo {
+            symbol: instance.symbol,
+            class_id: instance.class_id,
+            head_arguments,
+            context,
+            context_parameters,
+        });
     }
 }
 
