@@ -29,6 +29,7 @@ pub fn typecheck_module_with_imports_and_effect_representation(
         None,
         effect_runtime_representation,
         &[],
+        &[],
     )
 }
 
@@ -39,12 +40,17 @@ pub fn typecheck_module_with_imports_and_effect_representation(
 /// `known_types` is every data, newtype, and synonym declaration in the
 /// program. Constructors declared in another module are registered from it so
 /// an importer can apply and case on them.
+///
+/// `imported_instances` are the instance declarations of the modules this one
+/// imports, directly or transitively. They become searchable so an instance
+/// declared in a dependency can discharge a wanted constraint here.
 pub fn typecheck_module_with_imports_and_effect_context(
     module: hir::Module,
     imported: &HashMap<SymbolId, hir::Type>,
     effect_type: Option<hir::TypeId>,
     effect_runtime_representation: bool,
     known_types: &[hir::TypeDeclaration],
+    imported_instances: &[hir::InstanceDeclaration],
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -65,6 +71,7 @@ pub fn typecheck_module_with_imports_and_effect_context(
         effect_type,
         effect_runtime_representation,
         known_types,
+        imported_instances,
     );
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())

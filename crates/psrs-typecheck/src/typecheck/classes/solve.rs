@@ -80,8 +80,12 @@ impl Checker {
         if let Some(solution) = self.superclass_solution(constraint, depth) {
             return Some(solution);
         }
+        let candidates = self.instance_candidate_modules(class_id, &arguments);
         for instance in self.instances.clone() {
             if instance.class_id != class_id {
+                continue;
+            }
+            if !candidates.contains(&instance.symbol.module) {
                 continue;
             }
             let Some(mapping) = self.match_instance(&instance.head_arguments, &arguments) else {
@@ -251,6 +255,27 @@ impl Checker {
         }
     }
 
+    /// The modules whose instances may prove a wanted `class_id arguments`.
+    ///
+    /// This mirrors the official compiler's dictionary lookup: it searches the
+    /// current module, the module that declares the class, and the modules that
+    /// declare the nominal types occurring in the constraint's type arguments.
+    /// An instance declared in any other module is an orphan and is not visible
+    /// from here, even if that module is in the program.
+    fn instance_candidate_modules(
+        &self,
+        class_id: hir::TypeId,
+        arguments: &[InferType],
+    ) -> HashSet<hir::ModuleId> {
+        let mut modules = HashSet::new();
+        modules.insert(self.module_id);
+        modules.insert(class_id.module);
+        for argument in arguments {
+            collect_user_type_modules(argument, &mut modules);
+        }
+        modules
+    }
+
     /// One-way matches a wanted constraint's arguments against an instance
     /// head, binding the head's variables. A concrete head position requires a
     /// concrete wanted position so a wanted variable never grounds an
@@ -311,5 +336,26 @@ impl Checker {
                 _ => false,
             },
         }
+    }
+}
+
+/// Collects the defining module of every user type constructor occurring in a
+/// type. Builtin constructors (`Int`, `Array`, function, record, and `Effect`)
+/// live in `Prim`, which declares no source instances here, so they contribute
+/// no candidate module.
+fn collect_user_type_modules(ty: &InferType, out: &mut HashSet<hir::ModuleId>) {
+    match ty {
+        InferType::Constructor(TypeConstructor::User(id)) => {
+            out.insert(id.module);
+        }
+        InferType::Application(function, argument) => {
+            collect_user_type_modules(function, out);
+            collect_user_type_modules(argument, out);
+        }
+        InferType::RowExtend { ty, tail, .. } => {
+            collect_user_type_modules(ty, out);
+            collect_user_type_modules(tail, out);
+        }
+        InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
     }
 }

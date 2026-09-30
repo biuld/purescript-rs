@@ -13,8 +13,10 @@ impl Checker {
         effect_type: Option<hir::TypeId>,
         effect_runtime_representation: bool,
         known_types: &[hir::TypeDeclaration],
+        imported_instances: &[hir::InstanceDeclaration],
     ) -> Self {
         let mut checker = Self {
+            module_id: module.id,
             globals: HashMap::new(),
             external_kinds: module
                 .externals
@@ -111,7 +113,7 @@ impl Checker {
         checker.register_constructors();
         checker.next_dictionary_local = classes::next_local_id(module);
         checker.build_class_environment(module, known_types);
-        checker.build_instance_environment(module);
+        checker.build_instance_environment(module, imported_instances);
         checker
     }
 

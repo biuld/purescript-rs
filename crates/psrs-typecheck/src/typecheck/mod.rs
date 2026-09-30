@@ -412,6 +412,11 @@ struct ConstructorInfo {
 }
 
 struct Checker {
+    /// Identity of the module currently being checked. It scopes instance
+    /// visibility: a local instance is always a candidate, and an imported
+    /// instance is a candidate only when its defining module is the class's
+    /// module or a module of a type constructor in the wanted arguments.
+    module_id: hir::ModuleId,
     globals: HashMap<SymbolId, Scheme>,
     external_kinds: HashMap<SymbolId, ExternalKind>,
     external_signatures: HashMap<SymbolId, hir::Type>,

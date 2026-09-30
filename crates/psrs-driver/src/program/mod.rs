@@ -10,7 +10,10 @@ pub use library::compile_program_sources_with_prelude;
 use std::collections::HashMap;
 
 mod effects;
+mod graph;
 mod library;
+
+use graph::{imported_instance_declarations, module_dependencies, typecheck_order};
 
 /// Compiles a whole program to a single Wasm component. Every module is type
 /// checked in dependency order and lowered to Core; the modules are then linked
@@ -241,6 +244,14 @@ fn typecheck_program(
         .iter()
         .flat_map(|module| module.types.iter().cloned())
         .collect::<Vec<_>>();
+    // Instance declarations are threaded per module, like values: a module can
+    // only select an instance declared in a module it imports, directly or
+    // transitively.
+    let instance_sets = modules
+        .iter()
+        .map(|module| module.instances.clone())
+        .collect::<Vec<_>>();
+    let dependencies = module_dependencies(&modules);
     // A re-exported symbol is declared in the module that owns it, so the
     // signature table is global: a module that imports an exported symbol finds
     // its declared type even when it imported it through an umbrella module.
@@ -254,7 +265,7 @@ fn typecheck_program(
                 .map(|signature| (declaration.symbol, signature))
         })
         .collect::<HashMap<_, _>>();
-    let order = typecheck_order(&modules);
+    let order = typecheck_order(&dependencies);
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
     let mut errors = Vec::new();
@@ -290,6 +301,8 @@ fn typecheck_program(
             continue;
         }
         let imported = imported_signatures(&module, &signatures);
+        let imported_instances =
+            imported_instance_declarations(&dependencies, index, &instance_sets);
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
@@ -310,6 +323,7 @@ fn typecheck_program(
             effect_type,
             trusted_effect_representation,
             &known_types,
+            &imported_instances,
         );
         match check {
             Ok(module) => typed[index] = Some(module),
@@ -346,37 +360,6 @@ fn imported_signatures(
         }
     }
     imported
-}
-
-/// Orders modules so every module follows the modules it imports.
-fn typecheck_order(modules: &[psrs_hir::Module]) -> Vec<usize> {
-    let dependencies = modules
-        .iter()
-        .map(|module| {
-            module
-                .imports
-                .iter()
-                .map(|import| import.module.0 as usize)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let mut order = Vec::with_capacity(modules.len());
-    let mut visited = vec![false; modules.len()];
-    for index in 0..modules.len() {
-        visit(index, &dependencies, &mut visited, &mut order);
-    }
-    order
-}
-
-fn visit(index: usize, dependencies: &[Vec<usize>], visited: &mut [bool], order: &mut Vec<usize>) {
-    if visited.get(index).copied().unwrap_or(true) {
-        return;
-    }
-    visited[index] = true;
-    for &dependency in dependencies.get(index).into_iter().flatten() {
-        visit(dependency, dependencies, visited, order);
-    }
-    order.push(index);
 }
 
 /// Resolves a program while tolerating imports whose modules are not provided,
