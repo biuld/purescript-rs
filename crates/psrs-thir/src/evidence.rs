@@ -37,4 +37,10 @@ pub enum EvidenceKind {
         constructor_type: TypeId,
         context: Vec<Evidence>,
     },
+    /// A compiler-derived `Prim.Coerce.Coercible` proof with the checked types
+    /// at both ends. This is compile-time evidence, not a runtime dictionary.
+    Coercible {
+        source_type: TypeId,
+        target_type: TypeId,
+    },
 }

@@ -24,12 +24,37 @@ Class = { id, kind_parameters, type_parameters, fundeps,
 Instance = { id, class_id, head, context, chain_id, chain_position, source }
 Constraint = { class_id, kind_args, type_args, source }
 Evidence = Given(LocalId) | Superclass(Evidence, FieldId)
-         | Instance(InstanceId, [Evidence]) | Primitive(PrimitiveEvidence)
+         | Instance(InstanceId, [Evidence])
+         | Coercible(SourceType, TargetType) | Primitive(PrimitiveEvidence)
 ```
 
-An instance chain is a contiguous, ordered group of alternatives. `chain_id` is unique within its declaring module and `chain_position` is contiguous from zero; both survive imports. Ordinary instances are singleton groups. The class environment records imported and local instances with stable identities and visibility. Evidence terms are checked against the instantiated constraint they prove. Primitive classes such as `Prim.Row.Cons`, `Prim.Row.Union`, and `Prim.Row.Lacks` are solved by dedicated rules but present ordinary constraint interfaces to inference.
+An instance chain is a contiguous, ordered group of alternatives. `chain_id` is unique within its declaring module and `chain_position` is contiguous from zero; both survive imports. Ordinary instances are singleton groups. The class environment records imported and local instances with stable identities and visibility. Evidence terms are checked against the instantiated constraint they prove. Primitive classes such as `Prim.Row.Cons`, `Prim.Row.Union`, and `Prim.Row.Lacks` are solved by dedicated rules but present ordinary constraint interfaces to inference. `Prim.Coerce.Coercible source target` is compiler-owned: users cannot provide instances for it, and its evidence is a checked proof of a representation relation rather than a runtime dictionary selected by ordinary instance search.
 
 ## Design
+
+Class bodies declare method signatures only; implementations belong in
+instances. Source default implementations are not part of PureScript syntax.
+A backend fixture placing a default closure in a dictionary does not add a
+source-language feature.
+
+`Coercible` consults the role vector in the checked kind environment. Equal
+types are reflexive. Matching constructors decompose arguments by role: nominal
+arguments must be equal, representational arguments require recursive evidence,
+and phantom arguments require none. A newtype may be unwrapped only when its
+constructor is visible in the current module; nested visible newtypes may be
+unwrapped recursively. Foreign data is nominal unless an explicit trusted role
+signature says otherwise. Given `Coercible a b` constraints may justify the
+same relation in either direction. User instance declarations for the compiler
+class are rejected.
+
+The source value `Safe.Coerce.coerce` elaborates to a typed coercion expression
+carrying `Coercible` evidence and explicit source/target types. THIR verifies
+that the proof class and its boundary match the value and result. Core records
+that boundary as `RepresentationCast`; P8 must implement it with the existing
+typed representation-conversion protocol. The proof authorizes a type-level
+relation, not a raw Wasm cast: array elements, functions, records, and ADT
+payloads follow their established conversion plans, and unsupported conversion
+shapes fail lowering.
 
 Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Search givens first, then superclass paths and candidate instances. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
 
@@ -44,7 +69,10 @@ solve(wanted, givens, instances):
     normalize wanted; improve unknowns using class fundeps and givens
     if matching given exists: return Given
     if a superclass path from a given proves wanted: return Superclass
-    if wanted is a primitive relation: apply its checked solver
+    if wanted is Coercible: prove it from checked roles, equalities, givens,
+        visible newtype constructors, and structural row rules; emit Coercible
+        evidence or report an unsatisfied constraint
+    if wanted is another primitive relation: apply its checked solver
     collect visible candidate instances and chains
     for each chain in stable module and chain order:
         continue after a branch only when its head is Apart from wanted
@@ -89,6 +117,11 @@ The frontend design is organized around these contracts:
   chain boundaries. `elaborate_evidence(Constraint, Evidence) -> TypedCore`
   emits checked dictionary parameters, applications, and superclass
   projections; the Typed Core verifier checks the evidence boundary.
+- `solve_coercible(source, target, CheckedKindEnv, Visibility) -> CoercibleProof`
+  is a dedicated solver and never consults user instances. `coerce(value,
+  proof) -> TypedExpr` records source and target types in the checked expression;
+  its evidence remains explicit until Core lowers the proof to a
+  `RepresentationCast` boundary.
 
 AST lowering assigns module-local chain identity and source position; name
 resolution carries those fields into HIR, whose verifier enforces contiguous
@@ -97,21 +130,29 @@ responsibilities for the contracts above, not additional semantic owners.
 
 ## Invariants and verification
 
-Every selected evidence term proves exactly its checked constraint; ordinary instance lookup is coherent; chain order and visibility are respected; an unknown non-final branch blocks only its own chain; a unique definite match is not turned into an overlap by an unresolved chain; context failure cannot change a selected branch; improvement never assigns a rigid variable; and search terminates or reports a bounded cycle. Verify superclass paths, recursive contexts, fundep closure and independent-argument apartness, repeated-variable occurs checks, ambiguity, instance chains, overlap errors, and primitive constraints against official `purs` accept/reject cases.
+Every selected evidence term proves exactly its checked constraint; ordinary instance lookup is coherent; chain order and visibility are respected; an unknown non-final branch blocks only its own chain; a unique definite match is not turned into an overlap by an unresolved chain; context failure cannot change a selected branch; improvement never assigns a rigid variable; and search terminates or reports a bounded cycle. A `Coercible` proof is generated only from a checked role, equality, given, or visible newtype decomposition; it cannot be forged by an instance, and THIR rejects a mismatched evidence boundary. Verify superclass paths, recursive contexts, fundep closure and independent-argument apartness, repeated-variable occurs checks, ambiguity, instance chains, overlap errors, and primitive constraints against official `purs` accept/reject cases.
 
 ## Worked example
 
-For `class Convert a b | a -> b`, a wanted `Convert Int x` can improve `x` from the matching instance head. If `convert :: forall a b. Convert a b => a -> b`, a use at `Int` receives the selected dictionary as an explicit argument. A superclass method instead receives a projection from an available subclass dictionary.
+For `class Convert a b | a -> b`, a wanted `Convert Int x` can improve `x` from the matching instance head. If `convert :: forall a b. Convert a b => a -> b`, a use at `Int` receives the selected dictionary as an explicit argument. A superclass method instead receives a projection from an available subclass dictionary. For `newtype Age = Age Int`, `coerce :: Age -> Int` is accepted while its constructor is visible; the resulting checked representation boundary reaches the backend conversion planner.
 
 ## Boundaries and interfaces
 
-P5 consumes resolved class and instance declarations plus kind-checked types. It emits THIR evidence or quantified constraints. [Core lowering](../semantics/core-lowering.md) makes evidence operational; the backend receives only verified dictionary values and calls.
+P5 consumes resolved class and instance declarations plus the checked kind-and-role environment. It emits THIR dictionary evidence or a `Coercible` proof boundary. [Core lowering](../semantics/core-lowering.md) makes dictionary evidence operational and preserves coercion source/target types; the backend receives only verified values and proof-authorized conversions. [Polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md) owns the concrete adaptation plan.
 
 ## Open questions and future work
 
-Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md).
+Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. Higher-kinded coercion rewriting, advanced canonical row interactions, and deriving remain open; implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
 
 ## References
 
 - [PureScript entailment](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Entailment.hs), [class desugaring](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Sugar/TypeClasses.hs), and [class environment](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/Environment.hs).
+- [PureScript `Coercible` entailment](https://github.com/purescript/purescript/blob/master/src/Language/PureScript/TypeChecker/Entailment/Coercible.hs) and [safe-coerce source API](https://github.com/purescript/purescript-safe-coerce).
 - [Backend dictionaries](../../backend/fp/type-classes-and-dictionaries.md).
+
+## Implementation notes
+
+The current bounded coercion solver is a dedicated checker helper, while the
+design target exposes it as a separate `solve_coercible` service. Higher-kinded
+rewriting and full canonical-row interactions remain unimplemented and keep
+FE-16 partial.

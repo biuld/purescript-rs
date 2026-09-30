@@ -330,6 +330,15 @@ array and then maps to a concrete array when required. Aggregate conversions
 are never implemented as `RepresentationCast`s between distinct nominal
 layouts.
 
+Newtypes retain the storage protocol of their declared field template. Before
+planning a conversion, transparently unfold newtype endpoints to that template
+while preserving their physical value shapes. For `newtype Wrap a = Wrap a`,
+`Wrap Int` therefore still stores an erased value; converting it to `Int`
+unboxes that value. A function or array field uses the existing function adapter
+or element mapping instead. Newtype pattern projection applies the same
+template-to-instantiated-field conversion before binding or inspecting the
+payload. Unwrapping a newtype never allocates a separate wrapper object.
+
 ### Adapter generation
 
 ```text

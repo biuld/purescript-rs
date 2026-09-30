@@ -291,7 +291,8 @@ impl Primitive {
             | Intrinsic::BooleanToInt
             | Intrinsic::IntToBoolean
             | Intrinsic::CharToInt
-            | Intrinsic::IntToChar => return None,
+            | Intrinsic::IntToChar
+            | Intrinsic::Coerce => return None,
         })
     }
 }
@@ -323,6 +324,13 @@ pub enum ExprKind {
     FieldAccess {
         record: Box<Expr>,
         field: String,
+    },
+    /// A representational conversion authorized by checked frontend evidence.
+    /// The backend applies its normal typed value-conversion protocol.
+    RepresentationCast {
+        value: Box<Expr>,
+        source_type: TypeId,
+        target_type: TypeId,
     },
     ArrayLength(Box<Expr>),
     ArrayIndex {

@@ -1,122 +1,13 @@
 use super::*;
 
 mod case;
+mod construct;
 mod expected;
 mod intrinsics;
 mod pattern;
 mod records;
 
 impl Checker {
-    pub(super) fn new(
-        module: &hir::Module,
-        imported: &HashMap<SymbolId, hir::Type>,
-        effect_type: Option<hir::TypeId>,
-        effect_runtime_representation: bool,
-        known_types: &[hir::TypeDeclaration],
-        imported_instances: &[hir::InstanceDeclaration],
-    ) -> Self {
-        let mut checker = Self {
-            module_id: module.id,
-            globals: HashMap::new(),
-            external_kinds: module
-                .externals
-                .iter()
-                .map(|external| (external.symbol, external.kind.clone()))
-                .collect(),
-            external_signatures: module
-                .externals
-                .iter()
-                .filter_map(|external| {
-                    external
-                        .signature
-                        .clone()
-                        .map(|signature| (external.symbol, signature))
-                })
-                .collect(),
-            imported: imported.clone(),
-            locals: HashMap::new(),
-            type_names: module
-                .types
-                .iter()
-                .map(|declaration| (declaration.id, declaration.name.clone()))
-                .collect(),
-            synonyms: module
-                .types
-                .iter()
-                .filter(|declaration| declaration.kind == hir::TypeDeclarationKind::TypeSynonym)
-                .filter_map(|declaration| {
-                    let body = declaration.body.clone()?;
-                    Some((
-                        declaration.id,
-                        Synonym {
-                            parameters: declaration
-                                .parameters
-                                .iter()
-                                .map(|parameter| parameter.name.clone())
-                                .collect(),
-                            body,
-                        },
-                    ))
-                })
-                .collect(),
-            // The driver supplies this identity only for its embedded Prelude.
-            // A module name or imported type name is not enough to establish trust.
-            effect_type,
-            effect_runtime_representation,
-            constructor_info: module
-                .types
-                .iter()
-                .flat_map(|declaration| {
-                    let parameters = declaration
-                        .parameters
-                        .iter()
-                        .map(|parameter| parameter.name.clone())
-                        .collect::<Vec<_>>();
-                    declaration
-                        .constructors
-                        .iter()
-                        .enumerate()
-                        .map(|(tag, constructor)| {
-                            (
-                                constructor.symbol,
-                                ConstructorInfo {
-                                    symbol: constructor.symbol,
-                                    name: constructor.name.clone(),
-                                    type_id: declaration.id,
-                                    tag: tag as u32,
-                                    parameters: parameters.clone(),
-                                    fields: constructor.fields.clone(),
-                                },
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect(),
-            expanding: HashSet::new(),
-            substitutions: HashMap::new(),
-            levels: HashMap::new(),
-            generic_variables: HashSet::new(),
-            rigid: HashSet::new(),
-            next_variable: 0,
-            level: 1,
-            classes: HashMap::new(),
-            class_methods: HashMap::new(),
-            instances: Vec::new(),
-            pending_signatures: HashMap::new(),
-            givens: Vec::new(),
-            wanted: Vec::new(),
-            next_dictionary_local: 0,
-            reported_fundep_conflicts: HashSet::new(),
-            errors: Vec::new(),
-        };
-        checker.import_known_types(known_types);
-        checker.register_constructors();
-        checker.next_dictionary_local = classes::next_local_id(module);
-        checker.build_class_environment(module, known_types);
-        checker.build_instance_environment(module, imported_instances);
-        checker
-    }
-
     /// Registers data and newtype constructors declared anywhere in the
     /// program. Constructors this module already declared keep their entry.
     fn import_known_types(&mut self, known_types: &[hir::TypeDeclaration]) {
@@ -237,6 +128,9 @@ impl Checker {
                             InferredExprKind::Boolean(false),
                             InferType::Constructor(TypeConstructor::Boolean),
                         ),
+                        Some(ExternalKind::Intrinsic(Intrinsic::Coerce)) => {
+                            self.coercion_function(span)
+                        }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
                             self.intrinsic_type(intrinsic)?,

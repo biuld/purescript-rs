@@ -53,6 +53,7 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
                 || expression_has_integer_capture(right, module)
         }
         ExprKind::UnaryPrimitive { value, .. } => expression_has_integer_capture(value, module),
+        ExprKind::RepresentationCast { value, .. } => expression_has_integer_capture(value, module),
         ExprKind::Let { bindings, body } => {
             bindings
                 .iter()
@@ -155,6 +156,7 @@ fn free_integer_local(
             free_integer_local(left, module, bound) || free_integer_local(right, module, bound)
         }
         ExprKind::UnaryPrimitive { value, .. } => free_integer_local(value, module, bound),
+        ExprKind::RepresentationCast { value, .. } => free_integer_local(value, module, bound),
         ExprKind::If {
             condition,
             then_branch,

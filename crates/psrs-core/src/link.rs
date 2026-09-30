@@ -179,6 +179,15 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
             record: Box::new(shift_expr(*record, offset)),
             field,
         },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(shift_expr(*value, offset)),
+            source_type: shift_id(source_type, offset),
+            target_type: shift_id(target_type, offset),
+        },
         ExprKind::ArrayLength(value) => ExprKind::ArrayLength(Box::new(shift_expr(*value, offset))),
         ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
             array: Box::new(shift_expr(*array, offset)),
@@ -379,6 +388,7 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
             }
         }
         ExprKind::FieldAccess { record, .. } => collect_references(record, out),
+        ExprKind::RepresentationCast { value, .. } => collect_references(value, out),
         ExprKind::ArrayLength(value) => collect_references(value, out),
         ExprKind::ArrayIndex { array, index } => {
             collect_references(array, out);

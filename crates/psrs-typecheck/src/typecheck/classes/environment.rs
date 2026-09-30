@@ -11,6 +11,26 @@ impl Checker {
         module: &hir::Module,
         known_types: &[hir::TypeDeclaration],
     ) {
+        if module.imports.iter().any(|import| {
+            import.module_name == "Prim.Coerce"
+                || import.module_name == "Safe.Coerce"
+                || import
+                    .types
+                    .iter()
+                    .any(|imported| imported.id == hir::TypeId::COERCIBLE)
+        }) {
+            self.type_names
+                .insert(hir::TypeId::COERCIBLE, "Coercible".to_owned());
+            self.classes.insert(
+                hir::TypeId::COERCIBLE,
+                ClassInfo {
+                    parameters: vec!["source".to_owned(), "target".to_owned()],
+                    superclasses: Vec::new(),
+                    fundeps: Vec::new(),
+                    methods: Vec::new(),
+                },
+            );
+        }
         let mut declarations = Vec::new();
         for declaration in module.types.iter().chain(known_types.iter()) {
             if declaration.kind == hir::TypeDeclarationKind::Class
@@ -283,6 +303,16 @@ impl Checker {
             }
             return;
         };
+        if instance.class_id == hir::TypeId::COERCIBLE {
+            if local {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration,
+                    instance.span,
+                    "Coercible instances are compiler-derived and cannot be declared in source",
+                ));
+            }
+            return;
+        }
         let (_, arguments) = flatten_spine(&instance.head);
         if arguments.len() != class.parameters.len() {
             if local {

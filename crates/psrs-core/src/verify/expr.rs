@@ -177,6 +177,20 @@ impl Context<'_> {
                     ));
                 }
             }
+            ExprKind::RepresentationCast {
+                value,
+                source_type,
+                target_type,
+            } => {
+                self.expr(value, Some(*source_type));
+                if value.ty != *source_type || expression.ty != *target_type {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "representation cast types do not match its value and result",
+                    ));
+                }
+            }
             ExprKind::ArrayLength(array) => {
                 self.expr(array, None);
                 if array_element(array.ty, self.module).is_none() {

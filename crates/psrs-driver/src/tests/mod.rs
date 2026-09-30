@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 static WASM_ARTIFACT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+mod coercion;
 mod effects;
 mod scalars;
 

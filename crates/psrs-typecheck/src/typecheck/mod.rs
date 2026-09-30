@@ -1,60 +1,18 @@
 use psrs_hir::{
     self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, SymbolId, TypeVariableId,
 };
+use psrs_kind::CheckedKindEnv;
 use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TypeCheckErrorKind {
-    InvalidHir,
-    TypeMismatch,
-    OccursCheck,
-    UnconstrainedType,
-    IntegerOutOfRange,
-    NumberOutOfRange,
-    UnsupportedExpression,
-    UnsupportedType,
-    UnsupportedIntrinsic,
-    UnloweredOperator,
-    UnsupportedClass,
-    NoInstance,
-    MissingInstanceMethod,
-    /// A functional dependency's determined positions disagree, so no single
-    /// type can satisfy the constraint.
-    FundepConflict,
-    /// More than one unrelated visible instance proves the same constraint.
-    OverlappingInstances,
-    /// A constraint still mentions variables that neither the result type nor
-    /// the class's functional dependencies determine.
-    AmbiguousConstraint,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TypeCheckError {
-    pub kind: TypeCheckErrorKind,
-    pub span: TextRange,
-    message: String,
-}
-
-impl TypeCheckError {
-    fn new(kind: TypeCheckErrorKind, span: TextRange, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            span,
-            message: message.into(),
-        }
-    }
-
-    pub fn message(&self) -> &str {
-        &self.message
-    }
-}
+mod error;
+pub use error::{TypeCheckError, TypeCheckErrorKind};
 
 mod entry;
 
 pub use entry::{
-    typecheck_module, typecheck_module_with_imports,
+    typecheck_module, typecheck_module_with_checked_kinds, typecheck_module_with_imports,
     typecheck_module_with_imports_and_effect_context,
     typecheck_module_with_imports_and_effect_representation,
 };
@@ -271,6 +229,10 @@ enum WantedSolution {
         parent: Box<WantedConstraint>,
         field: String,
     },
+    Coercible {
+        source: InferType,
+        target: InferType,
+    },
 }
 
 /// A constraint that still needs a dictionary. Its solution is filled in by
@@ -342,6 +304,13 @@ enum InferredExprKind {
     DictionaryApplication {
         function: Box<InferredExpr>,
         wanted: usize,
+    },
+    /// The `Safe.Coerce.coerce` function. Its type relation is checked before
+    /// finalization, which closes this into a typed representation cast.
+    CoerceFunction {
+        wanted: usize,
+        source: InferType,
+        target: InferType,
     },
     /// A dictionary solved for `wanted`, used directly (for example as an
     /// instance's superclass field).
@@ -429,9 +398,12 @@ struct Checker {
     imported: HashMap<SymbolId, hir::Type>,
     locals: HashMap<LocalId, Scheme>,
     type_names: HashMap<hir::TypeId, String>,
+    type_declarations: HashMap<hir::TypeId, hir::TypeDeclaration>,
+    visible_newtypes: HashSet<hir::TypeId>,
     synonyms: HashMap<hir::TypeId, Synonym>,
     effect_type: Option<hir::TypeId>,
     effect_runtime_representation: bool,
+    checked_kinds: CheckedKindEnv,
     constructor_info: HashMap<SymbolId, ConstructorInfo>,
     expanding: HashSet<hir::TypeId>,
     substitutions: HashMap<u32, InferType>,

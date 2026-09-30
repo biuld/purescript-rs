@@ -219,6 +219,27 @@ fn lower_expr(
         TypedExprKind::Evidence(evidence) => {
             return dictionary::lower_evidence(&evidence, source_types);
         }
+        TypedExprKind::Coerce {
+            value,
+            evidence,
+            source_type,
+            target_type,
+        } => {
+            if evidence.class_id != psrs_hir::TypeId::COERCIBLE
+                || source_type != value.ty
+                || target_type.0 != ty.0
+            {
+                return Err(LowerError {
+                    span,
+                    message: "coercion evidence does not match its typed boundary",
+                });
+            }
+            ExprKind::RepresentationCast {
+                value: Box::new(lower_expr(*value, externals, constructors, source_types)?),
+                source_type: TypeId(source_type.0),
+                target_type: TypeId(target_type.0),
+            }
+        }
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors, source_types)?;
             let argument = lower_expr(*argument, externals, constructors, source_types)?;

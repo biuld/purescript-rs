@@ -67,6 +67,44 @@ impl Checker {
                 };
                 thir::ExprKind::Application(Box::new(function), Box::new(evidence))
             }
+            InferredExprKind::CoerceFunction {
+                wanted,
+                source,
+                target,
+            } => {
+                let source_type =
+                    self.finalize_type(&source, expression.span, interner, generics)?;
+                let target_type =
+                    self.finalize_type(&target, expression.span, interner, generics)?;
+                let evidence = self.wanted_evidence(wanted, interner, generics)?;
+                let local = LocalId(self.next_dictionary_local);
+                self.next_dictionary_local += 1;
+                let binder = thir::Binder {
+                    id: local,
+                    name: "__coerce_value".to_owned(),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let value = thir::Expr {
+                    kind: thir::ExprKind::Local(local),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let body = thir::Expr {
+                    kind: thir::ExprKind::Coerce {
+                        value: Box::new(value),
+                        evidence,
+                        source_type,
+                        target_type,
+                    },
+                    ty: target_type,
+                    span: expression.span,
+                };
+                thir::ExprKind::Lambda {
+                    binder,
+                    body: Box::new(body),
+                }
+            }
             InferredExprKind::Evidence(wanted) => {
                 let evidence = self.wanted_evidence(wanted, interner, generics)?;
                 thir::ExprKind::Evidence(evidence)

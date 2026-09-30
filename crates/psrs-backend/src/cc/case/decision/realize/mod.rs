@@ -173,7 +173,24 @@ impl FunctionLowerer<'_> {
             };
             let source_value = lookup(values, source, *span)?;
             if *newtype {
-                projected.insert(target.clone(), source_value);
+                let source_shape = self.value_shape(*declared_type, *span)?;
+                let target_shape = self.value_shape(*target_type, *span)?;
+                let conversion = self.typed_conversion(
+                    *declared_type,
+                    *target_type,
+                    source_shape,
+                    target_shape,
+                    *span,
+                )?;
+                let value = self.emit_conversion(
+                    source_value,
+                    source_shape,
+                    target_shape,
+                    conversion,
+                    *span,
+                    &mut assignments,
+                );
+                projected.insert(target.clone(), value);
                 continue;
             }
             let value = if let Some((symbol, tag)) = constructor {

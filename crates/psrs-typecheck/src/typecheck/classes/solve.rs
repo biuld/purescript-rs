@@ -80,6 +80,18 @@ impl Checker {
         }
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
+        if class_id == hir::TypeId::COERCIBLE {
+            if arguments.len() == 2
+                && (self.proves_coercible(&arguments[0], &arguments[1])
+                    || self.superclass_solution(constraint, depth).is_some())
+            {
+                return Some(WantedSolution::Coercible {
+                    source: arguments[0].clone(),
+                    target: arguments[1].clone(),
+                });
+            }
+            return None;
+        }
         for (given, solution) in self.givens.clone() {
             if given.class_id == class_id && self.constraints_match(&given.arguments, &arguments) {
                 return Some(solution);

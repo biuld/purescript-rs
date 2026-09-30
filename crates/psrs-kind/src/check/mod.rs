@@ -1,9 +1,12 @@
 use crate::kind::{Kind, KindDiagnostic, KindScheme, collect_type_ids};
-use psrs_hir::{self as hir, TypeDeclarationKind, TypeId, TypeKind};
+use psrs_hir::{self as hir, BuiltinType, Role, TypeDeclarationKind, TypeId, TypeKind};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod infer;
+mod roles;
+
+pub use roles::check_roles;
 
 /// Official `errorCode`s this pass reports.
 pub const KINDS_DO_NOT_UNIFY: &str = "KindsDoNotUnify";
@@ -32,6 +35,14 @@ struct Checker<'a> {
 
 impl<'a> Checker<'a> {
     fn new(module: &'a hir::Module) -> Self {
+        let kind_variable = 0;
+        let coercible_kind = Kind::Function(
+            Box::new(Kind::Variable(kind_variable)),
+            Box::new(Kind::Function(
+                Box::new(Kind::Variable(kind_variable)),
+                Box::new(Kind::Constraint),
+            )),
+        );
         let mut synonym_arity = HashMap::new();
         for declaration in &module.types {
             if declaration.kind == TypeDeclarationKind::TypeSynonym {
@@ -40,7 +51,13 @@ impl<'a> Checker<'a> {
         }
         Self {
             module,
-            schemes: HashMap::new(),
+            schemes: HashMap::from([(
+                TypeId::COERCIBLE,
+                KindScheme {
+                    variables: vec![kind_variable],
+                    kind: coercible_kind,
+                },
+            )]),
             synonym_arity,
             substitutions: HashMap::new(),
             rigid: HashSet::new(),

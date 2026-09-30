@@ -433,7 +433,7 @@ fn lower_class_members(
             cst::Declaration::Value(value) => {
                 return Err(LowerError::new(
                     value.span,
-                    "class default implementations are not supported yet",
+                    "class bodies permit method signatures only; implementations belong in instances",
                 ));
             }
             _ => continue,

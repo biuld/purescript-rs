@@ -71,11 +71,22 @@ higher-order calls, and the
 implemented effect-based WASI console and clock libraries plus random imports.
 The selected entry must be a zero-argument integer `main` function. Rank-1 generic direct calls
 and the supported higher-order generic adapters are lowered. Generic arrays
-and records remain unsupported across type instantiations. In particular,
-recovering a type-dependent array or record field through a nominal runtime
-layout receives a source-spanned backend diagnostic instead of emitting a cast
-that can fail at runtime. Open rows and unsupported WIT shapes also receive
-source-oriented diagnostics.
+and records cross the supported polymorphic boundaries with their contents
+preserved. Open rows and unsupported WIT shapes receive source-oriented
+diagnostics.
+
+Role annotations describe whether a type parameter is nominal,
+representational, or phantom. Inferred roles follow the type's fields, including
+referenced declarations from other modules. An annotation may restrict an
+inferred role but cannot weaken it; a foreign type's declared roles are an
+explicit interface promise.
+
+The `coerce` operation requires a compiler-proven `Coercible` relation. It can
+convert visible newtypes and lift permitted conversions through arrays,
+functions, and data parameters according to their roles. Unwrapping a newtype
+requires its constructor to be in scope. Users cannot define `Coercible`
+instances to authorize unrelated conversions. Unsupported coercion obligations
+receive a source diagnostic; deriving remains a separate feature track.
 
 `arrayUpdate` is a pure operation: it returns an updated array without changing
 the input array or any aliases of it. Repeated updates from the same input are

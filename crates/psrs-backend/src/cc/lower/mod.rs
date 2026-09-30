@@ -319,6 +319,36 @@ impl FunctionLowerer<'_> {
             ExprKind::FieldAccess { record, field } => {
                 self.lower_field_access(expression, record, field, ty, assignments)
             }
+            ExprKind::RepresentationCast {
+                value,
+                source_type,
+                target_type,
+            } => {
+                if *source_type != value.ty || *target_type != expression.ty {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "representation cast boundary does not match its typed value",
+                    )]);
+                }
+                let source_shape = self.value_shape(*source_type, expression.span)?;
+                let value = self.lower_value(value, assignments)?;
+                let conversion = self.typed_conversion(
+                    *source_type,
+                    *target_type,
+                    source_shape,
+                    ty,
+                    expression.span,
+                )?;
+                Ok(self.emit_conversion(
+                    value,
+                    source_shape,
+                    ty,
+                    conversion,
+                    expression.span,
+                    assignments,
+                ))
+            }
             ExprKind::ArrayIndex { array, index } => {
                 let Some(representation) = self.array_types.get(&array.ty).copied() else {
                     return Err(vec![BackendError::new(

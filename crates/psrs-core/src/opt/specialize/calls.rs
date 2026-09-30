@@ -42,6 +42,15 @@ pub(super) fn rewrite(
             record: Box::new(rewrite(*record, module, declarations, state, pending)),
             field,
         },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(rewrite(*value, module, declarations, state, pending)),
+            source_type,
+            target_type,
+        },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(rewrite(
             *array,
             module,

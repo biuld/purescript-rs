@@ -82,6 +82,9 @@ fn record_expr(
         ExprKind::UnaryPrimitive { value, .. } => {
             record_expr(module, value, visiting, referenced);
         }
+        ExprKind::RepresentationCast { value, .. } => {
+            record_expr(module, value, visiting, referenced);
+        }
         ExprKind::Lambda { binder, body } => {
             record_type(module, binder.ty, visiting, referenced);
             record_expr(module, body, visiting, referenced);

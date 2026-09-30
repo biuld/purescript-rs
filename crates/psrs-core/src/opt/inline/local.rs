@@ -59,6 +59,15 @@ fn inline_expr(
             record: Box::new(inline_expr(*record, fresh, sites_left, max_body_nodes)),
             field,
         },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(inline_expr(*value, fresh, sites_left, max_body_nodes)),
+            source_type,
+            target_type,
+        },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(inline_expr(
             *array,
             fresh,

@@ -334,13 +334,13 @@ main = 1
 "#;
 
 #[test]
-fn a_class_default_is_reported_as_unsupported() {
+fn a_class_method_body_is_rejected_as_invalid_purescript() {
     let errors = compile_source("Main.purs", CLASS_DEFAULT_SOURCE)
         .expect_err("class defaults must be rejected");
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("class default implementations are not supported yet")),
+            .contains("class bodies permit method signatures only")),
         "unexpected diagnostics: {errors:?}"
     );
 }

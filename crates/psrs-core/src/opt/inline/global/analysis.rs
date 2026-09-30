@@ -63,9 +63,9 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
         ExprKind::RecordUpdate { record, fields } => {
             contains_case(record) || fields.iter().any(|(_, value)| contains_case(value))
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            contains_case(record)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => contains_case(record),
         ExprKind::UnaryPrimitive { value, .. } => contains_case(value),
         ExprKind::ArrayIndex { array, index } => contains_case(array) || contains_case(index),
         ExprKind::ArrayUpdate {
@@ -117,9 +117,9 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(value, out);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            collect_globals(record, out)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => collect_globals(record, out),
         ExprKind::UnaryPrimitive { value, .. } => collect_globals(value, out),
         ExprKind::ArrayIndex { array, index } => {
             collect_globals(array, out);

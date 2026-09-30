@@ -6,6 +6,7 @@
 //! and method selection); `solve` discharges wanted constraints; `instance`
 //! builds instance dictionary values.
 
+mod coercion;
 mod coherence;
 mod environment;
 mod evidence;

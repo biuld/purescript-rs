@@ -57,6 +57,15 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
                 field,
             }
         }
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(simplify_expr(*value, fresh)),
+            source_type,
+            target_type,
+        },
         ExprKind::ArrayLength(array) => {
             let array = simplify_expr(*array, fresh);
             if let ExprKind::Array { elements } = &array.kind

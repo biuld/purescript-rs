@@ -13,8 +13,8 @@ pub use expr::{
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
 pub use types::{
-    ClassMember, Constructor, FunctionalDependency, InstanceDeclaration, InstanceMember,
-    TypeDeclaration, TypeDeclarationKind,
+    ClassMember, Constructor, FunctionalDependency, InstanceDeclaration, InstanceMember, Role,
+    RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
 };
 pub use verify::VerifyError;
 
@@ -23,6 +23,9 @@ pub struct ModuleId(pub u32);
 
 impl ModuleId {
     pub const INTRINSICS: Self = Self(u32::MAX);
+    /// Virtual module identity for compiler-provided source modules which
+    /// contribute names but have no runtime module body of their own.
+    pub const COMPILER_PRELUDE: Self = Self(u32::MAX - 1);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,6 +52,9 @@ impl TypeId {
     pub const fn new(module: ModuleId, index: u32) -> Self {
         Self { module, index }
     }
+
+    /// Stable identity of the compiler-owned `Prim.Coerce.Coercible` class.
+    pub const COERCIBLE: Self = Self::new(ModuleId::INTRINSICS, 0);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -108,6 +114,8 @@ pub enum Intrinsic {
     CharLe,
     CharGt,
     CharGe,
+    /// Source-level `Safe.Coerce.coerce`, elaborated to a checked coercion.
+    Coerce,
 }
 
 impl Intrinsic {
