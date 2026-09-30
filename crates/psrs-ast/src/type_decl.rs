@@ -180,7 +180,7 @@ pub(crate) fn lower_type_declaration(
                 name: lower_name(declaration.name),
                 parameters: lower_class_parameters(&declaration.head)?,
                 superclasses: match declaration.superclasses {
-                    Some(superclasses) => vec![lower_type(*superclasses)?],
+                    Some(superclasses) => lower_constraints(*superclasses)?,
                     None => Vec::new(),
                 },
                 members: declaration
@@ -295,13 +295,34 @@ fn strip_parens(expression: &cst::TypeExpr) -> &cst::TypeExpr {
     }
 }
 
+/// Lowers a class superclass or instance context type expression. A
+/// parenthesized tuple `(C a, D a)` denotes several constraints and is
+/// flattened into one type per item; any other expression is a single
+/// constraint.
+fn lower_constraints(expression: cst::TypeExpr) -> Result<Vec<Type>, LowerError> {
+    match expression.kind {
+        cst::TypeExprKind::Tuple { items, .. } => items.into_iter().map(lower_type).collect(),
+        cst::TypeExprKind::Parens { expression, .. } => lower_constraints(*expression),
+        kind => Ok(vec![lower_type(cst::TypeExpr {
+            kind,
+            span: expression.span,
+        })?]),
+    }
+}
+
 /// Lowers an `instance` declaration. Its where-block members become ordinary
 /// value declarations, one per method implementation.
 pub(crate) fn lower_instance(
     declaration: cst::InstanceDeclaration,
 ) -> Result<InstanceDeclaration, LowerError> {
+    if declaration.else_keyword_span.is_some() {
+        return Err(LowerError::new(
+            declaration.span,
+            "instance chains are not supported yet",
+        ));
+    }
     let context = match declaration.constraints {
-        Some(constraints) => vec![lower_type(*constraints)?],
+        Some(constraints) => lower_constraints(*constraints)?,
         None => Vec::new(),
     };
     let head = lower_type(declaration.head)?;
@@ -349,11 +370,12 @@ fn lower_class_members(
                 Some(lower_type(signature.type_expr)?),
                 signature.span,
             ),
-            cst::Declaration::Value(value) => (
-                value.name,
-                value.annotation.map(lower_type).transpose()?,
-                value.span,
-            ),
+            cst::Declaration::Value(value) => {
+                return Err(LowerError::new(
+                    value.span,
+                    "class default implementations are not supported yet",
+                ));
+            }
             _ => continue,
         };
         if let Some(existing) = members
