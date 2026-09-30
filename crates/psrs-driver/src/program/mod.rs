@@ -269,6 +269,10 @@ fn typecheck_program(
         })
         .collect::<HashMap<_, _>>();
     let order = typecheck_order(&dependencies);
+    let module_names = modules
+        .iter()
+        .map(|module| (module.id, module.name.clone()))
+        .collect::<HashMap<_, _>>();
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
     let mut errors = role_diagnostics
@@ -331,14 +335,17 @@ fn typecheck_program(
                     | "WASI.Network"
                     | "WASI"
             );
-        let check = psrs_typecheck::typecheck_module_with_checked_kinds(
+        let check = psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names(
             module,
             &imported,
             effect_type,
             trusted_effect_representation,
-            &known_types,
-            &imported_instances,
-            &checked_kinds,
+            psrs_typecheck::TypecheckContext {
+                known_types: &known_types,
+                imported_instances: &imported_instances,
+                module_names: &module_names,
+                checked_kinds: &checked_kinds,
+            },
         );
         match check {
             Ok(module) => typed[index] = Some(module),

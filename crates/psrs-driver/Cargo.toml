@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[test]]
+name = "upstream"
+path = "tests/upstream/mod.rs"
+
 [dependencies]
 psrs-ast.workspace = true
 psrs-backend.workspace = true

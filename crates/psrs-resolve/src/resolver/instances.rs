@@ -55,6 +55,10 @@ pub(super) fn resolve_instance(
         context,
         head,
         members,
+        derivation: instance.derivation.map(|derivation| match derivation {
+            ast::DerivationStrategy::KnownClass => hir::DerivationStrategy::KnownClass,
+            ast::DerivationStrategy::Newtype => hir::DerivationStrategy::Newtype,
+        }),
         span: instance.span,
     })
 }

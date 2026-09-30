@@ -35,11 +35,19 @@ pub struct KindScheme {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CheckedKindEnv {
     pub roles: HashMap<TypeId, Vec<Role>>,
+    /// Kind schemes for named constructors, including imports. Keeping these
+    /// alongside roles lets coercion checking validate argument kinds after
+    /// the source type tree has been elaborated.
+    pub kinds: HashMap<TypeId, KindScheme>,
 }
 
 impl CheckedKindEnv {
     pub fn roles(&self, id: TypeId) -> Option<&[Role]> {
         self.roles.get(&id).map(Vec::as_slice)
+    }
+
+    pub fn kind(&self, id: TypeId) -> Option<&KindScheme> {
+        self.kinds.get(&id)
     }
 }
 

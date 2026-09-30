@@ -37,6 +37,15 @@ instances. Source default implementations are not part of PureScript syntax.
 A backend fixture placing a default closure in a dictionary does not add a
 source-language feature.
 
+Compiler-supported deriving rules are selected by resolved class identity,
+including the declaring module; re-exporting a class does not change its
+identity, and an unrelated user class with the same short name does not gain
+the rule. Structural rules traverse the declared type's normalized field
+types. `derive newtype` delegates to the wrapped class dictionary and checked
+coercion boundaries instead of generating per-class wrappers. Every generated
+method and underlying dictionary obligation goes through ordinary instance
+checking and evidence selection, including for classes with no methods.
+
 `Coercible` consults the role vector in the checked kind environment. Equal
 types are reflexive. Matching constructors decompose arguments by role: nominal
 arguments must be equal, representational arguments require recursive evidence,
@@ -56,7 +65,7 @@ relation, not a raw Wasm cast: array elements, functions, records, and ADT
 payloads follow their established conversion plans, and unsupported conversion
 shapes fail lowering.
 
-Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Search givens first, then superclass paths and candidate instances. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
+Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Search givens first, then superclass paths and candidate instances. Matching a given unifies flexible wanted arguments with the given's arguments transactionally; it never assigns a rigid given variable, and a failed candidate leaves no substitutions behind. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
 
 Elaboration turns a constrained binding into explicit evidence parameters and inserts evidence at overloaded uses. A method selection projects from its dictionary; a superclass selection follows a dictionary field. The frontend proves and records the selected path. Backend optimization may specialize dictionaries but cannot change which instance was selected.
 
@@ -67,7 +76,7 @@ Rejected alternatives: a global ban on overlapping heads would reject valid inst
 ```text
 solve(wanted, givens, instances):
     normalize wanted; improve unknowns using class fundeps and givens
-    if matching given exists: return Given
+    if a given can unify with wanted without changing rigid variables: return Given
     if a superclass path from a given proves wanted: return Superclass
     if wanted is Coercible: prove it from checked roles, equalities, givens,
         visible newtype constructors, and structural row rules; emit Coercible
@@ -142,7 +151,7 @@ P5 consumes resolved class and instance declarations plus the checked kind-and-r
 
 ## Open questions and future work
 
-Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. Higher-kinded coercion rewriting, advanced canonical row interactions, and deriving remain open; implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
+Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. The current source subset covers role-aware higher-kinded given rewriting, checked kind compatibility, canonical open-row alignment, structural `Eq`/`Ord`, covariant `Functor.map`, `Bifunctor.bimap`, `Contravariant.cmap` through `Profunctor.lcmap`, and `derive newtype`. Class method rank-1 `forall` signatures are checked and instantiated independently; method-local constraints and the remaining class-specific deriving traversals remain open. The function-based `Contravariant` case still reaches a backend closure-capture limit, and open-row runtime conversion remains outside the current CC layout. Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
 
 ## References
 
@@ -153,6 +162,13 @@ Track the official compiler's exact orphan, instance-chain apartness, and primit
 ## Implementation notes
 
 The current bounded coercion solver is a dedicated checker helper, while the
-design target exposes it as a separate `solve_coercible` service. Higher-kinded
-rewriting and full canonical-row interactions remain unimplemented and keep
+design target exposes it as a separate `solve_coercible` service. Implemented
+source cases cover higher-kinded application-head rewrites, kind compatibility,
+role-aware canonical-given interactions, and aligned open rows; open-row values
+still lack a runtime layout. Structural `Eq`/`Ord`, nested `Functor.map`,
+`Bifunctor.bimap`, and checked newtype-derived methods execute for the covered
+method signatures. Function-result mapping and `Contravariant` through a
+profunctor dictionary match the upstream source rules; the function-based
+Contravariant case still lacks Wasmtime evidence because of closure capture.
+Method-local constraints and the remaining upstream deriving classes keep
 FE-16 partial.

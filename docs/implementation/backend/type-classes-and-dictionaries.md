@@ -6,10 +6,14 @@
 
 **Progress:** Backend dictionary lowering Verified (DICT-01..11), with Typed
 Core fixtures and source execution for constrained functions, instances,
-contexts, superclasses, imports, functional dependencies, and ordered instance
-chains. FE-14/15 remain partial: method-local annotations are incomplete and
-deriving is tracked under FE-16,
-and official-suite reconciliation remains open.
+contexts, superclasses, imports, functional dependencies, ordered instance
+chains, rank-1 polymorphic class methods, and the covered `Eq`/`Ord`, `Functor`,
+`Bifunctor`, and newtype-derived dictionaries. `Contravariant` deriving is
+type-checked through the `Profunctor.lcmap` dictionary; its function adapter
+currently reaches a P8 closure-capture limit and is not runtime-verified.
+FE-14/15 remain partial because method-local
+constraints and official-suite reconciliation are incomplete. Other deriving
+rules remain tracked under FE-16.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.
 
@@ -101,8 +105,11 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: method-local annotations and FE-16 deriving remain incomplete; official-suite
-  reconciliation remains open (DICT-11).
+  Gaps: method-local annotations remain incomplete; FE-16 executes structural
+  `Eq`/`Ord`, nested `Functor`, `Bifunctor`, and newtype-derived dictionaries.
+  `Contravariant` and function-result `Functor` have source and upstream
+  differential evidence, but no Wasmtime result for the function adapter due
+  the P8 closure-capture limit. Other deriving rules remain open.
 DICT-02:
   Implementation: crates/psrs-core/src/dictionary.rs ClassLayout::from_record_type
     and validate_record_value; crates/psrs-backend/src/cc/layout/aggregate.rs
@@ -233,8 +240,11 @@ DICT-11:
     imported ordered chains. Chain checks cover an unknown earlier head,
     context failure after branch selection, ordinary overlap, independent
     argument apartness, transitive fundep coverage, repeated-head occurs
-    checks, and recursive application heads. `tests/upstream.rs` compares
-    accepted and rejected chain cases with `purs 0.15.16`. Negative source tests cover unresolved constraints,
+    checks, and recursive application heads. `tests/upstream/` compares
+    accepted and rejected chain and deriving cases with `purs 0.15.16`.
+    Deriving cases include resolved class identity through a re-export,
+    same-name user classes, alias-expanded fields, function-result mapping,
+    and empty-class validation. Negative source tests cover unresolved constraints,
     overlap, ambiguous contexts, fundep conflicts, orphan `else`, class
     method bodies in class declarations, and deriving.
     Defaults remain fixture-only under dictionary_audit::execution.
@@ -242,9 +252,11 @@ DICT-11:
   Result: source tests pass with required Wasmtime execution for imported
     chains, transitive fundep selection, independent-argument fallback,
     repeated-head apartness, and recursive variable-headed application heads.
-  Gaps: deriving under FE-16, explicit foralls or constraints in method
-    signatures and full official-suite acceptance remain unverified or
-    unsupported; FE-14/15 are partial.
+  Gaps: deriving under FE-16 is partial (structural `Eq`/`Ord`, `Functor`,
+  `Bifunctor`, and newtype methods execute; function-based `Contravariant` is
+  type-checked but not runtime-verified due closure capture), explicit foralls or
+  constraints in method signatures and full official-suite acceptance remain
+  unverified or unsupported; FE-14/15 are partial.
 
 ```
 

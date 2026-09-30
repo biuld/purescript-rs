@@ -6,6 +6,7 @@ mod do_notation;
 mod export;
 mod expr;
 mod import;
+mod instance_decl;
 mod lower;
 mod role;
 mod ty;
@@ -19,9 +20,9 @@ pub use role::{RoleAnnotation, RoleDeclaration, TypeRole};
 pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
-    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, ForeignDataDeclaration,
-    FunctionalDependency, InstanceDeclaration, NewtypeDeclaration, TypeDeclaration, TypeParameter,
-    TypeSynonymDeclaration,
+    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, DerivationStrategy,
+    ForeignDataDeclaration, FunctionalDependency, InstanceDeclaration, NewtypeDeclaration,
+    TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

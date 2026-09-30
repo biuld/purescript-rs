@@ -86,7 +86,15 @@ convert visible newtypes and lift permitted conversions through arrays,
 functions, and data parameters according to their roles. Unwrapping a newtype
 requires its constructor to be in scope. Users cannot define `Coercible`
 instances to authorize unrelated conversions. Unsupported coercion obligations
-receive a source diagnostic; deriving remains a separate feature track.
+receive a source diagnostic.
+
+`derive instance` generates implementations for the supported standard classes
+from a locally declared type's constructors and fields. Structural `Eq` and
+`Ord`, and the covered `Functor` and `Bifunctor` mappings, are supported.
+`derive newtype instance` reuses an instance for the wrapped type, with checked
+conversions at method boundaries. Derived instances participate in the same
+constraint checks and module imports as explicitly written instances. Other
+standard deriving rules and additional field shapes remain incomplete.
 
 `arrayUpdate` is a pure operation: it returns an updated array without changing
 the input array or any aliases of it. Repeated updates from the same input are

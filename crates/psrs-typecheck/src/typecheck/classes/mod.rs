@@ -8,6 +8,7 @@
 
 mod coercion;
 mod coherence;
+mod deriving;
 mod environment;
 mod evidence;
 mod fundeps;

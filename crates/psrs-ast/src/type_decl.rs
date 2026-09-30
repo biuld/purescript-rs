@@ -137,7 +137,17 @@ pub struct InstanceDeclaration {
     pub context: Vec<Type>,
     pub head: Type,
     pub members: Vec<crate::Declaration>,
+    /// The compiler derivation strategy requested by `derive instance`.
+    /// Generated methods are elaborated after name resolution, when the class
+    /// and constructor identities are stable.
+    pub derivation: Option<DerivationStrategy>,
     pub span: TextRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DerivationStrategy {
+    KnownClass,
+    Newtype,
 }
 
 /// Assigns module-local identities and positions to singleton instances and
@@ -174,6 +184,13 @@ impl InstanceChainTracker {
         };
         self.previous = Some(next);
         Ok(next)
+    }
+
+    pub(crate) fn next_singleton(&mut self) -> u32 {
+        let chain_id = self.next_chain_id;
+        self.next_chain_id += 1;
+        self.previous = None;
+        chain_id
     }
 }
 
@@ -370,53 +387,6 @@ fn lower_constraints(expression: cst::TypeExpr) -> Result<Vec<Type>, LowerError>
             span: expression.span,
         })?]),
     }
-}
-
-/// Lowers an `instance` declaration. Its where-block members become ordinary
-/// value declarations, one per method implementation.
-pub(crate) fn lower_instance(
-    declaration: cst::InstanceDeclaration,
-    chain_id: u32,
-    chain_position: u32,
-) -> Result<InstanceDeclaration, LowerError> {
-    let context = match declaration.constraints {
-        Some(constraints) => lower_constraints(*constraints)?,
-        None => Vec::new(),
-    };
-    let head = lower_type(declaration.head)?;
-    let mut members = Vec::new();
-    if let Some(block) = declaration.where_block {
-        for member in block.declarations {
-            match member {
-                cst::Declaration::Value(value) => {
-                    members.push(crate::lower_value_declaration(value)?);
-                }
-                cst::Declaration::TypeSignature(_) => {}
-                other => {
-                    return Err(LowerError::new(
-                        other.span(),
-                        "this instance member is not supported yet",
-                    ));
-                }
-            }
-        }
-    }
-    let name = match declaration.name {
-        Some(name) => lower_name(name),
-        None => Name {
-            text: String::new(),
-            span: declaration.span,
-        },
-    };
-    Ok(InstanceDeclaration {
-        name,
-        chain_id,
-        chain_position,
-        context,
-        head,
-        members,
-        span: declaration.span,
-    })
 }
 
 fn lower_class_members(

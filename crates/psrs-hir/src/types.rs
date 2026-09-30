@@ -99,7 +99,16 @@ pub struct InstanceDeclaration {
     pub context: Vec<Type>,
     pub head: Type,
     pub members: Vec<InstanceMember>,
+    /// Compiler derivation strategy attached to a source `derive instance`.
+    /// The resolved typechecker owns method synthesis from this marker.
+    pub derivation: Option<DerivationStrategy>,
     pub span: TextRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DerivationStrategy {
+    KnownClass,
+    Newtype,
 }
 
 /// One method implementation supplied by an instance.

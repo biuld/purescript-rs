@@ -93,7 +93,13 @@ impl Checker {
             return None;
         }
         for (given, solution) in self.givens.clone() {
-            if given.class_id == class_id && self.constraints_match(&given.arguments, &arguments) {
+            if given.class_id == class_id
+                && self.constraint_arguments_match_or_unify(
+                    &given.arguments,
+                    &arguments,
+                    constraint.span,
+                )
+            {
                 return Some(solution);
             }
         }
@@ -184,7 +190,11 @@ impl Checker {
                 field: superclass.field.clone(),
             };
             if superclass.class_id == wanted.class_id
-                && self.constraints_match(&arguments, &wanted.arguments)
+                && self.constraint_arguments_match_or_unify(
+                    &arguments,
+                    &wanted.arguments,
+                    wanted.span,
+                )
             {
                 return Some(solution);
             }
@@ -195,6 +205,34 @@ impl Checker {
             }
         }
         None
+    }
+
+    /// Matches a wanted constraint against a given or projected superclass.
+    /// Wanted type variables can be refined to the known argument types, but a
+    /// failed candidate must leave no substitutions or diagnostics behind.
+    fn constraint_arguments_match_or_unify(
+        &mut self,
+        expected: &[InferType],
+        actual: &[InferType],
+        span: TextRange,
+    ) -> bool {
+        if expected.len() != actual.len() {
+            return false;
+        }
+        let substitutions = self.substitutions.clone();
+        let levels = self.levels.clone();
+        let errors_len = self.errors.len();
+        for (expected, actual) in expected.iter().zip(actual) {
+            self.unify(actual.clone(), expected.clone(), span);
+        }
+        if self.errors.len() == errors_len {
+            true
+        } else {
+            self.substitutions = substitutions;
+            self.levels = levels;
+            self.errors.truncate(errors_len);
+            false
+        }
     }
 
     /// Solves one instance's context and, on success, returns the instance

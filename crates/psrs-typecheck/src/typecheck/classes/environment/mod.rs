@@ -1,5 +1,8 @@
 use super::super::signature::{flatten_spine, nominal_type_id};
 use super::super::*;
+mod method;
+
+use method::validate_method_signature;
 
 impl Checker {
     /// Records every class in the program with its parameters, superclass
@@ -69,6 +72,7 @@ impl Checker {
                     ));
                 }
                 let method = MethodInfo {
+                    symbol: member.symbol,
                     name: member.name.clone(),
                     signature: signature.clone(),
                 };
@@ -444,53 +448,4 @@ fn head_variables(arguments: &[&hir::Type]) -> Vec<String> {
         collect_variables(argument, &mut names);
     }
     names
-}
-
-/// Checks that a method signature mentions only its class parameters, with no
-/// method-level forall or constraint.
-fn validate_method_signature(signature: &hir::Type, parameters: &[String]) -> Result<(), String> {
-    let mut variables = Vec::new();
-    collect_signature_variables(signature, &mut variables)?;
-    for variable in variables {
-        if !parameters.contains(&variable) {
-            return Err(format!(
-                "class method signature uses `{variable}`, which is not a class parameter"
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn collect_signature_variables(ty: &hir::Type, out: &mut Vec<String>) -> Result<(), String> {
-    match &ty.kind {
-        hir::TypeKind::Variable(name) => out.push(name.clone()),
-        hir::TypeKind::Forall { .. } => {
-            return Err("class method signatures with foralls are not supported yet".into());
-        }
-        hir::TypeKind::Constrained { .. } => {
-            return Err("class method signatures with constraints are not supported yet".into());
-        }
-        hir::TypeKind::Application(function, argument) => {
-            collect_signature_variables(function, out)?;
-            collect_signature_variables(argument, out)?;
-        }
-        hir::TypeKind::Function { parameter, result } => {
-            collect_signature_variables(parameter, out)?;
-            collect_signature_variables(result, out)?;
-        }
-        hir::TypeKind::Record { fields, tail } | hir::TypeKind::Row { fields, tail } => {
-            for field in fields {
-                collect_signature_variables(&field.ty, out)?;
-            }
-            if let Some(tail) = tail {
-                collect_signature_variables(tail, out)?;
-            }
-        }
-        hir::TypeKind::Constructor(_)
-        | hir::TypeKind::Named(_)
-        | hir::TypeKind::Opaque(_)
-        | hir::TypeKind::Integer(_)
-        | hir::TypeKind::String(_) => {}
-    }
-    Ok(())
 }

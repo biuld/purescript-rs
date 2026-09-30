@@ -48,10 +48,15 @@ impl Checker {
         for constructor in constructors {
             let mut variables = HashMap::new();
             let mut arguments = Vec::new();
-            for parameter in &constructor.parameters {
+            let parameter_kinds =
+                self.type_argument_kinds(constructor.type_id, constructor.parameters.len());
+            for (index, parameter) in constructor.parameters.iter().enumerate() {
                 let variable = self.fresh();
                 if let InferType::Variable(id) = variable {
                     self.rigid.insert(id);
+                    if let Some(kind) = parameter_kinds.get(index) {
+                        self.infer_variable_kinds.insert(id, kind.clone());
+                    }
                 }
                 variables.insert(parameter.clone(), variable.clone());
                 arguments.push(variable);

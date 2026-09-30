@@ -12,7 +12,10 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut index = 0;
     while index < module.declarations.len() {
         let declaration = module.declarations[index].clone();
-        if !matches!(&declaration, cst::Declaration::Instance(_)) {
+        if !matches!(
+            &declaration,
+            cst::Declaration::Instance(_) | cst::Declaration::Derive(_)
+        ) {
             instance_chains.reset();
         }
         match declaration {
@@ -72,12 +75,20 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                         continue;
                     }
                 };
-                match type_decl::lower_instance(declaration, chain_id, chain_position) {
+                match instance_decl::lower_instance(declaration, chain_id, chain_position, None) {
                     Ok(instance) => instances.push(instance),
                     Err(error) => {
                         instance_chains.reset();
                         errors.push(error);
                     }
+                }
+                index += 1;
+            }
+            cst::Declaration::Derive(declaration) => {
+                let chain_id = instance_chains.next_singleton();
+                match instance_decl::lower_derive(declaration, chain_id) {
+                    Ok(instance) => instances.push(instance),
+                    Err(error) => errors.push(error),
                 }
                 index += 1;
             }

@@ -174,6 +174,53 @@ fn uses_a_generic_coercion_function_from_an_imported_module_when_wasmtime_is_ava
 }
 
 #[test]
+fn rewrites_imported_canonical_givens_and_executes_the_result_when_wasmtime_is_available() {
+    let library = r#"module CoerceLib where
+import Safe.Coerce (class Coercible, coerce)
+newtype Wrap a = Wrap a
+convert :: forall source a b. Coercible source (Wrap a) => Coercible a b => source -> a -> Wrap b
+convert source _ = coerce source
+"#;
+    let main = r#"module Main where
+import CoerceLib (Wrap(..), convert)
+import Safe.Coerce (class Coercible)
+newtype Age = Age Int
+extract :: Wrap Int -> Int
+extract (Wrap value) = value
+main :: Int
+main = extract (convert (Wrap (Age 41)) (Age 1))
+"#;
+    let Some(output) =
+        run_program_with_wasmtime(&[("CoerceLib.purs", library), ("Main.purs", main)])
+    else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(41));
+}
+
+#[test]
+fn canonical_record_rows_with_reordered_labels_convert_at_runtime() {
+    let source = r#"module Main where
+import Prim.Coerce (class Coercible)
+import Safe.Coerce (coerce)
+
+newtype Age = Age Int
+
+convert :: { value :: Age, id :: Int } -> { id :: Int, value :: Int }
+convert = coerce
+
+main :: Int
+main = (convert { value: Age 42, id: 1 }).value
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn coerces_through_an_imported_visible_newtype_when_wasmtime_is_available() {
     let library = "module AgeLib (Age(..), age) where\n\
         newtype Age = Age Int\n\
