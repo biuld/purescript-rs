@@ -2,9 +2,14 @@
 //!
 //! `environment` validates class and instance declarations and records the
 //! searchable class environment. `evidence` elaborates constraints into THIR
-//! dictionary evidence (givens, instance dictionaries, and method selection).
+//! dictionary evidence (givens, instance dictionaries, superclass projections,
+//! and method selection); `solve` discharges wanted constraints; `instance`
+//! builds instance dictionary values.
 
 mod environment;
 mod evidence;
+mod instance;
+mod locals;
+mod solve;
 
-pub(in crate::typecheck) use environment::next_local_id;
+pub(in crate::typecheck) use locals::next_local_id;

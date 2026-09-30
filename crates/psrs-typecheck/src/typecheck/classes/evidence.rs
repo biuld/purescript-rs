@@ -28,22 +28,6 @@ impl Checker {
             ));
             return None;
         };
-        if class.superclasses != 0 {
-            self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::UnsupportedClass,
-                ty.span,
-                "constraints on classes with superclasses are not supported yet",
-            ));
-            return None;
-        }
-        if class.parameters.len() != 1 {
-            self.errors.push(TypeCheckError::new(
-                TypeCheckErrorKind::UnsupportedClass,
-                ty.span,
-                "constraints on multi-parameter classes are not supported yet",
-            ));
-            return None;
-        }
         if arguments.len() != class.parameters.len() {
             self.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::TypeMismatch,
@@ -63,8 +47,9 @@ impl Checker {
         })
     }
 
-    /// The dictionary record type for a class constraint: one field per method,
-    /// in declaration order, with the class parameter substituted.
+    /// The dictionary record type for a class constraint: one field per
+    /// superclass (holding that superclass's dictionary) followed by one field
+    /// per method, with the class parameters substituted.
     pub(in crate::typecheck) fn dictionary_type(
         &mut self,
         constraint: &ClassConstraint,
@@ -72,18 +57,30 @@ impl Checker {
         let Some(class) = self.classes.get(&constraint.class_id).cloned() else {
             return record_type(Vec::new(), InferType::RowEmpty);
         };
-        let fields = class
-            .methods
-            .iter()
-            .map(|method| {
-                let mut variables = HashMap::new();
-                for (parameter, argument) in class.parameters.iter().zip(&constraint.arguments) {
-                    variables.insert(parameter.clone(), argument.clone());
+        let mut variables = HashMap::new();
+        for (parameter, argument) in class.parameters.iter().zip(&constraint.arguments) {
+            variables.insert(parameter.clone(), argument.clone());
+        }
+        let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
+        for superclass in &class.superclasses {
+            let mut arguments = Vec::with_capacity(superclass.arguments.len());
+            for name in &superclass.arguments {
+                if let Some(argument) = variables.get(name) {
+                    arguments.push(argument.clone());
                 }
-                let field_ty = self.elaborate_type(&method.signature, &mut variables);
-                (method.name.clone(), field_ty)
-            })
-            .collect();
+            }
+            let super_constraint = ClassConstraint {
+                class_id: superclass.class_id,
+                arguments,
+                span: superclass.span,
+            };
+            let field_ty = self.dictionary_type(&super_constraint);
+            fields.push((superclass.field.clone(), field_ty));
+        }
+        for method in &class.methods {
+            let field_ty = self.elaborate_type(&method.signature, &mut variables);
+            fields.push((method.name.clone(), field_ty));
+        }
         record_type(fields, InferType::RowEmpty)
     }
 
@@ -227,54 +224,11 @@ impl Checker {
         self.givens.clear();
     }
 
-    /// Solves every unsolved wanted constraint against the current givens and
-    /// the declared instances, reporting each unresolved constraint.
-    pub(in crate::typecheck) fn solve_wanted_constraints(&mut self) {
-        let wanted = std::mem::take(&mut self.wanted);
-        let mut solved = Vec::with_capacity(wanted.len());
-        for mut constraint in wanted {
-            if constraint.solution.is_none() {
-                let arguments = constraint
-                    .arguments
-                    .iter()
-                    .map(|argument| self.resolve_type(argument.clone()))
-                    .collect::<Vec<_>>();
-                constraint.solution = self.select_solution(constraint.class_id, &arguments);
-                if constraint.solution.is_none() {
-                    let rendered = self.display_constraint(constraint.class_id, &arguments);
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::NoInstance,
-                        constraint.span,
-                        format!("no instance for constraint {rendered}"),
-                    ));
-                }
-            }
-            solved.push(constraint);
-        }
-        self.wanted = solved;
-    }
-
-    fn select_solution(
+    pub(in crate::typecheck) fn constraints_match(
         &self,
-        class_id: hir::TypeId,
-        arguments: &[InferType],
-    ) -> Option<WantedSolution> {
-        for (given, solution) in &self.givens {
-            if given.class_id == class_id && self.constraints_match(&given.arguments, arguments) {
-                return Some(solution.clone());
-            }
-        }
-        for instance in &self.instances {
-            if instance.class_id == class_id
-                && self.constraints_match(&instance.head_arguments, arguments)
-            {
-                return Some(WantedSolution::Global(instance.symbol));
-            }
-        }
-        None
-    }
-
-    fn constraints_match(&self, expected: &[InferType], actual: &[InferType]) -> bool {
+        expected: &[InferType],
+        actual: &[InferType],
+    ) -> bool {
         expected.len() == actual.len()
             && expected
                 .iter()
@@ -315,7 +269,11 @@ impl Checker {
         }
     }
 
-    fn display_constraint(&self, class_id: hir::TypeId, arguments: &[InferType]) -> String {
+    pub(in crate::typecheck) fn display_constraint(
+        &self,
+        class_id: hir::TypeId,
+        arguments: &[InferType],
+    ) -> String {
         let name = self
             .type_names
             .get(&class_id)
@@ -364,84 +322,6 @@ impl Checker {
         value
     }
 
-    /// Types an instance's method bodies against the class method signatures
-    /// with the head's concrete arguments substituted, then builds its
-    /// dictionary value.
-    pub(in crate::typecheck) fn infer_instance_declaration(
-        &mut self,
-        instance: &hir::InstanceDeclaration,
-    ) -> Option<InferredDeclaration> {
-        let class = self.classes.get(&instance.class_id).cloned()?;
-        let head_arguments = self
-            .instances
-            .iter()
-            .find(|info| info.symbol == instance.symbol)
-            .map(|info| info.head_arguments.clone())?;
-        if class.superclasses != 0 || !instance.context.is_empty() {
-            return None;
-        }
-        for member in &instance.members {
-            if !class
-                .methods
-                .iter()
-                .any(|method| method.name == member.name)
-            {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    member.name_span,
-                    format!(
-                        "instance member `{}` is not a method of its class",
-                        member.name
-                    ),
-                ));
-                return None;
-            }
-        }
-        let constraint = ClassConstraint {
-            class_id: instance.class_id,
-            arguments: head_arguments.clone(),
-            span: instance.span,
-        };
-        let dictionary_type = self.dictionary_type(&constraint);
-        self.givens.clear();
-        let mut fields = Vec::with_capacity(class.methods.len());
-        for method in &class.methods {
-            let Some(member) = instance
-                .members
-                .iter()
-                .find(|member| member.name == method.name)
-            else {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::MissingInstanceMethod,
-                    instance.span,
-                    format!("instance is missing method `{}`", method.name),
-                ));
-                return None;
-            };
-            let mut variables = HashMap::new();
-            for (parameter, argument) in class.parameters.iter().zip(&head_arguments) {
-                variables.insert(parameter.clone(), argument.clone());
-            }
-            let expected = self.elaborate_type(&method.signature, &mut variables);
-            let value = self.infer_expr_with_expected(&member.value, Some(expected.clone()))?;
-            self.unify(expected, value.ty.clone(), member.span);
-            fields.push((method.name.clone(), value));
-        }
-        self.solve_wanted_constraints();
-        Some(InferredDeclaration {
-            symbol: instance.symbol,
-            name: instance.name.clone(),
-            name_span: instance.name_span,
-            scheme: Scheme::monomorphic(dictionary_type.clone()),
-            value: InferredExpr {
-                kind: InferredExprKind::Record(fields),
-                ty: dictionary_type,
-                span: instance.span,
-            },
-            span: instance.span,
-        })
-    }
-
     /// Builds the THIR evidence for a solved wanted constraint.
     pub(in crate::typecheck) fn wanted_evidence(
         &mut self,
@@ -449,21 +329,65 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Evidence> {
-        let wanted = self.wanted.get(index)?;
-        let solution = wanted.solution.clone()?;
-        let class_id = wanted.class_id;
-        let span = wanted.span;
-        let dictionary_type = wanted.dictionary_type.clone();
-        let ty = self.finalize_type(&dictionary_type, span, interner, generics)?;
-        let kind = match solution {
+        let wanted = self.wanted.get(index)?.clone();
+        self.constraint_evidence(&wanted, interner, generics)
+    }
+
+    fn constraint_evidence(
+        &mut self,
+        constraint: &WantedConstraint,
+        interner: &mut TypeInterner,
+        generics: &HashSet<u32>,
+    ) -> Option<thir::Evidence> {
+        let solution = constraint.solution.clone()?;
+        let ty = self.finalize_type(
+            &constraint.dictionary_type,
+            constraint.span,
+            interner,
+            generics,
+        )?;
+        Some(thir::Evidence {
+            kind: self.solution_kind(solution, constraint.span, interner, generics)?,
+            class_id: constraint.class_id,
+            ty,
+            span: constraint.span,
+        })
+    }
+
+    fn solution_kind(
+        &mut self,
+        solution: WantedSolution,
+        span: TextRange,
+        interner: &mut TypeInterner,
+        generics: &HashSet<u32>,
+    ) -> Option<thir::EvidenceKind> {
+        Some(match solution {
             WantedSolution::Given(id) => thir::EvidenceKind::Given(id),
             WantedSolution::Global(symbol) => thir::EvidenceKind::Global(symbol),
-        };
-        Some(thir::Evidence {
-            kind,
-            class_id,
-            ty,
-            span,
+            WantedSolution::Instance {
+                constructor,
+                constructor_type,
+                context,
+            } => {
+                let constructor_type =
+                    self.finalize_type(&constructor_type, span, interner, generics)?;
+                let mut evidence = Vec::with_capacity(context.len());
+                for child in &context {
+                    evidence.push(self.constraint_evidence(child, interner, generics)?);
+                }
+                thir::EvidenceKind::Instance {
+                    constructor,
+                    constructor_type,
+                    context: evidence,
+                }
+            }
+            WantedSolution::Superclass { parent, field } => {
+                let parent = self.constraint_evidence(&parent, interner, generics)?;
+                thir::EvidenceKind::Superclass {
+                    parent: Box::new(parent),
+                    field,
+                }
+            }
         })
     }
 }

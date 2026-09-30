@@ -67,6 +67,10 @@ impl Checker {
                 };
                 thir::ExprKind::Application(Box::new(function), Box::new(evidence))
             }
+            InferredExprKind::Evidence(wanted) => {
+                let evidence = self.wanted_evidence(wanted, interner, generics)?;
+                thir::ExprKind::Evidence(evidence)
+            }
             InferredExprKind::Application(function, argument) => {
                 let function = self.finalize_expr(*function, interner, generics);
                 let argument = self.finalize_expr(*argument, interner, generics);

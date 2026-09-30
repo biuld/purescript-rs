@@ -1,9 +1,11 @@
+use super::super::signature::{flatten_spine, nominal_type_id};
 use super::super::*;
 
 impl Checker {
-    /// Records every class in the program and its methods. Classes declared in
-    /// this module are validated; imported classes are recorded so their
-    /// methods can be selected and their unsupported forms rejected at use.
+    /// Records every class in the program with its parameters, superclass
+    /// edges, and methods. Classes declared in this module are validated;
+    /// imported classes are recorded so their methods can be selected and
+    /// their unsupported forms rejected at use.
     pub(in crate::typecheck) fn build_class_environment(
         &mut self,
         module: &hir::Module,
@@ -17,29 +19,15 @@ impl Checker {
                 declarations.push(declaration);
             }
         }
-        for declaration in declarations {
+        // Record parameters and methods for every class first so that a
+        // superclass edge can refer to a class declared later in the program.
+        for declaration in &declarations {
             let parameters = declaration
                 .parameters
                 .iter()
                 .map(|parameter| parameter.name.clone())
                 .collect::<Vec<_>>();
             let local = declaration.id.module == module.id;
-            if local {
-                if parameters.len() != 1 {
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::UnsupportedClass,
-                        declaration.name_span,
-                        "a class must have exactly one type parameter",
-                    ));
-                }
-                if !declaration.superclasses.is_empty() {
-                    self.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::UnsupportedClass,
-                        declaration.name_span,
-                        "class superclasses are not supported yet",
-                    ));
-                }
-            }
             let mut methods = Vec::new();
             for member in &declaration.members {
                 let Some(signature) = &member.signature else {
@@ -71,15 +59,143 @@ impl Checker {
                 declaration.id,
                 ClassInfo {
                     parameters,
-                    superclasses: declaration.superclasses.len(),
+                    superclasses: Vec::new(),
                     methods,
                 },
             );
         }
+        // Elaborate each class's superclass edges now that every class's
+        // parameter list is known. Imported classes keep their edges so a
+        // local instance of an imported class still has its superclass fields.
+        for declaration in &declarations {
+            let local = declaration.id.module == module.id;
+            let parameters = self
+                .classes
+                .get(&declaration.id)
+                .map(|class| class.parameters.clone())
+                .unwrap_or_default();
+            let mut superclasses = Vec::new();
+            for (index, superclass) in declaration.superclasses.iter().enumerate() {
+                if let Some(info) = self.build_superclass(superclass, &parameters, index, local) {
+                    superclasses.push(info);
+                }
+            }
+            if let Some(class) = self.classes.get_mut(&declaration.id) {
+                class.superclasses = superclasses;
+            }
+        }
+        self.validate_superclass_cycles(module);
     }
 
-    /// Records each instance's class, concrete head arguments, and dictionary
-    /// symbol. The dictionary value itself is elaborated as a declaration.
+    /// Elaborates one superclass edge `C τ...`. Every argument must be one of
+    /// the subclass's type parameters; the edge's field name follows the
+    /// official compiler's `ClassName<index>` scheme. `local` gates the
+    /// diagnostics because an imported class was already checked in its module.
+    fn build_superclass(
+        &mut self,
+        superclass: &hir::Type,
+        parameters: &[String],
+        index: usize,
+        local: bool,
+    ) -> Option<SuperclassInfo> {
+        let (head, arguments) = flatten_spine(superclass);
+        let Some(class_id) = nominal_type_id(head) else {
+            if local {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedClass,
+                    superclass.span,
+                    "a superclass must name a class",
+                ));
+            }
+            return None;
+        };
+        let Some(arity) = self
+            .classes
+            .get(&class_id)
+            .map(|class| class.parameters.len())
+        else {
+            if local {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedClass,
+                    superclass.span,
+                    "a superclass names an unknown class",
+                ));
+            }
+            return None;
+        };
+        if arguments.len() != arity {
+            if local {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedClass,
+                    superclass.span,
+                    "a superclass constraint has the wrong number of type arguments",
+                ));
+            }
+            return None;
+        }
+        let mut names = Vec::with_capacity(arguments.len());
+        for argument in arguments {
+            match &argument.kind {
+                hir::TypeKind::Variable(name) if parameters.contains(name) => {
+                    names.push(name.clone());
+                }
+                _ => {
+                    if local {
+                        self.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::UnsupportedClass,
+                            argument.span,
+                            "a superclass argument must be one of the class's type parameters",
+                        ));
+                    }
+                    return None;
+                }
+            }
+        }
+        let name = self
+            .type_names
+            .get(&class_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Class{}", class_id.index));
+        Some(SuperclassInfo {
+            class_id,
+            arguments: names,
+            field: format!("{name}{index}"),
+            span: superclass.span,
+        })
+    }
+
+    /// Reports superclass cycles, which would make the class environment
+    /// unsatisfiable and dictionary construction non-terminating.
+    fn validate_superclass_cycles(&mut self, module: &hir::Module) {
+        let mut status: HashMap<hir::TypeId, u8> = HashMap::new();
+        let mut cycle = None;
+        for declaration in &module.types {
+            if declaration.kind != hir::TypeDeclarationKind::Class {
+                continue;
+            }
+            if superclass_cycle(declaration.id, &self.classes, &mut status) {
+                cycle = Some(declaration.name_span);
+                break;
+            }
+        }
+        if let Some(span) = cycle {
+            self.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::UnsupportedClass,
+                span,
+                "class superclasses form a cycle",
+            ));
+            // The program is rejected; drop the edges so later dictionary
+            // construction does not recurse forever while diagnostics finish.
+            for class in self.classes.values_mut() {
+                class.superclasses.clear();
+            }
+        }
+    }
+
+    /// Records each instance's class, head arguments, elaborated context
+    /// constraints, and the dictionary parameters synthesized for that
+    /// context. The dictionary value and its context-solving are elaborated
+    /// as a declaration.
     pub(in crate::typecheck) fn build_instance_environment(&mut self, module: &hir::Module) {
         for instance in &module.instances {
             let Some(class) = self.classes.get(&instance.class_id).cloned() else {
@@ -90,15 +206,7 @@ impl Checker {
                 ));
                 continue;
             };
-            if class.superclasses != 0 {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    instance.span,
-                    "instances of classes with superclasses are not supported yet",
-                ));
-                continue;
-            }
-            let arguments = head_arguments(&instance.head);
+            let (_, arguments) = flatten_spine(&instance.head);
             if arguments.len() != class.parameters.len() {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedClass,
@@ -107,63 +215,121 @@ impl Checker {
                 ));
                 continue;
             }
-            if !instance.context.is_empty() {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    instance.span,
-                    "instance contexts are not supported yet",
-                ));
-                continue;
-            }
             let mut variables = HashMap::new();
             let head_arguments = arguments
                 .iter()
                 .map(|argument| self.elaborate_type(argument, &mut variables))
                 .collect::<Vec<_>>();
-            if !head_arguments
-                .iter()
-                .all(|argument| self.is_ground_type(argument))
-            {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    instance.span,
-                    "an instance head argument must be a concrete type",
-                ));
+            let mut context = Vec::with_capacity(instance.context.len());
+            let mut context_parameters = Vec::with_capacity(instance.context.len());
+            let mut valid = true;
+            for constraint in &instance.context {
+                let Some(elaborated) = self.elaborate_constraint(constraint, &mut variables, true)
+                else {
+                    valid = false;
+                    continue;
+                };
+                let dictionary_type = self.dictionary_type(&elaborated);
+                let id = LocalId(self.next_dictionary_local);
+                self.next_dictionary_local += 1;
+                context_parameters.push((id, dictionary_type));
+                context.push(elaborated);
+            }
+            if !valid {
+                continue;
+            }
+            let head_names = head_variables(&arguments);
+            for constraint in &instance.context {
+                let mut used = Vec::new();
+                collect_variables(constraint, &mut used);
+                for name in used {
+                    if !head_names.contains(&name) {
+                        self.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::UnsupportedClass,
+                            constraint.span,
+                            "an instance context variable must appear in the instance head",
+                        ));
+                        valid = false;
+                    }
+                }
+            }
+            if !valid {
                 continue;
             }
             self.instances.push(InstanceInfo {
                 symbol: instance.symbol,
                 class_id: instance.class_id,
                 head_arguments,
+                context,
+                context_parameters,
             });
-        }
-    }
-
-    /// Whether a type contains no inference variables and no open row tail.
-    pub(in crate::typecheck) fn is_ground_type(&self, ty: &InferType) -> bool {
-        match self.resolve_type(ty.clone()) {
-            InferType::Variable(_) => false,
-            InferType::Application(function, argument) => {
-                self.is_ground_type(&function) && self.is_ground_type(&argument)
-            }
-            InferType::RowExtend { ty, tail, .. } => {
-                self.is_ground_type(&ty) && self.is_ground_type(&tail)
-            }
-            InferType::RowEmpty | InferType::Constructor(_) => true,
         }
     }
 }
 
-/// The type arguments of an instance head such as `C T U`.
-fn head_arguments(head: &hir::Type) -> Vec<&hir::Type> {
-    let mut arguments = Vec::new();
-    let mut expression = head;
-    while let hir::TypeKind::Application(function, argument) = &expression.kind {
-        arguments.push(argument.as_ref());
-        expression = function;
+/// Depth-first search for a superclass cycle through `classes`.
+fn superclass_cycle(
+    id: hir::TypeId,
+    classes: &HashMap<hir::TypeId, ClassInfo>,
+    status: &mut HashMap<hir::TypeId, u8>,
+) -> bool {
+    match status.get(&id) {
+        Some(1) => return true,
+        Some(2) => return false,
+        _ => {}
     }
-    arguments.reverse();
-    arguments
+    status.insert(id, 1);
+    if let Some(class) = classes.get(&id) {
+        for superclass in &class.superclasses {
+            if superclass_cycle(superclass.class_id, classes, status) {
+                return true;
+            }
+        }
+    }
+    status.insert(id, 2);
+    false
+}
+
+/// The set of type-variable names used anywhere in a class or context type.
+fn collect_variables(ty: &hir::Type, out: &mut Vec<String>) {
+    match &ty.kind {
+        hir::TypeKind::Variable(name) => out.push(name.clone()),
+        hir::TypeKind::Application(function, argument) => {
+            collect_variables(function, out);
+            collect_variables(argument, out);
+        }
+        hir::TypeKind::Function { parameter, result } => {
+            collect_variables(parameter, out);
+            collect_variables(result, out);
+        }
+        hir::TypeKind::Record { fields, tail } | hir::TypeKind::Row { fields, tail } => {
+            for field in fields {
+                collect_variables(&field.ty, out);
+            }
+            if let Some(tail) = tail {
+                collect_variables(tail, out);
+            }
+        }
+        hir::TypeKind::Forall { body, .. } => collect_variables(body, out),
+        hir::TypeKind::Constrained { constraint, body } => {
+            collect_variables(constraint, out);
+            collect_variables(body, out);
+        }
+        hir::TypeKind::Constructor(_)
+        | hir::TypeKind::Named(_)
+        | hir::TypeKind::Opaque(_)
+        | hir::TypeKind::Integer(_)
+        | hir::TypeKind::String(_) => {}
+    }
+}
+
+/// The type-variable names appearing in an instance head's arguments.
+fn head_variables(arguments: &[&hir::Type]) -> Vec<String> {
+    let mut names = Vec::new();
+    for argument in arguments {
+        collect_variables(argument, &mut names);
+    }
+    names
 }
 
 /// Checks that a method signature mentions only its class parameters, with no
@@ -213,106 +379,4 @@ fn collect_signature_variables(ty: &hir::Type, out: &mut Vec<String>) -> Result<
         | hir::TypeKind::String(_) => {}
     }
     Ok(())
-}
-
-/// The first local ID not used by any source-local binder in the module, used
-/// to synthesize dictionary parameters.
-pub(in crate::typecheck) fn next_local_id(module: &hir::Module) -> u32 {
-    let mut max = None;
-    for declaration in &module.declarations {
-        scan_expr(&declaration.value, &mut max);
-    }
-    for instance in &module.instances {
-        for member in &instance.members {
-            scan_expr(&member.value, &mut max);
-        }
-    }
-    max.map_or(0, |value| value + 1)
-}
-
-fn note_local(id: LocalId, max: &mut Option<u32>) {
-    *max = Some(max.map_or(id.0, |value| value.max(id.0)));
-}
-
-fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
-    match &expression.kind {
-        hir::ExprKind::Local(id) => note_local(*id, max),
-        hir::ExprKind::Global(_)
-        | hir::ExprKind::Integer(_)
-        | hir::ExprKind::Number(_)
-        | hir::ExprKind::String(_)
-        | hir::ExprKind::Char(_) => {}
-        hir::ExprKind::Array(elements) => {
-            for element in elements {
-                scan_expr(element, max);
-            }
-        }
-        hir::ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                scan_expr(value, max);
-            }
-        }
-        hir::ExprKind::RecordUpdate { expression, fields } => {
-            scan_expr(expression, max);
-            for (_, value) in fields {
-                scan_expr(value, max);
-            }
-        }
-        hir::ExprKind::FieldAccess { expression, .. } => scan_expr(expression, max),
-        hir::ExprKind::Application(function, argument) => {
-            scan_expr(function, max);
-            scan_expr(argument, max);
-        }
-        hir::ExprKind::Operator { left, right, .. } => {
-            scan_expr(left, max);
-            scan_expr(right, max);
-        }
-        hir::ExprKind::Lambda { binder, body } => {
-            note_local(binder.id, max);
-            scan_expr(body, max);
-        }
-        hir::ExprKind::Let { bindings, body } => {
-            for binding in bindings {
-                note_local(binding.binder.id, max);
-                scan_expr(&binding.value, max);
-            }
-            scan_expr(body, max);
-        }
-        hir::ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            scan_expr(condition, max);
-            scan_expr(then_branch, max);
-            scan_expr(else_branch, max);
-        }
-        hir::ExprKind::Case {
-            scrutinee,
-            branches,
-        } => {
-            scan_expr(scrutinee, max);
-            for branch in branches {
-                scan_pattern(&branch.pattern, max);
-                scan_expr(&branch.value, max);
-            }
-        }
-    }
-}
-
-fn scan_pattern(pattern: &hir::Pattern, max: &mut Option<u32>) {
-    match &pattern.kind {
-        hir::PatternKind::Wildcard => {}
-        hir::PatternKind::Var(binder) => note_local(binder.id, max),
-        hir::PatternKind::Constructor { arguments, .. } => {
-            for argument in arguments {
-                scan_pattern(argument, max);
-            }
-        }
-        hir::PatternKind::Record { fields } => {
-            for (_, field) in fields {
-                scan_pattern(field, max);
-            }
-        }
-    }
 }

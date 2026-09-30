@@ -202,27 +202,55 @@ struct MethodInfo {
     signature: hir::Type,
 }
 
-/// A class with its ordered type parameters and methods.
+/// One superclass edge of a class. Its arguments are the subclass parameter
+/// names that supply the superclass's arguments, in the superclass's parameter
+/// order. `field` is the dictionary record field that stores the superclass
+/// dictionary.
+#[derive(Clone, Debug)]
+struct SuperclassInfo {
+    class_id: hir::TypeId,
+    arguments: Vec<String>,
+    field: String,
+    span: TextRange,
+}
+
+/// A class with its ordered type parameters, superclass edges, and methods.
 #[derive(Clone, Debug)]
 struct ClassInfo {
     parameters: Vec<String>,
-    superclasses: usize,
+    superclasses: Vec<SuperclassInfo>,
     methods: Vec<MethodInfo>,
 }
 
-/// An instance's class, concrete head arguments, and dictionary symbol.
+/// An instance's class, head arguments (which may contain instance variables),
+/// elaborated context constraints, and the synthesized dictionary parameters
+/// for that context.
 #[derive(Clone, Debug)]
 struct InstanceInfo {
     symbol: SymbolId,
     class_id: hir::TypeId,
     head_arguments: Vec<InferType>,
+    context: Vec<ClassConstraint>,
+    context_parameters: Vec<(LocalId, InferType)>,
 }
 
-/// The dictionary selected for a wanted constraint during solving.
+/// The dictionary selected for a wanted constraint during solving. A
+/// superclass selection embeds the parent constraint's already-solved
+/// dictionary, and an instance selection embeds the solved context constraints
+/// whose dictionaries it applies the constructor to.
 #[derive(Clone, Debug)]
 enum WantedSolution {
     Given(LocalId),
     Global(SymbolId),
+    Instance {
+        constructor: SymbolId,
+        constructor_type: InferType,
+        context: Vec<WantedConstraint>,
+    },
+    Superclass {
+        parent: Box<WantedConstraint>,
+        field: String,
+    },
 }
 
 /// A constraint that still needs a dictionary. Its solution is filled in by
@@ -295,6 +323,9 @@ enum InferredExprKind {
         function: Box<InferredExpr>,
         wanted: usize,
     },
+    /// A dictionary solved for `wanted`, used directly (for example as an
+    /// instance's superclass field).
+    Evidence(usize),
     Application(Box<InferredExpr>, Box<InferredExpr>),
     Lambda {
         binder: InferredBinder,
