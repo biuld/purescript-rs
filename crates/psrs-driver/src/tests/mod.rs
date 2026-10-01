@@ -26,20 +26,27 @@ fn run_with_wasmtime(source: &str) -> Option<std::process::Output> {
     run_with_wasmtime_args(source, &[])
 }
 
-/// Runs a compiled multi-module program under Wasmtime. Returns `None` when
-/// Wasmtime is unavailable, unless `PSRS_REQUIRE_WASMTIME` is set, in which
-/// case a missing toolchain is a failure rather than a skip.
-fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
-    if std::process::Command::new("wasmtime")
+/// Reports whether Wasmtime can be run. Returns `None` when it cannot, unless
+/// `PSRS_REQUIRE_WASMTIME` is set, in which case a missing toolchain is a
+/// failure rather than a skip. Every execution helper goes through this one
+/// check, so no helper can silently skip under the required baseline.
+fn wasmtime_available() -> Option<()> {
+    let version = std::process::Command::new("wasmtime")
         .arg("--version")
-        .output()
-        .is_err()
-    {
+        .output();
+    let usable = matches!(&version, Ok(output) if output.status.success());
+    if !usable {
         if std::env::var("PSRS_REQUIRE_WASMTIME").as_deref() == Ok("1") {
-            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
+            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not usable: {version:?}");
         }
         return None;
     }
+    Some(())
+}
+
+/// Runs a compiled multi-module program under Wasmtime.
+fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
+    wasmtime_available()?;
     let artifact = compile_program_sources(sources).unwrap();
     let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
@@ -75,16 +82,7 @@ fn run_wasmtime_with_dirs(
     input: Option<&[u8]>,
     dirs: &[(std::path::PathBuf, &str)],
 ) -> Option<std::process::Output> {
-    if std::process::Command::new("wasmtime")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
-        if std::env::var("PSRS_REQUIRE_WASMTIME").as_deref() == Ok("1") {
-            panic!("PSRS_REQUIRE_WASMTIME=1 but wasmtime is not installed");
-        }
-        return None;
-    }
+    wasmtime_available()?;
     use std::io::Write;
     let artifact = compile_source("Main.purs", source).unwrap();
     let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
