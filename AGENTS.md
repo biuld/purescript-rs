@@ -15,6 +15,7 @@ uncommitted work.
 - Use GitHub issues and pull requests when the user requests GitHub
   collaboration or the task is explicitly tied to an existing issue or PR.
   Do not list issues, create issues, push branches, or open PRs by default.
+  When the work *is* roadmap work, see [Project Iteration](#project-iteration).
 - For a new user-facing feature, maintain the relevant feature and design
   documents under `docs/`. Add a decision record only for a major, durable
   decision. Keep documentation proportional to the change.
@@ -44,28 +45,110 @@ uncommitted work.
   remaining work for continuation, and keep D-04 consistent with verified
   coverage. Do not narrow the design to close implementation gaps.
 
+## Project Iteration
+
+The roadmap is indexed on GitHub and stated normatively in
+`docs/design/D-04-suite-roadmap.md`. The document records what is true; GitHub
+records what to do next. Advancing the project means moving both.
+
+### What each mechanism owns
+
+| Mechanism | Owns | Do not use it for |
+| --- | --- | --- |
+| Milestone `Phase N — …` | Phase order and completion percentage | Due dates — phases are ordered by dependency, not schedule |
+| `gate:` label | Which D-04 gate row an issue unblocks; one issue may carry several | Status |
+| `area:` label | `frontend`, `backend`, `harness`, or `stdlib` | Priority or size |
+| Sub-issue | Nesting a slice under its epic; an issue has exactly one parent | Ordering |
+| Dependency | Blocking edges a phase number cannot express | Edges that do not exist |
+| Project board | `Status` and `Corpus cases` | Re-creating phase, gate, or area as fields |
+
+The board is <https://github.com/users/biuld/projects/1>. It carries one custom
+field, `Corpus cases`, because that number is not recoverable from a label.
+Everything else there is a label or a milestone already, and duplicating those
+as project fields would create a second source of truth.
+
+### Choosing the next item
+
+1. Read the board's `By phase` view and take the lowest phase with an open item.
+   Phase 0 is independent of the rest and may be taken at any time.
+2. Skip anything whose `Blocked by` dependencies are not all closed.
+3. Among the unblocked items in that phase, prefer the highest `Corpus cases`.
+   That is a tiebreak, not an algorithm: a small correctness fix that other work
+   depends on outranks a large unblocking one.
+4. If that phase has nothing unblocked, move to the next phase rather than
+   starting blocked work.
+
+### Working an item
+
+- Set the board `Status` to `In Progress` on starting, and to `Blocked` if you
+  stop for a reason outside the issue.
+- Read the issue's `References` before designing anything; every slice names the
+  design document that governs it.
+- New syntax and new diagnostics land with official-suite evidence, not only a
+  local test. The issue states whether that is a `purs` differential case or a
+  scoreboard number.
+- Run the issue's `Validation` block. It is the issue-specific superset of the
+  workspace validation below.
+
+### Closing an item
+
+Closing an issue asserts something about the corpus, so re-measure first:
+
+- Re-run the scoreboard the issue touches and put the new number in
+  `docs/design/D-04-suite-roadmap.md`: the gate table and the relevant
+  `Progress` section. Do not close on a passing local test alone.
+- Recount `Corpus cases` if the blockers it names moved, and update the field.
+  Counting follows the convention in that document: `passing` blockers by first
+  blocking stage, `failing` cases per `errorCode`.
+- Land any design-document change in the same commit as the code, not as a
+  follow-up.
+- Set `Status` to `Done`, then close the issue with a comment naming the
+  evidence: which test runs, or which number moved.
+
+### GitHub API notes
+
+- Board operations need the `project` scope on the `gh` token; without it the
+  Projects v2 GraphQL fails with `INSUFFICIENT_SCOPES`. `gh auth refresh -s
+  project` is interactive, so ask the user instead of hanging on the prompt.
+- A project **item** id is not an issue node id. Query the project's `items` and
+  use the item id when setting field values.
+- Issue dependencies are GraphQL-only:
+  `addBlockedBy(input: {issueId, blockingIssueId})`.
+- View grouping and sort columns cannot be set through the API, only
+  `visibleFields`. Ask the user to set those in the UI rather than reporting a
+  view as configured when it is not.
+
 ## Documentation
 
-- Write all documentation in English.
-- Keep project documentation under `docs/`, except this file and the root
-  `README.md`.
-- Put user-facing, implementation-independent behavior in
-  `docs/feature/F-XX-<slug>.md`. Use stable, zero-padded IDs such as `F-01`.
-- Put implementation details in `docs/design/`. Root-level overview, tooling,
-  roadmap, and cross-cutting documents use `D-XX-<slug>.md` with stable
-  zero-padded IDs such as `D-01`. Backend designs live under `docs/design/backend/`: the cross-cutting
-  contract at `backend/00-<slug>.md`, functional topics under `backend/fp/<slug>.md`,
-  optimization topics under `backend/opt/<slug>.md`, and Wasm/WASI topics under
-  `backend/wasm/<slug>.md`. Frontend designs follow the same pattern under
-  `docs/design/frontend/`: `00-<slug>.md` for the cross-cutting contract,
-  and focused topics under `syntax/`, `semantics/`, and `type-system/` with
-  unnumbered slug filenames. Each topic file is self-contained. Every design
-  document must identify the feature it
-  implements, for example `D-01` for `F-01`.
-- Use `docs/decision/` only for major, durable decisions. Do not create a
-  decision record for routine implementation choices. Give decision records
-  stable IDs such as `DEC-01` and include context, the chosen option, and its
-  consequences.
+Write all documentation in English. Keep project documentation under `docs/`,
+except this file and the root `README.md`.
+
+### Where a document goes
+
+| Content | Location |
+| --- | --- |
+| User-facing, implementation-independent behavior | `docs/feature/F-XX-<slug>.md` |
+| Implementation and IR architecture | `docs/design/` |
+| A major, durable decision only | `docs/decision/DEC-XX-<slug>.md` |
+| Per-topic acceptance checklists and evidence | `docs/implementation/` |
+
+Use stable, zero-padded IDs such as `F-01`, `D-01`, and `DEC-01`. Within
+`docs/design/`, root-level overview, tooling, roadmap, and cross-cutting
+documents are `D-XX-<slug>.md`; backend designs live under
+`docs/design/backend/`, with the cross-cutting contract at `backend/00-<slug>.md`,
+functional topics under `backend/fp/`, optimization topics under `backend/opt/`,
+and Wasm/WASI topics under `backend/wasm/`; frontend designs follow the same
+pattern under `docs/design/frontend/`, with `00-<slug>.md` for the cross-cutting
+contract and focused topics under `syntax/`, `semantics/`, and `type-system/`
+using unnumbered slug filenames. Each topic file is self-contained, and every
+design document must identify the feature it implements, for example `D-01` for
+`F-01`.
+
+Further rules:
+
+- Add a decision record only for a major, durable decision, with context, the
+  chosen option, and its consequences. Do not create one for a routine
+  implementation choice.
 - Keep feature documents free of crate names, libraries, and internal IR
   details. Put those in design documents.
 - Draw diagrams with Mermaid fenced blocks (````mermaid`): architecture,
@@ -183,3 +266,24 @@ compiler. It skips when `purs` or a checkout is unavailable, so it never blocks
 ```sh
 PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
 ```
+
+The suite scoreboards under `crates/psrs-driver/tests/suite.rs` are the
+acceptance evidence for a milestone or a gate row. They are `#[ignore]`d, read
+the vendored corpus, and need `purs` for the layout and parse boards:
+
+```sh
+PSRS_ORACLE=annotations \
+  cargo test -p psrs-driver --test suite -- --ignored --nocapture
+```
+
+`PSRS_ORACLE=annotations` classifies `failing` files by the corpus's own
+`@shouldFailWith` annotation instead of by invoking `purs`, which is the corpus's
+own ground truth and does not depend on the installed libraries. `layout`,
+`passing`, and `warning` are still classified with `purs`.
+
+A new syntax form or a new diagnostic is not done until it agrees with the
+official suite on the case that exercises it. A local test proves the compiler is
+self-consistent; only the scoreboard proves it matches `purs`.
+
+`PSRS_REQUIRE_WASMTIME=1` turns runtime-gated execution tests from a skip into a
+failure, so a missing runtime cannot silently pass CI.
