@@ -295,7 +295,7 @@ organization.
 
 ```text
 crates/psrs-typecheck/src/          ordinary checking of User(effect_id)
-crates/psrs-core/src/effect.rs      lower_effects(module) -> CcEffects
+crates/psrs-core/src/effect/        lower_effects(module) -> EffectLowering
 crates/psrs-driver/src/prelude.rs   entry-only runEffect
 crates/psrs-backend/src/cc/         closures and calls, with no Effect match
 crates/psrs-backend/src/mir/
@@ -314,7 +314,10 @@ Responsibilities and required types:
 - `lower_effects(module)` is the only function that matches `effect_id`. It
   replaces `Effect τ` with `RepClosure([Token], lower(τ))`, replaces `pure`,
   `bind`, and `runEffect`, and suspends a foreign import of type `Effect τ`
-  inside that closure. It does not add a Core or CC effect node.
+  inside that closure. It records every closure it wrote and checks that record
+  before returning. `EffectLowering::verify` rejects a recorded node whose
+  parameter list is not `[Token]` or whose result is not `lower(τ)`. It does
+  not add a Core or CC effect node.
 - CC and MIR lower the resulting closures through `FunctionRef` and direct or
   indirect calls. Curried-arrow flattening reads source `Function` spines only.
   Partial application (`lower_partial_global_application`) applies to
@@ -407,15 +410,16 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Implementation notes
 
-`lower_effects` in `crates/psrs-core/src/effect.rs` is the representation
+`lower_effects` in `crates/psrs-core/src/effect/` is the representation
 conversion. Prelude declares `foreign import data Effect :: Type -> Type`.
 `pure`, `bind`, and `runEffect` are abstract `psrs:effect` imports. The pass
 returns `EffectLowering`, whose `synthesized` symbols are those three
-declarations. It matches the opaque `Prelude.Effect` type id, replaces each
-application with `Type::Closure` whose parameter list is Core `Int`, and
-suspends a foreign import whose type ends in that application so the host call
-runs inside the closure. `crates/psrs-backend/src/effects.rs` drops the
-abstract imports and performs that suspension. The entry check lives in
+declarations and whose `closures` are the `EffectClosure` entries it wrote. It
+matches the opaque `Prelude.Effect` type id, replaces each application with
+`Type::Closure` whose parameter list is Core `Int`, and suspends a foreign import
+whose type ends in that application so the host call runs inside the closure.
+`crates/psrs-backend/src/effects.rs` drops the abstract imports and performs
+that suspension. The entry check lives in
 `crates/psrs-driver/src/program/effects.rs` and looks up `runEffect` on
 declarations and externals. `runEffect`'s synthesized body applies the integer
 `0`.
@@ -432,11 +436,21 @@ Typed Core still shows `Effect Int` as a user-type application. A source
 function is rejected by ordinary unification, and a user-declared `data Effect`
 is not opaque, so the pass leaves it nominal. Order, inertness, and the
 entry-only runner are recorded in
-[the effects checklist](../../../implementation/backend/effects.md). EF-11 stays
-open: CC and MIR reject a call that does not match its closure signature, and
-they do not also reject a closure for having a parameter list other than the
-token. The optimizer's effectful-call preservation rules remain in the Core and
-MIR optimization documents.
+[the effects checklist](../../../implementation/backend/effects.md).
+`EffectLowering::verify` rejects a recorded closure whose parameter list is not
+`[Token]` or whose result is not the lowered effect result. The executed
+fixtures rewrite the node after `lower_effects` returns and call `verify` again
+(`a_lowered_effect_closure_flattened_to_arity_two_is_rejected`,
+`a_lowered_effect_closure_with_the_wrong_result_is_rejected`). They fail with a
+Core `VerifyError` and do not enter the backend. `lower_effects` also calls
+`verify` before it returns, and
+`crates/psrs-backend/src/effects.rs` maps that returned error to
+`InvalidCompilerIr` under `P8 effect lowering`. The closures the pass writes
+already match the record, so the fixtures do not take that mapping. A type
+table changed after the pass returns is not checked again on the compile path.
+`Type::Closure` remains a general representation, and only the recorded nodes
+are constrained. The optimizer's effectful-call preservation rules remain in
+the Core and MIR optimization documents.
 
 ## References
 
