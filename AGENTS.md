@@ -33,6 +33,23 @@ uncommitted work.
 - Rewrite local, unpushed history to merge related commits rather than adding a
   corrective commit on top. Do not rewrite commits that are already pushed.
 
+### Merging a pull request
+
+- Merge with a merge commit: `gh pr merge <number>` with no `--squash` and no
+  `--rebase`. Squash and rebase merges collapse the branch's commits into one,
+  which destroys the topical history this file requires and leaves a second
+  description of the work behind the merge commit's message.
+- The branch's commits keep their own messages and authorship on `master`, and
+  the merge commit names the pull request. A squash merge also silently resolves
+  content conflicts, so a wrong number or line can survive into `master` with
+  nothing recording it — that is how a stale measurement reached `README.md`.
+- Push follow-up fixes as their own commit on the same branch and merge again
+  only after reviewing the diff, rather than amending a pushed commit.
+- After merging, prune the local view of the branch: `git fetch --prune`.
+  `gh pr merge --delete-branch` removes the remote branch but leaves the local
+  remote-tracking ref, so the same work appears under two names until it is
+  pruned.
+
 ### Backend topic implementation
 
 - When a backend topic has an execution checklist under
@@ -121,85 +138,16 @@ Closing an issue asserts something about the corpus, so re-measure first:
 ## Documentation
 
 Write all documentation in English. Keep project documentation under `docs/`,
-except this file and the root `README.md`.
+except this file and the root `README.md`. The
+[authoring guide](docs/authoring-guide.md) is the reference: where a document
+goes, how it is named, the topic design document template, how diagrams are
+drawn, and how to state a measured number. Two rules that most often decide a
+change:
 
-### Where a document goes
-
-| Content | Location |
-| --- | --- |
-| User-facing, implementation-independent behavior | `docs/feature/F-XX-<slug>.md` |
-| Implementation and IR architecture | `docs/design/` |
-| A major, durable decision only | `docs/decision/DEC-XX-<slug>.md` |
-| Per-topic acceptance checklists and evidence | `docs/implementation/` |
-
-Use stable, zero-padded IDs such as `F-01`, `D-01`, and `DEC-01`. Within
-`docs/design/`, root-level overview, tooling, roadmap, and cross-cutting
-documents are `D-XX-<slug>.md`; backend designs live under
-`docs/design/backend/`, with the cross-cutting contract at `backend/00-<slug>.md`,
-functional topics under `backend/fp/`, optimization topics under `backend/opt/`,
-and Wasm/WASI topics under `backend/wasm/`; frontend designs follow the same
-pattern under `docs/design/frontend/`, with `00-<slug>.md` for the cross-cutting
-contract and focused topics under `syntax/`, `semantics/`, and `type-system/`
-using unnumbered slug filenames. Each topic file is self-contained, and every
-design document must identify the feature it implements, for example `D-01` for
-`F-01`.
-
-Further rules:
-
-- Add a decision record only for a major, durable decision, with context, the
-  chosen option, and its consequences. Do not create one for a routine
-  implementation choice.
-- Keep feature documents free of crate names, libraries, and internal IR
-  details. Put those in design documents.
-- Draw diagrams with Mermaid fenced blocks (````mermaid`): architecture,
-  pipelines, control flow, state machines, and sequence diagrams. A short,
-  direct diagram — a simple linear order or a tiny dependency chain — may stay
-  in an ordinary fenced block. Keep formal model, grammar, and IR fragments and
-  pseudocode as ordinary fenced code blocks either way.
-
-### Frontend and backend topic design document template
-
-Topic documents under `docs/design/frontend/` and `docs/design/backend/`
-follow a fixed chapter order so
-each one both specifies an implementation and teaches its topic. Short documents
-may merge sections, but keep the order and the names.
-
-Front matter:
-
-- `# Title`
-- `**Feature:** F-XX`
-- `**Status:**` the design's maturity (`Draft` or `Stable`), not an
-  implementation phase.
-- `**Prerequisites:**` the background a reader needs (functional programming,
-  WebAssembly, compilers) and the documents to read first.
-- `**Summary:**` two to four sentences on what the topic decides.
-
-Sections, in order:
-
-1. **Scope** — what the document owns, what it does not, and where those live.
-2. **Background** — the concepts and theory a reader needs, with references.
-3. **Model** — precise definitions: types, grammars, IR shapes, notation, and
-   invariants.
-4. **Design** — the chosen representation or lowering, including the rejected
-   alternatives and why.
-5. **Algorithms** — step-by-step procedures, pseudocode, and edge cases.
-6. **Code map** — the intended code organization for this topic: the module
-   directory structure, each module's responsibility, and the key types and
-   entry-point function signatures the implementation must provide. This is a
-   design target that guides the code; the code is expected to conform to it,
-   not the reverse. Do not describe the current file inventory here.
-7. **Invariants and verification** — what must hold and what the verifier
-   checks.
-8. **Worked example** — a small program or IR fragment traced through the stage.
-9. **Boundaries and interfaces** — the contracts with adjacent stages.
-10. **Open questions and future work**.
-11. **References**.
-
-Describe the complete design, not a bootstrap. Do not frame sections around
-"MVP", "bootstrap", or a first implementation slice. Implementation coverage
-belongs in `docs/design/backend/wasm/capability-profile.md` and
-`docs/decision/DEC-04-official-test-suite-roadmap.md`; a document may end with
-short implementation notes that only record deviations from the design.
+- Keep documentation proportional to the change, and land a design-document
+  change in the same commit as the code it describes.
+- A number in a document is a measurement: re-measure before changing it, and
+  record a decomposition when one total hides several causes.
 
 ## Code
 
@@ -267,7 +215,7 @@ compiler. It skips when `purs` or a checkout is unavailable, so it never blocks
 PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
 ```
 
-The suite scoreboards under `crates/psrs-driver/tests/suite.rs` are the
+The suite scoreboards under `crates/psrs-driver/tests/suite/` are the
 acceptance evidence for a milestone or a gate row. They are `#[ignore]`d, read
 the vendored corpus, and need `purs` for the layout and parse boards:
 

@@ -17,6 +17,9 @@ Project documentation is written in English and grouped by purpose:
 | [F-03: PSRS Explorer](feature/F-03-interactive-ir-explorer.md) | [PSRS Explorer](design/D-14-interactive-ir-explorer.md) | In progress |
 
 Decision records use the `DEC-XX` prefix. See [decision policy](decision/README.md).
+The [authoring guide](authoring-guide.md) is the reference for where a document
+goes, how it is named, the topic design document template, and how to state a
+measured number.
 
 ## Compiler design
 
