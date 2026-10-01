@@ -156,15 +156,7 @@ impl Context<'_> {
             ExprKind::Application(function, argument) => {
                 self.expr(function, None);
                 self.expr(argument, None);
-                let function_type = strip_leading_foralls(self.module, function.ty);
-                if let Some(result) = callable_result(self.module, function_type) {
-                    self.compatible(result, expression.ty, expression.span);
-                } else if !matching::application(
-                    function.ty,
-                    argument.ty,
-                    expression.ty,
-                    self.module,
-                ) {
+                if !matching::application(function.ty, argument.ty, expression.ty, self.module) {
                     self.error(
                         expression.span,
                         "application argument or result type is inconsistent",
@@ -177,16 +169,6 @@ impl Context<'_> {
                     crate::arrow_parts(&self.module.types, function_type)
                 {
                     self.compatible(binder.ty, parameter, binder.span);
-                    let previous = self.locals.insert(
-                        binder.id,
-                        Scheme {
-                            ty: binder.ty,
-                            quantified: Vec::new(),
-                        },
-                    );
-                    self.expr(body, Some(result));
-                    restore_local(&mut self.locals, binder.id, previous);
-                } else if let Some(result) = callable_result(self.module, function_type) {
                     let previous = self.locals.insert(
                         binder.id,
                         Scheme {
@@ -338,25 +320,6 @@ fn array_element(module: &Module, id: TypeId) -> Option<TypeId> {
         Some(Type::Constructor(TypeConstructor::Array))
     )
     .then_some(*element)
-}
-
-fn callable_result(module: &Module, id: TypeId) -> Option<TypeId> {
-    let mut head = id;
-    let mut arguments = Vec::new();
-    while let Some(Type::Application(function, argument)) = module.types.get(head.0 as usize) {
-        arguments.push(*argument);
-        head = *function;
-    }
-    let Some(Type::Constructor(TypeConstructor::User(type_id))) = module.types.get(head.0 as usize)
-    else {
-        return None;
-    };
-    module
-        .callable_types
-        .iter()
-        .any(|(callable, _)| callable == type_id)
-        .then(|| arguments.first().copied())
-        .flatten()
 }
 
 fn record_field(module: &Module, id: TypeId, label: &str) -> Option<TypeId> {

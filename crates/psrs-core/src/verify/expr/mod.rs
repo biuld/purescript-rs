@@ -1,7 +1,6 @@
 use super::{
-    Locals, SchemeType, array_element, callable_result, compatible, error, primitive_type_id,
-    primitive_types, record_field, restore_local, unary_primitive_types, verify_pattern,
-    verify_type,
+    Locals, SchemeType, array_element, compatible, error, primitive_type_id, primitive_types,
+    record_field, restore_local, unary_primitive_types, verify_pattern, verify_type,
 };
 use crate::{Expr, ExprKind, Module, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
@@ -11,7 +10,7 @@ mod entry;
 mod helpers;
 mod shapes;
 pub(super) use entry::verify_expr;
-use helpers::strip_leading_foralls;
+use helpers::{closure_call, strip_leading_foralls};
 
 struct Context<'a> {
     module: &'a Module,
@@ -339,9 +338,16 @@ impl Context<'_> {
             ExprKind::Application(function, argument) => {
                 self.expr(function, None);
                 self.expr(argument, None);
-                if let Some(result) =
-                    callable_result(self.module, strip_leading_foralls(self.module, function.ty))
-                {
+                let function_body = strip_leading_foralls(self.module, function.ty);
+                if let Some((parameter, result)) = closure_call(self.module, function_body) {
+                    compatible(
+                        argument.ty,
+                        parameter,
+                        self.module,
+                        self.owner,
+                        argument.span,
+                        self.errors,
+                    );
                     compatible(
                         result,
                         expression.ty,
@@ -350,36 +356,36 @@ impl Context<'_> {
                         expression.span,
                         self.errors,
                     );
-                } else {
-                    let function_body = strip_leading_foralls(self.module, function.ty);
-                    if crate::arrow_parts(&self.module.types, function_body).is_none() {
-                        self.errors.push(error(
-                            self.owner,
-                            function.span,
-                            "application target is not a function",
-                        ));
-                    } else if !super::types::application_matches(
-                        function.ty,
-                        argument.ty,
-                        expression.ty,
-                        self.module,
-                    ) {
-                        self.errors.push(error(
-                            self.owner,
-                            function.span,
-                            "Core expression type is inconsistent with its context",
-                        ));
-                    }
+                } else if crate::arrow_parts(&self.module.types, function_body).is_none() {
+                    self.errors.push(error(
+                        self.owner,
+                        function.span,
+                        "application target is not a function",
+                    ));
+                } else if !super::types::application_matches(
+                    function.ty,
+                    argument.ty,
+                    expression.ty,
+                    self.module,
+                ) {
+                    self.errors.push(error(
+                        self.owner,
+                        function.span,
+                        "Core expression type is inconsistent with its context",
+                    ));
                 }
             }
             ExprKind::Lambda { binder, body } => {
-                // A lambda whose type is a callable constructor application is
-                // the runtime closure of that value: its binder is the hidden
-                // context parameter and its body produces the value type. The
-                // context parameter is a calling-convention detail, so only the
-                // body result is checked.
                 let function_type = strip_leading_foralls(self.module, expression.ty);
-                if let Some(result) = callable_result(self.module, function_type) {
+                if let Some((parameter, result)) = closure_call(self.module, function_type) {
+                    compatible(
+                        binder.ty,
+                        parameter,
+                        self.module,
+                        self.owner,
+                        binder.span,
+                        self.errors,
+                    );
                     let previous = self.locals.insert(
                         binder.id,
                         SchemeType {

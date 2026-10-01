@@ -119,13 +119,8 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             .collect());
     }
 
-    let mut checker = Checker::new(
-        &module,
-        imported,
-        effect_type,
-        effect_runtime_representation,
-        context,
-    );
+    let _ = (effect_type, effect_runtime_representation);
+    let mut checker = Checker::new(&module, imported, context);
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
@@ -316,11 +311,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             )
         })
         .collect();
-    // The trusted elaboration registers the runtime representation of the
-    // imported abstract `Effect` type by its resolved type identity: a closure
-    // with one hidden context parameter. It is representation metadata, not a
-    // type node, and no effect-specific type, flag, or token is introduced.
-    let callable_types = effect_type.map(|id| vec![(id, 1)]).unwrap_or_default();
+    // Effect stays an ordinary type application through this module. Its
+    // closure representation is chosen later, by identity, in one lowering
+    // pass. This table is empty.
+    let callable_types = Vec::new();
     let typed = thir::Module {
         id: module.id,
         name: module.name,

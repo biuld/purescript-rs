@@ -19,7 +19,7 @@ pub(super) struct QualifiedTypeImport {
 
 pub(super) struct Resolver {
     pub(super) globals: HashMap<String, SymbolId>,
-    external_globals: HashMap<String, SymbolId>,
+    pub(super) external_globals: HashMap<String, SymbolId>,
     pub(super) type_names: HashMap<String, TypeId>,
     /// Type IDs introduced by `foreign import data`, including imports. A
     /// reference to one of these is nominal and opaque.

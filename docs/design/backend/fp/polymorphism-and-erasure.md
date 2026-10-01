@@ -169,7 +169,10 @@ a polymorphic closure. Flattening through the result's `ForAll` would change
 that contract into a two-argument function and is forbidden. Opening the
 outermost `ForAll` of a function value exposes that value's own body signature;
 it does not remove inner quantifier boundaries. This rule also applies to
-partial applications and generated adapters.
+partial applications and generated adapters. A representation closure is the
+same kind of boundary: `Effect (a -> b)` lowers to a closure that takes the
+runtime token and returns a function, and flattening that function into the
+effect closure is forbidden ([effects](effects.md)).
 
 ### Erased values and boxes
 

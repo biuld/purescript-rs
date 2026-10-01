@@ -21,51 +21,14 @@ mod lambda;
 mod letrec;
 mod record;
 mod scalar;
+mod symbols;
 use call::ApplicationLowering;
 pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 use letrec::LetLowering;
 use scalar::{lower_binary_op, lower_unary_op};
-
-/// Allocates generated callable symbols without relying on source offsets.
-///
-/// Linked Core keeps source declaration symbols from each input module but
-/// lowers generated functions after linking. A shared allocator therefore
-/// reserves every existing callable symbol and allocates within the
-/// originating source module so diagnostics retain their source ownership.
-pub(super) struct GeneratedSymbolAllocator {
-    used: HashSet<SymbolId>,
-    next: HashMap<ModuleId, u32>,
-}
-
-impl GeneratedSymbolAllocator {
-    pub(super) fn new(module: &CoreModule) -> Self {
-        let used = module
-            .declarations
-            .iter()
-            .map(|declaration| declaration.symbol)
-            .chain(module.externals.iter().map(|external| external.symbol))
-            .collect();
-        Self {
-            used,
-            next: HashMap::new(),
-        }
-    }
-
-    pub(super) fn fresh(&mut self, module: ModuleId) -> SymbolId {
-        let next = self.next.entry(module).or_default();
-        loop {
-            let symbol = SymbolId::new(module, *next);
-            *next = next
-                .checked_add(1)
-                .expect("generated symbol index space exhausted");
-            if self.used.insert(symbol) {
-                return symbol;
-            }
-        }
-    }
-}
+pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -119,11 +82,52 @@ pub(super) fn lower_function(
     let mut value = &declaration.value;
     let mut declaration_type = unquantified_type(module, declaration.ty);
     let mut parameters = Vec::new();
+    if let Some((closure_parameters, _)) = psrs_core::closure_parts(&module.types, declaration_type)
+    {
+        // When the value is the closure function, its fixed parameter list
+        // belongs to this function and the result is returned as a value. An
+        // alias of an existing closure is returned unchanged.
+        let count = closure_parameters.len();
+        let mut peeled = 0;
+        for _ in 0..count {
+            let ExprKind::Lambda { binder, body } = &value.kind else {
+                break;
+            };
+            let ty = scalar_type(
+                module,
+                binder.ty,
+                binder.span,
+                context.enum_types,
+                context.aggregate_types,
+                context.newtype_ids,
+                context.array_types,
+                context.record_types,
+                context.function_types,
+            )?;
+            let id = state.fresh(ty);
+            state.locals.insert(binder.id, id);
+            state.local_types.insert(binder.id, binder.ty);
+            parameters.push(id);
+            value = body;
+            peeled += 1;
+        }
+        if peeled != 0 && peeled != count {
+            return Err(vec![
+                BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "closure declaration is missing a parameter",
+                )
+                .with_module(declaration.symbol.module),
+            ]);
+        }
+    }
     while let ExprKind::Lambda { binder, body } = &value.kind {
-        // Peel only ordinary function arrows. A lambda at a callable-constructor
-        // boundary is the representation's hidden context closure returned as
-        // the declaration's value and is lowered as a nested closure by
-        // `lower_value`.
+        // Peel only ordinary function arrows. A closure in the result is a
+        // value of this function, lowered as a nested closure by `lower_value`.
+        if psrs_core::closure_parts(&module.types, declaration_type).is_some() {
+            break;
+        }
         let Some((_, result)) = psrs_core::arrow_parts(&module.types, declaration_type) else {
             break;
         };

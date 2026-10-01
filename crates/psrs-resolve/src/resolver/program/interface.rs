@@ -97,6 +97,11 @@ impl Interface {
                 for declaration in &module.declarations {
                     values.insert(declaration.name.clone(), declaration.symbol);
                 }
+                for external in &module.externals {
+                    if matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                        values.insert(external.name.clone(), external.symbol);
+                    }
+                }
                 for declaration in &module.types {
                     types.insert(declaration.name.clone(), declaration.id);
                     if declaration.kind == hir::TypeDeclarationKind::Foreign {

@@ -126,6 +126,7 @@ fn layoutable_field_type_inner(
         Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
         Some(Type::Variable(_))
         | Some(Type::ForAll { .. })
+        | Some(Type::Closure { .. })
         | Some(Type::Constructor(_))
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. })
@@ -321,38 +322,25 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
     }
 }
 
-/// A callable type-constructor application: a head constructor registered by
-/// the trusted elaboration whose application is a closure. Returns its hidden
-/// calling-convention parameter count and the value type the call produces (the
-/// application's last type argument).
-pub(super) fn callable_application(module: &CoreModule, id: TypeId) -> Option<(u32, TypeId)> {
-    let id = unquantified_type(module, id);
-    let (type_id, arguments) = module.callable_application(id)?;
-    let parameters = module.callable_parameters(type_id)?;
-    Some((parameters, *arguments.last()?))
-}
-
 /// Whether a Core type is a callable closure value: an ordinary function arrow
-/// or a registered callable type-constructor application.
+/// or a closure born with a fixed parameter list.
 pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
     let id = unquantified_type(module, id);
     psrs_core::arrow_parts(&module.types, id).is_some()
-        || callable_application(module, id).is_some()
+        || psrs_core::closure_parts(&module.types, id).is_some()
 }
 
-/// Derives the flattened calling convention of a value from the application
-/// spine and the head constructor's representation.
+/// Derives the calling convention of a value.
 ///
-/// An ordinary function flattens every arrow: the parameters are the arrow
-/// domains and the result is the codomain. A registered callable constructor
-/// application contributes its hidden calling-convention parameters and the
-/// call result is the application's last type argument, so an effect's returned
-/// function is a separate closure rather than extra parameters of the effect.
+/// A closure contributes exactly the parameter list it was born with. Its
+/// result stays a value, even when that value is a function or another
+/// closure. An ordinary function flattens every arrow: the parameters are the
+/// arrow domains and the result is the codomain. A quantifier in a codomain
+/// stops the walk so that polymorphic result stays a separate closure.
 pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
     let id = unquantified_type(module, id);
-    if let Some((parameters, result)) = callable_application(module, id) {
-        let context = context_parameter_type(module);
-        return (vec![context; parameters as usize], result);
+    if let Some((parameters, result)) = psrs_core::closure_parts(&module.types, id) {
+        return (parameters.to_vec(), result);
     }
     let mut parameters = Vec::new();
     let mut current = id;
@@ -395,23 +383,6 @@ pub(crate) fn function_type_signature(
         .copied()
 }
 
-/// A representative integer-shaped Core type for a closure's hidden context
-/// parameter. The context is a calling-convention scalar, not a token type; any
-/// integer-shaped Core type stands for its shape. Falls back to an out-of-range
-/// id only when the module has no integer scalar to name.
-pub(super) fn context_parameter_type(module: &CoreModule) -> TypeId {
-    if let Some(index) = module.types.iter().position(|ty| {
-        matches!(ty, Type::Constructor(c)
-        if matches!(
-            primitive_value_shape(*c),
-            Some(ValueShape::Integer | ValueShape::Boolean)
-        ))
-    }) {
-        return TypeId(index as u32);
-    }
-    TypeId(u32::MAX)
-}
-
 pub(super) fn layout_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
 }
@@ -440,6 +411,12 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
             Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
             Some(Type::RowExtend { ty, tail, .. }) => {
                 visit(module, *ty, visiting) || visit(module, *tail, visiting)
+            }
+            Some(Type::Closure { parameters, result }) => {
+                parameters
+                    .iter()
+                    .any(|parameter| visit(module, *parameter, visiting))
+                    || visit(module, *result, visiting)
             }
             Some(Type::RowEmpty) => false,
             _ => false,

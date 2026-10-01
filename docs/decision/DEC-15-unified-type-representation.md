@@ -31,9 +31,10 @@ THIR and Typed Core currently deviate from that design. `psrs_thir::Type` and
 `I32 | F64 | Boolean | String | Char | Unit`, with a small
 `TypeConstructor = Array | User(HirTypeId)` head. Runtime arity and calling
 convention are read from the bare arrow variant instead of from a general
-application spine, so a polymorphic effect such as `Effect (b -> c)` or
-`Effect (Effect a)` has no uniform place to record that the head constructor is
-`Effect` and how its application is represented.
+application spine. A library type such as `Effect (b -> c)` is only an
+application of `User(effect_id)`. The spine does not record a calling
+convention for it, and no later pass should invent one by matching that
+constructor.
 
 The constraint is to keep the frontend and both typed IRs on one representation
 without introducing an effect-specific compiler type, flag, or node, and without
@@ -70,13 +71,16 @@ retain them only where P5 still needs them, never past the checked boundary.
 - Primitive and user constructors are heads on the same spine; nothing is
   special-cased by syntax.
 
-Runtime arity and calling convention are derived from the application spine and
-the head constructor's representation, never from bare arrow syntax and never by
-sniffing a specific type name. The `Effect` monad's runtime representation — a
-closure with one hidden context parameter whose result is a value — is
-registered by the trusted elaboration by type identity. That registration is a
-representation and calling-convention detail, not a Core type. There is no
-effect-specific node and no effect-specific token type.
+Runtime arity of a source function is the curried `Function` spine, read until
+the result is no longer an arrow. It is not read from a bare arrow variant and
+not from a library constructor. `Effect a` stays `User(effect_id)` applied to
+`a` through THIR and Typed Core. One representation lowering, specified in
+[effects](../design/backend/fp/effects.md), is the only pass that recognizes
+that constructor: it emits a closure whose parameter list is the runtime token
+and whose result is the lowering of the type argument. `Effect (b -> c)` is
+therefore one token parameter and a function value, not a two-parameter call.
+There is no effect-specific Core node, no effect token type, and no callable
+side table for later passes to consult.
 
 This aligns the project with official PureScript's `TypeApp` while keeping rows,
 quantifiers, constraints, and kinds as dedicated structural nodes exactly as
@@ -84,9 +88,10 @@ official does.
 
 ## Consequences
 
-- Polymorphic-effect arity is fixed without a Core token type: `Effect (b -> c)`,
-  `Effect (Effect a)`, and higher-order effects all reduce to the head
-  constructor of the spine plus its registered representation.
+- `Effect (b -> c)`, `Effect (Effect a)`, and higher-order effects keep their
+  source arity out of the type spine. The representation lowering gives each
+  `Effect` layer its own closure; a function or effect in the result is another
+  call.
 - Rows, classes, kinds, and higher-kinded types get one representation to build
   on, so the type-level features already planned have a single shape to target.
 - The migration is large but mechanical: every site that matches on
@@ -97,9 +102,9 @@ official does.
 - Until the migration completes, the ad-hoc variants are the deviation from the
   frontend design; the design documents record the target, not a second
   representation.
-- Every backend pass that reads a type head must consult the spine and the head
-  constructor's registered representation rather than inspecting a bare arrow,
-  which is the property that removes the effect-specific special case.
+- Every backend pass that needs a source arity reads the `Function` spine.
+  After representation lowering, an effect is already a closure value, so those
+  passes do not match the `Effect` constructor.
 
 ## Rejected alternatives
 

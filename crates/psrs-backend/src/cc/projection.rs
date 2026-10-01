@@ -117,6 +117,9 @@ impl Projector<'_> {
             Some(Type::ForAll { .. }) => {
                 Err("polymorphic types have no canonical guest layout".into())
             }
+            Some(Type::Closure { .. }) => {
+                Err("function types have no canonical guest layout".into())
+            }
             Some(Type::Constructor(_)) => Err("constructor has no canonical guest layout".into()),
             Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
                 Err("a bare row has no canonical guest layout".into())

@@ -1,6 +1,4 @@
-use super::super::super::layout::{
-    callable_application, function_arrow_parameters, unquantified_type,
-};
+use super::super::super::layout::{function_arrow_parameters, unquantified_type};
 use super::super::super::{
     Assignment, AssignmentKind, RefShape, Reference, SignatureId, ValueConversion, ValueId,
     ValueShape,
@@ -21,11 +19,10 @@ pub(super) fn collect_application<'a>(
     while let ExprKind::Application(function, argument) = &head.kind {
         arguments.push(argument.as_ref());
         head = function;
-        // A callable constructor application (an `Effect a` value) is itself
-        // callable, so applying it supplies its hidden context parameter. Stop
-        // flattening there so the remaining arguments belong to the closure it
-        // returns rather than to the outer function.
-        if callable_application(module, head.ty).is_some() {
+        // A saturated closure returns its value. Further arguments belong to
+        // that value when the use-site signature does not already include
+        // them, which is how an effect's result stays a separate call.
+        if saturated_callable(module, local_types, head) {
             break;
         }
         // A polymorphic result is a separate closure value. Stop here so an
@@ -89,17 +86,53 @@ fn application_returns_forall(
     false
 }
 
-/// Whether a value is a callable closure: an ordinary function arrow or the
-/// closure representation of a registered callable constructor (for example an
-/// `Effect a`). Both participate in the erased callable protocol, so a callable
-/// constructor's value is handled by the same adapters as a function.
+/// Whether `expression` is a call that has already received every parameter of
+/// its callee. The arguments peeled outside it belong to the returned value.
+fn saturated_callable(
+    module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
+    expression: &Expr,
+) -> bool {
+    let mut root = expression;
+    let mut applied = 0usize;
+    while let ExprKind::Application(function, _) = &root.kind {
+        root = function;
+        applied += 1;
+    }
+    let scheme_arity = match &root.kind {
+        ExprKind::Global(symbol) => declaration_parameter_types(module, *symbol).len(),
+        ExprKind::Local(local) => local_types
+            .get(local)
+            .copied()
+            .map(|ty| function_arrow_parameters(module, ty).0.len())
+            .unwrap_or(0),
+        _ => function_arrow_parameters(module, root.ty).0.len(),
+    };
+    // Equality, not a minimum: applications past the scheme belong to the
+    // returned value and stay in this spine until the peel reaches the
+    // scheme (`make 0` returns `Dict -> Int -> Int`; both the dictionary
+    // and `42` are that result's arguments).
+    if !(scheme_arity > 0 && applied == scheme_arity && is_function_type(module, expression.ty)) {
+        return false;
+    }
+    // A use site can instantiate a result variable at a function type and
+    // flatten those arrows into this callee (`(id id) 42`). Those arguments
+    // belong to the eta-expanded call. A closure result is not flattened, so
+    // once the use-site arity is reached the following arguments are a
+    // separate call (`next (first token) token`).
+    let use_arity = function_arrow_parameters(module, root.ty).0.len();
+    applied >= use_arity
+}
+
+/// Whether a value is a callable closure: a source arrow or a closure created
+/// with a fixed parameter list.
 pub(in crate::cc::lower) fn is_function_type(
     module: &CoreModule,
     type_id: psrs_core::TypeId,
 ) -> bool {
     let type_id = unquantified_type(module, type_id);
     psrs_core::arrow_parts(&module.types, type_id).is_some()
-        || callable_application(module, type_id).is_some()
+        || psrs_core::closure_parts(&module.types, type_id).is_some()
 }
 
 pub(super) fn closure_value_type() -> ValueShape {

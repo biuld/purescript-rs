@@ -125,6 +125,13 @@ fn shift_type(ty: &Type, offset: u32, variable_offset: u32) -> Type {
             ty: shift_id(*ty, offset),
             tail: shift_id(*tail, offset),
         },
+        Type::Closure { parameters, result } => Type::Closure {
+            parameters: parameters
+                .iter()
+                .map(|parameter| shift_id(*parameter, offset))
+                .collect(),
+            result: shift_id(*result, offset),
+        },
         other => other.clone(),
     }
 }

@@ -4,8 +4,6 @@ impl Checker {
     pub(in crate::typecheck) fn new(
         module: &hir::Module,
         imported: &HashMap<SymbolId, hir::Type>,
-        effect_type: Option<hir::TypeId>,
-        effect_runtime_representation: bool,
         context: TypecheckContext<'_>,
     ) -> Self {
         let TypecheckContext {
@@ -104,10 +102,6 @@ impl Checker {
                     ))
                 })
                 .collect(),
-            // The driver supplies this identity only for its embedded Prelude.
-            // A module name or imported type name is not enough to establish trust.
-            effect_type,
-            effect_runtime_representation,
             checked_kinds: checked_kinds.clone(),
             infer_variable_kinds: HashMap::new(),
             next_kind_variable: 0,

@@ -33,6 +33,9 @@ pub(super) fn project_reachable(module: &mut Module) {
                     _ => {}
                 }
             }
+            if let Some(crate::mir::Terminator::ReturnCall { function, .. }) = &block.terminator {
+                referenced.insert(*function);
+            }
         }
     }
     module

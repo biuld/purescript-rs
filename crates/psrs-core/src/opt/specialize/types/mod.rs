@@ -64,7 +64,10 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
                 Box::new(type_key(module, *function, active)?),
                 Box::new(type_key(module, *argument, active)?),
             )),
-            Type::ForAll { .. } | Type::RowEmpty | Type::RowExtend { .. } => None,
+            Type::ForAll { .. }
+            | Type::RowEmpty
+            | Type::RowExtend { .. }
+            | Type::Closure { .. } => None,
         }
     };
     active.remove(&id);

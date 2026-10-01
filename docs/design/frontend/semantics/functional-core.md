@@ -115,12 +115,14 @@ records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
 `Effect a` is `Application(Constructor(User(effect_id)), a)`: an ordinary
-imported abstract type constructor applied on the uniform spine. Target-specific
-lowering after source checking maps it to an internal token-taking function,
-registered by trusted elaboration for that constructor's type identity, so Core
-itself needs no `Effect` type node and no effect-specific token type. The token
-and function representation are not source-visible API; the execution boundary
-and optimization rules are specified in [effects](../../backend/fp/effects.md).
+imported abstract type constructor applied on the uniform spine. Core has no
+`Effect` node, no token type, and no side table that makes this constructor
+callable. After Core, one representation lowering replaces each `Effect τ`
+value with a closure whose parameter list is the runtime token and whose result
+is the lowering of `τ`. That closure is not a source arrow, so curried-arrow
+flattening does not absorb a function or a nested effect inside `τ`. The
+translation and the execution boundary are specified in
+[effects](../../backend/fp/effects.md).
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
 field below Core. Erasing a newtype is representation metadata, not a change to
@@ -234,7 +236,7 @@ counterpart:
 | `Record*` | product construction and field projection |
 | `Array*` | array operations |
 | polymorphism and constraints | erased type arguments and explicit dictionary arguments |
-| `Effect a` | its lowered runtime representation; ordinary function values at runtime |
+| `Effect a` | a representation closure produced after Core; not a source arrow |
 
 The full Core-to-CC contract, including the representation requirements that CC
 introduces and the operations it owns, is specified in [CC IR](../../backend/fp/cc-ir.md).
@@ -269,8 +271,9 @@ nodes and are owned by [CC IR](../../backend/fp/cc-ir.md):
   expressible and tail-recursion lowering in [control flow](../../backend/fp/control-flow-and-tail-calls.md)
   recovers looping without enlarging the core.
 - **Make `Effect` a Core node.** Rejected for the same reason as a loop node:
-  an effect is a value (a token-taking function), and treating it as ordinary
-  data keeps CC and MIR free of effect special cases ([effects](../../backend/fp/effects.md)).
+  an effect is an abstract value in Core. One later translation produces its
+  closure, so CC and MIR never match on the library type
+  ([effects](../../backend/fp/effects.md)).
 - **Keep surface `where`/guards/view patterns in Core.** Rejected: those are
   surface sugar and patterns; the desugaring and the decision compiler own them
   ([pattern matching](../../backend/fp/pattern-matching.md)).
@@ -423,9 +426,9 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Open questions and future work
 
-- **General effects.** The current implementation elaborates to `Boolean -> a`;
-  the abstract source boundary and later token representation are specified in
-  [effects](../../backend/fp/effects.md) without adding a Core effect node.
+- **General effects.** Core keeps the abstract `Effect` application. The
+  representation closure and token are specified in
+  [effects](../../backend/fp/effects.md) and are not a Core type.
 - **Higher-rank and constraints.** Nested quantifiers and elaborated
   dictionaries retain the checking rules specified by the frontend.
   Remaining official-suite compatibility work is tracked by FE-18

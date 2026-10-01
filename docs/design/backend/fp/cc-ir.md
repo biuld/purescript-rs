@@ -395,10 +395,12 @@ function value without a separate calling convention.
 
 ### Partial application and erased adapters
 
-When a `Global` is applied to fewer arguments than its signature has, P8
-generates a wrapper closure that captures the supplied arguments and calls the
-original function with the remaining parameters appended; this is what makes
-`runEffect (log "message")` lower without a special calling convention
+When a `Global` is applied to fewer source-arrow arguments than its signature
+has, P8 generates a wrapper closure that captures the supplied arguments and
+calls the original function with the remaining source parameters appended.
+`log "message"` for `log :: String -> Effect Unit` is a saturated source call;
+the effect token is not a remaining parameter of `log`. The token belongs to
+the representation closure that the call returns
 ([effects](effects.md)). When a concrete function value crosses a polymorphic
 function boundary, `adapt_erased_function_value` builds an adapter closure with
 the erased signature that captures the original, boxes/unboxes each parameter,

@@ -28,7 +28,7 @@ THIR = { declarations, typed expressions, typed binders,
          explicit type and dictionary evidence, source_ranges }
 ```
 
-Inference unknowns have levels and substitutions private to P5. Quantified variables and skolems have distinct identities and scopes. `Effect a` is an ordinary imported type application for P5: no compiler-native effect row, handler, or special inference rule is introduced. THIR keeps this same spine as `CheckedType`: an arrow is `Application(Application(Constructor(Function), a), b)`, a record is `Application(Constructor(Record), row)`, and Core carries the same representation ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
+Inference unknowns have levels and substitutions private to P5. Quantified variables and skolems have distinct identities and scopes. `Effect a` is an ordinary imported type application for P5: no compiler-native effect row, handler, private constructor, or special inference rule is introduced, and unification does not identify it with a function. Its runtime closure is produced later by one representation lowering ([effects](../../backend/fp/effects.md)). THIR keeps this same spine as `CheckedType`: an arrow is `Application(Application(Constructor(Function), a), b)`, a record is `Application(Constructor(Record), row)`, and Core carries the same representation ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
 
 ## Design
 

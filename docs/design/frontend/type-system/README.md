@@ -13,7 +13,8 @@ separate but ordered concerns:
 The design follows the official PureScript type checker: polymorphic kinds,
 higher-rank `forall`, multi-parameter classes with functional dependencies,
 instance chains, and row-polymorphic records. `Effect` is a library type, not a
-compiler-native effect row. The P5 driver checks kinds before type inference, solves row and class
+compiler-native effect row, and P5 does not give it a representation rule.
+[Effects](../../backend/fp/effects.md) lowers it to a closure after checking. The P5 driver checks kinds before type inference, solves row and class
 constraints during inference, and constructs THIR only after all required
 evidence has been selected. Inference variables, worklists, and partial
 solutions remain private to the checker; THIR contains zonked checked types,

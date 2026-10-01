@@ -37,6 +37,12 @@ pub(super) fn collect_free_variables(
             collect_free_variables(*ty, types, bound, active, free);
             collect_free_variables(*tail, types, bound, active, free);
         }
+        Some(Type::Closure { parameters, result }) => {
+            for parameter in parameters {
+                collect_free_variables(*parameter, types, bound, active, free);
+            }
+            collect_free_variables(*result, types, bound, active, free);
+        }
         _ => {}
     }
     active.remove(&id);

@@ -210,8 +210,12 @@ pub struct TagCase {
 /// Lowers Core with the default backend-side external binding extraction.
 /// Prefer [`lower_module_with_bindings`] when the caller already owns the
 /// backend input boundary.
+///
+/// Effect representation lowering runs here, after the binding table has
+/// interned the abstract effect applications and before closure conversion.
 pub fn lower_module(mut module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
-    let bindings = ExternalBindings::from_core(&mut module);
+    let mut bindings = ExternalBindings::from_core(&mut module);
+    crate::effects::lower_effects(&mut module, &mut bindings)?;
     lower_module_with_bindings(module, bindings)
 }
 
