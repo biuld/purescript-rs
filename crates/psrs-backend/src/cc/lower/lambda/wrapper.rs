@@ -1,6 +1,8 @@
+use super::super::super::layout::{function_type_signature, unquantified_type};
 use super::super::LoweringContext;
 use super::super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueShape};
-use super::{closure_value_type, closure_value_type_for};
+use super::{closure_value_type, closure_value_type_for, is_erased_reference};
+use crate::cc::{RefShape, Reference};
 use psrs_core::Declaration;
 
 pub(in crate::cc::lower) fn make_wrapper(
@@ -68,15 +70,18 @@ fn eta_expanded_wrapper(
     if source.parameters.is_empty() {
         return None;
     }
-    let flattened_id = *context.function_types.get(&declaration.ty)?;
+    let flattened_id =
+        function_type_signature(context.module, context.function_types, declaration.ty)?;
     let flattened = context.representations.signature(flattened_id)?;
     let peeled = source.parameters.len();
     if flattened.parameters.len() <= peeled {
         return None;
     }
     let body_type = peel_function_type(context.module, declaration.ty, peeled)?;
-    let body_signature = *context.function_types.get(&body_type)?;
-    if source.result_type != closure_value_type_for(body_signature) {
+    let body_signature =
+        function_type_signature(context.module, context.function_types, body_type)?;
+    let erased = is_erased_reference(source.result_type);
+    if source.result_type != closure_value_type_for(body_signature) && !erased {
         return None;
     }
     let mut values = vec![ValueDecl {
@@ -106,30 +111,53 @@ fn eta_expanded_wrapper(
     });
     let first_parameters = flattened_arguments[..peeled].to_vec();
     let remaining_parameters = flattened_arguments[peeled..].to_vec();
+    let mut assignments = vec![Assignment {
+        destination: intermediate,
+        kind: AssignmentKind::DirectCall {
+            function: source.symbol,
+            arguments: first_parameters,
+        },
+        span: declaration.span,
+    }];
+    // A generic body result is erased; recover the closure shape before
+    // applying the remaining effect parameters.
+    let callable = if erased {
+        let closure = ValueId(flattened.parameters.len() as u32 + 3);
+        values.push(ValueDecl {
+            id: closure,
+            ty: closure_value_type_for(body_signature),
+        });
+        assignments.push(Assignment {
+            destination: closure,
+            kind: AssignmentKind::RepresentationCast {
+                destination: closure,
+                value: intermediate,
+                reference: Reference {
+                    nullable: false,
+                    heap: RefShape::Closure(body_signature),
+                },
+            },
+            span: declaration.span,
+        });
+        closure
+    } else {
+        intermediate
+    };
+    assignments.push(Assignment {
+        destination: result,
+        kind: AssignmentKind::IndirectCall {
+            function: callable,
+            signature: body_signature,
+            arguments: remaining_parameters,
+        },
+        span: declaration.span,
+    });
     Some(Function {
         symbol,
         name: format!("{}_closure_wrapper", source.name),
         parameters,
         values,
-        assignments: vec![
-            Assignment {
-                destination: intermediate,
-                kind: AssignmentKind::DirectCall {
-                    function: source.symbol,
-                    arguments: first_parameters,
-                },
-                span: declaration.span,
-            },
-            Assignment {
-                destination: result,
-                kind: AssignmentKind::IndirectCall {
-                    function: intermediate,
-                    signature: body_signature,
-                    arguments: remaining_parameters,
-                },
-                span: declaration.span,
-            },
-        ],
+        assignments,
         result,
         result_type: flattened.result,
         span: declaration.span,
@@ -141,11 +169,10 @@ fn peel_function_type(
     mut ty: psrs_core::TypeId,
     count: usize,
 ) -> Option<psrs_core::TypeId> {
+    ty = unquantified_type(module, ty);
     for _ in 0..count {
-        let psrs_core::Type::Function { result, .. } = module.types.get(ty.0 as usize)? else {
-            return None;
-        };
-        ty = *result;
+        let (_, result) = psrs_core::arrow_parts(&module.types, ty)?;
+        ty = result;
     }
     Some(ty)
 }

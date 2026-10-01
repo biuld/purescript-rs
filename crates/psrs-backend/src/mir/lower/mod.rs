@@ -1,9 +1,9 @@
+use super::BoundWasiImport;
 use super::layout::{LayoutError, PlannedLayout};
 use super::literals::StringLiterals;
 use super::wit;
 use super::{BasicBlock, BlockId, Function, Terminator};
 use crate::BackendError;
-use crate::abi::BoundWasiImport;
 use crate::cc::{self, AssignmentKind};
 use crate::mir::instruction::Instruction;
 use crate::mir::scalar_helpers::ScalarHelpers;
@@ -81,10 +81,8 @@ pub(super) fn lower_function(
         layout,
         conversion_helpers,
         literals,
-        owned_handles: Vec::new(),
     };
     let end = lowerer.lower_assignments(&source.assignments, entry)?;
-    lowerer.discharge_owned_handles(end, source.result)?;
     lowerer.set_terminator(
         end,
         Terminator::Return {
@@ -121,7 +119,6 @@ pub(super) struct FunctionLowerer<'a> {
     layout: &'a PlannedLayout,
     conversion_helpers: Option<&'a mut ConversionHelpers>,
     literals: Option<&'a mut StringLiterals>,
-    owned_handles: Vec<wit::OwnedObligation>,
 }
 
 impl FunctionLowerer<'_> {
@@ -132,13 +129,38 @@ impl FunctionLowerer<'_> {
             .map(|decl| decl.ty)
     }
 
+    /// The concrete GC type of a representation handle.
+    pub(super) fn resolved_repr_index(
+        &self,
+        repr: crate::cc::ReprId,
+    ) -> Option<crate::types::DefinedTypeId> {
+        self.layout.repr_index(repr).ok()
+    }
+
+    /// The recursive guest layout of a value shape, read from the representation
+    /// table this layout was planned from.
+    pub(super) fn resolved_guest_layout(
+        &self,
+        shape: crate::cc::ValueShape,
+    ) -> Option<crate::cc::GuestLayout> {
+        crate::cc::guest_layout(shape, self.layout.representation_table())
+    }
+
+    /// The concrete MIR value type of a value shape.
+    pub(super) fn resolved_value_type(
+        &self,
+        shape: &crate::cc::ValueShape,
+    ) -> Option<crate::types::ValueType> {
+        self.layout.value_type(shape).ok()
+    }
+
     pub(super) fn fresh(&mut self, ty: ValueType) -> ValueId {
         let id = ValueId(self.next_value);
         self.next_value += 1;
         self.values.push(ValueDecl { id, ty });
         id
     }
-    fn new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
+    pub(in crate::mir) fn new_block(&mut self, parameters: Vec<ValueId>) -> BlockId {
         let id = BlockId(self.next_block);
         self.next_block += 1;
         self.blocks.push(BasicBlock {
@@ -149,40 +171,35 @@ impl FunctionLowerer<'_> {
         });
         id
     }
-    pub(super) fn note_owned_handle(
-        &mut self,
-        value: ValueId,
-        drop_symbol: SymbolId,
-        span: TextRange,
-    ) {
-        self.owned_handles.push(wit::OwnedObligation {
-            value,
-            drop_symbol,
-            span,
-        });
+
+    /// The boxed-integer representation, when the module needs it.
+    pub(in crate::mir) fn wit_boxed_integer(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.boxed_integer_index()
     }
 
-    pub(super) fn transfer_owned_handle(&mut self, value: ValueId) {
-        self.owned_handles
-            .retain(|obligation| obligation.value != value);
+    /// The boxed-number representation, when the module needs it.
+    pub(in crate::mir) fn wit_boxed_number(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.boxed_number_index()
     }
 
-    /// Inserts `resource.drop` for owned handles this function did not return
-    /// and did not pass to an `own<T>` parameter.
-    fn discharge_owned_handles(
-        &mut self,
-        block: BlockId,
-        returned: ValueId,
-    ) -> Result<(), Vec<BackendError>> {
-        let drops = wit::owned_drops(&self.owned_handles, returned);
-        self.owned_handles.clear();
-        for instruction in drops {
-            let span = instruction.span();
-            self.append_instruction(block, instruction, span)?;
-        }
-        Ok(())
+    /// The concrete GC string type, when the module needs it.
+    pub(in crate::mir) fn wit_string_index(&self) -> Option<crate::types::DefinedTypeId> {
+        self.layout.string_index()
     }
 
+    /// The concrete MIR type of a source variant case field.
+    pub(in crate::mir) fn wit_case_field_type(
+        &self,
+        representation: crate::cc::ReprId,
+        case: u32,
+        field: u32,
+    ) -> Option<crate::types::ValueType> {
+        let shape = self
+            .layout
+            .variant_field(representation, case, field)
+            .ok()?;
+        self.layout.value_type(&shape).ok()
+    }
     pub(super) fn append_instruction(
         &mut self,
         block: BlockId,
@@ -242,7 +259,7 @@ impl FunctionLowerer<'_> {
         Ok(destination)
     }
 
-    fn set_terminator(
+    pub(in crate::mir) fn set_terminator(
         &mut self,
         block: BlockId,
         terminator: Terminator,

@@ -12,9 +12,7 @@ mod oracle_record_tests;
 mod oracle_tests;
 #[cfg(test)]
 mod tests;
-use matrix::{
-    available_inputs, canonicalize, choose_column, map_actions, pattern_type, surface_pattern,
-};
+use matrix::{available_inputs, canonicalize, choose_column, map_actions, surface_pattern};
 
 struct Compiler<'a> {
     module: &'a Module,
@@ -131,38 +129,19 @@ impl Compiler<'_> {
         let column = choose_column(&rows, columns.len());
         let ty = columns[column].ty;
         if let Some((field_type, symbol)) = self.newtype_field(ty) {
-            let inferred_field_type = rows.iter().find_map(|row| match &row.patterns[column] {
-                SurfacePattern::Constructor {
-                    symbol: found,
-                    arguments,
-                    ..
-                } if *found == symbol => arguments.first().map(pattern_type),
-                _ => None,
-            });
-            for row in &mut rows {
-                let pat = std::mem::replace(&mut row.patterns[column], SurfacePattern::Any { ty });
-                row.patterns[column] = match pat {
-                    SurfacePattern::Constructor {
-                        symbol: found,
-                        mut arguments,
-                        ..
-                    } if found == symbol => {
-                        if arguments.len() != 1 {
-                            return Err("newtype pattern must have exactly one field");
-                        }
-                        arguments.remove(0)
-                    }
-                    SurfacePattern::Any { .. } | SurfacePattern::Var { .. } => pat,
-                    SurfacePattern::Constructor { .. } => {
-                        return Err("case pattern constructor does not belong to the newtype");
-                    }
-                    SurfacePattern::Record { .. } => {
-                        return Err("record pattern does not match a newtype");
-                    }
-                };
-            }
-            columns[column].ty = inferred_field_type.unwrap_or(field_type);
-            return self.compile_matrix(columns, rows, span);
+            let case = CaseSignature {
+                symbol,
+                tag: 0,
+                arity: 1,
+                irrefutable: true,
+                field_types: vec![field_type],
+            };
+            let surface = DecisionSurface {
+                cases: vec![case.clone()],
+                record_fields: Vec::new(),
+                is_record: false,
+            };
+            return self.compile_product(columns, rows, column, surface, Some(case), span);
         }
 
         let surface = self.surface(ty)?;

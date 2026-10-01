@@ -319,8 +319,9 @@ outer value is already the tag, the target is a MIR `Switch` rather than a chain
   [CC IR](cc-ir.md).
 - **Nested patterns:** each nesting level adds a column and an edge; projection
   happens once per field on the path.
-- **Erased (parameter-dependent) fields:** project the erased value and unbox it
-  at the point of use (`cc/case/erased.rs`), never re-running the outer test.
+- **Parameterized fields:** project the declared template shape and convert
+  to the consumer's shape, never re-running the outer test. Bare-variable slots
+  require erased recovery; composite slots use aggregate maps or adapters.
 - **Guards and view patterns (planned):** a failed test falls through to the
   next alternative at the same matrix position; the matrix structure is
   unchanged and the guard is an extra refutable `Literal`-style edge.
@@ -537,11 +538,11 @@ Nullary enum dispatch lowers through CC `TagSwitch`, MIR
 once and realize the selected edges with CC `If` assignments.
 
 CC derives erased projection behavior from the stored slot shape. Constructor
-and record layouts mark fields whose types depend on a type variable as
-`Reference(Erased)`, and construction boxes to that shape. Recovery to an erased
-scalar uses its typed GC box. For type-dependent nominal array or closed-record
-fields, CC uses an explicit aggregate conversion plan instead of a cast between
-distinct GC layouts. Concrete and generic `Wrap` construction and matching
+and record layouts normalize declared field templates. Bare-variable slots
+use `Reference(Erased)`; composite slots retain canonical references. Recovery
+to an erased scalar uses its typed GC box. Nominal array and closed-record
+layout changes use explicit aggregate conversion plans, and function signature
+changes use adapters instead of casts between distinct closure types. Concrete and generic `Wrap` construction and matching
 have component execution coverage. Verified Typed Core fixtures exercise
 generic record patterns where current source lowering does not retain those
 consumer shapes. The [generic aggregate acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)

@@ -99,8 +99,18 @@ pub struct ClassDeclaration {
     pub name: Name,
     pub parameters: Vec<TypeParameter>,
     pub superclasses: Vec<Type>,
+    pub fundeps: Vec<FunctionalDependency>,
     pub members: Vec<ClassMember>,
     pub kind_signature: Option<Type>,
+    pub span: TextRange,
+}
+
+/// A functional dependency `from -> to` on a class head. Both sides name class
+/// type parameters, before resolution to parameter positions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionalDependency {
+    pub from: Vec<Name>,
+    pub to: Vec<Name>,
     pub span: TextRange,
 }
 
@@ -109,6 +119,79 @@ pub struct ClassMember {
     pub name: Name,
     pub signature: Option<Type>,
     pub span: TextRange,
+}
+
+/// An `instance` declaration before name resolution. `context` holds the
+/// instance's context constraints (empty for a nullary instance) and `members`
+/// are its method implementations as ordinary value declarations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceDeclaration {
+    pub name: Name,
+    /// Module-local identity shared by the ordered alternatives in one
+    /// `instance ... else instance ...` chain. Ordinary instances each get a
+    /// singleton chain identity so later phases can group without guessing
+    /// from source spans or names.
+    pub chain_id: u32,
+    /// Zero-based source order within `chain_id`.
+    pub chain_position: u32,
+    pub context: Vec<Type>,
+    pub head: Type,
+    pub members: Vec<crate::Declaration>,
+    /// The compiler derivation strategy requested by `derive instance`.
+    /// Generated methods are elaborated after name resolution, when the class
+    /// and constructor identities are stable.
+    pub derivation: Option<DerivationStrategy>,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DerivationStrategy {
+    KnownClass,
+    Newtype,
+}
+
+/// Assigns module-local identities and positions to singleton instances and
+/// `else instance` branches while AST lowering walks declarations in order.
+#[derive(Default)]
+pub(crate) struct InstanceChainTracker {
+    next_chain_id: u32,
+    previous: Option<(u32, u32)>,
+}
+
+impl InstanceChainTracker {
+    pub(crate) fn reset(&mut self) {
+        self.previous = None;
+    }
+
+    pub(crate) fn next(
+        &mut self,
+        declaration: &cst::InstanceDeclaration,
+    ) -> Result<(u32, u32), LowerError> {
+        let next = if declaration.else_keyword_span.is_some() {
+            match self.previous {
+                Some((chain_id, previous_position)) => (chain_id, previous_position + 1),
+                None => {
+                    return Err(LowerError::new(
+                        declaration.span,
+                        "an `else instance` must follow an instance in the same chain",
+                    ));
+                }
+            }
+        } else {
+            let chain_id = self.next_chain_id;
+            self.next_chain_id += 1;
+            (chain_id, 0)
+        };
+        self.previous = Some(next);
+        Ok(next)
+    }
+
+    pub(crate) fn next_singleton(&mut self) -> u32 {
+        let chain_id = self.next_chain_id;
+        self.next_chain_id += 1;
+        self.previous = None;
+        chain_id
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,9 +244,10 @@ pub(crate) fn lower_type_declaration(
             name: lower_name(declaration.name),
             parameters: lower_class_parameters(&declaration.head)?,
             superclasses: match declaration.superclasses {
-                Some(superclasses) => vec![lower_type(*superclasses)?],
+                Some(superclasses) => lower_constraints(*superclasses)?,
                 None => Vec::new(),
             },
+            fundeps: lower_fundeps(&declaration.fundeps)?,
             members: declaration
                 .where_block
                 .map(|block| lower_class_members(block.declarations))
@@ -230,6 +314,21 @@ fn lower_class_parameters(head: &cst::TypeExpr) -> Result<Vec<TypeParameter>, Lo
     Ok(parameters)
 }
 
+fn lower_fundeps(
+    fundeps: &[cst::FunctionalDependency],
+) -> Result<Vec<FunctionalDependency>, LowerError> {
+    fundeps
+        .iter()
+        .map(|fundep| {
+            Ok(FunctionalDependency {
+                from: fundep.from.iter().cloned().map(lower_name).collect(),
+                to: fundep.to.iter().cloned().map(lower_name).collect(),
+                span: fundep.span,
+            })
+        })
+        .collect()
+}
+
 fn collect_parameters(
     expression: &cst::TypeExpr,
     out: &mut Vec<TypeParameter>,
@@ -275,6 +374,21 @@ fn strip_parens(expression: &cst::TypeExpr) -> &cst::TypeExpr {
     }
 }
 
+/// Lowers a class superclass or instance context type expression. A
+/// parenthesized tuple `(C a, D a)` denotes several constraints and is
+/// flattened into one type per item; any other expression is a single
+/// constraint.
+fn lower_constraints(expression: cst::TypeExpr) -> Result<Vec<Type>, LowerError> {
+    match expression.kind {
+        cst::TypeExprKind::Tuple { items, .. } => items.into_iter().map(lower_type).collect(),
+        cst::TypeExprKind::Parens { expression, .. } => lower_constraints(*expression),
+        kind => Ok(vec![lower_type(cst::TypeExpr {
+            kind,
+            span: expression.span,
+        })?]),
+    }
+}
+
 fn lower_class_members(
     declarations: Vec<cst::Declaration>,
 ) -> Result<Vec<ClassMember>, LowerError> {
@@ -286,11 +400,12 @@ fn lower_class_members(
                 Some(lower_type(signature.type_expr)?),
                 signature.span,
             ),
-            cst::Declaration::Value(value) => (
-                value.name,
-                value.annotation.map(lower_type).transpose()?,
-                value.span,
-            ),
+            cst::Declaration::Value(value) => {
+                return Err(LowerError::new(
+                    value.span,
+                    "class bodies permit method signatures only; implementations belong in instances",
+                ));
+            }
             _ => continue,
         };
         if let Some(existing) = members

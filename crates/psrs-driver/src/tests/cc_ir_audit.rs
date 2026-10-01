@@ -5,7 +5,7 @@
 //! inspect the verified CC module before P9.
 
 use super::*;
-use psrs_backend::cc::{AssignmentKind, Function};
+use psrs_backend::cc::{AssignmentKind, RefShape, ValueConversion, ValueShape};
 use std::collections::HashSet;
 
 fn required_wasmtime() -> bool {
@@ -70,12 +70,9 @@ fn expect_prelude_program_exit(name: &str, sources: &[(&str, &str)], expected: i
     }
 }
 
-fn cc_functions(source: &str) -> Vec<Function> {
+fn cc_stages(source: &str) -> psrs_backend::Stages {
     let core = lower_source_to_core("Main.purs", source).expect("source lowers to Core");
-    psrs_backend::compile_with_stages(core)
-        .expect("Core lowers through CC to Wasm")
-        .cc
-        .functions
+    psrs_backend::compile_with_stages(core).expect("Core lowers through CC to Wasm")
 }
 
 const RECURSIVE_SUM: &str = "module Main where\nimport Prelude\ng :: Int -> Int -> Int\ng n acc = if n == 0 then acc else g (n - 1) (acc + 1)\n";
@@ -85,7 +82,9 @@ const RECURSIVE_SUM: &str = "module Main where\nimport Prelude\ng :: Int -> Int 
 #[test]
 fn cc_declarations_are_well_formed_and_capture_once() {
     let source = "module Main where\nimport Prelude\napply :: (Int -> Int) -> Int -> Int\napply f x = f x\nmain = let a = 1 in let b = 2 in apply (\\x -> a + b + x + a) 0\n";
-    let functions = cc_functions(source);
+    let stages = cc_stages(source);
+    let main_module = stages.core.entry.expect("the program has an entry").module;
+    let functions = stages.cc.functions;
     let symbols = functions
         .iter()
         .map(|function| function.symbol)
@@ -112,6 +111,7 @@ fn cc_declarations_are_well_formed_and_capture_once() {
     }
     let capturing = functions
         .iter()
+        .filter(|function| function.symbol.module == main_module)
         .filter(|function| {
             function.assignments.iter().any(|assignment| {
                 matches!(assignment.kind, AssignmentKind::ClosureGetCapture { .. })
@@ -223,5 +223,134 @@ fn erased_function_adapter_executes() {
         "erased_function_adapter_executes",
         "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = let f = identity (\\value -> value) in f 42\n",
         42,
+    );
+}
+
+/// Whether a conversion plan recovers an erased value at a concrete closure
+/// signature with a reference cast. That is the wrong operation for a method
+/// whose stored closure has the erased (template) signature; it needs an
+/// adapter instead.
+fn plan_casts_to_a_concrete_closure(plan: &ValueConversion) -> bool {
+    match plan {
+        ValueConversion::RecoverReference { destination, .. } => matches!(
+            destination,
+            ValueShape::Reference(reference) if matches!(reference.heap, RefShape::Closure(_))
+        ),
+        ValueConversion::Sequence(steps) => steps.iter().any(plan_casts_to_a_concrete_closure),
+        ValueConversion::ArrayMap { element, .. } => plan_casts_to_a_concrete_closure(element),
+        ValueConversion::ProductMap { fields, .. } => {
+            fields.iter().any(plan_casts_to_a_concrete_closure)
+        }
+        _ => false,
+    }
+}
+
+/// CC-08, DICT-08: an imported instance whose head is polymorphic builds a
+/// generic dictionary whose method field retains its template signature. Using that
+/// method at a concrete type must generate a function adapter, not cast the
+/// template closure straight to a concrete closure. P7 does not specialize a
+/// declaration outside its own module, so this exercises the generic path.
+#[test]
+fn a_polymorphic_imported_instance_method_recovers_through_an_adapter() {
+    let library = "module Lib where\n\nclass Eq a where\n  eq :: a -> a -> Boolean\n\nclass ToInt a where\n  toInt :: a -> Int\n\ninstance eqInt :: Eq Int where\n  eq x y = true\n\ninstance toIntFromEq :: Eq a => ToInt a where\n  toInt x = 1\n";
+    let consumer = "module Main where\n\nimport Lib\n\nmain :: Int\nmain = toInt 42\n";
+    let core =
+        crate::program::lower_program_to_core(&[("Lib.purs", library), ("Main.purs", consumer)])
+            .expect("the linked two-module program lowers to Core");
+    let cc = psrs_backend::compile_with_stages(core)
+        .expect("Core lowers through CC")
+        .cc;
+    assert!(
+        cc.functions
+            .iter()
+            .any(|function| function.name == "toIntFromEq"),
+        "the imported generic dictionary constructor must be retained"
+    );
+    let main = cc
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("the entry function exists");
+    assert!(
+        !main
+            .assignments
+            .iter()
+            .any(|assignment| match &assignment.kind {
+                AssignmentKind::AggregateConvert { conversion, .. } =>
+                    plan_casts_to_a_concrete_closure(&conversion.plan),
+                _ => false,
+            }),
+        "main must not cast an erased method field straight to a concrete closure"
+    );
+    let conversion = main
+        .assignments
+        .iter()
+        .find_map(|assignment| match &assignment.kind {
+            AssignmentKind::AggregateConvert { conversion, .. } => {
+                let ValueConversion::ProductMap { fields, .. } = &conversion.plan else {
+                    return None;
+                };
+                let ValueConversion::FunctionAdapter { source, .. } = fields[0] else {
+                    return None;
+                };
+                let ValueShape::Reference(psrs_backend::cc::Reference {
+                    heap: RefShape::Closure(id),
+                    ..
+                }) = source
+                else {
+                    return None;
+                };
+                matches!(
+                    cc.representations.signatures[id.0 as usize]
+                        .parameters
+                        .first(),
+                    Some(ValueShape::Reference(psrs_backend::cc::Reference {
+                        heap: RefShape::Erased,
+                        ..
+                    }))
+                )
+                .then_some(conversion)
+            }
+            _ => None,
+        })
+        .expect("dictionary instantiation uses the recursive conversion plan");
+    let psrs_backend::cc::ValueConversion::ProductMap { fields, .. } = &conversion.plan else {
+        panic!("dictionary conversion must reconstruct the product");
+    };
+    let psrs_backend::cc::ValueConversion::FunctionAdapter {
+        function, source, ..
+    } = fields[0]
+    else {
+        panic!("the method field must adapt its call signature");
+    };
+    let ValueShape::Reference(psrs_backend::cc::Reference {
+        heap: RefShape::Closure(signature),
+        ..
+    }) = source
+    else {
+        panic!("a generic method retains its template closure signature");
+    };
+    assert!(
+        matches!(
+            cc.representations.signatures[signature.0 as usize].parameters[0],
+            ValueShape::Reference(psrs_backend::cc::Reference {
+                heap: RefShape::Erased,
+                ..
+            })
+        ),
+        "template signature: {:?}; fields: {:?}",
+        cc.representations.signatures[signature.0 as usize],
+        fields
+    );
+    let factory = cc
+        .functions
+        .iter()
+        .find(|candidate| candidate.symbol == function)
+        .expect("the conversion names a generated adapter factory");
+    assert!(
+        factory.assignments.iter().any(|assignment| matches!(
+            &assignment.kind, AssignmentKind::FunctionRef { captures, .. } if !captures.is_empty()
+        )),
+        "the factory captures the original template closure"
     );
 }

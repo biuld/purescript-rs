@@ -1,3 +1,6 @@
+mod functions;
+pub(super) use functions::verify_adapter_functions;
+
 use super::super::helpers::{assignment_error, repr_shape};
 use crate::BackendError;
 use crate::cc::{
@@ -113,9 +116,36 @@ fn verify_plan(
             destination,
             evidence,
         } => {
-            if source != erased_shape()
-                || !matches!(destination, ValueShape::Reference(_) | ValueShape::String)
-            {
+            // A recover is a reference cast. It either narrows the erased
+            // polymorphic value to a concrete reference/string, or reinterprets
+            // between the abstract aggregate supertype and a concrete
+            // representation. It never converts between two concrete
+            // representations.
+            let aggregate_reinterpretation = matches!(
+                (source, destination),
+                (
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Repr(_),
+                        ..
+                    }),
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Aggregate,
+                        ..
+                    }),
+                ) | (
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Aggregate,
+                        ..
+                    }),
+                    ValueShape::Reference(Reference {
+                        heap: RefShape::Repr(_),
+                        ..
+                    }),
+                )
+            );
+            let erased_source = source == erased_shape()
+                && matches!(destination, ValueShape::Reference(_) | ValueShape::String);
+            if !(aggregate_reinterpretation || erased_source) {
                 return Err(assignment_error(
                     assignment,
                     "reference recovery has incompatible shapes",
@@ -147,6 +177,30 @@ fn verify_plan(
                     ));
                 }
             }
+            Ok(*destination)
+        }
+        ValueConversion::FunctionAdapter {
+            source: expected,
+            destination,
+            ..
+        } => {
+            if source != *expected
+                || !matches!(source, ValueShape::Reference(_))
+                || !matches!(
+                    destination,
+                    ValueShape::Reference(Reference {
+                        nullable: false,
+                        heap: RefShape::Closure(_),
+                    })
+                )
+            {
+                return Err(assignment_error(
+                    assignment,
+                    "function adapter has incompatible shapes",
+                ));
+            }
+            super::super::helpers::verify_value_shape(&source, table, assignment.span)?;
+            super::super::helpers::verify_value_shape(destination, table, assignment.span)?;
             Ok(*destination)
         }
         ValueConversion::Sequence(plans) => {

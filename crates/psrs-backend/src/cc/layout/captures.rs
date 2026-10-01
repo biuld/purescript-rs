@@ -1,4 +1,5 @@
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind, Type};
+use crate::cc::ValueShape;
+use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind};
 use psrs_hir::LocalId;
 use std::collections::HashSet;
 
@@ -52,6 +53,7 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
                 || expression_has_integer_capture(right, module)
         }
         ExprKind::UnaryPrimitive { value, .. } => expression_has_integer_capture(value, module),
+        ExprKind::RepresentationCast { value, .. } => expression_has_integer_capture(value, module),
         ExprKind::Let { bindings, body } => {
             bindings
                 .iter()
@@ -94,10 +96,7 @@ fn free_integer_local(
     match &expression.kind {
         ExprKind::Local(id) => {
             !bound.contains(id)
-                && matches!(
-                    module.types.get(expression.ty.0 as usize),
-                    Some(Type::I32 | Type::Char | Type::Unit)
-                )
+                && super::primitive_shape_of(module, expression.ty) == Some(ValueShape::Integer)
         }
         ExprKind::Lambda { binder, body } => {
             let inserted = bound.insert(binder.id);
@@ -157,6 +156,7 @@ fn free_integer_local(
             free_integer_local(left, module, bound) || free_integer_local(right, module, bound)
         }
         ExprKind::UnaryPrimitive { value, .. } => free_integer_local(value, module, bound),
+        ExprKind::RepresentationCast { value, .. } => free_integer_local(value, module, bound),
         ExprKind::If {
             condition,
             then_branch,

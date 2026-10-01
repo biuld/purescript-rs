@@ -1,4 +1,4 @@
-use psrs_hir::{BuiltinType, TypeId, TypeKind};
+use psrs_hir::{BuiltinType, Role, TypeId, TypeKind};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -27,6 +27,28 @@ pub enum Kind {
 pub struct KindScheme {
     pub variables: Vec<u32>,
     pub kind: Kind,
+}
+
+/// Checked role metadata for one resolved program. Type roles are attached to
+/// resolved constructor identities so importers use the declaring module's
+/// representation contract.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CheckedKindEnv {
+    pub roles: HashMap<TypeId, Vec<Role>>,
+    /// Kind schemes for named constructors, including imports. Keeping these
+    /// alongside roles lets coercion checking validate argument kinds after
+    /// the source type tree has been elaborated.
+    pub kinds: HashMap<TypeId, KindScheme>,
+}
+
+impl CheckedKindEnv {
+    pub fn roles(&self, id: TypeId) -> Option<&[Role]> {
+        self.roles.get(&id).map(Vec::as_slice)
+    }
+
+    pub fn kind(&self, id: TypeId) -> Option<&KindScheme> {
+        self.kinds.get(&id)
+    }
 }
 
 impl KindScheme {

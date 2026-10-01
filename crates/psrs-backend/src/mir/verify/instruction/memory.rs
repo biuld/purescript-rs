@@ -27,6 +27,13 @@ pub(super) fn verify_memory_instruction(
             memory,
             span,
             ..
+        }
+        | Instruction::Load16U {
+            destination,
+            address,
+            memory,
+            span,
+            ..
         } => {
             if *memory != MemoryId(0) {
                 return Err(mir_error(*span, "MIR load references an unknown memory"));
@@ -36,6 +43,43 @@ pub(super) fn verify_memory_instruction(
             }
             if value_type(function, *destination) != Some(ValueType::I32) {
                 return Err(mir_error(*span, "MIR load result must be i32"));
+            }
+        }
+        Instruction::LoadI64 {
+            destination,
+            address,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::LoadF32 {
+            destination,
+            address,
+            memory,
+            span,
+            ..
+        }
+        | Instruction::LoadF64 {
+            destination,
+            address,
+            memory,
+            span,
+            ..
+        } => {
+            if *memory != MemoryId(0) {
+                return Err(mir_error(*span, "MIR load references an unknown memory"));
+            }
+            if require_value(definitions, *address, *span)? != ValueType::I32 {
+                return Err(mir_error(*span, "MIR load address must be i32"));
+            }
+            let expected = match instruction {
+                Instruction::LoadI64 { .. } => ValueType::I64,
+                Instruction::LoadF32 { .. } => ValueType::F32,
+                Instruction::LoadF64 { .. } => ValueType::F64,
+                _ => unreachable!("load verifier received another instruction"),
+            };
+            if value_type(function, *destination) != Some(expected) {
+                return Err(mir_error(*span, "MIR load result has the wrong width"));
             }
         }
         Instruction::Store {

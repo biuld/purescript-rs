@@ -3,6 +3,7 @@ mod bindings;
 pub mod capability;
 pub mod cc;
 pub mod component;
+mod effects;
 pub mod mir;
 pub mod types;
 pub mod wasm;
@@ -159,7 +160,7 @@ pub fn compile_with_target(
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
     let owner = module.entry.map(|entry| entry.module);
-    let module =
+    let mut module =
         psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()).map_err(|errors| {
             annotate_errors(
                 errors
@@ -172,7 +173,9 @@ pub fn compile_with_target(
             )
         })?;
     let optimized_core = module.clone();
-    let external_bindings = ExternalBindings::from_core(&module);
+    let mut external_bindings = ExternalBindings::from_core(&mut module);
+    effects::lower_effects(&mut module, &mut external_bindings)?;
+    external_bindings.validate_conformance(&module, target)?;
     let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
     let cc = lowered_cc.cc;
     let (mir, mut wasi) =

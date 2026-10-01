@@ -1,13 +1,16 @@
-module WASI.Random (randomBytes, randomU64) where
+module WASI.Random
+  ( randomBytes
+  , randomU64
+  , insecureBytes
+  , insecureU64
+  , insecureSeed
+  ) where
 
 import Prelude
 
-foreign import "wasi:random/random#get-random-bytes" getRandomBytes :: Int -> String
+foreign import "wasi:random/random#get-random-bytes" randomBytes :: Int -> Effect (String)
+foreign import "wasi:random/random#get-random-u64" randomU64 :: Effect (Int)
+foreign import "wasi:random/insecure#get-insecure-random-bytes" insecureBytes :: Int -> Effect (String)
+foreign import "wasi:random/insecure#get-insecure-random-u64" insecureU64 :: Effect (Int)
+foreign import "wasi:random/insecure-seed#insecure-seed" insecureSeed :: Effect ({ _1 :: Int, _2 :: Int })
 
-foreign import "wasi:random/random#get-random-u64" getRandomU64 :: Int
-
-randomBytes :: Int -> Effect String
-randomBytes count = \token -> getRandomBytes count
-
-randomU64 :: Effect Int
-randomU64 = \token -> getRandomU64

@@ -1,6 +1,43 @@
 use super::super::*;
 
 impl Checker {
+    pub(super) fn infer_record_with_expected(
+        &mut self,
+        fields: &[(String, hir::Expr)],
+        span: TextRange,
+        expected: &InferType,
+    ) -> Option<(InferredExprKind, InferType)> {
+        let expected_row = record_row(expected)?;
+        let FlatRow {
+            fields: expected_fields,
+            ..
+        } = self.flatten_row(expected_row);
+        let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
+        let mut inferred = Vec::with_capacity(fields.len());
+        let mut labels = HashSet::new();
+        for (label, value) in fields {
+            if !labels.insert(label) {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::TypeMismatch,
+                    span,
+                    format!("record label `{label}` occurs more than once"),
+                ));
+                return None;
+            }
+            let value =
+                self.infer_expr_with_expected(value, expected_fields.get(label).cloned())?;
+            inferred.push((label.clone(), value));
+        }
+        let actual = record_type(
+            inferred
+                .iter()
+                .map(|(label, value)| (label.clone(), value.ty.clone()))
+                .collect(),
+            InferType::RowEmpty,
+        );
+        Some((InferredExprKind::Record(inferred), actual))
+    }
+
     pub(super) fn infer_record(
         &mut self,
         fields: &[(String, hir::Expr)],
@@ -19,12 +56,11 @@ impl Checker {
             }
             inferred.push((label.clone(), self.infer_expr(value)?));
         }
-        let mut record_fields = inferred
+        let record_fields = inferred
             .iter()
             .map(|(label, value)| (label.clone(), value.ty.clone()))
             .collect::<Vec<_>>();
-        record_fields.sort_by(|left, right| left.0.cmp(&right.0));
-        let ty = InferType::Record(InferRecord::closed(record_fields));
+        let ty = record_type(record_fields, InferType::RowEmpty);
         Some((InferredExprKind::Record(inferred), ty))
     }
 
@@ -44,10 +80,10 @@ impl Checker {
         // cannot extend a closed or rigid tail.
         self.unify(
             expression.ty.clone(),
-            InferType::Record(InferRecord {
-                fields: vec![(field.to_owned(), field_ty.clone())],
-                tail: RowTail::Open(tail),
-            }),
+            record_type(
+                vec![(field.to_owned(), field_ty.clone())],
+                InferType::Variable(tail),
+            ),
             span,
         );
         Some((
@@ -82,7 +118,6 @@ impl Checker {
             probed.push((label.clone(), self.fresh()));
             inferred.push((label.clone(), value));
         }
-        probed.sort_by(|left, right| left.0.cmp(&right.0));
         let tail = match self.fresh() {
             InferType::Variable(variable) => variable,
             _ => unreachable!("fresh inference types are variables"),
@@ -92,26 +127,19 @@ impl Checker {
         // would be required to update a label that is only in an unknown tail.
         self.unify(
             expression.ty.clone(),
-            InferType::Record(InferRecord {
-                fields: probed,
-                tail: RowTail::Open(tail),
-            }),
+            record_type(probed, InferType::Variable(tail)),
             span,
         );
-        let mut result_fields = inferred
+        let result_fields = inferred
             .iter()
             .map(|(label, value)| (label.clone(), value.ty.clone()))
             .collect::<Vec<_>>();
-        result_fields.sort_by(|left, right| left.0.cmp(&right.0));
         Some((
             InferredExprKind::RecordUpdate {
                 expression: Box::new(expression),
                 fields: inferred,
             },
-            InferType::Record(InferRecord {
-                fields: result_fields,
-                tail: RowTail::Open(tail),
-            }),
+            record_type(result_fields, InferType::Variable(tail)),
         ))
     }
 }

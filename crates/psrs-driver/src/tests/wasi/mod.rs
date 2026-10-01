@@ -1,7 +1,15 @@
 use super::*;
 
+mod do_notation;
+mod filesystem;
 mod wat;
+mod where_clause;
 use wat::*;
+
+mod classes;
+mod coercion;
+mod umbrella;
+mod wrappers;
 
 #[test]
 fn lowers_string_log_to_wasi_stdout() {
@@ -9,6 +17,10 @@ fn lowers_string_log_to_wasi_stdout() {
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
     assert!(artifact.wat.contains("wasi:io/streams@0.2.12"));
+    assert!(
+        artifact.wat.contains("[resource-drop]output-stream"),
+        "the standard-library wrapper drops the stdout handle explicitly"
+    );
     // The literal is a passive UTF-16 data segment materialized once into a
     // lazily initialized global, so the WAT holds its code units rather than
     // ASCII and guards `array.new_data` with `ref.is_null`/`global.set`.
@@ -130,14 +142,16 @@ fn lowers_a_list_returning_import_with_an_allocator() {
 }
 
 #[test]
-fn rejects_a_non_byte_wit_list_before_lowering_it_as_a_string() {
+fn rejects_a_string_declaration_for_a_list_of_tuples() {
     let source = "module Main where\n\
         foreign import \"wasi:cli/environment#get-environment\" env :: String\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering"
-            && error.message.contains("non-byte WIT list results")
+        error.stage == "P8 WIT linking"
+            && error
+                .message
+                .contains("incompatible with its canonical result")
             && error.span.start < error.span.end
             && error.span.end <= source.len() as u32
     }));
@@ -150,7 +164,7 @@ fn rejects_a_string_declaration_for_a_list_of_strings() {
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering"
+        error.stage == "P8 WIT linking"
             && error
                 .message
                 .contains("incompatible with its canonical result")
@@ -172,10 +186,10 @@ fn lowers_a_list_of_strings_to_an_array() {
 fn lowers_the_environment_arguments_wrapper_to_an_array() {
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Environment\n\
+        import WASI.Process\n\
         main = arrayLength (runEffect arguments)\n";
     let artifact = compile_source("Main.purs", source)
-        .expect("WASI.Environment.arguments should lower to an array");
+        .expect("WASI.Process.arguments should lower to an array");
     assert!(artifact.wat.contains("wasi:cli/environment@0.2.12"));
     assert!(artifact.wat.contains("get-arguments"));
     assert!(artifact.wat.contains("array.new_default"));
@@ -185,7 +199,7 @@ fn lowers_the_environment_arguments_wrapper_to_an_array() {
 fn rejects_an_import_of_unexported_get_arguments() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Environment (getArguments)\nmain = 0\n",
+        "module Main where\nimport WASI.Process (getArguments)\nmain = 0\n",
     )
     .expect_err("getArguments is not part of the environment export list");
     assert!(
@@ -203,7 +217,7 @@ fn reads_environment_arguments_when_wasmtime_is_available() {
     // is the module path under Wasmtime.
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Environment\n\
+        import WASI.Process\n\
         main = arrayLength (runEffect arguments)\n";
     let Some(output) = run_with_wasmtime_args(source, &["alpha", "beta"]) else {
         eprintln!("skipping: wasmtime is not installed");
@@ -213,26 +227,47 @@ fn reads_environment_arguments_when_wasmtime_is_available() {
 }
 
 #[test]
+fn reads_environment_variables_as_records_when_wasmtime_is_available() {
+    // `get-environment` returns the canonical `list<tuple<string, string>>`,
+    // which maps to an `Array` of two-field records. This exercises an
+    // aggregate list element end to end.
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/environment#get-environment\" env :: Array { _1 :: String, _2 :: String }\n\
+        main = arrayLength env\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("list<tuple<string, string>> should lower to an array of records");
+    assert!(artifact.wat.contains("get-environment"));
+    assert!(artifact.wat.contains("array.new_default"));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
+#[test]
 fn rejects_a_wit_import_when_the_declared_source_type_does_not_match() {
     let source = "module Main where\n\
         foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: String -> String\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.stage == "P9 MIR lowering" && error.message.contains("incompatible type")
+        error.stage == "P8 WIT linking" && error.message.contains("incompatible type")
     }));
 }
 
 #[test]
 fn rejects_a_wasi_interface_outside_the_component_capability_profile() {
+    // `wasi:cli/run` is the command's export, not an import, so it is excluded
+    // from the component world's import set even though it is vendored.
     let source = "module Main where\n\
-        foreign import \"wasi:random/insecure#get-insecure-random-u64\" random :: Int\n\
+        foreign import \"wasi:cli/run#run\" run :: Int\n\
         main = 0\n";
     let errors = compile_source("Main.purs", source).unwrap_err();
     let error = errors
         .iter()
         .find(|error| {
-            error.stage == "P9 MIR lowering"
+            error.stage == "P8 WIT linking"
                 && error
                     .message
                     .contains("not in the current component capability profile")
@@ -383,7 +418,7 @@ fn keeps_multiple_returned_wit_strings_in_distinct_allocations() {
 fn rejects_an_import_of_unexported_exit_with_code_raw() {
     let errors = check_source(
         "Main.purs",
-        "module Main where\nimport WASI.Exit (exitWithCodeRaw)\nmain = 0\n",
+        "module Main where\nimport WASI.Process (exitWithCodeRaw)\nmain = 0\n",
     )
     .expect_err("exitWithCodeRaw is not part of the exit export list");
     assert!(
@@ -402,11 +437,11 @@ fn rejects_an_import_of_unexported_exit_with_code_raw() {
 #[test]
 fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
     let stored = "module Main where\n\
-        import WASI.Exit\n\
+        import WASI.Process\n\
         main = let action = exitWithCode 0 in 0\n";
     let forced = "module Main where\n\
         import Prelude\n\
-        import WASI.Exit\n\
+        import WASI.Process\n\
         main = let value = runEffect (exitWithCode 0) in 0\n";
     let stored_wat = compile_source("Main.purs", stored)
         .expect("a stored exitWithCode action should compile")
@@ -446,5 +481,19 @@ fn stored_exit_with_code_leaves_exit_with_code_inside_the_effect_closure() {
     assert!(
         import_is_reached_only_from_a_closure(&forced_funcs, forced_entry, forced_import),
         "runEffect still calls exit-with-code from the closure, not the entry"
+    );
+}
+
+#[test]
+fn an_explicit_resource_drop_lowers_to_the_canonical_drop() {
+    let source = "module Main where\n\
+        foreign import \"wasi:cli/stdout#get-stdout\" getStdout :: Int\n\
+        foreign import \"wasi:io/streams#[resource-drop]output-stream\" dropStdout :: Int -> Unit\n\
+        main = let ignored = dropStdout getStdout in 0\n";
+    let artifact = compile_source("Main.purs", source)
+        .expect("an explicit resource drop should lower to the canonical drop");
+    assert!(
+        artifact.wat.contains("[resource-drop]output-stream"),
+        "the drop intrinsic should be emitted"
     );
 }

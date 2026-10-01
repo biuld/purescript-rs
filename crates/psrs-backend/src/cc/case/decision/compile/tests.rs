@@ -10,12 +10,14 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
     let true_symbol = SymbolId::new(ModuleId(0), 0);
     let false_symbol = SymbolId::new(ModuleId(0), 1);
     let module = Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "DecisionTest".into(),
         externals: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::User(type_id))],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: true_symbol,
@@ -24,6 +26,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: false_symbol,
@@ -32,6 +35,7 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),
@@ -41,12 +45,34 @@ fn bool_module() -> (Module, SymbolId, SymbolId) {
     (module, true_symbol, false_symbol)
 }
 
-fn record_bool_module() -> (Module, SymbolId, SymbolId) {
+fn record_bool_module() -> (Module, SymbolId, SymbolId, psrs_core::TypeId) {
     let (mut module, true_symbol, false_symbol) = bool_module();
-    module
-        .types
-        .push(Type::Record(vec![("active".into(), psrs_core::TypeId(0))]));
-    (module, true_symbol, false_symbol)
+    let record = push_record(
+        &mut module.types,
+        vec![("active".into(), psrs_core::TypeId(0))],
+    );
+    (module, true_symbol, false_symbol, record)
+}
+
+fn push_record(
+    types: &mut Vec<Type>,
+    fields: Vec<(String, psrs_core::TypeId)>,
+) -> psrs_core::TypeId {
+    let mut fields = fields;
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let row_empty = psrs_core::TypeId(types.len() as u32);
+    types.push(Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in fields.into_iter().rev() {
+        let id = psrs_core::TypeId(types.len() as u32);
+        types.push(Type::RowExtend { label, ty, tail });
+        tail = id;
+    }
+    let head = psrs_core::TypeId(types.len() as u32);
+    types.push(Type::Constructor(TypeConstructor::Record));
+    let id = psrs_core::TypeId(types.len() as u32);
+    types.push(Type::Application(head, tail));
+    id
 }
 
 fn constructor(symbol: SymbolId, ty: psrs_core::TypeId, span: TextRange) -> Pattern {
@@ -227,7 +253,7 @@ fn complete_nullary_signature_leaves_malformed_tag_as_fail() {
 
 #[test]
 fn nested_record_constructor_has_one_projection_and_keeps_spans() {
-    let (module, true_symbol, false_symbol) = record_bool_module();
+    let (module, true_symbol, false_symbol, record) = record_bool_module();
     let record_pattern = |symbol, start| Pattern {
         kind: PatternKind::Record {
             fields: vec![(
@@ -239,7 +265,7 @@ fn nested_record_constructor_has_one_projection_and_keeps_spans() {
                 ),
             )],
         },
-        ty: psrs_core::TypeId(1),
+        ty: record,
         span: TextRange::new(start, start + 6),
     };
     let branches = vec![
@@ -249,7 +275,7 @@ fn nested_record_constructor_has_one_projection_and_keeps_spans() {
     let dag = compile_dag(
         &module,
         &HashSet::new(),
-        psrs_core::TypeId(1),
+        record,
         &branches,
         TextRange::new(0, 20),
     )

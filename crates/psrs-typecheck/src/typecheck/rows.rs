@@ -1,75 +1,56 @@
 use super::*;
 
 impl Checker {
-    /// Flattens a record by following a solved tail. Common labels are merged
-    /// only when unification produced them; a duplicate label is reported.
-    pub(super) fn resolve_record(&self, record: InferRecord) -> InferType {
-        let mut fields = record
-            .fields
-            .into_iter()
-            .map(|(label, ty)| (label, self.resolve_type(ty)))
-            .collect::<Vec<_>>();
-        fields.sort_by(|left, right| left.0.cmp(&right.0));
-        match record.tail {
-            RowTail::Closed => InferType::Record(InferRecord {
-                fields,
-                tail: RowTail::Closed,
-            }),
-            RowTail::Open(variable) => match self.substitutions.get(&variable) {
-                Some(bound) => self.merge_tail(fields, self.resolve_type(bound.clone())),
-                None => InferType::Record(InferRecord {
-                    fields,
-                    tail: RowTail::Open(variable),
-                }),
-            },
-        }
-    }
-
-    fn merge_tail(&self, mut fields: Vec<(String, InferType)>, tail: InferType) -> InferType {
-        match tail {
-            InferType::Record(rest) => {
-                for (label, ty) in rest.fields {
-                    if fields.iter().any(|(existing, _)| existing == &label) {
-                        // The caller reports the diagnostic. Keep the first
-                        // type so later unification still has a row to compare.
-                        continue;
-                    }
-                    fields.push((label, ty));
-                }
-                fields.sort_by(|left, right| left.0.cmp(&right.0));
-                match rest.tail {
-                    RowTail::Closed => InferType::Record(InferRecord {
+    /// Flattens a row into its fields and its tail by following solved row
+    /// variables. Field order is not significant.
+    pub(super) fn flatten_row(&self, row: InferType) -> FlatRow {
+        let mut fields = Vec::new();
+        let mut current = self.resolve_type(row);
+        loop {
+            match current {
+                InferType::RowEmpty => {
+                    return FlatRow {
                         fields,
                         tail: RowTail::Closed,
-                    }),
-                    RowTail::Open(variable) => {
-                        if let Some(bound) = self.substitutions.get(&variable) {
-                            self.merge_tail(fields, self.resolve_type(bound.clone()))
-                        } else {
-                            InferType::Record(InferRecord {
-                                fields,
-                                tail: RowTail::Open(variable),
-                            })
-                        }
-                    }
+                    };
+                }
+                InferType::RowExtend { label, ty, tail } => {
+                    fields.push((label, *ty));
+                    current = self.resolve_type(*tail);
+                }
+                InferType::Variable(variable) => {
+                    return FlatRow {
+                        fields,
+                        tail: RowTail::Open(variable),
+                    };
+                }
+                // A row that has resolved to a non-row type contributes no more
+                // fields; the caller reports the mismatch.
+                _ => {
+                    return FlatRow {
+                        fields,
+                        tail: RowTail::Closed,
+                    };
                 }
             }
-            InferType::Variable(variable) => InferType::Record(InferRecord {
-                fields,
-                tail: RowTail::Open(variable),
-            }),
-            _ => InferType::Record(InferRecord {
-                fields,
-                tail: RowTail::Closed,
-            }),
         }
     }
 
-    pub(super) fn unify_rows(&mut self, left: InferRecord, right: InferRecord, span: TextRange) {
+    pub(super) fn unify_rows(&mut self, left: InferType, right: InferType, span: TextRange) {
+        let FlatRow {
+            fields: mut left_fields,
+            tail: left_tail,
+        } = self.flatten_row(left);
+        let FlatRow {
+            fields: mut right_fields,
+            tail: right_tail,
+        } = self.flatten_row(right);
+        left_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        right_fields.sort_by(|left, right| left.0.cmp(&right.0));
         let mut left_rest = Vec::new();
         let mut right_rest = Vec::new();
-        let mut left_fields = left.fields.into_iter().peekable();
-        let mut right_fields = right.fields.into_iter().peekable();
+        let mut left_fields = left_fields.into_iter().peekable();
+        let mut right_fields = right_fields.into_iter().peekable();
         loop {
             match (left_fields.peek(), right_fields.peek()) {
                 (Some((left_label, _)), Some((right_label, _))) => {
@@ -92,7 +73,7 @@ impl Checker {
                 (None, None) => break,
             }
         }
-        self.unify_row_tails(left_rest, left.tail, right_rest, right.tail, span);
+        self.unify_row_tails(left_rest, left_tail, right_rest, right_tail, span);
     }
 
     fn unify_row_tails(
@@ -110,9 +91,7 @@ impl Checker {
             right_tail,
         ) {
             (true, RowTail::Open(variable), _, tail) if !self.rigid.contains(&variable) => {
-                if right_rest.is_empty()
-                    && matches!(tail, RowTail::Open(other) if other == variable)
-                {
+                if right_rest.is_empty() && tail == RowTail::Open(variable) {
                     return;
                 }
                 self.bind_row(variable, right_rest, tail, span);
@@ -149,11 +128,7 @@ impl Checker {
             self.row_mismatch(Vec::new(), RowTail::Open(variable), fields, tail, span);
             return;
         }
-        self.bind_variable(
-            variable,
-            InferType::Record(InferRecord { fields, tail }),
-            span,
-        );
+        self.bind_variable(variable, row_from_fields(fields, tail.to_type()), span);
     }
 
     fn fresh_row(&mut self) -> u32 {
@@ -202,14 +177,8 @@ impl Checker {
             Vec::new()
         };
         if missing.is_empty() {
-            let expected = self.display_type(&InferType::Record(InferRecord {
-                fields: left_rest,
-                tail: left_tail,
-            }));
-            let actual = self.display_type(&InferType::Record(InferRecord {
-                fields: right_rest,
-                tail: right_tail,
-            }));
+            let expected = self.display_type(&record_type(left_rest, left_tail.to_type()));
+            let actual = self.display_type(&record_type(right_rest, right_tail.to_type()));
             self.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::TypeMismatch,
                 span,
@@ -226,28 +195,22 @@ impl Checker {
         }
     }
 
-    pub(super) fn finalize_record(
+    /// Finalizes a row into THIR row nodes, in canonical field order. An open
+    /// row is accepted only when its tail variable is generalized at this
+    /// binding site.
+    pub(super) fn finalize_row(
         &mut self,
-        record: InferRecord,
+        row: InferType,
         span: TextRange,
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<TypeId> {
-        let InferType::Record(record) = self.resolve_record(record) else {
-            return None;
-        };
-        let fields = record
-            .fields
-            .into_iter()
-            .map(|(label, field)| {
-                Some((label, self.finalize_type(&field, span, interner, generics)?))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        match record.tail {
-            RowTail::Closed => Some(interner.intern(Type::Record(fields))),
+        let FlatRow { mut fields, tail } = self.flatten_row(row);
+        fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut current = match tail {
+            RowTail::Closed => interner.intern(Type::RowEmpty),
             RowTail::Open(variable) if generics.contains(&variable) => {
-                let tail = interner.intern(Type::Variable(TypeVariableId(variable)));
-                Some(interner.intern(Type::OpenRecord { fields, tail }))
+                interner.intern(Type::Variable(TypeVariableId(variable)))
             }
             RowTail::Open(variable) => {
                 self.errors.push(TypeCheckError::new(
@@ -255,9 +218,18 @@ impl Checker {
                     span,
                     format!("cannot infer a monomorphic type for _T{variable}"),
                 ));
-                None
+                return None;
             }
+        };
+        for (label, field) in fields.into_iter().rev() {
+            let ty = self.finalize_type(&field, span, interner, generics)?;
+            current = interner.intern(Type::RowExtend {
+                label,
+                ty,
+                tail: current,
+            });
         }
+        Some(current)
     }
 }
 

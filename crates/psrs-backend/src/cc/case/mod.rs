@@ -20,10 +20,7 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         let coverage = coverage::analyze(self.module, scrutinee_type, branches);
-        let is_record = matches!(
-            self.module.types.get(scrutinee_type.0 as usize),
-            Some(psrs_core::Type::Record(_))
-        );
+        let is_record = self.module.is_record_type(scrutinee_type);
         let type_id = if is_record {
             None
         } else {

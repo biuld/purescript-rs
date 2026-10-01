@@ -279,6 +279,26 @@ pub(crate) fn remap_instruction(
             destination,
             address,
             ..
+        }
+        | I::Load16U {
+            destination,
+            address,
+            ..
+        }
+        | I::LoadI64 {
+            destination,
+            address,
+            ..
+        }
+        | I::LoadF32 {
+            destination,
+            address,
+            ..
+        }
+        | I::LoadF64 {
+            destination,
+            address,
+            ..
         } => {
             replace(destination);
             replace(address);
@@ -294,18 +314,12 @@ pub(crate) fn remap_instruction(
         }
         I::TrapIf { condition, .. } => replace(condition),
         I::ListCopy {
-            direction,
             array,
             pointer,
             length,
             ..
         } => {
-            if !matches!(
-                direction,
-                crate::mir::instruction::ListDirection::FreeStrings
-            ) {
-                replace(array);
-            }
+            replace(array);
             replace(pointer);
             replace(length);
         }

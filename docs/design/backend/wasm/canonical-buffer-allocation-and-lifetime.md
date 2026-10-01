@@ -87,10 +87,11 @@ owner's obligation is discharged:
 | *import result* | host-written through the guest `allocator` | the guest | the ABI layer, after copying the bytes into a GC value |
 | *export result* | guest-allocated through `cabi_realloc` for a guest export | the host | the export's synthesized `post-return` |
 
-A `borrow<T>` is a call-scoped non-owning handle and is released when the call
-returns; an `own<T>` handle carries a drop obligation discharged either when the
-owning value is consumed or in the owning export's `post-return`
-([canonical ABI and WIT](canonical-abi-and-wit.md)).
+A `borrow<T>` is a call-scoped non-owning handle, host-managed within the call;
+an `own<T>` handle carries a drop obligation the standard library discharges
+explicitly with `resource.drop`, or that the owning export's `post-return`
+releases ([canonical ABI and WIT](canonical-abi-and-wit.md),
+[DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)).
 
 ### Who allocates and who frees
 
@@ -518,7 +519,7 @@ a choice:
 The synthesized post-return functions live in
 `wasm/lower/post_return/` and share the `wasm/lower/asm.rs` structured-instruction
 builder with the string codec. Coverage is tracked by ALC-01..ALC-07 in the
-[implementation checklist](../../implementation/backend/canonical-buffer-allocation.md).
+[implementation checklist](../../../implementation/backend/canonical-buffer-allocation.md).
 
 ## References
 

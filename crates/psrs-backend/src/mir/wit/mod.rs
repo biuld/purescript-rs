@@ -6,168 +6,96 @@
 //!
 //! See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
+mod aggregate;
+mod bind;
+mod call_lowerer;
+mod free;
+mod function_lowerer;
 mod handles;
 mod lists;
 mod parameters;
 
-pub(super) use handles::{OwnedObligation, owned_drops, verify_function};
+pub(super) use bind::BoundFn;
+pub(super) use call_lowerer::WitCallLowerer;
+pub(super) use handles::verify_function;
 
-use super::lower::FunctionLowerer;
 use super::{BlockId, instruction::Instruction};
 use crate::BackendError;
+use crate::abi::canonical::CanonicalType;
 use crate::abi::{self, WasiImport};
-use crate::mir::{NumericOp, UnaryOp};
+use crate::cc::GuestLayout;
+use crate::mir::UnaryOp;
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
-pub(super) trait WitCallLowerer {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId;
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>>;
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>>;
-
-    /// Records an `own<T>` result that this function must drop unless it
-    /// returns the index or passes it to another `own` parameter.
-    fn note_owned(&mut self, _value: ValueId, _drop_symbol: psrs_hir::SymbolId, _span: TextRange) {}
-
-    /// An `own<T>` argument consumes a previously noted handle.
-    fn transfer_owned(&mut self, _value: ValueId) {}
-
-    /// The GC array type of a source array value, when this lowerer has layouts.
-    fn wit_array_type(
-        &self,
-        _value: ValueId,
-        span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
-        Err(vec![BackendError::new(
-            "P9 MIR lowering",
-            span,
-            "canonical list lowering has no GC array type",
-        )])
-    }
+/// Whether a canonical result is read directly from a register rather than
+/// through a return pointer: a scalar, handle, `Char`, `Bool`, or nullary enum.
+fn is_direct_result(ty: &CanonicalType) -> bool {
+    matches!(
+        ty,
+        CanonicalType::Bool
+            | CanonicalType::Int { .. }
+            | CanonicalType::Float { .. }
+            | CanonicalType::Char
+            | CanonicalType::Enum(_)
+            | CanonicalType::Handle { .. }
+    )
 }
 
 /// A call-local buffer that must be freed once the canonical call returns. The
-/// `align` is a compile-time constant; `length` is the payload length value.
+/// `align` is a compile-time constant; `length` is the payload byte length.
 pub(super) struct PendingFree {
     pub pointer: ValueId,
     pub length: ValueId,
     pub align: i32,
-    /// Element count of a `list<string>` parameter whose payloads must be freed
-    /// after the host has copied them. `length` remains the byte size.
-    pub string_elements: Option<ValueId>,
+    /// Element payloads of a `list<T>` buffer that owns host buffers, such as
+    /// `list<string>` or `list<record>` with string fields. `length` remains the
+    /// whole-buffer byte size.
+    pub elements: Option<ElementFree>,
 }
 
-impl WitCallLowerer for FunctionLowerer<'_> {
-    fn fresh_wit_value(&mut self, ty: ValueType) -> ValueId {
-        self.fresh(ty)
-    }
-
-    fn append_wit_instruction(
-        &mut self,
-        block: BlockId,
-        instruction: Instruction,
-        span: TextRange,
-    ) -> Result<(), Vec<BackendError>> {
-        self.append_instruction(block, instruction, span)
-    }
-
-    fn wit_product_field(
-        &mut self,
-        block: BlockId,
-        value: ValueId,
-        field: u32,
-        span: TextRange,
-    ) -> Result<ValueId, Vec<BackendError>> {
-        self.wit_product_field(block, value, field, span)
-    }
-
-    fn note_owned(&mut self, value: ValueId, drop_symbol: psrs_hir::SymbolId, span: TextRange) {
-        self.note_owned_handle(value, drop_symbol, span);
-    }
-
-    fn transfer_owned(&mut self, value: ValueId) {
-        self.transfer_owned_handle(value);
-    }
-
-    fn wit_array_type(
-        &self,
-        value: ValueId,
-        span: TextRange,
-    ) -> Result<crate::types::DefinedTypeId, Vec<BackendError>> {
-        match self.value_type(value) {
-            Some(ValueType::Ref(reference)) => match reference.heap {
-                crate::types::HeapType::Index(index) => Ok(index),
-                _ => Err(vec![BackendError::new(
-                    "P9 MIR lowering",
-                    span,
-                    "canonical list value is not a concrete GC array",
-                )]),
-            },
-            _ => Err(vec![BackendError::new(
-                "P9 MIR lowering",
-                span,
-                "canonical list value is not a GC array",
-            )]),
-        }
-    }
+/// The per-element frees of a call-local list buffer. The guest layout and
+/// canonical element drive the element copy and free so a `list<record>` with
+/// string fields frees each field, and a `list<string>` frees each string.
+pub(super) struct ElementFree {
+    pub count: ValueId,
+    pub element: CanonicalType,
+    pub element_guest: GuestLayout,
 }
 
 /// Lowers a call to a WIT import from the declared arguments and the import's
 /// canonical signature. Declared scalars and resource handles map to one
 /// canonical parameter; a 64-bit scalar is widened; a `String` argument maps to
-/// the `(pointer, length)` of its length-prefixed buffer. A return pointer is
-/// passed when the canonical result does not fit in one value.
+/// the `(pointer, length)` of its buffer. A return pointer is passed when the
+/// canonical result does not fit in one value.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn lower<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    signature: &crate::cc::Signature,
+    projection: Option<&crate::cc::ExternalProjection>,
     destination: ValueId,
     arguments: &[ValueId],
     span: TextRange,
-    current: BlockId,
-) -> Result<(), Vec<BackendError>> {
+    entry: BlockId,
+) -> Result<BlockId, Vec<BackendError>> {
+    let bound = BoundFn::bind(import, signature, projection);
     let mut flat = Vec::new();
     let mut frees = Vec::new();
-    parameters::lower_parameters(
-        lowerer,
-        import,
-        source_signature,
-        arguments,
-        &mut flat,
-        &mut frees,
-        current,
-        span,
+    let mut current = parameters::lower_parameters(
+        lowerer, import, &bound, arguments, &mut flat, &mut frees, entry, span,
     )?;
     let mut retptr = None;
-    if import.retptr {
-        let scratch = lowerer.fresh_wit_value(ValueType::I32);
-        lowerer.append_wit_instruction(
-            current,
-            Instruction::Constant {
-                destination: scratch,
-                value: abi::PRINT_SCRATCH,
-                span,
-            },
-            span,
-        )?;
-        flat.push(scratch);
-        retptr = Some(scratch);
+    if import.abi.retptr {
+        let pointer =
+            aggregate::retptr_buffer(lowerer, import.abi.result_area, &mut frees, current, span)?;
+        flat.push(pointer);
+        retptr = Some(pointer);
     }
-    match &import.result_kind {
+    match &import.canonical_result {
         // A returned list or string is written through the return pointer as
         // `(pointer, length)` of UTF-8 bytes. Decode it into a fresh GC string.
-        abi::WasiResultKind::List => {
+        Some(ty) if ty.is_byte_list() => {
             let address = retptr.expect("a list result takes a return pointer");
             lowerer.append_wit_instruction(
                 current,
@@ -216,11 +144,16 @@ pub(super) fn lower<L: WitCallLowerer>(
             // free it before returning control to source.
             free_buffer(lowerer, pointer, length, 1, current, span)?;
         }
-        abi::WasiResultKind::ValueList { element } => {
+        Some(CanonicalType::List(element)) => {
+            let shape = bound
+                .result
+                .as_ref()
+                .and_then(|result| result.guest_layout(lowerer));
             lists::read_value_list_result(
                 lowerer,
                 import,
                 element,
+                shape.as_ref(),
                 destination,
                 flat,
                 retptr,
@@ -228,12 +161,25 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Scalar
-        | abi::WasiResultKind::Handle(_)
-        | abi::WasiResultKind::IntegerNarrow { .. }
-        | abi::WasiResultKind::Boolean
-        | abi::WasiResultKind::Enum { .. }
-        | abi::WasiResultKind::Char => match import.result {
+        Some(CanonicalType::FixedList { element, length }) => {
+            let shape = bound
+                .result
+                .as_ref()
+                .and_then(|result| result.guest_layout(lowerer));
+            lists::read_fixed_list_result(
+                lowerer,
+                import,
+                element,
+                *length,
+                shape.as_ref(),
+                destination,
+                flat,
+                retptr,
+                current,
+                span,
+            )?;
+        }
+        Some(ty) if is_direct_result(ty) => match import.result {
             Some(ValueType::I64) => {
                 let value = lowerer.fresh_wit_value(ValueType::I64);
                 lowerer.append_wit_instruction(
@@ -299,7 +245,7 @@ pub(super) fn lower<L: WitCallLowerer>(
                 )]);
             }
         },
-        abi::WasiResultKind::None => {
+        None => {
             lowerer.append_wit_instruction(
                 current,
                 Instruction::CallVoid {
@@ -319,71 +265,48 @@ pub(super) fn lower<L: WitCallLowerer>(
                 span,
             )?;
         }
-        abi::WasiResultKind::Result => {
-            lowerer.append_wit_instruction(
+        Some(ty) if abi::canonical::is_variant(ty) => {
+            let result = bound
+                .result
+                .as_ref()
+                .expect("a variant result has a bound guest shape");
+            let guest = result
+                .guest_layout(lowerer)
+                .ok_or_else(|| aggregate::unsupported(span))?;
+            current = aggregate::lower_variant_result(
+                lowerer,
+                import,
+                &guest,
+                destination,
+                flat,
+                retptr,
                 current,
-                Instruction::CallVoid {
-                    function: import.symbol,
-                    arguments: flat,
-                    span,
-                },
-                span,
-            )?;
-            let status = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Load8U {
-                    destination: status,
-                    address: retptr.expect("a result takes a return pointer"),
-                    memory: MemoryId(0),
-                    offset: 0,
-                    span,
-                },
-                span,
-            )?;
-            let zero = lowerer.fresh_wit_value(ValueType::I32);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Constant {
-                    destination: zero,
-                    value: 0,
-                    span,
-                },
-                span,
-            )?;
-            let failed = lowerer.fresh_wit_value(ValueType::Boolean);
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Primitive {
-                    destination: failed,
-                    op: NumericOp::I32Ne,
-                    left: status,
-                    right: zero,
-                    span,
-                },
-                span,
-            )?;
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::TrapIf {
-                    condition: failed,
-                    span,
-                },
-                span,
-            )?;
-            lowerer.append_wit_instruction(
-                current,
-                Instruction::Constant {
-                    destination,
-                    value: 0,
-                    span,
-                },
                 span,
             )?;
         }
-        abi::WasiResultKind::Discarded => {
-            // The ABI classification reports an unsupported shape before MIR
-            // lowering, so a `Discarded` result here is invalid compiler IR.
+        Some(ty @ CanonicalType::Record(_)) => {
+            let result = bound
+                .result
+                .as_ref()
+                .expect("a record result has a bound guest shape");
+            let guest = result
+                .guest_layout(lowerer)
+                .ok_or_else(|| aggregate::unsupported(span))?;
+            current = aggregate::lower_record_result(
+                lowerer,
+                import,
+                ty,
+                &guest,
+                destination,
+                flat,
+                retptr,
+                current,
+                span,
+            )?;
+        }
+        Some(_) => {
+            // The ABI surface check reports an unsupported shape before MIR
+            // lowering, so an unmodeled result here is invalid compiler IR.
             return Err(vec![BackendError::invalid_ir(
                 "P9 MIR lowering",
                 span,
@@ -391,11 +314,12 @@ pub(super) fn lower<L: WitCallLowerer>(
             )]);
         }
     }
-    // Call-local buffers (string transcode buffers and indirect parameter
-    // records) are owned by this function and freed once the call returns.
+    // Call-local buffers (string transcode buffers, list buffers, and indirect
+    // parameter records) are owned by this function and freed once the call
+    // returns. Each buffer's element payloads are freed first.
     for pending in frees.iter().rev() {
-        if let Some(count) = pending.string_elements {
-            lists::free_string_elements(lowerer, pending.pointer, count, current, span)?;
+        if let Some(elements) = &pending.elements {
+            lists::free_elements(lowerer, pending.pointer, elements, current, span)?;
         }
         free_buffer(
             lowerer,
@@ -406,22 +330,10 @@ pub(super) fn lower<L: WitCallLowerer>(
             span,
         )?;
     }
-    // A borrow result cannot outlive this call: release it before the caller
-    // can use the index. An owned result stays live until it is transferred
-    // or the function drops it.
-    if let abi::WasiResultKind::Handle(handle) = &import.result_kind {
-        match handle.mode {
-            abi::HandleMode::Borrow => {
-                lowerer.append_wit_instruction(
-                    current,
-                    handles::borrow_release(destination, handle.drop_symbol, span),
-                    span,
-                )?;
-            }
-            abi::HandleMode::Own => lowerer.note_owned(destination, handle.drop_symbol, span),
-        }
-    }
-    Ok(())
+    // The compiler does not drop or release a handle on its own: the standard
+    // library owns the lifetime discipline and calls `resource.drop` explicitly
+    // (DEC-14).
+    Ok(current)
 }
 
 /// Frees a transient canonical buffer through `cabi_realloc(ptr, len, align, 0)`.

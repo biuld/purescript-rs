@@ -224,12 +224,12 @@ PM-07:
   Gaps: none.
 
 PM-08:
-  Implementation: cc/lower/conversion.rs `erased_field_recovery` and
+  Implementation: cc/lower/conversion/mod.rs `variant_field_conversion` and
     `emit_conversion`; realize/mod.rs `apply_action_list` recovery for
     VariantGet/ProductGet; generic aggregate erasure owns the conversion plans.
   Tests: realize::tests::parameterized_tests::
-    parameterized_array_field_recovery_uses_the_canonical_generic_array,
-    ::nested_parameterized_array_projection_recovers_each_canonical_boundary,
+    parameterized_array_field_projection_uses_its_stored_canonical_array,
+    ::nested_parameterized_projection_keeps_each_canonical_field,
     ::generic_record_pattern_projects_its_canonical_array_field;
     pattern_matching_audit::dependent_erased_fields_recover_at_two_instantiations
     executes an erased scalar and an erased aggregate instantiation and asserts

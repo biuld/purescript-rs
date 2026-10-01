@@ -10,6 +10,7 @@ mod array;
 mod binary_matrix;
 mod div_mod;
 mod erased;
+mod rank_n;
 mod scalar;
 mod unary;
 mod variant;

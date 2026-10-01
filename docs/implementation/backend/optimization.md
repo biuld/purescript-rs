@@ -21,7 +21,7 @@ verified Typed Core (`crates/psrs-core/src/opt/`) and P10 over verified MIR
 representation, verifies its input and output, preserves source spans on
 retained operations, and is optional for correctness. This topic does not own
 layouts (P9), structuring or tail calls (P10 structurer,
-[control flow](../fp/control-flow-and-tail-calls.md)), or the official
+[control flow](../../design/backend/fp/control-flow-and-tail-calls.md)), or the official
 `M8-O` suite gate, which stays on the broader BE-12 row.
 
 ## Acceptance matrix

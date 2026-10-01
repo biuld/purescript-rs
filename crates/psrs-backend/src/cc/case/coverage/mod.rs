@@ -193,6 +193,7 @@ fn useful_inner(
 }
 
 fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
+    let ty = crate::cc::layout::unquantified_type(module, ty);
     if let Some(type_id) = user_type_id(module, ty) {
         return Some(
             module
@@ -211,19 +212,18 @@ fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
                 .collect(),
         );
     }
-    match module.types.get(ty.0 as usize)? {
-        Type::Record(fields) => Some(vec![Shape {
-            head: Head::Record,
-            fields: fields
-                .iter()
-                .map(|(label, ty)| (Some(label.clone()), *ty))
-                .collect(),
-        }]),
-        _ => None,
-    }
+    let fields = module.record_fields(ty)?;
+    Some(vec![Shape {
+        head: Head::Record,
+        fields: fields
+            .iter()
+            .map(|(label, ty)| (Some(label.clone()), *ty))
+            .collect(),
+    }])
 }
 
 fn user_type_id(module: &Module, mut ty: TypeId) -> Option<HirTypeId> {
+    ty = crate::cc::layout::unquantified_type(module, ty);
     loop {
         match module.types.get(ty.0 as usize)? {
             Type::Constructor(TypeConstructor::User(id)) => return Some(*id),

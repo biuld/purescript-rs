@@ -1,28 +1,18 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, signature};
 use super::*;
-use crate::abi::{self, SourceType, WasiParamKind, WasiResultKind};
+use crate::abi;
+use crate::abi::canonical::CanonicalType;
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
 
-fn import(
-    name: &str,
-    parameters: Vec<ValueType>,
-    param_kinds: Vec<WasiParamKind>,
-    result: Option<ValueType>,
-    result_kind: WasiResultKind,
-    retptr: bool,
-) -> WasiImport {
-    WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:interface".into(),
-        name: name.into(),
-        parameters,
-        param_kinds,
+fn import(name: &str, params: Vec<CanonicalType>, result: Option<CanonicalType>) -> WasiImport {
+    crate::abi::test_support::import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:interface",
+        name,
+        params,
         result,
-        result_kind,
-        unsupported: None,
-        retptr,
-        flat_slots: Vec::new(),
-    }
+    )
 }
 
 /// Whether the lowering ends with `cabi_realloc(ptr, len, 1, 0)`: the two
@@ -53,19 +43,13 @@ fn assert_ends_with_free(instructions: &[Instruction]) {
 
 #[test]
 fn list_results_free_the_import_buffer_after_decoding() {
-    let import = import(
-        "bytes",
-        Vec::new(),
-        Vec::new(),
-        None,
-        WasiResultKind::List,
-        true,
-    );
+    let import = import("bytes", Vec::new(), Some(CanonicalType::String));
     let mut lowerer = RecordingLowerer::default();
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::String),
+        &signature(Vec::new()),
+        None,
         ValueId(0),
         &[],
         TextRange::new(0, 1),
@@ -78,19 +62,13 @@ fn list_results_free_the_import_buffer_after_decoding() {
 
 #[test]
 fn string_arguments_free_the_transcode_buffer_after_the_call() {
-    let import = import(
-        "log",
-        vec![ValueType::I32, ValueType::I32],
-        vec![WasiParamKind::List],
-        None,
-        WasiResultKind::None,
-        false,
-    );
+    let import = import("log", vec![CanonicalType::String], None);
     let mut lowerer = RecordingLowerer::default();
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![SourceType::String], SourceType::Unit),
+        &signature(vec![ValueShape::String]),
+        None,
         ValueId(0),
         &[ValueId(1)],
         TextRange::new(0, 1),

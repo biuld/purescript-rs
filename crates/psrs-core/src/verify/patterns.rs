@@ -1,4 +1,4 @@
-use super::{Locals, compatible, error, record_field, user_type_constructor, verify_type};
+use super::{Locals, SchemeType, compatible, error, record_field, verify_type};
 use crate::{Module, Pattern, PatternKind, TypeId, VerifyError};
 use psrs_hir::ModuleId;
 
@@ -23,7 +23,13 @@ pub(super) fn verify_pattern(
         PatternKind::Wildcard => {}
         PatternKind::Var { id, ty } => {
             compatible(*ty, pattern.ty, module, owner, pattern.span, errors);
-            locals.insert(*id, *ty);
+            locals.insert(
+                *id,
+                SchemeType {
+                    ty: *ty,
+                    quantified: Vec::new(),
+                },
+            );
         }
         PatternKind::Constructor { symbol, arguments } => {
             let Some(constructor) = module
@@ -45,15 +51,41 @@ pub(super) fn verify_pattern(
                     "pattern constructor has the wrong field count",
                 ));
             }
-            if user_type_constructor(pattern.ty, module) != Some(constructor.type_id) {
+            let Some((result_constructor, type_arguments)) = module.applied_constructor(pattern.ty)
+            else {
+                errors.push(error(
+                    owner,
+                    pattern.span,
+                    "pattern constructor type is not an applied user type",
+                ));
+                return;
+            };
+            if result_constructor != crate::TypeConstructor::User(constructor.type_id) {
                 errors.push(error(
                     owner,
                     pattern.span,
                     "pattern constructor type does not match its parent type",
                 ));
             }
-            for (argument, field_type) in arguments.iter().zip(&constructor.field_types) {
-                verify_pattern(argument, *field_type, module, owner, locals, errors);
+            let field_instances = arguments
+                .iter()
+                .map(|argument| argument.ty)
+                .collect::<Vec<_>>();
+            if !super::types::constructor_fields_match(
+                module,
+                &constructor.parameters,
+                &type_arguments,
+                &constructor.field_types,
+                &field_instances,
+            ) {
+                errors.push(error(
+                    owner,
+                    pattern.span,
+                    "constructor pattern fields do not match one consistent type instantiation",
+                ));
+            }
+            for argument in arguments {
+                verify_pattern(argument, argument.ty, module, owner, locals, errors);
             }
         }
         PatternKind::Record { fields } => {

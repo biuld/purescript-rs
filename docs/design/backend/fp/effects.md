@@ -6,12 +6,12 @@
 [type classes and dictionaries](type-classes-and-dictionaries.md); monads,
 closures, and the distinction between a value and a computation. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
-**Summary:** `Effect a` is a first-class computation value represented as an
-ordinary closure; `pure`, `bind`, and `runEffect` are ordinary functions and
-the execution token is an internal argument threaded through a bind. Effects
-therefore need no special node in CC or MIR and lower entirely through the
-closure and product representation already used for closures, records, and
-dictionaries.
+**Summary:** `Effect a` stays an abstract library type through type checking and
+Typed Core. One representation lowering then replaces each effect value with a
+closure that takes the runtime token and returns the lowered result. That
+closure is not a source arrow, so a function or another effect inside the
+result stays a separate call. `pure`, `bind`, and `runEffect` are ordinary
+source functions; only this lowering threads the token.
 
 ## Scope
 
@@ -45,10 +45,11 @@ intended generalization, and it should remain contained in the functional core
 and the platform layer.
 
 PureScript's official `Effect a` is close to a thunk: a value that performs work
-when supplied with a token. The design resolves `Effect` as an abstract imported type and selects its
-token-taking runtime representation only after ordinary source type checking.
-This keeps construction inert while preventing source code from forging or
-running an effect through the representation.
+when the runtime supplies a token. This design keeps that token out of the
+source type. Type checking treats `Effect` as an abstract library constructor.
+One later translation is the only place that recognizes it, and the closure it
+emits is what CC and MIR call. Source programs cannot forge the token or treat
+an ordinary function as an effect.
 
 ## Model
 
@@ -66,44 +67,80 @@ runEffect :: forall a. Effect a -> a
 
 `runEffect` is provided only to the selected command entry as specified by
 [F-02](../../../feature/F-02-portable-programs.md). It has an ordinary function
-type; entry authorization is a driver rule, not an inference rule. Semantically,
-the token is its execution context:
+type; entry authorization is a driver rule, not an inference rule.
+
+The equations below are the representation translation, not source equalities.
+`Token` does not occur in a source type, and `Effect a` does not unify with
+`Token -> a`.
 
 ```text
-Effect a         ≈ Token -> a            (a computation value)
-pure v            = \_ -> v
-bind m k          = \t -> k (m t) t
-runEffect m       = m token               (token from the runtime)
+⟦Effect τ⟧ = RepClosure([Token], ⟦τ⟧)
+pure v      = RepClosure(token) { v }
+bind m k    = RepClosure(token) { call (call k (call m token)) token }
+runEffect m = call m runtimeToken
 ```
 
 - **Construction is inert.** Building an `Effect` value allocates a closure and
   performs no operation; merely storing or passing it does not run it.
-- **Running is explicit.** The trusted `runEffect` binding supplies the token.
-  Only the selected command entry can reference it; an effect invoked twice
+- **Running is explicit.** The elaborated `runEffect` supplies the token. Only
+  the selected command entry can reference `runEffect`; an effect invoked twice
   there runs twice.
-- **Sequencing is left to right.** `bind` runs the first computation, then feeds
-  its result to the continuation with the same token, so operations keep source
-  order.
-- **The token is opaque.** Only trusted effect-library definitions and the
-  command entry can construct or consume it. Source programs cannot use a
-  Boolean or an ordinary function as an `Effect`, or call an effect without
-  going through the library's execution boundary.
+- **Sequencing is left to right.** Elaborated `bind` runs the first computation,
+  then feeds its result to the continuation with the same token, so operations
+  keep source order.
+- **The token is not a source value.** No source program names it, applies an
+  effect to it, or passes an ordinary function where an effect is required.
+
+### Two callable forms
+
+A source function and an effect closure are different callable values.
+
+```text
+SourceArrow a b     = the curried Function spine a -> b
+RepClosure params r = a closure created with a fixed parameter list and a
+                      result value
+```
+
+Curried-arrow flattening collects the domains of one `SourceArrow` group and
+stops when the result is not an arrow. A `forall` in that result is already a
+separate closure. A `RepClosure` is the same kind of boundary: its parameter
+list is fixed when it is created, and its result is returned as a value.
+
+```text
+⟦Effect (a -> b)⟧       = RepClosure([Token], SourceArrow a b)
+⟦Effect (Effect a)⟧     = RepClosure([Token], RepClosure([Token], ⟦a⟧))
+⟦String -> Effect Unit⟧ = SourceArrow String (RepClosure([Token], Unit))
+```
+
+Running `Effect (a -> b)` passes `Token` and receives a function. Applying that
+function is a second call. The effect's arity is one. The function's arity is
+the arity of `a -> b`. `Effect (Effect a)` likewise takes one token and returns
+another effect closure; the inner effect takes its own token when it is run.
+
+`log :: String -> Effect Unit` therefore has source arity one. `log "message"`
+is a saturated call. It returns a `RepClosure`, and the token is that closure's
+parameter, not a second parameter of `log`.
 
 ### Elaboration and invariants
 
 The frontend resolves `Effect` as an imported abstract type constructor and
 checks it by ordinary kind, application, and subsumption rules. It adds no
-effect flag to syntax or typed nodes. The runtime representation is selected
-after source checking.
+effect flag, private constructor, or representation mode.
 
-- `Effect a` is a first-class value of an ordinary type.
-- No stage stores an "effect" flag on an expression; effects compose only
-  through `pure`, `bind`, and `runEffect`.
-- Lowering the abstract type to a token-taking function is a trusted elaboration
-  after source type checking. The token's concrete representation may change
-  without changing the source API or the Core shape of `pure`/`bind`.
+- `Effect a` is `Application(Constructor(User(effect_id)), a)` on the uniform
+  application spine ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
+  THIR and Typed Core keep that type. Unification, subsumption, and arity
+  flattening do not treat it as a function.
+- No stage stores an "effect" flag on an expression. Effects compose through
+  `pure`, `bind`, and `runEffect`.
+- Exactly one pass recognizes `effect_id`: the representation lowering below.
+  After it, CC and MIR see ordinary closures and calls. They do not consult a
+  callable-constructor table and they do not match `Effect`.
+- The token's physical type is chosen by that pass. The synchronous runtime
+  uses an `i32` placeholder. Changing it changes the pass and the runtime, not
+  the source API or the Core type of `pure` and `bind`.
 - Reusing a value never reorders or merges observably distinct `runEffect`
-  calls; each call receives a token.
+  calls; each elaborated call receives a token.
 - The driver identifies the selected command entry and checks the scope of
   `runEffect` references before ordinary type inference.
 - Calls, including calls reached through closures, may perform effects. Core,
@@ -112,14 +149,23 @@ after source checking.
 
 ## Design
 
-### Chosen representation: closures and dictionary passing
+### Chosen representation: one closure translation
 
-`Effect a` lowers as an ordinary closure:
+Representation lowering runs after Typed Core and before curried-arrow
+flattening. It is an ordinary pass: it consumes Core, where `Effect` is still
+abstract, and produces CC closures with explicit parameter lists.
 
-- `pure v` becomes a closure that ignores its token and returns `v`.
-- `bind m k` becomes a closure that applies `m` to the token, passes the result
-  to `k`, and applies the resulting effect to the same token.
-- `runEffect m` applies `m` to the runtime token.
+- A value of type `Effect τ` becomes `RepClosure([Token], ⟦τ⟧)`.
+- `pure`, `bind`, and `runEffect` are foreign imports of those abstract
+  signatures. The pass replaces them with the closures in the model. It does
+  not emit a host call for them.
+- A foreign import whose source type is `Effect τ` becomes a closure that
+  performs the host call when the token is supplied. In a strict language the
+  call must not happen when the effect value is built. `pure foreignCall` would
+  evaluate the call too early, so the suspension is this closure, not `pure`.
+- A source function such as `log :: String -> Effect Unit` keeps one source
+  parameter. Its body is ordinary `bind` over effect-typed operations. The
+  returned value is the `RepClosure` produced for that `Effect`.
 
 There is no special `Effect` node in CC or MIR. The values are closures
 ([CC IR](cc-ir.md)) and the applications are ordinary direct or closure calls.
@@ -130,22 +176,18 @@ becomes a record/closure over its operation implementations and
 `runEffect` interprets it. That is a change of the operation set, not of the
 lowering mechanism, and it still introduces no dedicated CC/MIR node.
 
-The token's physical value is an internal calling-convention detail. A constant
-`i32` token is sufficient for synchronous execution because the calls themselves
+The synchronous token may be the constant `i32` value `0`. The calls themselves
 are observable and cannot be merged or removed; distinct token bits are not a
 substitute for that optimizer rule. A later runtime may pass state or resource
 handles without exposing the token to source programs.
 
 ### Partial application
 
-The surface form `runEffect (log "message")` requires `log "message"` to be an
-`Effect Unit` when `log :: String -> Effect Unit`. After trusted elaboration,
-`log` is a two-argument function (`message`, then `token`), so `log "message"`
-is a **partial application**. The backend implements partial application of a
-top-level function by generating a closure that captures the supplied arguments
-and, when invoked, calls the original function with the captures followed by the
-remaining parameters (`cc/lower/call.rs::lower_partial_global_application`). No
-eta-expansion or arity special case is needed at the source of an effect.
+Partial application is under-application of a source arrow. `map f` for
+`map :: (a -> b) -> Effect a -> Effect b` captures `f` and waits for the effect.
+`log "message"` is not that situation: `log` has one source parameter, the call
+is saturated, and the result is an effect closure waiting for a token. The
+token is never counted as a remaining parameter of `log`.
 
 ### Rejected alternatives
 
@@ -156,10 +198,23 @@ eta-expansion or arity special case is needed at the source of an effect.
 - **Performing an operation when it is constructed (eager effects).** Rejected:
   it breaks the user-visible contract that constructing an effect has no
   observable result and that an effect runs once per `runEffect`.
-- **A source-visible `Effect a = Unit -> a` alias.** Rejected: callers could
-  construct and run effects as unrestricted functions, bypassing the execution
-  boundary. Token uniqueness cannot prevent an optimizer from removing a call;
-  preserving effectful calls is an explicit pass invariant.
+- **A source-visible `Effect a = Token -> a` alias, or unifying the two.**
+  Rejected: callers could construct and run effects as unrestricted functions.
+  Preserving effectful calls is an optimizer invariant, not a consequence of
+  hiding the token's bits.
+- **A callable side table keyed by the `Effect` type identity.** Rejected: every
+  arity, application, and verifier pass would stop when it sees that
+  constructor, so the library type leaks into the calling convention. The
+  representation lowering is the one conversion that knows `effect_id`; its
+  output no longer contains an effect to recognize.
+- **Folding the token into the source parameter list.** Rejected:
+  `String -> Effect Unit` would become a two-parameter function, and
+  `Effect (a -> b)` would become a call of arity two. The function inside the
+  effect does not exist until the effect runs.
+- **A type-checker mode that accepts a token lambda at type `Effect a`.**
+  Rejected: the lambda's type would be an arrow, or the checker would record
+  an arrow's term under the abstract type. Either choice makes representation
+  part of type equality.
 - **Full CBPV representation now.** Rejected for the current synchronous
   `Effect`: it would add value/computation distinctions the source does not need
   yet. The CBPV view is retained as the growth path if the effect language gains
@@ -172,22 +227,26 @@ eta-expansion or arity special case is needed at the source of an effect.
 
 ### Lowering `pure`, `bind`, and `runEffect`
 
-These are ordinary definitions in the embedded `Prelude`, so no compiler pass is
-effect-specific; they lower through lambda and application lowering:
+The source declarations are abstract. Representation lowering replaces their
+bodies; the type checker does not see a token.
 
 ```text
-pure  = \value -> \token -> value
-bind  = \first -> \next -> \token -> next (first token) token
-runEffect = \action -> action runtime_token  // trusted entry-only binding
+lower_effect(Effect τ) = RepClosure([Token], lower(τ))
+
+lower_pure = \value -> RepClosure(token) { value }
+lower_bind = \first -> \next -> RepClosure(token) {
+    result = call (call first token)
+    rest   = call (call next result)
+    call rest token
+}
+lower_run  = \action -> call action runtimeToken
 ```
 
-A lambda becomes a closure capturing its free variables (`cc/lower/lambda.rs`),
-and an application becomes a direct or closure call (`cc/lower/call.rs`,
-`mir/lower/assignments.rs`). The sequencing in `bind` is the sequencing of
-argument evaluation in CC: the argument `first token` is evaluated before the
-continuation call, so the first effect completes before the second begins.
+`call` of a `RepClosure` passes exactly that closure's parameter list. It does
+not continue into a function or effect stored in the result. Sequencing is the
+order of these calls: `call first token` completes before `call next result`.
 
-### Partial application of an effect operation
+### Partial application of a source arrow
 
 ```text
 lower_partial_global_application(f, supplied_arguments, expression):
@@ -224,8 +283,8 @@ rewrites to `bind` before Core, so the backend sees only `pure`, `bind`,
 - **Polymorphic effect.** `Effect a` with an erased `a` uses the erased
   protocol; `runEffect`'s consumer knows the concrete type
   ([polymorphism and erasure](polymorphism-and-erasure.md)).
-- **A future richer token.** Changing the internal token to a stateful value
-  changes trusted elaboration and the runtime, not the source API or the CC/MIR
+- **A future richer token.** Changing the token to a stateful value changes the
+  representation lowering and the runtime, not the source API or the CC/MIR
   operation families.
 
 ## Code map
@@ -235,49 +294,42 @@ closure and partial-application path. The implementation must conform to this
 organization.
 
 ```text
-crates/psrs-hir/src/ty.rs
-crates/psrs-typecheck/src/
-  builtins.rs
-  signature.rs
-crates/psrs-core/src/effect.rs
-crates/psrs-driver/src/prelude.rs
-crates/psrs-backend/src/
-  cc/lower/lambda.rs
-  cc/lower/call.rs
-  mir/lower/assignments.rs
+crates/psrs-typecheck/src/          ordinary checking of User(effect_id)
+crates/psrs-core/src/effect/        lower_effects(module) -> EffectLowering
+crates/psrs-driver/src/prelude.rs   entry-only runEffect
+crates/psrs-backend/src/cc/         closures and calls, with no Effect match
+crates/psrs-backend/src/mir/
 ```
 
 Responsibilities and required types:
 
-- The effect library must supply `Effect`, `pure`, `bind`, and the trusted
-  `runEffect` binding. The driver enforces its entry-only availability. Their
-  source types undergo ordinary name resolution and type checking; runtime
-  operations lower through closures and applications.
-- `psrs-hir` must retain the resolved imported `Effect` type identity. No CST,
-  AST, HIR, or Core node may carry an effect flag or platform-specific field.
-- `psrs-typecheck` must check `Effect a` as an ordinary imported abstract type
-  application. After type checking, Core lowering maps the known library type
-  identity to the internal closure representation. The driver alone grants
-  access to the trusted command-entry runner.
-- `psrs-core/src/effect.rs` must ensure the elaborated `pure`, `bind`, and
-  `runEffect` shapes are ordinary Core values (closures and calls); it must not
-  add an effect-specific Core node.
-- The backend must lower effects through the closure path. `cc/lower/lambda.rs`
-  must create the closures for `pure` and `bind`; `cc/lower/call.rs` must
-  provide the partial-application entry point
-  `lower_partial_global_application(f, supplied_arguments, expression)` used when
-  an effect operation is applied to fewer than its runtime arguments;
-  `mir/lower/assignments.rs` must create closures (`FunctionRef`) and perform
-  closure calls (`IndirectCall`). No CC or MIR node may be effect-specific.
-- The representation target is closure passing now, growing to dictionary
-  passing if the operation set becomes extensible
+- The effect library supplies `foreign import data Effect :: Type -> Type`,
+  `pure`, `bind`, and the trusted `runEffect` binding, all at the abstract
+  signatures in the model. The driver enforces entry-only `runEffect`.
+- `psrs-hir` retains the resolved `Effect` type identity. No CST, AST, HIR, or
+  Core node carries an effect flag or a token type.
+- `psrs-typecheck` checks `Effect a` as an ordinary abstract application.
+  It has no `Effect` constructor, no mode that opens an effect into an arrow,
+  and no unification of `Effect a` with a function.
+- `lower_effects(module)` is the only function that matches `effect_id`. It
+  replaces `Effect τ` with `RepClosure([Token], lower(τ))`, replaces `pure`,
+  `bind`, and `runEffect`, and suspends a foreign import of type `Effect τ`
+  inside that closure. It records every closure it wrote and checks that record
+  before returning. `EffectLowering::verify` rejects a recorded node whose
+  parameter list is not `[Token]` or whose result is not `lower(τ)`. It does
+  not add a Core or CC effect node.
+- CC and MIR lower the resulting closures through `FunctionRef` and direct or
+  indirect calls. Curried-arrow flattening reads source `Function` spines only.
+  Partial application (`lower_partial_global_application`) applies to
+  under-applied source arrows, not to the token of an effect.
+- The representation may later grow into dictionary passing
   ([type classes and dictionaries](type-classes-and-dictionaries.md)). The token
-  is internal: it must not appear in the surface API, and its type is chosen by
-  the runtime, not by the effect library.
-- The WASI operations effects call are owned by the
-  [WASI platform library](../wasm/wasi-platform-library.md) and lowered through
-  the [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md); this tree owns
-  only the effect vocabulary and its lowering.
+  stays inside `lower_effects`; its type is chosen there.
+- WASI operations are owned by the
+  [WASI platform library](../wasm/wasi-platform-library.md) and the
+  [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md). An operation whose
+  source type is `Effect` is suspended by `lower_effects` and performs its host
+  call only when that closure runs.
 
 ## Invariants and verification
 
@@ -302,19 +354,18 @@ main =
   in  0
 ```
 
-`log :: String -> Effect Unit` is a two-parameter function after lowering
-(`message`, then `token`). Lowering proceeds as:
+`log :: String -> Effect Unit` has one source parameter. Lowering proceeds as:
 
 ```text
 // runEffect (log "first")
-captured   = Constant "first"
-partial_fn = partial_<span>(closure, token) {
-    msg    = ClosureGetCapture(closure, 0)
-    result = DirectCall(log, [msg, token])       // the original two-parameter `log`
-}
-action1    = FunctionRef(partial_fn, signature = Token -> Unit, captures = [captured])
-result1    = DirectCall(runEffect, [action1])       // trusted runner supplies token
+action1 = DirectCall(log, ["first"])
+          // result: RepClosure([Token], Unit)
+result1 = call action1 runtimeToken
 ```
+
+`log`'s body is `bind` over effect-typed writes. Each `bind` has already become
+a `RepClosure`; running `action1` is what performs the writes. Building
+`action1` allocates that closure and prints nothing.
 
 The second `runEffect` lowers identically into the following assignment, so the
 ANF order runs `"first\n"` before `"second\n"`. Constructing `action1` alone
@@ -323,13 +374,15 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Boundaries and interfaces
 
-- **From the frontend.** `Effect` is an imported abstract type constructor;
-  `do`/`ado` desugars to library `bind`. No effect flag is added to
-  CST, AST, HIR, or Core nodes.
-- **To CC.** Effects are closures and applications; the only backend feature an
-  effect needs is partial application of a top-level function.
-- **To MIR/Wasm.** Ordinary closure creation and calls; the token type is a MIR
-  value type chosen by the runtime, not by the effect library.
+- **From the frontend.** `Effect` is an imported abstract type constructor.
+  `do`/`ado` desugars to library `bind`. No effect flag is added to CST, AST,
+  HIR, or Core nodes, and P5 does not open the representation.
+- **Through `lower_effects`.** This is the conversion from the abstract Core
+  type to a CC closure. Downstream stages receive closures, not `Effect`.
+- **To CC.** An effect is a closure whose parameter list is `[Token]`. Source
+  partial application remains available for under-applied source arrows.
+- **To MIR/Wasm.** Ordinary closure creation and calls. The token's MIR type is
+  chosen by `lower_effects`.
 - **To the platform layer.** WASI calls are made only when the effect is run;
   the platform library exposes the operations, and the backend lowers them
   through the canonical ABI ([canonical ABI and WIT](../wasm/canonical-abi-and-wit.md),
@@ -357,45 +410,47 @@ would allocate a closure and print nothing, which is exactly the test
 
 ## Implementation notes
 
-The embedded `Prelude` declares `Effect` as a data type with no constructors,
-so its imported source identity is abstract. During unification, ordinary
-modules keep `Effect a` nominal and cannot pass a function such as
-`Int -> a` to `runEffect`; after checking, the type checker maps the imported
-`Effect a` identity to the internal `Int -> a` closure shape. Only the embedded
-`Prelude` and platform modules are checked directly against that closure shape
-to implement `pure`, `bind`, `runEffect`, and WASI operations. The source
-language does not expose the token type through the `Effect` signature. The
-driver passes the resolved `Effect` type identity from its trusted embedded
-Prelude to every module, so a signature that carries it through another module
-keeps the same closure representation even when the importing module does not
-import Prelude itself. A user-supplied module named `Prelude` does not establish
-this identity; its `Effect` declaration remains an ordinary user type.
+`lower_effects` in `crates/psrs-core/src/effect/` is the representation
+conversion. Prelude declares `foreign import data Effect :: Type -> Type`.
+`pure`, `bind`, and `runEffect` are abstract `psrs:effect` imports. The pass
+returns `EffectLowering`, whose `synthesized` symbols are those three
+declarations and whose `closures` are the `EffectClosure` entries it wrote. It
+matches the opaque `Prelude.Effect` type id, replaces each application with
+`Type::Closure` whose parameter list is Core `Int`, and suspends a foreign import
+whose type ends in that application so the host call runs inside the closure.
+`crates/psrs-backend/src/effects.rs` drops the abstract imports and performs
+that suspension. The entry check lives in
+`crates/psrs-driver/src/program/effects.rs` and looks up `runEffect` on
+declarations and externals. `runEffect`'s synthesized body applies the integer
+`0`.
 
-The driver resolves the trusted `Prelude.runEffect` symbol and rejects
-references outside the selected command entry before type inference. The
-synchronous runner currently supplies the internal integer value `0`; it is a
-runtime placeholder, not a source-level capability. The design's dedicated
-runtime token and explicit `foreign import data` declaration still require
-foreign type support. Partial application of a top-level function is
-implemented in `cc/lower/call.rs`; the generated function is verified like any
-other. Construct/run/order behavior, function-forgery rejection, the entry-only
-runner rule, transitive cross-module effect forwarding, and an untrusted
-user-defined `Prelude.Effect` remaining nominal are covered by `psrs-driver`
-tests. CC treats a top-level function-typed binding with no
-source parameters as a value-producing call, preserving returned effect
-closures across a global alias. The optimizer's general effectful-call
-preservation rules remain specified in the Core and MIR optimization
-documents; those passes are tracked separately from this topic.
+`callable_types` remains a field on the typed module and is always empty.
+Closure conversion and MIR do not read it. Calling convention uses the closure's
+parameter list: `log` has one parameter, `log "message"` is a saturated call,
+and `Effect (Int -> Int)` is not a two-parameter function
+(`an_effect_of_a_function_is_not_arity_two_and_log_is_saturated`). A partial
+application of `Boolean -> String -> Effect Unit` captures the Boolean once and
+does not run the write (`a_partial_source_application_captures_once_and_defers_the_effect`).
 
-Partial application converts the declaration's erased result to the partially
-applied expression's instantiated result, so a polymorphic effect operation
-applied to fewer arguments produces the closure shape its call site expects.
-One cross-topic gap remains: `Effect Boolean` reaches a continuation that
-inspects the value, and the MIR closure-type table currently assigns distinct
-Wasm function types to structurally identical `Boolean` and `Integer` closure
-signatures, which traps at runtime. That identity issue belongs to the MIR /
-data-representation topic; the effect representation and sequencing contracts
-above hold for Int, Number, String, and aggregate results.
+Typed Core still shows `Effect Int` as a user-type application. A source
+function is rejected by ordinary unification, and a user-declared `data Effect`
+is not opaque, so the pass leaves it nominal. Order, inertness, and the
+entry-only runner are recorded in
+[the effects checklist](../../../implementation/backend/effects.md).
+`EffectLowering::verify` rejects a recorded closure whose parameter list is not
+`[Token]` or whose result is not the lowered effect result. The executed
+fixtures rewrite the node after `lower_effects` returns and call `verify` again
+(`a_lowered_effect_closure_flattened_to_arity_two_is_rejected`,
+`a_lowered_effect_closure_with_the_wrong_result_is_rejected`). They fail with a
+Core `VerifyError` and do not enter the backend. `lower_effects` also calls
+`verify` before it returns, and
+`crates/psrs-backend/src/effects.rs` maps that returned error to
+`InvalidCompilerIr` under `P8 effect lowering`. The closures the pass writes
+already match the record, so the fixtures do not take that mapping. A type
+table changed after the pass returns is not checked again on the compile path.
+`Type::Closure` remains a general representation, and only the recorded nodes
+are constrained. The optimizer's effectful-call preservation rules remain in
+the Core and MIR optimization documents.
 
 ## References
 

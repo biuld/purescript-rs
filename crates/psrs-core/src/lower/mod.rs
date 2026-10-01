@@ -8,6 +8,21 @@ use std::collections::HashMap;
 
 mod dictionary;
 
+fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::TypeConstructor {
+    match constructor {
+        psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
+        psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
+        psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
+        psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
+        psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
+        psrs_thir::TypeConstructor::Boolean => crate::TypeConstructor::Boolean,
+        psrs_thir::TypeConstructor::String => crate::TypeConstructor::String,
+        psrs_thir::TypeConstructor::Char => crate::TypeConstructor::Char,
+        psrs_thir::TypeConstructor::Unit => crate::TypeConstructor::Unit,
+        psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
+    }
+}
+
 fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -34,35 +49,21 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         .cloned()
         .map(|ty| match ty {
             psrs_thir::Type::Variable(variable) => Type::Variable(variable),
-            psrs_thir::Type::I32 => Type::I32,
-            psrs_thir::Type::F64 => Type::F64,
-            psrs_thir::Type::Boolean => Type::Boolean,
-            psrs_thir::Type::String => Type::String,
-            psrs_thir::Type::Char => Type::Char,
-            psrs_thir::Type::Unit => Type::Unit,
-            psrs_thir::Type::Constructor(constructor) => Type::Constructor(match constructor {
-                psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
-                psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
-            }),
+            psrs_thir::Type::Constructor(constructor) => {
+                Type::Constructor(lower_type_constructor(constructor))
+            }
             psrs_thir::Type::Application(function, argument) => {
                 Type::Application(TypeId(function.0), TypeId(argument.0))
             }
-            psrs_thir::Type::Record(fields) => Type::Record(
-                fields
-                    .into_iter()
-                    .map(|(label, field)| (label, TypeId(field.0)))
-                    .collect(),
-            ),
-            psrs_thir::Type::OpenRecord { fields, tail } => Type::OpenRecord {
-                fields: fields
-                    .into_iter()
-                    .map(|(label, field)| (label, TypeId(field.0)))
-                    .collect(),
-                tail: TypeId(tail.0),
+            psrs_thir::Type::ForAll { variables, body } => Type::ForAll {
+                variables,
+                body: TypeId(body.0),
             },
-            psrs_thir::Type::Function { parameter, result } => Type::Function {
-                parameter: TypeId(parameter.0),
-                result: TypeId(result.0),
+            psrs_thir::Type::RowEmpty => Type::RowEmpty,
+            psrs_thir::Type::RowExtend { label, ty, tail } => Type::RowExtend {
+                label,
+                ty: TypeId(ty.0),
+                tail: TypeId(tail.0),
             },
         })
         .collect();
@@ -87,6 +88,7 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
         types,
         newtype_ids: module.newtype_ids,
         opaque_ids: module.opaque_ids,
+        callable_types: module.callable_types,
         constructors: module
             .constructors
             .iter()
@@ -101,9 +103,11 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
                     .iter()
                     .map(|field| TypeId(field.0))
                     .collect(),
+                parameters: constructor.parameters.clone(),
             })
             .collect(),
         declarations,
+        type_names: module.type_names,
         entry: None,
         span: module.span,
     };
@@ -218,6 +222,27 @@ fn lower_expr(
         },
         TypedExprKind::Evidence(evidence) => {
             return dictionary::lower_evidence(&evidence, source_types);
+        }
+        TypedExprKind::Coerce {
+            value,
+            evidence,
+            source_type,
+            target_type,
+        } => {
+            if evidence.class_id != psrs_hir::TypeId::COERCIBLE
+                || source_type != value.ty
+                || target_type.0 != ty.0
+            {
+                return Err(LowerError {
+                    span,
+                    message: "coercion evidence does not match its typed boundary",
+                });
+            }
+            ExprKind::RepresentationCast {
+                value: Box::new(lower_expr(*value, externals, constructors, source_types)?),
+                source_type: TypeId(source_type.0),
+                target_type: TypeId(target_type.0),
+            }
         }
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors, source_types)?;
@@ -453,24 +478,4 @@ fn flatten_intrinsic(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use psrs_hir::Intrinsic;
-
-    #[test]
-    fn primitive_mapping_covers_the_scalar_intrinsic_set() {
-        assert_eq!(
-            Primitive::from_intrinsic(Intrinsic::I32Add),
-            Some(Primitive::IntAdd)
-        );
-        assert_eq!(
-            Primitive::from_intrinsic(Intrinsic::NumberAdd),
-            Some(Primitive::NumberAdd)
-        );
-        assert_eq!(
-            UnaryPrimitive::from_intrinsic(Intrinsic::NumberToInt),
-            Some(UnaryPrimitive::NumberToInt)
-        );
-        assert_eq!(Primitive::from_intrinsic(Intrinsic::BoolTrue), None);
-    }
-}
+mod tests;

@@ -6,11 +6,16 @@ use super::{
     lower_source_to_ast,
 };
 
+pub use lenient::{check_program_kinds_lenient, check_program_lenient};
 pub use library::compile_program_sources_with_prelude;
 use std::collections::HashMap;
 
 mod effects;
+mod graph;
+mod lenient;
 mod library;
+
+use graph::{imported_instance_declarations, module_dependencies, typecheck_order};
 
 /// Compiles a whole program to a single Wasm component. Every module is type
 /// checked in dependency order and lowered to Core; the modules are then linked
@@ -226,6 +231,7 @@ fn typecheck_program(
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
+    let (checked_kinds, role_diagnostics) = psrs_kind::check_roles(&modules);
     let effect_type = modules
         .iter()
         .take(trusted_prefix)
@@ -241,11 +247,56 @@ fn typecheck_program(
         .iter()
         .flat_map(|module| module.types.iter().cloned())
         .collect::<Vec<_>>();
-    let exported = modules.iter().map(exported_signatures).collect::<Vec<_>>();
-    let order = typecheck_order(&modules);
+    // Instance declarations are threaded per module, like values: a module can
+    // only select an instance declared in a module it imports, directly or
+    // transitively.
+    let instance_sets = modules
+        .iter()
+        .map(|module| module.instances.clone())
+        .collect::<Vec<_>>();
+    let dependencies = module_dependencies(&modules);
+    // A re-exported symbol is declared in the module that owns it, so the
+    // signature table is global: a module that imports an exported symbol finds
+    // its declared type even when it imported it through an umbrella module.
+    // Foreign imports contribute the same way; their type lives on the
+    // external rather than on a value declaration.
+    let signatures = modules
+        .iter()
+        .flat_map(|module| {
+            let declarations = module.declarations.iter().filter_map(|declaration| {
+                declaration
+                    .signature
+                    .clone()
+                    .map(|signature| (declaration.symbol, signature))
+            });
+            let externals = module.externals.iter().filter_map(|external| {
+                external
+                    .signature
+                    .clone()
+                    .map(|signature| (external.symbol, signature))
+            });
+            declarations.chain(externals)
+        })
+        .collect::<HashMap<_, _>>();
+    let order = typecheck_order(&dependencies);
+    let module_names = modules
+        .iter()
+        .map(|module| (module.id, module.name.clone()))
+        .collect::<HashMap<_, _>>();
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
-    let mut errors = Vec::new();
+    let mut errors = role_diagnostics
+        .into_iter()
+        .map(|(module, error)| ProgramDiagnostic {
+            source: module.0 as usize,
+            diagnostic: coded_diagnostic(
+                "P5 kind check",
+                error.span,
+                Some(error.code),
+                error.message,
+            ),
+        })
+        .collect::<Vec<_>>();
     for index in order {
         let Some(module) = slots[index].take() else {
             continue;
@@ -277,23 +328,34 @@ fn typecheck_program(
             }
             continue;
         }
-        let imported = imported_signatures(&module, &exported);
+        let imported = imported_signatures(&module, &signatures);
+        let imported_instances =
+            imported_instance_declarations(&dependencies, index, &instance_sets);
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
                 "Prelude"
-                    | "WASI.Console"
+                    | "WASI.Resource"
+                    | "WASI.IO"
                     | "WASI.Clock"
                     | "WASI.Random"
-                    | "WASI.Exit"
-                    | "WASI.Environment"
+                    | "WASI.Console"
+                    | "WASI.Process"
+                    | "WASI.FileSystem"
+                    | "WASI.Network"
+                    | "WASI"
             );
-        let check = psrs_typecheck::typecheck_module_with_imports_and_effect_context(
+        let check = psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names(
             module,
             &imported,
             effect_type,
             trusted_effect_representation,
-            &known_types,
+            psrs_typecheck::TypecheckContext {
+                known_types: &known_types,
+                imported_instances: &imported_instances,
+                module_names: &module_names,
+                checked_kinds: &checked_kinds,
+            },
         );
         match check {
             Ok(module) => typed[index] = Some(module),
@@ -301,7 +363,12 @@ fn typecheck_program(
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
                         source: index,
-                        diagnostic: diagnostic("P5 typecheck", error.span, error.message()),
+                        diagnostic: coded_diagnostic(
+                            "P5 typecheck",
+                            error.span,
+                            error.error_code(),
+                            error.message(),
+                        ),
                     });
                 }
             }
@@ -314,172 +381,20 @@ fn typecheck_program(
     }
 }
 
-/// The declared value types a module exposes to its importers, taken from each
-/// declaration's annotation. A declaration without an annotation is not
-/// exported for cross-module use yet.
-fn exported_signatures(module: &psrs_hir::Module) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
-    module
-        .declarations
-        .iter()
-        .filter_map(|declaration| {
-            declaration
-                .signature
-                .clone()
-                .map(|signature| (declaration.symbol, signature))
-        })
-        .collect()
-}
-
-/// Resolves a module's imported symbols to their exporting declaration's
-/// declared type.
+/// Resolves a module's imported symbols to their declared type from the global
+/// declaration table. A symbol re-exported by an umbrella module keeps the
+/// signature of the declaration that owns it.
 fn imported_signatures(
     module: &psrs_hir::Module,
-    exported: &[HashMap<psrs_hir::SymbolId, psrs_hir::Type>],
+    signatures: &HashMap<psrs_hir::SymbolId, psrs_hir::Type>,
 ) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
     let mut imported = HashMap::new();
     for import in &module.imports {
-        let Some(table) = exported.get(import.module.0 as usize) else {
-            continue;
-        };
         for symbol in &import.symbols {
-            if let Some(ty) = table.get(&symbol.symbol) {
+            if let Some(ty) = signatures.get(&symbol.symbol) {
                 imported.insert(symbol.symbol, ty.clone());
             }
         }
     }
     imported
-}
-
-/// Orders modules so every module follows the modules it imports.
-fn typecheck_order(modules: &[psrs_hir::Module]) -> Vec<usize> {
-    let dependencies = modules
-        .iter()
-        .map(|module| {
-            module
-                .imports
-                .iter()
-                .map(|import| import.module.0 as usize)
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let mut order = Vec::with_capacity(modules.len());
-    let mut visited = vec![false; modules.len()];
-    for index in 0..modules.len() {
-        visit(index, &dependencies, &mut visited, &mut order);
-    }
-    order
-}
-
-fn visit(index: usize, dependencies: &[Vec<usize>], visited: &mut [bool], order: &mut Vec<usize>) {
-    if visited.get(index).copied().unwrap_or(true) {
-        return;
-    }
-    visited[index] = true;
-    for &dependency in dependencies.get(index).into_iter().flatten() {
-        visit(dependency, dependencies, visited, order);
-    }
-    order.push(index);
-}
-
-/// Resolves a program while tolerating imports whose modules are not provided,
-/// and reports every resolution diagnostic. This is used to measure module,
-/// import, export, and name resolution against the corpus, where support
-/// libraries such as `Prelude` are not part of the input.
-pub fn check_program_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
-    resolve_program_lenient(sources).map(|_| ())
-}
-
-/// Resolves a lenient program and then kind-checks every module that resolved.
-/// Missing support libraries still produce resolution diagnostics, but a module
-/// that resolves without them is kind-checked, so the M3 layer is measurable
-/// against the corpus.
-pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
-    let mut modules = lower_program_to_ast(sources)?;
-    let options = psrs_resolve::ResolveOptions {
-        tolerate_missing_modules: true,
-    };
-    let (resolved, program_errors) =
-        psrs_resolve::resolve_program_partial(std::mem::take(&mut modules), options);
-    let mut errors = Vec::new();
-    for error in program_errors {
-        errors.push(ProgramDiagnostic {
-            source: error.module,
-            diagnostic: coded_diagnostic(
-                "P3 resolve",
-                error.error.span,
-                error.error.error_code(),
-                error.error.message(),
-            ),
-        });
-    }
-    for (source, module) in resolved.iter().enumerate() {
-        let Some(module) = module else {
-            continue;
-        };
-        for error in psrs_kind::check_module(module) {
-            errors.push(ProgramDiagnostic {
-                source,
-                diagnostic: coded_diagnostic(
-                    "P5 kind check",
-                    error.span,
-                    Some(error.code),
-                    error.message,
-                ),
-            });
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
-fn resolve_program_lenient(
-    sources: &[(&str, &str)],
-) -> Result<Vec<psrs_hir::Module>, Vec<ProgramDiagnostic>> {
-    let modules = lower_program_to_ast(sources)?;
-    let options = psrs_resolve::ResolveOptions {
-        tolerate_missing_modules: true,
-    };
-    match psrs_resolve::resolve_program_with_options(modules, options) {
-        Ok(resolved) => Ok(resolved),
-        Err(program_errors) => Err(program_errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: error.module,
-                diagnostic: coded_diagnostic(
-                    "P3 resolve",
-                    error.error.span,
-                    error.error.error_code(),
-                    error.error.message(),
-                ),
-            })
-            .collect()),
-    }
-}
-
-fn lower_program_to_ast(
-    sources: &[(&str, &str)],
-) -> Result<Vec<psrs_ast::Module>, Vec<ProgramDiagnostic>> {
-    let mut modules = Vec::with_capacity(sources.len());
-    let mut errors = Vec::new();
-    for (index, (name, text)) in sources.iter().enumerate() {
-        match lower_source_to_ast(name, text) {
-            Ok(module) => modules.push(module),
-            Err(diagnostics) => {
-                for diagnostic in diagnostics {
-                    errors.push(ProgramDiagnostic {
-                        source: index,
-                        diagnostic,
-                    });
-                }
-            }
-        }
-    }
-    if errors.is_empty() {
-        Ok(modules)
-    } else {
-        Err(errors)
-    }
 }

@@ -1,4 +1,4 @@
-use crate::{Expr, Module, Type, TypeId};
+use crate::{Expr, Module, TypeId};
 use std::collections::HashSet;
 
 /// Checked field order for a class dictionary represented by a Core record.
@@ -24,7 +24,7 @@ impl ClassLayout {
         module: &Module,
         dictionary_type: TypeId,
     ) -> Result<Self, &'static str> {
-        let Some(Type::Record(fields)) = module.types.get(dictionary_type.0 as usize) else {
+        let Some(fields) = module.record_fields(dictionary_type) else {
             return Err("class dictionary type is not a Core record");
         };
         let mut labels = HashSet::with_capacity(fields.len());
@@ -82,7 +82,7 @@ impl ClassLayout {
             let Some(field) = self.field(label) else {
                 return Err("dictionary value contains a field outside its class layout");
             };
-            if !types_compatible(value.ty, field.ty, module, &mut HashSet::new()) {
+            if !crate::verify::equivalent_types(value.ty, field.ty, module) {
                 return Err("dictionary value field type differs from its class layout");
             }
         }
@@ -97,70 +97,22 @@ impl ClassLayout {
     }
 }
 
-fn types_compatible(
-    left: TypeId,
-    right: TypeId,
-    module: &Module,
-    seen: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    if left == right || !seen.insert((left, right)) {
-        return true;
-    }
-    let (Some(left), Some(right)) = (
-        module.types.get(left.0 as usize),
-        module.types.get(right.0 as usize),
-    ) else {
-        return false;
-    };
-    match (left, right) {
-        (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
-        (Type::I32, Type::I32)
-        | (Type::F64, Type::F64)
-        | (Type::Boolean, Type::Boolean)
-        | (Type::String, Type::String)
-        | (Type::Char, Type::Char)
-        | (Type::Unit, Type::Unit) => true,
-        (Type::Constructor(a), Type::Constructor(b)) => a == b,
-        (Type::Application(a1, a2), Type::Application(b1, b2))
-        | (
-            Type::Function {
-                parameter: a1,
-                result: a2,
-            },
-            Type::Function {
-                parameter: b1,
-                result: b2,
-            },
-        ) => types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen),
-        (Type::Record(a), Type::Record(b)) => {
-            a.len() == b.len()
-                && a.iter().all(|(label, ty)| {
-                    b.iter()
-                        .find(|(other, _)| other == label)
-                        .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
-                })
-        }
-        _ => false,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Type;
     use psrs_hir::ModuleId;
     use psrs_span::TextRange;
 
     #[test]
     fn layout_keeps_declared_indices_and_accepts_compatible_core_field_types() {
-        let module = module(vec![
-            Type::I32,
-            Type::I32,
-            Type::Record(vec![
-                ("method".into(), TypeId(0)),
-                ("super".into(), TypeId(0)),
-            ]),
-        ]);
-        let layout = ClassLayout::from_record_type(&module, TypeId(2)).unwrap();
+        let mut types = vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Int),
+        ];
+        let record = record_type(&mut types, &[("method", TypeId(0)), ("super", TypeId(0))]);
+        let module = module(types);
+        let layout = ClassLayout::from_record_type(&module, record).unwrap();
         assert_eq!(layout.field("method").unwrap().index, 0);
         assert_eq!(layout.field("super").unwrap().index, 1);
         let values = vec![
@@ -186,20 +138,19 @@ mod tests {
 
     #[test]
     fn layout_rejects_duplicate_field_labels() {
-        let module = module(vec![
-            Type::I32,
-            Type::Record(vec![("method".into(), TypeId(0)); 2]),
-        ]);
+        let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
+        let record = record_type(&mut types, &[("method", TypeId(0)), ("method", TypeId(0))]);
+        let module = module(types);
         assert_eq!(
-            ClassLayout::from_record_type(&module, TypeId(1)).unwrap_err(),
+            ClassLayout::from_record_type(&module, record).unwrap_err(),
             "class dictionary record has duplicate field labels"
         );
     }
 
     #[test]
     fn layout_rejects_a_dictionary_field_with_the_wrong_type() {
-        let module = method_layout_module();
-        let layout = ClassLayout::from_record_type(&module, TypeId(2)).unwrap();
+        let (module, record) = method_layout_module();
+        let layout = ClassLayout::from_record_type(&module, record).unwrap();
         let values = vec![("method".into(), integer(0)), ("super".into(), integer(0))];
         assert_eq!(
             layout.validate_record_value(&module, &values).unwrap_err(),
@@ -209,8 +160,8 @@ mod tests {
 
     #[test]
     fn layout_rejects_a_dictionary_missing_a_field() {
-        let module = method_layout_module();
-        let layout = ClassLayout::from_record_type(&module, TypeId(2)).unwrap();
+        let (module, record) = method_layout_module();
+        let layout = ClassLayout::from_record_type(&module, record).unwrap();
         let values = vec![("method".into(), integer(0))];
         assert_eq!(
             layout.validate_record_value(&module, &values).unwrap_err(),
@@ -220,7 +171,7 @@ mod tests {
 
     #[test]
     fn layout_rejects_a_non_record_dictionary_type() {
-        let module = method_layout_module();
+        let (module, _) = method_layout_module();
         assert_eq!(
             ClassLayout::from_record_type(&module, TypeId(0)).unwrap_err(),
             "class dictionary type is not a Core record"
@@ -235,28 +186,46 @@ mod tests {
         }
     }
 
-    fn method_layout_module() -> Module {
-        module(vec![
-            Type::I32,
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::Record(vec![
-                ("method".into(), TypeId(1)),
-                ("super".into(), TypeId(1)),
-            ]),
-        ])
+    fn method_layout_module() -> (Module, TypeId) {
+        let mut types = vec![
+            Type::Constructor(crate::TypeConstructor::Int),
+            Type::Constructor(crate::TypeConstructor::Boolean),
+        ];
+        let record = record_type(&mut types, &[("method", TypeId(1)), ("super", TypeId(1))]);
+        (module(types), record)
+    }
+
+    /// Appends a closed record type's row nodes and returns its `TypeId`.
+    fn record_type(types: &mut Vec<Type>, fields: &[(&str, TypeId)]) -> TypeId {
+        let row_empty = TypeId(types.len() as u32);
+        types.push(Type::RowEmpty);
+        let mut tail = row_empty;
+        for (label, ty) in fields.iter().rev() {
+            let id = TypeId(types.len() as u32);
+            types.push(Type::RowExtend {
+                label: (*label).into(),
+                ty: *ty,
+                tail,
+            });
+            tail = id;
+        }
+        let head = TypeId(types.len() as u32);
+        types.push(Type::Constructor(crate::TypeConstructor::Record));
+        let id = TypeId(types.len() as u32);
+        types.push(Type::Application(head, tail));
+        id
     }
 
     fn module(types: Vec<Type>) -> Module {
         Module {
+            type_names: Vec::new(),
             id: ModuleId(0),
             name: "DictionaryLayout".into(),
             externals: Vec::new(),
             types,
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),
+            callable_types: Vec::new(),
             constructors: Vec::new(),
             declarations: Vec::new(),
             entry: None,

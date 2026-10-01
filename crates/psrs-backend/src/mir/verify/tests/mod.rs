@@ -14,6 +14,7 @@ fn module_with_function(function: Function, types: Vec<RecGroup>) -> Module {
         name: "VerifierTest".into(),
         types,
         strings: Vec::new(),
+        layout: None,
         imports: Vec::new(),
         entry: Some(function.symbol),
         functions: vec![function],

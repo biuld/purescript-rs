@@ -1,8 +1,9 @@
+use super::super::layout::function_type_signature;
 use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
-use super::call::is_generic_function_type;
+use super::call::is_function_type;
 use crate::BackendError;
-use psrs_core::{Expr, Type};
+use psrs_core::Expr;
 use psrs_hir::SymbolId;
 
 pub(super) trait GlobalLowering {
@@ -29,12 +30,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 "global is not a local top-level function",
             ));
         };
-        if !signature.parameters.is_empty()
-            && matches!(
-                self.module.types.get(expression.ty.0 as usize),
-                Some(Type::Function { .. })
-            )
-        {
+        if !signature.parameters.is_empty() && is_function_type(self.module, expression.ty) {
             let Some(source_type) = self
                 .module
                 .declarations
@@ -47,7 +43,9 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "global function has no source declaration type",
                 ));
             };
-            let Some(signature_id) = self.function_types.get(&source_type).copied() else {
+            let Some(signature_id) =
+                function_type_signature(self.module, self.function_types, source_type)
+            else {
                 return Err(global_error(
                     expression,
                     "function value has no runtime function type",
@@ -66,8 +64,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 ));
             };
             // A closure allocation produces the target-neutral closure
-            // representation identified by its call signature. Generic
-            // function values are then widened to the erased reference type.
+            // representation identified by its normalized call signature.
             let destination = self.fresh(ValueShape::Reference(Reference {
                 nullable: false,
                 heap: RefShape::Closure(signature_id),
@@ -82,40 +79,15 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 span: expression.span,
             });
             if source_type == expression.ty {
-                if is_generic_function_type(self.module, expression.ty) {
-                    let erased = self.fresh(ValueShape::Reference(Reference {
-                        nullable: false,
-                        heap: RefShape::Erased,
-                    }));
-                    assignments.push(Assignment {
-                        destination: erased,
-                        kind: AssignmentKind::RepresentationCast {
-                            destination: erased,
-                            value: destination,
-                            reference: Reference {
-                                nullable: false,
-                                heap: RefShape::Erased,
-                            },
-                        },
-                        span: expression.span,
-                    });
-                    self.erased_function_types.insert(erased, expression.ty);
-                    Ok(erased)
-                } else {
-                    Ok(destination)
-                }
+                Ok(destination)
             } else {
-                let adapted = self.adapt_erased_function_value(
+                self.adapt_erased_function_value(
                     destination,
                     source_type,
                     expression.ty,
                     expression.span,
                     assignments,
-                )?;
-                if is_generic_function_type(self.module, expression.ty) {
-                    self.erased_function_types.insert(adapted, expression.ty);
-                }
-                Ok(adapted)
+                )
             }
         } else {
             if !signature.parameters.is_empty() {
@@ -124,13 +96,8 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "a function value escapes direct-call position",
                 ));
             }
-            if result_type != signature.result {
-                return Err(global_error(
-                    expression,
-                    "global value type differs from its function result type",
-                ));
-            }
-            let destination = self.fresh(result_type);
+            let source_shape = signature.result;
+            let destination = self.fresh(source_shape);
             assignments.push(Assignment {
                 destination,
                 kind: AssignmentKind::DirectCall {
@@ -139,7 +106,33 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            Ok(destination)
+            if source_shape == result_type {
+                return Ok(destination);
+            }
+            let source_type = self
+                .module
+                .declarations
+                .iter()
+                .find(|declaration| declaration.symbol == function)
+                .map(|declaration| declaration.ty)
+                .ok_or_else(|| {
+                    global_error(expression, "global value has no source declaration type")
+                })?;
+            let conversion = self.typed_conversion(
+                source_type,
+                expression.ty,
+                source_shape,
+                result_type,
+                expression.span,
+            )?;
+            Ok(self.emit_conversion(
+                destination,
+                source_shape,
+                result_type,
+                conversion,
+                expression.span,
+                assignments,
+            ))
         }
     }
 }

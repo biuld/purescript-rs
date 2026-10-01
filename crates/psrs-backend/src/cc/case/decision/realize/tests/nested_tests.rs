@@ -23,16 +23,18 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
     let true_symbol = SymbolId::new(module_id, 2);
     let false_symbol = SymbolId::new(module_id, 3);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "NestedDecisionTest".into(),
         externals: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(outer_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: pick,
@@ -41,6 +43,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 0,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(1)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: skip,
@@ -49,6 +52,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 1,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(2)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: true_symbol,
@@ -57,6 +61,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -65,6 +70,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),
@@ -190,7 +196,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();

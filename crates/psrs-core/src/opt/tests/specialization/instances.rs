@@ -2,11 +2,18 @@ use super::*;
 
 #[test]
 fn creates_distinct_specializations_for_distinct_concrete_type_arguments() {
-    let int_type = TypeId(2);
-    let boolean_type = TypeId(3);
-    let int_function_type = TypeId(4);
-    let boolean_function_type = TypeId(5);
-    let record_type = TypeId(6);
+    let mut types = vec![Type::Variable(TypeVariableId(0))];
+    let generic_function = arrow_type(&mut types, TypeId(0), TypeId(0));
+    let int_type = TypeId(types.len() as u32);
+    types.push(Type::Constructor(crate::TypeConstructor::Int));
+    let boolean_type = TypeId(types.len() as u32);
+    types.push(Type::Constructor(crate::TypeConstructor::Boolean));
+    let int_function_type = arrow_type(&mut types, int_type, int_type);
+    let boolean_function_type = arrow_type(&mut types, boolean_type, boolean_type);
+    let record_type = record_type(
+        &mut types,
+        vec![("number", int_type), ("flag", boolean_type)],
+    );
     let boolean_call = expression(
         ExprKind::Application(
             Box::new(expression(
@@ -69,34 +76,10 @@ fn creates_distinct_specializations_for_distinct_concrete_type_arguments() {
         1,
         42,
     );
-    let mut input = module(
-        vec![
-            Type::Variable(TypeVariableId(0)),
-            Type::Function {
-                parameter: TypeId(0),
-                result: TypeId(0),
-            },
-            Type::I32,
-            Type::Boolean,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-            Type::Function {
-                parameter: boolean_type,
-                result: boolean_type,
-            },
-            Type::Record(vec![
-                ("number".into(), int_type),
-                ("flag".into(), boolean_type),
-            ]),
-        ],
-        record_type.0,
-        value,
-    );
+    let mut input = module(types, record_type.0, value);
     input
         .declarations
-        .push(identity_declaration(1, TypeVariableId(0)));
+        .push(identity_declaration(generic_function.0, TypeVariableId(0)));
 
     let optimized = optimize(input, preserve_specializations()).unwrap();
     let ExprKind::Let { bindings, .. } = &optimized.declarations[0].value.kind else {
@@ -111,19 +94,19 @@ fn creates_distinct_specializations_for_distinct_concrete_type_arguments() {
         .filter(|declaration| declaration.name.starts_with("identity$p7_"))
         .collect::<Vec<_>>();
     assert_eq!(specializations.len(), 2);
-    assert_eq!(
-        optimized.types[specializations[0].ty.0 as usize],
-        Type::Function {
-            parameter: int_type,
-            result: int_type,
-        }
-    );
-    assert_eq!(
-        optimized.types[specializations[1].ty.0 as usize],
-        Type::Function {
-            parameter: boolean_type,
-            result: boolean_type,
-        }
-    );
+    let Some((first_parameter, first_result)) =
+        crate::arrow_parts(&optimized.types, specializations[0].ty)
+    else {
+        panic!("the first specialization should have an arrow type")
+    };
+    assert_eq!(first_parameter, int_type);
+    assert_eq!(first_result, int_type);
+    let Some((second_parameter, second_result)) =
+        crate::arrow_parts(&optimized.types, specializations[1].ty)
+    else {
+        panic!("the second specialization should have an arrow type")
+    };
+    assert_eq!(second_parameter, boolean_type);
+    assert_eq!(second_result, boolean_type);
     optimized.verify().unwrap();
 }

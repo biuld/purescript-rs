@@ -85,8 +85,8 @@ impl TargetCapabilities {
             wasi_io: true,
             wasi_clocks: true,
             wasi_random: true,
-            wasi_filesystem: false,
-            wasi_sockets: false,
+            wasi_filesystem: true,
+            wasi_sockets: true,
             wasi_http: false,
             wasi_tls: false,
         }
@@ -172,8 +172,8 @@ mod tests {
             wasi_io: true,
             wasi_clocks: true,
             wasi_random: true,
-            wasi_filesystem: false,
-            wasi_sockets: false,
+            wasi_filesystem: true,
+            wasi_sockets: true,
             wasi_http: false,
             wasi_tls: false,
         };

@@ -2,20 +2,27 @@ use psrs_cst::{self as cst, ExprKind as CstExprKind};
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
+mod do_notation;
 mod export;
 mod expr;
 mod import;
+mod instance_decl;
+mod lower;
+mod role;
 mod ty;
 mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind};
 pub use import::{Import, ImportList, ImportRef};
+pub use lower::lower_module;
+pub use role::{RoleAnnotation, RoleDeclaration, TypeRole};
 pub(crate) use ty::lower_type;
 pub use ty::{Type, TypeField, TypeKind};
 pub use type_decl::{
-    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, ForeignDataDeclaration,
-    NewtypeDeclaration, TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
+    ClassDeclaration, ClassMember, DataConstructor, DataDeclaration, DerivationStrategy,
+    ForeignDataDeclaration, FunctionalDependency, InstanceDeclaration, NewtypeDeclaration,
+    TypeDeclaration, TypeParameter, TypeSynonymDeclaration,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,6 +33,10 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     pub foreign_imports: Vec<ForeignImport>,
     pub type_declarations: Vec<TypeDeclaration>,
+    /// Source role annotations retained until name resolution attaches them to
+    /// their local type declaration.
+    pub role_declarations: Vec<RoleDeclaration>,
+    pub instances: Vec<InstanceDeclaration>,
     pub span: TextRange,
 }
 
@@ -77,110 +88,6 @@ impl LowerError {
     }
 }
 
-/// Converts source-oriented CST nodes into a normalized, unresolved surface AST.
-pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
-    let mut errors = Vec::new();
-    let mut declarations = Vec::new();
-    let mut foreign_imports = Vec::new();
-    let mut type_declarations = Vec::new();
-    let mut index = 0;
-    while index < module.declarations.len() {
-        let declaration = module.declarations[index].clone();
-        match declaration {
-            cst::Declaration::KindSignature(signature) => {
-                if matches_kind_declaration(&signature, module.declarations.get(index + 1)) {
-                    let target = module.declarations[index + 1].clone();
-                    match type_decl::lower_type_declaration(Some(signature), target) {
-                        Ok(declaration) => type_declarations.push(declaration),
-                        Err(error) => errors.push(error),
-                    }
-                    index += 2;
-                } else {
-                    errors.push(LowerError::coded(
-                        signature.span,
-                        "OrphanKindDeclaration",
-                        "a kind declaration must be followed by a matching declaration",
-                    ));
-                    index += 1;
-                }
-            }
-            cst::Declaration::Data(_)
-            | cst::Declaration::Newtype(_)
-            | cst::Declaration::TypeSynonym(_)
-            | cst::Declaration::Class(_) => {
-                match type_decl::lower_type_declaration(None, declaration) {
-                    Ok(declaration) => type_declarations.push(declaration),
-                    Err(error) => errors.push(error),
-                }
-                index += 1;
-            }
-            cst::Declaration::Foreign(declaration) => {
-                if declaration.data_keyword_span.is_some() {
-                    match type_decl::lower_foreign_data(declaration) {
-                        Ok(declaration) => type_declarations.push(declaration),
-                        Err(error) => errors.push(error),
-                    }
-                } else {
-                    match lower_foreign_import(declaration) {
-                        Ok(foreign) => foreign_imports.push(foreign),
-                        Err(error) => errors.push(error),
-                    }
-                }
-                index += 1;
-            }
-            other => {
-                match lower_declaration(other) {
-                    Ok(declaration) => declarations.push(declaration),
-                    Err(error) => errors.push(error),
-                }
-                index += 1;
-            }
-        }
-    }
-    if errors.is_empty() {
-        Ok(Module {
-            name: lower_name(module.name),
-            exports: module.exports.map(export::lower_export_list),
-            imports: module
-                .imports
-                .into_iter()
-                .map(import::lower_import)
-                .collect(),
-            declarations,
-            foreign_imports,
-            type_declarations,
-            span: module.span,
-        })
-    } else {
-        Err(errors)
-    }
-}
-
-/// A kind declaration is matched by the declaration that immediately follows it
-/// with the same name and the same declaration keyword, as `purs` requires.
-fn matches_kind_declaration(
-    signature: &cst::KindSignature,
-    next: Option<&cst::Declaration>,
-) -> bool {
-    let Some(next) = next else {
-        return false;
-    };
-    let name = signature.name.text.as_str();
-    match (signature.kind_for, next) {
-        (cst::KindFor::Data, cst::Declaration::Data(declaration)) => declaration.name.text == name,
-        (cst::KindFor::Newtype, cst::Declaration::Newtype(declaration)) => {
-            declaration.name.text == name
-        }
-        (cst::KindFor::TypeSynonym, cst::Declaration::TypeSynonym(declaration)) => {
-            declaration.name.text == name
-        }
-        (cst::KindFor::Class, cst::Declaration::Class(declaration)) => {
-            declaration.name.text == name
-        }
-        _ => false,
-    }
-}
-
 fn lower_foreign_import(declaration: cst::ForeignDeclaration) -> Result<ForeignImport, LowerError> {
     let Some(binding) = declaration.binding else {
         return Err(LowerError::new(
@@ -214,7 +121,9 @@ fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, Lower
     }
 }
 
-fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declaration, LowerError> {
+pub(crate) fn lower_value_declaration(
+    declaration: cst::ValueDeclaration,
+) -> Result<Declaration, LowerError> {
     if let Some(error) = check_argument_names(&declaration.parameters) {
         return Err(error);
     }
@@ -224,13 +133,11 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
             "guarded equations are not supported yet",
         ));
     };
-    if let Some(block) = declaration.where_block {
-        return Err(LowerError::new(
-            block.span,
-            "where blocks are not supported yet",
-        ));
-    }
-    let mut value = lower_expr(value)?;
+    let value = lower_expr(value)?;
+    // `x args = body where decls` is `x args = let decls in body`: the `where`
+    // declarations are a local binding group scoped over the right-hand side,
+    // and its parameters remain in scope because the `let` is inside them.
+    let mut value = wrap_where(declaration.where_block, value)?;
     for parameter in declaration.parameters.into_iter().rev() {
         value = expr::lower_pattern_lambda(parameter, value)?;
     }
@@ -239,6 +146,28 @@ fn lower_value_declaration(declaration: cst::ValueDeclaration) -> Result<Declara
         value,
         span: declaration.span,
         annotation: declaration.annotation.map(lower_type).transpose()?,
+    })
+}
+
+/// Wraps a right-hand side in a local `let` for its `where` declarations,
+/// matching the official PureScript `Where` desugaring. The declarations form a
+/// recursive binding group and stay unresolved, like any other `let`.
+fn wrap_where(block: Option<cst::DeclarationBlock>, value: Expr) -> Result<Expr, LowerError> {
+    let Some(block) = block else {
+        return Ok(value);
+    };
+    let declarations = block
+        .declarations
+        .into_iter()
+        .map(lower_declaration)
+        .collect::<Result<Vec<_>, _>>()?;
+    let span = value.span;
+    Ok(Expr {
+        kind: ExprKind::Let {
+            declarations,
+            body: Box::new(value),
+        },
+        span,
     })
 }
 
@@ -353,15 +282,10 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                         "guarded case alternatives are not supported yet",
                     ));
                 };
-                if let Some(block) = where_block {
-                    return Err(LowerError::new(
-                        block.span,
-                        "where blocks are not supported yet",
-                    ));
-                }
                 let pattern =
                     expr::lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
                 let value = lower_expr(value)?;
+                let value = wrap_where(where_block, value)?;
                 branches.push(CaseBranch {
                     pattern,
                     value,
@@ -385,9 +309,22 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .map(|(index, item)| Ok((tuple_label(index), lower_expr(item)?)))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
+        CstExprKind::Do {
+            statements,
+            result: Some(result),
+            ..
+        } => {
+            return do_notation::lower_ado(statements, *result, span);
+        }
+        CstExprKind::Do {
+            do_keyword_span,
+            statements,
+            ..
+        } => {
+            return do_notation::lower_do(statements, do_keyword_span, span);
+        }
         CstExprKind::Hole(_)
         | CstExprKind::Negate { .. }
-        | CstExprKind::Do { .. }
         | CstExprKind::Typed { .. }
         | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError::new(

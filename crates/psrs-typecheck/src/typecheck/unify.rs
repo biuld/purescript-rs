@@ -5,6 +5,10 @@ impl Checker {
         let id = self.next_variable;
         self.next_variable += 1;
         self.levels.insert(id, self.level);
+        let kind = self.next_kind_variable;
+        self.next_kind_variable += 1;
+        self.infer_variable_kinds
+            .insert(id, psrs_kind::Kind::Variable(kind));
         InferType::Variable(id)
     }
 
@@ -20,8 +24,12 @@ impl Checker {
                         InferType::Variable(b),
                         span,
                     ),
-                    (true, false) => self.bind_variable(b, InferType::Variable(a), span),
-                    (false, _) => self.bind_variable(a, InferType::Variable(b), span),
+                    (true, false) => {
+                        self.bind_variable(b, InferType::Variable(a), span);
+                    }
+                    (false, _) => {
+                        self.bind_variable(a, InferType::Variable(b), span);
+                    }
                 }
             }
             (InferType::Variable(variable), ty) if self.rigid.contains(&variable) => {
@@ -33,23 +41,58 @@ impl Checker {
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
                 self.bind_variable(variable, ty, span);
             }
-            (InferType::I32, InferType::I32)
-            | (InferType::F64, InferType::F64)
-            | (InferType::Boolean, InferType::Boolean)
-            | (InferType::String, InferType::String)
-            | (InferType::Char, InferType::Char)
-            | (InferType::Unit, InferType::Unit) => {}
+            (
+                InferType::ForAll {
+                    variables: left_variables,
+                    body: left_body,
+                },
+                InferType::ForAll {
+                    variables: right_variables,
+                    body: right_body,
+                },
+            ) if left_variables.len() == right_variables.len() => {
+                let mapping = right_variables
+                    .into_iter()
+                    .zip(left_variables)
+                    .map(|(right, left)| (right, InferType::Variable(left)))
+                    .collect();
+                self.unify(*left_body, substitute(&right_body, &mapping), span);
+            }
+            (
+                InferType::Constrained {
+                    constraints: left_constraints,
+                    body: left_body,
+                },
+                InferType::Constrained {
+                    constraints: right_constraints,
+                    body: right_body,
+                },
+            ) if left_constraints.len() == right_constraints.len()
+                && left_constraints
+                    .iter()
+                    .zip(&right_constraints)
+                    .all(|(left, right)| {
+                        left.class_id == right.class_id
+                            && left.arguments.len() == right.arguments.len()
+                    }) =>
+            {
+                for (left, right) in left_constraints.iter().zip(&right_constraints) {
+                    for (left, right) in left.arguments.iter().zip(&right.arguments) {
+                        self.unify(left.clone(), right.clone(), span);
+                    }
+                }
+                self.unify(*left_body, *right_body, span);
+            }
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            (InferType::Application(f1, a1), InferType::Application(f2, a2))
+                if matches!(*f1, InferType::Constructor(TypeConstructor::Record))
+                    && matches!(*f2, InferType::Constructor(TypeConstructor::Record)) =>
+            {
+                self.unify_rows(*a1, *a2, span);
+            }
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
-            }
-            (InferType::Record(left), InferType::Record(right)) => {
-                self.unify_rows(left, right, span);
-            }
-            (InferType::Function(a1, r1), InferType::Function(a2, r2)) => {
-                self.unify(*a1, *a2, span);
-                self.unify(*r1, *r2, span);
             }
             (expected, actual) => {
                 let expected = self.display_type(&expected);
@@ -63,7 +106,10 @@ impl Checker {
         }
     }
 
-    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) {
+    /// Binds `variable` to `ty`, reporting an occurs-check failure and leaving
+    /// the substitution unchanged when it would be recursive. Returns whether a
+    /// binding was recorded, so a fixed-point caller can detect progress.
+    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
             self.errors.push(TypeCheckError::new(
@@ -71,10 +117,14 @@ impl Checker {
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
+            false
+        } else if self.reject_skolem_escape(variable, &ty, span) {
+            false
         } else {
             let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
             self.adjust_levels(&ty, level);
             self.substitutions.insert(variable, ty);
+            true
         }
     }
 
@@ -92,49 +142,82 @@ impl Checker {
     pub(super) fn display_type(&self, ty: &InferType) -> String {
         match self.resolve_type(ty.clone()) {
             InferType::Variable(variable) => format!("_T{variable}"),
-            InferType::I32 => "Int".into(),
-            InferType::F64 => "Number".into(),
-            InferType::Boolean => "Boolean".into(),
-            InferType::String => "String".into(),
-            InferType::Char => "Char".into(),
-            InferType::Unit => "Unit".into(),
-            InferType::Constructor(TypeConstructor::Array) => "Array".into(),
-            InferType::Constructor(TypeConstructor::Effect) => "Effect".into(),
-            InferType::Constructor(TypeConstructor::User(id)) => self
-                .type_names
-                .get(&id)
-                .cloned()
-                .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
-            InferType::Application(function, argument) => {
-                format!(
-                    "({} {})",
-                    self.display_type(&function),
-                    self.display_type(&argument)
-                )
+            InferType::Constructor(constructor) => match constructor {
+                TypeConstructor::Function => "Function".into(),
+                TypeConstructor::Record => "Record".into(),
+                TypeConstructor::Array => "Array".into(),
+                TypeConstructor::Int => "Int".into(),
+                TypeConstructor::Number => "Number".into(),
+                TypeConstructor::Boolean => "Boolean".into(),
+                TypeConstructor::String => "String".into(),
+                TypeConstructor::Char => "Char".into(),
+                TypeConstructor::Unit => "Unit".into(),
+                TypeConstructor::User(id) => self
+                    .type_names
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Type#{}.{}", id.module.0, id.index)),
+            },
+            InferType::Application(function, argument)
+                if matches!(*function, InferType::Constructor(TypeConstructor::Record)) =>
+            {
+                self.display_record(&argument)
             }
-            InferType::Record(record) => {
-                let fields = record
-                    .fields
-                    .iter()
-                    .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                match record.tail {
-                    RowTail::Closed => format!("{{{fields}}}"),
-                    RowTail::Open(variable) => {
-                        if fields.is_empty() {
-                            format!("{{ | _T{variable} }}")
-                        } else {
-                            format!("{{{fields} | _T{variable}}}")
-                        }
-                    }
+            InferType::Application(function, argument) => {
+                if let Some((parameter, result)) = infer_arrow_parts(&function, &argument) {
+                    format!(
+                        "({} -> {})",
+                        self.display_type(&parameter),
+                        self.display_type(&result)
+                    )
+                } else {
+                    format!(
+                        "({} {})",
+                        self.display_type(&function),
+                        self.display_type(&argument)
+                    )
                 }
             }
-            InferType::Function(parameter, result) => format!(
-                "({} -> {})",
-                self.display_type(&parameter),
-                self.display_type(&result)
+            InferType::ForAll { variables, body } => format!(
+                "(forall {}. {})",
+                variables
+                    .iter()
+                    .map(|variable| format!("_T{variable}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                self.display_type(&body)
             ),
+            InferType::Constrained { constraints, body } => format!(
+                "({} => {})",
+                constraints
+                    .iter()
+                    .map(|constraint| self
+                        .display_constraint(constraint.class_id, &constraint.arguments))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.display_type(&body)
+            ),
+            InferType::RowEmpty => "{ }".into(),
+            row @ InferType::RowExtend { .. } => self.display_record(&row),
+        }
+    }
+
+    fn display_record(&self, row: &InferType) -> String {
+        let FlatRow { fields, tail } = self.flatten_row(row.clone());
+        let rendered = fields
+            .iter()
+            .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        match tail {
+            RowTail::Closed => format!("{{{rendered}}}"),
+            RowTail::Open(variable) => {
+                if rendered.is_empty() {
+                    format!("{{ | _T{variable} }}")
+                } else {
+                    format!("{{{rendered} | _T{variable}}}")
+                }
+            }
         }
     }
 
@@ -149,100 +232,69 @@ impl Checker {
                 Box::new(self.resolve_type(*function)),
                 Box::new(self.resolve_type(*argument)),
             ),
-            InferType::Record(record) => self.resolve_record(record),
-            InferType::Function(parameter, result) => InferType::Function(
-                Box::new(self.resolve_type(*parameter)),
-                Box::new(self.resolve_type(*result)),
-            ),
-            primitive => primitive,
+            InferType::RowExtend { label, ty, tail } => InferType::RowExtend {
+                label,
+                ty: Box::new(self.resolve_type(*ty)),
+                tail: Box::new(self.resolve_type(*tail)),
+            },
+            InferType::ForAll { variables, body } => InferType::ForAll {
+                variables,
+                body: Box::new(self.resolve_type(*body)),
+            },
+            InferType::Constrained { constraints, body } => InferType::Constrained {
+                constraints: constraints
+                    .into_iter()
+                    .map(|constraint| ClassConstraint {
+                        arguments: constraint
+                            .arguments
+                            .into_iter()
+                            .map(|ty| self.resolve_type(ty))
+                            .collect(),
+                        ..constraint
+                    })
+                    .collect(),
+                body: Box::new(self.resolve_type(*body)),
+            },
+            other => other,
         }
     }
 
     fn adjust_levels(&mut self, ty: &InferType, max_level: u32) {
+        self.adjust_levels_excluding(ty, max_level, &HashSet::new());
+    }
+
+    fn adjust_levels_excluding(&mut self, ty: &InferType, max_level: u32, bound: &HashSet<u32>) {
         match ty {
-            InferType::Variable(variable) => {
+            InferType::Variable(variable) if !bound.contains(variable) => {
                 if let Some(level) = self.levels.get_mut(variable)
                     && *level > max_level
                 {
                     *level = max_level;
                 }
             }
-            InferType::Application(function, argument)
-            | InferType::Function(function, argument) => {
-                self.adjust_levels(function, max_level);
-                self.adjust_levels(argument, max_level);
+            InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+            InferType::Application(function, argument) => {
+                self.adjust_levels_excluding(function, max_level, bound);
+                self.adjust_levels_excluding(argument, max_level, bound);
             }
-            InferType::Record(record) => {
-                for (_, field) in &record.fields {
-                    self.adjust_levels(field, max_level);
-                }
-                if let RowTail::Open(variable) = record.tail {
-                    self.adjust_levels(&InferType::Variable(variable), max_level);
-                }
+            InferType::ForAll { variables, body } => {
+                let mut bound = bound.clone();
+                bound.extend(variables.iter().copied());
+                self.adjust_levels_excluding(body, max_level, &bound);
             }
-            InferType::I32
-            | InferType::F64
-            | InferType::Boolean
-            | InferType::String
-            | InferType::Char
-            | InferType::Unit
-            | InferType::Constructor(_) => {}
-        }
-    }
-
-    pub(super) fn instantiate(&mut self, scheme: &Scheme) -> InferType {
-        if scheme.variables.is_empty() {
-            return scheme.ty.clone();
-        }
-        let mut mapping = HashMap::new();
-        for variable in &scheme.variables {
-            mapping.insert(*variable, self.fresh());
-        }
-        substitute(&scheme.ty, &mapping)
-    }
-
-    pub(super) fn generalize(&mut self, ty: &InferType, outer_level: u32) -> Scheme {
-        let resolved = self.resolve_type(ty.clone());
-        let mut variables = Vec::new();
-        self.collect_generalizable(&resolved, outer_level, &mut variables);
-        variables.sort_unstable();
-        variables.dedup();
-        for variable in &variables {
-            self.generic_variables.insert(*variable);
-        }
-        Scheme {
-            variables,
-            ty: resolved,
-        }
-    }
-
-    fn collect_generalizable(&self, ty: &InferType, outer_level: u32, out: &mut Vec<u32>) {
-        match ty {
-            InferType::Variable(variable) => {
-                if self.levels.get(variable).copied().unwrap_or(TOP_LEVEL) > outer_level {
-                    out.push(*variable);
+            InferType::Constrained { constraints, body } => {
+                for argument in constraints
+                    .iter()
+                    .flat_map(|constraint| &constraint.arguments)
+                {
+                    self.adjust_levels_excluding(argument, max_level, bound);
                 }
+                self.adjust_levels_excluding(body, max_level, bound);
             }
-            InferType::Application(function, argument)
-            | InferType::Function(function, argument) => {
-                self.collect_generalizable(function, outer_level, out);
-                self.collect_generalizable(argument, outer_level, out);
+            InferType::RowExtend { ty, tail, .. } => {
+                self.adjust_levels_excluding(ty, max_level, bound);
+                self.adjust_levels_excluding(tail, max_level, bound);
             }
-            InferType::Record(record) => {
-                for (_, field) in &record.fields {
-                    self.collect_generalizable(field, outer_level, out);
-                }
-                if let RowTail::Open(variable) = record.tail {
-                    self.collect_generalizable(&InferType::Variable(variable), outer_level, out);
-                }
-            }
-            InferType::I32
-            | InferType::F64
-            | InferType::Boolean
-            | InferType::String
-            | InferType::Char
-            | InferType::Unit
-            | InferType::Constructor(_) => {}
         }
     }
 
@@ -265,53 +317,58 @@ impl Checker {
                 ));
                 None
             }
-            InferType::I32 => Some(interner.intern(Type::I32)),
-            InferType::F64 => Some(interner.intern(Type::F64)),
-            InferType::Boolean => Some(interner.intern(Type::Boolean)),
-            InferType::String => Some(interner.intern(Type::String)),
-            InferType::Char => Some(interner.intern(Type::Char)),
-            InferType::Unit => Some(interner.intern(Type::Unit)),
-            InferType::Constructor(TypeConstructor::Array) => {
-                Some(interner.intern(Type::Constructor(thir::TypeConstructor::Array)))
-            }
-            InferType::Constructor(TypeConstructor::Effect) => {
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedType,
-                    span,
-                    "Effect must be applied to exactly one type argument",
-                ));
-                None
-            }
-            InferType::Constructor(TypeConstructor::User(id)) => {
-                Some(interner.intern(Type::Constructor(thir::TypeConstructor::User(id))))
+            InferType::Constructor(constructor) => {
+                Some(interner.intern(Type::Constructor(match constructor {
+                    TypeConstructor::Function => thir::TypeConstructor::Function,
+                    TypeConstructor::Record => thir::TypeConstructor::Record,
+                    TypeConstructor::Array => thir::TypeConstructor::Array,
+                    TypeConstructor::Int => thir::TypeConstructor::Int,
+                    TypeConstructor::Number => thir::TypeConstructor::Number,
+                    TypeConstructor::Boolean => thir::TypeConstructor::Boolean,
+                    TypeConstructor::String => thir::TypeConstructor::String,
+                    TypeConstructor::Char => thir::TypeConstructor::Char,
+                    TypeConstructor::Unit => thir::TypeConstructor::Unit,
+                    TypeConstructor::User(id) => thir::TypeConstructor::User(id),
+                })))
             }
             InferType::Application(function, argument) => {
-                if matches!(
-                    self.resolve_type(*function.clone()),
-                    InferType::Constructor(TypeConstructor::Effect)
-                ) {
-                    let parameter = interner.intern(Type::I32);
-                    let result = self.finalize_type(&argument, span, interner, generics)?;
-                    return Some(interner.intern(Type::Function { parameter, result }));
+                if matches!(*function, InferType::Constructor(TypeConstructor::Record)) {
+                    let row = self.finalize_row(*argument, span, interner, generics)?;
+                    let head = interner.intern(Type::Constructor(thir::TypeConstructor::Record));
+                    return Some(interner.intern(Type::Application(head, row)));
                 }
                 let function = self.finalize_type(&function, span, interner, generics);
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
-            InferType::Record(record) => self.finalize_record(record, span, interner, generics),
-            InferType::Function(parameter, result) => {
-                let parameter = self.finalize_type(&parameter, span, interner, generics);
-                let result = self.finalize_type(&result, span, interner, generics);
-                Some(interner.intern(Type::Function {
-                    parameter: parameter?,
-                    result: result?,
+            InferType::ForAll { variables, body } => {
+                let mut scoped_generics = generics.clone();
+                scoped_generics.extend(variables.iter().copied());
+                let body = self.finalize_type(&body, span, interner, &scoped_generics)?;
+                Some(interner.intern(Type::ForAll {
+                    variables: variables.into_iter().map(TypeVariableId).collect(),
+                    body,
                 }))
             }
+            InferType::Constrained { constraints, body } => {
+                let mut result = self.finalize_type(&body, span, interner, generics)?;
+                for constraint in constraints.iter().rev() {
+                    let dictionary = self.dictionary_type(constraint);
+                    let parameter = self.finalize_type(&dictionary, span, interner, generics)?;
+                    let function =
+                        interner.intern(Type::Constructor(thir::TypeConstructor::Function));
+                    let function = interner.intern(Type::Application(function, parameter));
+                    result = interner.intern(Type::Application(function, result));
+                }
+                Some(result)
+            }
+            InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
+            row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
         }
     }
 }
 
-fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
+pub(super) fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
     match ty {
         InferType::Variable(variable) => mapping
             .get(variable)
@@ -321,30 +378,36 @@ fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> InferType {
             Box::new(substitute(function, mapping)),
             Box::new(substitute(argument, mapping)),
         ),
-        InferType::Function(parameter, result) => InferType::Function(
-            Box::new(substitute(parameter, mapping)),
-            Box::new(substitute(result, mapping)),
-        ),
-        InferType::Record(record) => InferType::Record(InferRecord {
-            fields: record
-                .fields
+        InferType::ForAll { variables, body } => {
+            let mut mapping = mapping.clone();
+            for variable in variables {
+                mapping.remove(variable);
+            }
+            InferType::ForAll {
+                variables: variables.clone(),
+                body: Box::new(substitute(body, &mapping)),
+            }
+        }
+        InferType::Constrained { constraints, body } => InferType::Constrained {
+            constraints: constraints
                 .iter()
-                .map(|(label, field)| (label.clone(), substitute(field, mapping)))
+                .map(|constraint| ClassConstraint {
+                    arguments: constraint
+                        .arguments
+                        .iter()
+                        .map(|ty| substitute(ty, mapping))
+                        .collect(),
+                    ..constraint.clone()
+                })
                 .collect(),
-            tail: match record.tail {
-                RowTail::Closed => RowTail::Closed,
-                RowTail::Open(variable) => match mapping.get(&variable) {
-                    Some(InferType::Variable(renamed)) => RowTail::Open(*renamed),
-                    Some(other) => {
-                        // Instantiation replaces a row variable with a fresh
-                        // variable. Any other mapping is a solved row, which
-                        // resolve flattens before generalization.
-                        return substitute(other, mapping);
-                    }
-                    None => RowTail::Open(variable),
-                },
-            },
-        }),
-        primitive => primitive.clone(),
+            body: Box::new(substitute(body, mapping)),
+        },
+        InferType::RowExtend { label, ty, tail } => InferType::RowExtend {
+            label: label.clone(),
+            ty: Box::new(substitute(ty, mapping)),
+            tail: Box::new(substitute(tail, mapping)),
+        },
+        InferType::RowEmpty => InferType::RowEmpty,
+        other => other.clone(),
     }
 }

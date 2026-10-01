@@ -1,8 +1,17 @@
+use super::canonical::{CanonicalField, CanonicalType, flatten as canonical_flatten};
+use super::test_support::import;
 use super::*;
 use psrs_core::{Type as CoreType, TypeId as CoreTypeId};
 use psrs_hir::{BuiltinType, ModuleId, Type as HirType, TypeField, TypeKind as HirTypeKind};
 use psrs_span::TextRange;
 use wit_parser::abi::WasmType;
+
+fn field(name: &str, ty: CanonicalType) -> CanonicalField {
+    CanonicalField {
+        name: name.into(),
+        ty,
+    }
+}
 
 #[test]
 fn maps_closed_source_records_to_direct_wit_record_parameters() {
@@ -15,8 +24,9 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
         .expect("the WIT record fixture should resolve");
     let interface = resolve.packages[package].interfaces["records"];
     let function = &resolve.interfaces[interface].functions["take"];
-    let kind = param_kind(&resolve, &function.params[0].ty);
-    let WasiParamKind::Record { fields } = &kind else {
+    let resolved =
+        super::canonical::resolve(&resolve, &function.params[0].ty).expect("record resolves");
+    let CanonicalType::Record(fields) = &resolved else {
         panic!("scalar WIT record fields should have a direct record shape");
     };
     assert_eq!(
@@ -56,60 +66,66 @@ fn maps_closed_source_records_to_direct_wit_record_parameters() {
     };
     let mut core = empty_core_module();
     core.types = vec![
-        CoreType::I32,
-        CoreType::F64,
-        CoreType::Record(vec![
-            ("first".into(), CoreTypeId(0)),
-            ("secondValue".into(), CoreTypeId(1)),
-        ]),
-        CoreType::Unit,
-    ];
-    let source = source_signature(
-        &core,
-        &HirType {
-            kind: HirTypeKind::Function {
-                parameter: Box::new(record),
-                result: Box::new(unit),
-            },
-            span,
+        CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        CoreType::Constructor(psrs_core::TypeConstructor::Number),
+        CoreType::RowEmpty,
+        CoreType::RowExtend {
+            label: "secondValue".into(),
+            ty: CoreTypeId(1),
+            tail: CoreTypeId(2),
         },
-    )
-    .expect("closed record signatures should have source ABI metadata");
-    let import = WasiImport {
-        symbol: psrs_hir::SymbolId::new(ModuleId(0), 0),
-        module: "test:records".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::F64, ValueType::I32],
-        param_kinds: vec![kind],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
+        CoreType::RowExtend {
+            label: "first".into(),
+            ty: CoreTypeId(0),
+            tail: CoreTypeId(3),
+        },
+        CoreType::Constructor(psrs_core::TypeConstructor::Record),
+        CoreType::Application(CoreTypeId(5), CoreTypeId(4)),
+        CoreType::Constructor(psrs_core::TypeConstructor::Unit),
+    ];
+    let function = HirType {
+        kind: HirTypeKind::Function {
+            parameter: Box::new(record),
+            result: Box::new(unit),
+        },
+        span,
     };
-    WasiRegistry::load()
-        .expect("vendored WASI should load")
-        .validate_signature(&import, &source)
+    let type_id = crate::abi::intern_source_type(&mut core, &function)
+        .expect("the record function type should intern");
+    let import = import(
+        psrs_hir::SymbolId::new(ModuleId(0), 0),
+        "test:records",
+        "take",
+        vec![resolved],
+        None,
+    );
+    crate::abi::link::validate_import_signature(&import, &core, type_id)
         .expect("source fields should match WIT names and types");
-    let mut mismatched = source.clone();
-    let SourceType::Record { fields } = &mut mismatched.parameters[0] else {
-        panic!("the source argument should retain its record fields");
-    };
-    *fields[1].1 = SourceType::Boolean;
+
+    let (bad_module, bad_record) = record_module(&[
+        (
+            "first",
+            CoreType::Constructor(psrs_core::TypeConstructor::Int),
+        ),
+        (
+            "secondValue",
+            CoreType::Constructor(psrs_core::TypeConstructor::Boolean),
+        ),
+    ]);
+    let mut bad_module = bad_module;
+    let bad_unit = unit_type(&mut bad_module);
     assert!(
-        WasiRegistry::load()
-            .expect("vendored WASI should load")
-            .validate_signature(&import, &mismatched)
-            .is_err()
+        validate_against(&import, bad_module, &[bad_record], bad_unit).is_err(),
+        "a record field of the wrong type must be rejected"
     );
 
-    let record_types = std::collections::HashMap::from([(CoreTypeId(2), crate::cc::ReprId(0))]);
+    let record_types = std::collections::HashMap::from([(CoreTypeId(6), crate::cc::ReprId(0))]);
     let abstract_signature = crate::cc::abstract_signature(
-        &source,
+        Some(type_id),
         &core,
         &record_types,
         &std::collections::HashMap::new(),
-        &mut crate::cc::RepresentationTable::default(),
+        &std::collections::HashMap::new(),
     )
     .expect("the record representation should be selected from Core layout metadata");
     assert_eq!(
@@ -132,13 +148,13 @@ fn accepts_records_with_nested_byte_list_fields() {
         .expect("the nested byte-list WIT fixture should resolve");
     let interface = resolve.packages[package].interfaces["messages"];
     let function = &resolve.interfaces[interface].functions["take"];
-    let kind = param_kind(&resolve, &function.params[0].ty);
-    let WasiParamKind::Record { fields } = &kind else {
+    let ty = super::canonical::resolve(&resolve, &function.params[0].ty).expect("message resolves");
+    let CanonicalType::Record(fields) = &ty else {
         panic!("records containing byte lists should remain directly flattenable");
     };
     assert_eq!(fields.len(), 3);
-    assert!(matches!(fields[0].kind, WasiParamKind::Record { .. }));
-    assert_eq!(fields[1].kind, WasiParamKind::List);
+    assert!(matches!(fields[0].ty, CanonicalType::Record(_)));
+    assert!(fields[1].ty.is_byte_list());
 
     let canonical = resolve.wasm_signature(AbiVariant::GuestImport, function);
     assert!(!canonical.indirect_params);
@@ -154,10 +170,10 @@ fn accepts_records_with_nested_byte_list_fields() {
         ]
     );
     assert_eq!(
-        flattened_parameter_count(&kind) + usize::from(canonical.retptr),
+        canonical_flatten(&ty).len() + usize::from(canonical.retptr),
         canonical.params.len()
     );
-    assert!(unsupported_shape(&resolve, function, &WasiResultKind::None).is_none());
+    assert!(super::unsupported(&resolve, function).is_none());
 }
 
 #[test]
@@ -171,10 +187,87 @@ fn rejects_non_byte_lists_nested_in_records() {
         .expect("the non-byte-list WIT fixture should resolve");
     let interface = resolve.packages[package].interfaces["messages"];
     let function = &resolve.interfaces[interface].functions["take"];
-    let kind = param_kind(&resolve, &function.params[0].ty);
-    assert!(matches!(kind, WasiParamKind::Record { .. }));
+    let ty = super::canonical::resolve(&resolve, &function.params[0].ty).expect("message resolves");
+    assert!(matches!(ty, CanonicalType::Record(_)));
     assert_eq!(
-        unsupported_shape(&resolve, function, &WasiResultKind::None).as_deref(),
+        super::unsupported(&resolve, function).as_deref(),
         Some("non-byte WIT lists are not supported by the String ABI")
+    );
+}
+
+#[test]
+fn validates_a_list_of_records() {
+    use crate::types::ValueType;
+    use psrs_core::TypeConstructor;
+    use psrs_hir::SymbolId;
+
+    let mut module = empty_core_module();
+    let x = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Int)],
+    )
+    .pop()
+    .expect("one integer");
+    let y = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(psrs_core::TypeConstructor::Number)],
+    )
+    .pop()
+    .expect("one number");
+    let record = push_record(&mut module, vec![("x".into(), x), ("y".into(), y)]);
+    let array_ctor = intern_all(
+        &mut module,
+        vec![CoreType::Constructor(TypeConstructor::Array)],
+    )
+    .pop()
+    .expect("one array constructor");
+    let array = intern_all(&mut module, vec![CoreType::Application(array_ctor, record)])
+        .pop()
+        .expect("one array");
+    let unit = unit_type(&mut module);
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:records",
+        "take",
+        vec![CanonicalType::List(Box::new(CanonicalType::Record(vec![
+            field(
+                "x",
+                CanonicalType::Int {
+                    width: 32,
+                    signed: true,
+                },
+            ),
+            field("y", CanonicalType::Float { width: 64 }),
+        ])))],
+        None,
+    );
+    let _ = ValueType::I32;
+    validate_against(&import, module, &[array], unit)
+        .expect("list<record> should validate against the source record");
+}
+
+#[test]
+fn accepts_a_top_level_record_result() {
+    let mut resolve = Resolve::default();
+    let package = resolve
+        .push_str(
+            "clock.wit",
+            "package test:clock@0.1.0; interface clock { record datetime { seconds: u64, nanoseconds: u32 } now: func() -> datetime; }",
+        )
+        .expect("the WIT record result fixture should resolve");
+    let interface = resolve.packages[package].interfaces["clock"];
+    let function = &resolve.interfaces[interface].functions["now"];
+    let resolved = super::canonical::resolve(
+        &resolve,
+        function
+            .result
+            .as_ref()
+            .expect("the fixture returns a record"),
+    )
+    .expect("the record result should resolve");
+    assert!(matches!(resolved, CanonicalType::Record(_)));
+    assert!(
+        super::unsupported(&resolve, function).is_none(),
+        "a top-level record result should have a source ABI mapping"
     );
 }

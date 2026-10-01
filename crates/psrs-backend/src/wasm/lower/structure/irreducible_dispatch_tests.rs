@@ -35,6 +35,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         name: source.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
+        layout: None,
         imports: Vec::new(),
         functions: vec![source.clone()],
         entry: Some(source.symbol),
@@ -47,6 +48,7 @@ fn lower_and_validate(source: &Function) -> (WasmFunction, Vec<u8>) {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        None,
     )
     .expect("the irreducible CFG should structure through the dispatcher");
     let module = WasmModule {
@@ -335,6 +337,7 @@ fn structures_and_executes_irreducible_cfg_with_block_parameters_and_sparse_swit
         name: function.name.clone(),
         types: Vec::new(),
         strings: Vec::new(),
+        layout: None,
         imports: Vec::new(),
         functions: vec![function.clone()],
         entry: Some(function.symbol),

@@ -1,6 +1,6 @@
 //! Fixtures where a dictionary or its method crosses a generic boundary.
 
-use super::{binder, declaration, typed};
+use super::{binder, declaration, push_arrow, push_record, typed};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 use psrs_thir as thir;
@@ -18,11 +18,23 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let eq_dictionary = thir::TypeId(3);
-    let variable = thir::TypeId(4);
-    let identity_type = thir::TypeId(5);
-    let main_type = thir::TypeId(6);
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
+    let method = push_arrow(&mut types, integer, boolean);
+    let eq_dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let variable = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Variable(TypeVariableId(0)));
+        id
+    };
+    let identity_type = push_arrow(&mut types, variable, variable);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
+        id
+    };
 
     let selected_method = typed(
         thir::ExprKind::FieldAccess {
@@ -44,9 +56,14 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
         boolean,
         span,
     );
+    let instantiated_identity = push_arrow(&mut types, eq_dictionary, eq_dictionary);
     let identity_application = typed(
         thir::ExprKind::Application(
-            Box::new(typed(thir::ExprKind::Global(identity), identity_type, span)),
+            Box::new(typed(
+                thir::ExprKind::Global(identity),
+                instantiated_identity,
+                span,
+            )),
             Box::new(typed(thir::ExprKind::Global(eq_int), eq_dictionary, span)),
         ),
         eq_dictionary,
@@ -102,26 +119,14 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
         declaration(identity, "identity", identity_type, identity_value, span);
     identity_declaration.quantified = vec![TypeVariableId(0)];
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            thir::Type::Variable(TypeVariableId(0)),
-            thir::Type::Function {
-                parameter: variable,
-                result: variable,
-            },
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -136,7 +141,7 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
 
 /// Builds an instance whose method field is a global function with a generic
 /// type (`forall a. a -> a`). Storing and projecting that field must use the
-/// erased closure protocol and adapt back at the concrete use.
+/// template closure protocol and adapt arguments/results at the concrete use.
 pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let module_id = ModuleId(0);
     let main = SymbolId::new(module_id, 0);
@@ -146,10 +151,31 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let dictionary = thir::TypeId(3);
-    let variable = thir::TypeId(4);
-    let main_type = thir::TypeId(5);
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
+    let variable = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Variable(TypeVariableId(0)));
+        id
+    };
+    let method = push_arrow(&mut types, variable, variable);
+    let quantified_method = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::ForAll {
+            variables: vec![TypeVariableId(0)],
+            body: method,
+        });
+        id
+    };
+    let dictionary = push_record(&mut types, vec![("poly".into(), quantified_method)]);
+    let boolean_method = push_arrow(&mut types, boolean, boolean);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
+        id
+    };
 
     let call = typed(
         thir::ExprKind::Application(
@@ -162,7 +188,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
                     )),
                     field: "poly".into(),
                 },
-                method,
+                boolean_method,
                 span,
             )),
             Box::new(typed(thir::ExprKind::Boolean(true), boolean, span)),
@@ -202,7 +228,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let poly_dict_value = typed(
         thir::ExprKind::Record(vec![(
             "poly".into(),
-            typed(thir::ExprKind::Global(identity), method, span),
+            typed(thir::ExprKind::Global(identity), quantified_method, span),
         )]),
         dictionary,
         span,
@@ -211,22 +237,14 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let mut identity_declaration = declaration(identity, "identity", method, identity_value, span);
     identity_declaration.quantified = vec![TypeVariableId(0)];
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: variable,
-                result: variable,
-            },
-            thir::Type::Record(vec![("poly".into(), method)]),
-            thir::Type::Variable(TypeVariableId(0)),
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

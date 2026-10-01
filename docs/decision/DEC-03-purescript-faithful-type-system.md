@@ -55,6 +55,9 @@ Specifically:
 
 See the [frontend type-system design](../design/frontend/type-system/README.md)
 for the complete target and [D-04](../design/D-04-suite-roadmap.md) for coverage.
+[DEC-15](DEC-15-unified-type-representation.md) records the uniform
+application-spine type representation that keeps THIR and Typed Core aligned
+with that design without an effect-specific node.
 
 ## Alternatives considered
 

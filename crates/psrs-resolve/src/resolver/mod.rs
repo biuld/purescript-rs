@@ -14,11 +14,13 @@ pub use program::{
 
 mod bootstrap;
 mod exports;
+mod instances;
+mod module_resolution;
 mod names;
 mod type_resolution;
 
 pub use bootstrap::bootstrap_externals;
-use names::Resolver;
+pub(crate) use module_resolution::resolve_ast_module;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResolveErrorKind {
@@ -190,175 +192,6 @@ pub fn resolve_module_with_externals(
     )
 }
 
-pub(crate) fn resolve_ast_module(
-    module: ast::Module,
-    module_id: ModuleId,
-    inputs: ModuleInputs,
-) -> Result<hir::Module, Vec<ResolveError>> {
-    let mut globals = HashMap::new();
-    let mut errors = Vec::new();
-
-    for (index, declaration) in module.declarations.iter().enumerate() {
-        let symbol = SymbolId::new(module_id, symbol_index(index));
-        if globals
-            .insert(declaration.name.text.clone(), symbol)
-            .is_some()
-        {
-            errors.push(ResolveError::named(
-                ResolveErrorKind::DuplicateDeclaration,
-                declaration.name.text.clone(),
-                declaration.name.span,
-            ));
-        }
-    }
-
-    let mut type_declarations = module.type_declarations;
-    let (plans, type_names, opaque_types) = plan_type_declarations(
-        module_id,
-        &type_declarations,
-        module.declarations.len() as u32,
-        &mut globals,
-        &mut errors,
-    );
-
-    let mut external_globals = HashMap::new();
-    for external in &inputs.externals {
-        if external_globals
-            .insert(external.name.clone(), external.symbol)
-            .is_some()
-        {
-            errors.push(ResolveError::named(
-                ResolveErrorKind::DuplicateExternal,
-                external.name.clone(),
-                module.span,
-            ));
-        }
-    }
-
-    let mut resolver = Resolver::new(
-        globals,
-        external_globals,
-        type_names,
-        inputs.externals,
-        inputs.imports,
-        inputs.export_items,
-        errors,
-    );
-    resolver.opaque_types.extend(opaque_types);
-    resolver.note_imported_opaque_types();
-
-    // A `foreign import` declares an external value whose type and WIT binding
-    // come from source. Resolve its annotation first so expressions can refer
-    // to it by name.
-    for (index, foreign) in module.foreign_imports.iter().enumerate() {
-        let binding = foreign
-            .binding
-            .split_once('#')
-            .filter(|(interface, function)| !interface.is_empty() && !function.is_empty());
-        let Some((interface, function)) = binding else {
-            resolver.errors.push(ResolveError {
-                kind: ResolveErrorKind::InvalidHir,
-                span: foreign.span,
-                message: format!(
-                    "`{}` is not a `\"<interface>#<function>\"` WIT binding",
-                    foreign.binding
-                ),
-            });
-            continue;
-        };
-        let Some(signature) = resolver.resolve_type(foreign.annotation.clone()) else {
-            continue;
-        };
-        let symbol = foreign_symbol(module_id, index);
-        resolver.add_external(
-            foreign.name.text.clone(),
-            symbol,
-            ExternalSymbol {
-                symbol,
-                name: foreign.name.text.clone(),
-                kind: ExternalKind::Wit {
-                    interface: interface.to_string(),
-                    function: function.to_string(),
-                },
-                signature: Some(signature),
-            },
-            foreign.name.span,
-        );
-    }
-
-    let declarations: Vec<hir::Declaration> = module
-        .declarations
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, declaration)| {
-            let declaration_name = declaration.name.text.clone();
-            let declaration_span = declaration.span;
-            let errors_before_value = resolver.errors.len();
-            let Some(value) = resolver.resolve_expr(declaration.value) else {
-                if resolver.errors.len() == errors_before_value {
-                    resolver.errors.push(ResolveError::resolution_failure(
-                        declaration_span,
-                        &format!("value declaration `{declaration_name}`"),
-                    ));
-                }
-                return None;
-            };
-            let errors_before_signature = resolver.errors.len();
-            let signature = match declaration.annotation {
-                Some(annotation) => match resolver.resolve_type(annotation) {
-                    Some(signature) => Some(signature),
-                    None => {
-                        if resolver.errors.len() == errors_before_signature {
-                            resolver.errors.push(ResolveError::resolution_failure(
-                                declaration_span,
-                                &format!("type signature for `{declaration_name}`"),
-                            ));
-                        }
-                        return None;
-                    }
-                },
-                None => None,
-            };
-            Some(Declaration {
-                symbol: SymbolId::new(module_id, symbol_index(index)),
-                name: declaration.name.text,
-                name_span: declaration.name.span,
-                value,
-                signature,
-                span: declaration.span,
-            })
-        })
-        .collect();
-    let types: Vec<hir::TypeDeclaration> = type_declarations
-        .drain(..)
-        .zip(plans)
-        .filter_map(|(declaration, plan)| resolver.resolve_type_declaration(plan, declaration))
-        .collect();
-    let exports = resolver.build_exports(&types);
-
-    if resolver.errors.is_empty() {
-        let resolved = hir::Module {
-            id: module_id,
-            name: module.name.text,
-            externals: resolver.externals,
-            imports: resolver.imports,
-            exports,
-            declarations,
-            types,
-            span: module.span,
-        };
-        match resolved.verify() {
-            Ok(()) => Ok(resolved),
-            Err(invariant_errors) => Err(invariant_errors
-                .into_iter()
-                .map(|error| ResolveError::invalid_hir(error.span, error.message))
-                .collect()),
-        }
-    } else {
-        Err(resolver.errors)
-    }
-}
-
 /// The allocated IDs for one type declaration, aligned with its constructors
 /// and members.
 struct PlannedType {
@@ -377,7 +210,12 @@ fn plan_type_declarations(
     first_symbol: u32,
     globals: &mut HashMap<String, SymbolId>,
     errors: &mut Vec<ResolveError>,
-) -> (Vec<PlannedType>, HashMap<String, TypeId>, HashSet<TypeId>) {
+) -> (
+    Vec<PlannedType>,
+    HashMap<String, TypeId>,
+    HashSet<TypeId>,
+    u32,
+) {
     let mut plans = Vec::with_capacity(declarations.len());
     let mut type_names = HashMap::new();
     let mut opaque_types = HashSet::new();
@@ -439,7 +277,7 @@ fn plan_type_declarations(
         });
     }
 
-    (plans, type_names, opaque_types)
+    (plans, type_names, opaque_types, next_symbol)
 }
 
 fn type_constructors(declaration: &ast::TypeDeclaration) -> Vec<&ast::DataConstructor> {

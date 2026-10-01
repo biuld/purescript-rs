@@ -48,7 +48,9 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
         ExprKind::RecordUpdate { record, fields } => summarize(record).combine(combine_all(
             fields.iter().map(|(_, value)| summarize(value)),
         )),
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => summarize(record),
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => summarize(record),
         ExprKind::UnaryPrimitive { value, .. } => summarize(value),
         ExprKind::ArrayIndex { array, index } => Effects {
             may_trap: true,

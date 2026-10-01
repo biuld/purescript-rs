@@ -50,6 +50,13 @@ the official compiler on accept/reject and diagnostic code. Suite files that
 require JavaScript or Node.js FFI are excluded from the target and count as
 neither coverage nor gaps.
 
+The language target includes rank-N polymorphism: annotated function
+parameters, record fields, constructor fields, and returned values may carry
+their own `forall` quantifiers. A caller can use one such value at different
+types, while a function specialized to one concrete type cannot satisfy a
+universally quantified parameter. Higher-rank programs generally require
+annotations, following official PureScript's checking rules.
+
 The current compiler can build a restricted program, including linked source
 modules, to a validated WASI component and print its WAT form:
 
@@ -69,13 +76,35 @@ field reads, record updates, and closed concrete record patterns with variable,
 wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented effect-based WASI console and clock libraries plus random imports.
-The selected entry must be a zero-argument integer `main` function. Rank-1 generic direct calls
-and the supported higher-order generic adapters are lowered. Generic arrays
-and records remain unsupported across type instantiations. In particular,
-recovering a type-dependent array or record field through a nominal runtime
-layout receives a source-spanned backend diagnostic instead of emitting a cast
-that can fail at runtime. Open rows and unsupported WIT shapes also receive
-source-oriented diagnostics.
+The selected entry must be a zero-argument integer `main` function. Generic direct
+calls and annotated rank-N values are lowered, including quantified parameters,
+record and constructor fields, captures, and returned functions. Each use can
+instantiate a quantified value independently; nested constraints are supplied
+through the corresponding class instances. Generic arrays
+and records cross the supported polymorphic boundaries with their contents
+preserved. Open rows and unsupported WIT shapes receive source-oriented
+diagnostics.
+
+Role annotations describe whether a type parameter is nominal,
+representational, or phantom. Inferred roles follow the type's fields, including
+referenced declarations from other modules. An annotation may restrict an
+inferred role but cannot weaken it; a foreign type's declared roles are an
+explicit interface promise.
+
+The `coerce` operation requires a compiler-proven `Coercible` relation. It can
+convert visible newtypes and lift permitted conversions through arrays,
+functions, and data parameters according to their roles. Unwrapping a newtype
+requires its constructor to be in scope. Users cannot define `Coercible`
+instances to authorize unrelated conversions. Unsupported coercion obligations
+receive a source diagnostic.
+
+`derive instance` generates implementations for the supported standard classes
+from a locally declared type's constructors and fields. Structural `Eq` and
+`Ord`, and the covered `Functor` and `Bifunctor` mappings, are supported.
+`derive newtype instance` reuses an instance for the wrapped type, with checked
+conversions at method boundaries. Derived instances participate in the same
+constraint checks and module imports as explicitly written instances. Other
+standard deriving rules and additional field shapes remain incomplete.
 
 `arrayUpdate` is a pure operation: it returns an updated array without changing
 the input array or any aliases of it. Repeated updates from the same input are

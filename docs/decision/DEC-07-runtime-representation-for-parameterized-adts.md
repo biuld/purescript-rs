@@ -30,13 +30,16 @@ diagnostics, then disappear at representation lowering. A parameterized
 constructor has one GC layout per constructor, independent of its type
 arguments.
 
-- A field whose runtime representation depends on a type parameter is stored
-  as a boxed `eqref`-compatible value. Scalars are boxed at the boundary and
-  unboxed when a typed consumer requires a scalar; GC references can be passed
-  without an additional allocation when they already satisfy the erased
-  representation.
-- Fields with a representation proven independent of the parameters may stay
-  unboxed. The layout verifier, not the frontend, decides this optimization.
+- Normalize each field's declared type template once to choose its storage
+  shape. A bare type variable, or an application headed by a type variable
+  such as `f a`, has unknown storage and becomes non-null erased `eqref`.
+  Scalars crossing that boundary are boxed and unboxed at typed uses.
+- Composite templates retain their canonical reference shape: `Array a` uses
+  an array of erased elements, a closed record normalizes each field, and
+  `a -> a` retains a closure signature with erased argument and result. Merely
+  containing a type variable does not require erasing the whole reference.
+- Concrete scalar fields retain their unboxed shape. Type substitutions affect
+  conversion at construction and projection, never the constructor's layout.
 - Constructor identity and pattern tests use the concrete GC constructor type;
   source type arguments are not runtime tags.
 - The same erased value protocol is reused by generic records, arrays, and

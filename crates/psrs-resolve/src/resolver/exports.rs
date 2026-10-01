@@ -265,6 +265,9 @@ impl Resolver {
         if let Some(symbol) = self.globals.get(name) {
             return Some(*symbol);
         }
+        if let Some(symbol) = self.external_globals.get(name) {
+            return Some(*symbol);
+        }
         self.unqualified
             .get(name)
             .and_then(|symbols| symbols.first().copied())

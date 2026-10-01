@@ -23,16 +23,18 @@ pub(super) fn project_reachable(module: &mut Module) {
                     }
                     // A canonical string-list copy names its codec and allocator
                     // helpers directly in Wasm lowering, not through a MIR call.
-                    Instruction::ListCopy {
-                        element: crate::abi::ListElement::String,
-                        ..
-                    } => {
+                    Instruction::ListCopy { element, .. }
+                        if crate::mir::element_has_bytes(element) =>
+                    {
                         referenced.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
                         referenced.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
                         referenced.insert(crate::abi::REALLOC_SYMBOL);
                     }
                     _ => {}
                 }
+            }
+            if let Some(crate::mir::Terminator::ReturnCall { function, .. }) = &block.terminator {
+                referenced.insert(*function);
             }
         }
     }
@@ -60,6 +62,7 @@ mod tests {
             name: "ImportProjectionTest".into(),
             types: Vec::new(),
             strings: Vec::new(),
+            layout: None,
             imports: vec![Import {
                 symbol: imported,
                 parameters: Vec::new(),

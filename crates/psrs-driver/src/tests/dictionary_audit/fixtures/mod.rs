@@ -20,6 +20,43 @@ pub(super) fn typed(kind: thir::ExprKind, ty: thir::TypeId, span: TextRange) -> 
     thir::Expr { kind, ty, span }
 }
 
+/// Appends `parameter -> result` to a type table as the application spine and
+/// returns its id.
+pub(super) fn push_arrow(
+    types: &mut Vec<thir::Type>,
+    parameter: thir::TypeId,
+    result: thir::TypeId,
+) -> thir::TypeId {
+    let head = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Function));
+    let inner = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Application(head, parameter));
+    let outer = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Application(inner, result));
+    outer
+}
+
+/// Appends a record type to a type table and returns its id.
+pub(super) fn push_record(
+    types: &mut Vec<thir::Type>,
+    mut fields: Vec<(String, thir::TypeId)>,
+) -> thir::TypeId {
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    let row_empty = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::RowEmpty);
+    let mut tail = row_empty;
+    for (label, ty) in fields.into_iter().rev() {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::RowExtend { label, ty, tail });
+        tail = id;
+    }
+    let head = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Constructor(thir::TypeConstructor::Record));
+    let id = thir::TypeId(types.len() as u32);
+    types.push(thir::Type::Application(head, tail));
+    id
+}
+
 pub(super) fn binder(id: u32, name: &str, ty: thir::TypeId, span: TextRange) -> thir::Binder {
     thir::Binder {
         id: LocalId(id),

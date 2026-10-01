@@ -19,12 +19,17 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
     let type_id = HirTypeId::new(module_id, 0);
     let constructor = SymbolId::new(module_id, 0);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "ProductDecisionTest".into(),
         externals: Vec::new(),
-        types: vec![Type::Constructor(TypeConstructor::User(type_id)), Type::I32],
+        types: vec![
+            Type::Constructor(TypeConstructor::User(type_id)),
+            Type::Constructor(psrs_core::TypeConstructor::Int),
+        ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![ConstructorInfo {
             symbol: constructor,
             name: "Product".into(),
@@ -32,6 +37,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
             tag: 0,
             field_count: 1,
             field_types: vec![psrs_core::TypeId(1)],
+            parameters: Vec::new(),
         }],
         declarations: Vec::new(),
         entry: None,
@@ -127,7 +133,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();

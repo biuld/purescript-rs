@@ -1,13 +1,18 @@
-
 module Prelude where
 
-data Effect a
+foreign import data Effect :: Type -> Type
 
-pure :: forall a. a -> Effect a
-pure value = \token -> value
+foreign import "psrs:effect#pure" pure :: forall a. a -> Effect a
 
-bind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
-bind first next = \token -> next (first token) token
+foreign import "psrs:effect#bind" bind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
 
-runEffect :: forall a. Effect a -> a
-runEffect action = action 0
+discard :: forall a b. Effect a -> (a -> Effect b) -> Effect b
+discard first next = bind first next
+
+map :: forall a b. (a -> b) -> Effect a -> Effect b
+map f x = bind x (\v -> pure (f v))
+
+apply :: forall a b. Effect (a -> b) -> Effect a -> Effect b
+apply f x = bind f (\g -> bind x (\v -> pure (g v)))
+
+foreign import "psrs:effect#run" runEffect :: forall a. Effect a -> a

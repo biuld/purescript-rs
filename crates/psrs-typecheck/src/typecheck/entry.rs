@@ -29,6 +29,7 @@ pub fn typecheck_module_with_imports_and_effect_representation(
         None,
         effect_runtime_representation,
         &[],
+        &[],
     )
 }
 
@@ -39,12 +40,71 @@ pub fn typecheck_module_with_imports_and_effect_representation(
 /// `known_types` is every data, newtype, and synonym declaration in the
 /// program. Constructors declared in another module are registered from it so
 /// an importer can apply and case on them.
+///
+/// `imported_instances` are the instance declarations of the modules this one
+/// imports, directly or transitively. They become searchable so an instance
+/// declared in a dependency can discharge a wanted constraint here.
 pub fn typecheck_module_with_imports_and_effect_context(
     module: hir::Module,
     imported: &HashMap<SymbolId, hir::Type>,
     effect_type: Option<hir::TypeId>,
     effect_runtime_representation: bool,
     known_types: &[hir::TypeDeclaration],
+    imported_instances: &[hir::InstanceDeclaration],
+) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_checked_kinds(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        known_types,
+        imported_instances,
+        &psrs_kind::CheckedKindEnv::default(),
+    )
+}
+
+/// Type checks a module against the program's checked kind and role metadata.
+/// The environment is keyed by resolved type identity, so imported type
+/// constructors retain the role contract of their defining module.
+pub fn typecheck_module_with_checked_kinds(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    known_types: &[hir::TypeDeclaration],
+    imported_instances: &[hir::InstanceDeclaration],
+    checked_kinds: &psrs_kind::CheckedKindEnv,
+) -> Result<thir::Module, Vec<TypeCheckError>> {
+    let mut module_names = HashMap::from([(module.id, module.name.clone())]);
+    for import in &module.imports {
+        module_names
+            .entry(import.module)
+            .or_insert_with(|| import.module_name.clone());
+    }
+    typecheck_module_with_checked_kinds_and_module_names(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        TypecheckContext {
+            known_types,
+            imported_instances,
+            module_names: &module_names,
+            checked_kinds,
+        },
+    )
+}
+
+/// Type checks a module with the resolved name of every module in its program.
+/// Re-exported type identities use their declaring module name, so compiler
+/// rules that depend on canonical declaration identity remain stable through
+/// umbrella modules.
+pub fn typecheck_module_with_checked_kinds_and_module_names(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    context: TypecheckContext<'_>,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
@@ -59,13 +119,8 @@ pub fn typecheck_module_with_imports_and_effect_context(
             .collect());
     }
 
-    let mut checker = Checker::new(
-        &module,
-        imported,
-        effect_type,
-        effect_runtime_representation,
-        known_types,
-    );
+    let _ = (effect_type, effect_runtime_representation);
+    let mut checker = Checker::new(&module, imported, context);
     let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
@@ -74,29 +129,56 @@ pub fn typecheck_module_with_imports_and_effect_context(
     for component in &components {
         for &index in component {
             let declaration = &module.declarations[index];
-            let ty = match &declaration.signature {
-                Some(signature) => checker.elaborate_signature(signature),
-                None => checker.fresh(),
+            let (scheme, parameters) = match &declaration.signature {
+                Some(signature) => {
+                    let (constraints, parameters, body) =
+                        checker.elaborate_declaration_signature(signature);
+                    (
+                        Scheme {
+                            variables: Vec::new(),
+                            constraints,
+                            ty: body,
+                        },
+                        parameters,
+                    )
+                }
+                None => (Scheme::monomorphic(checker.fresh()), Vec::new()),
             };
             checker
-                .globals
-                .insert(declaration.symbol, Scheme::monomorphic(ty));
+                .pending_signatures
+                .insert(declaration.symbol, parameters);
+            checker.globals.insert(declaration.symbol, scheme);
         }
         for &index in component {
             let declaration = &module.declarations[index];
+            let scheme = checker.globals[&declaration.symbol].clone();
+            let parameters = checker
+                .pending_signatures
+                .get(&declaration.symbol)
+                .cloned()
+                .unwrap_or_default();
+            checker.begin_givens(&scheme.constraints, &parameters);
+            let wanted_start = checker.wanted.len();
             let expected = declaration
                 .signature
                 .as_ref()
                 .map(|_| checker.globals[&declaration.symbol].ty.clone());
             let Some(value) = checker.infer_expr_with_expected(&declaration.value, expected) else {
+                checker.end_givens();
                 continue;
             };
-            let scheme = checker.globals[&declaration.symbol].clone();
             let span = declaration
                 .signature
                 .as_ref()
                 .map_or(declaration.name_span, |signature| signature.span);
             checker.unify(scheme.ty.clone(), value.ty.clone(), span);
+            // An inferred (signatureless) binding is generalized below, so its
+            // constraints must be determinate; a declared signature may name
+            // ambiguous variables for the caller to instantiate.
+            let result = declaration.signature.is_none().then(|| value.ty.clone());
+            checker.solve_wanted_constraints(result.as_ref(), wanted_start);
+            checker.end_givens();
+            let value = checker.wrap_dictionary_lambdas(value, &parameters);
             inferred[index] = Some(InferredDeclaration {
                 symbol: declaration.symbol,
                 name: declaration.name.clone(),
@@ -109,14 +191,27 @@ pub fn typecheck_module_with_imports_and_effect_context(
         // Generalize after the component is inferred so later components
         // instantiate polymorphic definitions.
         for &index in component {
-            let Some(monomorphic) = inferred[index].as_ref().map(|d| d.scheme.ty.clone()) else {
+            let Some((monomorphic, constraints)) = inferred[index].as_ref().map(|declaration| {
+                (
+                    declaration.scheme.ty.clone(),
+                    declaration.scheme.constraints.clone(),
+                )
+            }) else {
                 continue;
             };
-            let scheme = checker.generalize(&monomorphic, TOP_LEVEL);
+            let scheme = checker.generalize(&monomorphic, &constraints, TOP_LEVEL);
             if let Some(declaration) = inferred[index].as_mut() {
                 declaration.scheme = scheme.clone();
                 checker.globals.insert(declaration.symbol, scheme);
             }
+        }
+    }
+
+    // Instance dictionaries are ordinary declarations emitted after the value
+    // declarations they may reference.
+    for instance in &module.instances {
+        if let Some(declaration) = checker.infer_instance_declaration(instance) {
+            inferred.push(Some(declaration));
         }
     }
 
@@ -137,19 +232,13 @@ pub fn typecheck_module_with_imports_and_effect_context(
                 .copied()
                 .map(TypeVariableId)
                 .collect();
-            let ty = checker.finalize_type(
-                &declaration.scheme.ty,
-                declaration.name_span,
-                &mut types,
-                &generics,
-            )?;
             let value = checker.finalize_expr(declaration.value, &mut types, &generics)?;
             Some(thir::Declaration {
                 symbol: declaration.symbol,
                 name: declaration.name,
                 name_span: declaration.name_span,
                 quantified,
-                ty,
+                ty: value.ty,
                 value,
                 span: declaration.span,
             })
@@ -181,10 +270,12 @@ pub fn typecheck_module_with_imports_and_effect_context(
         // Imported constructors are emitted so this module can lower
         // applications and patterns. Linking keeps one copy per symbol.
         let mut variables = HashMap::new();
+        let mut parameters = Vec::with_capacity(info.parameters.len());
         for parameter in &info.parameters {
             let variable = checker.fresh();
             if let InferType::Variable(id) = variable {
                 generics.insert(id);
+                parameters.push(TypeVariableId(id));
             }
             variables.insert(parameter.clone(), variable);
         }
@@ -206,9 +297,24 @@ pub fn typecheck_module_with_imports_and_effect_context(
             tag: info.tag,
             field_count: field_types.len(),
             field_types,
+            parameters,
         });
     }
 
+    let type_names = module
+        .types
+        .iter()
+        .map(|declaration| {
+            (
+                declaration.id,
+                format!("{}.{}", module.name, declaration.name),
+            )
+        })
+        .collect();
+    // Effect stays an ordinary type application through this module. Its
+    // closure representation is chosen later, by identity, in one lowering
+    // pass. This table is empty.
+    let callable_types = Vec::new();
     let typed = thir::Module {
         id: module.id,
         name: module.name,
@@ -216,8 +322,10 @@ pub fn typecheck_module_with_imports_and_effect_context(
         types: types.values,
         newtype_ids,
         opaque_ids,
+        callable_types,
         constructors,
         declarations,
+        type_names,
         span: module.span,
     };
     match typed.verify() {

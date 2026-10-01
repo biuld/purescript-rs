@@ -28,6 +28,7 @@ fn verified_array_map_module(mut function: Function) -> crate::mir::Module {
             }]),
         ],
         strings: Vec::new(),
+        layout: None,
         imports: Vec::new(),
         entry: Some(function.symbol),
         functions: vec![function],

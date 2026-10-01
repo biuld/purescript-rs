@@ -3,8 +3,12 @@
 Prelude
 Data.Maybe
 Data.Either
-WASI.Console
+WASI.Resource
+WASI.IO
 WASI.Clock
 WASI.Random
-WASI.Exit
-WASI.Environment
+WASI.Console
+WASI.Process
+WASI.FileSystem
+WASI.Network
+WASI

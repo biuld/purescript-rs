@@ -17,19 +17,23 @@ mod accessors;
 mod validate;
 use validate::validate_selected;
 
-#[derive(Clone, Debug)]
-pub(super) struct PlannedLayout {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlannedLayout {
     pub(super) types: Vec<RecGroup>,
     repr_indices: HashMap<ReprId, DefinedTypeId>,
     product_fields: HashMap<DefinedTypeId, Vec<CcValueShape>>,
     array_elements: HashMap<ReprId, CcValueShape>,
     variant_indices: HashMap<(ReprId, u32), DefinedTypeId>,
+    variant_fields: HashMap<(ReprId, u32), Vec<CcValueShape>>,
     signature_indices: HashMap<SignatureId, DefinedTypeId>,
     closure_index: Option<DefinedTypeId>,
     capture_array_index: Option<DefinedTypeId>,
     boxed_integer_index: Option<DefinedTypeId>,
     boxed_number_index: Option<DefinedTypeId>,
     string_index: Option<DefinedTypeId>,
+    /// The target-neutral table this layout was planned from. The WIT adapter
+    /// reads it to resolve a value shape to its recursive guest layout.
+    representation_table: RepresentationTable,
 }
 
 impl PlannedLayout {
@@ -131,6 +135,7 @@ impl PlannedLayout {
             });
         }
         let mut variant_indices = HashMap::new();
+        let mut variant_fields = HashMap::new();
         let mut variant_cases = Vec::new();
         for id in repr_ids {
             if let Some(Representation::Variant { cases }) = table.representation(*id) {
@@ -138,6 +143,7 @@ impl PlannedLayout {
                 for case in cases {
                     let index = DefinedTypeId(definitions.len() as u32);
                     variant_indices.insert((*id, case.tag), index);
+                    variant_fields.insert((*id, case.tag), case.fields.clone());
                     variant_cases.push((index, case.fields.clone()));
                     definitions.push(DefinedType {
                         final_type: true,
@@ -343,18 +349,25 @@ impl PlannedLayout {
             product_fields,
             array_elements,
             variant_indices,
+            variant_fields,
             signature_indices,
             closure_index,
             capture_array_index,
             boxed_integer_index,
             boxed_number_index,
             string_index,
+            representation_table: table.clone(),
         })
+    }
+
+    /// The target-neutral representation table this layout was planned from.
+    pub(crate) fn representation_table(&self) -> &RepresentationTable {
+        &self.representation_table
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) enum LayoutError {
+pub(crate) enum LayoutError {
     UnknownRepresentation,
     UnknownSignature,
     UnknownField,
