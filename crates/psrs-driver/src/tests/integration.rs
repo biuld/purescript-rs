@@ -233,26 +233,3 @@ fn runs_a_linked_program_when_wasmtime_is_available() {
     };
     assert_eq!(output.status.code(), Some(42));
 }
-
-fn run_program_with_wasmtime(sources: &[(&str, &str)]) -> Option<std::process::Output> {
-    if std::process::Command::new("wasmtime")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
-        return None;
-    }
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let artifact = compile_program_sources(sources).unwrap();
-    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
-    std::fs::write(&path, &artifact.wasm).unwrap();
-    let output = std::process::Command::new("wasmtime")
-        .arg("run")
-        .arg(&path)
-        .output()
-        .unwrap();
-    let _ = std::fs::remove_file(&path);
-    Some(output)
-}

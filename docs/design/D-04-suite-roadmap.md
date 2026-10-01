@@ -395,21 +395,46 @@ the code reference and an immutable capture array.
   file.
 - **Prerequisite:** M2–M6.
 
-**Progress:** runtime evidence exists as vertical execution tests for the
-implemented slice (GC strings, arrays, closed records, erased newtypes,
-parameterized ADTs, closures, dictionaries, effects, and the component path),
-not as a suite scoreboard: no harness compiles and runs a `passing` file yet.
-The standard library is the first blocker. `stdlib/lib` holds 12 modules
-(`Prelude`, `Data.Maybe`, `Data.Either`, and the `WASI` services) and exposes
-`WASI.Console`, while the corpus imports `Effect.Console` 339 times and `Effect`
-57 times, then `Test.Assert` (29), `Type.Proxy` (17), `Partial.Unsafe` (12),
-`Data.Tuple` (8), `Prim.Row` (7), and the `Prim.*` and `Data.*` hierarchies, so
-no corpus file is end-to-end comparable today. An `Effect`/`Effect.Console`
-surface over the existing WASI console and an `Effect`/`Test.Assert` pair are the
-first library work. Two harness changes unblock the measurement: put
-`stdlib/lib` on the scoreboard's module path, and load a case's sibling modules
-from the containing directory rather than only the same-stem support directory
-(the latter already costs 13 `passing` files at L2).
+**Progress (measured by `runtime::l6_runtime_scoreboard`):** **0 of 413**
+non-FFI `passing` files compile, validate, and run, with 26 excluded as FFI. The
+board compiles each case with the on-disk standard library on the module path,
+so "no scoreboard" is no longer the blocker; the compiler and the library are.
+No case reaches Wasmtime, so there is no runtime evidence from this board yet,
+and the vertical execution tests for the implemented slice (GC strings, arrays,
+closed records, erased newtypes, parameterized ADTs, closures, dictionaries,
+effects, and the component path) remain the only runtime evidence.
+
+Agreement here means the pipeline compiles the file, the component passes Wasm
+validation, and the guest runs to completion without trapping. The corpus
+vendors no execution goldens and upstream's `passing` suite is a compile-time
+suite, so `main`'s return value is recorded as the exit code and stdout is
+captured rather than compared; the board reports both per case. A `Test.Assert`
+failure must reach the guest as a trap to be visible, which is the only
+execution signal the corpus can express. Nothing in the corpus needs argv,
+stdin, or a preopened directory, so the runner passes none.
+
+The 413 rejections, by first blocking stage:
+
+| Stage | Cases | Meaning |
+| --- | --- | --- |
+| P3 resolve | 233 | Of these, 229 stop on a missing module. |
+| P2 surface lowering | 134 | Ascriptions, sections, and unsupported pattern forms. |
+| P10 Wasm structuring | 41 | Reached the backend; no `main` in a `Main` module to select as the entry. |
+| P0 lex | 4 | The DEC-16 lone-surrogate cases, which are also L1 differences. |
+| P5 kind check | 1 | One kind diagnostic behind the other blockers. |
+
+`stdlib/lib` holds 12 modules (`Prelude`, `Data.Maybe`, `Data.Either`, and the
+`WASI` services) and exposes `WASI.Console`, while the corpus imports
+`Effect.Console` 339 times and `Effect` 57 times, then `Test.Assert` (29),
+`Type.Proxy` (17), `Partial.Unsafe` (12), `Data.Tuple` (8), `Prim.Row` (7), and
+the `Prim.*` and `Data.*` hierarchies. Of the 229 missing-module rejections, 13
+name a sibling corpus module the harness does not load (`M1`, `A`, `B`, `M2`,
+`M3`, `Foo`, `Coercible.Lib2`), so 216 are standard-library blockers: Phase 3,
+specifically #94 `Prelude` and #95 `Effect`/`Effect.Console`/`Test.Assert`. An
+`Effect`/`Effect.Console` surface over the existing WASI console and an
+`Effect`/`Test.Assert` pair are the first library work. The sibling-module gap
+is #83; the board reports the missing module names so the two categories stay
+distinguishable until that split exists.
 
 ### M8 — Warnings and optimization
 
@@ -463,11 +488,15 @@ The resolution scoreboard reads the corpus's own `@shouldFailWith` annotations
 and does not need `purs` or the support libraries, so it also runs against the
 vendored corpus without `PURESCRIPT_REPO`.
 
-Only L1, L2, and L3 are implemented today: `l1_parse_scoreboard_against_purs`,
-`l2_resolution_scoreboard_with_annotations`, and
-`l3_kind_scoreboard_with_annotations`. L4–L6/M7 and M8 have no scoreboard yet,
-so their rows below are recorded from code inspection rather than from a
-measurement, and the gate stays open until a harness exists.
+Four scoreboards are implemented today, one per submodule of
+`crates/psrs-driver/tests/suite`: `parse::l1_parse_scoreboard_against_purs`,
+`resolve::l2_resolution_scoreboard_with_annotations`,
+`kinds::l3_kind_scoreboard_with_annotations`, and
+`runtime::l6_runtime_scoreboard`. The runtime board needs `wasmtime`, skips
+cleanly without it, and fails instead of skipping under
+`PSRS_REQUIRE_WASMTIME=1`. L4, L5, and M8 have no scoreboard yet, so their rows
+below are recorded from code inspection rather than from a measurement, and the
+gate stays open until a harness exists.
 
 Each milestone is complete only when its subset reaches 100% agreement. New
 diagnostics must align to an official `errorCode`; message text and `.out`
@@ -572,7 +601,7 @@ for matrix status.
 | L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | Not measured: no scoreboard, and only `EscapedSkolem` carries an official code | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | Not measured: no scoreboard, and no mapped class code is emitted | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | 413 non-FFI passing files are in scope; no compile/run scoreboard exists and the standard library is 12 modules | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the standard library is 12 modules | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 
@@ -675,7 +704,7 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-24 | WASI sockets and HTTP | Not part of the current synchronous portable-program target. | Excluded | Revisit as a separate platform scope after the core target is stable. |
 | BE-25 | WASI 0.3 async streams and futures | The current compiler targets synchronous WASI 0.2. | Planned | Revisit only with an explicit platform decision and async language/library plan. |
 | BE-26 | Standard library and user module loading | User modules are discovered from the entry files' directories and linked transitively ([WASI-09](../implementation/backend/wasi-platform.md) Verified); the PureScript-facing standard library is loaded from `stdlib/lib` in trusted-prefix order ([WASI-10](../implementation/backend/wasi-platform.md) Verified). | Partial | Pass the L6/M7 module-loading scoreboard. |
-| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice; no harness compiles and runs a corpus `passing` file, and the standard library is 12 modules against 413 in-scope files. | Partial | Track per-feature runtime cases, land the `Effect`/`Test.Assert` library surface, then expand the passing-suite scoreboard. |
+| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice, and the `l6_runtime_scoreboard` harness compiles, validates, and runs every non-FFI `passing` file; it measures 0/413 today, because 229 cases stop on a missing module and the other 184 stop in the frontend or on entry-point selection. | Partial | Land the `Effect`/`Test.Assert` library surface, then track per-feature runtime cases against the board. |
 | BE-28 | JavaScript/Node.js FFI compatibility | Not emitted or executed by this backend. | Excluded | No work planned under this decision. |
 
 ### Topic implementation acceptance
