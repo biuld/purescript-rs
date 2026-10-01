@@ -492,7 +492,8 @@ work. They stay `Planned` in the capability matrix.
 ### Tracking conventions
 
 GitHub is the index for the phases above; this document stays the normative
-record. Three mechanisms carry what the document cannot:
+record. Four mechanisms carry what the document cannot, and each owns exactly
+one thing so there is no second source of truth:
 
 - **Milestone per phase**, named `Phase N — <title>`. Closed issues over total
   issues is the phase's completion percentage. No due dates: the phases are
@@ -505,6 +506,15 @@ record. Three mechanisms carry what the document cannot:
   because layout and parse share a phase.
 - **One `area:` label** for `frontend`, `backend`, `harness`, or `stdlib`,
   naming which layer owns the work.
+- **The `PureScript→Wasm roadmap` project** (<https://github.com/users/biuld/projects/1>),
+  which adds the one thing the three above cannot express. GitHub issues are
+  open or closed and nothing else, so a milestone cannot distinguish
+  not-started from in-progress; the board's `Status` field can. The board
+  carries one custom field, `Corpus cases`, holding the number of official-suite
+  files or cases an issue recovers — sortable, so "which single issue unblocks
+  the most corpus" has an answer. It deliberately does **not** re-create `Gate`,
+  `Area`, or `Phase` as project fields; those are the labels and the milestone,
+  and duplicating them would be a second source of truth.
 
 Dependencies carry the blocking order that is not visible from the phase
 number. The phase epics are chained (#74 blocks #75 blocks #76 …) except that
@@ -513,6 +523,10 @@ Phase 0 is independent. Below the epics, the edges that matter are
 #86 → #85 (operator patterns need operator aliases), #84, #86, #88, and #90 →
 #94 (the standard library is a client of the forms Phase 2 lands), #89 → #96,
 and #93 → #101 (backend coverage needs the runtime scoreboard to measure).
+
+The `Corpus cases` values are the measured counts from this document's progress
+sections, so the two cannot drift silently: `passing` blockers are counted by
+first blocking stage, and the failing-suite counts are per `errorCode`.
 
 ## Feature matrices and landing gates
 
