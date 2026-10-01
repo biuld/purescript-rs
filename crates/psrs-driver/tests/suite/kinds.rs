@@ -4,10 +4,9 @@
 //! agrees when every M3 `errorCode` it declares is reported.
 
 use super::corpus::{
-    annotation_codes, collected_files, corpus_root, diagnostic_codes, is_ffi_excluded,
-    support_sources,
+    annotation_codes, collected_files, corpus_root, diagnostic_codes, is_ffi_excluded, load_case,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 /// The `errorCode`s the M3 milestone is accountable for, from D-04.
 const M3_CODES: [&str; 7] = [
@@ -55,15 +54,11 @@ fn l3_kind_scoreboard_with_annotations() {
         }
 
         failing_total += 1;
-        let sources = support_sources(&path, &text);
-        let inputs: Vec<(&str, &str)> = sources
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str()))
-            .collect();
-        let result = psrs_driver::check_program_kinds_lenient(&inputs);
+        let case = load_case(&path, &failing_dir, &text);
+        let result = psrs_driver::check_program_kinds_lenient_with_prelude(&case.inputs());
         let ours = match &result {
-            Ok(()) => HashSet::new(),
-            Err(errors) => diagnostic_codes(errors),
+            Ok(()) => Default::default(),
+            Err(errors) => diagnostic_codes(case.own_diagnostics(errors)),
         };
         let mut matched_all = true;
         for code in &expected {

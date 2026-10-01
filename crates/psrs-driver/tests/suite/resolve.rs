@@ -1,14 +1,19 @@
 //! The L2 resolution-agreement scoreboard.
 //!
-//! Every `failing` case is resolved on its own with missing imports tolerated,
-//! so a case agrees when every M2 `errorCode` it declares is reported. The
-//! `passing` column is the same measurement in the other direction: how many
-//! corpus programs resolve at all, since a file that cannot resolve cannot be
-//! measured by any later gate.
+//! Every `failing` case is resolved leniently with the on-disk standard library
+//! on the module path, so a case agrees when every M2 `errorCode` it declares is
+//! reported. The `passing` column is the same measurement in the other
+//! direction: how many corpus programs resolve at all, since a file that cannot
+//! resolve cannot be measured by any later gate.
+//!
+//! A case is measured by its own modules only. Modules the driver discovered on
+//! disk to satisfy the case's imports are compiled alongside it, because a case
+//! that imports a sibling is not self-contained, but their diagnostics are
+//! reported separately and never decide agreement.
 
 use super::corpus::{
-    annotation_codes, collected_files, corpus_root, diagnostic_codes, is_ffi_excluded,
-    support_sources,
+    Blockers, annotation_codes, collected_files, corpus_root, diagnostic_codes, is_ffi_excluded,
+    load_case, unusable_siblings,
 };
 use std::collections::BTreeMap;
 
@@ -69,15 +74,11 @@ fn l2_resolution_scoreboard_with_annotations() {
         }
 
         failing_total += 1;
-        let sources = support_sources(&path, &text);
-        let inputs: Vec<(&str, &str)> = sources
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str()))
-            .collect();
-        let result = psrs_driver::check_program_lenient(&inputs);
+        let case = load_case(&path, &failing_dir, &text);
+        let result = psrs_driver::check_program_lenient_with_prelude(&case.inputs());
         let ours = match &result {
             Ok(()) => std::collections::HashSet::new(),
-            Err(errors) => diagnostic_codes(errors),
+            Err(errors) => diagnostic_codes(case.own_diagnostics(errors)),
         };
         let mut matched_all = true;
         for code in &expected {
@@ -92,17 +93,17 @@ fn l2_resolution_scoreboard_with_annotations() {
         if matched_all {
             failing_agree += 1;
         } else {
-            mismatches.push((path.clone(), expected.join(","), {
-                let mut produced: Vec<&str> = ours.into_iter().collect();
-                produced.sort_unstable();
-                produced.join(",")
-            }));
+            let produced = ours.into_iter().collect::<Vec<&str>>().join(",");
+            mismatches.push((path.clone(), expected.join(","), produced));
         }
     }
 
     let passing_dir = repo.join("passing");
     let mut passing_ok = 0usize;
     let mut passing_total = 0usize;
+    let mut blockers = Blockers::default();
+    let mut loaded_siblings = 0usize;
+    let mut stale_siblings = 0usize;
     for path in collected_files(&passing_dir, None) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
@@ -111,13 +112,16 @@ fn l2_resolution_scoreboard_with_annotations() {
             continue;
         }
         passing_total += 1;
-        let sources = support_sources(&path, &text);
-        let inputs: Vec<(&str, &str)> = sources
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str()))
-            .collect();
-        if psrs_driver::check_program_lenient(&inputs).is_ok() {
-            passing_ok += 1;
+        let case = load_case(&path, &passing_dir, &text);
+        loaded_siblings += case.loaded.len();
+        match psrs_driver::check_program_lenient_with_prelude(&case.inputs()) {
+            Ok(()) => passing_ok += 1,
+            Err(errors) => {
+                if !unusable_siblings(&case, &errors).is_empty() {
+                    stale_siblings += 1;
+                }
+                blockers.record(&case, &errors);
+            }
         }
     }
 
@@ -127,6 +131,9 @@ fn l2_resolution_scoreboard_with_annotations() {
         println!("  {code}: {agree}/{total}");
     }
     println!("passing modules resolved: {passing_ok}/{passing_total}");
+    println!("{loaded_siblings} sibling modules loaded to satisfy imports");
+    println!("{stale_siblings} cases import a sibling the loader could not use");
+    blockers.print();
     if !mismatches.is_empty() {
         println!("failing mismatches ({}):", mismatches.len());
         for (path, expected, produced) in mismatches.iter().take(40) {

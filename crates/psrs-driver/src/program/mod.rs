@@ -7,7 +7,10 @@ use super::{
 };
 
 pub use lenient::{check_program_kinds_lenient, check_program_lenient};
-pub use library::compile_program_sources_with_prelude;
+pub use library::{
+    check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
+    compile_program_sources_with_prelude,
+};
 use std::collections::HashMap;
 
 mod effects;

@@ -19,12 +19,13 @@
 //! execution signal the corpus can express without goldens.
 //!
 //! Every rejection is reported per file with its first blocking stage and
-//! diagnostic, and the two categories a later phase recovers are counted
-//! separately: a missing module is Phase 3's to land, while a rejection in
-//! lowering is Phase 2's.
+//! diagnostic, and the categories a later phase recovers are counted apart: a
+//! missing library module is Phase 3's to land, a harness-loading failure is the
+//! harness's, and any other stage is Phase 2's or the backend's.
 
 use super::corpus::{
-    collected_files, corpus_root, is_ffi_excluded, suite_filter, suite_limit, support_sources,
+    Blockers, collected_files, corpus_root, is_ffi_excluded, load_case, print_histogram,
+    suite_filter, suite_limit, unusable_siblings,
 };
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
@@ -106,13 +107,14 @@ fn l6_runtime_scoreboard() {
     let mut excluded = 0usize;
     let mut agree = 0usize;
     let mut failures: Vec<(String, String)> = Vec::new();
-    let mut stages: BTreeMap<String, usize> = BTreeMap::new();
+    let mut blockers = Blockers::default();
     let mut messages: BTreeMap<String, usize> = BTreeMap::new();
-    let mut missing_module = 0usize;
     let mut exit_codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut samples: Vec<(String, String)> = Vec::new();
+    let mut stale_siblings: Vec<(String, Vec<String>)> = Vec::new();
 
-    for path in collected_files(&repo.join("passing"), limit) {
+    let passing_dir = repo.join("passing");
+    for path in collected_files(&passing_dir, limit) {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -131,33 +133,25 @@ fn l6_runtime_scoreboard() {
             continue;
         }
         considered += 1;
-        let sources = support_sources(&path, &text);
-        let inputs: Vec<(&str, &str)> = sources
-            .iter()
-            .map(|(path, text)| (path.as_str(), text.as_str()))
-            .collect();
-        let outcome = match psrs_driver::compile_program_sources_with_prelude(&inputs) {
+        let case = load_case(&path, &passing_dir, &text);
+        let outcome = match psrs_driver::compile_program_sources_with_prelude(&case.inputs()) {
             Err(errors) => {
-                let stage = errors
-                    .first()
-                    .map_or("unknown", |error| error.diagnostic.stage)
-                    .to_owned();
-                *stages.entry(stage.clone()).or_default() += 1;
-                let first = errors
-                    .first()
-                    .map_or("no diagnostic", |error| error.diagnostic.message.as_str());
-                *messages.entry(first.to_owned()).or_default() += 1;
-                if errors
-                    .iter()
-                    .any(|error| error.diagnostic.code == Some("ModuleNotFound"))
-                {
-                    missing_module += 1;
+                blockers.record(&case, &errors);
+                let stale = unusable_siblings(&case, &errors);
+                if !stale.is_empty() {
+                    stale_siblings.push((relative_path.clone(), stale));
                 }
-                let code = errors
+                let first = case
+                    .own_diagnostics(&errors)
                     .first()
-                    .and_then(|error| error.diagnostic.code)
-                    .unwrap_or("");
-                failures.push((relative_path, format!("{stage} [{code}]: {first}")));
+                    .copied()
+                    .or_else(|| errors.first());
+                let stage = first.map_or("unknown", |error| error.diagnostic.stage);
+                let message =
+                    first.map_or("no diagnostic", |error| error.diagnostic.message.as_str());
+                *messages.entry(message.to_owned()).or_default() += 1;
+                let code = first.and_then(|error| error.diagnostic.code).unwrap_or("");
+                failures.push((relative_path, format!("{stage} [{code}]: {message}")));
                 continue;
             }
             Ok(artifact) => run_component(&artifact.wasm),
@@ -185,17 +179,17 @@ fn l6_runtime_scoreboard() {
     }
 
     println!("runtime agreement: {agree}/{considered}, {excluded} excluded");
-    println!("blocked on a missing module: {missing_module}");
-    println!("compilation failures by stage:");
-    for (stage, count) in &stages {
-        println!("  {stage}: {count}");
+    blockers.print();
+    if !stale_siblings.is_empty() {
+        println!(
+            "{} cases import a sibling the loader could not use:",
+            stale_siblings.len()
+        );
+        for (path, siblings) in &stale_siblings {
+            println!("  {path}: {}", siblings.join(", "));
+        }
     }
-    println!("most common rejection messages:");
-    let mut ranked: Vec<_> = messages.iter().collect();
-    ranked.sort_by_key(|(_, count)| std::cmp::Reverse(**count));
-    for (message, count) in ranked.iter().take(15) {
-        println!("  {count} x {message}");
-    }
+    print_histogram("most common rejection messages", &messages);
     if agree > 0 {
         println!("exit codes:");
         for (code, count) in &exit_codes {
