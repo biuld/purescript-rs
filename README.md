@@ -5,12 +5,42 @@ PureScript to portable WebAssembly and runs it on a WASI 0.2 runtime. It is
 built as a sequence of small, testable stages and is not a replacement for the
 official PureScript compiler.
 
+## Quick start
+
+```sh
+# Build, print, and run
+cargo run -- build examples/basic.purs -o /tmp/basic.wasm
+wasmtime run /tmp/basic.wasm; echo $?   # prints 42
+
+cargo run -- build examples/hello.purs -o /tmp/hello.wasm
+wasmtime run /tmp/hello.wasm            # prints "hello world"
+
+# Frontend inspection, one stage at a time
+cargo run -- lex examples/basic.purs
+cargo run -- parse examples/basic.purs
+cargo run -- ast examples/basic.purs
+cargo run -- hir examples/resolved.purs
+cargo run -- check examples/basic.purs
+cargo run -- check-program-kinds examples/basic.purs
+cargo run -- dump mir examples/basic.purs
+```
+
+`build <file.purs>...` resolves and links every listed module with the standard
+library from `stdlib/lib` and writes the artifact. `wat <file.purs>...` renders
+the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
+debugging. `main` must be a zero-argument `Int` declaration; its value becomes
+the process exit code.
+
+For a guided, interactive walkthrough of P0 through P11, use the React
+application in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching
+forms as curated and links to CLI commands for real compiler output.
+
 ## Status
 
 Progress is stated as official-suite measurements, not as a summary impression.
-The corpus is vendored under [`tests/upstream/`](tests/upstream/) and the full
-breakdown, including what remains in each layer, is
-[D-04](docs/design/D-04-suite-roadmap.md).
+The corpus is vendored under [`tests/upstream/`](tests/upstream/), and
+[D-04](docs/design/D-04-suite-roadmap.md) carries the full breakdown, including
+what remains in each layer.
 
 | Gate | Measured | Scope |
 | --- | --- | --- |
@@ -22,15 +52,14 @@ breakdown, including what remains in each layer, is
 | L6/M7 runtime | 0/413 passing | no non-FFI corpus program compiles, validates, and runs yet |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
+Run the scoreboards yourself:
+
 ```sh
 PSRS_ORACLE=annotations \
   cargo test -p psrs-driver --test suite -- --ignored --nocapture
 ```
 
-The scoreboard needs `purs` for the layout and parse boards, and `wasmtime` for
-the runtime board. Each board skips cleanly without its tool and fails under
-`PSRS_REQUIRE_WASMTIME=1`, so they are opt-in and never block
-`cargo test --workspace`.
+### What works
 
 The compiler currently:
 
@@ -64,7 +93,7 @@ Verified working subsets, each with source tests and Wasmtime execution:
 - rank-2 through rank-4 polymorphism, roles and `Coercible`, and `derive
   newtype`.
 
-Not yet supported, with the layer that owns each:
+### What does not
 
 - **surface lowering** — guards on equations and `case` alternatives, the
   ascription `e :: T`, operator and constructor-operator aliases, operator
@@ -79,37 +108,9 @@ Not yet supported, with the layer that owns each:
 - **aggregates at the ABI boundary** — the canonical ABI covers the mapped
   scalar, string, list, flags, handle, and variant shapes
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)), and the
-  synthesized aggregate fixtures validate but do not yet execute.
-
-## Quick start
-
-```sh
-# Frontend inspection
-cargo run -- lex examples/basic.purs
-cargo run -- layout examples/basic.purs
-cargo run -- parse examples/basic.purs
-cargo run -- ast examples/basic.purs
-cargo run -- hir examples/resolved.purs
-cargo run -- check examples/basic.purs
-cargo run -- check-program-kinds examples/basic.purs
-cargo run -- dump mir examples/basic.purs
-
-# Build, print, and run
-cargo run -- build examples/basic.purs -o /tmp/basic.wasm
-wasmtime run /tmp/basic.wasm; echo $?   # prints 42
-cargo run -- wat examples/basic.purs -o /tmp/basic.wat
-
-cargo run -- build examples/hello.purs -o /tmp/hello.wasm
-wasmtime run /tmp/hello.wasm            # prints "hello world"
-```
-
-`build <file.purs>...` resolves and links every listed module with the standard
-library from `stdlib/lib` and writes the artifact. `wat <file.purs>...` renders
-the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
-debugging.
-
-`main` must be a zero-argument `Int` declaration; its value becomes the process
-exit code.
+  synthesized aggregate fixtures validate but do not yet execute;
+- **the standard library** — `stdlib/lib` holds 12 modules, and 216 corpus
+  programs import a module it does not provide.
 
 ## Workspace
 
@@ -145,39 +146,48 @@ only language heap; linear memory is reserved for the canonical ABI boundary
 [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) and
 [capability profile](docs/design/backend/wasm/capability-profile.md).
 
-## Project documents
+## Development checks
 
-- [Feature catalog](docs/feature/): user-facing behavior and acceptance
-  criteria.
-- [Design documents](docs/design/): implementation and IR architecture.
-- [Decision records](docs/decision/): only major, durable choices.
-- [Implementation records](docs/implementation/): per-topic acceptance
-  checklists and the evidence behind each.
-- [Vendored test corpus](tests/upstream/): the pinned official suite.
-- [Repository instructions](AGENTS.md): documentation, code, validation, and
-  project-iteration rules for contributors and coding agents.
+```sh
+cargo fmt --all --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
 
-The user-facing goals are [F-01](docs/feature/F-01-source-inspection.md) and
-[F-02](docs/feature/F-02-portable-programs.md). Their implementations are
-specified by [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) and
-[wasm encoding](docs/design/backend/wasm/encoding-and-structuring.md). The backend is split across
-[capability profile](docs/design/backend/wasm/capability-profile.md) (capability profile),
-[IR boundaries](docs/design/backend/00-ir-boundaries.md) (IR boundaries and
-verification), [canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md) (WIT imports and
-canonical ABI), [erasure](docs/design/backend/fp/polymorphism-and-erasure.md)
-(generic values), [scalars](docs/design/backend/fp/scalars-and-primitives.md)
-(scalar and numeric lowering), and
-[linear ABI boundary](docs/design/backend/wasm/linear-memory-and-canonical-abi-boundary.md) (canonical ABI
-boundary), with the concrete GC layouts and execution-evidence matrix in
-[data representation](docs/design/backend/fp/data-representation.md). The
-[frontend design](docs/design/frontend/README.md) includes the
-[PureScript type system](docs/design/frontend/type-system/README.md);
-[D-04](docs/design/D-04-suite-roadmap.md) tracks feature coverage and official-suite progress
-under [DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md).
+The scoreboards under `crates/psrs-driver/tests/suite/` are `#[ignore]`d and
+read the vendored corpus. They need `purs` for the layout and parse boards and
+`wasmtime` for the runtime board; each skips cleanly without its tool:
 
-For a guided, interactive overview of P0 through P11, use the React application
-in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching forms as curated
-and links to CLI commands for real compiler output.
+```sh
+PSRS_ORACLE=annotations \
+  cargo test -p psrs-driver --test suite -- --ignored --nocapture
+```
+
+`PSRS_REQUIRE_WASMTIME=1` turns the runtime gate from a skip into a failure, so
+CI cannot let an execution test silently pass without a runtime.
+
+The optional upstream differential test checks the front end against the
+official `purs` compiler on a small manifest of cases. It skips when `purs` or a
+PureScript checkout is unavailable:
+
+```sh
+PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
+```
+
+## Documentation
+
+[`docs/`](docs/README.md) indexes the project documents, and the
+[authoring guide](docs/authoring-guide.md) says where a new one goes and how it
+is named.
+
+| Location | Content |
+| --- | --- |
+| [`docs/feature/`](docs/feature/) | User-facing behavior and acceptance criteria: [F-01](docs/feature/F-01-source-inspection.md), [F-02](docs/feature/F-02-portable-programs.md), [F-03](docs/feature/F-03-interactive-ir-explorer.md). |
+| [`docs/design/`](docs/design/) | Implementation and IR architecture. Start at [D-01](docs/design/D-01-frontend-and-ir-boundaries.md) for the pass pipeline, [D-04](docs/design/D-04-suite-roadmap.md) for the official-suite roadmap, then the [frontend](docs/design/frontend/README.md) and [backend](docs/design/backend/README.md) topics. |
+| [`docs/decision/`](docs/decision/) | Only major, durable choices, from the [policy](docs/decision/README.md) onward. |
+| [`docs/implementation/`](docs/implementation/) | Per-topic acceptance checklists and the evidence behind each. |
+| [`tests/upstream/`](tests/upstream/) | The pinned official suite. |
+| [`AGENTS.md`](AGENTS.md) | Workflow, code, validation, and project-iteration rules. |
 
 ## Project iteration
 
@@ -188,61 +198,6 @@ board, where a milestone per phase carries the order, `gate:` and `area:` labels
 carry the cross-cutting view, dependencies carry the blocking edges, and the
 `Corpus cases` field records how much of the official suite an issue recovers.
 [AGENTS.md](AGENTS.md#project-iteration) describes how to pick, work, and close
-an item.
-
-Decision records:
-
-- [DEC-01](docs/decision/DEC-01-distinct-ir-boundaries.md) — distinct IR
-  boundaries
-- [DEC-02](docs/decision/DEC-02-thin-structured-wasm-encoding.md) — thin
-  structured Wasm encoding
-- [DEC-03](docs/decision/DEC-03-purescript-faithful-type-system.md) —
-  PureScript-faithful type system and effect encoding
-- [DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md) — frontend and
-  backend feature matrices
-- [DEC-05](docs/decision/DEC-05-wasmtime-feature-set.md) — Wasmtime feature set
-- [DEC-06](docs/decision/DEC-06-runtime-interface-via-wit.md) — runtime
-  interface via WIT
-- [DEC-07](docs/decision/DEC-07-runtime-representation-for-parameterized-adts.md) —
-  parameterized-ADT representation
-- [DEC-09](docs/decision/DEC-09-gc-only-language-heap.md) — GC-only language
-  heap
-- [DEC-10](docs/decision/DEC-10-canonical-abi-buffer-lifetime.md) — canonical ABI
-  buffer lifetime
-- [DEC-11](docs/decision/DEC-11-primitive-ffi-stdlib-wrappers.md) — primitive FFI
-  and standard-library wrappers
-- [DEC-12](docs/decision/DEC-12-resolved-wit-bindings.md) — WIT bindings by
-  resolved type identity
-- [DEC-13](docs/decision/DEC-13-wit-to-source-type-mapping.md) — WIT to source
-  type mapping
-- [DEC-14](docs/decision/DEC-14-resource-handle-ownership.md) — resource handle
-  ownership
-- [DEC-15](docs/decision/DEC-15-unified-type-representation.md) — unified type
-  representation
-
-## Development checks
-
-```sh
-cargo fmt --all --check
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-The optional upstream differential test checks the front end against the
-official `purs` compiler on a small manifest of cases. It skips when `purs` or a
-PureScript checkout is unavailable:
-
-```sh
-PURESCRIPT_REPO=/path/to/purescript cargo test -p psrs-driver --test upstream
-```
-
-The suite scoreboards under `crates/psrs-driver/tests/suite.rs` are `#[ignore]`d
-and read the vendored corpus. They need `purs` for the layout and parse boards:
-
-```sh
-PSRS_ORACLE=annotations \
-  cargo test -p psrs-driver --test suite -- --ignored --nocapture
-```
-
-`PSRS_REQUIRE_WASMTIME=1` turns the runtime gate from a skip into a failure, so
-CI cannot let an execution test silently pass without a runtime.
+an item, and
+[DEC-04](docs/decision/DEC-04-official-test-suite-roadmap.md) records why the
+matrices are maintained.
