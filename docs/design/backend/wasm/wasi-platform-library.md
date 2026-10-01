@@ -128,7 +128,7 @@ consolidated capability layout: `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 | On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
 | Exported wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Every service wrapper, plus the `WASI` umbrella. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
-| `Effect` as `foreign import data` | Not this slice | Frontend #54 landed the declaration form. `Prelude` still defines `data Effect a`. |
+| `Effect` as `foreign import data` | [Effects](../fp/effects.md) | `Prelude` declares `foreign import data Effect`. `lower_effects` turns that opaque application into a one-parameter closure after Typed Core. |
 | `Maybe`, `Either`, records, and data types as wrappers | [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) | Library types, not compiler types; every `result` is an `Either E O` with the error on `Left`. |
 | **WASI-07 Arguments, environment, and filesystem** | #59 | Verified. `WASI.Process.arguments`/`environment` and `WASI.FileSystem` wrap `wasi:cli/environment` and `wasi:filesystem`; a file round-trip, a directory walk, and an environment read execute under Wasmtime. |
 | **WASI-08 Sockets** | #59 | In progress. `WASI.Network` wraps the socket services and the wrapper surface lowers; no socket execution test yet. HTTP/TLS are excluded. |

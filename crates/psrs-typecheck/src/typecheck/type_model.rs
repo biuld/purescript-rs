@@ -31,7 +31,6 @@ pub(super) enum TypeConstructor {
     Function,
     Record,
     Array,
-    Effect,
     Int,
     Number,
     Boolean,

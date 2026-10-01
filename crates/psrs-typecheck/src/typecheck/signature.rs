@@ -125,8 +125,6 @@ impl Checker {
             hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => {
                 if self.synonyms.contains_key(id) {
                     self.expand_synonym(*id, Vec::new(), ty.span)
-                } else if Some(*id) == self.effect_type {
-                    InferType::Constructor(TypeConstructor::Effect)
                 } else {
                     // Foreign data stays a nominal user constructor. Opacity is
                     // `Module.opaque_ids`, not a separate type node and not `Int`.
@@ -145,27 +143,6 @@ impl Checker {
                         })
                         .collect();
                     return self.expand_synonym(id, arguments, ty.span);
-                }
-                if nominal_type_id(head).is_some_and(|id| Some(id) == self.effect_type) {
-                    let Some(argument) = arguments.first() else {
-                        return self.fresh();
-                    };
-                    if arguments.len() != 1 {
-                        self.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::UnsupportedType,
-                            ty.span,
-                            "Effect takes exactly one type argument",
-                        ));
-                        return self.fresh();
-                    }
-                    let argument = self.elaborate_type_mode(argument, variables, rigid_variables);
-                    // `Effect` stays an opaque applied type through checking.
-                    // Its closure representation and hidden context parameter
-                    // are selected by the backend after checking.
-                    return InferType::Application(
-                        Box::new(InferType::Constructor(TypeConstructor::Effect)),
-                        Box::new(argument),
-                    );
                 }
                 InferType::Application(
                     Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),

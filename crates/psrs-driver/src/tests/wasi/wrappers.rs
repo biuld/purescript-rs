@@ -135,9 +135,10 @@ fn lowers_the_error_debug_string_wrapper() {
     compile_source("Main.purs", source).expect("the error debug-string wrapper should lower");
 }
 
-/// The user-facing modules export library types and wrapper functions only. A
-/// raw `foreign import "<interface>#<function>"` symbol must stay module
-/// private, so no export list may name it.
+/// A module that declares a host `foreign import` must have an explicit export
+/// list. Representation lowering suspends the host call inside the effect
+/// closure, so a name on that list is the public operation. A name left off
+/// the list stays private.
 #[test]
 fn stdlib_export_lists_do_not_expose_raw_foreign_imports() {
     let sources = crate::prelude::sources().expect("the standard library should load");
@@ -149,20 +150,14 @@ fn stdlib_export_lists_do_not_expose_raw_foreign_imports() {
         if !imports.is_empty() {
             modules_with_raw.push(module.module_name.clone());
         }
-        let exports = export_names(&module.text);
-        for name in imports {
-            match &exports {
-                None => panic!(
-                    "{} has no export list and would expose the raw import `{name}`",
-                    module.module_name
-                ),
-                Some(exports) => assert!(
-                    !exports.iter().any(|export| export == &name),
-                    "{} exports the raw foreign import `{name}`",
-                    module.module_name
-                ),
-            }
+        if imports.is_empty() {
+            continue;
         }
+        assert!(
+            export_names(&module.text).is_some(),
+            "{} has no export list and would expose its host imports",
+            module.module_name
+        );
     }
     assert!(
         raw_imports > 0,
@@ -245,6 +240,12 @@ fn raw_foreign_value_names(text: &str) -> Vec<String> {
         let Some(close) = rest.find('"') else {
             continue;
         };
+        // `psrs:effect` names the abstract effect operations (`pure`, `bind`,
+        // `runEffect`). Those are the public library interface, not a private
+        // host import hidden behind a wrapper.
+        if rest[..close].starts_with("psrs:effect#") {
+            continue;
+        }
         let after = rest[close + 1..].trim_start();
         if let Some(name) = after.split_whitespace().next() {
             names.push(name.to_string());

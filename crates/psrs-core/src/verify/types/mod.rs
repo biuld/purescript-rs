@@ -118,14 +118,6 @@ pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<T
     module.record_field(id, label)
 }
 
-/// The value produced by applying a callable constructor's hidden
-/// calling-convention parameters: the last application argument. `None` when
-/// the head constructor has no registered closure representation.
-pub(super) fn callable_result(module: &Module, id: TypeId) -> Option<TypeId> {
-    let (_, arguments) = module.callable_application(id)?;
-    arguments.last().copied()
-}
-
 mod matching;
 pub(crate) use matching::equivalent_types;
 pub(super) use matching::{
@@ -190,6 +182,22 @@ fn types_compatible(
         (Type::Application(a1, a2), Type::Application(b1, b2)) => {
             types_compatible(*a1, *b1, module, seen, alpha)
                 && types_compatible(*a2, *b2, module, seen, alpha)
+        }
+        (
+            Type::Closure {
+                parameters: left_parameters,
+                result: left_result,
+            },
+            Type::Closure {
+                parameters: right_parameters,
+                result: right_result,
+            },
+        ) if left_parameters.len() == right_parameters.len() => {
+            left_parameters
+                .iter()
+                .zip(right_parameters)
+                .all(|(left, right)| types_compatible(*left, *right, module, seen, alpha))
+                && types_compatible(*left_result, *right_result, module, seen, alpha)
         }
         (Type::RowEmpty, Type::RowEmpty) => true,
         (

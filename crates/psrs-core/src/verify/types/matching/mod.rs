@@ -4,6 +4,7 @@ use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod closure;
 mod constructors;
 mod helpers;
 mod rows;
@@ -245,6 +246,11 @@ impl TypeMatcher<'_> {
             return result;
         }
 
+        if let Some(result) = self.subsumes_closure(actual, expected, instantiate) {
+            self.active.remove(&(actual, expected));
+            return result;
+        }
+
         let result = match (actual_type, expected_type) {
             (Type::Constructor(left), Type::Constructor(right)) => left == right,
             (Type::Application(_, _), Type::Application(_, _)) => {
@@ -345,6 +351,24 @@ impl TypeMatcher<'_> {
     fn matches(&mut self, source: TypeId, target: TypeId, instantiate: bool) -> bool {
         if !self.active.insert((source, target)) {
             return true;
+        }
+        if let (
+            Some((source_parameters, source_result)),
+            Some((target_parameters, target_result)),
+        ) = (
+            crate::closure_parts(&self.module.types, source),
+            crate::closure_parts(&self.module.types, target),
+        ) {
+            let source_parameters = source_parameters.to_vec();
+            let target_parameters = target_parameters.to_vec();
+            let result = source_parameters.len() == target_parameters.len()
+                && source_parameters
+                    .into_iter()
+                    .zip(target_parameters)
+                    .all(|(source, target)| self.matches(source, target, false))
+                && self.matches(source_result, target_result, instantiate);
+            self.active.remove(&(source, target));
+            return result;
         }
         let (Some(source_type), Some(target_type)) = (
             self.module.types.get(source.0 as usize),

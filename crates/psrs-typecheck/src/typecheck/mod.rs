@@ -302,8 +302,6 @@ struct Checker {
     type_declarations: HashMap<hir::TypeId, hir::TypeDeclaration>,
     visible_newtypes: HashSet<hir::TypeId>,
     synonyms: HashMap<hir::TypeId, Synonym>,
-    effect_type: Option<hir::TypeId>,
-    effect_runtime_representation: bool,
     checked_kinds: CheckedKindEnv,
     /// Kind assigned to each inference type variable. These variables are
     /// shared with the role-aware Coercible solver.

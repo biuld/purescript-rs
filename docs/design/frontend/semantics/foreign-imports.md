@@ -276,9 +276,10 @@ give a source function whose result is the opaque type a runtime layout of its
 own. That layout, and the drop and borrow actions, belong to the canonical ABI
 lowering.
 
-The effect library may later declare `Effect` with this form. Until that
-declaration replaces the compiler's internal token, `Effect` in the embedded
-prelude remains the existing abstract type, not a foreign data declaration.
+The effect library declares `Effect` with this form. The declaration makes the
+constructor abstract; it does not introduce a token or a calling convention.
+[Effects](../../backend/fp/effects.md) lowers `Effect a` to a closure after
+type checking.
 
 ## Open questions and future work
 
@@ -300,6 +301,6 @@ prelude remains the existing abstract type, not a foreign data declaration.
   [type inference](../type-system/type-inference.md) for the frontend stages.
 - [Canonical ABI and WIT](../../backend/wasm/canonical-abi-and-wit.md),
   especially resources and handles.
-- [Effects](../../backend/fp/effects.md) for the `Effect` token that this
-  declaration can name.
+- [Effects](../../backend/fp/effects.md) for the representation closure of the
+  abstract `Effect` type this declaration names.
 - PureScript's `foreign import data` form, as in `Effect :: Type -> Type`.

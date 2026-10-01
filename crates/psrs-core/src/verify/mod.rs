@@ -12,8 +12,8 @@ pub(crate) use types::equivalent_types;
 use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
-    array_element, callable_result, compatible, error, primitive_type_id, primitive_types,
-    record_field, restore_local, unary_primitive_types, verify_type,
+    array_element, compatible, error, primitive_type_id, primitive_types, record_field,
+    restore_local, unary_primitive_types, verify_type,
 };
 
 #[derive(Clone)]
@@ -59,6 +59,12 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
             Type::RowExtend { ty, tail, .. } => {
                 verify_type(*ty, module, module.id, module.span, &mut errors);
                 verify_type(*tail, module, module.id, module.span, &mut errors);
+            }
+            Type::Closure { parameters, result } => {
+                for parameter in parameters {
+                    verify_type(*parameter, module, module.id, module.span, &mut errors);
+                }
+                verify_type(*result, module, module.id, module.span, &mut errors);
             }
             _ => {}
         }

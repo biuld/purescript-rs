@@ -27,11 +27,52 @@ pub(crate) fn declaration_shape(
     let mut ty = unquantified_type(module, declaration.ty);
     let mut parameters = Vec::new();
     let mut value = &declaration.value;
+    if let Some((closure_parameters, result)) = psrs_core::closure_parts(&module.types, ty) {
+        // The value is this closure when it binds the closure's parameter
+        // list. An alias of a closure value contributes no parameters.
+        let closure_parameters = closure_parameters.to_vec();
+        let mut peeled = 0;
+        for parameter_ty in &closure_parameters {
+            let ExprKind::Lambda { binder, body } = &value.kind else {
+                break;
+            };
+            if binder.ty != *parameter_ty {
+                return Err(vec![BackendError::new(
+                    "P8 closure conversion",
+                    binder.span,
+                    "lambda binder type differs from the function parameter type",
+                )]);
+            }
+            parameters.push(scalar_type(
+                module,
+                binder.ty,
+                binder.span,
+                enum_types,
+                aggregate_types,
+                newtype_ids,
+                array_types,
+                record_types,
+                function_types,
+            )?);
+            value = body;
+            peeled += 1;
+        }
+        if peeled == closure_parameters.len() {
+            ty = result;
+        } else if peeled != 0 {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                declaration.span,
+                "closure declaration is missing a parameter",
+            )]);
+        }
+    }
     while let ExprKind::Lambda { binder, body } = &value.kind {
-        // Stop at the callable-constructor boundary: a lambda whose expression
-        // type is a callable closure (an `Effect a`) is the representation's
-        // hidden context closure, returned as the declaration's value rather
-        // than an extra parameter.
+        // A closure result is a value of this function. Its parameter list is
+        // not part of this signature.
+        if psrs_core::closure_parts(&module.types, ty).is_some() {
+            break;
+        }
         let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, ty) else {
             break;
         };
@@ -200,6 +241,7 @@ pub(crate) fn declaration_shape(
         Some(Type::Variable(_))
         | Some(Type::Constructor(_))
         | Some(Type::ForAll { .. })
+        | Some(Type::Closure { .. })
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -332,6 +374,7 @@ pub(crate) fn scalar_type(
         Some(Type::Variable(_))
         | Some(Type::Constructor(_))
         | Some(Type::ForAll { .. })
+        | Some(Type::Closure { .. })
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",

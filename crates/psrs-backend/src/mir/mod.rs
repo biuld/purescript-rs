@@ -422,6 +422,9 @@ fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
                     _ => {}
                 }
             }
+            if let Some(Terminator::ReturnCall { function, .. }) = &block.terminator {
+                used.insert(*function);
+            }
         }
     }
     used

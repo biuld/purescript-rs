@@ -258,14 +258,24 @@ fn typecheck_program(
     // A re-exported symbol is declared in the module that owns it, so the
     // signature table is global: a module that imports an exported symbol finds
     // its declared type even when it imported it through an umbrella module.
+    // Foreign imports contribute the same way; their type lives on the
+    // external rather than on a value declaration.
     let signatures = modules
         .iter()
-        .flat_map(|module| module.declarations.iter())
-        .filter_map(|declaration| {
-            declaration
-                .signature
-                .clone()
-                .map(|signature| (declaration.symbol, signature))
+        .flat_map(|module| {
+            let declarations = module.declarations.iter().filter_map(|declaration| {
+                declaration
+                    .signature
+                    .clone()
+                    .map(|signature| (declaration.symbol, signature))
+            });
+            let externals = module.externals.iter().filter_map(|external| {
+                external
+                    .signature
+                    .clone()
+                    .map(|signature| (external.symbol, signature))
+            });
+            declarations.chain(externals)
         })
         .collect::<HashMap<_, _>>();
     let order = typecheck_order(&dependencies);

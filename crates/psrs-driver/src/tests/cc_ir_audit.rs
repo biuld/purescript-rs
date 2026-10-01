@@ -5,7 +5,7 @@
 //! inspect the verified CC module before P9.
 
 use super::*;
-use psrs_backend::cc::{AssignmentKind, Function, RefShape, ValueConversion, ValueShape};
+use psrs_backend::cc::{AssignmentKind, RefShape, ValueConversion, ValueShape};
 use std::collections::HashSet;
 
 fn required_wasmtime() -> bool {
@@ -70,12 +70,9 @@ fn expect_prelude_program_exit(name: &str, sources: &[(&str, &str)], expected: i
     }
 }
 
-fn cc_functions(source: &str) -> Vec<Function> {
+fn cc_stages(source: &str) -> psrs_backend::Stages {
     let core = lower_source_to_core("Main.purs", source).expect("source lowers to Core");
-    psrs_backend::compile_with_stages(core)
-        .expect("Core lowers through CC to Wasm")
-        .cc
-        .functions
+    psrs_backend::compile_with_stages(core).expect("Core lowers through CC to Wasm")
 }
 
 const RECURSIVE_SUM: &str = "module Main where\nimport Prelude\ng :: Int -> Int -> Int\ng n acc = if n == 0 then acc else g (n - 1) (acc + 1)\n";
@@ -85,7 +82,9 @@ const RECURSIVE_SUM: &str = "module Main where\nimport Prelude\ng :: Int -> Int 
 #[test]
 fn cc_declarations_are_well_formed_and_capture_once() {
     let source = "module Main where\nimport Prelude\napply :: (Int -> Int) -> Int -> Int\napply f x = f x\nmain = let a = 1 in let b = 2 in apply (\\x -> a + b + x + a) 0\n";
-    let functions = cc_functions(source);
+    let stages = cc_stages(source);
+    let main_module = stages.core.entry.expect("the program has an entry").module;
+    let functions = stages.cc.functions;
     let symbols = functions
         .iter()
         .map(|function| function.symbol)
@@ -112,6 +111,7 @@ fn cc_declarations_are_well_formed_and_capture_once() {
     }
     let capturing = functions
         .iter()
+        .filter(|function| function.symbol.module == main_module)
         .filter(|function| {
             function.assignments.iter().any(|assignment| {
                 matches!(assignment.kind, AssignmentKind::ClosureGetCapture { .. })

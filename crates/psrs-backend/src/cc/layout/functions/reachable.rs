@@ -181,6 +181,13 @@ fn record_type(
             }
             record_type(module, *body, visiting, referenced);
         }
+        Some(Type::Closure { parameters, result }) => {
+            referenced.insert(id);
+            for parameter in parameters {
+                record_type(module, *parameter, visiting, referenced);
+            }
+            record_type(module, *result, visiting, referenced);
+        }
         _ => {}
     }
 }

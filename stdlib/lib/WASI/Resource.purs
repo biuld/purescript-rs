@@ -9,7 +9,6 @@ unResource (Resource index) = index
 
 withResource :: forall a b. (Resource a -> Effect Unit) -> Resource a -> (Resource a -> Effect b) -> Effect b
 withResource release resource action =
-  \token ->
-    let result = action resource token in
-    let ignored = release resource token in
-    result
+  bind (action resource) \result ->
+    bind (release resource) \_ ->
+      pure result

@@ -131,6 +131,12 @@ short implementation notes that only record deviations from the design.
   a crate when it has a real owner and API.
 - Preserve source ranges through every representation and lowering pass where
   diagnostics or debugging need them.
+- Implement a feature as part of the existing model. A new type belongs on the
+  shared spine; a new check belongs to unification, subsumption, or entailment;
+  a runtime representation is produced by one explicit lowering. Do not add a
+  private constructor, a unification equation, or a side table that makes one
+  library type behave differently in every later pass. Leave an incomplete
+  rule incomplete instead of imitating it with a narrower special case.
 
 ## Compiler Representation Boundaries
 

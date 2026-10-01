@@ -412,30 +412,35 @@ standard-library imports do not use it.
 
 ## Worked example
 
-### `log`, as the library defines it today
+### `log`
 
-`WASI.Console` is convenience over `WASI.IO`, which owns the raw imports:
+`WASI.Console` is convenience over `WASI.IO`, which owns the raw imports. The
+source uses abstract `Effect` values. It does not name a token. Representation
+lowering suspends each `Effect`-typed foreign import and threads the token
+through `bind` ([effects](../fp/effects.md)).
 
 ```purescript
 -- WASI.IO
-foreign import "wasi:cli/stdout#get-stdout" getStdoutRaw :: Resource OutputStream
+foreign import "wasi:cli/stdout#get-stdout" getStdout :: Effect (Resource OutputStream)
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  blockingWriteAndFlushRaw :: Resource OutputStream -> String -> Either StreamError Unit
+  blockingWriteAndFlush :: Resource OutputStream -> String -> Effect (Either StreamError Unit)
 
 -- WASI.Console
 log :: String -> Effect Unit
-log s = \token ->
-  let handle = getStdout token in
-  let ignored = blockingWriteAndFlush handle s token in
-  let ignoredNewline = blockingWriteAndFlush handle "\n" token in
-  dropOutputStream handle token
+log message =
+  bind getStdout \handle ->
+  bind (blockingWriteAndFlush handle message) \_ ->
+  bind (blockingWriteAndFlush handle "\n") \_ ->
+  dropOutputStream handle
 ```
 
-`log` is the user-facing function. Its type uses `String`, `Effect`, and
-`Unit`. The handle is a `Resource OutputStream`, a library newtype over `Int`.
-`blockingWriteAndFlush` takes that handle and a `String` and returns the mapped
-result `Either StreamError Unit`, which `log` ignores. Neither raw import is
-part of the public API. The module exports `log` and `error` only.
+`log` is the user-facing function. Its source arity is one. The handle is a
+`Resource OutputStream`, a library newtype over `Int`.
+`blockingWriteAndFlush` takes that handle and a `String` and returns
+`Effect (Either StreamError Unit)`. Neither raw import is part of the public
+API. The module exports `log` and `error` only. The effect those calls return
+is suspended by `lower_effects`, so the host call runs when the effect runs
+([effects](../fp/effects.md)).
 
 Before CC, `ExternalBindings::from_core` records `blockingWriteAndFlush` as the
 erased handle and `String`, and the mapped result `Either StreamError Unit`,
@@ -475,11 +480,16 @@ data Maybe a = Nothing | Just a
 foreign import "example:api#send" rawSend :: Int -> String -> Unit
 
 send :: Maybe String -> Effect Unit
-send message = \token ->
+send message =
   case message of
-    Nothing -> rawSend 0 ""
-    Just text -> rawSend 1 text
+    Nothing -> pure (rawSend 0 "")
+    Just text -> pure (rawSend 1 text)
 ```
+
+`pure` here is the effect embedding. Because the language is strict, a foreign
+call that must wait until the effect runs is itself declared at an `Effect`
+type and suspended by representation lowering, as `getStdout` is above. `pure`
+of an already computed primitive is only the embedding of that value.
 
 `Maybe` is an ordinary ADT. The type checker never asks the ABI about it.
 `send` cases on it and passes primitives. `Nothing` passes discriminant `0`

@@ -114,6 +114,14 @@ impl TypeSubstitution<'_> {
                 let tail = self.type_id(tail)?;
                 self.intern(Type::RowExtend { label, ty, tail })?
             }
+            Type::Closure { parameters, result } => {
+                let parameters = parameters
+                    .into_iter()
+                    .map(|parameter| self.type_id(parameter))
+                    .collect::<Option<Vec<_>>>()?;
+                let result = self.type_id(result)?;
+                self.intern(Type::Closure { parameters, result })?
+            }
             Type::RowEmpty | Type::Constructor(_) => id,
         };
         self.active.remove(&id);

@@ -221,7 +221,6 @@ impl Checker {
             TypeConstructor::Function => kind_for_builtin(hir::BuiltinType::Function),
             TypeConstructor::Record => kind_for_builtin(hir::BuiltinType::Record),
             TypeConstructor::Array => kind_for_builtin(hir::BuiltinType::Array),
-            TypeConstructor::Effect => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
             TypeConstructor::Int => Kind::Type,
             TypeConstructor::Number => Kind::Type,
             TypeConstructor::Boolean => Kind::Type,

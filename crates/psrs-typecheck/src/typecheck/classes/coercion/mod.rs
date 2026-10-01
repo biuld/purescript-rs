@@ -135,8 +135,7 @@ impl Checker {
             | TypeConstructor::Boolean
             | TypeConstructor::String
             | TypeConstructor::Char
-            | TypeConstructor::Unit
-            | TypeConstructor::Effect => Vec::new(),
+            | TypeConstructor::Unit => Vec::new(),
         }
     }
 

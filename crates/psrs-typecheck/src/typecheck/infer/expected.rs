@@ -90,54 +90,28 @@ impl Checker {
             return Some(checked);
         }
 
-        if let hir::ExprKind::Lambda { binder, body } = &expression.kind {
-            // The trusted embedded effect library writes its representation as
-            // a context-taking lambda while source `Effect a` remains opaque.
-            if self.effect_runtime_representation
-                && let InferType::Application(function, result) = &expected
-                && matches!(**function, InferType::Constructor(TypeConstructor::Effect))
-            {
-                let binder_ty = InferType::Constructor(TypeConstructor::Int);
-                self.locals
-                    .insert(binder.id, Scheme::monomorphic(binder_ty.clone()));
-                let body = self.infer_expr_with_expected(body, Some((**result).clone()));
-                self.locals.remove(&binder.id);
-                let body = body?;
-                return Some(InferredExpr {
-                    kind: InferredExprKind::Lambda {
-                        binder: InferredBinder {
-                            binder: binder.clone(),
-                            scheme: Scheme::monomorphic(binder_ty),
-                        },
-                        body: Box::new(body),
+        if let hir::ExprKind::Lambda { binder, body } = &expression.kind
+            && let InferType::Application(inner, result) = &expected
+            && let Some((parameter, _)) = infer_arrow_parts(inner, result)
+        {
+            self.locals
+                .insert(binder.id, Scheme::monomorphic(parameter.clone()));
+            let body = self.infer_expr_with_expected(body, Some((**result).clone()));
+            self.locals.remove(&binder.id);
+            let body = body?;
+            let actual = arrow(parameter.clone(), body.ty.clone());
+            self.subsume(actual, expected.clone(), expression.span);
+            return Some(InferredExpr {
+                kind: InferredExprKind::Lambda {
+                    binder: InferredBinder {
+                        binder: binder.clone(),
+                        scheme: Scheme::monomorphic(parameter),
                     },
-                    ty: expected,
-                    span: expression.span,
-                });
-            }
-
-            if let InferType::Application(inner, result) = &expected
-                && let Some((parameter, _)) = infer_arrow_parts(inner, result)
-            {
-                self.locals
-                    .insert(binder.id, Scheme::monomorphic(parameter.clone()));
-                let body = self.infer_expr_with_expected(body, Some((**result).clone()));
-                self.locals.remove(&binder.id);
-                let body = body?;
-                let actual = arrow(parameter.clone(), body.ty.clone());
-                self.subsume(actual, expected.clone(), expression.span);
-                return Some(InferredExpr {
-                    kind: InferredExprKind::Lambda {
-                        binder: InferredBinder {
-                            binder: binder.clone(),
-                            scheme: Scheme::monomorphic(parameter),
-                        },
-                        body: Box::new(body),
-                    },
-                    ty: expected,
-                    span: expression.span,
-                });
-            }
+                    body: Box::new(body),
+                },
+                ty: expected,
+                span: expression.span,
+            });
         }
 
         if let hir::ExprKind::Record(fields) = &expression.kind

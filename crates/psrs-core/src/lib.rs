@@ -1,4 +1,5 @@
 pub mod dictionary;
+pub mod effect;
 mod link;
 mod lower;
 pub mod opt;
@@ -54,6 +55,13 @@ pub enum Type {
         variables: Vec<TypeVariableId>,
         body: TypeId,
     },
+    /// A closure created with a fixed parameter list. The result is a value,
+    /// even when that value is a function or another closure. Representation
+    /// lowering emits this for an effect; source arrows stay [`TypeConstructor::Function`].
+    Closure {
+        parameters: Vec<TypeId>,
+        result: TypeId,
+    },
     /// The empty row. A closed record's row ends here.
     RowEmpty,
     /// A row extended with one labeled field. A record type is
@@ -80,6 +88,14 @@ pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
         Some(Type::Constructor(TypeConstructor::Function))
     )
     .then_some((*parameter, *result))
+}
+
+/// The parameter list and result of a fixed-arity closure type.
+pub fn closure_parts(types: &[Type], id: TypeId) -> Option<(&[TypeId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::Closure { parameters, result } => Some((parameters, *result)),
+        _ => None,
+    }
 }
 
 /// The binders and body of a type-level universal quantifier.
