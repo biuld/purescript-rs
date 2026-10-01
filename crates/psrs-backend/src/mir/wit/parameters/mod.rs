@@ -144,12 +144,8 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
         CanonicalType::String => {
             lower_string(lowerer, argument, flat, frees, current, span)?;
         }
-        CanonicalType::List(inner) if inner.is_byte() => {
-            lower_string(lowerer, argument, flat, frees, current, span)?;
-        }
-        CanonicalType::FixedList { element, .. } if element.is_byte() => {
-            lower_string(lowerer, argument, flat, frees, current, span)?;
-        }
+        // A `list<u8>` is not a `String`: it copies elements into the canonical
+        // buffer as `Array Int` (DEC-16).
         CanonicalType::List(element) => {
             super::lists::write_value_list(
                 lowerer, argument, element, guest, flat, frees, current, span,
@@ -199,9 +195,9 @@ pub(super) fn lower_parameter<L: WitCallLowerer>(
     Ok(current)
 }
 
-/// Transcodes a GC string's UTF-16 into a fresh UTF-8 linear buffer. The helper
-/// returns the address of a length prefix; the canonical exchange passes the
-/// payload pointer and byte length, and the buffer is freed after the call.
+/// Copies a GC string's canonical UTF-8 bytes into a fresh linear buffer. The
+/// helper returns the address of a length prefix; the canonical exchange passes
+/// the payload pointer and byte length, and the buffer is freed after the call.
 fn lower_string<L: WitCallLowerer>(
     lowerer: &mut L,
     argument: ValueId,

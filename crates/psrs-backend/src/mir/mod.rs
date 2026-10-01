@@ -381,13 +381,14 @@ fn lower_module_after_binding_validation(
     Ok((mir, wasi))
 }
 
-/// Whether a list element carries byte-list payloads that need the UTF-8 codec.
+/// Whether a list element carries byte-list payloads that need the string
+/// boundary helpers.
 fn element_has_bytes(element: &crate::abi::canonical::CanonicalType) -> bool {
     use crate::abi::canonical::CanonicalType;
     match element {
         CanonicalType::String => true,
         CanonicalType::List(inner) | CanonicalType::FixedList { element: inner, .. } => {
-            inner.is_byte() || element_has_bytes(inner)
+            element_has_bytes(inner)
         }
         CanonicalType::Record(fields) => fields
             .iter()

@@ -186,6 +186,16 @@ pub enum Instruction {
         index: ValueId,
         span: TextRange,
     },
+    /// An unsigned element read, for the packed byte storage of a source
+    /// string. `ArrayGet` sign-extends a narrow element, so a UTF-8 byte
+    /// above `0x7F` would read back negative.
+    ArrayGetU {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        value: ValueId,
+        index: ValueId,
+        span: TextRange,
+    },
     ArrayClone {
         destination: ValueId,
         type_index: DefinedTypeId,
@@ -202,6 +212,27 @@ pub enum Instruction {
     ArrayLen {
         destination: ValueId,
         value: ValueId,
+        span: TextRange,
+    },
+    /// A source `String`'s canonical UTF-8 bytes as an `Array Int`: one GC array
+    /// element per byte, each `0..255`. A source string is a sequence of
+    /// Unicode scalar values, so the copy is lossless
+    /// ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+    ///
+    /// The literal bytes live in a GC array rather than linear memory, so the
+    /// element-wise copy is a loop over `header`/`body`/`exit` with `index` as
+    /// the header's parameter.
+    StringToBytes {
+        destination: ValueId,
+        /// The `Array Int` type the destination has.
+        type_index: DefinedTypeId,
+        /// The GC string type of `value`.
+        string_type: DefinedTypeId,
+        value: ValueId,
+        header: BlockId,
+        body: BlockId,
+        exit: BlockId,
+        index: ValueId,
         span: TextRange,
     },
     /// `i32.load`, for the canonical ABI and the byte-oriented WASI boundary.

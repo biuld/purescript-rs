@@ -162,6 +162,20 @@ pub enum AssignmentKind {
         destination: ValueId,
         value: ValueId,
     },
+    /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
+    /// string is a sequence of Unicode scalar values, so this is lossless.
+    StringToBytes {
+        destination: ValueId,
+        representation: ReprId,
+        value: ValueId,
+    },
+    /// An `Array Int` read as a source `String`. Every element must be a
+    /// canonical byte and the bytes must be well-formed UTF-8.
+    BytesToString {
+        destination: ValueId,
+        representation: ReprId,
+        value: ValueId,
+    },
     ArrayGet {
         destination: ValueId,
         representation: ReprId,

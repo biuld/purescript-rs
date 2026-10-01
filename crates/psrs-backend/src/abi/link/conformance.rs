@@ -166,19 +166,15 @@ fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) ->
             core(module, id),
             Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
         ),
-        CanonicalType::List(element) if element.is_byte() => {
-            matches!(
-                core(module, id),
-                Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
-            )
-        }
-        CanonicalType::FixedList { element, .. } if element.is_byte() => {
-            matches!(
-                core(module, id),
-                Some(CoreType::Constructor(psrs_core::TypeConstructor::String))
-            )
-        }
+        // A WIT `list<u8>` is `Array Int`, not `String`: arbitrary bytes stay
+        // out of the Unicode text type (DEC-16).
         CanonicalType::List(element) => match core(module, id) {
+            Some(CoreType::Application(function, argument)) if is_array(module, *function) => {
+                core_matches_kind(module, *argument, element)
+            }
+            _ => false,
+        },
+        CanonicalType::FixedList { element, .. } => match core(module, id) {
             Some(CoreType::Application(function, argument)) if is_array(module, *function) => {
                 core_matches_kind(module, *argument, element)
             }
@@ -189,7 +185,6 @@ fn core_matches_kind(module: &CoreModule, id: CoreTypeId, ty: &CanonicalType) ->
             core_matches_either(module, id, ok.as_deref(), err.as_deref())
         }
         CanonicalType::Variant(cases) => core_matches_variant(module, id, cases),
-        CanonicalType::FixedList { .. } => false,
     }
 }
 

@@ -278,7 +278,7 @@ pub fn lower_module_with_capabilities(
         codec::synthesize(
             string_type,
             indices.realloc.expect("the codec needs the allocator"),
-            indices.decode_step,
+            indices.validate_step,
             stb_type,
             bts_type,
             step_type,
@@ -334,7 +334,7 @@ struct SynthesizedIndices {
     realloc: Option<FunctionIndex>,
     string_to_bytes: Option<FunctionIndex>,
     bytes_to_string: Option<FunctionIndex>,
-    decode_step: FunctionIndex,
+    validate_step: FunctionIndex,
 }
 
 impl SynthesizedIndices {
@@ -346,14 +346,14 @@ impl SynthesizedIndices {
                 realloc,
                 string_to_bytes: Some(FunctionIndex(helper_base)),
                 bytes_to_string: Some(FunctionIndex(helper_base + 1)),
-                decode_step: FunctionIndex(helper_base + 2),
+                validate_step: FunctionIndex(helper_base + 2),
             }
         } else {
             Self {
                 realloc,
                 string_to_bytes: None,
                 bytes_to_string: None,
-                decode_step: FunctionIndex(helper_base),
+                validate_step: FunctionIndex(helper_base),
             }
         }
     }

@@ -201,6 +201,32 @@ impl FunctionLowerer<'_> {
                     },
                     assignment.span,
                 )?,
+                AssignmentKind::StringToBytes {
+                    destination,
+                    representation,
+                    value,
+                } => {
+                    current = self.lower_string_to_bytes(
+                        current,
+                        *destination,
+                        *representation,
+                        *value,
+                        assignment.span,
+                    )?;
+                }
+                AssignmentKind::BytesToString {
+                    destination,
+                    representation,
+                    value,
+                } => {
+                    current = self.lower_bytes_to_string(
+                        current,
+                        *destination,
+                        *representation,
+                        *value,
+                        assignment.span,
+                    )?;
+                }
                 AssignmentKind::ArrayGet {
                     destination,
                     representation,

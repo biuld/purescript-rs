@@ -29,9 +29,10 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
                     .iter()
                     .any(|(_, value)| expression_has_integer_capture(value, module))
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            expression_has_integer_capture(record, module)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => expression_has_integer_capture(record, module),
         ExprKind::ArrayIndex { array, index } => {
             expression_has_integer_capture(array, module)
                 || expression_has_integer_capture(index, module)
@@ -134,9 +135,10 @@ fn free_integer_local(
                     .iter()
                     .any(|(_, value)| free_integer_local(value, module, bound))
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            free_integer_local(record, module, bound)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => free_integer_local(record, module, bound),
         ExprKind::ArrayIndex { array, index } => {
             free_integer_local(array, module, bound) || free_integer_local(index, module, bound)
         }

@@ -66,6 +66,14 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
             source_type,
             target_type,
         },
+        // The string/byte conversions never fold to a literal: their result is
+        // a heap value, and folding `bytesToString` would hide its validation.
+        ExprKind::StringToBytes(value) => {
+            ExprKind::StringToBytes(Box::new(simplify_expr(*value, fresh)))
+        }
+        ExprKind::BytesToString(value) => {
+            ExprKind::BytesToString(Box::new(simplify_expr(*value, fresh)))
+        }
         ExprKind::ArrayLength(array) => {
             let array = simplify_expr(*array, fresh);
             if let ExprKind::Array { elements } = &array.kind

@@ -55,6 +55,24 @@ impl Checker {
                 arrow(primitive(TypeConstructor::Int), arrow(element, array)),
             ));
         }
+        if intrinsic == Intrinsic::StringToBytes {
+            return Some(arrow(
+                primitive(TypeConstructor::String),
+                InferType::Application(
+                    Box::new(InferType::Constructor(TypeConstructor::Array)),
+                    Box::new(primitive(TypeConstructor::Int)),
+                ),
+            ));
+        }
+        if intrinsic == Intrinsic::BytesToString {
+            return Some(arrow(
+                InferType::Application(
+                    Box::new(InferType::Constructor(TypeConstructor::Array)),
+                    Box::new(primitive(TypeConstructor::Int)),
+                ),
+                primitive(TypeConstructor::String),
+            ));
+        }
         if let Some((operand, result)) = match intrinsic {
             Intrinsic::IntNeg | Intrinsic::IntComplement => {
                 Some((TypeConstructor::Int, TypeConstructor::Int))
@@ -129,6 +147,8 @@ impl Checker {
             | Intrinsic::IntToBoolean
             | Intrinsic::CharToInt
             | Intrinsic::IntToChar
+            | Intrinsic::StringToBytes
+            | Intrinsic::BytesToString
             | Intrinsic::Coerce => return None,
         };
         Some(curried(

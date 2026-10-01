@@ -15,6 +15,39 @@ use psrs_span::TextRange;
 use wasm_encoder::Instruction;
 
 impl Structurer<'_> {
+    /// Stores one `list<u8>` element: a source `Array Int` value is
+    /// range-checked to `0..255` before it is narrowed to one canonical byte
+    /// ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+    pub(super) fn emit_byte_store(
+        &self,
+        body: &mut Body,
+        context: &ListLoop,
+        offset: u32,
+        path: &[Projection],
+        span: TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.element_address(body, context, offset, span)?;
+        self.emit_project(body, context, path, span)?;
+        let scratch = self.node_locals(context.depth).scratch_local;
+        body.push(Op::Leaf(Instruction::LocalSet(scratch)));
+        // Trap unless the value is a canonical byte.
+        body.push(Op::Leaf(Instruction::LocalGet(scratch)));
+        body.push(Op::Leaf(Instruction::I32Const(0)));
+        body.push(Op::Leaf(Instruction::I32LtS));
+        body.push(Op::Leaf(Instruction::LocalGet(scratch)));
+        body.push(Op::Leaf(Instruction::I32Const(255)));
+        body.push(Op::Leaf(Instruction::I32GtS));
+        body.push(Op::Leaf(Instruction::I32Or));
+        body.push(Op::Leaf(Instruction::If(wasm_encoder::BlockType::Empty)));
+        body.push(Op::Leaf(Instruction::Unreachable));
+        body.push(Op::Leaf(Instruction::End));
+        body.push(Op::Leaf(Instruction::LocalGet(scratch)));
+        body.push(Op::Leaf(Instruction::I32Store8(
+            super::super::ops::memory_with_align(0, 0),
+        )));
+        Ok(())
+    }
+
     /// Stores a scalar node: push the canonical address, then the projected
     /// guest value, unboxing it when the guest field is erased.
     #[allow(clippy::too_many_arguments)]

@@ -81,26 +81,27 @@ pub const MIN_BLOCK: u32 = 8;
 /// function during Wasm lowering; it is never emitted as a core import.
 pub(crate) const REALLOC_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 1);
 
-/// Reserved symbols for the UTF-16 <-> UTF-8 codec at the canonical ABI
-/// boundary. P10 synthesizes them as ordinary local Wasm functions; like
+/// Reserved symbols for the string boundary helpers at the canonical ABI.
+/// P10 synthesizes them as ordinary local Wasm functions; like
 /// `REALLOC_SYMBOL` they are never emitted as core imports.
 pub(crate) const STRING_TO_BYTES_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 2);
 pub(crate) const BYTES_TO_STRING_SYMBOL: SymbolId =
     SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 3);
 
-/// Reserved MIR symbol for the synthesized `decode_step` codec helper. Like the
-/// other codec symbols it is never a core import.
-pub(crate) const DECODE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
+/// Reserved MIR symbol for the synthesized `validate_step` helper. Like the
+/// other boundary symbols it is never a core import.
+pub(crate) const VALIDATE_STEP_SYMBOL: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 4);
 
-/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and codec.
-/// Any other intrinsic-symbol allocator (for example the aggregate conversion
-/// helpers, which allocate downward from `u32::MAX`) must skip these.
+/// Intrinsic symbols the MIR lowering reserves for the canonical ABI and the
+/// string boundary. Any other intrinsic-symbol allocator (for example the
+/// aggregate conversion helpers, which allocate downward from `u32::MAX`) must
+/// skip these.
 pub(crate) const RESERVED_ABI_SYMBOLS: [SymbolId; 4] = [
     REALLOC_SYMBOL,
     STRING_TO_BYTES_SYMBOL,
     BYTES_TO_STRING_SYMBOL,
-    DECODE_STEP_SYMBOL,
+    VALIDATE_STEP_SYMBOL,
 ];
 
 /// WASI interfaces and functions the backend itself references. The standard

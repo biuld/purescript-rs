@@ -14,6 +14,7 @@ use std::collections::HashMap;
 
 mod aggregate;
 mod assignment_array;
+mod assignment_string;
 mod assignments;
 mod conversion_helpers;
 mod tail;

@@ -65,6 +65,15 @@ relation, not a raw Wasm cast: array elements, functions, records, and ADT
 payloads follow their established conversion plans, and unsupported conversion
 shapes fail lowering.
 
+Type-level `Symbol` values use the same Unicode scalar sequence as source
+strings ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+`IsSymbol` evidence and `Reflectable` preserve or produce that sequence.
+`SymbolCompare` orders by Unicode scalar value, and `SymbolAppend` concatenates
+scalar sequences. There is no lone-surrogate `Symbol`: an unpaired surrogate
+literal is rejected before solving. `SymbolCons` splits or builds one scalar
+head and a scalar tail. These solver rules do not change value-level string
+storage.
+
 Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Search givens first, then superclass paths and candidate instances. Matching a given unifies flexible wanted arguments with the given's arguments transactionally; it never assigns a rigid given variable, and a failed candidate leaves no substitutions behind. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
 
 Elaboration turns a constrained binding into explicit evidence parameters and inserts evidence at overloaded uses. A method selection projects from its dictionary; a superclass selection follows a dictionary field. The frontend proves and records the selected path. Backend optimization may specialize dictionaries but cannot change which instance was selected.

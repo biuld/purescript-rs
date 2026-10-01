@@ -89,56 +89,41 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
     let text = project(details, 1);
     let nested_enum = project(details, 0);
     let outer_enum = project(ValueId(24), 2);
-    // The GC String is transcoded into a transient linear buffer; the helper
-    // returns the length-prefix address the canonical pair is derived from.
-    let list_prefix = instructions
-        .iter()
-        .find_map(|instruction| match instruction {
-            Instruction::Call {
-                destination,
-                function,
-                arguments,
-                ..
-            } if *function == crate::abi::STRING_TO_BYTES_SYMBOL && arguments == &[text] => {
-                Some(*destination)
-            }
-            _ => None,
-        })
-        .expect("the list branch should transcode the String");
+    // A WIT `list<u8>` is `Array Int` (DEC-16): the source GC array is copied
+    // element-wise into a canonical `(pointer, length)` buffer. The pointer
+    // comes from `cabi_realloc`, not from the string boundary helper.
     let list_length = instructions
         .iter()
         .find_map(|instruction| match instruction {
-            Instruction::Load {
-                destination,
-                address,
-                offset: 0,
-                ..
-            } if *address == list_prefix => Some(*destination),
+            Instruction::ArrayLen {
+                destination, value, ..
+            } if *value == text => Some(*destination),
             _ => None,
         })
-        .expect("the list branch should load the String length");
-    let list_pointer = instructions
+        .expect("the list branch should measure the Array Int length");
+    let list_copy = instructions
         .iter()
         .find_map(|instruction| match instruction {
-            Instruction::Primitive {
-                destination,
-                op: NumericOp::I32Add,
-                left,
-                right,
+            Instruction::ListCopy {
+                array,
+                pointer,
+                length,
+                element,
                 ..
-            } if *left == list_prefix
-                && instructions.iter().any(|candidate| {
-                    matches!(candidate,
-                        Instruction::Constant { destination, value: 4, .. }
-                            if destination == right
-                    )
-                }) =>
+            } if *array == text
+                && *element
+                    == CanonicalType::Int {
+                        width: 8,
+                        signed: false,
+                    } =>
             {
-                Some(*destination)
+                Some((*pointer, *length))
             }
             _ => None,
         })
-        .expect("the list branch should skip the String length prefix");
+        .expect("the list branch should copy the Array Int elements");
+    assert_eq!(list_copy.1, list_length);
+    let (list_pointer, _) = list_copy;
     let stored_value = |offset| {
         instructions
             .iter()
@@ -235,9 +220,11 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
             ("i32.store8", 72),
         ]
     );
-    let realloc_size = instructions
+    // The parameter area and the `list<u8>` element buffer are separate
+    // allocations; the parameter area is the 76-byte one.
+    let realloc_sizes = instructions
         .iter()
-        .find_map(|instruction| match instruction {
+        .filter_map(|instruction| match instruction {
             Instruction::Call {
                 function,
                 arguments,
@@ -245,10 +232,10 @@ pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {
             } if *function == crate::abi::REALLOC_SYMBOL => arguments.get(3).copied(),
             _ => None,
         })
-        .expect("the tuple layout should allocate a parameter area");
+        .collect::<Vec<_>>();
     assert!(instructions.iter().any(|instruction| matches!(instruction,
         Instruction::Constant { destination, value: 76, .. }
-            if *destination == realloc_size
+            if realloc_sizes.contains(destination)
     )));
 }
 

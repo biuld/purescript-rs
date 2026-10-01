@@ -1,11 +1,12 @@
-//! Direct execution tests for the UTF-16 <-> UTF-8 codec.
+//! Direct execution tests for the string boundary helpers.
 //!
-//! Each test builds a minimal module that decodes an active data segment of
-//! UTF-8 bytes with `bytes_to_string` and exports the decoded code-unit count
-//! and its first two code units. The module is validated and executed with
-//! Wasmtime; the expected code units follow the WHATWG `TextDecoder` rules.
+//! Each test builds a minimal module that copies an active data segment of
+//! UTF-8 bytes into a GC string with `bytes_to_string` and exports the byte
+//! count and its first two bytes. The module is validated and executed with
+//! Wasmtime. Malformed text must reject the value rather than produce U+FFFD,
+//! so those cases assert a trap.
 
-use super::decode::{bytes_to_string, decode_step};
+use super::decode::{bytes_to_string, validate_step};
 use crate::types::{
     CompositeType, DataId, DefinedType, DefinedTypeId, FieldType, MemoryId, RecGroup, StorageType,
 };
@@ -36,16 +37,16 @@ fn export(name: &str, index: u32) -> Export {
     }
 }
 
-/// Builds a module decoding `bytes` (at address 0) into a GC string. Exports
-/// `decoded_units`, `first_unit`, and `second_unit`.
+/// Builds a module copying `bytes` (at address 0) into a GC string. Exports
+/// `decoded_bytes`, `first_byte`, and `second_byte`.
 fn decode_module(bytes: &[u8]) -> Module {
     let string_type = DefinedTypeId(0);
     // Function 0..=2 are the harness; with no entry or realloc, the helpers
-    // start at index 3 (`bytes_to_string`) and 4 (`decode_step`).
+    // start at index 3 (`bytes_to_string`) and 4 (`validate_step`).
     let bytes_to_string_index = FunctionIndex(3);
-    let decode_step_index = FunctionIndex(4);
+    let validate_step_index = FunctionIndex(4);
 
-    let harness = |name: &str, symbol: u32, unit: Option<u32>| Function {
+    let harness = |name: &str, symbol: u32, byte: Option<u32>| Function {
         symbol: SymbolId::new(ModuleId(0), symbol),
         name: name.into(),
         type_index: TypeIndex(1),
@@ -57,7 +58,7 @@ fn decode_module(bytes: &[u8]) -> Module {
                 Op::Leaf(Instruction::I32Const(bytes.len() as i32)),
                 Op::Leaf(Instruction::Call(bytes_to_string_index.0)),
             ];
-            match unit {
+            match byte {
                 None => body.push(Op::Leaf(Instruction::ArrayLen)),
                 Some(index) => {
                     body.push(Op::Leaf(Instruction::I32Const(index as i32)));
@@ -90,14 +91,14 @@ fn decode_module(bytes: &[u8]) -> Module {
             final_type: true,
             supertype: None,
             composite: CompositeType::Array(FieldType {
-                storage: StorageType::I16,
+                storage: StorageType::I8,
                 mutable: true,
             }),
         }])],
         functions: vec![
-            harness("decoded_units", 0, None),
-            harness("first_unit", 1, Some(0)),
-            harness("second_unit", 2, Some(1)),
+            harness("decoded_bytes", 0, None),
+            harness("first_byte", 1, Some(0)),
+            harness("second_byte", 2, Some(1)),
         ],
         memories: vec![Memory {
             id: MemoryId(0),
@@ -113,21 +114,28 @@ fn decode_module(bytes: &[u8]) -> Module {
             bytes: bytes.to_vec(),
         }],
         exports: vec![
-            export("decoded_units", 0),
-            export("first_unit", 1),
-            export("second_unit", 2),
+            export("decoded_bytes", 0),
+            export("first_byte", 1),
+            export("second_byte", 2),
         ],
         entry: None,
         realloc: None,
         helpers: vec![
-            bytes_to_string(string_type, decode_step_index, TypeIndex(2), span()),
-            decode_step(TypeIndex(3), span()),
+            bytes_to_string(string_type, validate_step_index, TypeIndex(2), span()),
+            validate_step(TypeIndex(3), span()),
         ],
         span: span(),
     }
 }
 
-fn invoke(module: &Module, name: &str) -> Option<i32> {
+fn invoke_ok(module: &Module, name: &str) -> Option<i32> {
+    let (success, stdout) = invoke(module, name)?;
+    assert!(success, "wasmtime trapped running {name}: {stdout:?}");
+    Some(stdout.trim().parse().expect("the export returns an i32"))
+}
+
+/// Runs the module and reports whether the call trapped, with its stdout.
+fn invoke(module: &Module, name: &str) -> Option<(bool, String)> {
     let available = std::process::Command::new("wasmtime")
         .arg("--version")
         .output()
@@ -162,61 +170,67 @@ fn invoke(module: &Module, name: &str) -> Option<i32> {
         .output()
         .expect("running the codec test module");
     let _ = std::fs::remove_file(&path);
-    assert!(output.status.success(), "wasmtime failed: {output:?}");
-    Some(
-        String::from_utf8_lossy(&output.stdout)
-            .trim()
-            .parse()
-            .expect("the export returns an i32"),
-    )
+    Some((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+    ))
 }
 
-fn assert_decodes(bytes: &[u8], units: i32, first: i32, second: Option<i32>) {
+fn assert_copies(bytes: &[u8], count: i32, first: i32, second: Option<i32>) {
     let module = decode_module(bytes);
-    let Some(decoded) = invoke(&module, "decoded_units") else {
+    let Some(decoded) = invoke_ok(&module, "decoded_bytes") else {
         return;
     };
-    assert_eq!(decoded, units, "code-unit count for {bytes:?}");
-    if units > 0 {
-        assert_eq!(invoke(&module, "first_unit"), Some(first), "first unit");
+    assert_eq!(decoded, count, "byte count for {bytes:?}");
+    if count > 0 {
+        assert_eq!(invoke_ok(&module, "first_byte"), Some(first), "first byte");
     }
-    if units > 1
+    if count > 1
         && let Some(second) = second
     {
-        assert_eq!(invoke(&module, "second_unit"), Some(second), "second unit");
+        assert_eq!(
+            invoke_ok(&module, "second_byte"),
+            Some(second),
+            "second byte"
+        );
     }
 }
 
-const REPLACEMENT: i32 = 0xFFFD;
-
 #[test]
-fn decodes_empty_ascii_bmp_and_astral() {
-    assert_decodes(b"", 0, 0, None);
-    assert_decodes(b"A", 1, 0x41, None);
-    // "é" U+00E9
-    assert_decodes(&[0xC3, 0xA9], 1, 0xE9, None);
-    // "λ" U+03BB
-    assert_decodes(&[0xCE, 0xBB], 1, 0x3BB, None);
-    // U+1F600 encodes as a UTF-16 surrogate pair.
-    assert_decodes(&[0xF0, 0x9F, 0x98, 0x80], 2, 0xD83D, Some(0xDE00));
+fn copies_valid_utf8_unchanged() {
+    assert_copies(b"", 0, 0, None);
+    assert_copies(b"A", 1, 0x41, None);
+    // "é" U+00E9 is two UTF-8 bytes.
+    assert_copies(&[0xC3, 0xA9], 2, 0xC3, Some(0xA9));
+    // "λ" U+03BB.
+    assert_copies(&[0xCE, 0xBB], 2, 0xCE, Some(0xBB));
+    // U+1F600 is one four-byte sequence, stored as four bytes.
+    assert_copies(&[0xF0, 0x9F, 0x98, 0x80], 4, 0xF0, Some(0x9F));
+    // A supplementary scalar's bytes are copied, not a surrogate pair.
+    assert_copies("𝌆".as_bytes(), 4, 0xF0, Some(0x9D));
 }
 
 #[test]
-fn decodes_invalid_utf8_as_replacement() {
-    // A lone continuation byte.
-    assert_decodes(&[0x80], 1, REPLACEMENT, None);
-    // 0xC0 is below the shortest two-byte lead.
-    assert_decodes(&[0xC0], 1, REPLACEMENT, None);
-    // 0xFF is an invalid lead byte.
-    assert_decodes(&[0xFF], 1, REPLACEMENT, None);
-    // A truncated two-byte sequence.
-    assert_decodes(&[0xC3], 1, REPLACEMENT, None);
-    // An encoded surrogate (CESU-8) is invalid and must not decode to a
-    // surrogate code unit.
-    let surrogate = decode_module(&[0xED, 0xA0, 0x80]);
-    assert!(invoke(&surrogate, "decoded_units").is_some_and(|units| units >= 1));
-    assert_eq!(invoke(&surrogate, "first_unit"), Some(REPLACEMENT));
-    // Invalid bytes mixed with valid ASCII keep the ASCII.
-    let module = decode_module(&[0xFF, 0x41]);
-    assert_eq!(invoke(&module, "second_unit"), Some(0x41));
+fn rejects_malformed_utf8_instead_of_replacing_it() {
+    for bytes in [
+        &[0x80u8][..],             // a lone continuation byte
+        &[0xC0],                   // below the shortest two-byte lead
+        &[0xFF],                   // not a lead byte
+        &[0xC3],                   // a truncated two-byte sequence
+        &[0xE2, 0x28, 0xA1],       // a bad continuation byte
+        &[0xED, 0xA0, 0x80],       // CESU-8: an encoded surrogate
+        &[0xF0, 0x9F, 0x98],       // a truncated four-byte sequence
+        &[0xF5, 0x80, 0x80, 0x80], // above U+10FFFF
+        &[0xC0, 0x80],             // an overlong NUL
+        &[0x41, 0xFF],             // valid text followed by malformed bytes
+    ] {
+        let module = decode_module(bytes);
+        let Some((success, stdout)) = invoke(&module, "decoded_bytes") else {
+            continue;
+        };
+        assert!(
+            !success,
+            "{bytes:?} must be rejected, not decoded: {stdout:?}"
+        );
+    }
 }

@@ -361,14 +361,14 @@ free(ptr):
 
 ```text
 lower_string_argument(string):
-    buffer = string_to_bytes(string)          # cabi_realloc + UTF-8 transcode
+    buffer = string_to_bytes(string)          # cabi_realloc + copy canonical UTF-8
     (pointer, length) = (buffer + 4, load(buffer))
     push (pointer, length)
     # call-local: free(buffer + 4, length, 1, 0) after the call returns
 
 read_returned_string(retptr):
     pointer = Load [retptr + 0]; length = Load [retptr + 4]
-    value = bytes_to_string(pointer, length)  # fresh GC string
+    value = bytes_to_string(pointer, length)  # validate UTF-8, then a fresh GC string
     cabi_realloc(pointer, length, 1, 0)       # import result freed
     return value
 
@@ -384,7 +384,7 @@ crates/psrs-backend/src/
                              REALLOC_SYMBOL, ownership helpers
   mir/
     wit/mod.rs               result recovery: free the import buffer
-    wit/parameters/mod.rs    string argument: free the transcode buffer
+    wit/parameters/mod.rs    string argument: free the copied UTF-8 buffer
     wit/parameters/indirect.rs  parameter record: allocate and free around the call
   wasm/
     lower/mod.rs             heap-state data segment, memory minimum,
@@ -478,7 +478,7 @@ otherwise the whole block is handed out.
   time at the cost of a word per block; the address-ordered list is the chosen
   simple, correct baseline.
 - **Caching a linear view.** A repeated boundary call may cache a linear view
-  of a GC string to avoid re-transcoding; the cache would carry its own lifetime
+  of a GC string to avoid copying its UTF-8 again; the cache would carry its own lifetime
   rules ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)).
 - **Alignments above the canonical maximum.** A profile with wider canonical
   fields raises `HEADER`/`MIN_BLOCK`; the model already parameterizes on them.

@@ -64,7 +64,9 @@ pub(super) fn add_assignments(
             | AssignmentKind::ArrayNew { representation, .. }
             | AssignmentKind::ArrayGet { representation, .. }
             | AssignmentKind::ArrayClone { representation, .. }
-            | AssignmentKind::ArraySet { representation, .. } => {
+            | AssignmentKind::ArraySet { representation, .. }
+            | AssignmentKind::StringToBytes { representation, .. }
+            | AssignmentKind::BytesToString { representation, .. } => {
                 add_representation(*representation, representations, representation_work)
             }
             AssignmentKind::If {

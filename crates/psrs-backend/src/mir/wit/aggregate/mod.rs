@@ -169,8 +169,6 @@ pub(super) fn direct_shape(ty: &CanonicalType) -> Option<ValueShape> {
         CanonicalType::Bool => ValueShape::Boolean,
         CanonicalType::Float { .. } => ValueShape::Number,
         CanonicalType::String => ValueShape::String,
-        CanonicalType::List(inner) if inner.is_byte() => ValueShape::String,
-        CanonicalType::FixedList { element, .. } if element.is_byte() => ValueShape::String,
         _ => return None,
     })
 }

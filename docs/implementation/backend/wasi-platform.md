@@ -5,8 +5,13 @@
 **Design:** [WASI platform library](../../design/backend/wasm/wasi-platform-library.md).
 
 **Progress:** Re-baselined by
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) for GC strings
-and buffer reclamation. WASI-01, WASI-02, WASI-03, WASI-04, WASI-05, WASI-06,
+[DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md) for the guest
+encoding, on top of
+[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) for buffer
+reclamation. The executed string path linearizes a GC `(array (mut i8))` of
+canonical UTF-8 without transcoding, `list<u8>` is `Array Int`, and the
+console and file writes reach the ABI through `stringToBytes`.
+WASI-01, WASI-02, WASI-03, WASI-04, WASI-05, WASI-06,
 WASI-09, and WASI-10 are Verified. Stdout, stderr, and random bytes execute
 under the GC-string representation, and the standard library loads from
 `stdlib/lib`. WASI-07 is Verified: `WASI.Process.arguments` and
@@ -87,7 +92,8 @@ WASI-02:
 ```text
 WASI-03:
   Implementation: WASI stdout/stderr imports in the ABI registry; effects
-    library. Each call linearizes a GC `(array (mut i16))` string to UTF-8.
+    library. Each call linearizes a GC `(array (mut i8))` string of canonical
+    UTF-8 through `stringToBytes`.
   Tests: component::tests::prints_via_wasi_stdout_when_wasmtime_is_available;
     psrs-driver tests::wasi::{lowers_string_log_to_wasi_stdout,
     prints_hello_world_when_wasmtime_is_available,

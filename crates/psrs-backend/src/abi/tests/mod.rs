@@ -186,7 +186,15 @@ fn resolves_stdout_and_exit_imports() {
         .expect("the stream receiver should be a handle");
     assert_eq!(receiver.mode, HandleMode::Borrow);
     assert_eq!(receiver.name, "output-stream");
-    assert!(write.params[1].is_byte_list());
+    // DEC-16: `list<u8>` is `Array Int`, not `String`: its bytes are
+    // uninterpreted and stay out of the Unicode text type.
+    assert_eq!(
+        write.params[1],
+        CanonicalType::List(Box::new(CanonicalType::Int {
+            width: 8,
+            signed: false
+        }))
+    );
     assert!(matches!(
         write.canonical_result,
         Some(CanonicalType::Result { ok: None, .. })
@@ -197,7 +205,8 @@ fn resolves_stdout_and_exit_imports() {
     let read = registry
         .import("wasi:io/streams", "[method]input-stream.read")
         .expect("input-stream.read should resolve");
-    // DEC-13 maps `result<list<u8>, stream-error>` to `Either String StreamError`.
+    // DEC-13 maps `result<list<u8>, stream-error>` to
+    // `Either StreamError (Array Int)`.
     assert!(matches!(
         read.canonical_result,
         Some(CanonicalType::Result {

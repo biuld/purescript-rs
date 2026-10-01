@@ -45,10 +45,14 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
             cc::Representation::Product {
                 // Source record fields are sorted alphabetically. WIT declares
                 // `text` before `state`, so lowering must project by field name.
-                fields: vec![ValueShape::Integer, ValueShape::String],
+                // `text` is a WIT `list<u8>`, which is `Array Int` (DEC-16).
+                fields: vec![ValueShape::Integer, product_shape(3)],
             },
             cc::Representation::Product {
                 fields: vec![flags_shape, details_shape, ValueShape::Integer],
+            },
+            cc::Representation::Array {
+                element: ValueShape::Integer,
             },
         ],
         signatures: Vec::new(),
@@ -85,14 +89,29 @@ pub(super) fn composite_indirect_fixture() -> (cc::Module, ExternalBindings, Res
         call_arguments.push(id);
     }
 
+    let bytes = ValueId(30);
+    values.push(ValueDecl {
+        id: bytes,
+        ty: ValueShape::Integer,
+    });
+    assignments.push(Assignment {
+        destination: bytes,
+        kind: AssignmentKind::Constant(0x70),
+        span: span(),
+    });
+
     let text = ValueId(14);
     values.push(ValueDecl {
         id: text,
-        ty: ValueShape::String,
+        ty: product_shape(3),
     });
     assignments.push(Assignment {
         destination: text,
-        kind: AssignmentKind::StringConstant("fixture payload".into()),
+        kind: AssignmentKind::ArrayNew {
+            destination: text,
+            representation: cc::ReprId(3),
+            elements: vec![bytes],
+        },
         span: span(),
     });
 

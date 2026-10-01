@@ -10,6 +10,19 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
+/// The `Array Int` a WIT `list<u8>` maps to (DEC-16).
+fn array_of_int(module: &mut psrs_core::Module) -> super::CoreTypeId {
+    let constructor = intern_all(module, vec![CoreType::Constructor(TypeConstructor::Array)])
+        .pop()
+        .expect("one array constructor");
+    let integer = intern_all(module, vec![CoreType::Constructor(TypeConstructor::Int)])
+        .pop()
+        .expect("one integer");
+    intern_all(module, vec![CoreType::Application(constructor, integer)])
+        .pop()
+        .expect("one array of integers")
+}
+
 fn opaque_type(type_id: HirTypeId) -> CoreType {
     CoreType::Constructor(TypeConstructor::User(type_id))
 }
@@ -34,12 +47,6 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
     )
     .pop()
     .expect("one boolean");
-    let string = intern_all(
-        &mut core,
-        vec![CoreType::Constructor(psrs_core::TypeConstructor::String)],
-    )
-    .pop()
-    .expect("one string");
     let unit = unit_type(&mut core);
 
     // DEC-13: `blocking-write-and-flush` returns `result<_, stream-error>`,
@@ -153,23 +160,31 @@ fn maps_a_nullary_opaque_type_to_a_wit_resource_handle() {
         .expect("the method receiver should be a borrow");
     assert_eq!(borrowed.mode, HandleMode::Borrow);
     assert_eq!(borrowed.name, "output-stream");
-    assert!(write.params[1].is_byte_list());
+    // DEC-16: `list<u8>` is `Array Int`, not `String`.
+    assert_eq!(
+        write.params[1],
+        CanonicalType::List(Box::new(CanonicalType::Int {
+            width: 8,
+            signed: false
+        }))
+    );
+    let array_int = array_of_int(&mut core);
     validate_against(
         &write,
         core.clone(),
-        &[opaque, string],
+        &[opaque, array_int],
         either_stream_error_unit,
     )
     .expect("the method should accept an opaque resource receiver");
     validate_against(
         &write,
         core.clone(),
-        &[integer, string],
+        &[integer, array_int],
         either_stream_error_unit,
     )
     .expect("the integer placeholder should still match a handle parameter");
     assert!(
-        validate_against(&write, core.clone(), &[boolean, string], unit).is_err(),
+        validate_against(&write, core.clone(), &[boolean, array_int], unit).is_err(),
         "a Boolean is not a handle parameter"
     );
 

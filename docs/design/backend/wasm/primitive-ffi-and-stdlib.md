@@ -99,8 +99,11 @@ foreign import may use:
 | `Array Int`, `Array Boolean`, `Array Number`, `Array Char`, `Array String` (and the narrowed-integer, `s64`/`u64`, and `f32` extensions) | a non-byte `list<T>`: the lowerer copies elements between the GC array and the canonical `(pointer, length)` buffer |
 
 `Array String` is a `list<string>`: its elements are themselves `(pointer,
-length)` pairs, transcoded element-wise and freed after the call. A `list<u8>`
-stays `String`, not `Array Int`. An element that is itself an aggregate follows
+length)` pairs of canonical UTF-8, copied element-wise and freed after the
+call. A `list<u8>` is `Array Int`, not `String`: each byte is zero-extended on
+input and range-checked to `0..255` on output
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). An
+element that is itself an aggregate follows
 the mapped aggregate forms below ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md));
 a nested `Array (Array _)` lowers recursively. This includes `Array (Resource a)`,
 which is a `list<own<T>>`/`list<borrow<T>>` whose element erases to the handle

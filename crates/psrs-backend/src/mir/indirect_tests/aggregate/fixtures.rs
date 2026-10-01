@@ -38,18 +38,32 @@ pub(super) fn fixture(
     function: &str,
     cases: Vec<VariantCase>,
 ) -> (cc::Module, ExternalBindings, Resolve) {
+    fixture_with_representations(wit, function, cases, Vec::new())
+}
+
+/// The same module, with extra representations appended. A WIT `list<u8>` maps
+/// to `Array Int`, so its payload field is a reference to the `Array`
+/// representation a caller supplies here.
+pub(super) fn fixture_with_representations(
+    wit: &str,
+    function: &str,
+    cases: Vec<VariantCase>,
+    extra: Vec<Representation>,
+) -> (cc::Module, ExternalBindings, Resolve) {
     let mut resolve = Resolve::default();
     resolve
         .push_str("aggregate.wit", wit)
         .expect("the aggregate WIT fixture should resolve");
 
+    let mut representations = vec![
+        Representation::Box {
+            value: ValueShape::Integer,
+        },
+        Representation::Variant { cases },
+    ];
+    representations.extend(extra);
     let representations = cc::RepresentationTable {
-        representations: vec![
-            Representation::Box {
-                value: ValueShape::Integer,
-            },
-            Representation::Variant { cases },
-        ],
+        representations,
         signatures: Vec::new(),
         product_labels: Default::default(),
     };

@@ -102,15 +102,17 @@ impl PlannedLayout {
         let mut product_fields = HashMap::new();
         let mut array_elements = HashMap::new();
         let mut definitions = Vec::with_capacity(repr_ids.len() + 1);
-        // The GC string is `(array (mut i16))`: its length is the UTF-16 code
-        // unit count, matching PureScript/JS `String` semantics. Reserve it at
-        // index 0 so every other concrete type keeps a stable offset.
+        // The GC string is `(array (mut i8))`: its length is the UTF-8 byte
+        // count of the string's canonical encoding. A source string is a
+        // sequence of Unicode scalar values, and its byte length is internal
+        // storage, not the public scalar-value length. Reserve it at index 0 so
+        // every other concrete type keeps a stable offset.
         let string_index = if needs_string {
             definitions.push(DefinedType {
                 final_type: true,
                 supertype: None,
                 composite: CompositeType::Array(FieldType {
-                    storage: StorageType::I16,
+                    storage: StorageType::I8,
                     mutable: true,
                 }),
             });

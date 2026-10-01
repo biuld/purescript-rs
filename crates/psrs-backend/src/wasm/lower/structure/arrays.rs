@@ -95,6 +95,46 @@ impl Structurer<'_> {
         Ok(())
     }
 
+    pub(super) fn emit_array_get_u(
+        &self,
+        body: &mut Body,
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        value: ValueId,
+        index: ValueId,
+        span: psrs_span::TextRange,
+    ) -> Result<(), Vec<BackendError>> {
+        self.load(body, value, span)?;
+        self.load(body, index, span)?;
+        body.push(Op::Leaf(Instruction::ArrayGetU(type_index.0)));
+        self.store(body, destination, span)
+    }
+
+    /// Emits the allocation half of `stringToBytes`: a fresh `Array Int` as long
+    /// as the source string. The element copy itself lives in the blocks the
+    /// instruction names, which the region emitter structures with the rest of
+    /// the function.
+    pub(super) fn emit_string_bytes(
+        &self,
+        body: &mut Vec<Op>,
+        instruction: &crate::mir::Instruction,
+    ) -> Result<(), Vec<BackendError>> {
+        let crate::mir::Instruction::StringToBytes {
+            destination,
+            type_index,
+            value,
+            span,
+            ..
+        } = instruction
+        else {
+            unreachable!("string/byte emission received another instruction")
+        };
+        self.load(body, *value, *span)?;
+        body.push(Op::Leaf(Instruction::ArrayLen));
+        body.push(Op::Leaf(Instruction::ArrayNewDefault(type_index.0)));
+        self.store(body, *destination, *span)
+    }
+
     pub(super) fn emit_array_len(
         &self,
         body: &mut Body,

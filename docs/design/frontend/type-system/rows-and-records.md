@@ -25,11 +25,20 @@ RowEquation = Equal(Row, Row) | Cons(label, field, tail, whole)
             | Lacks(label, row) | Union(left, right, union) | Nub(row, nubbed)
 ```
 
-Rows preserve source label ranges but compare modulo label order. A rigid row variable cannot be extended by unification; an inference unknown may be solved subject to occurs and kind checks. A duplicate label is handled according to the source operation and primitive relation, rather than silently collapsed by a map. Record field types always have kind `Type`; generic primitive row relations can range over `Row k`.
+Rows preserve source label ranges but compare modulo label order. A label is a
+type-level `Symbol` value: a sequence of Unicode scalar values, distinct from
+identifier text, with no Unicode normalization
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). An
+unpaired surrogate is not a label. Matching, duplicate detection, and canonical
+label ordering use that exact scalar sequence. A rigid row variable cannot be extended by
+unification; an inference unknown may be solved subject to occurs and kind
+checks. A duplicate label is handled according to the source operation and
+primitive relation, rather than silently collapsed by a map. Record field types
+always have kind `Type`; generic primitive row relations can range over `Row k`.
 
 ## Design
 
-Normalize rows for comparison into labelled entries and a tail while retaining original ranges. Align common labels and unify their field types. Distribute unmatched entries into open unknown tails with a fresh shared remainder when both sides are open. Reject unmatched entries against a closed or rigid tail. Check record literals against closed or expected open rows, access against a row containing the field, and updates against the official record-update typing rules. Row-based library operations produce or consume class constraints; their primitive solvers share the same row normalizer.
+Normalize rows for comparison into labelled entries and a tail while retaining original ranges. Align labels by exact scalar-sequence equality and unify their field types. Sort only for canonical row equality or lookup; field declaration order does not affect a row's meaning. Distribute unmatched entries into open unknown tails with a fresh shared remainder when both sides are open. Reject unmatched entries against a closed or rigid tail. Check record literals against closed or expected open rows, access against a row containing the field, and updates against the official record-update typing rules. Row-based library operations produce or consume class constraints; their primitive solvers share the same row normalizer.
 
 Record subsumption also checks missing or additional fields when one side is closed. Preserve label-specific diagnostics and keep type-level `Symbol` values distinct from runtime strings. Type checking does not choose memory offsets or reorder record expressions for codegen.
 
@@ -56,7 +65,7 @@ Occurs checks traverse field types and tails. A solver must not bind a rigid row
 
 ## Code map
 
-`crates/psrs-typecheck/src/typecheck/rows/` owns `row.rs` (`RowView`, `RowEntry`), `unify.rs`, `primitives.rs`, and `records.rs`. Key entry points are `unify_rows(&Type, &Type, &mut InferState) -> Result<(), Diagnostic>`, `solve_row_constraint(&Constraint, &mut InferState) -> Result<Evidence, Diagnostic>`, and `check_record(&hir::Expr, &ExpectedType) -> Result<thir::Expr, Diagnostic>`. THIR stores typed record operations and checked row types; MIR later fixes layouts.
+`crates/psrs-typecheck/src/typecheck/rows/` owns `row.rs` (`RowView`, `RowEntry`), `unify.rs`, `primitives.rs`, and `records.rs`. Row labels use the shared scalar-string value; `psrs-span` continues to own their source ranges, and identifier spelling remains text. Key entry points are `unify_rows(&Type, &Type, &mut InferState) -> Result<(), Diagnostic>`, `solve_row_constraint(&Constraint, &mut InferState) -> Result<Evidence, Diagnostic>`, and `check_record(&hir::Expr, &ExpectedType) -> Result<thir::Expr, Diagnostic>`. THIR stores typed record operations and checked row types; MIR later fixes layouts.
 
 ## Invariants and verification
 

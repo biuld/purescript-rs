@@ -72,6 +72,8 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
         }
         ExprKind::FieldAccess { record, .. }
         | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record)
         | ExprKind::UnaryPrimitive { value: record, .. } => {
             expr_introduces_type_binders(record, types)
         }
@@ -179,7 +181,9 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
         }
         ExprKind::FieldAccess { record, .. }
         | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record) => contains_case(record),
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => contains_case(record),
         ExprKind::UnaryPrimitive { value, .. } => contains_case(value),
         ExprKind::ArrayIndex { array, index } => contains_case(array) || contains_case(index),
         ExprKind::ArrayUpdate {
@@ -233,7 +237,9 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
         }
         ExprKind::FieldAccess { record, .. }
         | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record) => collect_globals(record, out),
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => collect_globals(record, out),
         ExprKind::UnaryPrimitive { value, .. } => collect_globals(value, out),
         ExprKind::ArrayIndex { array, index } => {
             collect_globals(array, out);
