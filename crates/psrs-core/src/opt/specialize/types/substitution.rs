@@ -204,6 +204,12 @@ impl TypeSubstitution<'_> {
                 source_type: self.type_id(*source_type)?,
                 target_type: self.type_id(*target_type)?,
             },
+            ExprKind::StringToBytes(value) => {
+                ExprKind::StringToBytes(Box::new(self.expression(value)?))
+            }
+            ExprKind::BytesToString(value) => {
+                ExprKind::BytesToString(Box::new(self.expression(value)?))
+            }
             ExprKind::ArrayLength(array) => {
                 ExprKind::ArrayLength(Box::new(self.expression(array)?))
             }

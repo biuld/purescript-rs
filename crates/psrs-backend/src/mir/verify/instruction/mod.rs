@@ -372,37 +372,14 @@ pub(super) fn verify_instruction(
         Instruction::ArrayNewDefault { .. } => {
             arrays::verify_array_new_default(function, instruction, definitions, defined)?;
         }
-        Instruction::ArrayGet {
-            destination,
-            type_index,
-            value,
-            index,
-            span,
-        } => {
-            let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
-                return Err(mir_error(*span, "MIR array.get type is not an array"));
-            };
-            if !is_array_reference(
-                require_value(definitions, *value, *span)?,
-                *type_index,
-                defined,
-            ) {
-                return Err(mir_error(
-                    *span,
-                    "MIR array.get operand must be a reference",
-                ));
-            }
-            if require_value(definitions, *index, *span)? != ValueType::I32 {
-                return Err(mir_error(*span, "MIR array.get index must be i32"));
-            }
-            let expected = storage_value_type(&element.storage).ok_or_else(|| {
-                mir_error(*span, "MIR array element storage is not representable")
-            })?;
-            if !value_type(function, *destination)
-                .is_some_and(|destination_type| value_type_assignable(expected, destination_type))
-            {
-                return Err(mir_error(*span, "MIR array.get result has the wrong type"));
-            }
+        Instruction::ArrayGet { .. } => {
+            arrays::verify_array_get(function, instruction, false, definitions, defined)?
+        }
+        Instruction::ArrayGetU { .. } => {
+            arrays::verify_array_get(function, instruction, true, definitions, defined)?
+        }
+        Instruction::StringToBytes { .. } => {
+            arrays::verify_string_bytes(function, instruction, definitions, defined)?
         }
         Instruction::ArrayClone {
             destination,

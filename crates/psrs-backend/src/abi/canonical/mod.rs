@@ -94,16 +94,14 @@ impl CanonicalType {
         )
     }
 
-    /// Whether this is `string` or a list of bytes, which share the
+    /// Whether this is a `string` or a list of bytes, which share the
     /// `(pointer, length)` canonical representation.
+    ///
+    /// A `list<u8>` is a byte list on the wire but its source type is
+    /// `Array Int`, not `String`: its bytes are uninterpreted
+    /// ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
     pub(crate) fn is_byte_list(&self) -> bool {
-        match self {
-            CanonicalType::String => true,
-            CanonicalType::List(inner) | CanonicalType::FixedList { element: inner, .. } => {
-                inner.is_byte()
-            }
-            _ => false,
-        }
+        matches!(self, CanonicalType::String)
     }
 }
 

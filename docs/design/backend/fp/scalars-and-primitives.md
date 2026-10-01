@@ -6,8 +6,10 @@
 integer arithmetic, IEEE-754 binary64, floor division, and the Wasm numeric
 instruction set. Read [IR boundaries](../00-ir-boundaries.md) first.  
 **Summary:** Scalars are the unboxed Wasm value types the backend uses for
-`Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is a GC byte sequence,
-linearized only at the canonical ABI boundary, and not a scalar. This document
+`Int`, `Number`, `Boolean`, `Char`, and `Unit`; `String` is a GC array of
+canonical UTF-8 bytes
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)),
+copied only at the canonical ABI boundary, and not a scalar. This document
 fixes the complete unary and binary operation
 vocabulary, the concrete Wasm lowering of every operation, the module-local
 floor division and modulo helpers, and the saturating `Number`-to-`Int`
@@ -48,7 +50,9 @@ itself, and `+0` compares equal to `-0`.
 
 **Unicode scalar values.** A `Char` is a Unicode scalar value in
 `0..=0x10FFFF` excluding surrogates, which fits the `i32` representation.
-Validity is a type-checking invariant, not a runtime check.
+Validity is a type-checking invariant, not a runtime check. A supplementary
+scalar is one valid `Char`
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 
 **Saturating conversions.** WebAssembly's trapping `i32.trunc_f64_s` has no
 total behavior for out-of-range inputs or `NaN`. The backend defines a
@@ -66,7 +70,7 @@ the language-level expectation that the conversion is total.
 | `Boolean` | `Boolean` | `Boolean` | `i32` | `0` is false, `1` is true; no other value is produced. |
 | `Char` | `Integer` | `I32` | `i32` | Unicode scalar value. |
 | `Unit` | `Integer` | `I32` | `i32` | No payload; the canonical value is `0`. |
-| `String` | `String` | `(ref $string)` | `(ref $string)` | GC byte sequence; not a scalar. Linearized into a transient buffer only at the canonical ABI boundary ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)). |
+| `String` | `String` | `(ref $string)` | `(ref $string)` | GC array of canonical UTF-8; not a scalar. Copied into a transient buffer only at the canonical ABI boundary ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md), [DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). |
 
 CC has no distinct `Char` or `Unit` shape: the layout classifier maps
 `Type::I32`, `Type::Char`, and `Type::Unit` to `ValueShape::Integer`;

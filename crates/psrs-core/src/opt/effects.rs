@@ -51,6 +51,11 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
         ExprKind::FieldAccess { record, .. }
         | ExprKind::RepresentationCast { value: record, .. }
         | ExprKind::ArrayLength(record) => summarize(record),
+        // The byte form validates its input, so a malformed value traps.
+        ExprKind::StringToBytes(record) | ExprKind::BytesToString(record) => Effects {
+            may_trap: true,
+            ..summarize(record)
+        },
         ExprKind::UnaryPrimitive { value, .. } => summarize(value),
         ExprKind::ArrayIndex { array, index } => Effects {
             may_trap: true,

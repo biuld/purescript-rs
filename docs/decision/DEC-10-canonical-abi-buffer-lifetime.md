@@ -99,10 +99,14 @@ one owner and is freed when its lifetime ends.
   boundary: strings, byte lists, ..." is narrowed: strings and byte lists cross
   the boundary but are GC-managed after adaptation, not stored in linear
   memory.
-- Implementation notes narrow the remaining deviation: strings are GC
-  `(array (mut i16))` values materialized from passive segments and transcoded
-  at the boundary, and `cabi_realloc` is now a reclaiming allocator whose
-  call-local and import-result buffers are freed at the boundary. Export
+- Implementation evidence for this record covers the allocator and buffer
+  lifetime behavior. The earlier note describing GC `(array (mut i16))`
+  strings and UTF-16/UTF-8 transcoding is superseded by
+  [DEC-16](DEC-16-scalar-strings-and-utf8-storage.md): strings are GC
+  `(array (mut i8))` values of canonical UTF-8, incoming text is validated
+  strictly, and WIT string bytes are copied without transcoding.
+  `cabi_realloc` is a reclaiming allocator whose call-local and import-result
+  buffers are freed at the boundary. Export
   `post-return` synthesis is implemented and fixture-verified (return-area and
   buffer free, plus owned-handle drop), but no source export names a non-scalar
   result yet, so the production descriptor lists stay empty. Resource handles

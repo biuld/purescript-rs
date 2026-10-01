@@ -87,6 +87,9 @@ not the rejected `Maybe`/`Either`/tuple path: `Array` is the source type for a
 canonical list, not an aggregate encoding, and `option`, `result`, `variant`,
 and tuples remain non-source types. A future list of aggregates, and every
 multi-value return, still stays out until the whole value is one mapped shape.
+[DEC-16](DEC-16-scalar-strings-and-utf8-storage.md) later classifies WIT
+`list<u8>` as `Array Int`, not `String`, so arbitrary bytes stay out of the
+text type. `string` remains the one source `String`.
 
 ## Amendment — aggregate WIT forms (mechanism superseded)
 

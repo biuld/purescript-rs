@@ -183,7 +183,9 @@ fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
         }
         crate::ExprKind::FieldAccess { record, .. }
         | crate::ExprKind::RepresentationCast { value: record, .. }
-        | crate::ExprKind::ArrayLength(record) => collect_references(record, out),
+        | crate::ExprKind::ArrayLength(record)
+        | crate::ExprKind::StringToBytes(record)
+        | crate::ExprKind::BytesToString(record) => collect_references(record, out),
         crate::ExprKind::UnaryPrimitive { value, .. } => collect_references(value, out),
         crate::ExprKind::ArrayIndex { array, index } => {
             collect_references(array, out);

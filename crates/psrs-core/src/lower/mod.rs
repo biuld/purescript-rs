@@ -7,6 +7,7 @@ use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
 mod dictionary;
+mod string_bytes;
 
 fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::TypeConstructor {
     match constructor {
@@ -292,6 +293,11 @@ fn lower_expr(
                     ty,
                     span,
                 });
+            }
+            if let Some(conversion) =
+                string_bytes::lower_conversion(&function, &argument, externals, ty, span)
+            {
+                return Ok(conversion);
             }
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
                 && args.len() == 1

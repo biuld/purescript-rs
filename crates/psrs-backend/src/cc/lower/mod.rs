@@ -21,6 +21,7 @@ mod lambda;
 mod letrec;
 mod record;
 mod scalar;
+mod string_bytes;
 mod symbols;
 use call::ApplicationLowering;
 pub(in crate::cc) use conversion::VariantFieldConversion;
@@ -387,6 +388,12 @@ impl FunctionLowerer<'_> {
                 index,
                 value,
             } => self.lower_array_update(expression, array, index, value, assignments),
+            ExprKind::StringToBytes(value) => {
+                self.lower_string_to_bytes(expression, value, ty, assignments)
+            }
+            ExprKind::BytesToString(value) => {
+                self.lower_bytes_to_string(expression, value, ty, assignments)
+            }
             ExprKind::ArrayLength(value) => {
                 let value = self.lower_value(value, assignments)?;
                 let destination = self.fresh(ty);

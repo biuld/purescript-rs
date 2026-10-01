@@ -55,10 +55,17 @@ unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
 `foreign import` WIT binding text stays attached to the resolved declaration.
-P3 validates binding syntax and identity, but not the canonical ABI or target
-capability. Fixity declarations attach to resolved operator IDs; P4 consumes
-them. Type names are resolved even though kinds and type applications remain
-unchecked.
+The quoted binding is a source string value: a Unicode scalar sequence
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). P3
+accepts it only when that sequence matches the WIT `<interface>#<function>`
+grammar, then stores the validated interface and function names on the
+resolved external. An unpaired surrogate or any other malformed binding is
+rejected; the compiler does not replace it or invent a different external
+name. The declared value name remains an identifier, not a source string
+value. P3 validates binding syntax and identity, but not the
+canonical ABI or target capability. Fixity declarations attach to resolved
+operator IDs; P4 consumes them. Type names are resolved even though kinds and
+type applications remain unchecked.
 
 Rejected alternatives: source strings in HIR would force later passes to
 repeat lookup; one global namespace would mis-handle same-spelled value and
@@ -75,7 +82,7 @@ resolve_program(ast_modules):
         register local declarations in disjoint namespaces
         compute the visible import environment and exports
         resolve declaration bodies with lexical scope stacks
-        attach resolved fixities and external binding text
+        attach resolved fixities and validated external binding names
     verify_hir(program)
 ```
 
@@ -91,7 +98,11 @@ declaration span and list the competing origins.
 `resolve_program(modules: &[ast::Module]) -> Result<hir::Program,
 Vec<Diagnostic>>`. `program.rs` handles the graph, `exports.rs` visibility,
 `names.rs` lexical and qualified lookup, and `type_resolution.rs` type-name
-lookup. `psrs-driver` supplies source modules and displays diagnostics.
+lookup. Source string values and quoted row labels stay scalar sequences;
+identifier text and `TextRange` remain separate representations.
+`psrs-resolve` converts a WIT binding to interface and function names only
+after that validation. `psrs-driver` supplies source modules and displays
+diagnostics.
 
 ## Invariants and verification
 

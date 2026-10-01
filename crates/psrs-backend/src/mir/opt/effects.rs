@@ -44,14 +44,17 @@ pub(super) fn classify(instruction: &Instruction) -> InstructionEffects {
         | I::ArrayNewData { .. }
         | I::ArrayNewDefault { .. }
         | I::ArrayGet { .. }
+        | I::ArrayGetU { .. }
         | I::ArrayClone { .. }
-        | I::ArrayLen { .. } => InstructionEffects {
+        | I::ArrayLen { .. }
+        | I::StringToBytes { .. } => InstructionEffects {
             may_trap: true,
             reads_memory: matches!(
                 instruction,
                 I::StructGet { .. }
                     | I::ClosureGetCapture { .. }
                     | I::ArrayGet { .. }
+                    | I::ArrayGetU { .. }
                     | I::ArrayClone { .. }
                     | I::ArrayLen { .. }
             ),

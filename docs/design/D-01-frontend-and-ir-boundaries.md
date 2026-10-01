@@ -284,8 +284,9 @@ closure representation; full-width integer captures are boxed in a one-field
 struct, Boolean captures use `i31`, and reference and `String` captures remain
 GC references. P9 creates typed MIR values, including GC references for
 supported data constructors, GC strings (`ArrayNewData` literals), and basic
-blocks, and lowers `log` to WASI: it transcodes the GC string's UTF-16 into a
-transient UTF-8 buffer and calls `wasi:cli/stdout` and `wasi:io/streams`. P10 structures the generated `if`
+blocks, and lowers `log` to WASI: it copies the GC string's UTF-8 bytes into a
+transient buffer and calls `wasi:cli/stdout` and `wasi:io/streams`
+([DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)). P10 structures the generated `if`
 diamonds into the thin Wasm encoding, whose leaf opcodes are
 `wasm_encoder::Instruction` values, assigns passive string data segments, exports the
 canonical `wasi:cli/run@0.2.12#run` entry that calls `main` and

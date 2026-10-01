@@ -396,7 +396,7 @@ impl FunctionLowerer<'_> {
     }
 }
 
-fn representation_shape(id: crate::cc::ReprId) -> ValueShape {
+pub(super) fn representation_shape(id: crate::cc::ReprId) -> ValueShape {
     ValueShape::Reference(Reference {
         nullable: false,
         heap: RefShape::Repr(id),
@@ -410,7 +410,7 @@ fn erased_shape() -> ValueShape {
     })
 }
 
-fn nullable_reference_shape(shape: ValueShape) -> ValueShape {
+pub(super) fn nullable_reference_shape(shape: ValueShape) -> ValueShape {
     let ValueShape::Reference(mut reference) = shape else {
         unreachable!("aggregate representation must be a reference")
     };
@@ -418,7 +418,7 @@ fn nullable_reference_shape(shape: ValueShape) -> ValueShape {
     ValueShape::Reference(reference)
 }
 
-fn reference_type(
+pub(super) fn reference_type(
     shape: &ValueShape,
     layout: &crate::mir::layout::PlannedLayout,
     span: TextRange,

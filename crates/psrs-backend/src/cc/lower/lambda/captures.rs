@@ -67,9 +67,10 @@ pub(in crate::cc::lower) fn collect_captures(
                 collect_captures(value, bound, captures);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            collect_captures(record, bound, captures)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => collect_captures(record, bound, captures),
         ExprKind::ArrayIndex { array, index } => {
             collect_captures(array, bound, captures);
             collect_captures(index, bound, captures);

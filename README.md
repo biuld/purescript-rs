@@ -14,7 +14,7 @@ breakdown, including what remains in each layer, is
 
 | Gate | Measured | Scope |
 | --- | --- | --- |
-| L0/L1 lexing, layout, parsing | 905/908 | non-FFI `layout`, `passing`, `failing`, `warning` files |
+| L0/L1 lexing, layout, parsing | 908/908 | non-FFI `layout`, `passing`, `failing`, `warning` files |
 | L2 resolution | 54/70 failing, 36/413 passing | official `errorCode`s |
 | L3 kinds | 27/48 failing | official kind `errorCode`s |
 | L4 types | not measured | no scoreboard exists |

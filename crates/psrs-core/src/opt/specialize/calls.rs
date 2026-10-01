@@ -51,6 +51,20 @@ pub(super) fn rewrite(
             source_type,
             target_type,
         },
+        ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(rewrite(
+            *value,
+            module,
+            declarations,
+            state,
+            pending,
+        ))),
+        ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(rewrite(
+            *value,
+            module,
+            declarations,
+            state,
+            pending,
+        ))),
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(rewrite(
             *array,
             module,

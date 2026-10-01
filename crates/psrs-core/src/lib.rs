@@ -321,6 +321,8 @@ impl Primitive {
             | Intrinsic::IntToBoolean
             | Intrinsic::CharToInt
             | Intrinsic::IntToChar
+            | Intrinsic::StringToBytes
+            | Intrinsic::BytesToString
             | Intrinsic::Coerce => return None,
         })
     }
@@ -362,6 +364,14 @@ pub enum ExprKind {
         target_type: TypeId,
     },
     ArrayLength(Box<Expr>),
+    /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
+    /// string is a sequence of Unicode scalar values, so the conversion is
+    /// lossless ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+    StringToBytes(Box<Expr>),
+    /// An `Array Int` read as a source `String`. Every element must be a
+    /// canonical byte and the bytes must be well-formed UTF-8; either
+    /// violation traps instead of producing replacement text.
+    BytesToString(Box<Expr>),
     ArrayIndex {
         array: Box<Expr>,
         index: Box<Expr>,

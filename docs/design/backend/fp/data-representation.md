@@ -78,18 +78,28 @@ chooses the object layout.
 | `Integer` | `I32` |
 | `Boolean` | `Boolean` (encoded as `i32`) |
 | `Number` | `F64` |
-| `String` | `(ref $string)` (a GC byte sequence; copied to a transient linear buffer at the canonical ABI boundary) |
+| `String` | `(ref $string)` where `$string` is `array (mut i8)` (a GC array of canonical UTF-8 bytes) |
 | `Reference(Repr(id))` | `(ref $repr)` or `(ref null $repr)` |
 | `Reference(Aggregate)` | `(ref struct)` or `(ref null struct)` |
 | `Reference(Closure(signature))` | `(ref $closure)` or `(ref null $closure)` |
 | `Reference(Erased)` | `(ref eq)` or `(ref null eq)` |
 
-Nullability is copied from the CC `Reference`. A `String` is a GC byte-sequence
-value, not a linear pointer; it is copied into a transient `(pointer, length)`
-linear buffer only while crossing the canonical ABI boundary, and the buffer is
-freed after the call
+Nullability is copied from the CC `Reference`. A source `String` is a Unicode
+scalar sequence stored in a GC array of its canonical UTF-8 encoding. The
+stored byte length is not the public source-string length, which counts scalar
+values. It is not a linear pointer. WIT `string` uses the same UTF-8 encoding:
+the ABI boundary strictly validates incoming bytes and copies valid bytes
+without transcoding; outgoing source strings are copied without transcoding.
+The transient linear buffer is freed after the call
 ([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
+[string semantics](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md),
 [linear memory](../wasm/linear-memory-and-canonical-abi-boundary.md)).
+
+The `$string` array's element order is UTF-8 byte order and its length is the
+encoded byte count. Public indexing and slicing operate on scalar-value
+boundaries and must not expose byte offsets as source indices. Wasm array
+mutability is an implementation detail of the GC layout: source strings remain
+immutable.
 
 ### Concrete layouts
 

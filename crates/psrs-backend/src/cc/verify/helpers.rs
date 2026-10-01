@@ -201,6 +201,23 @@ pub(super) fn verify_array_representation(
     Ok(*element)
 }
 
+/// The `Array Int` representation a string/byte conversion names. Any other
+/// element type is a lowering bug: the byte form is exactly `Int`.
+pub(super) fn verify_byte_array_representation(
+    table: &RepresentationTable,
+    representation: ReprId,
+    assignment: &Assignment,
+) -> Result<(), Vec<BackendError>> {
+    let element = verify_array_representation(table, representation, assignment)?;
+    if element != ValueShape::Integer {
+        return Err(assignment_error(
+            assignment,
+            "string/byte conversion requires an Array Int representation",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn verify_array_value(
     declared: &HashMap<ValueId, ValueShape>,
     value: ValueId,

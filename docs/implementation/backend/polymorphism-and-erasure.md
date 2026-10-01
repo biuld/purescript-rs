@@ -281,7 +281,10 @@ PE-11:
 - **`String` is now a distinct `ValueShape`.** The design model lists `String`
   as its own shape; CC maps `Type::String` to `ValueShape::String`, the CC
   verifier rejects numeric operations on it, and P9 maps it to `(ref $string)`,
-  the GC `(array (mut i16))`. The erased path stores and recovers that
+  the GC `(array (mut i8))` of canonical UTF-8
+  ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)); this note
+  records the landed layout.
+  The erased path stores and recovers that
   reference; it does not use the integer box. `Array Int` and
   `Array String` therefore keep distinct canonical arrays and signatures; the
   PE-02 evidence was updated accordingly.
