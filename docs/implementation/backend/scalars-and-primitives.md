@@ -239,10 +239,11 @@ SP-08:
   Commands: common commands above
   Result: pass; executed under Wasmtime
   Revision: f2c43af + this worktree
-  Gaps: none for the backend. Astral scalar literals (`'\x1F600'`) now pass
-    the frontend lexer and type checker; `char_operations_preserve_astral_scalar_values`
-    executes the existing `charToInt` / `charEq` path. Invalid `Char` values
-    remain a type-checking invariant.
+  Gaps: none for the backend operation slice. Source astral Char literals are
+    rejected before type checking to agree with the official lexer;
+    rejects_astral_character_literals_before_typechecking verifies this source
+    boundary. BMP character operations still execute under Wasmtime. The
+    backend scalar representation and operation coverage are unchanged.
 ```
 
 ```text

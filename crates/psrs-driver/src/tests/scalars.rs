@@ -220,25 +220,15 @@ main = if checkCharBound then 0 else 1
 ";
 
 #[test]
-fn char_operations_preserve_astral_scalar_values() {
-    let source = "\
-module Main where
-checkAstral = booleanAnd ((charToInt '\\x1F600') == 128512) (charEq '\\x1F600' '\u{1F600}')
-main = if checkAstral then 0 else 1
-";
-    assert!(
-        check_source("Main.purs", source).is_ok(),
-        "an astral Char literal must type-check"
-    );
-    let Some(output) = super::run_with_wasmtime(source) else {
-        eprintln!("skipping execution: wasmtime is not installed");
-        return;
-    };
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "an astral Char must keep its scalar value: {output:?}"
-    );
+fn rejects_astral_character_literals_before_typechecking() {
+    for literal in [r"'\x10000'", r"'\x1F600'", "'😀'"] {
+        let source = format!("module Main where\nmain = charToInt {literal}\n");
+        let errors = check_source("Main.purs", &source).expect_err("astral Char literal");
+        assert!(
+            errors.iter().any(|error| error.message.contains("astral")),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]

@@ -49,11 +49,21 @@ Lexing and layout are consecutive operations in P0 so `psrs lex` can show
 physical tokens and `psrs layout` can show the augmented stream. The lexer
 validates escapes, character scalars, numeric forms, and unterminated strings
 or comments without inventing a semantic value. A character literal is one
-Unicode scalar, including the astral range U+10000 through U+10FFFF, written
-either as the character or as a `\x` escape of one to six hexadecimal digits.
-Surrogate code points are not scalars and are not character literals. The layout processor inserts
-markers only at grammar-defined layout introducers, honors explicit braces,
-and closes implicit blocks before an outer dedent and at end of file.
+BMP code point (U+0000 through U+FFFF),
+written either directly or as a `\x` escape; astral code points are rejected,
+matching the official lexer. String literals permit astral code points and
+UTF-16 code-unit escapes, including lone surrogates. Their semantic value must
+preserve those code units rather than replace lone surrogates with U+FFFD.
+
+The layout processor distinguishes implicit blocks from delimiter and masking
+contexts. Commas close every exposed implicit block; case binders, guards,
+record labels, and class declaration heads mask commas where they belong to
+that syntax. Lambda binders mask their arrow from an enclosing guard. A
+closing backtick closes its exposed implicit blocks before ending the infix
+expression. Guard terminators emit layout ends for exposed `do` blocks before
+removing the guard context. Record labels mask keyword behavior, including
+empty-record and row-tail boundaries. Dedents and end of file close implicit
+blocks with zero-width markers.
 
 A malformed token produces a diagnostic with its physical range. P0 may
 continue scanning to report more lexical errors, but no verified token stream
@@ -138,3 +148,10 @@ diagnostics without weakening the verified-output contract.
   [F-01 source inspection](../../../feature/F-01-source-inspection.md).
 - [Official PureScript compiler](https://github.com/purescript/purescript),
   as the grammar and layout compatibility oracle.
+
+## Implementation notes
+
+String tokens currently use Rust `String`, which cannot preserve lone UTF-16
+surrogates. The shared string-literal representation must be corrected across
+CST, AST, HIR, Typed Core, and lowering before `StringEscapes.purs` can establish
+value-level agreement. Parse agreement does not verify decoded string values.

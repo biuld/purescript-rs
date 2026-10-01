@@ -34,6 +34,11 @@ enum FrameKind {
     If,
     Then,
     Guard,
+    CaseBinders,
+    LambdaBinders,
+    Tick,
+    Property,
+    DeclarationHead,
 }
 
 impl FrameKind {
@@ -86,17 +91,62 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 | RawTokenKind::Pipe
         );
 
+        if crossed_newline
+            && frames.last().is_some_and(|frame| {
+                frame.kind == FrameKind::DeclarationHead && indent <= frame.indent
+            })
+        {
+            frames.pop();
+        }
+        let property_pending = frames
+            .last()
+            .is_some_and(|frame| frame.kind == FrameKind::Property);
+        if property_pending {
+            frames.pop();
+        }
+        let property =
+            property_pending && !matches!(token.kind, RawTokenKind::RBrace | RawTokenKind::Pipe);
+
         match token.kind {
+            _ if property => {}
+            RawTokenKind::Backtick => {
+                let mut boundary = frames.len();
+                while boundary > 0 && frames[boundary - 1].kind.is_block() {
+                    boundary -= 1;
+                }
+                if boundary > 0 && frames[boundary - 1].kind == FrameKind::Tick {
+                    close_indented(&mut frames, &mut result, token.span.start, |_| true);
+                    frames.pop();
+                } else {
+                    frames.push(Frame {
+                        indent,
+                        kind: FrameKind::Tick,
+                    });
+                }
+            }
             RawTokenKind::Comma => {
-                close_indented(&mut frames, &mut result, token.span.start, |kind| {
-                    matches!(kind, BlockKind::Do | BlockKind::Ado | BlockKind::Let)
-                });
+                close_indented(&mut frames, &mut result, token.span.start, |_| true);
+                if frames
+                    .last()
+                    .is_some_and(|frame| frame.kind == FrameKind::Brace)
+                {
+                    frames.push(Frame {
+                        indent,
+                        kind: FrameKind::Property,
+                    });
+                }
             }
             RawTokenKind::RParen | RawTokenKind::RBracket | RawTokenKind::RBrace => {
                 close_indented(&mut frames, &mut result, token.span.start, |_| true);
                 pop_paired_delimiter(&mut frames, &token.kind);
             }
             RawTokenKind::Where => {
+                if frames
+                    .last()
+                    .is_some_and(|frame| frame.kind == FrameKind::DeclarationHead)
+                {
+                    frames.pop();
+                }
                 close_for_where(&mut frames, &mut result, token.span.start, indent);
             }
             RawTokenKind::In => {
@@ -134,11 +184,16 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 }
             }
             RawTokenKind::Arrow | RawTokenKind::Equals => {
-                if let Some(index) = frames
-                    .iter()
-                    .rposition(|frame| frame.kind == FrameKind::Guard)
-                {
-                    frames.truncate(index);
+                close_indented(&mut frames, &mut result, token.span.start, |kind| {
+                    kind == BlockKind::Do
+                });
+                if frames.last().is_some_and(|frame| {
+                    matches!(
+                        frame.kind,
+                        FrameKind::Guard | FrameKind::CaseBinders | FrameKind::LambdaBinders
+                    )
+                }) {
+                    frames.pop();
                 }
             }
             _ => {
@@ -156,6 +211,15 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                             .is_some_and(|frame| frame.kind.is_block() && indent == frame.indent)
                     {
                         result.push(virtual_token(LayoutTokenKind::LayoutSep, token.span.start));
+                        if frames
+                            .last()
+                            .is_some_and(|frame| frame.kind == FrameKind::Block(BlockKind::Of))
+                        {
+                            frames.push(Frame {
+                                indent,
+                                kind: FrameKind::CaseBinders,
+                            });
+                        }
                     }
                 }
             }
@@ -178,10 +242,29 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                     indent,
                     kind: FrameKind::Block(kind),
                 });
+                if kind == BlockKind::Of {
+                    frames.push(Frame {
+                        indent,
+                        kind: FrameKind::CaseBinders,
+                    });
+                }
             }
         }
 
         match token.kind {
+            _ if property => {}
+            RawTokenKind::Data | RawTokenKind::Class
+                if frames.last().is_some_and(|frame| frame.kind.is_block()) =>
+            {
+                frames.push(Frame {
+                    indent,
+                    kind: FrameKind::DeclarationHead,
+                })
+            }
+            RawTokenKind::Backslash => frames.push(Frame {
+                indent,
+                kind: FrameKind::LambdaBinders,
+            }),
             RawTokenKind::LParen => frames.push(Frame {
                 indent,
                 kind: FrameKind::Paren,
@@ -190,10 +273,16 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 indent,
                 kind: FrameKind::Bracket,
             }),
-            RawTokenKind::LBrace => frames.push(Frame {
-                indent,
-                kind: FrameKind::Brace,
-            }),
+            RawTokenKind::LBrace => {
+                frames.push(Frame {
+                    indent,
+                    kind: FrameKind::Brace,
+                });
+                frames.push(Frame {
+                    indent,
+                    kind: FrameKind::Property,
+                });
+            }
             RawTokenKind::Case => frames.push(Frame {
                 indent,
                 kind: FrameKind::Case,
@@ -212,11 +301,24 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 });
             }
             RawTokenKind::Pipe => {
+                if frames
+                    .last()
+                    .is_some_and(|frame| frame.kind == FrameKind::CaseBinders)
+                {
+                    frames.pop();
+                }
                 let enclosing = frames.iter().rev().find_map(|frame| match frame.kind {
                     FrameKind::Block(kind) => Some(kind),
                     _ => None,
                 });
-                if matches!(enclosing, Some(BlockKind::Of | BlockKind::Let)) {
+                if !frames
+                    .last()
+                    .is_some_and(|frame| frame.kind == FrameKind::DeclarationHead)
+                    && matches!(
+                        enclosing,
+                        Some(BlockKind::Of | BlockKind::Let | BlockKind::Where)
+                    )
+                {
                     frames.push(Frame {
                         indent,
                         kind: FrameKind::Guard,
@@ -229,6 +331,7 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
         result.push(raw(token));
 
         pending = match token.kind {
+            _ if property => None,
             RawTokenKind::Where => Some(BlockKind::Where),
             RawTokenKind::Let => Some(BlockKind::Let),
             RawTokenKind::Of => Some(BlockKind::Of),

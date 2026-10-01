@@ -95,7 +95,7 @@ FFI.
   Unicode keywords (`∷`, `∀`, `→`), numeric and string literals, backtick
   operators, and `where`/`let`/`do`/`ado` layout.
 - **Acceptance:** Our layout output is stable and reviewed against each golden;
-  every layout file parses.
+  every layout file agrees with the official parse outcome.
 - **Prerequisite:** None.
 
 ### M1 — Surface grammar
@@ -114,31 +114,29 @@ FFI.
   enforced by the suite scoreboard.
 - **Prerequisite:** M0.
 
-**Progress (measured against the vendored `v0.15.16` corpus):** 905/908 parse
-agreement (99.7%) with `PSRS_ORACLE=annotations`: `passing` 413/413,
-`failing` 412/413, `warning` 67/67, and `layout` 13/15. Three files remain:
+**Progress (measured against the vendored `v0.15.16` corpus):** 908/908 parse
+agreement (100%) with `PSRS_ORACLE=annotations`: `passing` 413/413,
+`failing` 413/413, `warning` 67/67, and `layout` 15/15. The lexer rejects astral
+character literals (`failing/2434.purs`). Layout now masks case and lambda
+binders, guards, declaration heads, and record labels, closes exposed blocks
+at commas and closing backticks, and emits layout ends before guard terminators.
 
-- `failing/2434.purs` writes `'\x10000'`. We accept any Unicode scalar in a
-  `Char` literal, while `purs` rejects an astral code point with
-  `ErrAstralCodePointInChar`, so we parse a file that must fail.
-- `layout/Commas.purs` needs `purs`'s legacy comma rule: a comma closes every
-  indented context and masks record labels inside a brace context, while our
-  layout closes only `do`, `ado`, and `let` blocks. Closing every indented
-  context is a necessary first step but not sufficient; the masked-label rule
-  is what lets `case do foo, bar of` parse.
-- `layout/CaseGuards.purs` needs a backtick that closes an open block
-  (``x `case _ of ...` b``) and `do` inside a guard. Our layout counts a
-  backtick as a line continuation only, and the `->`/`=` rule truncates the
-  guard frame without emitting the `LayoutEnd` that would close the `do` block.
+The default syntax tests enforce all 15 official layout parse outcomes:
+12 parse successfully; `DoLet`, `LetGuards`, and `InstanceChainElse` are rejected
+by both parsers. Agreement includes those intentional rejections. Regression
+coverage also exercises keyword record labels and lambdas inside guards.
 
-The default `purs` oracle disagrees on 14 further `failing` files whose imports
-prevent the installed compiler from parsing the body (`failing` drops to
-398/413), which is the Corpus caveat rather than a parser divergence.
+The annotations oracle avoids the Corpus caveat: missing imports can prevent
+the installed compiler from parsing a failing file's body.
 
-A separate lexer divergence is not visible in the parse scoreboard because it
-is a value-level difference: a `\x` escape for a surrogate code unit decodes to
-U+FFFD instead of joining its pair, so `passing/StringEscapes.purs`
-(`surrogatePair`, `loneSurrogates`) cannot execute correctly yet.
+Phase 0 (#80) remains in progress. A separate string-value divergence is
+invisible to this scoreboard: Rust `String` cannot preserve lone UTF-16
+surrogates, and `\xD834\xDF06` currently decodes to replacement characters.
+`passing/StringEscapes.purs` must verify paired escapes, concatenation of lone
+surrogates, out-of-order code units, and distinction from U+FFFD. Completing
+this requires one shared code-unit-preserving string representation through
+all compiler stages and actual runtime evidence; parse agreement alone does
+not close that requirement.
 
 ### M2 — Modules, imports, exports, and names
 
@@ -552,8 +550,8 @@ for matrix status.
 
 | Gate | Official-suite scope | Current progress | `Implemented` threshold |
 | --- | --- | --- | --- |
-| L0 | Layout goldens | 13/15 files parse | 15/15, with all remaining layout cases covered by regression tests. |
-| L1 | Non-excluded parse behavior | 905/908 agreement using the annotations oracle; `passing` 413/413, `failing` 412/413, `warning` 67/67, `layout` 13/15 | 100% agreement for the tracked corpus. |
+| L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
+| L1 | Non-excluded parse behavior | 908/908 agreement using the annotations oracle; `passing` 413/413, `failing` 413/413, `warning` 67/67, `layout` 15/15 | 100% agreement for the tracked corpus. |
 | L2 | Module, import, export, and name resolution | 54/70 failing cases; 36/413 passing modules resolve | The mapped resolution cases and all required passing-module cases agree. |
 | L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | Not measured: no scoreboard, and only `EscapedSkolem` carries an official code | 100% agreement for the mapped type cases. |

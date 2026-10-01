@@ -49,13 +49,13 @@ fn decodes_common_string_and_character_escapes() {
             .any(|token| token.kind == RawTokenKind::Char('\t'))
     );
 
-    let (tokens, errors) = lex(r#"main = '\x1F600'"#);
-    assert!(errors.is_empty(), "{errors:?}");
-    assert!(
-        tokens
-            .iter()
-            .any(|token| token.kind == RawTokenKind::Char('\u{1F600}'))
-    );
+    for literal in [r"'\x10000'", r"'\x1F600'", "'😀'"] {
+        let (_, errors) = lex(literal);
+        assert!(
+            errors.iter().any(|error| error.message.contains("astral")),
+            "{errors:?}"
+        );
+    }
 }
 
 #[test]

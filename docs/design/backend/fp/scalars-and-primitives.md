@@ -48,7 +48,9 @@ itself, and `+0` compares equal to `-0`.
 
 **Unicode scalar values.** A `Char` is a Unicode scalar value in
 `0..=0x10FFFF` excluding surrogates, which fits the `i32` representation.
-Validity is a type-checking invariant, not a runtime check.
+Validity is a type-checking invariant, not a runtime check. Source character
+literals additionally obey the official lexer's BMP-only boundary; this source
+restriction does not change the backend scalar encoding.
 
 **Saturating conversions.** WebAssembly's trapping `i32.trunc_f64_s` has no
 total behavior for out-of-range inputs or `NaN`. The backend defines a

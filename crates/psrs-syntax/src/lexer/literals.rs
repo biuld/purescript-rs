@@ -226,7 +226,13 @@ pub(super) fn lex_char(scanner: &mut Scanner) -> Result<RawTokenKind, (TextRange
         let at = scanner.position();
         return Err(error_at(at, at, "unterminated character"));
     }
-    // A Rust `char` is already a Unicode scalar, including U+10000..=U+10FFFF.
+    if character as u32 > 0xffff {
+        return Err(error_at(
+            start,
+            scanner.position(),
+            "astral code point in character literal",
+        ));
+    }
     Ok(RawTokenKind::Char(character))
 }
 

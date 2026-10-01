@@ -235,3 +235,92 @@ fn parses_class_and_instance_heads() {
     assert!(matches!(module.declarations[0], Declaration::Class(_)));
     assert!(matches!(module.declarations[1], Declaration::Instance(_)));
 }
+
+#[test]
+fn agrees_with_official_layout_fixture_parse_outcomes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/upstream/layout");
+    let mut count = 0;
+    for entry in std::fs::read_dir(root).expect("vendored layout corpus") {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "purs") {
+            let source = std::fs::read_to_string(&path).unwrap();
+            // These layout fixtures are deliberately rejected by the official parser.
+            let expected_ok = !["DoLet.purs", "LetGuards.purs", "InstanceChainElse.purs"]
+                .iter()
+                .any(|name| path.file_name().unwrap() == *name);
+            assert_eq!(
+                parse(&source).is_ok(),
+                expected_ok,
+                "{}: {:?}",
+                path.display(),
+                parse(&source)
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 15);
+}
+
+#[test]
+fn parses_keyword_record_labels_and_guarded_lambdas() {
+    for source in [
+        "module Main where\nx = { case: 1, do: 2, let: 3, where: 4, if: 5 }\n",
+        "module Main where\nx = case a, b of\n  c, d | f (\\a -> a), true -> d\n",
+        "module Main where\nx a\n  | do that\n       that = true\n  | otherwise = false\n",
+    ] {
+        assert!(parse(source).is_ok(), "{source}: {:?}", parse(source));
+    }
+}
+
+#[test]
+fn layout_closes_case_and_guard_blocks_at_their_terminators() {
+    use crate::LayoutTokenKind::{LayoutEnd, Raw};
+    use crate::RawTokenKind;
+
+    for (source, terminator, ends) in [
+        ("module Main where\nx = [case a of b -> c, d]\n", ",", 1),
+        (
+            "module Main where\nx = a `case _ of b -> const` c\n",
+            "` c",
+            1,
+        ),
+        (
+            "module Main where\nx = case a of\n  b | do f -> c\n",
+            "->",
+            1,
+        ),
+        ("module Main where\nx a | do f = c\n", "= c", 1),
+        ("module Main where\nx = [do do do f, g]\n", ",", 3),
+    ] {
+        let file = SourceFile::new("test.purs", source);
+        let (tokens, errors) = lex(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let layout = add_layout(&file, &tokens);
+        let at = source.find(terminator).unwrap() as u32;
+        let index = layout
+            .iter()
+            .position(|token| token.span.start == at && matches!(token.kind, Raw(_)))
+            .unwrap();
+        assert_eq!(
+            layout[..index]
+                .iter()
+                .rev()
+                .take_while(|token| token.kind == LayoutEnd)
+                .count(),
+            ends,
+            "{source}"
+        );
+        assert!(
+            layout[index - ends..index]
+                .iter()
+                .all(|token| token.span == psrs_span::TextRange::empty(at))
+        );
+        assert!(matches!(
+            layout[index].kind,
+            Raw(RawTokenKind::Comma
+                | RawTokenKind::Backtick
+                | RawTokenKind::Arrow
+                | RawTokenKind::Equals)
+        ));
+    }
+}
