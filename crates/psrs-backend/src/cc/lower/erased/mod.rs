@@ -1,4 +1,6 @@
-use super::super::layout::{function_arrow_parameters, function_signature};
+use super::super::layout::{
+    function_arrow_parameters, function_signature, function_type_signature,
+};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, SignatureId, ValueId, ValueShape,
 };
@@ -105,14 +107,18 @@ impl FunctionLowerer<'_> {
         )?;
         let source_parameters = function_arrow_parameters(self.module, source_type).0;
         let target_parameters = function_arrow_parameters(self.module, target_type).0;
-        let Some(&source_signature_id) = self.function_types.get(&source_type) else {
+        let Some(source_signature_id) =
+            function_type_signature(self.module, self.function_types, source_type)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 span,
                 "concrete function adapter has no source function type",
             )]);
         };
-        let Some(&target_signature_id) = self.function_types.get(&target_type) else {
+        let Some(target_signature_id) =
+            function_type_signature(self.module, self.function_types, target_type)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 span,

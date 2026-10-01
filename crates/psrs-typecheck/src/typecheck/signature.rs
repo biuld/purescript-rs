@@ -181,19 +181,24 @@ impl Checker {
                 body,
             } => {
                 let mut scoped_variables = variables.clone();
-                self.bind_forall_variables(binders, &mut scoped_variables, rigid_variables);
-                self.elaborate_type_mode(body, &mut scoped_variables, rigid_variables)
+                let quantified =
+                    self.bind_forall_variables(binders, &mut scoped_variables, rigid_variables);
+                let body = self.elaborate_type_mode(body, &mut scoped_variables, rigid_variables);
+                InferType::ForAll {
+                    variables: quantified,
+                    body: Box::new(body),
+                }
             }
-            hir::TypeKind::Constrained { .. } => {
-                // A top-level constraint is consumed by
-                // `elaborate_constraint_spine`; reaching here means the
-                // constraint is nested, which requires higher-rank evidence.
-                self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedType,
-                    ty.span,
-                    "an inner class constraint is not supported yet",
-                ));
-                self.fresh()
+            hir::TypeKind::Constrained { constraint, body } => {
+                let Some(constraint) =
+                    self.elaborate_constraint(constraint, variables, rigid_variables)
+                else {
+                    return self.fresh();
+                };
+                InferType::Constrained {
+                    constraints: vec![constraint],
+                    body: Box::new(self.elaborate_type_mode(body, variables, rigid_variables)),
+                }
             }
             hir::TypeKind::Record { fields, tail } => {
                 let mut seen = HashSet::new();
@@ -247,8 +252,9 @@ impl Checker {
         binders: &[hir::TypeParameter],
         variables: &mut HashMap<String, InferType>,
         rigid: bool,
-    ) {
+    ) -> Vec<u32> {
         let mut kind_scope = HashMap::new();
+        let mut quantified = Vec::with_capacity(binders.len());
         for binder in binders {
             let variable = self.fresh();
             let kind = binder
@@ -261,6 +267,7 @@ impl Checker {
                 if rigid {
                     self.rigid.insert(id);
                 }
+                quantified.push(id);
             }
             // An unannotated forall binder can itself be a kind variable; a
             // later binder annotation may refer to it.
@@ -269,6 +276,7 @@ impl Checker {
             }
             variables.insert(binder.name.clone(), variable);
         }
+        quantified
     }
 
     /// Expands a type synonym application by substituting the elaborated

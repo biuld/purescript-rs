@@ -159,9 +159,14 @@ impl Checker {
             errors: Vec::new(),
         };
         checker.import_known_types(known_types);
+        // Constructor field types may contain nested class constraints, so
+        // class identities must be registered before those field schemes are
+        // elaborated. Both environments are built from the complete module
+        // declarations, which also supports forward and mutually referring
+        // class/data declarations.
+        checker.build_class_environment(module, known_types);
         checker.register_constructors();
         checker.next_dictionary_local = classes::next_local_id(module);
-        checker.build_class_environment(module, known_types);
         checker.build_instance_environment(module, imported_instances);
         checker
     }

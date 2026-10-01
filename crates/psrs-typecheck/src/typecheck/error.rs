@@ -5,6 +5,7 @@ pub enum TypeCheckErrorKind {
     InvalidHir,
     TypeMismatch,
     OccursCheck,
+    SkolemEscape,
     UnconstrainedType,
     IntegerOutOfRange,
     NumberOutOfRange,
@@ -52,6 +53,7 @@ impl TypeCheckError {
 
     pub fn error_code(&self) -> Option<&'static str> {
         match self.kind {
+            TypeCheckErrorKind::SkolemEscape => Some("EscapedSkolem"),
             TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration => {
                 Some("InvalidCoercibleInstanceDeclaration")
             }

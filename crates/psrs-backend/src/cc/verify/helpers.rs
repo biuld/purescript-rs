@@ -307,10 +307,13 @@ pub(super) fn require_value_shape(
     expected: ValueShape,
     assignment: &Assignment,
 ) -> Result<(), Vec<BackendError>> {
-    if declared_shape(declared, value, assignment)? != expected {
+    let actual = declared_shape(declared, value, assignment)?;
+    if actual != expected {
         return Err(assignment_error(
             assignment,
-            "CC operation operand has an incompatible shape",
+            format!(
+                "CC operation operand has an incompatible shape: expected {expected:?}, found {actual:?}"
+            ),
         ));
     }
     Ok(())
@@ -401,7 +404,7 @@ pub(super) fn undef_error(span: TextRange, fallback: TextRange) -> Vec<BackendEr
 
 pub(super) fn assignment_error(
     assignment: &Assignment,
-    message: &'static str,
+    message: impl Into<String>,
 ) -> Vec<BackendError> {
     vec![BackendError::invalid_ir(
         "P8 CC verification",

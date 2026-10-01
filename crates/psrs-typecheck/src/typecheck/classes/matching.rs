@@ -233,6 +233,45 @@ impl Checker {
                 InferType::Variable(_) => MatchState::Unknown,
                 _ => MatchState::Apart,
             },
+            InferType::ForAll { variables, body } => match actual {
+                InferType::ForAll {
+                    variables: actual_variables,
+                    body: actual_body,
+                } if variables.len() == actual_variables.len() => {
+                    let mapping = actual_variables
+                        .into_iter()
+                        .zip(variables.iter().copied())
+                        .map(|(actual, pattern)| (actual, InferType::Variable(pattern)))
+                        .collect();
+                    self.equal_type_state(
+                        body,
+                        &super::super::unify::substitute(&actual_body, &mapping),
+                    )
+                }
+                InferType::Variable(_) => MatchState::Unknown,
+                _ => MatchState::Apart,
+            },
+            InferType::Constrained { constraints, body } => match actual {
+                InferType::Constrained {
+                    constraints: actual_constraints,
+                    body: actual_body,
+                } if constraints.len() == actual_constraints.len() => {
+                    let mut state = MatchState::Match;
+                    for (pattern, actual) in constraints.iter().zip(&actual_constraints) {
+                        if pattern.class_id != actual.class_id
+                            || pattern.arguments.len() != actual.arguments.len()
+                        {
+                            return MatchState::Apart;
+                        }
+                        for (pattern, actual) in pattern.arguments.iter().zip(&actual.arguments) {
+                            state = state.combine(self.match_type_state(pattern, actual, mapping));
+                        }
+                    }
+                    state.combine(self.match_type_state(body, &actual_body, mapping))
+                }
+                InferType::Variable(_) => MatchState::Unknown,
+                _ => MatchState::Apart,
+            },
         }
     }
 
@@ -274,6 +313,50 @@ impl Checker {
             ) if ll == rl => self
                 .equal_type_state(lt, rt)
                 .combine(self.equal_type_state(ltail, rtail)),
+            (
+                InferType::ForAll {
+                    variables: left_variables,
+                    body: left_body,
+                },
+                InferType::ForAll {
+                    variables: right_variables,
+                    body: right_body,
+                },
+            ) if left_variables.len() == right_variables.len() => {
+                let mapping = right_variables
+                    .iter()
+                    .copied()
+                    .zip(left_variables.iter().copied())
+                    .map(|(right, left)| (right, InferType::Variable(left)))
+                    .collect();
+                self.equal_type_state(
+                    left_body,
+                    &super::super::unify::substitute(right_body, &mapping),
+                )
+            }
+            (
+                InferType::Constrained {
+                    constraints: left_constraints,
+                    body: left_body,
+                },
+                InferType::Constrained {
+                    constraints: right_constraints,
+                    body: right_body,
+                },
+            ) if left_constraints.len() == right_constraints.len() => {
+                let mut state = MatchState::Match;
+                for (left, right) in left_constraints.iter().zip(right_constraints) {
+                    if left.class_id != right.class_id
+                        || left.arguments.len() != right.arguments.len()
+                    {
+                        return MatchState::Apart;
+                    }
+                    for (left, right) in left.arguments.iter().zip(&right.arguments) {
+                        state = state.combine(self.equal_type_state(left, right));
+                    }
+                }
+                state.combine(self.equal_type_state(left_body, right_body))
+            }
             _ => MatchState::Apart,
         }
     }
@@ -287,6 +370,16 @@ fn contains_variable(ty: &InferType, variable: u32) -> bool {
         }
         InferType::RowExtend { ty, tail, .. } => {
             contains_variable(ty, variable) || contains_variable(tail, variable)
+        }
+        InferType::ForAll { variables, body } => {
+            !variables.contains(&variable) && contains_variable(body, variable)
+        }
+        InferType::Constrained { constraints, body } => {
+            constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+                .any(|argument| contains_variable(argument, variable))
+                || contains_variable(body, variable)
         }
         InferType::Constructor(_) | InferType::RowEmpty => false,
     }

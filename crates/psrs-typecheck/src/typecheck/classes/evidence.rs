@@ -175,15 +175,27 @@ impl Checker {
         &mut self,
         scheme: &Scheme,
     ) -> (Vec<ClassConstraint>, InferType) {
-        if scheme.variables.is_empty() {
-            return (scheme.constraints.clone(), scheme.ty.clone());
+        let mapping = self.instantiate_type_variables(scheme.variables.iter().copied());
+        let substituted = substitute(&scheme.ty, &mapping);
+        let freshened = self.freshen_foralls(&substituted);
+        let mut ty = self.resolve_type(freshened);
+        // A value whose result or local binding type begins with a structural
+        // forall is instantiated independently at each occurrence.
+        let mut nested_constraints = Vec::new();
+        loop {
+            match ty {
+                InferType::ForAll { variables, body } => {
+                    let quantified = self.instantiate_type_variables(variables);
+                    ty = self.resolve_type(substitute(&body, &quantified));
+                }
+                InferType::Constrained { constraints, body } => {
+                    nested_constraints.extend(constraints);
+                    ty = self.resolve_type(*body);
+                }
+                _ => break,
+            }
         }
-        let mut mapping = HashMap::new();
-        for variable in &scheme.variables {
-            mapping.insert(*variable, self.fresh());
-        }
-        let ty = substitute(&scheme.ty, &mapping);
-        let constraints = scheme
+        let mut constraints: Vec<ClassConstraint> = scheme
             .constraints
             .iter()
             .map(|constraint| ClassConstraint {
@@ -196,6 +208,7 @@ impl Checker {
                 span: constraint.span,
             })
             .collect();
+        constraints.extend(nested_constraints);
         (constraints, ty)
     }
 
@@ -210,6 +223,7 @@ impl Checker {
             arguments: constraint.arguments,
             dictionary_type,
             span: constraint.span,
+            givens: self.givens.clone(),
             solution: None,
         });
         index

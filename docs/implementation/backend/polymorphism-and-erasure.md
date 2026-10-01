@@ -4,7 +4,9 @@
 
 **Design:** [Polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md)
 
-**Progress:** Verified. Signature interning now re-dedupes after aggregate
+**Progress:** In progress. The established rank-1 evidence remains verified;
+rank-N boundaries are tracked by PE-12 and the frontend
+[rank-N acceptance record](../frontend/rank-n.md). Signature interning re-dedupes after aggregate
 normalization, the CC adaptation verifier requires the exact non-null erased
 shape, integer-shaped captures reserve the integer box, and value-sensitive
 execution covers both scalar boxes and both adapter directions. Function
@@ -16,7 +18,7 @@ handoffs are recorded below.
 
 ## Scope and dependencies
 
-Complete rank-1 erased-value representation, signature interning, scalar
+Complete rank-N erased-value representation, signature interning, scalar
 boxing, reference recovery, closure capture, and higher-order function
 adapters in the linked design. The design's full present-tense contract applies
 even when a row below is missing. Typed Core owns type checking and dictionary
@@ -43,6 +45,7 @@ existing code or a fixture that only inspects WAT does not verify execution.
 | PE-09 | RepresentationTest/Cast is restricted to valid erased boundaries and cannot replace nominal aggregate reconstruction. | CC/MIR verifier negative fixtures for unrelated nominal layouts, wrong box kind, nullability, and signature; coordinate positive aggregate cases with [generic aggregate erasure](generic-aggregate-erasure.md). | Verified |
 | PE-10 | CC and MIR verifiers reject malformed adapters, captures, calls, and unresolved representation requirements. | Full-module negative fixtures for wrong signature, capture index/type, arity, cast provenance, and result shape before Wasm emission. | Verified |
 | PE-11 | Erased values are recovered before canonical WIT calls; optimized and unspecialized execution agree. | Source or verified Core fixture crossing a concrete ABI call, plus execution retaining an erased generic path and normal optimized execution. | Verified |
+| PE-12 | Nested quantifiers preserve each value's uniform definition signature, independent use-site conversions, and returned closure arity. | Verified Core and source execution at distinct instantiations; quantified parameters, fields, captures, returned functions and direct over-application; malformed boundary rejection. Coordinate RN-02 through RN-11. | Unverified |
 
 ## Vertical execution order
 

@@ -1,4 +1,6 @@
-use super::super::super::layout::function_arrow_parameters;
+use super::super::super::layout::{
+    callable_application, function_arrow_parameters, unquantified_type,
+};
 use super::super::super::{
     Assignment, AssignmentKind, RefShape, Reference, SignatureId, ValueConversion, ValueId,
     ValueShape,
@@ -7,9 +9,11 @@ use super::super::FunctionLowerer;
 use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
+use std::collections::HashMap;
 
 pub(super) fn collect_application<'a>(
     module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
     expression: &'a Expr,
 ) -> (&'a Expr, Vec<&'a Expr>) {
     let mut arguments = Vec::new();
@@ -21,12 +25,68 @@ pub(super) fn collect_application<'a>(
         // callable, so applying it supplies its hidden context parameter. Stop
         // flattening there so the remaining arguments belong to the closure it
         // returns rather than to the outer function.
-        if module.callable_application(head.ty).is_some() {
+        if callable_application(module, head.ty).is_some() {
+            break;
+        }
+        // A polymorphic result is a separate closure value. Stop here so an
+        // expression like `make 0 42`, where `make 0` returns `forall a. a ->
+        // a`, lowers as two calls with the second using that closure's own
+        // signature.
+        if application_returns_forall(module, local_types, head) {
             break;
         }
     }
     arguments.reverse();
     (head, arguments)
+}
+
+/// A call's result type can be instantiated at the use site, so its expression
+/// type may no longer contain the quantifier that marks the declaration's
+/// closure boundary. Recover that boundary from the raw callee scheme when an
+/// application spine reaches the declaration's full ordinary arity.
+fn application_returns_forall(
+    module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
+    expression: &Expr,
+) -> bool {
+    if psrs_core::forall_parts(&module.types, expression.ty).is_some() {
+        return true;
+    }
+    let mut root = expression;
+    let mut applied = 0usize;
+    while let ExprKind::Application(function, _) = &root.kind {
+        root = function;
+        applied += 1;
+    }
+    let source_type = match &root.kind {
+        ExprKind::Global(symbol) => module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.symbol == *symbol)
+            .map(|declaration| declaration.ty),
+        ExprKind::Local(local) => local_types.get(local).copied().or(Some(root.ty)),
+        _ => Some(root.ty),
+    };
+    let Some(source_type) = source_type else {
+        return false;
+    };
+    let mut remaining = applied;
+    let mut current = source_type;
+    for _ in 0..=module.types.len() {
+        let (parameters, result) = function_arrow_parameters(module, current);
+        if remaining == parameters.len() {
+            return psrs_core::forall_parts(&module.types, result).is_some();
+        }
+        if remaining < parameters.len() || parameters.is_empty() {
+            return false;
+        }
+        remaining -= parameters.len();
+        let Some((_, body)) = psrs_core::forall_parts(&module.types, result) else {
+            return false;
+        };
+        current = body;
+    }
+    false
 }
 
 /// Whether a value is a callable closure: an ordinary function arrow or the
@@ -37,8 +97,9 @@ pub(in crate::cc::lower) fn is_function_type(
     module: &CoreModule,
     type_id: psrs_core::TypeId,
 ) -> bool {
+    let type_id = unquantified_type(module, type_id);
     psrs_core::arrow_parts(&module.types, type_id).is_some()
-        || module.callable_application(type_id).is_some()
+        || callable_application(module, type_id).is_some()
 }
 
 pub(super) fn closure_value_type() -> ValueShape {

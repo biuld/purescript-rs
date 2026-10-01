@@ -1,4 +1,4 @@
-use crate::{Expr, Module, Type, TypeId};
+use crate::{Expr, Module, TypeId};
 use std::collections::HashSet;
 
 /// Checked field order for a class dictionary represented by a Core record.
@@ -82,7 +82,7 @@ impl ClassLayout {
             let Some(field) = self.field(label) else {
                 return Err("dictionary value contains a field outside its class layout");
             };
-            if !types_compatible(value.ty, field.ty, module, &mut HashSet::new()) {
+            if !crate::verify::equivalent_types(value.ty, field.ty, module) {
                 return Err("dictionary value field type differs from its class layout");
             }
         }
@@ -97,83 +97,10 @@ impl ClassLayout {
     }
 }
 
-fn types_compatible(
-    left: TypeId,
-    right: TypeId,
-    module: &Module,
-    seen: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    if left == right || !seen.insert((left, right)) {
-        return true;
-    }
-    let (Some(left), Some(right)) = (
-        module.types.get(left.0 as usize),
-        module.types.get(right.0 as usize),
-    ) else {
-        return false;
-    };
-    match (left, right) {
-        (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
-        (Type::Constructor(a), Type::Constructor(b)) => a == b,
-        (Type::Application(a1, a2), Type::Application(b1, b2))
-            if is_record_head(module, *a1) && is_record_head(module, *b1) =>
-        {
-            record_rows_compatible(module, *a2, *b2, seen)
-        }
-        (Type::Application(a1, a2), Type::Application(b1, b2)) => {
-            types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
-        }
-        (
-            Type::RowExtend {
-                label: left_label,
-                ty: left_ty,
-                tail: left_tail,
-            },
-            Type::RowExtend {
-                label: right_label,
-                ty: right_ty,
-                tail: right_tail,
-            },
-        ) => {
-            left_label == right_label
-                && types_compatible(*left_ty, *right_ty, module, seen)
-                && types_compatible(*left_tail, *right_tail, module, seen)
-        }
-        (Type::RowEmpty, Type::RowEmpty) => true,
-        _ => false,
-    }
-}
-
-fn is_record_head(module: &Module, id: TypeId) -> bool {
-    matches!(
-        module.types.get(id.0 as usize),
-        Some(Type::Constructor(crate::TypeConstructor::Record))
-    )
-}
-
-fn record_rows_compatible(
-    module: &Module,
-    left_row: TypeId,
-    right_row: TypeId,
-    seen: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    let (Some((left_fields, _)), Some((right_fields, _))) =
-        (module.row_fields(left_row), module.row_fields(right_row))
-    else {
-        return false;
-    };
-    left_fields.len() == right_fields.len()
-        && left_fields.iter().all(|(label, ty)| {
-            right_fields
-                .iter()
-                .find(|(other, _)| other == label)
-                .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Type;
     use psrs_hir::ModuleId;
     use psrs_span::TextRange;
 

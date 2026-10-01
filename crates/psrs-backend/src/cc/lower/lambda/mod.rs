@@ -1,4 +1,4 @@
-use super::super::layout::scalar_type;
+use super::super::layout::{function_type_signature, scalar_type, unquantified_type};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, ValueId, ValueShape,
 };
@@ -35,7 +35,9 @@ impl LambdaLowering for FunctionLowerer<'_> {
         let ExprKind::Lambda { binder, body } = &expression.kind else {
             unreachable!("lambda lowering received another expression");
         };
-        let Some(signature) = self.function_types.get(&expression.ty).copied() else {
+        let Some(signature) =
+            function_type_signature(self.module, self.function_types, expression.ty)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
@@ -59,7 +61,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
         // function.
         let mut binders = vec![binder];
         let mut body = body;
-        let mut lambda_type = expression.ty;
+        let mut lambda_type = unquantified_type(self.module, expression.ty);
         while let Some((_, result)) = psrs_core::arrow_parts(&self.module.types, lambda_type) {
             let ExprKind::Lambda { binder, body: rest } = &body.kind else {
                 break;
@@ -86,7 +88,7 @@ impl LambdaLowering for FunctionLowerer<'_> {
         // arrow syntactically (`\x -> g x`), expose the full flattened arity by
         // applying the remaining parameters to the returned closure.
         let signature_definition = self.representations.signature(signature).cloned();
-        let body_signature = self.function_types.get(&body.ty).copied();
+        let body_signature = function_type_signature(self.module, self.function_types, body.ty);
         // The body can be a generic function value (an erased reference), such
         // as a callable value returned by `pure`. It still has a runtime call
         // signature, so the remaining parameters are applied to it after a

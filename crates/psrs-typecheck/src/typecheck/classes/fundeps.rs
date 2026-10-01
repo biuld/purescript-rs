@@ -40,7 +40,7 @@ impl Checker {
                 continue;
             }
             let mut sources: Vec<Vec<InferType>> = Vec::new();
-            for (given, _) in self.givens.clone() {
+            for (given, _) in constraint.givens.clone() {
                 if given.class_id == constraint.class_id
                     && fundep.determining.iter().all(|&index| {
                         self.infer_types_equal(
@@ -174,6 +174,14 @@ impl Checker {
             InferType::RowExtend { ty, tail, .. } => {
                 self.has_flexible_variable(&ty) || self.has_flexible_variable(&tail)
             }
+            InferType::ForAll { body, .. } => self.has_flexible_variable(&body),
+            InferType::Constrained { constraints, body } => {
+                constraints
+                    .iter()
+                    .flat_map(|constraint| &constraint.arguments)
+                    .any(|argument| self.has_flexible_variable(argument))
+                    || self.has_flexible_variable(&body)
+            }
             InferType::Constructor(_) | InferType::RowEmpty => false,
         }
     }
@@ -254,6 +262,21 @@ impl Checker {
             if constraint.solution.is_none() {
                 continue;
             }
+            // A wanted discharged directly from a lexical dictionary is
+            // already determined by that dictionary's scope. This commonly
+            // occurs inside a rank-N method body, where the skolem appears in
+            // the wanted but intentionally does not escape through the
+            // method's result type. Do not apply this exemption to an
+            // instance dictionary merely because one of its context
+            // constraints comes from a given: the instance head itself may
+            // still contain an ambiguous variable.
+            if constraint
+                .solution
+                .as_ref()
+                .is_some_and(solution_uses_lexical_given)
+            {
+                continue;
+            }
             let mut variables = HashSet::new();
             for argument in &constraint.arguments {
                 collect_infer_variables(&self.resolve_type(argument.clone()), &mut variables);
@@ -277,8 +300,21 @@ impl Checker {
     }
 }
 
+fn solution_uses_lexical_given(solution: &WantedSolution) -> bool {
+    match solution {
+        WantedSolution::Given(_) => true,
+        WantedSolution::Superclass { parent, .. } => parent
+            .solution
+            .as_ref()
+            .is_some_and(solution_uses_lexical_given),
+        WantedSolution::Global(_)
+        | WantedSolution::Instance { .. }
+        | WantedSolution::Coercible { .. } => false,
+    }
+}
+
 /// The inference variables used anywhere in a type.
-pub(super) fn collect_infer_variables(ty: &InferType, out: &mut HashSet<u32>) {
+pub(in crate::typecheck) fn collect_infer_variables(ty: &InferType, out: &mut HashSet<u32>) {
     match ty {
         InferType::Variable(variable) => {
             out.insert(*variable);
@@ -290,6 +326,21 @@ pub(super) fn collect_infer_variables(ty: &InferType, out: &mut HashSet<u32>) {
         InferType::RowExtend { ty, tail, .. } => {
             collect_infer_variables(ty, out);
             collect_infer_variables(tail, out);
+        }
+        InferType::ForAll { variables, body } => {
+            let mut nested = HashSet::new();
+            collect_infer_variables(body, &mut nested);
+            nested.retain(|variable| !variables.contains(variable));
+            out.extend(nested);
+        }
+        InferType::Constrained { constraints, body } => {
+            for argument in constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+            {
+                collect_infer_variables(argument, out);
+            }
+            collect_infer_variables(body, out);
         }
         InferType::Constructor(_) | InferType::RowEmpty => {}
     }

@@ -1,9 +1,8 @@
-use super::Locals;
+use super::{Locals, SchemeType};
 use crate::{Module, Primitive, Type, TypeConstructor, TypeId, UnaryPrimitive, VerifyError};
-use psrs_hir::TypeId as HirTypeId;
 use psrs_hir::{LocalId, ModuleId};
 use psrs_span::TextRange;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub(super) fn verify_type(
     id: TypeId,
@@ -127,38 +126,18 @@ pub(super) fn callable_result(module: &Module, id: TypeId) -> Option<TypeId> {
     arguments.last().copied()
 }
 
-pub(super) fn user_type_constructor(mut id: TypeId, module: &Module) -> Option<HirTypeId> {
-    loop {
-        match module.types.get(id.0 as usize)? {
-            Type::Application(function, _) => id = *function,
-            Type::Constructor(TypeConstructor::User(id)) => return Some(*id),
-            _ => return None,
-        }
-    }
-}
-
-pub(super) fn compatible(
-    actual: TypeId,
-    expected: TypeId,
-    module: &Module,
-    owner: ModuleId,
-    span: TextRange,
-    errors: &mut Vec<VerifyError>,
-) {
-    if !types_compatible(actual, expected, module, &mut HashSet::new()) {
-        errors.push(error(
-            owner,
-            span,
-            "Core expression type is inconsistent with its context",
-        ));
-    }
-}
+mod matching;
+pub(crate) use matching::equivalent_types;
+pub(super) use matching::{
+    application_matches, compatible, constructor_fields_match, scheme_instance,
+};
 
 fn types_compatible(
     left: TypeId,
     right: TypeId,
     module: &Module,
     seen: &mut HashSet<(TypeId, TypeId)>,
+    alpha: &mut HashMap<psrs_hir::TypeVariableId, psrs_hir::TypeVariableId>,
 ) -> bool {
     if left == right || !seen.insert((left, right)) {
         return true;
@@ -170,15 +149,47 @@ fn types_compatible(
         return false;
     };
     match (left, right) {
-        (Type::Variable(_), _) | (_, Type::Variable(_)) => true,
+        (Type::Variable(left), Type::Variable(right)) => {
+            alpha.get(left).copied().unwrap_or(*left) == *right
+                && !alpha
+                    .iter()
+                    .any(|(bound, target)| bound != left && *target == *right)
+        }
+        (
+            Type::ForAll {
+                variables: left_variables,
+                body: left_body,
+            },
+            Type::ForAll {
+                variables: right_variables,
+                body: right_body,
+            },
+        ) if left_variables.len() == right_variables.len() => {
+            let mut added = Vec::new();
+            for (left, right) in left_variables.iter().zip(right_variables) {
+                if alpha.insert(*left, *right).is_some() {
+                    for variable in added {
+                        alpha.remove(&variable);
+                    }
+                    return false;
+                }
+                added.push(*left);
+            }
+            let equal = types_compatible(*left_body, *right_body, module, seen, alpha);
+            for variable in added {
+                alpha.remove(&variable);
+            }
+            equal
+        }
         (Type::Constructor(a), Type::Constructor(b)) => a == b,
         (Type::Application(a1, a2), Type::Application(b1, b2))
             if is_record_head(module, *a1) && is_record_head(module, *b1) =>
         {
-            record_rows_compatible(module, *a2, *b2, seen)
+            record_rows_compatible(module, *a2, *b2, seen, alpha)
         }
         (Type::Application(a1, a2), Type::Application(b1, b2)) => {
-            types_compatible(*a1, *b1, module, seen) && types_compatible(*a2, *b2, module, seen)
+            types_compatible(*a1, *b1, module, seen, alpha)
+                && types_compatible(*a2, *b2, module, seen, alpha)
         }
         (Type::RowEmpty, Type::RowEmpty) => true,
         (
@@ -194,8 +205,8 @@ fn types_compatible(
             },
         ) => {
             left_label == right_label
-                && types_compatible(*left_ty, *right_ty, module, seen)
-                && types_compatible(*left_tail, *right_tail, module, seen)
+                && types_compatible(*left_ty, *right_ty, module, seen, alpha)
+                && types_compatible(*left_tail, *right_tail, module, seen, alpha)
         }
         _ => false,
     }
@@ -216,6 +227,7 @@ fn record_rows_compatible(
     left_row: TypeId,
     right_row: TypeId,
     seen: &mut HashSet<(TypeId, TypeId)>,
+    alpha: &mut HashMap<psrs_hir::TypeVariableId, psrs_hir::TypeVariableId>,
 ) -> bool {
     let (Some((left_fields, left_tail)), Some((right_fields, right_tail))) =
         (module.row_fields(left_row), module.row_fields(right_row))
@@ -227,7 +239,7 @@ fn record_rows_compatible(
             fields
                 .iter()
                 .find(|(other, _)| other == label)
-                .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen))
+                .is_some_and(|(_, other)| types_compatible(*ty, *other, module, seen, alpha))
         })
     };
     match (left_tail, right_tail) {
@@ -237,7 +249,7 @@ fn record_rows_compatible(
     }
 }
 
-pub(super) fn restore_local(locals: &mut Locals, id: LocalId, previous: Option<TypeId>) {
+pub(super) fn restore_local(locals: &mut Locals, id: LocalId, previous: Option<SchemeType>) {
     if let Some(previous) = previous {
         locals.insert(id, previous);
     } else {

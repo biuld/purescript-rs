@@ -4,22 +4,39 @@ use std::collections::HashMap;
 
 mod expr;
 mod patterns;
+mod scopes;
 mod types;
+
+pub(crate) use types::equivalent_types;
 
 use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
     array_element, callable_result, compatible, error, primitive_type_id, primitive_types,
-    record_field, restore_local, unary_primitive_types, user_type_constructor, verify_type,
+    record_field, restore_local, unary_primitive_types, verify_type,
 };
 
-type Locals = HashMap<LocalId, TypeId>;
+#[derive(Clone)]
+pub(super) struct SchemeType {
+    pub ty: TypeId,
+    pub quantified: Vec<psrs_hir::TypeVariableId>,
+}
+
+type Locals = HashMap<LocalId, SchemeType>;
 
 pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
     let globals = module
         .declarations
         .iter()
-        .map(|declaration| (declaration.symbol, Some(declaration.ty)))
+        .map(|declaration| {
+            (
+                declaration.symbol,
+                Some(SchemeType {
+                    ty: declaration.ty,
+                    quantified: declaration.quantified.clone(),
+                }),
+            )
+        })
         .chain(
             module
                 .externals
@@ -36,12 +53,19 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
                 verify_type(*result, module, module.id, module.span, &mut errors);
                 verify_type(id, module, module.id, module.span, &mut errors);
             }
+            Type::ForAll { body, .. } => {
+                verify_type(*body, module, module.id, module.span, &mut errors);
+            }
             Type::RowExtend { ty, tail, .. } => {
                 verify_type(*ty, module, module.id, module.span, &mut errors);
                 verify_type(*tail, module, module.id, module.span, &mut errors);
             }
             _ => {}
         }
+    }
+    errors.extend(scopes::verify_module(module));
+    if !errors.is_empty() {
+        return Err(errors);
     }
     for constructor in &module.constructors {
         if module.opaque_ids.contains(&constructor.type_id) {

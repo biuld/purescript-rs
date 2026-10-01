@@ -1,4 +1,4 @@
-use super::layout::scalar_type;
+use super::layout::{scalar_type, unquantified_type};
 use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
@@ -117,7 +117,7 @@ pub(super) fn lower_function(
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
-    let mut declaration_type = declaration.ty;
+    let mut declaration_type = unquantified_type(module, declaration.ty);
     let mut parameters = Vec::new();
     while let ExprKind::Lambda { binder, body } = &value.kind {
         // Peel only ordinary function arrows. A lambda at a callable-constructor
@@ -144,6 +144,12 @@ pub(super) fn lower_function(
         parameters.push(id);
         declaration_type = result;
         value = body;
+        // A quantified result is returned as its own polymorphic closure. Do
+        // not peel a syntactic lambda in that result into this function's
+        // parameter list.
+        if psrs_core::forall_parts(&module.types, declaration_type).is_some() {
+            break;
+        }
     }
     let mut assignments = Vec::new();
     let result = state.lower_value(value, &mut assignments)?;

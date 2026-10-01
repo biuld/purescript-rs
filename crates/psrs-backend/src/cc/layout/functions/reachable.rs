@@ -1,4 +1,4 @@
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, TypeId};
+use psrs_core::{Expr, ExprKind, Module as CoreModule, Pattern, PatternKind, Type, TypeId};
 use std::collections::HashSet;
 
 /// Callable types that occur on a remaining declaration, expression, or
@@ -111,7 +111,7 @@ fn record_expr(
         } => {
             record_expr(module, scrutinee, visiting, referenced);
             for branch in branches {
-                record_type(module, branch.pattern.ty, visiting, referenced);
+                record_pattern(module, &branch.pattern, visiting, referenced);
                 record_expr(module, &branch.value, visiting, referenced);
             }
         }
@@ -122,6 +122,29 @@ fn record_expr(
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+    }
+}
+
+fn record_pattern(
+    module: &CoreModule,
+    pattern: &Pattern,
+    visiting: &mut HashSet<TypeId>,
+    referenced: &mut HashSet<TypeId>,
+) {
+    record_type(module, pattern.ty, visiting, referenced);
+    match &pattern.kind {
+        PatternKind::Var { ty, .. } => record_type(module, *ty, visiting, referenced),
+        PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                record_pattern(module, argument, visiting, referenced);
+            }
+        }
+        PatternKind::Record { fields } => {
+            for (_, field) in fields {
+                record_pattern(module, field, visiting, referenced);
+            }
+        }
+        PatternKind::Wildcard => {}
     }
 }
 
@@ -148,6 +171,15 @@ fn record_type(
         Some(Type::RowExtend { ty, tail, .. }) => {
             record_type(module, *ty, visiting, referenced);
             record_type(module, *tail, visiting, referenced);
+        }
+        Some(Type::ForAll { body, .. }) => {
+            // Keep a signature entry for the quantified value itself as well
+            // as for its body. Use sites retain the scheme TypeId on binders,
+            // while expression TypeIds may name its instantiated body.
+            if super::super::is_callable_type(module, id) {
+                referenced.insert(id);
+            }
+            record_type(module, *body, visiting, referenced);
         }
         _ => {}
     }

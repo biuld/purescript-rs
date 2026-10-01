@@ -9,6 +9,7 @@ use super::super::canonical::{
 };
 use super::super::validation::enum_cases;
 use super::super::{WasiImport, source_field_name};
+use super::function_type::function_parts;
 use psrs_core::{
     ConstructorInfo, Module as CoreModule, Type as CoreType, TypeConstructor, TypeId as CoreTypeId,
 };
@@ -54,24 +55,6 @@ fn mismatch(import: &WasiImport) -> String {
         import.name,
         import.params.len()
     )
-}
-
-/// Walks a Core function type into its parameter types and final result type.
-pub(crate) fn function_parts(
-    module: &CoreModule,
-    type_id: CoreTypeId,
-) -> Option<(Vec<CoreTypeId>, CoreTypeId)> {
-    let mut parameters = Vec::new();
-    let mut current = type_id;
-    loop {
-        match psrs_core::arrow_parts(&module.types, current) {
-            Some((parameter, result)) => {
-                parameters.push(parameter);
-                current = result;
-            }
-            None => return Some((parameters, current)),
-        }
-    }
 }
 
 fn core(module: &CoreModule, id: CoreTypeId) -> Option<&CoreType> {

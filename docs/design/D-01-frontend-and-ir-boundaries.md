@@ -254,10 +254,13 @@ them, export lists report the transitive requirements that `purs` enforces, and
 program is linked at Core before entering the backend.
 
 The type checker supports monomorphic `Int`, `Boolean`, `String`, `Unit`, and
-function types with unification and an occurs check, plus rank-1 polymorphism:
+function types with unification and an occurs check, plus rank-N polymorphism:
 it generalizes local `let` groups and top-level strongly connected components
 and instantiates schemes at use sites. THIR and Typed Core types carry generic
-variables and quantified declaration and `let` bindings. Declarations may carry
+variables, quantified declaration and `let` bindings, and nested `ForAll` types.
+Expected types guide higher-rank checking; scoped rigid variables prevent
+monomorphic arguments and escaping skolems from satisfying universal types.
+Declarations may carry
 a `name :: Type` signature, resolved in HIR to built-in type constructors and
 type variables, then checked against the inferred type with rigid variables.
 A `psrs-kind` pass (P5) infers and unifies kinds over resolved declarations and
@@ -266,20 +269,14 @@ constructors and type-level application, so signatures over `Array` and user
 types elaborate and unify, and type synonyms are expanded. Data and newtype
 constructors are registered as polymorphic values, so constructor applications
 type-check, and HIR, THIR, and Core carry single-scrutinee `case` expressions
-with constructor, variable, and wildcard patterns. A first runtime slice
-threads a constructor table through THIR and Core, lowers the nullary
-constructors of a non-parameterized data type to immediate integer tags, and
-lowers `case` over such a type to tag comparisons, so enum-style programs run
-under WASI. Constructors with fields, parameterized types, heap allocation, and
-tagged aggregate layouts are not implemented and are reported as named
-limitations. Type-class constraints and rows are not implemented yet. The
-backend uses the initial erased representation in
-[erasure](backend/fp/polymorphism-and-erasure.md) for supported rank-1 generic calls
-and rejects remaining generic aggregates, partial applications, and dictionary
-passing. Type classes and pattern exhaustiveness are not implemented. P4
-currently lowers resolved operators to applications. P6 turns saturated integer
-intrinsics into Core primitive operations and keeps runtime functions, such as
-`log`, as direct calls. P7 Core optimization has no implementation yet.
+with constructor, variable, and wildcard patterns. Constructor metadata, type-class dictionaries, and nested quantifiers survive
+lowering into checked Core. Core verification and optimization preserve lexical
+quantifier scope and consistent use-site instantiation. The backend uses
+[erasure](backend/fp/polymorphism-and-erasure.md) for generic calls and rank-N
+function values, retaining a distinct callable boundary for polymorphic
+returned closures. Current source, runtime, and official-suite coverage is
+tracked in [D-04](D-04-suite-roadmap.md) and the
+[rank-N acceptance record](../implementation/frontend/rank-n.md).
 
 P8 flattens top-level lambdas, makes closure captures explicit, and emits ANF
 assignments with direct or closure calls. Function values use a uniform GC

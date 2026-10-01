@@ -162,6 +162,37 @@ impl Checker {
     ) -> Option<InferredExpr> {
         let source = self.resolve_type(source);
         let target = self.resolve_type(target);
+        // Method quantifiers are elaborated once and then instantiated at the
+        // two class heads, so both sides share those binders. Peel them before
+        // adapting arrows; coercing the quantified type itself is not a
+        // newtype representation change.
+        if let (
+            InferType::ForAll {
+                variables: source_variables,
+                body: source_body,
+            },
+            InferType::ForAll {
+                variables: target_variables,
+                body: target_body,
+            },
+        ) = (&source, &target)
+            && source_variables == target_variables
+        {
+            let instantiated = InferredExpr {
+                ty: source_body.as_ref().clone(),
+                ..value
+            };
+            let adapted = self.adapt_newtype_method(
+                instantiated,
+                source_body.as_ref().clone(),
+                target_body.as_ref().clone(),
+                span,
+            )?;
+            return Some(InferredExpr {
+                ty: target,
+                ..adapted
+            });
+        }
         if self.infer_types_equal(&source, &target) {
             return Some(InferredExpr {
                 ty: target,

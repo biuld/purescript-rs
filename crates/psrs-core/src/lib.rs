@@ -49,6 +49,11 @@ pub enum Type {
     Variable(TypeVariableId),
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
+    /// A lexical type-level quantifier. Nested nodes retain independent scope.
+    ForAll {
+        variables: Vec<TypeVariableId>,
+        body: TypeId,
+    },
     /// The empty row. A closed record's row ends here.
     RowEmpty,
     /// A row extended with one labeled field. A record type is
@@ -75,6 +80,14 @@ pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
         Some(Type::Constructor(TypeConstructor::Function))
     )
     .then_some((*parameter, *result))
+}
+
+/// The binders and body of a type-level universal quantifier.
+pub fn forall_parts(types: &[Type], id: TypeId) -> Option<(&[TypeVariableId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::ForAll { variables, body } => Some((variables, *body)),
+        _ => None,
+    }
 }
 
 /// A data constructor known to the module, mirrored from THIR.

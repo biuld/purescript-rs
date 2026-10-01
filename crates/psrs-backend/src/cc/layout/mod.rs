@@ -39,6 +39,7 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
 
 /// The primitive shape of a Core type when its head is a primitive constructor.
 pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
+    let id = unquantified_type(module, id);
     match module.types.get(id.0 as usize)? {
         Type::Constructor(constructor) => primitive_value_shape(*constructor),
         _ => None,
@@ -124,6 +125,7 @@ fn layoutable_field_type_inner(
         // fixed layout.
         Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
         Some(Type::Variable(_))
+        | Some(Type::ForAll { .. })
         | Some(Type::Constructor(_))
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. })
@@ -309,6 +311,7 @@ pub(super) fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Opt
 }
 
 pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTypeId> {
+    id = unquantified_type(module, id);
     loop {
         match module.types.get(id.0 as usize)? {
             Type::Constructor(TypeConstructor::User(type_id)) => return Some(*type_id),
@@ -323,6 +326,7 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
 /// calling-convention parameter count and the value type the call produces (the
 /// application's last type argument).
 pub(super) fn callable_application(module: &CoreModule, id: TypeId) -> Option<(u32, TypeId)> {
+    let id = unquantified_type(module, id);
     let (type_id, arguments) = module.callable_application(id)?;
     let parameters = module.callable_parameters(type_id)?;
     Some((parameters, *arguments.last()?))
@@ -331,6 +335,7 @@ pub(super) fn callable_application(module: &CoreModule, id: TypeId) -> Option<(u
 /// Whether a Core type is a callable closure value: an ordinary function arrow
 /// or a registered callable type-constructor application.
 pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
+    let id = unquantified_type(module, id);
     psrs_core::arrow_parts(&module.types, id).is_some()
         || callable_application(module, id).is_some()
 }
@@ -344,6 +349,7 @@ pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
 /// call result is the application's last type argument, so an effect's returned
 /// function is a separate closure rather than extra parameters of the effect.
 pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
+    let id = unquantified_type(module, id);
     if let Some((parameters, result)) = callable_application(module, id) {
         let context = context_parameter_type(module);
         return (vec![context; parameters as usize], result);
@@ -353,8 +359,40 @@ pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec
     while let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, current) {
         parameters.push(parameter);
         current = result;
+        // A quantifier in the codomain starts a new polymorphic closure
+        // boundary. Keep that type intact as the result value; unwrapping it
+        // there would merge its arrows into the current closure's arity.
+        if psrs_core::forall_parts(&module.types, current).is_some() {
+            break;
+        }
     }
     (parameters, current)
+}
+
+/// Returns the runtime-facing body of a type after removing quantifiers that
+/// wrap the value itself. A quantifier reached in an arrow's codomain is kept
+/// by [`function_arrow_parameters`] as the type of a returned closure.
+pub(crate) fn unquantified_type(module: &CoreModule, mut id: TypeId) -> TypeId {
+    let mut visited = HashSet::new();
+    while visited.insert(id)
+        && let Some((_, body)) = psrs_core::forall_parts(&module.types, id)
+    {
+        id = body;
+    }
+    id
+}
+
+/// Finds the normalized closure signature, following leading `ForAll`
+/// wrappers when no scheme-specific entry is present.
+pub(crate) fn function_type_signature(
+    module: &CoreModule,
+    function_types: &HashMap<TypeId, SignatureId>,
+    id: TypeId,
+) -> Option<SignatureId> {
+    function_types
+        .get(&id)
+        .or_else(|| function_types.get(&unquantified_type(module, id)))
+        .copied()
 }
 
 /// A representative integer-shaped Core type for a closure's hidden context
@@ -379,6 +417,7 @@ pub(super) fn layout_error(span: TextRange, message: &'static str) -> Vec<Backen
 }
 
 pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<TypeId> {
+    let id = unquantified_type(module, id);
     let Type::Application(function, element) = module.types.get(id.0 as usize)? else {
         return None;
     };
@@ -398,6 +437,7 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
             Some(Type::Application(function, argument)) => {
                 visit(module, *function, visiting) || visit(module, *argument, visiting)
             }
+            Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
             Some(Type::RowExtend { ty, tail, .. }) => {
                 visit(module, *ty, visiting) || visit(module, *tail, visiting)
             }

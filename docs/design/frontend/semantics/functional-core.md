@@ -282,9 +282,13 @@ nodes and are owned by [CC IR](../../backend/fp/cc-ir.md):
 Core is produced already typed by the front-end type checker; the Core pass
 itself does not infer. A binding site generalizes the type variables its value
 does not constrain; a use site instantiates them. Instantiation is a
-substitution over the `Application`/`Variable` structure, and the resulting
+capture-avoiding substitution over the type structure, including nested
+`ForAll` binders, and the resulting
 expression's `ty` field records the instantiated type. `quantified` records
-which variables were generalized.
+which variables were generalized. A nested `ForAll` belongs to its value
+type rather than the enclosing declaration scheme. An expression introducing
+such a universal binds its type variables in the checked subtree; optimization
+must preserve that scope when replacing the expression.
 
 ### Core verification
 
@@ -422,9 +426,9 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 - **General effects.** The current implementation elaborates to `Boolean -> a`;
   the abstract source boundary and later token representation are specified in
   [effects](../../backend/fp/effects.md) without adding a Core effect node.
-- **Higher-rank and constraints.** Rank-1 quantification and dictionary
-  elaboration are specified; higher-rank types and the exact constraint
-  evidence representation remain front-end work
+- **Higher-rank and constraints.** Nested quantifiers and elaborated
+  dictionaries retain the checking rules specified by the frontend.
+  Remaining official-suite compatibility work is tracked by FE-18
   ([classes and evidence](../type-system/classes-and-evidence.md)).
 - **Open rows.** Source row polymorphism is checked by P5. Core preserves the
   checked record type and evidence; P9 fixes concrete record layouts at each
@@ -453,13 +457,12 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Implementation notes
 
-The current front end produces a working subset of this core: monomorphic and
-rank-1 polymorphic functions, non-parameterized and a restricted parameterized
-ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
-the current effect encoding. Local recursive `Let` groups are not yet lowered — only
-top-level recursion through `Global` and the generated closure wrappers are —
-and constraint evidence and the final effect representation are not yet
-produced.
+The current frontend produces nested `ForAll` types, quantified binding
+schemes, and dictionary applications. Core lowering, linking, verification,
+and optimization preserve these scopes and each reference's checked
+instantiation. Source and malformed-IR coverage is recorded in the
+[rank-N acceptance record](../../../implementation/frontend/rank-n.md);
+[D-04](../../D-04-suite-roadmap.md) owns the wider implementation matrix.
 
 The uniform application spine in the Model is implemented for the nodes the
 current frontend produces: functions, primitives, records, rows, arrays, and
@@ -468,7 +471,7 @@ rows, and the ad-hoc `Function`, `Record`, `OpenRecord`, and inline primitive
 variants are gone ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
 An open row is `Application(Constructor(Record), Variable)`, so closure
 conversion still rejects it when it cannot choose a field layout. The remaining
-`CheckedType` nodes the design lists — `KindApplication`, `ForAll`,
-`Constrained`, `TypeLevel*`, and `Skolem` — arrive with the kind, class, and
-higher-rank frontend work, not as a second representation. Nothing in the model
-above depends on those.
+`CheckedType` nodes the design lists — `KindApplication`, `Constrained`,
+`TypeLevel*`, and `Skolem` — remain part of the semantic design. Current nested
+constraints elaborate to dictionary arrows beneath `ForAll`, and solver
+skolems leave the frontend as scoped quantified variables.

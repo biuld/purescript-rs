@@ -31,118 +31,6 @@ pub use entry::{
 /// created at a higher level, so top-level generalization quantifies them.
 const TOP_LEVEL: u32 = 0;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum InferType {
-    Variable(u32),
-    Constructor(TypeConstructor),
-    Application(Box<InferType>, Box<InferType>),
-    /// The empty row. A closed record's row ends here.
-    RowEmpty,
-    /// A row extended with one labeled field. A record type is
-    /// `Application(Constructor(Record), row)`.
-    RowExtend {
-        label: String,
-        ty: Box<InferType>,
-        tail: Box<InferType>,
-    },
-}
-
-/// The arrow `parameter -> result` as the application spine
-/// `Application(Application(Constructor(Function), parameter), result)`.
-fn arrow(parameter: InferType, result: InferType) -> InferType {
-    InferType::Application(
-        Box::new(InferType::Application(
-            Box::new(InferType::Constructor(TypeConstructor::Function)),
-            Box::new(parameter),
-        )),
-        Box::new(result),
-    )
-}
-
-/// The parameter and result of an arrow spine `Application(Application(
-/// Constructor(Function), parameter), result)`.
-fn infer_arrow_parts(function: &InferType, result: &InferType) -> Option<(InferType, InferType)> {
-    let InferType::Application(head, parameter) = function else {
-        return None;
-    };
-    matches!(**head, InferType::Constructor(TypeConstructor::Function))
-        .then(|| ((**parameter).clone(), result.clone()))
-}
-
-/// Builds the row `RowExtend` chain over `fields` in canonical (label-sorted)
-/// order, ending in `tail`.
-fn row_from_fields(mut fields: Vec<(String, InferType)>, tail: InferType) -> InferType {
-    fields.sort_by(|left, right| left.0.cmp(&right.0));
-    let mut row = tail;
-    for (label, ty) in fields.into_iter().rev() {
-        row = InferType::RowExtend {
-            label,
-            ty: Box::new(ty),
-            tail: Box::new(row),
-        };
-    }
-    row
-}
-
-/// A record type `Application(Constructor(Record), row)` over `fields` in
-/// canonical order, ending in `tail` (`RowEmpty` when closed).
-fn record_type(fields: Vec<(String, InferType)>, tail: InferType) -> InferType {
-    InferType::Application(
-        Box::new(InferType::Constructor(TypeConstructor::Record)),
-        Box::new(row_from_fields(fields, tail)),
-    )
-}
-
-/// The row of a record type, or `None` when `ty` is not a record.
-fn record_row(ty: &InferType) -> Option<InferType> {
-    let InferType::Application(function, row) = ty else {
-        return None;
-    };
-    matches!(**function, InferType::Constructor(TypeConstructor::Record)).then(|| (**row).clone())
-}
-
-/// A row flattened into its fields and its tail. `Closed` is the empty tail;
-/// `Open` is a row variable, rigid when it comes from a signature and flexible
-/// when it is inferred. Field order is not significant.
-struct FlatRow {
-    fields: Vec<(String, InferType)>,
-    tail: RowTail,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RowTail {
-    Closed,
-    Open(u32),
-}
-
-impl RowTail {
-    fn to_type(self) -> InferType {
-        match self {
-            RowTail::Closed => InferType::RowEmpty,
-            RowTail::Open(variable) => InferType::Variable(variable),
-        }
-    }
-}
-
-/// A type constructor during inference. The arrow, record, and scalar
-/// primitives share this head; `Effect` is the trusted effect constructor; user
-/// constructors keep their resolved HIR ID so distinct declarations never unify
-/// by accident.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum TypeConstructor {
-    Function,
-    Record,
-    Array,
-    Effect,
-    Int,
-    Number,
-    Boolean,
-    String,
-    Char,
-    Unit,
-    User(hir::TypeId),
-}
-
 /// A type with a set of universally quantified variables and the class
 /// constraints those variables must satisfy.
 #[derive(Clone, Debug)]
@@ -164,7 +52,7 @@ impl Scheme {
 
 /// A class constraint `C τ...` recorded during inference. Its `arguments` are
 /// the instantiated class type arguments in declaration order.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ClassConstraint {
     class_id: hir::TypeId,
     arguments: Vec<InferType>,
@@ -254,6 +142,7 @@ struct WantedConstraint {
     arguments: Vec<InferType>,
     dictionary_type: InferType,
     span: TextRange,
+    givens: Vec<(ClassConstraint, WantedSolution)>,
     solution: Option<WantedSolution>,
 }
 
@@ -472,6 +361,16 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
             occurs(variable, function) || occurs(variable, argument)
         }
         InferType::RowExtend { ty, tail, .. } => occurs(variable, ty) || occurs(variable, tail),
+        InferType::ForAll { variables, body } => {
+            !variables.contains(&variable) && occurs(variable, body)
+        }
+        InferType::Constrained { constraints, body } => {
+            constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+                .any(|argument| occurs(variable, argument))
+                || occurs(variable, body)
+        }
         InferType::RowEmpty => false,
         InferType::Constructor(_) => false,
     }
@@ -482,8 +381,13 @@ mod tests;
 
 mod classes;
 mod finalize;
+mod generalize;
 mod infer;
 mod order;
+mod rank_n;
 mod rows;
 mod signature;
+mod type_model;
 mod unify;
+
+use type_model::*;

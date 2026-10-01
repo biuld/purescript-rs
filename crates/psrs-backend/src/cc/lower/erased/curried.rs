@@ -1,4 +1,6 @@
-use super::super::super::layout::{function_arrow_parameters, function_signature};
+use super::super::super::layout::{
+    function_arrow_parameters, function_signature, function_type_signature, unquantified_type,
+};
 use super::super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, Signature, SignatureId, ValueId,
 };
@@ -36,7 +38,9 @@ impl FunctionLowerer<'_> {
                     "curried function adapter cannot peel the source type",
                 )]
             })?;
-        let Some(&remaining_signature_id) = self.function_types.get(&remaining_type) else {
+        let Some(remaining_signature_id) =
+            function_type_signature(self.module, self.function_types, remaining_type)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 span,
@@ -237,6 +241,7 @@ fn peel_function_arrows(
     mut id: TypeId,
     count: usize,
 ) -> Option<TypeId> {
+    id = unquantified_type(module, id);
     for _ in 0..count {
         let (_, result) = psrs_core::arrow_parts(&module.types, id)?;
         id = result;

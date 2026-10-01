@@ -83,9 +83,9 @@ direct, nested application, and result-position function fields,
 `Bifunctor.bimap` for final parameter pairs, and `Contravariant.cmap` through
 the `Profunctor.lcmap` dictionary. `Eq1`, `Ord1`, `Foldable`, `Traversable`,
 `Bifoldable`, `Bitraversable`, and deriving `Profunctor` still need their
-upstream rules. Class-method rank-1 `forall` is supported, but method-local
-class constraints, record-field traversal, and full variance checking remain
-open. Runtime closure capture limits also leave the function-based
+upstream rules. Class-method `forall` and scoped method-local constraints are supported,
+with evidence in the [rank-N acceptance record](rank-n.md). Record-field
+traversal and full deriving variance checking remain open. Runtime closure capture limits also leave the function-based
 Contravariant example unexecuted. Polymorphic newtype-derived methods share a
 single method-quantifier instantiation at the checked adaptation boundary;
 their source/typecheck regression passes, but their Wasmtime execution remains

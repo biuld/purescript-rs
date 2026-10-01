@@ -57,6 +57,16 @@ fn collect_user_type_modules(ty: &InferType, modules: &mut HashSet<hir::ModuleId
             collect_user_type_modules(ty, modules);
             collect_user_type_modules(tail, modules);
         }
+        InferType::ForAll { body, .. } => collect_user_type_modules(body, modules),
+        InferType::Constrained { constraints, body } => {
+            for argument in constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+            {
+                collect_user_type_modules(argument, modules);
+            }
+            collect_user_type_modules(body, modules);
+        }
         InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
     }
 }

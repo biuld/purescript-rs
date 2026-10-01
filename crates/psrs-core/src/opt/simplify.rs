@@ -157,10 +157,10 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
             let then_branch = simplify_expr(*then_branch, fresh);
             let else_branch = simplify_expr(*else_branch, fresh);
             if let ExprKind::Boolean(value) = condition.kind {
-                return with_span(
-                    if value { then_branch } else { else_branch },
-                    expression.span,
-                );
+                let mut replacement = if value { then_branch } else { else_branch };
+                replacement.ty = expression.ty;
+                replacement.span = expression.span;
+                return replacement;
             }
             ExprKind::If {
                 condition: Box::new(condition),

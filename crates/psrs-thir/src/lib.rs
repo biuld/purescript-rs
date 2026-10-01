@@ -2,6 +2,7 @@ use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId,
 use psrs_span::TextRange;
 
 mod evidence;
+mod scope;
 mod verify;
 
 pub use evidence::{Evidence, EvidenceKind};
@@ -44,6 +45,12 @@ pub enum Type {
     Variable(TypeVariableId),
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
+    /// A lexical type-level quantifier. Each node owns only its listed binders;
+    /// nested `ForAll` nodes stay nested so instantiation preserves scope.
+    ForAll {
+        variables: Vec<TypeVariableId>,
+        body: TypeId,
+    },
     /// The empty row. A closed record's row ends here.
     RowEmpty,
     /// A row extended with one labeled field. A record type is
@@ -115,6 +122,14 @@ pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
         Some(Type::Constructor(TypeConstructor::Function))
     )
     .then_some((*parameter, *result))
+}
+
+/// The binders and body of a type-level universal quantifier.
+pub fn forall_parts(types: &[Type], id: TypeId) -> Option<(&[TypeVariableId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::ForAll { variables, body } => Some((variables, *body)),
+        _ => None,
+    }
 }
 
 /// A data constructor known to the module. `tag` is its zero-based position in
@@ -295,5 +310,7 @@ impl Module {
     }
 }
 
+#[cfg(test)]
+mod rank_n_tests;
 #[cfg(test)]
 mod tests;

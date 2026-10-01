@@ -41,6 +41,48 @@ impl Checker {
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
                 self.bind_variable(variable, ty, span);
             }
+            (
+                InferType::ForAll {
+                    variables: left_variables,
+                    body: left_body,
+                },
+                InferType::ForAll {
+                    variables: right_variables,
+                    body: right_body,
+                },
+            ) if left_variables.len() == right_variables.len() => {
+                let mapping = right_variables
+                    .into_iter()
+                    .zip(left_variables)
+                    .map(|(right, left)| (right, InferType::Variable(left)))
+                    .collect();
+                self.unify(*left_body, substitute(&right_body, &mapping), span);
+            }
+            (
+                InferType::Constrained {
+                    constraints: left_constraints,
+                    body: left_body,
+                },
+                InferType::Constrained {
+                    constraints: right_constraints,
+                    body: right_body,
+                },
+            ) if left_constraints.len() == right_constraints.len()
+                && left_constraints
+                    .iter()
+                    .zip(&right_constraints)
+                    .all(|(left, right)| {
+                        left.class_id == right.class_id
+                            && left.arguments.len() == right.arguments.len()
+                    }) =>
+            {
+                for (left, right) in left_constraints.iter().zip(&right_constraints) {
+                    for (left, right) in left.arguments.iter().zip(&right.arguments) {
+                        self.unify(left.clone(), right.clone(), span);
+                    }
+                }
+                self.unify(*left_body, *right_body, span);
+            }
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
             // A trusted effect-library definition applies an `Effect a` value to
             // its hidden context parameter. At the source level that is an
@@ -90,6 +132,8 @@ impl Checker {
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
+            false
+        } else if self.reject_skolem_escape(variable, &ty, span) {
             false
         } else {
             let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
@@ -150,6 +194,25 @@ impl Checker {
                     )
                 }
             }
+            InferType::ForAll { variables, body } => format!(
+                "(forall {}. {})",
+                variables
+                    .iter()
+                    .map(|variable| format!("_T{variable}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                self.display_type(&body)
+            ),
+            InferType::Constrained { constraints, body } => format!(
+                "({} => {})",
+                constraints
+                    .iter()
+                    .map(|constraint| self
+                        .display_constraint(constraint.class_id, &constraint.arguments))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.display_type(&body)
+            ),
             InferType::RowEmpty => "{ }".into(),
             row @ InferType::RowExtend { .. } => self.display_record(&row),
         }
@@ -190,74 +253,64 @@ impl Checker {
                 ty: Box::new(self.resolve_type(*ty)),
                 tail: Box::new(self.resolve_type(*tail)),
             },
+            InferType::ForAll { variables, body } => InferType::ForAll {
+                variables,
+                body: Box::new(self.resolve_type(*body)),
+            },
+            InferType::Constrained { constraints, body } => InferType::Constrained {
+                constraints: constraints
+                    .into_iter()
+                    .map(|constraint| ClassConstraint {
+                        arguments: constraint
+                            .arguments
+                            .into_iter()
+                            .map(|ty| self.resolve_type(ty))
+                            .collect(),
+                        ..constraint
+                    })
+                    .collect(),
+                body: Box::new(self.resolve_type(*body)),
+            },
             other => other,
         }
     }
 
     fn adjust_levels(&mut self, ty: &InferType, max_level: u32) {
+        self.adjust_levels_excluding(ty, max_level, &HashSet::new());
+    }
+
+    fn adjust_levels_excluding(&mut self, ty: &InferType, max_level: u32, bound: &HashSet<u32>) {
         match ty {
-            InferType::Variable(variable) => {
+            InferType::Variable(variable) if !bound.contains(variable) => {
                 if let Some(level) = self.levels.get_mut(variable)
                     && *level > max_level
                 {
                     *level = max_level;
                 }
             }
+            InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
             InferType::Application(function, argument) => {
-                self.adjust_levels(function, max_level);
-                self.adjust_levels(argument, max_level);
+                self.adjust_levels_excluding(function, max_level, bound);
+                self.adjust_levels_excluding(argument, max_level, bound);
             }
-            InferType::RowExtend { ty, tail, .. } => {
-                self.adjust_levels(ty, max_level);
-                self.adjust_levels(tail, max_level);
+            InferType::ForAll { variables, body } => {
+                let mut bound = bound.clone();
+                bound.extend(variables.iter().copied());
+                self.adjust_levels_excluding(body, max_level, &bound);
             }
-            InferType::RowEmpty | InferType::Constructor(_) => {}
-        }
-    }
-
-    pub(super) fn generalize(
-        &mut self,
-        ty: &InferType,
-        constraints: &[ClassConstraint],
-        outer_level: u32,
-    ) -> Scheme {
-        let resolved = self.resolve_type(ty.clone());
-        let mut variables = Vec::new();
-        self.collect_generalizable(&resolved, outer_level, &mut variables);
-        for constraint in constraints {
-            for argument in &constraint.arguments {
-                let resolved = self.resolve_type(argument.clone());
-                self.collect_generalizable(&resolved, outer_level, &mut variables);
-            }
-        }
-        variables.sort_unstable();
-        variables.dedup();
-        for variable in &variables {
-            self.generic_variables.insert(*variable);
-        }
-        Scheme {
-            variables,
-            constraints: constraints.to_vec(),
-            ty: resolved,
-        }
-    }
-
-    fn collect_generalizable(&self, ty: &InferType, outer_level: u32, out: &mut Vec<u32>) {
-        match ty {
-            InferType::Variable(variable) => {
-                if self.levels.get(variable).copied().unwrap_or(TOP_LEVEL) > outer_level {
-                    out.push(*variable);
+            InferType::Constrained { constraints, body } => {
+                for argument in constraints
+                    .iter()
+                    .flat_map(|constraint| &constraint.arguments)
+                {
+                    self.adjust_levels_excluding(argument, max_level, bound);
                 }
-            }
-            InferType::Application(function, argument) => {
-                self.collect_generalizable(function, outer_level, out);
-                self.collect_generalizable(argument, outer_level, out);
+                self.adjust_levels_excluding(body, max_level, bound);
             }
             InferType::RowExtend { ty, tail, .. } => {
-                self.collect_generalizable(ty, outer_level, out);
-                self.collect_generalizable(tail, outer_level, out);
+                self.adjust_levels_excluding(ty, max_level, bound);
+                self.adjust_levels_excluding(tail, max_level, bound);
             }
-            InferType::RowEmpty | InferType::Constructor(_) => {}
         }
     }
 
@@ -334,6 +387,27 @@ impl Checker {
                 let argument = self.finalize_type(&argument, span, interner, generics);
                 Some(interner.intern(Type::Application(function?, argument?)))
             }
+            InferType::ForAll { variables, body } => {
+                let mut scoped_generics = generics.clone();
+                scoped_generics.extend(variables.iter().copied());
+                let body = self.finalize_type(&body, span, interner, &scoped_generics)?;
+                Some(interner.intern(Type::ForAll {
+                    variables: variables.into_iter().map(TypeVariableId).collect(),
+                    body,
+                }))
+            }
+            InferType::Constrained { constraints, body } => {
+                let mut result = self.finalize_type(&body, span, interner, generics)?;
+                for constraint in constraints.iter().rev() {
+                    let dictionary = self.dictionary_type(constraint);
+                    let parameter = self.finalize_type(&dictionary, span, interner, generics)?;
+                    let function =
+                        interner.intern(Type::Constructor(thir::TypeConstructor::Function));
+                    let function = interner.intern(Type::Application(function, parameter));
+                    result = interner.intern(Type::Application(function, result));
+                }
+                Some(result)
+            }
             InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
             row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
         }
@@ -350,6 +424,30 @@ pub(super) fn substitute(ty: &InferType, mapping: &HashMap<u32, InferType>) -> I
             Box::new(substitute(function, mapping)),
             Box::new(substitute(argument, mapping)),
         ),
+        InferType::ForAll { variables, body } => {
+            let mut mapping = mapping.clone();
+            for variable in variables {
+                mapping.remove(variable);
+            }
+            InferType::ForAll {
+                variables: variables.clone(),
+                body: Box::new(substitute(body, &mapping)),
+            }
+        }
+        InferType::Constrained { constraints, body } => InferType::Constrained {
+            constraints: constraints
+                .iter()
+                .map(|constraint| ClassConstraint {
+                    arguments: constraint
+                        .arguments
+                        .iter()
+                        .map(|ty| substitute(ty, mapping))
+                        .collect(),
+                    ..constraint.clone()
+                })
+                .collect(),
+            body: Box::new(substitute(body, mapping)),
+        },
         InferType::RowExtend { label, ty, tail } => InferType::RowExtend {
             label: label.clone(),
             ty: Box::new(substitute(ty, mapping)),

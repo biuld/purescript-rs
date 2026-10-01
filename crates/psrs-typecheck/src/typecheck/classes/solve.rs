@@ -41,7 +41,9 @@ impl Checker {
                     .map(|argument| self.resolve_type(argument.clone()))
                     .collect::<Vec<_>>();
                 let errors_before = self.errors.len();
+                let outer_givens = std::mem::replace(&mut self.givens, constraint.givens.clone());
                 let found = self.solve_constraint(&constraint, 0);
+                self.givens = outer_givens;
                 constraint.solution = found;
                 let reported_resolution_error = self.errors[errors_before..].iter().any(|error| {
                     matches!(
@@ -344,6 +346,7 @@ impl Checker {
             arguments,
             dictionary_type,
             span,
+            givens: self.givens.clone(),
             solution: Some(solution),
         }
     }
@@ -364,6 +367,7 @@ impl Checker {
             arguments,
             dictionary_type,
             span,
+            givens: self.givens.clone(),
             solution: None,
         }
     }
@@ -406,6 +410,16 @@ fn collect_user_type_modules(ty: &InferType, out: &mut HashSet<hir::ModuleId>) {
         InferType::RowExtend { ty, tail, .. } => {
             collect_user_type_modules(ty, out);
             collect_user_type_modules(tail, out);
+        }
+        InferType::ForAll { body, .. } => collect_user_type_modules(body, out),
+        InferType::Constrained { constraints, body } => {
+            for argument in constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+            {
+                collect_user_type_modules(argument, out);
+            }
+            collect_user_type_modules(body, out);
         }
         InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
     }

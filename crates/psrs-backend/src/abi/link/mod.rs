@@ -148,8 +148,10 @@ fn intern_core_type(types: &mut Vec<CoreType>, core: CoreType) -> CoreTypeId {
 }
 
 mod conformance;
+mod function_type;
 
-pub(crate) use conformance::{function_parts, validate_import_signature};
+pub(crate) use conformance::validate_import_signature;
+pub(crate) use function_type::function_parts;
 
 #[cfg(test)]
 mod tests;
