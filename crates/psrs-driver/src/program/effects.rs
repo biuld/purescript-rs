@@ -18,6 +18,13 @@ pub(super) fn check_run_effect_scope(
                 .iter()
                 .find(|declaration| declaration.name == "runEffect")
                 .map(|declaration| declaration.symbol)
+                .or_else(|| {
+                    module
+                        .externals
+                        .iter()
+                        .find(|external| external.name == "runEffect")
+                        .map(|external| external.symbol)
+                })
         })
     else {
         return Ok(());

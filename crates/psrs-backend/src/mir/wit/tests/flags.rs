@@ -1,38 +1,35 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, record, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::canonical::CanonicalType;
+use crate::abi::test_support::import;
+use crate::cc::ValueShape;
+use crate::mir::NumericOp;
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 #[test]
 fn flags_arguments_pack_boolean_fields_in_wit_declaration_order() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:flags".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32],
-        param_kinds: vec![WasiParamKind::Flags {
-            names: vec!["write".into(), "read".into()],
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
-    let source = SourceType::Record {
-        fields: vec![
-            ("read".into(), Box::new(SourceType::Boolean)),
-            ("write".into(), Box::new(SourceType::Boolean)),
-        ],
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:flags",
+        "take",
+        vec![CanonicalType::Flags(vec!["write".into(), "read".into()])],
+        None,
+    );
     let mut lowerer = RecordingLowerer {
         product_field_types: HashMap::from([(0, ValueType::Boolean), (1, ValueType::Boolean)]),
         ..RecordingLowerer::default()
     };
+    let shape = record(
+        &mut lowerer,
+        0,
+        &["read", "write"],
+        vec![ValueShape::Boolean, ValueShape::Boolean],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
+        None,
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),
@@ -93,34 +90,29 @@ fn flags_arguments_split_after_thirty_two_bits() {
     let names = (0..33)
         .map(|index| format!("flag{index:03}"))
         .collect::<Vec<_>>();
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:flags".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32, ValueType::I32],
-        param_kinds: vec![WasiParamKind::Flags {
-            names: names.clone(),
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
-    let source = SourceType::Record {
-        fields: names
-            .iter()
-            .map(|name| (name.clone(), Box::new(SourceType::Boolean)))
-            .collect(),
-    };
+    let import = import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:flags",
+        "take",
+        vec![CanonicalType::Flags(names.clone())],
+        None,
+    );
     let mut lowerer = RecordingLowerer {
         product_field_types: (0..33).map(|index| (index, ValueType::Boolean)).collect(),
         ..RecordingLowerer::default()
     };
+    let labels = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let shape = record(
+        &mut lowerer,
+        0,
+        &labels,
+        vec![ValueShape::Boolean; names.len()],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
+        None,
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),

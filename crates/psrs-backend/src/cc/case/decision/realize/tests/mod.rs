@@ -25,12 +25,14 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
     let true_symbol = SymbolId::new(module_id, 0);
     let false_symbol = SymbolId::new(module_id, 1);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "DecisionRealizeTest".into(),
         externals: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::User(type_id))],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: true_symbol,
@@ -39,6 +41,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -47,6 +50,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),
@@ -143,7 +147,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = vec![Assignment {

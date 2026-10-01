@@ -1,6 +1,6 @@
 //! Fixtures for default methods and recursive instance contexts.
 
-use super::{binder, declaration, typed};
+use super::{binder, declaration, push_arrow, push_record, typed};
 use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId};
 use psrs_span::TextRange;
 use psrs_thir as thir;
@@ -17,9 +17,20 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let dict = thir::TypeId(3);
-    let main_type = thir::TypeId(4);
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
+    let method = push_arrow(&mut types, integer, boolean);
+    let dict = push_record(
+        &mut types,
+        vec![("primary".into(), method), ("secondary".into(), method)],
+    );
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
+        id
+    };
 
     let condition = typed(
         thir::ExprKind::Application(
@@ -69,24 +80,14 @@ pub(crate) fn default_method_module() -> (thir::Module, SymbolId) {
     );
 
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![
-                ("primary".into(), method),
-                ("secondary".into(), method),
-            ]),
-            thir::Type::I32,
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),
@@ -114,13 +115,23 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
 
     let integer = thir::TypeId(0);
     let boolean = thir::TypeId(1);
-    let method = thir::TypeId(2);
-    let dictionary = thir::TypeId(3);
-    let tail = thir::TypeId(4);
-    let make_eq_type = thir::TypeId(5);
-    let main_type = thir::TypeId(6);
-    let sub_type = thir::TypeId(7);
-    let le_type = thir::TypeId(8);
+    let mut types = vec![
+        thir::Type::Constructor(thir::TypeConstructor::Int),
+        thir::Type::Constructor(thir::TypeConstructor::Boolean),
+    ];
+    let method = push_arrow(&mut types, integer, boolean);
+    let dictionary = push_record(&mut types, vec![("isPositive".into(), method)]);
+    let tail = push_arrow(&mut types, dictionary, dictionary);
+    let make_eq_type = push_arrow(&mut types, integer, tail);
+    let main_type = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
+        id
+    };
+    let sub_partial = push_arrow(&mut types, integer, integer);
+    let sub_type = push_arrow(&mut types, integer, sub_partial);
+    let le_partial = push_arrow(&mut types, integer, boolean);
+    let le_type = push_arrow(&mut types, integer, le_partial);
 
     let subtract = |value: thir::Expr, amount: i32| {
         typed(
@@ -130,7 +141,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
                         Box::new(typed(thir::ExprKind::Global(int_sub), sub_type, span)),
                         Box::new(value),
                     ),
-                    integer,
+                    sub_partial,
                     span,
                 )),
                 Box::new(typed(thir::ExprKind::Integer(amount), integer, span)),
@@ -147,7 +158,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
                         Box::new(typed(thir::ExprKind::Global(int_le), le_type, span)),
                         Box::new(value),
                     ),
-                    thir::TypeId(9),
+                    le_partial,
                     span,
                 )),
                 Box::new(typed(thir::ExprKind::Integer(0), integer, span)),
@@ -316,48 +327,17 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
         signature: None,
     };
     let module = thir::Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "Main".into(),
         externals: vec![
             intrinsic(int_sub, "intSub", Intrinsic::I32Sub),
             intrinsic(int_le, "intLe", Intrinsic::I32LeS),
         ],
-        types: vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-            thir::Type::Record(vec![("isPositive".into(), method)]),
-            thir::Type::Function {
-                parameter: dictionary,
-                result: dictionary,
-            },
-            thir::Type::Function {
-                parameter: integer,
-                result: tail,
-            },
-            thir::Type::I32,
-            thir::Type::Function {
-                parameter: integer,
-                result: thir::TypeId(9),
-            },
-            thir::Type::Function {
-                parameter: integer,
-                result: thir::TypeId(10),
-            },
-            thir::Type::Function {
-                parameter: integer,
-                result: integer,
-            },
-            thir::Type::Function {
-                parameter: integer,
-                result: boolean,
-            },
-        ],
+        types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(main, "main", main_type, main_value, span),

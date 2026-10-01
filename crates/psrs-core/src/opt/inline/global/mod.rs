@@ -154,6 +154,23 @@ fn inline_expr(
             )),
             field,
         },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(inline_expr(
+                *value,
+                fresh,
+                sites_left,
+                max_body_nodes,
+                declarations,
+                recursive,
+                types,
+            )),
+            source_type,
+            target_type,
+        },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(inline_expr(
             *array,
             fresh,

@@ -29,16 +29,18 @@ fn module() -> Module {
     let t = HirTypeId::new(ModuleId(0), 0);
     let u = HirTypeId::new(ModuleId(0), 1);
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "OracleTest".into(),
         externals: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(t)),
             Type::Constructor(TypeConstructor::User(u)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: symbol(0),
@@ -47,6 +49,7 @@ fn module() -> Module {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(1),
@@ -55,6 +58,7 @@ fn module() -> Module {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(2),
@@ -63,6 +67,7 @@ fn module() -> Module {
                 tag: 2,
                 field_count: 1,
                 field_types: vec![U],
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(3),
@@ -71,6 +76,7 @@ fn module() -> Module {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(4),
@@ -79,6 +85,7 @@ fn module() -> Module {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

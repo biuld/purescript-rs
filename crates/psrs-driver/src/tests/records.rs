@@ -19,7 +19,7 @@ main = case pair of
     let psrs_core::ExprKind::Case { scrutinee, .. } = &main.value.kind else {
         panic!("main should case on the tuple");
     };
-    let psrs_core::Type::Record(fields) = &core.types[scrutinee.ty.0 as usize] else {
+    let Some(fields) = core.record_fields(scrutinee.ty) else {
         panic!(
             "a tuple type should be a closed record in Core, got {:?}",
             core.types[scrutinee.ty.0 as usize]
@@ -78,7 +78,7 @@ fn evaluates_record_fields_in_source_order_before_canonical_layout() {
             .collect::<Vec<_>>(),
         ["z", "a"]
     );
-    let psrs_core::Type::Record(record_type_fields) = &core.types[record.ty.0 as usize] else {
+    let Some(record_type_fields) = core.record_fields(record.ty) else {
         panic!("record binding type should be a closed record");
     };
     assert_eq!(

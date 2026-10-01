@@ -1,16 +1,16 @@
 # Polymorphism and Erasure
 
 **Feature:** F-02  
-**Status:** Stable (design)  
+**Status:** Stable
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
 [MIR](mir.md), and [data representation](data-representation.md); parametric
 polymorphism (Reynolds) and type-erasure semantics; the Wasm GC type system
 with typed function references. Read [IR boundaries](../00-ir-boundaries.md)
 first.  
-**Summary:** Rank-1 polymorphism is erased at runtime: a type variable denotes
+**Summary:** Rank-N polymorphism is erased at runtime: a type variable denotes
 one uniform, non-null `eqref`, never a type tag; an aggregate type containing a
-variable may instead have a canonical aggregate layout. Polymorphism is
-recovered from explicit dictionaries and compile-time instantiation. Because Wasm
+variable may instead have a canonical aggregate layout. Checked uses retain
+compile-time instantiation, and class constraints become explicit dictionaries. Because Wasm
 `call_ref` names one exact function type, a concrete closure cannot cross a
 polymorphic boundary directly; the design inserts representation-directed
 boxing, unboxing, casts, and generated function adapters. This document
@@ -32,6 +32,10 @@ erasure. It does not own concrete scalar and GC layouts (see
 operation semantics (see [scalars and primitives](scalars-and-primitives.md)),
 or the byte-oriented ABI boundary (see
 [canonical ABI](../wasm/canonical-abi-and-wit.md)).
+The frontend owns the legality of nested quantifiers, subsumption, and skolem
+scope in [type inference](../../frontend/type-system/type-inference.md).
+Backend erasure consumes that checked contract; a representation adapter never
+authorizes a monomorphic value at a universally quantified source boundary.
 
 ## Background
 
@@ -143,6 +147,33 @@ destination requirement is erased. P9 lowers `RepresentationCast` to `RefCast`
 and `RepresentationTest` to `RefTest`, each carrying the concrete target
 `RefType`.
 
+### Quantified function values
+
+`ForAll(variables, body)` binds variables at its position in the checked type.
+A polymorphic function parameter, record or constructor field, returned value,
+or closure capture retains one uniform definition representation. Each use
+records its instantiated type and adapts arguments and results between that
+use and the definition representation. Instantiation adds no runtime type
+argument or type tag. A constrained polymorphic value additionally receives
+the dictionary parameters produced by frontend evidence elaboration.
+
+For example, a parameter `f :: forall a. a -> a` has an erased entry signature.
+The uses `f 42` and `f true` call that same value with the appropriate scalar
+boxes and recover results using their checked instantiations. Storing or
+capturing `f` retains the generic closure signature, rather than selecting one
+of those concrete uses as its storage type.
+
+Derive callable arity inside one quantifier boundary at a time. For
+`Int -> (forall a. a -> a)`, the outer function takes one `Int` and returns
+a polymorphic closure. Flattening through the result's `ForAll` would change
+that contract into a two-argument function and is forbidden. Opening the
+outermost `ForAll` of a function value exposes that value's own body signature;
+it does not remove inner quantifier boundaries. This rule also applies to
+partial applications and generated adapters. A representation closure is the
+same kind of boundary: `Effect (a -> b)` lowers to a closure that takes the
+runtime token and returns a function, and flattening that function into the
+effect closure is forbidden ([effects](effects.md)).
+
 ### Erased values and boxes
 
 The erased representation is `eqref`, a non-null reference. Concrete values
@@ -229,6 +260,14 @@ and on each call:
 4. boxes the concrete result if the erased signature requires it; and
 5. returns.
 
+A function value retains its normalized `Closure(SignatureId)` even when its
+source type contains variables. Erasure of its abstract arguments/results does
+not require erasing the closure itself. Uniform erased storage may hide the
+closure shape; recovery restores the signature established by the producer,
+then adaptation changes the calling convention if necessary. The recursive
+conversion plan includes function adapters inside records and arrays, so
+correctness does not depend on specialization or the kind of enclosing value.
+
 The reverse direction — a polymorphic function value returned from a generic
 function and later invoked at a concrete type — is recorded at the concrete
 consumer and adapted in the same way. Evaluation order is preserved: the
@@ -279,17 +318,23 @@ consistent with the erased protocol: an erased capture is not boxed twice.
 normalize(ty, substitution):
     never revisit a (TypeId, substitution) pair
     Variable                         -> Erased
+    ForAll(variables, body)           -> body shape with bound variables erased;
+                                        preserve nested callable boundaries
+    Application(variable head, args) -> Erased (unknown storage constructor)
     Array(element)                   -> concrete or canonical array shape;
                                         record element conversion
     closed Record(fields)            -> product of recursively normalized fields
-    Parameterized ADT                -> nominal variant; dependent fields Erased
+    Parameterized ADT                -> nominal variant; declared template fields
     Function(parameters, result)     -> Closure(Signature(normalize each part))
     concrete scalar or other value   -> its concrete shape
 ```
 
 The array and record cases are defined by
 [generic aggregate erasure](generic-aggregate-erasure.md), including their
-conversion plans. A type variable nested in an ADT field continues to follow
+conversion plans. An application headed by an abstract constructor, such as
+`f a`, has no known aggregate layout and uses the erased value protocol; known
+constructors such as `Array a` still retain their canonical layouts. A type
+variable nested in an ADT field continues to follow
 [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 
 ### Boxing and unboxing
@@ -317,6 +362,15 @@ concrete reference directly, while `Array a` first recovers its canonical
 array and then maps to a concrete array when required. Aggregate conversions
 are never implemented as `RepresentationCast`s between distinct nominal
 layouts.
+
+Newtypes retain the storage protocol of their declared field template. Before
+planning a conversion, transparently unfold newtype endpoints to that template
+while preserving their physical value shapes. For `newtype Wrap a = Wrap a`,
+`Wrap Int` therefore still stores an erased value; converting it to `Int`
+unboxes that value. A function or array field uses the existing function adapter
+or element mapping instead. Newtype pattern projection applies the same
+template-to-instantiated-field conversion before binding or inspecting the
+payload. Unwrapping a newtype never allocates a separate wrapper object.
 
 ### Adapter generation
 
@@ -361,12 +415,16 @@ that emits boxing, unboxing, casts, and adapters, and the verification that
 binds them. The modules that own erasure MUST be:
 
 ```text
+cc/layout/           uniform definition shapes, quantifier-aware callable arity,
+                     signature interning and template closure storage
+cc/lower/call/       independent use-site calls and application-spine segmentation
+cc/lower/erased/     generated function adapters and erased local-value recovery
+cc/lower/conversion/ recursive scalar, reference and aggregate conversion plans
 mir/layout/          concrete Box{Integer}/Box{Number} structs, the closure
                      struct type, and the uniform nullable-eqref capture array
                      that erased captures inhabit
-mir/lower/erased.rs  boxing and unboxing helpers and adapter generation
-cc/convert.rs        canonical generic aggregate conversion plans
-mir/lower/aggregate.rs array/product reconstruction for those plans
+mir/lower/aggregate/ boxing, projection and array/product reconstruction
+cc/verify/           conversion endpoint, capture and call-signature checks
 mir/verify/          RefTest/RefCast agreement, closure capture checks, and
                      call-signature agreement at erased boundaries
 ```
@@ -376,24 +434,29 @@ The erased requirement itself is produced by the CC representation model as
 non-null `eqref` reference (`RefType { nullable: false, heap: Eq }`). No module
 may attach a runtime type tag to an erased value.
 
-**Required types and helpers.** `mir/lower/` MUST lower `RepresentationCast` to
-a `RefCast` and `RepresentationTest` to a `RefTest` carrying the concrete target
-`RefType`, and MUST provide the erased-boundary helpers:
+**Required types and helpers.** CC owns representation-directed conversion and
+adapter generation. Its callable-shape and adapter entry points are:
 
 ```rust
-fn box_erased_value(&mut self, value: ValueId, span: TextRange) -> Result<ValueId, Vec<BackendError>>;
-fn unbox_erased_value(&mut self, value: ValueId, expected: ValueShape, span: TextRange) -> Result<ValueId, Vec<BackendError>>;
-fn adapt_erased_function_value(&mut self, value: ValueId, source: SignatureId, target: SignatureId, span: TextRange) -> Result<ValueId, Vec<BackendError>>;
+fn function_arrow_parameters(module: &CoreModule, ty: TypeId) -> (Vec<TypeId>, TypeId);
+fn adapt_erased_function_value(
+    &mut self, value: ValueId, source: TypeId, target: TypeId,
+    span: TextRange, assignments: &mut Vec<Assignment>,
+) -> Result<ValueId, Vec<BackendError>>;
 ```
 
-`box_erased_value` MUST emit the erased entry for a concrete shape, allocate
-the matching `mir/layout/` box when the shape is a scalar, and add no
-allocation for an existing reference or an already-erased value.
-`unbox_erased_value` MUST reverse exactly the box selected for `expected`, and
-MUST be an identity when `expected` is the erased shape.
+`function_arrow_parameters` opens leading quantifiers of the current value,
+stops at a quantified result, and retains that result's separate closure type.
 `adapt_erased_function_value` MUST generate the adapter closure of
-[Adapter generation](#adapter-generation) with the erased target signature,
+[Adapter generation](#adapter-generation) with the required target signature,
 capture the original value once, and preserve evaluation order.
+
+MIR lowering consumes the checked CC conversion plans. Scalar erasure
+allocates the matching `mir/layout/` box; scalar recovery projects exactly that
+box. Reference and already-erased conversions add no scalar allocation.
+`RepresentationCast` lowers to `RefCast` and `RepresentationTest` to `RefTest`
+with the concrete target `RefType`. MIR does not infer source instantiations
+or generate a second set of adapters.
 
 `mir/layout/` MUST expose the concrete box, closure, and capture-array types so
 boxing and projection agree with the layout table
@@ -515,13 +578,13 @@ adapter is invoked, and each adapter call unboxes its argument exactly once.
 `RepresentationTest` is present in the CC model, the verifier, and the MIR
 lowering, but no current lowering pass generates it; only `RepresentationCast`
 is produced. The erased execution fixture covers scalars and a concrete
-reference through identity; higher-order adapter execution fixtures and
-type-class dictionaries are not yet wired to the frontend. Generic arrays and
-closed generic records now reconstruct across nominal layouts through explicit
-conversion plans. The
+reference through identity. Source execution covers higher-order adapters and
+type-class dictionaries, including imported generic instances. Generic arrays
+and closed generic records reconstruct across nominal layouts through explicit
+conversion plans, including recursive function-adapter leaves. The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)
 distinguishes source programs from verified Typed Core backend fixtures and
-records the remaining source limitation for empty array literals.
+records source coverage and remaining obligations.
 
 ## References
 

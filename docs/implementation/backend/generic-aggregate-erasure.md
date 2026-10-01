@@ -51,7 +51,7 @@ in the evidence record below. A test name alone is not execution evidence.
 | GA-03 | Typed plan construction selects identity, scalar box/unbox, reference erase/recover, sequence, aggregate maps, and function adapters with exact endpoints. | Positive and negative plan tests cover both directions; equal shapes do not reconstruct; CC plans and MIR contain no Core type variables or Wasm layout decisions at the wrong stage. | Verified |
 | GA-04 | Arrays reconstruct recursively between specialized and canonical layouts. | Execute empty, singleton, and multi-element arrays in both directions, including nested arrays and arrays of closed records; check length, order, and element values. | Verified |
 | GA-05 | Closed records reconstruct fields in canonical order with the same label set. | Execute mixed scalar/reference fields, nested records and arrays, and reordered source labels; verify labels select the right values and concrete fields retain their shapes. | Verified |
-| GA-06 | Dependent ADT fields convert through their declared template before erased storage and reverse those steps on projection. | Execute `Wrap a = Wrap (Array a)` and record payloads at multiple instantiations through generic and concrete consumers. Inspect construction and recovery plans. | Verified |
+| GA-06 | ADT fields store their normalized declared template and convert between template and actual shapes; only bare-variable slots are erased. | Execute `Wrap a = Wrap (Array a)` and record payloads at multiple instantiations through generic and concrete consumers. Inspect construction and recovery plans. | Verified |
 | GA-07 | Bare-variable ADT fields preserve ordinary erasure. | `Hold a = Hold a` carrying a concrete array or record round-trips without aggregate mapping; contrast its plan with GA-06. | Verified |
 | GA-08 | Array literals, reads, and pure updates adapt elements to the required layout. | Execute canonical and concrete paths, retain and read an alias of the original after update, and check converted replacement values and unchanged elements. | Verified |
 | GA-09 | Record construction, access, pattern projection, and pure updates adapt field shapes. | Execute generic and concrete consumers with mixed/nested fields; retain an alias of the original and prove updates leave it unchanged. | Verified |
@@ -128,7 +128,7 @@ GA-01:
     Array Int -> Array(Integer); Array (Array a) nests),
     canonical_record_keys_sort_labels_and_share_equal_keyed_records
     (mixed scalar/reference closed record), and
-    parameter_dependent_record_field_keeps_canonical_array_and_erases_the_adt_slot.
+    parameter_dependent_record_field_keeps_its_canonical_template_in_the_adt_slot.
   Input boundary: verified Typed Core fixtures.
   Commands: cargo test -p psrs-backend cc::layout
   Result: pass. No source case exercises a partially resolved substitution at
@@ -152,7 +152,7 @@ GA-02:
     their separate key is enforced by the array/record key split only.
 
 GA-03:
-  Implementation: cc/lower/conversion.rs::plan_conversion (identity, box/unbox,
+  Implementation: cc/lower/conversion/mod.rs::plan_conversion (identity, box/unbox,
     erase/recover, sequence, ArrayMap, ProductMap); cc/convert.rs plans carry
     ValueShape/ReprId only.
   Tests: cc/verify/ops/aggregate/tests.rs accepts_a_valid_array_map,
@@ -168,13 +168,13 @@ GA-03:
   Result: pass. `plan_conversion` returns `Identity` when shapes are equal, so
     equal shapes allocate nothing.
   Revision: eb43bf9 + audit diff.
-  Gaps: none. The never-constructed `ValueConversion::FunctionAdapter`
-    variant was removed by the Polymorphism and Erasure topic; function
-    adaptation is performed by the existing erased closure adapter, not by
-    plan_conversion.
+  Gaps: none for the recorded cases. FunctionAdapter is now constructed by
+    cc/lower/conversion/mod.rs through a P8-generated factory. It composes
+    recursively with ArrayMap and ProductMap; see the function-boundary
+    correction below.
 
 GA-04:
-  Implementation: cc/lower/conversion.rs (ArrayMap), mir/lower/aggregate/array.rs
+  Implementation: cc/lower/conversion/mod.rs (ArrayMap), mir/lower/aggregate/array.rs
     (ArrayNewDefault loop), wasm/lower/structure/arrays.rs.
   Tests: driver tests::generic_aggregate_audit::audit_battery cases
     array_roundtrip_multi, array_roundtrip_singleton, array_roundtrip_nested,
@@ -197,7 +197,7 @@ GA-04:
 
 GA-05:
   Implementation: cc/layout/aggregate.rs canonical label sort,
-    cc/lower/conversion.rs ProductMap, mir/lower/aggregate/mod.rs lower_product_map.
+    cc/lower/conversion/mod.rs ProductMap, mir/lower/aggregate/mod.rs lower_product_map.
   Tests: audit_battery cases record_roundtrip_mixed, record_roundtrip_reordered,
     record_roundtrip_nested, generic_record_pattern_projection,
     generic_record_construction, generic_record_update,
@@ -211,8 +211,8 @@ GA-05:
   Gaps: none.
 
 GA-06:
-  Implementation: cc/lower/conversion.rs erased_field_recovery and dependent
-    construct/project order; cc/verify/ops/aggregate.rs evidence checks.
+  Implementation: cc/lower/conversion/mod.rs variant_field_conversion and
+    cc/lower/constructor.rs actual-to-template storage; cc/verify/ops/aggregate.rs evidence checks.
   Tests: audit_battery dependent_adt_int, dependent_adt_number,
     dependent_adt_record; parameterized_shapes::
     maps_generic_arrays_across_polymorphic_adt_boundaries inspects pre-P7 plans,
@@ -225,7 +225,7 @@ GA-06:
   Gaps: none.
 
 GA-07:
-  Implementation: cc/layout/scalar.rs::field_storage_shape erases a bare-variable
+  Implementation: cc/layout/scalar.rs::scalar_type normalizes a bare-variable
     field without a template map.
   Tests: audit_battery bare_variable_adt_array (custom round-trip through
     `Hold a = Hold a`) contrasted with the GA-06 dependent cases.
@@ -236,7 +236,7 @@ GA-07:
   Gaps: none.
 
 GA-08:
-  Implementation: cc/lower/array.rs and cc/lower/conversion.rs.
+  Implementation: cc/lower/array.rs and cc/lower/conversion/mod.rs.
   Tests: audit_battery cases generic_literal_construction, generic_array_update,
     array_update_alias; parameterized_shapes::
     maps_nested_generic_arrays_recursively_across_instantiations.
@@ -248,7 +248,7 @@ GA-08:
   Gaps: none.
 
 GA-09:
-  Implementation: cc/lower/record/mod.rs and cc/lower/conversion.rs ProductMap.
+  Implementation: cc/lower/record/mod.rs and cc/lower/conversion/mod.rs ProductMap.
   Tests: audit_battery record_roundtrip_*, generic_record_pattern_projection,
     generic_record_construction, generic_record_update, record_update_alias;
     existing tests::records::runs_a_record_pattern_in_a_function_parameter.
@@ -391,7 +391,7 @@ GA-18:
   Gaps: none in the included profile; capability-gate tests predate this audit.
 
 GA-19:
-  Implementation: cc/lower/conversion.rs emits a source-spanned
+  Implementation: cc/lower/conversion/mod.rs emits a source-spanned
     "unsupported aggregate conversion between normalized runtime shapes"; the
     existing layout diagnostics keep stage and span.
   Tests: audit_battery shows all supported generic cases compile (no obsolete
@@ -448,7 +448,7 @@ until every acceptance row is verified.
 At checklist creation, these files contain implementation or test candidates:
 
 - [CC plan construction](../../../crates/psrs-backend/src/cc/convert.rs).
-- [CC boundary lowering](../../../crates/psrs-backend/src/cc/lower/conversion.rs).
+- [CC boundary lowering](../../../crates/psrs-backend/src/cc/lower/conversion/mod.rs).
 - [CC aggregate verification](../../../crates/psrs-backend/src/cc/verify/ops/aggregate/mod.rs).
 - [MIR aggregate lowering](../../../crates/psrs-backend/src/mir/lower/aggregate/mod.rs).
 - [Source regressions](../../../crates/psrs-driver/src/tests/parameterized_shapes.rs):
@@ -644,3 +644,37 @@ blocked.
 None for this topic's GA-01 through GA-20 contract. The broader BE-08/09/10
 roadmap rows retain official-suite and other representation work outside this
 topic.
+
+## Function-boundary correction
+
+Generic function fields retain `Closure(SignatureId)` with abstract parameter
+and result shapes. `ValueConversion::FunctionAdapter` calls a P8-generated
+factory; P9 lowers this leaf inside the existing reconstruction loops.
+`tests::wasi::classes::imports::adapts_function_arrays_in_imported_generic_records_when_wasmtime_is_available`
+executes linked generic records containing function arrays, arrays of records
+containing function arrays, and the reverse concrete-to-template argument
+conversion, plus function arrays stored in dependent ADT fields. All four cases return 42 with `PSRS_REQUIRE_WASMTIME=1`.
+CC verification checks generated factory endpoints before MIR emission.
+
+### Canonical ADT field storage correction (2026-09-30)
+
+GA-06 and GA-07 now share the declared-template storage rule: a bare variable
+uses erased storage, while arrays, records, functions, and nested ADTs retain
+canonical references. Type substitutions never alter a constructor layout.
+
+- `adt_template_storage::adt_fields_retain_one_canonical_template_layout_across_instantiations`
+  inspects pre-P7 CC: one variant at Int and Boolean, erased bare-variable slot,
+  typed template closure, canonical array and product slots, and no outer
+  aggregate conversion in generic construction or projection.
+- `adt_template_storage::linked_template_fields_and_bare_variables_execute_at_multiple_instantiations`
+  executes linked generic producers and concrete consumers under required
+  Wasmtime, including bare-variable Boolean recovery, function invocation,
+  array elements, record contents, and a concrete function field; exit code 42.
+- `parameterized_array_field_projection_uses_its_stored_canonical_array`
+  also rejects a legacy erased composite slot inconsistent with its template.
+- `nested_parameterized_projection_keeps_each_canonical_field` verifies direct
+  projection of canonical references at successive nominal ADT boundaries.
+
+Commands: `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`,
+`cargo fmt --all --check`, and
+`cargo clippy --workspace --all-targets -- -D warnings`.

@@ -19,20 +19,27 @@ impl Types {
         Self {
             integer: thir::TypeId(0),
             boolean: thir::TypeId(1),
-            method: thir::TypeId(2),
-            dictionary: thir::TypeId(3),
+            // `integer -> boolean` is the application spine at ids 2..4.
+            method: thir::TypeId(4),
+            dictionary: thir::TypeId(8),
         }
     }
 
     fn list(&self) -> Vec<thir::Type> {
         vec![
-            thir::Type::I32,
-            thir::Type::Boolean,
-            thir::Type::Function {
-                parameter: self.integer,
-                result: self.boolean,
+            thir::Type::Constructor(thir::TypeConstructor::Int),
+            thir::Type::Constructor(thir::TypeConstructor::Boolean),
+            thir::Type::Constructor(thir::TypeConstructor::Function),
+            thir::Type::Application(thir::TypeId(2), self.integer),
+            thir::Type::Application(thir::TypeId(3), self.boolean),
+            thir::Type::RowEmpty,
+            thir::Type::RowExtend {
+                label: "isPositive".into(),
+                ty: self.method,
+                tail: thir::TypeId(5),
             },
-            thir::Type::Record(vec![("isPositive".into(), self.method)]),
+            thir::Type::Constructor(thir::TypeConstructor::Record),
+            thir::Type::Application(thir::TypeId(7), thir::TypeId(6)),
         ]
     }
 }
@@ -41,12 +48,14 @@ fn module_with(bad: thir::Declaration, span: TextRange) -> thir::Module {
     let types = Types::new();
     let main = typed(thir::ExprKind::Integer(42), types.integer, span);
     thir::Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
         types: types.list(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![
             declaration(

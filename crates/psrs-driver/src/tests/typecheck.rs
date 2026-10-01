@@ -101,6 +101,58 @@ main = sum (Pair 20 22)
 }
 
 #[test]
+fn typechecks_do_notation_over_effect() {
+    // `do` desugars to `bind`/`discard`/`let`; without dictionaries both names
+    // resolve from the enclosing scope, here the imported Prelude. Type
+    // inference must see through the desugaring and give the block `Effect Int`.
+    let source = "\
+module Main where
+import Prelude
+import WASI.Console
+action :: Effect Int
+action = do
+  handle <- pure 1
+  let doubled = handle + handle
+  _ <- log \"value\"
+  pure doubled
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_non_variable_do_binder() {
+    // A non-variable binder desugars through a `case`; inference must bind the
+    // data constructor's fields from the scrutinee type.
+    let source = "\
+module Main where
+import Prelude
+data Pair = Pair Int Int
+action :: Effect Int
+action = do
+  Pair x y <- pure (Pair 1 2)
+  pure (x + y)
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn rejects_a_do_binder_with_the_wrong_case_type() {
+    let source = "\
+module Main where
+import Prelude
+data Pair = Pair Int Int
+action :: Effect Int
+action = do
+  Pair x y <- pure 1
+  pure (x + y)
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_err());
+}
+
+#[test]
 fn lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int() {
     let source = "\
 module Main where
@@ -116,14 +168,14 @@ main = keep
         .iter()
         .find(|declaration| declaration.name == "main")
         .expect("main");
-    let psrs_core::Type::Function { parameter, result } = &core.types[main.ty.0 as usize] else {
+    let Some((parameter, result)) = psrs_core::arrow_parts(&core.types, main.ty) else {
         panic!(
             "main should be a function, got {:?}",
             core.types[main.ty.0 as usize]
         );
     };
     let mut handle = None;
-    for end in [*parameter, *result] {
+    for end in [parameter, result] {
         match &core.types[end.0 as usize] {
             psrs_core::Type::Constructor(psrs_core::TypeConstructor::User(id)) => {
                 assert!(
@@ -149,5 +201,76 @@ main = keep
         core.opaque_ids.iter().any(|id| *id != handle),
         "Other must stay a distinct opaque type, got {:?}",
         core.opaque_ids
+    );
+}
+
+#[test]
+fn typechecks_ado_notation_over_effect() {
+    // `ado` desugars to `map`/`apply`/`pure`; inference must see through the
+    // curried continuation and give the block `Effect Int`.
+    let source = "\
+module Main where
+import Prelude
+action :: Effect Int
+action = ado
+  x <- pure 20
+  y <- pure 22
+  in x + y
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_an_ado_value_and_let() {
+    let source = "\
+module Main where
+import Prelude
+action :: Effect Int
+action = ado
+  _ <- pure 1
+  let base = 40
+    in base + 2
+main = runEffect action
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_where_binding_in_the_right_hand_side() {
+    let source = "\
+module Main where
+value :: Int
+value = result where
+  result = 42
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn typechecks_a_recursive_where_binding() {
+    let source = "\
+module Main where
+count :: Int
+count = go 3 0 where
+  go n acc = if n == 0 then acc else go (n - 1) (acc + 1)
+";
+    assert!(check_source("Main.purs", source).is_ok());
+}
+
+#[test]
+fn rejects_a_where_binding_outside_its_right_hand_side() {
+    let source = "\
+module Main where
+hidden :: Int
+hidden = 1 where
+  scoped = 2
+leaked :: Int
+leaked = scoped
+";
+    let errors = check_source("Main.purs", source).unwrap_err();
+    assert!(
+        errors.iter().any(|error| error.message.contains("scoped")),
+        "{errors:?}"
     );
 }

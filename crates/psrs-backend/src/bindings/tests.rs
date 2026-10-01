@@ -28,18 +28,21 @@ fn binding(symbol: SymbolId) -> ExternalBinding {
         symbol,
         interface: "wasi:cli/stdout@0.2.12".into(),
         function: "log".into(),
-        signature: None,
+        type_id: None,
+        span: span(),
     }
 }
 
 fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
     CoreModule {
+        type_names: Vec::new(),
         id: ModuleId(1),
         name: "Main".into(),
         externals,
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),
         entry: None,

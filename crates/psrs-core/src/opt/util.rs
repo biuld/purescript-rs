@@ -46,7 +46,9 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
                     .map(|(_, value)| count_nodes(value))
                     .sum::<usize>()
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => count_nodes(record),
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => count_nodes(record),
         ExprKind::UnaryPrimitive { value, .. } => count_nodes(value),
         ExprKind::ArrayIndex { array, index } => count_nodes(array) + count_nodes(index),
         ExprKind::ArrayUpdate {
@@ -158,6 +160,15 @@ fn substitute_inner(
         ExprKind::FieldAccess { record, field } => ExprKind::FieldAccess {
             record: Box::new(substitute_inner(record, substitutions, shadowed)),
             field: field.clone(),
+        },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(substitute_inner(value, substitutions, shadowed)),
+            source_type: *source_type,
+            target_type: *target_type,
         },
         ExprKind::ArrayLength(array) => {
             ExprKind::ArrayLength(Box::new(substitute_inner(array, substitutions, shadowed)))
@@ -335,9 +346,9 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
                 collect_ids(value, ids);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            collect_ids(record, ids)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => collect_ids(record, ids),
         ExprKind::UnaryPrimitive { value, .. } => collect_ids(value, ids),
         ExprKind::ArrayIndex { array, index } => {
             collect_ids(array, ids);

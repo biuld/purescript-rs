@@ -94,9 +94,10 @@ established theory decides it, and the topic documents own the details:
 - **Tail calls.** Standard loopification and `return_call`, as in GHC.
   [Control flow](fp/control-flow-and-tail-calls.md) represents self tail
   recursion as a loop and other tail calls as `return_call*`.
-- **Effects.** Wadler's monadic translation; Levy's call-by-push-value. The
-  effect representation separates values from computations and lowers through
-  ordinary functions and dictionaries ([effects](fp/effects.md)).
+- **Effects.** Wadler's monadic translation; Levy's call-by-push-value. Source
+  and Typed Core keep `Effect a` abstract. One representation lowering then
+  produces an ordinary closure; later stages do not recover an effect arity
+  from the library type ([effects](fp/effects.md)).
 
 Deliberately not used: lazy evaluation and strictness analysis (the source is
 strict), typed low-level IRs such as FLINT/TAL (this design verifies each

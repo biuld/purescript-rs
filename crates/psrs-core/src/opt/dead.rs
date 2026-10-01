@@ -37,6 +37,15 @@ fn eliminate_expr(mut expression: Expr) -> Expr {
             record: Box::new(eliminate_expr(*record)),
             field,
         },
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => ExprKind::RepresentationCast {
+            value: Box::new(eliminate_expr(*value)),
+            source_type,
+            target_type,
+        },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(eliminate_expr(*array))),
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
             op,
@@ -187,9 +196,9 @@ fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
                 collect_refs(value, references);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            collect_refs(record, references)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => collect_refs(record, references),
         ExprKind::UnaryPrimitive { value, .. } => collect_refs(value, references),
         ExprKind::ArrayIndex { array, index } => {
             collect_refs(array, references);

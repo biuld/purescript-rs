@@ -13,17 +13,129 @@ pub(super) fn application_parts(expression: &Expr) -> (&Expr, Vec<&Expr>) {
     (head, arguments)
 }
 
+/// A declaration whose signature or body binds type variables cannot be
+/// copied into a caller. Explicit rank-N signatures store those binders in
+/// `ForAll` nodes even when `quantified` is empty, and inlining would either
+/// drop that scope or shadow the caller's binders.
+pub(super) fn introduces_type_binders(declaration: &crate::Declaration, types: &[Type]) -> bool {
+    !declaration.quantified.is_empty()
+        || type_has_forall(declaration.ty, types, &mut HashSet::new())
+        || expr_introduces_type_binders(&declaration.value, types)
+}
+
+fn type_has_forall(id: TypeId, types: &[Type], seen: &mut HashSet<TypeId>) -> bool {
+    if !seen.insert(id) {
+        return false;
+    }
+    match types.get(id.0 as usize) {
+        Some(Type::ForAll { .. }) => true,
+        Some(Type::Application(function, argument)) => {
+            type_has_forall(*function, types, seen) || type_has_forall(*argument, types, seen)
+        }
+        Some(Type::RowExtend { ty, tail, .. }) => {
+            type_has_forall(*ty, types, seen) || type_has_forall(*tail, types, seen)
+        }
+        _ => false,
+    }
+}
+
+fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
+    if type_has_forall(expression.ty, types, &mut HashSet::new()) {
+        return true;
+    }
+    match &expression.kind {
+        ExprKind::Lambda { binder, body } => {
+            type_has_forall(binder.ty, types, &mut HashSet::new())
+                || expr_introduces_type_binders(body, types)
+        }
+        ExprKind::Let { bindings, body } => {
+            bindings.iter().any(|binding| {
+                !binding.quantified.is_empty()
+                    || type_has_forall(binding.binder.ty, types, &mut HashSet::new())
+                    || expr_introduces_type_binders(&binding.value, types)
+            }) || expr_introduces_type_binders(body, types)
+        }
+        ExprKind::Constructor { arguments, .. }
+        | ExprKind::Array {
+            elements: arguments,
+        } => arguments
+            .iter()
+            .any(|argument| expr_introduces_type_binders(argument, types)),
+        ExprKind::Record { fields } => fields
+            .iter()
+            .any(|(_, value)| expr_introduces_type_binders(value, types)),
+        ExprKind::RecordUpdate { record, fields } => {
+            expr_introduces_type_binders(record, types)
+                || fields
+                    .iter()
+                    .any(|(_, value)| expr_introduces_type_binders(value, types))
+        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::UnaryPrimitive { value: record, .. } => {
+            expr_introduces_type_binders(record, types)
+        }
+        ExprKind::RepresentationCast {
+            value,
+            source_type,
+            target_type,
+        } => {
+            type_has_forall(*source_type, types, &mut HashSet::new())
+                || type_has_forall(*target_type, types, &mut HashSet::new())
+                || expr_introduces_type_binders(value, types)
+        }
+        ExprKind::ArrayIndex { array, index } => {
+            expr_introduces_type_binders(array, types) || expr_introduces_type_binders(index, types)
+        }
+        ExprKind::ArrayUpdate {
+            array,
+            index,
+            value,
+        } => {
+            expr_introduces_type_binders(array, types)
+                || expr_introduces_type_binders(index, types)
+                || expr_introduces_type_binders(value, types)
+        }
+        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+            expr_introduces_type_binders(left, types) || expr_introduces_type_binders(right, types)
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_introduces_type_binders(condition, types)
+                || expr_introduces_type_binders(then_branch, types)
+                || expr_introduces_type_binders(else_branch, types)
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            expr_introduces_type_binders(scrutinee, types)
+                || branches
+                    .iter()
+                    .any(|branch| expr_introduces_type_binders(&branch.value, types))
+        }
+        ExprKind::Local(_)
+        | ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::Boolean(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => false,
+    }
+}
+
 pub(super) fn function_arity(mut type_id: TypeId, types: &[Type]) -> Option<usize> {
     let mut count = 0;
     let mut visited = HashSet::new();
     while visited.insert(type_id) {
-        match types.get(type_id.0 as usize)? {
-            Type::Function { result, .. } => {
-                count += 1;
-                type_id = *result;
-            }
-            _ => return Some(count),
-        }
+        let Some((_, result)) = crate::arrow_parts(types, type_id) else {
+            return Some(count);
+        };
+        count += 1;
+        type_id = result;
     }
     None
 }
@@ -65,9 +177,9 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
         ExprKind::RecordUpdate { record, fields } => {
             contains_case(record) || fields.iter().any(|(_, value)| contains_case(value))
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            contains_case(record)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => contains_case(record),
         ExprKind::UnaryPrimitive { value, .. } => contains_case(value),
         ExprKind::ArrayIndex { array, index } => contains_case(array) || contains_case(index),
         ExprKind::ArrayUpdate {
@@ -119,9 +231,9 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(value, out);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            collect_globals(record, out)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::RepresentationCast { value: record, .. }
+        | ExprKind::ArrayLength(record) => collect_globals(record, out),
         ExprKind::UnaryPrimitive { value, .. } => collect_globals(value, out),
         ExprKind::ArrayIndex { array, index } => {
             collect_globals(array, out);

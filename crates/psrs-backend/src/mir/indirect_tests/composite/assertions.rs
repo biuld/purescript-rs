@@ -1,39 +1,36 @@
-use crate::abi::{WasiImport, WasiParamKind};
+use crate::abi::WasiImport;
+use crate::abi::canonical::CanonicalType;
 use crate::mir::{Instruction, Module, NumericOp, UnaryOp};
 use crate::types::ValueId;
 use crate::wasm;
 
 pub(super) fn assert_wit_shape(import: &WasiImport) {
-    let cases = vec!["Red".to_string(), "Green".into(), "Blue".into()];
-    let WasiParamKind::Record { fields } = &import.param_kinds[14] else {
-        panic!("the final WIT parameter should classify as a record");
+    let cases = vec!["red".to_string(), "green".into(), "blue".into()];
+    let CanonicalType::Record(fields) = &import.params[14] else {
+        panic!("the final WIT parameter should resolve as a record");
     };
     assert_eq!(
-        fields[0].kind,
-        WasiParamKind::Flags {
-            names: vec![
-                "write".into(),
-                "read".into(),
-                "audit".into(),
-                "execute".into(),
-                "debug".into(),
-            ],
-        }
+        fields[0].ty,
+        CanonicalType::Flags(vec![
+            "write".into(),
+            "read".into(),
+            "audit".into(),
+            "execute".into(),
+            "debug".into(),
+        ])
     );
-    let WasiParamKind::Record {
-        fields: details_fields,
-    } = &fields[1].kind
-    else {
+    let CanonicalType::Record(details_fields) = &fields[1].ty else {
         panic!("the details field should remain a nested record");
     };
-    assert_eq!(details_fields[0].kind, WasiParamKind::List);
     assert_eq!(
-        details_fields[1].kind,
-        WasiParamKind::Enum {
-            cases: cases.clone(),
-        }
+        details_fields[0].ty,
+        CanonicalType::List(Box::new(CanonicalType::Int {
+            width: 8,
+            signed: false,
+        }))
     );
-    assert_eq!(fields[2].kind, WasiParamKind::Enum { cases });
+    assert_eq!(details_fields[1].ty, CanonicalType::Enum(cases.clone()));
+    assert_eq!(fields[2].ty, CanonicalType::Enum(cases));
 }
 
 pub(super) fn assert_p9_layout(module: &Module, import: &WasiImport) {

@@ -1,13 +1,12 @@
-//! Resource-handle lowering: `resource.drop` for `own<T>`, borrow release at
-//! the end of the call, and the scope verifier.
+//! Resource-handle lowering under DEC-14: the compiler never drops or releases
+//! a handle on its own, and the verifier only rejects a double drop.
 
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, signature};
 use super::handles::verify_function;
 use super::*;
-use crate::abi::{
-    BoundWasiImport, HandleMode, HandleResource, SourceSignature, SourceType, WasiImport,
-    WasiParamKind, WasiResultKind,
-};
+use crate::abi::canonical::{CanonicalType, Ownership, ResourceId};
+use crate::cc::{Signature, ValueShape};
+use crate::mir::BoundWasiImport;
 use crate::mir::{BasicBlock, BlockId, Function, Instruction, Terminator};
 use crate::types::{FunctionId, ValueDecl, ValueId, ValueType};
 use psrs_hir::{ModuleId, SymbolId};
@@ -17,92 +16,80 @@ fn span() -> TextRange {
     TextRange::new(0, 1)
 }
 
-fn handle(mode: HandleMode, symbol: SymbolId) -> HandleResource {
-    HandleResource {
-        mode,
-        interface: "fixture:handles/types@0.1.0".into(),
-        name: "thing".into(),
-        drop_symbol: symbol,
+fn handle(ownership: Ownership) -> CanonicalType {
+    CanonicalType::Handle {
+        resource: ResourceId {
+            interface: "fixture:handles/types@0.1.0".into(),
+            name: "thing".into(),
+        },
+        ownership,
     }
 }
 
-fn import(result: WasiResultKind, params: Vec<WasiParamKind>, symbol: SymbolId) -> WasiImport {
-    WasiImport {
+fn import(
+    result: Option<CanonicalType>,
+    params: Vec<CanonicalType>,
+    symbol: SymbolId,
+) -> WasiImport {
+    crate::abi::test_support::import(
         symbol,
-        module: "fixture:handles/types@0.1.0".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32; params.len()],
-        param_kinds: params,
-        result: Some(ValueType::I32),
-        result_kind: result,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    }
+        "fixture:handles/types@0.1.0",
+        "take",
+        params,
+        result,
+    )
 }
 
 fn bound(import: WasiImport) -> BoundWasiImport {
     BoundWasiImport {
-        signature: SourceSignature {
-            parameters: vec![SourceType::Int; import.param_kinds.len()],
-            result: SourceType::Int,
-            span: span(),
+        signature: Signature {
+            parameters: vec![ValueShape::Integer; import.params.len()],
+            result: ValueShape::Integer,
         },
+        projection: None,
         import,
     }
 }
 
 #[test]
-fn a_borrow_result_is_released_when_the_call_returns() {
+fn a_result_handle_is_not_released_by_the_compiler() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
-    let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Borrow, drop_symbol)),
-        Vec::new(),
-        symbol,
-    );
+    let import = import(Some(handle(Ownership::Borrow)), Vec::new(), symbol);
     let mut lowerer = RecordingLowerer::default();
     let destination = ValueId(4);
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::Int),
+        &signature(Vec::new()),
+        None,
         destination,
         &[],
         span(),
         BlockId(0),
     )
-    .expect("a borrow result should lower");
+    .expect("a handle result should lower");
     assert!(
         matches!(
             lowerer.instructions.as_slice(),
-            [
-                Instruction::Call {
-                    destination: actual,
-                    function,
-                    ..
-                },
-                Instruction::CallVoid {
-                    function: drop,
-                    arguments,
-                    ..
-                },
-            ] if *actual == destination
-                && *function == symbol
-                && *drop == drop_symbol
-                && arguments == &[destination]
+            [Instruction::Call {
+                destination: actual,
+                function,
+                ..
+            }] if *actual == destination && *function == symbol
         ),
-        "the borrow must be released by resource.drop when the call returns: {:?}",
+        "the compiler must not drop or release a result handle: {:?}",
         lowerer.instructions
     );
+    let _ = drop_symbol;
 }
 
 #[test]
-fn an_owned_result_is_not_dropped_before_the_caller_can_use_it() {
+fn an_owned_result_is_not_dropped_by_the_compiler() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Own, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );
@@ -110,7 +97,8 @@ fn an_owned_result_is_not_dropped_before_the_caller_can_use_it() {
     lower(
         &mut lowerer,
         &import,
-        &source_signature(Vec::new(), SourceType::Int),
+        &signature(Vec::new()),
+        None,
         ValueId(4),
         &[],
         span(),
@@ -164,7 +152,7 @@ fn the_verifier_rejects_an_owned_handle_dropped_twice() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Own, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );
@@ -189,19 +177,19 @@ fn the_verifier_rejects_an_owned_handle_dropped_twice() {
     let errors = verify_function(&function_calling(instructions), &imports_for(import))
         .expect_err("a second resource.drop of an owned handle must be rejected");
     assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("owned handle dropped twice")),
+        errors.iter().any(|error| error
+            .message
+            .contains("drops or transfers an owned handle twice")),
         "{errors:?}"
     );
 }
 
 #[test]
-fn the_verifier_rejects_a_handle_used_after_its_borrow_scope() {
+fn the_verifier_accepts_an_explicit_drop() {
     let drop_symbol = SymbolId::new(ModuleId::INTRINSICS, 9);
     let symbol = SymbolId::new(ModuleId::INTRINSICS, 3);
     let import = import(
-        WasiResultKind::Handle(handle(HandleMode::Borrow, drop_symbol)),
+        Some(handle(Ownership::Own { drop: drop_symbol })),
         Vec::new(),
         symbol,
     );
@@ -217,18 +205,7 @@ fn the_verifier_rejects_a_handle_used_after_its_borrow_scope() {
             arguments: vec![ValueId(1)],
             span: span(),
         },
-        Instruction::Copy {
-            destination: ValueId(1),
-            value: ValueId(1),
-            span: span(),
-        },
     ];
-    let errors = verify_function(&function_calling(instructions), &imports_for(import))
-        .expect_err("a borrow must not be used after resource.drop releases it");
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("after its borrow scope")),
-        "{errors:?}"
-    );
+    verify_function(&function_calling(instructions), &imports_for(import))
+        .expect("one explicit resource.drop of an owned handle is accepted");
 }

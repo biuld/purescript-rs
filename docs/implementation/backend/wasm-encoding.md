@@ -16,7 +16,7 @@ capability-profile implementation notes.
 Complete the thin structured Wasm representation, mechanical index allocation,
 module skeleton, the thin-IR verifier, and the target capability profile. The
 structuring algorithm and tail-call opcodes are owned by
-[control flow and tail calls](../fp/control-flow-and-tail-calls.md); the
+[control flow and tail calls](../../design/backend/fp/control-flow-and-tail-calls.md); the
 canonical ABI bytes are owned by
 [linear memory and canonical ABI](linear-memory-and-canonical-abi.md). This
 topic owns the encoding that consumes verified MIR and the validator/profile

@@ -1,9 +1,9 @@
 use super::super::super::layout::user_type_id;
-use super::super::super::lower::{ErasedFieldRecovery, FunctionLowerer};
+use super::super::super::lower::{FunctionLowerer, VariantFieldConversion};
 use super::{Action, ColumnKey, Decision, DecisionDag, DecisionEdge, NodeId, Test};
 use crate::BackendError;
 use crate::cc::{Assignment, AssignmentKind, ValueId, ValueShape};
-use psrs_core::CaseBranch;
+use psrs_core::{CaseBranch, Pattern, PatternKind};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
@@ -65,15 +65,31 @@ impl FunctionLowerer<'_> {
                         continue;
                     };
                     let value = lookup(values, source, *span)?;
-                    previous.push((*id, self.locals.insert(*id, value)));
+                    let Some(source_type) = pattern_binding_type(&branches[*branch].pattern, *id)
+                    else {
+                        return Err(case_error(
+                            *span,
+                            "case pattern binding has no declared type",
+                        ));
+                    };
+                    previous.push((
+                        *id,
+                        self.locals.insert(*id, value),
+                        self.local_types.insert(*id, source_type),
+                    ));
                 }
                 let mut assignments = Vec::new();
                 let value = self.lower_value(&branches[*branch].value, &mut assignments);
-                for (id, old) in previous.into_iter().rev() {
+                for (id, old, old_type) in previous.into_iter().rev() {
                     if let Some(value) = old {
                         self.locals.insert(id, value);
                     } else {
                         self.locals.remove(&id);
+                    }
+                    if let Some(ty) = old_type {
+                        self.local_types.insert(id, ty);
+                    } else {
+                        self.local_types.remove(&id);
                     }
                 }
                 value.map(|value| (assignments, value))
@@ -173,7 +189,24 @@ impl FunctionLowerer<'_> {
             };
             let source_value = lookup(values, source, *span)?;
             if *newtype {
-                projected.insert(target.clone(), source_value);
+                let source_shape = self.value_shape(*declared_type, *span)?;
+                let target_shape = self.value_shape(*target_type, *span)?;
+                let conversion = self.typed_conversion(
+                    *declared_type,
+                    *target_type,
+                    source_shape,
+                    target_shape,
+                    *span,
+                )?;
+                let value = self.emit_conversion(
+                    source_value,
+                    source_shape,
+                    target_shape,
+                    conversion,
+                    *span,
+                    &mut assignments,
+                );
+                projected.insert(target.clone(), value);
                 continue;
             }
             let value = if let Some((symbol, tag)) = constructor {
@@ -200,7 +233,7 @@ impl FunctionLowerer<'_> {
                     },
                     span: *span,
                 });
-                let conversion = self.erased_field_recovery(ErasedFieldRecovery {
+                let conversion = self.variant_field_conversion(VariantFieldConversion {
                     variant: representation,
                     tag: *tag,
                     field: *field,
@@ -276,6 +309,19 @@ impl FunctionLowerer<'_> {
             }],
             destination,
         )
+    }
+}
+
+fn pattern_binding_type(pattern: &Pattern, local: psrs_hir::LocalId) -> Option<psrs_core::TypeId> {
+    match &pattern.kind {
+        PatternKind::Var { id, ty } if *id == local => Some(*ty),
+        PatternKind::Constructor { arguments, .. } => arguments
+            .iter()
+            .find_map(|argument| pattern_binding_type(argument, local)),
+        PatternKind::Record { fields } => fields
+            .iter()
+            .find_map(|(_, field)| pattern_binding_type(field, local)),
+        PatternKind::Wildcard | PatternKind::Var { .. } => None,
     }
 }
 

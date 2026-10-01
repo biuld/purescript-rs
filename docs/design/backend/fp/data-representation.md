@@ -56,9 +56,11 @@ array before writing.
 
 **Erasure.** Parameterized values erase their type arguments
 ([DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md)),
-so a field or capture whose representation depends on a type parameter is
-stored as a uniform erased reference rather than as the parameter's concrete
-type. A generic array or closed record has its own canonical aggregate layout;
+so an ADT field's storage comes from its declared template, independent of
+concrete instantiations. Bare variables use erased references; composite
+fields retain canonical array, product, or closure references. Captures use a
+separate uniform reference-array protocol. A generic array or closed record
+has its own canonical aggregate layout;
 converting to or from a specialized concrete layout requires reconstruction,
 as specified by [generic aggregate erasure](generic-aggregate-erasure.md).
 
@@ -248,10 +250,11 @@ Three sequences are worth spelling out:
 - **Immutable arrays with an update-by-copy outside the array operations.**
   Rejected: pure update is an array-semantic operation, and keeping it in the
   array lowering makes the aliasing guarantee explicit and verifiable.
-- **Typed per-capture closure fields.** Rejected: the closure type would vary
-  with the capture list, so a single closure signature could not be shared and
-  higher-order values would need monomorphization. The uniform `eqref` capture
-  array keeps one closure struct type.
+- **Typed capture environments.** A valid alternative is a shared closure
+  signature with an erased environment receiver and separate typed environment
+  layouts. It does not require monomorphization. The uniform `eqref` capture
+  array is chosen to keep one environment storage protocol and simplify
+  capture construction and projection; it trades scalar boxing for simplicity.
 - **Storing `Int` and `Boolean` captures as raw `i32` in the `eqref` array.**
   Rejected: `eqref` cannot hold `i32`, and `i31` cannot represent every signed
   32-bit value. `Int` uses a full-width box; `Boolean` fits in `i31`.
@@ -521,9 +524,10 @@ one `RecGroup`, and the `Rect` subtype follows its `$variant` supertype.
 - **GC strings.** Replacing the linear-memory string pointer with a GC string
   type would remove the last language value at the ABI boundary; the canonical
   ABI exchange format is bytes, so this is a separate design.
-- **Unboxed parameterized fields.** DEC-07 allows fields proven independent of
-  the parameters to stay unboxed; the layout verifier must decide this, and the
-  planner currently does not perform that optimization.
+- **Specialized parameterized layouts.** Concrete scalar templates already
+  remain unboxed. Specializing a bare-variable slot for selected instantiations
+  would require a separate optimization preserving the shared template layout
+  at generic boundaries.
 - **Physical product interning.** P8 canonicalizes record fields by label,
   keeps the label-to-index mapping for source lowering, and includes labels and
   normalized field shapes in record keys. P9 preserves the one reachable
@@ -535,11 +539,13 @@ one `RecGroup`, and the `Rect` subtype follows its `$variant` supertype.
 ## Implementation notes
 
 The GC planner and operation lowerings implement the unified variant
-representation, records, arrays, closures, and boxes. CC stores parameter-
-dependent variant payloads and record product fields as erased references.
-Construction boxes to the stored shape. Recovery to scalar fields uses typed
-GC boxes; recovery to a type-dependent nominal array or closed-record layout
-uses explicit reconstruction between distinct `ReprId`s. Canonical layouts and
+representation, records, arrays, closures, and boxes. CC stores variant payloads
+and record fields in normalized template shapes. Bare variables are erased;
+composite fields retain their canonical aggregate or closure references.
+Construction and projection convert between actual and template shapes.
+Recovery to scalar fields uses typed GC boxes; conversion between different
+nominal array or closed-record layouts uses explicit reconstruction between
+`ReprId`s, and function signatures change through closure adapters. Canonical layouts and
 conversion plans are implemented as specified in
 [generic aggregate erasure](generic-aggregate-erasure.md). The
 [acceptance record](../../../implementation/backend/generic-aggregate-erasure.md)

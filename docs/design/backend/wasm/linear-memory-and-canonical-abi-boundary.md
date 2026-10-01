@@ -477,7 +477,7 @@ its address is proven to come from `cabi_realloc`.
 
 The allocator and buffer-lifetime gaps are owned and tracked by
 [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md)
-and its [implementation checklist](../../implementation/backend/canonical-buffer-allocation.md):
+and its [implementation checklist](../../../implementation/backend/canonical-buffer-allocation.md):
 `cabi_realloc` is now a reclaiming allocator and transient buffers are freed at
 the boundary; the general `cabi_post_<name>` synthesis (return-area and buffer
 free) is implemented and fixture-verified, while no production export has a

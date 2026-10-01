@@ -1,6 +1,6 @@
 use super::super::super::util::{FreshLocals, count_nodes, substitute_locals};
 use super::super::alpha::clone_with_fresh_locals;
-use super::analysis::{application_parts, function_arity};
+use super::analysis::{application_parts, function_arity, introduces_type_binders};
 use crate::{Binder, Binding, Declaration, Expr, ExprKind, Type};
 use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
@@ -19,7 +19,7 @@ pub(super) fn inline_named_global(
         return None;
     };
     let declaration = declarations.get(&symbol)?;
-    if !declaration.quantified.is_empty()
+    if introduces_type_binders(declaration, types)
         || recursive.contains(&symbol)
         || count_nodes(&declaration.value) > max_body_nodes
     {

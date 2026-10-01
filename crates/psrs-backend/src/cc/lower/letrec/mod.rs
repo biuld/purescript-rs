@@ -1,4 +1,4 @@
-use super::super::layout::scalar_type;
+use super::super::layout::{function_type_signature, scalar_type};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, Signature, SignatureId, ValueId,
     ValueShape,
@@ -11,8 +11,12 @@ use psrs_hir::{LocalId, SymbolId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod groups;
+
 #[cfg(test)]
 mod tests;
+
+use groups::{binding_groups, references_itself};
 
 pub(super) trait LetLowering {
     fn lower_let(
@@ -32,66 +36,15 @@ impl LetLowering for FunctionLowerer<'_> {
         _span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let recursive = recursive_indices(bindings);
-        if recursive.is_empty() {
-            for binding in bindings {
+        for group in binding_groups(bindings) {
+            if group.len() == 1 && !references_itself(&bindings[group[0]]) {
+                let binding = &bindings[group[0]];
                 let value = self.lower_value(&binding.value, assignments)?;
                 self.locals.insert(binding.binder.id, value);
-            }
-            return self.lower_value(body, assignments);
-        }
-
-        let recursive_ids = recursive
-            .iter()
-            .map(|index| bindings[*index].binder.id)
-            .collect::<HashSet<_>>();
-        let functions = self.recursive_functions(bindings, &recursive)?;
-        let captures = recursive_captures(bindings, &recursive, &recursive_ids);
-        let function_by_local = functions
-            .iter()
-            .map(|function| (function.binding.binder.id, function))
-            .collect::<HashMap<_, _>>();
-        let mut capture_values = None;
-        for (index, binding) in bindings.iter().enumerate() {
-            if recursive.contains(&index) {
-                if capture_values.is_none() {
-                    let values = captures
-                        .iter()
-                        .map(|local| {
-                            self.locals.get(local).copied().ok_or_else(|| {
-                                vec![BackendError::new(
-                                    "P8 closure conversion",
-                                    binding.span,
-                                    "recursive local function capture is not initialized at this binding",
-                                )]
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let shapes = values
-                        .iter()
-                        .map(|value| self.local_value_shape(*value, binding.span))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    for function in &functions {
-                        self.lower_recursive_function(function, &functions, &captures, &shapes)?;
-                    }
-                    capture_values = Some(values);
-                }
-                let function = function_by_local[&binding.binder.id];
-                let value = emit_function_ref(
-                    self,
-                    function.binding,
-                    function.symbol,
-                    function.signature_id,
-                    capture_values
-                        .as_deref()
-                        .expect("recursive captures are initialized at the first group member"),
-                    binding.span,
-                    assignments,
-                )?;
-                self.locals.insert(binding.binder.id, value);
+                self.local_types
+                    .insert(binding.binder.id, binding.binder.ty);
             } else {
-                let value = self.lower_value(&binding.value, assignments)?;
-                self.locals.insert(binding.binder.id, value);
+                self.lower_recursive_group(bindings, &group, assignments)?;
             }
         }
         self.lower_value(body, assignments)
@@ -108,6 +61,65 @@ struct RecursiveFunction<'a> {
 }
 
 impl FunctionLowerer<'_> {
+    /// Lowers one cyclic strongly connected component as a mutually recursive
+    /// closure group. Every external capture is already lowered because the
+    /// binding groups are processed dependencies first.
+    fn lower_recursive_group(
+        &mut self,
+        bindings: &[Binding],
+        group: &[usize],
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<(), Vec<BackendError>> {
+        let recursive = group.iter().copied().collect::<HashSet<_>>();
+        let recursive_ids = group
+            .iter()
+            .map(|index| bindings[*index].binder.id)
+            .collect::<HashSet<_>>();
+        let functions = self.recursive_functions(bindings, &recursive)?;
+        let captures = recursive_captures(bindings, &recursive, &recursive_ids);
+        let definition_span = bindings[group[0]].span;
+        let capture_values = captures
+            .iter()
+            .map(|local| {
+                self.locals.get(local).copied().ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        definition_span,
+                        "recursive local function capture is not initialized at this binding",
+                    )]
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let shapes = capture_values
+            .iter()
+            .map(|value| self.local_value_shape(*value, definition_span))
+            .collect::<Result<Vec<_>, _>>()?;
+        for function in &functions {
+            self.lower_recursive_function(function, &functions, &captures, &shapes)?;
+        }
+        let function_by_local = functions
+            .iter()
+            .map(|function| (function.binding.binder.id, function))
+            .collect::<HashMap<_, _>>();
+        for index in group {
+            let binding = &bindings[*index];
+            let function = function_by_local[&binding.binder.id];
+            let value = emit_function_ref(
+                self,
+                function.binding,
+                function.symbol,
+                function.signature_id,
+                &capture_values,
+                binding.span,
+                assignments,
+            )?;
+            self.locals.insert(binding.binder.id, value);
+            self.local_types
+                .insert(binding.binder.id, binding.binder.ty);
+        }
+        Ok(())
+    }
+
     fn recursive_functions<'a>(
         &mut self,
         bindings: &'a [Binding],
@@ -118,7 +130,9 @@ impl FunctionLowerer<'_> {
             if !recursive.contains(&index) {
                 continue;
             }
-            let Some(signature_id) = self.function_types.get(&binding.binder.ty).copied() else {
+            let Some(signature_id) =
+                function_type_signature(self.module, self.function_types, binding.binder.ty)
+            else {
                 return Err(lowering_error(
                     binding.span,
                     "recursive local binding is not a function",
@@ -174,6 +188,7 @@ impl FunctionLowerer<'_> {
             }
             let parameter = nested.fresh(shape);
             nested.locals.insert(binder.id, parameter);
+            nested.local_types.insert(binder.id, binder.ty);
             parameters.push(parameter);
         }
 
@@ -188,6 +203,9 @@ impl FunctionLowerer<'_> {
                 },
                 span: function.binding.value.span,
             });
+            if let Some(source_type) = self.local_types.get(local).copied() {
+                nested.local_types.insert(*local, source_type);
+            }
             nested.locals.insert(*local, destination);
         }
 
@@ -213,6 +231,9 @@ impl FunctionLowerer<'_> {
                 &mut nested_assignments,
             )?;
             nested.locals.insert(member.binding.binder.id, value);
+            nested
+                .local_types
+                .insert(member.binding.binder.id, member.binding.binder.ty);
         }
 
         let result = nested.lower_value(function.body, &mut nested_assignments)?;
@@ -263,42 +284,6 @@ impl FunctionLowerer<'_> {
             .map(|declaration| declaration.ty)
             .ok_or_else(|| lowering_error(span, "local capture has no CC value declaration"))
     }
-}
-
-fn recursive_indices(bindings: &[Binding]) -> HashSet<usize> {
-    let indices = bindings
-        .iter()
-        .enumerate()
-        .map(|(index, binding)| (binding.binder.id, index))
-        .collect::<HashMap<_, _>>();
-    let dependencies = bindings
-        .iter()
-        .map(|binding| {
-            let mut locals = Vec::new();
-            collect_captures(&binding.value, &mut HashSet::new(), &mut locals);
-            locals
-                .into_iter()
-                .filter_map(|local| indices.get(&local).copied())
-                .collect::<HashSet<_>>()
-        })
-        .collect::<Vec<_>>();
-    (0..bindings.len())
-        .filter(|start| reaches_itself(*start, &dependencies))
-        .collect()
-}
-
-fn reaches_itself(start: usize, dependencies: &[HashSet<usize>]) -> bool {
-    let mut pending = dependencies[start].iter().copied().collect::<Vec<_>>();
-    let mut visited = HashSet::new();
-    while let Some(next) = pending.pop() {
-        if next == start {
-            return true;
-        }
-        if visited.insert(next) {
-            pending.extend(dependencies[next].iter().copied());
-        }
-    }
-    false
 }
 
 fn recursive_captures(

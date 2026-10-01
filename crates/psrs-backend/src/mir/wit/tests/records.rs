@@ -1,43 +1,47 @@
-use super::common::{RecordingLowerer, source_signature};
+use super::common::{RecordingLowerer, record, signature};
 use super::*;
-use crate::abi::{SourceType, WasiParamKind, WasiResultKind};
+use crate::abi::canonical::{CanonicalField, CanonicalType};
+use crate::abi::test_support::import;
+use crate::cc::ValueShape;
 use psrs_hir::{ModuleId, SymbolId};
+
+fn field(name: &str, ty: CanonicalType) -> CanonicalField {
+    CanonicalField {
+        name: name.into(),
+        ty,
+    }
+}
+
 #[test]
 fn record_arguments_flatten_in_wit_field_order() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 0),
-        module: "test:records".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::F64, ValueType::I32],
-        param_kinds: vec![WasiParamKind::Record {
-            fields: vec![
-                crate::abi::WasiField {
-                    name: "second-value".into(),
-                    kind: WasiParamKind::Float64,
+    let import = import(
+        SymbolId::new(ModuleId(0), 0),
+        "test:records",
+        "take",
+        vec![CanonicalType::Record(vec![
+            field("second-value", CanonicalType::Float { width: 64 }),
+            field(
+                "first",
+                CanonicalType::Int {
+                    width: 32,
+                    signed: true,
                 },
-                crate::abi::WasiField {
-                    name: "first".into(),
-                    kind: WasiParamKind::Integer32,
-                },
-            ],
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
-    let source = SourceType::Record {
-        fields: vec![
-            ("first".into(), Box::new(SourceType::Int)),
-            ("secondValue".into(), Box::new(SourceType::Number)),
-        ],
-    };
+            ),
+        ])],
+        None,
+    );
     let mut lowerer = RecordingLowerer::default();
+    let shape = record(
+        &mut lowerer,
+        0,
+        &["first", "secondValue"],
+        vec![ValueShape::Integer, ValueShape::Number],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![shape]),
+        None,
         ValueId(7),
         &[ValueId(9)],
         TextRange::new(0, 1),
@@ -55,53 +59,41 @@ fn record_arguments_flatten_in_wit_field_order() {
 
 #[test]
 fn nested_records_flatten_byte_lists_in_wit_field_order() {
-    let import = WasiImport {
-        symbol: SymbolId::new(ModuleId(0), 1),
-        module: "test:record-lists".into(),
-        name: "take".into(),
-        parameters: vec![ValueType::I32, ValueType::I32, ValueType::I32],
-        param_kinds: vec![WasiParamKind::Record {
-            fields: vec![
-                crate::abi::WasiField {
-                    name: "code".into(),
-                    kind: WasiParamKind::Integer32,
+    let import = import(
+        SymbolId::new(ModuleId(0), 1),
+        "test:record-lists",
+        "take",
+        vec![CanonicalType::Record(vec![
+            field(
+                "code",
+                CanonicalType::Int {
+                    width: 32,
+                    signed: true,
                 },
-                crate::abi::WasiField {
-                    name: "payload".into(),
-                    kind: WasiParamKind::Record {
-                        fields: vec![crate::abi::WasiField {
-                            name: "text".into(),
-                            kind: WasiParamKind::List,
-                        }],
-                    },
-                },
-            ],
-        }],
-        result: None,
-        result_kind: WasiResultKind::None,
-        unsupported: None,
-        retptr: false,
-        flat_slots: Vec::new(),
-    };
+            ),
+            field(
+                "payload",
+                CanonicalType::Record(vec![field("text", CanonicalType::String)]),
+            ),
+        ])],
+        None,
+    );
     // Source record fields are normalized alphabetically. The nested source
     // product therefore projects by name while the ABI emits WIT declaration
     // order, then expands the String to pointer and length.
-    let source = SourceType::Record {
-        fields: vec![
-            ("code".into(), Box::new(SourceType::Int)),
-            (
-                "payload".into(),
-                Box::new(SourceType::Record {
-                    fields: vec![("text".into(), Box::new(SourceType::String))],
-                }),
-            ),
-        ],
-    };
     let mut lowerer = RecordingLowerer::default();
+    let nested = record(&mut lowerer, 1, &["text"], vec![ValueShape::String]);
+    let outer = record(
+        &mut lowerer,
+        0,
+        &["code", "payload"],
+        vec![ValueShape::Integer, nested],
+    );
     lower(
         &mut lowerer,
         &import,
-        &source_signature(vec![source], SourceType::Unit),
+        &signature(vec![outer]),
+        None,
         ValueId(15),
         &[ValueId(20)],
         TextRange::new(0, 1),

@@ -6,7 +6,8 @@ use std::collections::HashMap;
 #[test]
 fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans() {
     let int_type = TypeId(0);
-    let function_type = TypeId(1);
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let argument = trace_call(function_type.0, int_type.0, 42, 25);
     let call_span = span(20, 33);
@@ -52,17 +53,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
         1,
         45,
     );
-    let mut input = module(
-        vec![
-            Type::I32,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        value,
-    );
+    let mut input = module(types, int_type.0, value);
     input = with_trace(input);
     input.declarations.push(Declaration {
         symbol: function,
@@ -277,7 +268,8 @@ fn evaluate(
 #[test]
 fn named_global_recursion_stays_as_a_call() {
     let int_type = TypeId(0);
-    let function_type = TypeId(1);
+    let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
+    let function_type = arrow_type(&mut types, int_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let call = expression(
         ExprKind::Application(
@@ -293,17 +285,7 @@ fn named_global_recursion_stays_as_a_call() {
         10,
         14,
     );
-    let mut input = module(
-        vec![
-            Type::I32,
-            Type::Function {
-                parameter: int_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        call,
-    );
+    let mut input = module(types, int_type.0, call);
     input.declarations.push(Declaration {
         symbol: function,
         name: "loop".into(),
@@ -351,7 +333,11 @@ fn named_global_recursion_stays_as_a_call() {
 fn leaves_case_bodies_out_of_global_inlining_to_keep_diagnostics_singular() {
     let boolean_type = TypeId(0);
     let int_type = TypeId(1);
-    let function_type = TypeId(2);
+    let mut types = vec![
+        Type::Constructor(crate::TypeConstructor::Boolean),
+        Type::Constructor(crate::TypeConstructor::Int),
+    ];
+    let function_type = arrow_type(&mut types, boolean_type, int_type);
     let function = SymbolId::new(ModuleId(0), 2);
     let call = expression(
         ExprKind::Application(
@@ -367,18 +353,7 @@ fn leaves_case_bodies_out_of_global_inlining_to_keep_diagnostics_singular() {
         10,
         20,
     );
-    let mut input = module(
-        vec![
-            Type::Boolean,
-            Type::I32,
-            Type::Function {
-                parameter: boolean_type,
-                result: int_type,
-            },
-        ],
-        int_type.0,
-        call,
-    );
+    let mut input = module(types, int_type.0, call);
     input.declarations.push(Declaration {
         symbol: function,
         name: "choose".into(),

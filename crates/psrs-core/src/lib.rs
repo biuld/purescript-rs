@@ -1,12 +1,15 @@
 pub mod dictionary;
+pub mod effect;
 mod link;
 mod lower;
 pub mod opt;
 mod pattern;
+mod records;
 mod verify;
 
 pub use link::{link, prune_unreachable};
 pub use pattern::{Pattern, PatternKind};
+pub use records::{record_row, row_fields};
 
 use psrs_hir::{
     ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
@@ -19,33 +22,88 @@ pub struct TypeId(pub u32);
 /// A type constructor reference, mirrored from THIR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
+    Function,
+    Record,
     Array,
+    Int,
+    Number,
+    Boolean,
+    String,
+    Char,
+    Unit,
     User(HirTypeId),
+}
+
+impl TypeConstructor {
+    /// Whether this constructor names one of the source primitive scalars.
+    pub fn is_primitive(self) -> bool {
+        matches!(
+            self,
+            Self::Int | Self::Number | Self::Boolean | Self::String | Self::Char | Self::Unit
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     /// A generalized type variable; quantifiers are stored at each binding site.
     Variable(TypeVariableId),
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
-    Record(Vec<(String, TypeId)>),
-    /// A record whose row ends in a type variable. Closed records stay
-    /// [`Type::Record`]. This is not a runtime field layout.
-    OpenRecord {
-        fields: Vec<(String, TypeId)>,
-        tail: TypeId,
+    /// A lexical type-level quantifier. Nested nodes retain independent scope.
+    ForAll {
+        variables: Vec<TypeVariableId>,
+        body: TypeId,
     },
-    Function {
-        parameter: TypeId,
+    /// A closure created with a fixed parameter list. The result is a value,
+    /// even when that value is a function or another closure. Representation
+    /// lowering emits this for an effect; source arrows stay [`TypeConstructor::Function`].
+    Closure {
+        parameters: Vec<TypeId>,
         result: TypeId,
     },
+    /// The empty row. A closed record's row ends here.
+    RowEmpty,
+    /// A row extended with one labeled field. A record type is
+    /// `Application(Constructor(Record), row)`; a closed row ends in
+    /// [`Type::RowEmpty`] and an open row ends in a [`Type::Variable`].
+    RowExtend {
+        label: String,
+        ty: TypeId,
+        tail: TypeId,
+    },
+}
+
+/// The parameter and result of an arrow type `a -> b`, spelled as the
+/// application spine `Application(Application(Constructor(Function), a), b)`.
+pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
+    let Type::Application(inner, result) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    let Type::Application(head, parameter) = types.get(inner.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(head.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Function))
+    )
+    .then_some((*parameter, *result))
+}
+
+/// The parameter list and result of a fixed-arity closure type.
+pub fn closure_parts(types: &[Type], id: TypeId) -> Option<(&[TypeId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::Closure { parameters, result } => Some((parameters, *result)),
+        _ => None,
+    }
+}
+
+/// The binders and body of a type-level universal quantifier.
+pub fn forall_parts(types: &[Type], id: TypeId) -> Option<(&[TypeVariableId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::ForAll { variables, body } => Some((variables, *body)),
+        _ => None,
+    }
 }
 
 /// A data constructor known to the module, mirrored from THIR.
@@ -58,6 +116,11 @@ pub struct ConstructorInfo {
     pub tag: u32,
     pub field_count: usize,
     pub field_types: Vec<TypeId>,
+    /// The declaration's ordered type parameters, as the variables its
+    /// `field_types` templates refer to. The variable at `parameters[i]` stands
+    /// for the resolved application's argument `i`, letting the ABI instantiate
+    /// a parameterized constructor's field templates.
+    pub parameters: Vec<TypeVariableId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,8 +136,18 @@ pub struct Module {
     /// `Constructor(User(HirTypeId))`; this set records that the type is opaque
     /// and has no constructors. It is not a calling-convention layout.
     pub opaque_ids: Vec<HirTypeId>,
+    /// Type constructors whose application has a callable closure
+    /// representation, registered by the trusted elaboration through their
+    /// resolved type identity. Each entry names the number of hidden
+    /// calling-convention parameters; the call result is the application's last
+    /// type argument. This is representation metadata, not a type.
+    pub callable_types: Vec<(HirTypeId, u32)>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
+    /// Qualified names of the type declarations in this module, keyed by their
+    /// stable id. Retained from HIR so the backend can recognize well-known
+    /// library types after names are otherwise dropped.
+    pub type_names: Vec<(HirTypeId, String)>,
     /// The declaration used as the program entry point, if one was selected.
     /// The backend lowers this symbol rather than inferring identity from a
     /// source name. See `docs/design/backend/wasm/encoding-and-structuring.md`.
@@ -247,7 +320,8 @@ impl Primitive {
             | Intrinsic::BooleanToInt
             | Intrinsic::IntToBoolean
             | Intrinsic::CharToInt
-            | Intrinsic::IntToChar => return None,
+            | Intrinsic::IntToChar
+            | Intrinsic::Coerce => return None,
         })
     }
 }
@@ -279,6 +353,13 @@ pub enum ExprKind {
     FieldAccess {
         record: Box<Expr>,
         field: String,
+    },
+    /// A representational conversion authorized by checked frontend evidence.
+    /// The backend applies its normal typed value-conversion protocol.
+    RepresentationCast {
+        value: Box<Expr>,
+        source_type: TypeId,
+        target_type: TypeId,
     },
     ArrayLength(Box<Expr>),
     ArrayIndex {
@@ -353,6 +434,43 @@ pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
         verify::module(self)
+    }
+
+    /// The hidden calling-convention parameter count registered for a callable
+    /// type constructor identity, or `None` when the constructor is not
+    /// callable.
+    pub fn callable_parameters(&self, type_id: HirTypeId) -> Option<u32> {
+        self.callable_types
+            .iter()
+            .find(|(id, _)| *id == type_id)
+            .map(|(_, parameters)| *parameters)
+    }
+
+    /// Decomposes an applied type into its head constructor and the arguments
+    /// applied to it, in order. A non-applied constructor yields an empty
+    /// argument list; a non-constructor head yields `None`.
+    pub fn applied_constructor(&self, mut id: TypeId) -> Option<(TypeConstructor, Vec<TypeId>)> {
+        let mut arguments = Vec::new();
+        while let Some(Type::Application(function, argument)) = self.types.get(id.0 as usize) {
+            arguments.push(*argument);
+            id = *function;
+        }
+        arguments.reverse();
+        match self.types.get(id.0 as usize) {
+            Some(Type::Constructor(constructor)) => Some((*constructor, arguments)),
+            _ => None,
+        }
+    }
+
+    /// The name and arguments of a callable type-constructor application, when
+    /// its head constructor has a registered closure representation.
+    pub fn callable_application(&self, id: TypeId) -> Option<(HirTypeId, Vec<TypeId>)> {
+        let (constructor, arguments) = self.applied_constructor(id)?;
+        let TypeConstructor::User(type_id) = constructor else {
+            return None;
+        };
+        self.callable_parameters(type_id)?;
+        Some((type_id, arguments))
     }
 }
 

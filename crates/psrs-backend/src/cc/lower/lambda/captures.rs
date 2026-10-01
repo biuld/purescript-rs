@@ -88,6 +88,7 @@ pub(in crate::cc::lower) fn collect_captures(
             collect_captures(right, bound, captures);
         }
         ExprKind::UnaryPrimitive { value, .. } => collect_captures(value, bound, captures),
+        ExprKind::RepresentationCast { value, .. } => collect_captures(value, bound, captures),
         ExprKind::If {
             condition,
             then_branch,

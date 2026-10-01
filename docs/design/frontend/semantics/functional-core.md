@@ -72,40 +72,57 @@ following Wadler and, if the effect language grows, Levy's call-by-push-value.
 
 ```text
 Type = Variable(TypeVariableId)
-     | I32 | F64 | Boolean | String | Char | Unit
      | Constructor(TypeConstructor)
      | Application(TypeId, TypeId)
-     | Record([(String, TypeId)])
-     | Function { parameter: TypeId, result: TypeId }
+     | KindApplication(TypeId, TypeId)
+     | ForAll([TypeVariableId], TypeId)
+     | Constrained([TypeId], TypeId)
+     | RowEmpty
+     | RowExtend(String, TypeId, TypeId)
+     | TypeLevelString(String)
+     | TypeLevelInt(i64)
+     | Skolem(TypeVariableId)
 
-TypeConstructor = Array | User(HirTypeId)
+TypeConstructor = Function | Record | Array | Row
+                | Int | Number | Boolean | String | Char | Unit
+                | User(HirTypeId)
 ```
 
-`TypeId` is an index into `Module.types`. The source-level reading of the
+`TypeId` is an index into `Module.types`. This is one uniform application spine,
+matching the frontend checked-type design and official PureScript's `TypeApp`:
+functions and type constructors are both applications, and no variant carries
+arrow syntax or inline primitive structure. The source-level reading of the
 constructors is fixed:
 
 | Source type | Core type |
 | --- | --- |
-| `Int` | `I32` (signed 32-bit) |
-| `Number` | `F64` (IEEE-754 binary64) |
-| `Boolean` | `Boolean` |
-| `Char` | `Char` (a Unicode scalar) |
-| `Unit` | `Unit` (no payload) |
-| `a -> b` | `Function { parameter, result }` |
-| records and tuples | `Record([(label, TypeId)])`; a tuple is the closed record `{ _1, _2, ... }` |
+| `Int` | `Constructor(Int)` (signed 32-bit) |
+| `Number` | `Constructor(Number)` (IEEE-754 binary64) |
+| `Boolean` | `Constructor(Boolean)` |
+| `Char` | `Constructor(Char)` (a Unicode scalar) |
+| `Unit` | `Constructor(Unit)` (no payload) |
+| `String` | `Constructor(String)`, a platform value supplied by the WASI boundary |
+| `a -> b` | `Application(Application(Constructor(Function), a), b)` |
+| records and tuples | `Application(Constructor(Record), row)`, a row of `RowEmpty`/`RowExtend`; a tuple is the closed record `{ _1, _2, ... }` |
 | `Array a` | `Application(Constructor(Array), a)` |
 | data types | `Constructor(User(HirTypeId))`, optionally applied to arguments |
-| `String` | `String`, a platform value supplied by the WASI boundary |
+
+The primitive constructors name the source primitives; their concrete runtime
+representation is fixed later at MIR, not in Core.
 
 A data type's cases are not part of its `Type`; they are `ConstructorInfo`
 records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
-`Effect a` is an ordinary imported abstract type constructor in source typing.
-Target-specific lowering after source checking maps it to an
-internal token-taking function, so Core itself needs no `Effect` type node.
-The token and function representation are not source-visible API; the execution
-boundary and optimization rules are specified in [effects](../../backend/fp/effects.md).
+`Effect a` is `Application(Constructor(User(effect_id)), a)`: an ordinary
+imported abstract type constructor applied on the uniform spine. Core has no
+`Effect` node, no token type, and no side table that makes this constructor
+callable. After Core, one representation lowering replaces each `Effect τ`
+value with a closure whose parameter list is the runtime token and whose result
+is the lowering of `τ`. That closure is not a source arrow, so curried-arrow
+flattening does not absorb a function or a nested effect inside `τ`. The
+translation and the execution boundary are specified in
+[effects](../../backend/fp/effects.md).
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
 field below Core. Erasing a newtype is representation metadata, not a change to
@@ -114,8 +131,8 @@ not allocate a wrapper for it.
 
 `Module.opaque_ids` records foreign data declarations. Their Core type is still
 `Constructor(User(HirTypeId))`, and they have no `ConstructorInfo`. The set is
-what distinguishes that constructor from an algebraic type and from `I32`. It
-is not a runtime layout. See [foreign imports](foreign-imports.md).
+what distinguishes that constructor from an algebraic type and from
+`Constructor(Int)`. It is not a runtime layout. See [foreign imports](foreign-imports.md).
 
 ### Terms
 
@@ -219,7 +236,7 @@ counterpart:
 | `Record*` | product construction and field projection |
 | `Array*` | array operations |
 | polymorphism and constraints | erased type arguments and explicit dictionary arguments |
-| `Effect a` | its lowered runtime representation; ordinary function values at runtime |
+| `Effect a` | a representation closure produced after Core; not a source arrow |
 
 The full Core-to-CC contract, including the representation requirements that CC
 introduces and the operations it owns, is specified in [CC IR](../../backend/fp/cc-ir.md).
@@ -254,8 +271,9 @@ nodes and are owned by [CC IR](../../backend/fp/cc-ir.md):
   expressible and tail-recursion lowering in [control flow](../../backend/fp/control-flow-and-tail-calls.md)
   recovers looping without enlarging the core.
 - **Make `Effect` a Core node.** Rejected for the same reason as a loop node:
-  an effect is a value (a token-taking function), and treating it as ordinary
-  data keeps CC and MIR free of effect special cases ([effects](../../backend/fp/effects.md)).
+  an effect is an abstract value in Core. One later translation produces its
+  closure, so CC and MIR never match on the library type
+  ([effects](../../backend/fp/effects.md)).
 - **Keep surface `where`/guards/view patterns in Core.** Rejected: those are
   surface sugar and patterns; the desugaring and the decision compiler own them
   ([pattern matching](../../backend/fp/pattern-matching.md)).
@@ -267,9 +285,13 @@ nodes and are owned by [CC IR](../../backend/fp/cc-ir.md):
 Core is produced already typed by the front-end type checker; the Core pass
 itself does not infer. A binding site generalizes the type variables its value
 does not constrain; a use site instantiates them. Instantiation is a
-substitution over the `Application`/`Variable` structure, and the resulting
+capture-avoiding substitution over the type structure, including nested
+`ForAll` binders, and the resulting
 expression's `ty` field records the instantiated type. `quantified` records
-which variables were generalized.
+which variables were generalized. A nested `ForAll` belongs to its value
+type rather than the enclosing declaration scheme. An expression introducing
+such a universal binds its type variables in the checked subtree; optimization
+must preserve that scope when replacing the expression.
 
 ### Core verification
 
@@ -359,14 +381,22 @@ main = fromMaybe 0 (Just 42)
 The `Maybe` type is `Constructor(User(id))` with two `ConstructorInfo` records:
 `Nothing` (tag `0`, no fields) and `Just` (tag `1`, one field of
 `Variable(a)`). `Maybe a` is `Application(Constructor(User(id)), Variable(a))`.
-`fromMaybe`'s Core type is
-`Function(Variable(a), Function(Application(Constructor(User(id)), Variable(a)), Variable(a)))`,
+`fromMaybe`'s Core type is the application spine
+
+```text
+Application(
+  Application(Constructor(Function), Variable(a)),
+  Application(
+    Application(Constructor(Function), Application(Constructor(User(id)), Variable(a))),
+    Variable(a)))
+```
+
 with `quantified = [a]`. Its body is a `Lambda` over `d`, a `Lambda` over `m`,
 and a `Case` on `m` with two branches; the `Just` branch binds `x` and returns
 it.
 
 `main` is `Application(Application(Global(fromMaybe), Integer(0)), Constructor { symbol = Just, arguments = [Integer(42)] })`.
-Its `ty` is `I32`, the instantiation of `a` to `Int`.
+Its `ty` is `Constructor(Int)`, the instantiation of `a` to `Int`.
 
 P8 then peels the two `Lambda`s of `fromMaybe` into function parameters whose
 shapes are the erased `a` and the aggregate `Maybe a`, with an erased result.
@@ -396,12 +426,12 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Open questions and future work
 
-- **General effects.** The current implementation elaborates to `Boolean -> a`;
-  the abstract source boundary and later token representation are specified in
-  [effects](../../backend/fp/effects.md) without adding a Core effect node.
-- **Higher-rank and constraints.** Rank-1 quantification and dictionary
-  elaboration are specified; higher-rank types and the exact constraint
-  evidence representation remain front-end work
+- **General effects.** Core keeps the abstract `Effect` application. The
+  representation closure and token are specified in
+  [effects](../../backend/fp/effects.md) and are not a Core type.
+- **Higher-rank and constraints.** Nested quantifiers and elaborated
+  dictionaries retain the checking rules specified by the frontend.
+  Remaining official-suite compatibility work is tracked by FE-18
   ([classes and evidence](../type-system/classes-and-evidence.md)).
 - **Open rows.** Source row polymorphism is checked by P5. Core preserves the
   checked record type and evidence; P9 fixes concrete record layouts at each
@@ -430,12 +460,21 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Implementation notes
 
-The current front end produces a working subset of this core: monomorphic and
-rank-1 polymorphic functions, non-parameterized and a restricted parameterized
-ADT slice, closed concrete records, scalar arrays, `if`, `case`, strings, and
-the current effect encoding. Local recursive `Let` groups are not yet lowered — only
-top-level recursion through `Global` and the generated closure wrappers are —
-and constraint evidence and the final effect representation are not yet
-produced. Open record rows are checked and kept in Core as `OpenRecord`;
-closure conversion rejects them rather than choosing a field layout. Nothing
-in the model above depends on those deviations.
+The current frontend produces nested `ForAll` types, quantified binding
+schemes, and dictionary applications. Core lowering, linking, verification,
+and optimization preserve these scopes and each reference's checked
+instantiation. Source and malformed-IR coverage is recorded in the
+[rank-N acceptance record](../../../implementation/frontend/rank-n.md);
+[D-04](../../D-04-suite-roadmap.md) owns the wider implementation matrix.
+
+The uniform application spine in the Model is implemented for the nodes the
+current frontend produces: functions, primitives, records, rows, arrays, and
+user data types all use `Constructor`/`Application` with `RowEmpty`/`RowExtend`
+rows, and the ad-hoc `Function`, `Record`, `OpenRecord`, and inline primitive
+variants are gone ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
+An open row is `Application(Constructor(Record), Variable)`, so closure
+conversion still rejects it when it cannot choose a field layout. The remaining
+`CheckedType` nodes the design lists — `KindApplication`, `Constrained`,
+`TypeLevel*`, and `Skolem` — remain part of the semantic design. Current nested
+constraints elaborate to dictionary arrows beneath `ForAll`, and solver
+skolems leave the frontend as scoped quantified variables.

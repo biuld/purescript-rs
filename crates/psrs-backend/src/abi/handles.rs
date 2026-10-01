@@ -4,12 +4,12 @@
 //! call that created it returns. See
 //! `docs/design/backend/wasm/canonical-abi-and-wit.md`.
 
-use super::validation::flattened_parameter_count;
-use super::{WasiImport, WasiParamKind, WasiResultKind};
+use super::WasiImport;
+use super::canonical::{CanonicalType, Ownership, ResourceId};
 use psrs_hir::{ModuleId, SymbolId};
 use wit_parser::{Handle, Resolve, Type, TypeDefKind, TypeId, TypeOwner};
 
-/// Sentinel stored by classification until the registry interns the drop import.
+/// Sentinel stored until the registry interns the drop import.
 pub(crate) const UNBOUND_DROP: SymbolId = SymbolId::new(ModuleId::INTRINSICS, u32::MAX - 5);
 
 /// Whether a handle index owns the resource or only borrows it for one call.
@@ -30,8 +30,30 @@ pub struct HandleResource {
     /// WIT resource name, for example `output-stream`.
     pub name: String,
     /// Interned `[resource-drop]<name>` symbol. [`UNBOUND_DROP`] until the
-    /// registry binds it.
+    /// registry binds it, and for a borrow.
     pub drop_symbol: SymbolId,
+}
+
+impl CanonicalType {
+    /// The resource metadata of a canonical handle, if this is one.
+    pub(crate) fn handle_resource(&self) -> Option<HandleResource> {
+        let CanonicalType::Handle {
+            resource,
+            ownership,
+        } = self
+        else {
+            return None;
+        };
+        Some(HandleResource {
+            mode: match ownership {
+                Ownership::Own { .. } => HandleMode::Own,
+                Ownership::Borrow => HandleMode::Borrow,
+            },
+            interface: resource.interface.clone(),
+            name: resource.name.clone(),
+            drop_symbol: ownership.drop_symbol().unwrap_or(UNBOUND_DROP),
+        })
+    }
 }
 
 /// Core import field wit-component maps to `canon resource.drop`.
@@ -75,105 +97,110 @@ fn resource_definition(resolve: &Resolve, mut id: TypeId) -> Option<TypeId> {
     None
 }
 
-/// The handle whose single flat slot is `flat_index`, if one covers that slot.
+/// The canonical handle whose single flat slot is `flat_index`, if one covers
+/// that slot.
 pub(crate) fn handle_at_flat_index(
     import: &WasiImport,
     flat_index: usize,
-) -> Option<&HandleResource> {
-    let mut cursor = 0;
-    for kind in &import.param_kinds {
-        if let Some(found) = cover(kind, flat_index, &mut cursor) {
-            return Some(found);
-        }
-    }
-    None
+) -> Option<&CanonicalType> {
+    super::canonical::handle_at_flat_index(&import.params, flat_index)
 }
 
-fn cover<'a>(
-    kind: &'a WasiParamKind,
-    target: usize,
-    cursor: &mut usize,
-) -> Option<&'a HandleResource> {
-    match kind {
-        WasiParamKind::Handle(handle) => {
-            let here = *cursor;
-            *cursor += 1;
-            (here == target).then_some(handle)
-        }
-        WasiParamKind::Record { fields } => {
+/// Sets each owned handle's drop to `bind(resource)`.
+fn bind_canonical<'a>(
+    ty: &'a mut CanonicalType,
+    bind: &mut impl FnMut(&'a ResourceId) -> SymbolId,
+) {
+    match ty {
+        CanonicalType::Handle {
+            resource,
+            ownership: Ownership::Own { drop },
+        } => *drop = bind(resource),
+        CanonicalType::Record(fields) => {
             for field in fields {
-                if let Some(found) = cover(&field.kind, target, cursor) {
-                    return Some(found);
-                }
+                bind_canonical(&mut field.ty, bind);
             }
-            None
         }
-        other => {
-            *cursor += flattened_parameter_count(other);
-            None
+        CanonicalType::Option(payload) => bind_canonical(payload, bind),
+        CanonicalType::Result { ok, err } => {
+            if let Some(ok) = ok {
+                bind_canonical(ok, bind);
+            }
+            if let Some(err) = err {
+                bind_canonical(err, bind);
+            }
         }
-    }
-}
-
-pub(super) fn bind_param(kind: &mut WasiParamKind, bind: &mut impl FnMut(&mut HandleResource)) {
-    match kind {
-        WasiParamKind::Handle(handle) => bind(handle),
-        WasiParamKind::Record { fields } => {
-            for field in fields {
-                bind_param(&mut field.kind, bind);
+        CanonicalType::Variant(cases) => {
+            for case in cases {
+                if let Some(payload) = &mut case.payload {
+                    bind_canonical(payload, bind);
+                }
             }
         }
         _ => {}
     }
 }
 
-pub(super) fn bind_result(kind: &mut WasiResultKind, bind: &mut impl FnMut(&mut HandleResource)) {
-    if let WasiResultKind::Handle(handle) = kind {
-        bind(handle);
-    }
-}
-
 impl super::WasiRegistry {
-    /// Interns `[resource-drop]<T>` for every handle this signature mentions.
+    /// Interns `[resource-drop]<T>` for every owned handle this signature
+    /// mentions.
     pub(super) fn bind_handle_drops(
         &mut self,
-        params: &mut [WasiParamKind],
-        result: &mut WasiResultKind,
+        params: &mut [CanonicalType],
+        result: &mut Option<CanonicalType>,
     ) {
-        let mut bind = |handle: &mut HandleResource| {
-            handle.drop_symbol = self.intern_resource_drop(&handle.interface, &handle.name);
-        };
-        for kind in params.iter_mut() {
-            bind_param(kind, &mut bind);
+        let mut bind =
+            |resource: &ResourceId| self.intern_resource_drop(&resource.interface, &resource.name);
+        for ty in params.iter_mut() {
+            bind_canonical(ty, &mut bind);
         }
-        bind_result(result, &mut bind);
+        if let Some(ty) = result {
+            bind_canonical(ty, &mut bind);
+        }
     }
 
     /// The guest calls this intrinsic to remove a handle from its table.
     /// wit-component lowers the import to `canon resource.drop`.
     fn intern_resource_drop(&mut self, interface: &str, resource: &str) -> SymbolId {
+        let index = self.intern_resource_drop_index(interface, resource);
+        self.imports[index].symbol
+    }
+
+    /// Interns `[resource-drop]<resource>` and returns its index. Shared by the
+    /// signature binding and a source-declared drop.
+    pub(super) fn intern_resource_drop_index(&mut self, interface: &str, resource: &str) -> usize {
         let field = drop_import_field(resource);
         let key = (interface.to_string(), field.clone());
         if let Some(index) = self.keys.get(&key) {
-            return self.imports[*index].symbol;
+            return *index;
         }
         let symbol = SymbolId::new(
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
+        // The drop intrinsic's canonical parameter is the resource handle
+        // itself, not a bare `i32`, so a source declaration may name the opaque
+        // handle type (DEC-14).
+        let handle = CanonicalType::Handle {
+            resource: ResourceId {
+                interface: interface.to_string(),
+                name: resource.to_string(),
+            },
+            ownership: Ownership::Own { drop: symbol },
+        };
         self.imports.push(super::WasiImport {
             symbol,
             module: interface.to_string(),
             name: field,
             parameters: vec![crate::types::ValueType::I32],
-            param_kinds: vec![WasiParamKind::Integer32],
             result: None,
-            result_kind: WasiResultKind::None,
+            params: vec![handle.clone()],
+            canonical_result: None,
+            abi: super::canonical::function_abi_from_types(&[handle], None),
             unsupported: None,
-            retptr: false,
-            flat_slots: vec![super::FlatSlot::Int32],
         });
-        self.keys.insert(key, self.imports.len() - 1);
-        symbol
+        let index = self.imports.len() - 1;
+        self.keys.insert(key, index);
+        index
     }
 }

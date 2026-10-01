@@ -166,7 +166,11 @@ fn recursive_function_captures_an_earlier_same_let_value_and_escapes() {
 fn mutual_recursion_module() -> Module {
     let int = TypeId(0);
     let boolean = TypeId(1);
-    let int_function = TypeId(2);
+    let mut types = vec![
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+        Type::Constructor(psrs_core::TypeConstructor::Boolean),
+    ];
+    let int_function = push_arrow(&mut types, int, int);
     let module_id = ModuleId(0);
     let main_symbol = SymbolId::new(module_id, 0);
     let f_id = LocalId(1);
@@ -181,7 +185,7 @@ fn mutual_recursion_module() -> Module {
             "n",
             f_arg,
             int,
-            recursive_if(f_arg, g_id, 0, int, boolean, 41),
+            recursive_if(f_arg, g_id, 0, int, boolean, int_function, 41),
             int_function,
             40,
             65,
@@ -197,7 +201,7 @@ fn mutual_recursion_module() -> Module {
             "n",
             g_arg,
             int,
-            recursive_if(g_arg, f_id, 1, int, boolean, 81),
+            recursive_if(g_arg, f_id, 1, int, boolean, int_function, 81),
             int_function,
             80,
             105,
@@ -224,7 +228,7 @@ fn mutual_recursion_module() -> Module {
         125,
     );
     module(
-        vec![Type::I32, Type::Boolean, function_type(int, int)],
+        types,
         Declaration {
             symbol: main_symbol,
             name: "main".into(),
@@ -241,7 +245,11 @@ fn mutual_recursion_module() -> Module {
 fn escaping_recursive_module() -> Module {
     let int = TypeId(0);
     let boolean = TypeId(1);
-    let int_function = TypeId(2);
+    let mut types = vec![
+        Type::Constructor(psrs_core::TypeConstructor::Int),
+        Type::Constructor(psrs_core::TypeConstructor::Boolean),
+    ];
+    let int_function = push_arrow(&mut types, int, int);
     let module_id = ModuleId(0);
     let main_symbol = SymbolId::new(module_id, 0);
     let loop_id = LocalId(10);
@@ -301,7 +309,7 @@ fn escaping_recursive_module() -> Module {
         125,
     );
     module(
-        vec![Type::I32, Type::Boolean, function_type(int, int)],
+        types,
         Declaration {
             symbol: main_symbol,
             name: "main".into(),
@@ -315,12 +323,14 @@ fn escaping_recursive_module() -> Module {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn recursive_if(
     parameter: LocalId,
     target: LocalId,
     base: i32,
     int: TypeId,
     boolean: TypeId,
+    function_type: TypeId,
     start: u32,
 ) -> Expr {
     expression(
@@ -330,7 +340,7 @@ fn recursive_if(
             else_branch: Box::new(call_recursive(
                 target,
                 parameter,
-                TypeId(2),
+                function_type,
                 int,
                 start + 10,
             )),
@@ -429,18 +439,26 @@ fn integer(value: i32, ty: TypeId, start: u32) -> Expr {
     expression(ExprKind::Integer(value), ty, start, start + 1)
 }
 
-fn function_type(parameter: TypeId, result: TypeId) -> Type {
-    Type::Function { parameter, result }
+fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
+    let head = TypeId(types.len() as u32);
+    types.push(Type::Constructor(psrs_core::TypeConstructor::Function));
+    let inner = TypeId(types.len() as u32);
+    types.push(Type::Application(head, parameter));
+    let outer = TypeId(types.len() as u32);
+    types.push(Type::Application(inner, result));
+    outer
 }
 
 fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module {
     Module {
+        type_names: Vec::new(),
         id: entry.module,
         name: "Main".into(),
         externals: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: vec![declaration],
         entry: Some(entry),

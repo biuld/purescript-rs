@@ -55,6 +55,7 @@ fn module(declarations: Vec<HirDeclaration>, with_intrinsics: bool) -> hir::Modu
         exports: None,
         declarations,
         types: Vec::new(),
+        instances: Vec::new(),
         span: TextRange::new(0, 100),
     }
 }
@@ -126,14 +127,22 @@ fn infers_functions_arithmetic_conditionals_and_intrinsic_booleans() {
 
     let resolved = psrs_desugar::desugar_module(resolved).unwrap();
     let typed = typecheck_module(resolved).unwrap();
+    let Some((parameter, result)) = psrs_thir::arrow_parts(&typed.types, typed.declarations[0].ty)
+    else {
+        panic!("increment should have an arrow type");
+    };
     assert_eq!(
-        typed.types[typed.declarations[0].ty.0 as usize],
-        Type::Function {
-            parameter: TypeId(0),
-            result: TypeId(0),
-        }
+        typed.types[parameter.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
     );
-    assert_eq!(typed.types[typed.declarations[1].ty.0 as usize], Type::I32);
+    assert_eq!(
+        typed.types[result.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
+    );
+    assert_eq!(
+        typed.types[typed.declarations[1].ty.0 as usize],
+        Type::Constructor(psrs_thir::TypeConstructor::Int)
+    );
     typed.verify().unwrap();
 }
 
@@ -187,14 +196,16 @@ fn generalizes_top_level_functions() {
     let resolved = psrs_desugar::desugar_module(resolved).unwrap();
     let typed = typecheck_module(resolved).unwrap();
     assert_eq!(typed.declarations[0].quantified.len(), 1);
-    assert_eq!(
-        typed.types[typed.declarations[0].ty.0 as usize],
-        Type::Function {
-            parameter: TypeId(0),
-            result: TypeId(0),
-        }
-    );
-    assert!(matches!(typed.types[0], Type::Variable(_)));
+    let Some((parameter, result)) = psrs_thir::arrow_parts(&typed.types, typed.declarations[0].ty)
+    else {
+        panic!("identity should have an arrow type");
+    };
+    assert_eq!(parameter, result);
+    assert!(matches!(
+        typed.types[parameter.0 as usize],
+        Type::Variable(_)
+    ));
+    assert!(typed.types.iter().any(|ty| matches!(ty, Type::Variable(_))));
     typed.verify().unwrap();
 }
 
@@ -360,4 +371,5 @@ fn rejects_integer_literals_outside_i32() {
 }
 
 mod foreign_data;
+mod rank_n;
 mod user_types;

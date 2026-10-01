@@ -137,6 +137,7 @@ fn build_edges(
         for import in &module.imports {
             match registry.get(&import.module.text) {
                 Some(target) => module_edges.push((*target, import.span)),
+                None if Interface::primitive_module(&import.module.text).is_some() => {}
                 None => errors.push(ProgramError {
                     module: index,
                     error: ResolveError::named(
@@ -213,15 +214,20 @@ fn build_imports(
 ) -> Vec<hir::Import> {
     let mut imports = Vec::with_capacity(module.imports.len());
     for import in &module.imports {
-        let Some(target) = registry.get(&import.module.text).copied() else {
-            continue;
+        let (target, interface) = match registry.get(&import.module.text).copied() {
+            Some(target) => (ModuleId(target as u32), interfaces[target].clone()),
+            None => {
+                let Some(interface) = Interface::primitive_module(&import.module.text) else {
+                    continue;
+                };
+                (ModuleId::COMPILER_PRELUDE, Some(interface))
+            }
         };
-        let interface = interfaces[target].as_ref();
         imports.push(build_import(
             module_index,
             import,
             target,
-            interface,
+            interface.as_ref(),
             errors,
         ));
     }
@@ -231,7 +237,7 @@ fn build_imports(
 fn build_import(
     module_index: usize,
     import: &ast::Import,
-    target: usize,
+    target: ModuleId,
     interface: Option<&Interface>,
     errors: &mut Vec<ProgramError>,
 ) -> hir::Import {
@@ -372,7 +378,7 @@ fn build_import(
         }
     }
     hir::Import {
-        module: ModuleId(target as u32),
+        module: target,
         module_name: import.module.text.clone(),
         alias: import.alias.as_ref().map(|alias| alias.text.clone()),
         hiding: import.list.as_ref().is_some_and(|list| list.hiding),

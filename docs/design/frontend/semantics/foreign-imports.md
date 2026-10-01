@@ -76,15 +76,16 @@ algebraic declaration can also have no constructors. The flag is what keeps
 the type foreign. It is not a calling-convention or MIR layout, and it does
 not rewrite the type to `I32`.
 
-At the canonical boundary the source subset gains one case:
+At the canonical boundary a nullary opaque type is the source image of a WIT
+resource handle:
 
 ```text
-SourceType ::= ... | Resource { type_id }
+resolved handle type = Core Constructor(User(type_id)), type_id in opaque_ids
 ```
 
-A WIT handle parameter or result matches `Resource` or the existing `Int`
-placeholder. Other WIT scalars do not match `Resource`. The `type_id` is the
-declaring module's type identity, preserved through imports and re-exports.
+A WIT handle parameter or result matches that opaque type or the existing `Int`
+placeholder. Other WIT scalars do not match it. The `type_id` is the declaring
+module's type identity, preserved through imports and re-exports.
 
 ## Design
 
@@ -190,12 +191,12 @@ Foreign declarations cross the frontend as their own declaration form.
   type ids. The entry that fills the THIR set is the foreign-data filter in
   `typecheck_module_with_imports_and_effect_context`. Core lowering copies it
   in `lower_module_inner`, and linking concatenates it.
-- The ABI adapter's `source_signature` maps `TypeKind::Opaque(id)` to
-  `SourceType::Resource { type_id }`. Handle parameters and results use
-  `WasiParamKind::Handle` and `WasiResultKind::Handle`. Both accept `Resource`
-  or `Int`. The abstract calling convention of a `Resource` is one integer,
-  which is the canonical handle, not a license to treat the type as `Int`
-  inside the program.
+- The ABI adapter interns `TypeKind::Opaque(id)` as a Core
+  `Constructor(User(id))` and marks it a handle. Handle parameters and results
+  use `WasiParamKind::Handle` and `WasiResultKind::Handle`. Both accept the
+  opaque type or `Int`. The abstract calling convention of an opaque handle is
+  one integer, which is the canonical handle, not a license to treat the type as
+  `Int` inside the program.
 
 ## Invariants and verification
 
@@ -208,8 +209,8 @@ Foreign declarations cross the frontend as their own declaration form.
   kind `Type`.
 - Imports and re-exports preserve opacity. An imported reference is
   `Opaque` with the original type id.
-- `source_signature` yields `Resource` for a nullary opaque type, never for an
-  application of one and never for an ordinary data type.
+- The ABI adapter treats a nullary opaque type as a handle, never an application
+  of one and never an ordinary data type.
 - In THIR and Core, a nullary opaque type is `Constructor(User(id))` with `id`
   in `opaque_ids` and with no `ConstructorInfo` for that id. It is never
   `I32`. A function whose parameter or result is that type keeps the
@@ -275,9 +276,10 @@ give a source function whose result is the opaque type a runtime layout of its
 own. That layout, and the drop and borrow actions, belong to the canonical ABI
 lowering.
 
-The effect library may later declare `Effect` with this form. Until that
-declaration replaces the compiler's internal token, `Effect` in the embedded
-prelude remains the existing abstract type, not a foreign data declaration.
+The effect library declares `Effect` with this form. The declaration makes the
+constructor abstract; it does not introduce a token or a calling convention.
+[Effects](../../backend/fp/effects.md) lowers `Effect a` to a closure after
+type checking.
 
 ## Open questions and future work
 
@@ -299,6 +301,6 @@ prelude remains the existing abstract type, not a foreign data declaration.
   [type inference](../type-system/type-inference.md) for the frontend stages.
 - [Canonical ABI and WIT](../../backend/wasm/canonical-abi-and-wit.md),
   especially resources and handles.
-- [Effects](../../backend/fp/effects.md) for the `Effect` token that this
-  declaration can name.
+- [Effects](../../backend/fp/effects.md) for the representation closure of the
+  abstract `Effect` type this declaration names.
 - PureScript's `foreign import data` form, as in `Effect :: Type -> Type`.

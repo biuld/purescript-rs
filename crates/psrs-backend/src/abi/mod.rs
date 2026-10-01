@@ -5,28 +5,38 @@
 
 use crate::TargetCapabilities;
 use crate::types::ValueType;
-use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 use wit_parser::Resolve;
 use wit_parser::abi::AbiVariant;
 
-mod classification;
-mod flatten;
+pub(crate) mod canonical;
 mod handles;
-mod lists;
+pub(crate) mod layout;
+pub(crate) mod link;
 #[cfg(test)]
 mod tests;
 mod validation;
 
-pub(crate) use classification::source_signature;
-use classification::{param_kind, result_kind, unsupported_shape, value_type};
-pub(crate) use flatten::{FlatSlot, is_primitive_signature};
+use canonical::{
+    CanonicalType, FnAbi, Ownership, function_abi, function_abi_from_types,
+    resolve as resolve_canonical,
+};
 pub use handles::{HandleMode, HandleResource};
-pub use lists::ListElement;
-pub(crate) use lists::{element_layout, from_param as list_element};
-#[cfg(test)]
-use validation::source_parameter_matches;
-use validation::{flattened_parameter_count, validate_import_signature, wasi_interface_enabled};
+pub(crate) use link::intern_source_type;
+use validation::{unsupported_shape, wasi_interface_enabled};
+
+/// Maps a resolved WIT core value type to the backend's value type.
+fn value_type(ty: wit_parser::abi::WasmType) -> Result<ValueType, String> {
+    Ok(match ty {
+        wit_parser::abi::WasmType::I32
+        | wit_parser::abi::WasmType::Pointer
+        | wit_parser::abi::WasmType::Length => ValueType::I32,
+        wit_parser::abi::WasmType::I64 | wit_parser::abi::WasmType::PointerOrI64 => ValueType::I64,
+        wit_parser::abi::WasmType::F32 => ValueType::F32,
+        wit_parser::abi::WasmType::F64 => ValueType::F64,
+    })
+}
 
 /// The core export name `wit-component` expects for the exported interface
 /// function `wasi:cli/run.run` under its legacy mangling.
@@ -106,122 +116,6 @@ pub mod names {
     pub const EXIT_WITH_CODE: &str = "exit-with-code";
 }
 
-/// The shape of one WIT-level parameter, which decides how a declared argument
-/// maps to canonical parameters. Several shapes flatten to the same canonical
-/// types, so the shape is kept for the lowering to adapt arguments.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WasiParamKind {
-    /// A WIT `s32` or `u32` flattened to one canonical `i32` parameter.
-    Integer32,
-    /// A WIT `s8`/`u8`/`s16`/`u16` flattened to one canonical `i32`. `bits` is
-    /// the width and `signed` selects sign-extension when masking an `Int`.
-    IntegerNarrow { bits: u8, signed: bool },
-    /// A WIT `bool` flattened to one canonical `i32` parameter.
-    Boolean,
-    /// A WIT character flattened to one canonical `i32` parameter.
-    Char,
-    /// A 64-bit scalar flattened to one canonical `i64`. `signed` selects
-    /// sign- or zero-extension when an `Int` argument is widened to it.
-    Scalar64 { signed: bool },
-    /// A WIT `f32` parameter; source `Number` values are narrowed in P9.
-    Float32,
-    /// A WIT `f64` parameter represented directly by source `Number`.
-    Float64,
-    /// A WIT enum with cases that must match a nullary source data type.
-    Enum { cases: Vec<String> },
-    /// WIT flags represented by a closed source record of Booleans and
-    /// flattened to one or more canonical `i32` words.
-    Flags { names: Vec<String> },
-    /// A closed record whose fields each flatten directly to scalar values.
-    Record { fields: Vec<WasiField> },
-    /// A resource handle flattened to one canonical `i32` index.
-    /// `Own` must be dropped; `Borrow` dies when the creating call returns.
-    Handle(HandleResource),
-    /// A string or `list<u8>` flattened to a `(pointer, length)` pair.
-    List,
-    /// A non-byte `list<T>` flattened to a `(pointer, length)` pair. `element`
-    /// is one already-lowered scalar or string; the list is copied element-wise.
-    ValueList { element: Box<WasiParamKind> },
-    /// A WIT shape with no source representation in the current ABI subset.
-    Unsupported,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WasiField {
-    pub name: String,
-    pub kind: WasiParamKind,
-}
-
-/// How a WIT import's result is represented, which decides how the lowering
-/// consumes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WasiResultKind {
-    /// No result.
-    None,
-    /// A scalar returned directly in a register.
-    Scalar,
-    /// A resource handle returned as one canonical `i32` index.
-    Handle(HandleResource),
-    /// A WIT `s8`/`u8`/`s16`/`u16` result returned as a canonical `i32` whose
-    /// bits are already the in-range value.
-    IntegerNarrow { bits: u8, signed: bool },
-    /// A WIT `bool` result represented by the source `Boolean` type.
-    Boolean,
-    /// A WIT enum with cases that must match a nullary source data type.
-    Enum { cases: Vec<String> },
-    /// A WIT character returned directly as a canonical `i32`.
-    Char,
-    /// A `list<u8>` or `string` returned indirectly as a `(pointer, length)` pair.
-    List,
-    /// A non-byte `list<T>` returned indirectly. The guest rebuilds one array.
-    ValueList { element: Box<WasiParamKind> },
-    /// A result returned indirectly but not modeled (for example a `result` or
-    /// a record); the lowering rejects it. A WIT `result` with a source `Unit`
-    /// declaration is represented separately because write-like operations
-    /// intentionally discard their error value.
-    Result,
-    /// A record, tuple, or other aggregate result that cannot be discarded by
-    /// the current source-level ABI.
-    Discarded,
-}
-
-/// The small source-level type vocabulary understood by the current WIT ABI
-/// adapter. It is produced while crossing the Core boundary so CC/MIR do not
-/// retain HIR type nodes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SourceType {
-    Int,
-    Boolean,
-    Number,
-    Char,
-    /// A nullary data type whose cases correspond in order to WIT enum cases.
-    Enum {
-        cases: Vec<String>,
-    },
-    /// A closed PureScript record, kept structurally for ABI validation.
-    Record {
-        fields: Vec<(String, Box<SourceType>)>,
-    },
-    String,
-    /// A source array whose element is an already-supported ABI scalar or
-    /// `String`. Byte lists stay [`Self::String`].
-    Array {
-        element: Box<SourceType>,
-    },
-    Unit,
-    /// A nullary opaque foreign type mapped to a WIT resource handle.
-    Resource {
-        type_id: HirTypeId,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceSignature {
-    pub parameters: Vec<SourceType>,
-    pub result: SourceType,
-    pub span: psrs_span::TextRange,
-}
-
 /// A resolved WASI import: a core Wasm import with its canonical ABI signature
 /// and the symbol the low-level IRs use to reference it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -232,53 +126,36 @@ pub struct WasiImport {
     pub module: String,
     /// The core import field, for example `get-stdout`.
     pub name: String,
+    /// The core wasm signature parameters, including a return pointer when the
+    /// result is passed indirectly.
     pub parameters: Vec<ValueType>,
-    /// The WIT-level shape of each declared parameter, aligned with the
-    /// interface's parameters (including a method's receiver).
-    pub param_kinds: Vec<WasiParamKind>,
+    /// The core wasm result, if the signature has one.
     pub result: Option<ValueType>,
-    pub result_kind: WasiResultKind,
+    /// The resolved WIT parameters, in declaration order (including a method's
+    /// receiver). Empty when the shape has no source ABI mapping.
+    pub(crate) params: Vec<CanonicalType>,
+    /// The resolved WIT result, if any.
+    pub(crate) canonical_result: Option<CanonicalType>,
+    /// The canonical ABI decisions for this function: flattened parameters and
+    /// results, indirect-parameter and return-pointer flags, and the return
+    /// area of an indirect result.
+    pub(crate) abi: FnAbi,
     /// A diagnostic explaining why this import is outside the currently
     /// supported canonical-ABI subset, if any. Keeping this on the resolved
     /// descriptor lets MIR reject it before emitting a semantically lossy
     /// call.
     pub unsupported: Option<String>,
-    /// Whether the import takes a return pointer for a value that does not fit
-    /// in a single canonical result.
-    pub retptr: bool,
-    /// Canonical flat slots of the WIT parameters, excluding a return pointer.
-    /// A primitive import whose source arity differs from [`Self::param_kinds`]
-    /// lowers through these slots. Descriptors built for the one-argument zip
-    /// path may leave this empty.
-    pub(crate) flat_slots: Vec<FlatSlot>,
 }
 
 impl WasiImport {
-    /// The handle flattened into `flat_index`, when that slot is a handle.
-    pub(crate) fn handle_at_flat_index(&self, flat_index: usize) -> Option<&HandleResource> {
+    /// The canonical handle flattened into `flat_index`, when that slot is one.
+    pub(crate) fn handle_at_flat_index(&self, flat_index: usize) -> Option<&CanonicalType> {
         handles::handle_at_flat_index(self, flat_index)
     }
 
     pub(crate) fn has_indirect_parameters(&self) -> bool {
-        let flattened = self
-            .param_kinds
-            .iter()
-            .map(flattened_parameter_count)
-            .sum::<usize>();
-        flattened
-            > self
-                .parameters
-                .len()
-                .saturating_sub(usize::from(self.retptr))
+        self.abi.indirect_params
     }
-}
-
-/// A P9-resolved import pairs WIT's ABI description with the exact source
-/// signature needed to recover record field order after CC lowering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct BoundWasiImport {
-    pub import: WasiImport,
-    pub signature: SourceSignature,
 }
 
 /// Resolves WASI imports against the vendored WIT, interning each distinct
@@ -335,11 +212,6 @@ impl WasiRegistry {
             .get(interface_name)
             .copied()
             .ok_or_else(|| format!("`{interface}` is not vendored"))?;
-        let wit_function = self.resolve.interfaces[interface_id]
-            .functions
-            .get(function)
-            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
-            .clone();
         let module = self
             .resolve
             .id_of(interface_id)
@@ -348,19 +220,62 @@ impl WasiRegistry {
         if let Some(index) = self.keys.get(&key) {
             return Ok(self.imports[*index].clone());
         }
+        // A source-declared `[resource-drop]<resource>` names the canonical drop
+        // import rather than a WIT function (DEC-14).
+        if let Some(resource) = function.strip_prefix("[resource-drop]") {
+            if resource.is_empty() {
+                return Err(format!("`{interface}.{function}` is not a resource drop"));
+            }
+            let index = self.intern_resource_drop_index(&module, resource);
+            return Ok(self.imports[index].clone());
+        }
+        let wit_function = self.resolve.interfaces[interface_id]
+            .functions
+            .get(function)
+            .ok_or_else(|| format!("`{interface}.{function}` is not vendored"))?
+            .clone();
         let signature = self
             .resolve
             .wasm_signature(AbiVariant::GuestImport, &wit_function);
-        let mut param_kinds: Vec<WasiParamKind> = wit_function
+        let resolved: Vec<Option<CanonicalType>> = wit_function
             .params
             .iter()
-            .map(|param| param_kind(&self.resolve, &param.ty))
+            .map(|param| resolve_canonical(&self.resolve, &param.ty))
             .collect();
-        let mut result_kind = match &wit_function.result {
-            None => WasiResultKind::None,
-            Some(ty) => result_kind(&self.resolve, ty),
+        let mut canonical_result = wit_function
+            .result
+            .as_ref()
+            .and_then(|ty| resolve_canonical(&self.resolve, ty));
+        let result_shape: Result<Option<CanonicalType>, ()> = match &wit_function.result {
+            None => Ok(None),
+            Some(_) => canonical_result.clone().map(Some).ok_or(()),
         };
-        let unsupported = unsupported_shape(&self.resolve, &wit_function, &result_kind)
+        // A parameter or result with no canonical form leaves the import
+        // constructible but unrepresentable; the lowering rejects it on the
+        // `unsupported` diagnostic before reading `params`/`canonical_result`.
+        let mut params: Vec<CanonicalType> = resolved.iter().flatten().cloned().collect();
+        if params.len() != resolved.len() {
+            params.clear();
+        }
+        // Every parameter has a direct source lowering, so the declared
+        // signature can be matched against the canonical flattening. A shape
+        // that only the primitive-FFI path can represent is deferred.
+        let surface = params.len() == resolved.len()
+            && params.iter().all(canonical::parameter_has_source_abi);
+        let unsupported = unsupported_shape(&resolved, &result_shape, &canonical_result)
+            .or_else(|| {
+                matches!(
+                    &canonical_result,
+                    Some(CanonicalType::Handle {
+                        ownership: Ownership::Borrow,
+                        ..
+                    })
+                )
+                .then(|| {
+                    "a borrow<T> result cannot outlive the call that produced it; return own<T> instead"
+                        .into()
+                })
+            })
             .or_else(|| {
                 (!crate::component::component_interface_supported(&module)).then(|| {
                     format!(
@@ -370,19 +285,13 @@ impl WasiRegistry {
             })
             .or_else(|| {
                 // An `option`, tuple, or payload-bearing variant is one WIT
-                // parameter and several flat slots. `flattened_parameter_count`
-                // cannot see those slots; signature validation compares the
-                // declared primitives with `flat_slots` instead.
-                if param_kinds
-                    .iter()
-                    .any(|kind| matches!(kind, WasiParamKind::Unsupported))
-                {
+                // parameter and several flat slots. Signature validation
+                // compares the declared primitives with the canonical flat
+                // leaves instead.
+                if !surface {
                     return None;
                 }
-                let flattened = param_kinds
-                    .iter()
-                    .map(flattened_parameter_count)
-                    .sum::<usize>();
+                let flattened = params.iter().map(|ty| canonical::flatten(ty).len()).sum::<usize>();
                 let matches = if signature.indirect_params {
                     signature.params.len() == 1 + usize::from(signature.retptr)
                         && signature.params.first()
@@ -404,7 +313,9 @@ impl WasiRegistry {
                     )
                 })
             });
-        self.bind_handle_drops(&mut param_kinds, &mut result_kind);
+        self.bind_handle_drops(&mut params, &mut canonical_result);
+        let abi = function_abi(&self.resolve, &wit_function)
+            .unwrap_or_else(|| function_abi_from_types(&params, canonical_result.as_ref()));
         let parameters = signature
             .params
             .iter()
@@ -424,18 +335,16 @@ impl WasiRegistry {
             ModuleId::INTRINSICS,
             Self::SYMBOL_BASE + self.imports.len() as u32,
         );
-        let flat_slots = flatten::flatten_parameters(&self.resolve, &wit_function);
         self.imports.push(WasiImport {
             symbol,
             module,
             name: function.to_string(),
             parameters,
-            param_kinds,
             result,
-            result_kind,
+            params,
+            canonical_result,
+            abi,
             unsupported,
-            retptr: signature.retptr,
-            flat_slots,
         });
         self.keys.insert(key, self.imports.len() - 1);
         Ok(self.imports.last().expect("just pushed").clone())
@@ -459,24 +368,11 @@ impl WasiRegistry {
     pub fn has_list_result(&self, symbol: SymbolId) -> bool {
         self.imports.iter().any(|import| {
             import.symbol == symbol
-                && matches!(
-                    import.result_kind,
-                    WasiResultKind::List | WasiResultKind::ValueList { .. }
-                )
+                && import.canonical_result.as_ref().is_some_and(|ty| {
+                    matches!(ty, CanonicalType::String | CanonicalType::List(_))
+                        || ty.is_byte_list()
+                })
         })
-    }
-
-    /// Checks that a source-declared foreign import has a type that can be
-    /// represented by the canonical ABI adapter. This is deliberately done
-    /// before CC/MIR lowering: matching only arity would let an `Int` be used
-    /// for a resource or a non-byte list be treated as a `String`.
-    #[allow(clippy::unused_self)]
-    pub fn validate_signature(
-        &self,
-        import: &WasiImport,
-        signature: &SourceSignature,
-    ) -> Result<(), String> {
-        validate_import_signature(import, signature)
     }
 }
 
@@ -494,4 +390,57 @@ pub(crate) fn source_field_name(wit_name: &str) -> String {
         }
     }
     source_name
+}
+
+/// Test-only builders for a canonical [`WasiImport`].
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::canonical::{CanonicalType, CoreVal};
+    use super::*;
+
+    fn value_type(value: CoreVal) -> ValueType {
+        match value {
+            CoreVal::I32 => ValueType::I32,
+            CoreVal::I64 => ValueType::I64,
+            CoreVal::F32 => ValueType::F32,
+            CoreVal::F64 => ValueType::F64,
+        }
+    }
+
+    /// Builds a supported import from canonical parameters and result, deriving
+    /// the core wasm signature and flattening.
+    pub(crate) fn import(
+        symbol: SymbolId,
+        module: &str,
+        name: &str,
+        params: Vec<CanonicalType>,
+        result: Option<CanonicalType>,
+    ) -> WasiImport {
+        let abi = canonical::function_abi_from_types(&params, result.as_ref());
+        let mut parameters = Vec::new();
+        if abi.indirect_params {
+            parameters.push(ValueType::I32);
+        } else {
+            parameters.extend(abi.flat_params.iter().copied().map(value_type));
+        }
+        if abi.retptr {
+            parameters.push(ValueType::I32);
+        }
+        let core_result = if abi.retptr {
+            None
+        } else {
+            abi.flat_results.first().copied().map(value_type)
+        };
+        WasiImport {
+            symbol,
+            module: module.into(),
+            name: name.into(),
+            parameters,
+            result: core_result,
+            params,
+            canonical_result: result,
+            abi,
+            unsupported: None,
+        }
+    }
 }

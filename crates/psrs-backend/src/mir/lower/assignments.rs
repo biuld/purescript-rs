@@ -256,10 +256,11 @@ impl FunctionLowerer<'_> {
                     arguments,
                 } => {
                     if let Some(import) = self.wit_imports.get(function).cloned() {
-                        wit::lower(
+                        current = wit::lower(
                             self,
                             &import.import,
                             &import.signature,
+                            import.projection.as_ref(),
                             assignment.destination,
                             arguments,
                             assignment.span,

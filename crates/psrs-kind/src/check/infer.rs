@@ -3,6 +3,26 @@ use crate::kind::{builtin_type_kind, flatten_spine, occurs, substitute};
 use psrs_hir::BuiltinType;
 
 impl Checker<'_> {
+    pub(super) fn checked_schemes(&self) -> HashMap<TypeId, KindScheme> {
+        self.schemes
+            .iter()
+            .map(|(id, scheme)| {
+                let kind = self.resolve(scheme.kind.clone());
+                let mut variables = scheme.variables.clone();
+                let mut free = Vec::new();
+                collect_kind_variables(&kind, &mut free);
+                free.sort_unstable();
+                free.dedup();
+                for variable in free {
+                    if !variables.contains(&variable) {
+                        variables.push(variable);
+                    }
+                }
+                (*id, KindScheme { variables, kind })
+            })
+            .collect()
+    }
+
     // ----- Unification -------------------------------------------------
 
     fn resolve(&self, kind: Kind) -> Kind {
@@ -401,6 +421,26 @@ impl Checker<'_> {
                 TypeDeclarationKind::Foreign => {}
             }
         }
+    }
+}
+
+fn collect_kind_variables(kind: &Kind, out: &mut Vec<u32>) {
+    match kind {
+        Kind::Variable(variable) => out.push(*variable),
+        Kind::App(function, argument) => {
+            collect_kind_variables(function, out);
+            collect_kind_variables(argument, out);
+        }
+        Kind::Function(parameter, result) => {
+            collect_kind_variables(parameter, out);
+            collect_kind_variables(result, out);
+        }
+        Kind::Type
+        | Kind::Constraint
+        | Kind::Symbol
+        | Kind::Row
+        | Kind::Builtin(_)
+        | Kind::Named(_) => {}
     }
 }
 

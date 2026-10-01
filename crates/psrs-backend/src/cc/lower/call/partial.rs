@@ -1,3 +1,4 @@
+use super::super::super::layout::function_type_signature;
 use super::super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, ValueConversion, ValueId,
 };
@@ -5,8 +6,7 @@ use super::super::lambda::LambdaLowering;
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
     callable_parameter_types, callable_result_type, closure_value_type, closure_value_type_for,
-    conversion_reconstructs_aggregate, function_result_type, is_function_type,
-    is_generic_function_type, persist_reference, restore_reference,
+    conversion_reconstructs_aggregate, function_result_type, persist_reference, restore_reference,
 };
 use crate::BackendError;
 use psrs_core::Expr;
@@ -36,7 +36,9 @@ impl FunctionLowerer<'_> {
             result_type,
             callable_type,
         } = application;
-        let Some(&target_signature_id) = self.function_types.get(&expression.ty) else {
+        let Some(target_signature_id) =
+            function_type_signature(self.module, self.function_types, expression.ty)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,
@@ -66,54 +68,32 @@ impl FunctionLowerer<'_> {
             .map(|(index, argument)| {
                 let source_type = declared_parameters[index];
                 let expected = source_signature.parameters[index];
-                if is_generic_function_type(self.module, source_type)
-                    && is_function_type(self.module, argument.ty)
-                {
-                    Ok(None)
-                } else {
-                    let source_shape = self.value_shape(argument.ty, argument.span)?;
-                    let conversion = self.typed_conversion(
-                        argument.ty,
-                        source_type,
-                        source_shape,
-                        expected,
-                        expression.span,
-                    )?;
-                    Ok(Some((source_shape, conversion)))
-                }
+                let source_shape = self.value_shape(argument.ty, argument.span)?;
+                let conversion = self.typed_conversion(
+                    argument.ty,
+                    source_type,
+                    source_shape,
+                    expected,
+                    expression.span,
+                )?;
+                Ok((source_shape, conversion))
             })
             .collect::<Result<Vec<_>, Vec<BackendError>>>()?;
         let mut captured = Vec::with_capacity(arguments.len());
         for (index, argument) in arguments.iter().enumerate() {
             let value = self.lower_value(argument, assignments)?;
-            let source_type = declared_parameters[index];
             let expected = source_signature.parameters[index];
-            let converted = if is_generic_function_type(self.module, source_type)
-                && is_function_type(self.module, argument.ty)
-            {
-                self.adapt_erased_function_value(
-                    value,
-                    argument.ty,
-                    source_type,
-                    expression.span,
-                    assignments,
-                )?
-            } else {
-                let (source_shape, conversion) = capture_conversions[index]
-                    .clone()
-                    .expect("non-function capture has a conversion plan");
-                self.emit_conversion(
-                    value,
-                    source_shape,
-                    expected,
-                    conversion,
-                    expression.span,
-                    assignments,
-                )
-            };
+            let (source_shape, conversion) = capture_conversions[index].clone();
+            let converted = self.emit_conversion(
+                value,
+                source_shape,
+                expected,
+                conversion,
+                expression.span,
+                assignments,
+            );
             let later_reconstructs = capture_conversions[index + 1..]
                 .iter()
-                .flatten()
                 .any(|(_, conversion)| conversion_reconstructs_aggregate(conversion));
             let (converted, restore_shape) = if later_reconstructs {
                 persist_reference(self, converted, expected, expression.span, assignments)
@@ -192,7 +172,7 @@ impl FunctionLowerer<'_> {
                     )]
                 })?;
             let destination_result_type = function_result_type(self.module, expression.ty);
-            self.typed_conversion(
+            nested.typed_conversion(
                 source_result_type,
                 destination_result_type,
                 source_signature.result,
@@ -256,7 +236,6 @@ impl FunctionLowerer<'_> {
                 },
                 span: expression.span,
             });
-            self.erased_function_types.insert(erased, expression.ty);
             Ok(erased)
         } else if result_type == closure_value_type_for(target_signature_id) {
             Ok(closure)

@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) mod cfg;
 mod instruction;
-mod layout;
+pub(crate) mod layout;
 mod literals;
 mod lower;
 mod numeric;
@@ -55,6 +55,11 @@ pub struct Module {
     pub functions: Vec<Function>,
     /// The program entry declaration, if selected by the driver.
     pub entry: Option<SymbolId>,
+    /// The concrete target layout the module was planned from. P10 reads the
+    /// recursive representation table and representation-to-type mapping from
+    /// here to resolve a list element's guest layout. `None` for a hand-built
+    /// test module with no representation table.
+    pub(crate) layout: Option<layout::PlannedLayout>,
     pub span: TextRange,
 }
 
@@ -66,6 +71,17 @@ pub struct Import {
     pub symbol: SymbolId,
     pub parameters: Vec<ValueType>,
     pub result: Option<ValueType>,
+}
+
+/// A resolved WIT import paired with the declaration's CC abstract signature
+/// and the instance-aware guest projection. The WIT descriptor drives canonical
+/// adaptation; the projection carries, per field, the concrete guest value and
+/// the storage slot it maps to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BoundWasiImport {
+    pub import: crate::abi::WasiImport,
+    pub signature: cc::Signature,
+    pub projection: Option<cc::ExternalProjection>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,16 +202,31 @@ fn lower_module_after_binding_validation(
     target: TargetCapabilities,
     mut wasi: WasiRegistry,
 ) -> Result<(Module, WasiRegistry), Vec<BackendError>> {
-    // Resolve and validate every source-declared WIT binding. A declaration
-    // must fail with its ABI diagnostic even when dead code does not call it;
-    // the later import projection keeps unused runtime imports out of MIR.
+    // Resolve every source-declared WIT binding and pair it with the CC
+    // abstract signature. Conformance was already checked at the linking
+    // boundary; a declaration the backend cannot lower is rejected here.
+    let abstract_signatures: HashMap<SymbolId, cc::Signature> = module
+        .externals
+        .iter()
+        .filter_map(|external| {
+            external
+                .signature
+                .clone()
+                .map(|signature| (external.symbol, signature))
+        })
+        .collect();
+    let projections: HashMap<SymbolId, Option<cc::ExternalProjection>> = module
+        .externals
+        .iter()
+        .map(|external| (external.symbol, external.projection.clone()))
+        .collect();
     let mut wit_imports = HashMap::new();
     for external in &bindings.imports {
         let interface = &external.interface;
         let function = &external.function;
         let import = wasi.import(interface, function).map_err(|message| {
             vec![
-                BackendError::new("P9 MIR lowering", module.span, message)
+                BackendError::new("P9 MIR lowering", external.span, message)
                     .with_module(external.symbol.module),
             ]
         })?;
@@ -203,37 +234,28 @@ fn lower_module_after_binding_validation(
             return Err(vec![
                 BackendError::new(
                     "P9 MIR lowering",
-                    external
-                        .signature
-                        .as_ref()
-                        .map_or(module.span, |signature| signature.span),
+                    external.span,
                     format!("WIT import `{interface}#{function}` is unsupported: {reason}"),
                 )
                 .with_module(external.symbol.module),
             ]);
         }
-        let Some(signature) = external.signature.as_ref() else {
+        let Some(signature) = abstract_signatures.get(&external.symbol).cloned() else {
             return Err(vec![
                 BackendError::new(
                     "P9 MIR lowering",
-                    module.span,
-                    format!("WIT import `{interface}#{function}` has no source signature"),
+                    external.span,
+                    format!("WIT import `{interface}#{function}` has no abstract signature"),
                 )
                 .with_module(external.symbol.module),
             ]);
         };
-        wasi.validate_signature(&import, signature)
-            .map_err(|message| {
-                vec![
-                    BackendError::new("P9 MIR lowering", signature.span, message)
-                        .with_module(external.symbol.module),
-                ]
-            })?;
         wit_imports.insert(
             external.symbol,
-            crate::abi::BoundWasiImport {
+            BoundWasiImport {
                 import,
-                signature: signature.clone(),
+                signature,
+                projection: projections.get(&external.symbol).cloned().flatten(),
             },
         );
     }
@@ -347,15 +369,39 @@ fn lower_module_after_binding_validation(
     let strings = literals.into_strings();
     let mir = Module {
         name: module.name,
-        types: layout.types,
+        types: layout.types.clone(),
         strings,
         imports,
         functions,
         entry: module.entry,
+        layout: Some(layout),
         span: module.span,
     };
     verify_module_with_capabilities(&mir, target)?;
     Ok((mir, wasi))
+}
+
+/// Whether a list element carries byte-list payloads that need the UTF-8 codec.
+fn element_has_bytes(element: &crate::abi::canonical::CanonicalType) -> bool {
+    use crate::abi::canonical::CanonicalType;
+    match element {
+        CanonicalType::String => true,
+        CanonicalType::List(inner) | CanonicalType::FixedList { element: inner, .. } => {
+            inner.is_byte() || element_has_bytes(inner)
+        }
+        CanonicalType::Record(fields) => fields
+            .iter()
+            .any(|field| field.ty.is_byte_list() || element_has_bytes(&field.ty)),
+        CanonicalType::Option(inner) => element_has_bytes(inner),
+        CanonicalType::Result { ok, err } => {
+            ok.as_deref().is_some_and(element_has_bytes)
+                || err.as_deref().is_some_and(element_has_bytes)
+        }
+        CanonicalType::Variant(cases) => cases
+            .iter()
+            .any(|case| case.payload.as_deref().is_some_and(element_has_bytes)),
+        _ => false,
+    }
 }
 
 /// The import symbols referenced by any call in the module.
@@ -368,16 +414,16 @@ fn referenced_imports(functions: &[Function]) -> HashSet<SymbolId> {
                     Instruction::Call { function, .. } | Instruction::CallVoid { function, .. } => {
                         used.insert(*function);
                     }
-                    Instruction::ListCopy {
-                        element: crate::abi::ListElement::String,
-                        ..
-                    } => {
+                    Instruction::ListCopy { element, .. } if element_has_bytes(element) => {
                         used.insert(crate::abi::STRING_TO_BYTES_SYMBOL);
                         used.insert(crate::abi::BYTES_TO_STRING_SYMBOL);
                         used.insert(crate::abi::REALLOC_SYMBOL);
                     }
                     _ => {}
                 }
+            }
+            if let Some(Terminator::ReturnCall { function, .. }) = &block.terminator {
+                used.insert(*function);
             }
         }
     }

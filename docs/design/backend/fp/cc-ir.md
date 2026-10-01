@@ -229,19 +229,19 @@ travels beside the CC module in a backend input object, conceptually:
 ```text
 BackendInput    = { cc: CcModule, externals: ExternalBindings }
 ExternalBindings = { imports: [ExternalBinding] }
-ExternalBinding  = { symbol: SymbolId, interface: String,
-                     function: String, signature: Option(SourceSignature) }
+ExternalBinding  = { symbol: SymbolId, interface: String, function: String,
+                     type_id: Option(CoreTypeId) }
 ```
 
 The Rust names are `BackendInput`, `ExternalBindings`, and `ExternalBinding`
 (`crates/psrs-backend/src/bindings.rs`); `ExternalBindings` is the concrete side
-table. Its `imports` map a symbol to its source declaration and platform binding. For the
-WASI target the binding contains the WIT interface and function names and the
-source signature required by the [canonical ABI](../wasm/canonical-abi-and-wit.md).
-P9 resolves these bindings through the ABI registry, emits canonical calls and
-adapters for referenced symbols, and keeps unused runtime imports out of MIR.
-Consequently, WIT names do not become part of CC identity, dumps, equality, or
-verification.
+table. Its `imports` map a symbol to its source declaration and platform binding.
+For the WASI target the binding contains the WIT interface and function names and
+the declaration's resolved Core type identity required by the
+[canonical ABI](../wasm/canonical-abi-and-wit.md). P9 resolves these bindings
+through the ABI registry, emits canonical calls and adapters for referenced
+symbols, and keeps unused runtime imports out of MIR. Consequently, WIT names do
+not become part of CC identity, dumps, equality, or verification.
 
 The boundary is checked in both directions. P8's `ExternalBindings::validate_core`
 validates that the side table is a complete projection of Core's WIT externals.
@@ -378,9 +378,13 @@ lower_lambda(lambda):
         result = lower_value(body)
     closure = fresh(Closure(signature))
     emit FunctionRef(f, signature, captures) -> closure
-    if lambda.ty is a generic function: emit RepresentationCast to Erased
     return closure
 ```
+
+Generic function values retain `Closure(signature)`; abstract parameters and
+results use their normalized erased shapes. Erasing the closure reference is
+required only by an erased storage boundary such as a bare type variable,
+a bare-variable ADT slot, or the uniform capture array.
 
 Capture order is the order `collect_captures` discovers free locals while
 walking the body, deduplicated on first sight; the lifted function reads them
@@ -391,10 +395,12 @@ function value without a separate calling convention.
 
 ### Partial application and erased adapters
 
-When a `Global` is applied to fewer arguments than its signature has, P8
-generates a wrapper closure that captures the supplied arguments and calls the
-original function with the remaining parameters appended; this is what makes
-`runEffect (log "message")` lower without a special calling convention
+When a `Global` is applied to fewer source-arrow arguments than its signature
+has, P8 generates a wrapper closure that captures the supplied arguments and
+calls the original function with the remaining source parameters appended.
+`log "message"` for `log :: String -> Effect Unit` is a saturated source call;
+the effect token is not a remaining parameter of `log`. The token belongs to
+the representation closure that the call returns
 ([effects](effects.md)). When a concrete function value crosses a polymorphic
 function boundary, `adapt_erased_function_value` builds an adapter closure with
 the erased signature that captures the original, boxes/unboxes each parameter,

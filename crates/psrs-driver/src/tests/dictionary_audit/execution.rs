@@ -51,7 +51,7 @@ fn dictionary_through_erased_polymorphism_executes() {
 }
 
 /// DICT-08: a generic method (`forall a. a -> a`) stored in a dictionary field
-/// is erased on storage and adapted back at its concrete use.
+/// retains its template signature and converts arguments/results at its use.
 #[test]
 fn polymorphic_method_field_executes() {
     let (fixture, entry) = polymorphic_method_module();

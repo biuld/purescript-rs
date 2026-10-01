@@ -6,12 +6,12 @@ license.workspace = true
 
 [dependencies]
 psrs-hir.workspace = true
+psrs-kind.workspace = true
 psrs-span.workspace = true
 psrs-thir.workspace = true
 
 [dev-dependencies]
 psrs-ast.workspace = true
 psrs-desugar.workspace = true
-psrs-kind.workspace = true
 psrs-resolve.workspace = true
 psrs-syntax.workspace = true

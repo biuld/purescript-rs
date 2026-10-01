@@ -1,7 +1,8 @@
-use psrs_hir::{self as hir, SymbolId, TypeId};
+use psrs_hir::{self as hir, Intrinsic, SymbolId, TypeId};
 use std::collections::{HashMap, HashSet};
 
 /// The namespaces a resolved module exposes to its importers.
+#[derive(Clone)]
 pub(super) struct Interface {
     pub(super) values: HashMap<String, SymbolId>,
     pub(super) types: HashMap<String, TypeId>,
@@ -14,6 +15,33 @@ pub(super) struct Interface {
 }
 
 impl Interface {
+    pub(super) fn primitive_module(name: &str) -> Option<Self> {
+        let mut interface = Self {
+            values: HashMap::new(),
+            types: HashMap::new(),
+            constructors: HashMap::new(),
+            class_members: HashMap::new(),
+            opaque: HashSet::new(),
+        };
+        match name {
+            "Prim.Coerce" => {
+                interface
+                    .types
+                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+            }
+            "Safe.Coerce" => {
+                interface
+                    .values
+                    .insert("coerce".to_owned(), Intrinsic::Coerce.symbol());
+                interface
+                    .types
+                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+            }
+            _ => return None,
+        }
+        Some(interface)
+    }
+
     pub(super) fn from_module(module: &hir::Module) -> Self {
         let mut values = HashMap::new();
         let mut types = HashMap::new();
@@ -68,6 +96,11 @@ impl Interface {
             None => {
                 for declaration in &module.declarations {
                     values.insert(declaration.name.clone(), declaration.symbol);
+                }
+                for external in &module.externals {
+                    if matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                        values.insert(external.name.clone(), external.symbol);
+                    }
                 }
                 for declaration in &module.types {
                     types.insert(declaration.name.clone(), declaration.id);

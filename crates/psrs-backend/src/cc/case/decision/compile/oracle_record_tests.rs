@@ -11,9 +11,9 @@ use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
-const R: psrs_core::TypeId = psrs_core::TypeId(0);
-const U: psrs_core::TypeId = psrs_core::TypeId(1);
-const I32: psrs_core::TypeId = psrs_core::TypeId(2);
+const U: psrs_core::TypeId = psrs_core::TypeId(0);
+const I32: psrs_core::TypeId = psrs_core::TypeId(1);
+const R: psrs_core::TypeId = psrs_core::TypeId(6);
 
 fn symbol(index: u32) -> SymbolId {
     SymbolId::new(ModuleId(0), index)
@@ -22,16 +22,30 @@ fn symbol(index: u32) -> SymbolId {
 fn module() -> Module {
     let u = HirTypeId::new(ModuleId(0), 1);
     Module {
+        type_names: Vec::new(),
         id: ModuleId(0),
         name: "RecordOracleTest".into(),
         externals: Vec::new(),
         types: vec![
-            Type::Record(vec![("x".into(), U), ("y".into(), U)]),
             Type::Constructor(TypeConstructor::User(u)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
+            Type::RowEmpty,
+            Type::RowExtend {
+                label: "x".into(),
+                ty: U,
+                tail: psrs_core::TypeId(2),
+            },
+            Type::RowExtend {
+                label: "y".into(),
+                ty: U,
+                tail: psrs_core::TypeId(3),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(psrs_core::TypeId(5), psrs_core::TypeId(4)),
         ],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             psrs_core::ConstructorInfo {
                 symbol: symbol(0),
@@ -40,6 +54,7 @@ fn module() -> Module {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             psrs_core::ConstructorInfo {
                 symbol: symbol(1),
@@ -48,6 +63,7 @@ fn module() -> Module {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),

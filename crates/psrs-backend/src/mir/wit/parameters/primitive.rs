@@ -4,7 +4,9 @@
 
 use super::{PendingFree, WitCallLowerer, lower_parameter, unsupported_parameter};
 use crate::BackendError;
-use crate::abi::{self, FlatSlot, WasiImport};
+use crate::abi::WasiImport;
+use crate::abi::canonical::{CanonicalType, FlatLeaf, flat_leaves_of};
+use crate::cc::ValueShape;
 use crate::mir::BlockId;
 use crate::types::ValueId;
 use psrs_span::TextRange;
@@ -13,78 +15,72 @@ use psrs_span::TextRange;
 pub(super) fn lower_primitive_parameters<L: WitCallLowerer>(
     lowerer: &mut L,
     import: &WasiImport,
-    source_signature: &abi::SourceSignature,
+    guest_parameters: &[ValueShape],
     arguments: &[ValueId],
     flat: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
-    current: BlockId,
+    entry: BlockId,
     span: TextRange,
-) -> Result<(), Vec<BackendError>> {
+) -> Result<BlockId, Vec<BackendError>> {
+    let leaves = flat_leaves_of(&import.params);
     let mut index = 0;
-    for (argument, source) in arguments.iter().zip(&source_signature.parameters) {
-        let kind = slot_kind(import, source, &mut index, span)?;
-        lower_parameter(
-            lowerer, *argument, source, &kind, flat, frees, current, span,
-        )?;
+    let mut current = entry;
+    for (argument, shape) in arguments.iter().zip(guest_parameters) {
+        let ty = slot_type(import, &leaves, shape, &mut index, span)?;
+        current = lower_parameter(lowerer, *argument, None, &ty, flat, frees, current, span)?;
     }
     let direct = import
         .parameters
         .len()
-        .saturating_sub(usize::from(import.retptr));
-    if index != import.flat_slots.len() || index != direct {
+        .saturating_sub(usize::from(import.abi.retptr));
+    if index != leaves.len() || index != direct {
         return Err(unsupported_parameter(span));
     }
-    Ok(())
+    Ok(current)
 }
 
-fn slot_kind(
+fn slot_type(
     import: &WasiImport,
-    source: &abi::SourceType,
+    leaves: &[FlatLeaf],
+    shape: &ValueShape,
     index: &mut usize,
     span: TextRange,
-) -> Result<abi::WasiParamKind, Vec<BackendError>> {
-    let kind = match source {
-        abi::SourceType::Int => match import.flat_slots.get(*index) {
-            Some(FlatSlot::Int32) => abi::WasiParamKind::Integer32,
-            Some(FlatSlot::Int64 { signed }) => abi::WasiParamKind::Scalar64 { signed: *signed },
-            Some(FlatSlot::Handle) => import
+) -> Result<CanonicalType, Vec<BackendError>> {
+    let leaf = leaves
+        .get(*index)
+        .copied()
+        .ok_or_else(|| unsupported_parameter(span))?;
+    let ty = match shape {
+        ValueShape::Integer => match leaf {
+            FlatLeaf::Int32 => CanonicalType::Int {
+                width: 32,
+                signed: false,
+            },
+            FlatLeaf::Int64 { signed } => CanonicalType::Int { width: 64, signed },
+            FlatLeaf::Handle => import
                 .handle_at_flat_index(*index)
                 .cloned()
-                .map(abi::WasiParamKind::Handle)
                 .ok_or_else(|| unsupported_parameter(span))?,
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::Boolean => match import.flat_slots.get(*index) {
-            Some(FlatSlot::Boolean) => abi::WasiParamKind::Boolean,
+        ValueShape::Boolean => match leaf {
+            FlatLeaf::Boolean => CanonicalType::Bool,
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::Char => match import.flat_slots.get(*index) {
-            Some(FlatSlot::Char) => abi::WasiParamKind::Char,
+        ValueShape::Number => match leaf {
+            FlatLeaf::Float64 => CanonicalType::Float { width: 64 },
+            FlatLeaf::Float32 => CanonicalType::Float { width: 32 },
             _ => return Err(unsupported_parameter(span)),
         },
-        abi::SourceType::Number => match import.flat_slots.get(*index) {
-            Some(FlatSlot::Float64) => abi::WasiParamKind::Float64,
-            Some(FlatSlot::Float32) => abi::WasiParamKind::Float32,
-            _ => return Err(unsupported_parameter(span)),
-        },
-        abi::SourceType::String => {
-            match (
-                import.flat_slots.get(*index),
-                import.flat_slots.get(*index + 1),
-            ) {
-                (Some(FlatSlot::Pointer), Some(FlatSlot::Length)) => {
-                    *index += 2;
-                    return Ok(abi::WasiParamKind::List);
-                }
-                _ => return Err(unsupported_parameter(span)),
+        ValueShape::String => {
+            if let (FlatLeaf::Pointer, Some(FlatLeaf::Length)) = (leaf, leaves.get(*index + 1)) {
+                *index += 2;
+                return Ok(CanonicalType::String);
             }
+            return Err(unsupported_parameter(span));
         }
-        abi::SourceType::Unit
-        | abi::SourceType::Enum { .. }
-        | abi::SourceType::Record { .. }
-        | abi::SourceType::Resource { .. }
-        | abi::SourceType::Array { .. } => return Err(unsupported_parameter(span)),
+        ValueShape::Reference(_) => return Err(unsupported_parameter(span)),
     };
     *index += 1;
-    Ok(kind)
+    Ok(ty)
 }

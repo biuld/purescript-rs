@@ -2,19 +2,40 @@ use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId,
 use psrs_span::TextRange;
 
 mod evidence;
+mod scope;
+mod verify;
 
 pub use evidence::{Evidence, EvidenceKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
-/// A type constructor reference. `Array` is the only built-in constructor the
-/// current type system elaborates; user constructors are identified by their
-/// resolved HIR declaration.
+/// A type constructor reference. `Function` is the arrow head; `Record` is the
+/// record head applied to a row; `Array` is the array head; the scalar
+/// constructors name the source primitives; user constructors are identified by
+/// their resolved HIR declaration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TypeConstructor {
+    Function,
+    Record,
     Array,
+    Int,
+    Number,
+    Boolean,
+    String,
+    Char,
+    Unit,
     User(HirTypeId),
+}
+
+impl TypeConstructor {
+    /// Whether this constructor names one of the source primitive scalars.
+    pub fn is_primitive(self) -> bool {
+        matches!(
+            self,
+            Self::Int | Self::Number | Self::Boolean | Self::String | Self::Char | Self::Unit
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -22,25 +43,93 @@ pub enum Type {
     /// A generalized type variable. See [`Declaration::quantified`] and
     /// [`Binding::quantified`] for the variables bound at each site.
     Variable(TypeVariableId),
-    I32,
-    F64,
-    Boolean,
-    String,
-    Char,
-    Unit,
     Constructor(TypeConstructor),
     Application(TypeId, TypeId),
-    Record(Vec<(String, TypeId)>),
-    /// A record whose row ends in a type variable. The tail is not a runtime
-    /// layout; closed records stay [`Type::Record`].
-    OpenRecord {
-        fields: Vec<(String, TypeId)>,
+    /// A lexical type-level quantifier. Each node owns only its listed binders;
+    /// nested `ForAll` nodes stay nested so instantiation preserves scope.
+    ForAll {
+        variables: Vec<TypeVariableId>,
+        body: TypeId,
+    },
+    /// The empty row. A closed record's row ends here.
+    RowEmpty,
+    /// A row extended with one labeled field. A record type is
+    /// `Application(Constructor(Record), row)`; a closed row ends in
+    /// [`Type::RowEmpty`] and an open row ends in a [`Type::Variable`].
+    RowExtend {
+        label: String,
+        ty: TypeId,
         tail: TypeId,
     },
-    Function {
-        parameter: TypeId,
-        result: TypeId,
-    },
+}
+
+/// A row flattened into its fields and its tail. The tail is `None` for a
+/// closed row and `Some(variable)` for an open row.
+pub type RowFields = (Vec<(String, TypeId)>, Option<TypeId>);
+
+/// The row of a record type `Application(Constructor(Record), row)`, or `None`
+/// when `id` is not a record type.
+pub fn record_row(types: &[Type], id: TypeId) -> Option<TypeId> {
+    let Type::Application(function, row) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(function.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Record))
+    )
+    .then_some(*row)
+}
+
+/// Flattens a row into its fields and its tail. The tail is `None` for a closed
+/// row and `Some(variable)` for an open row. `None` is returned when `row`
+/// reaches a node that is neither a row constructor nor a row variable.
+pub fn row_fields(types: &[Type], mut row: TypeId) -> Option<RowFields> {
+    let mut fields = Vec::new();
+    loop {
+        match types.get(row.0 as usize)? {
+            Type::RowEmpty => return Some((fields, None)),
+            Type::RowExtend { label, ty, tail } => {
+                fields.push((label.clone(), *ty));
+                row = *tail;
+            }
+            Type::Variable(_) => return Some((fields, Some(row))),
+            _ => return None,
+        }
+    }
+}
+
+/// The fields of a record type in canonical (label-sorted) order, or `None`
+/// when `id` is not a record type. An open row's fields are those present
+/// before its tail variable.
+pub fn record_fields(types: &[Type], id: TypeId) -> Option<Vec<(String, TypeId)>> {
+    let row = record_row(types, id)?;
+    let (mut fields, _) = row_fields(types, row)?;
+    fields.sort_by(|left, right| left.0.cmp(&right.0));
+    Some(fields)
+}
+
+/// The parameter and result of an arrow type `a -> b`, spelled as the
+/// application spine `Application(Application(Constructor(Function), a), b)`.
+pub fn arrow_parts(types: &[Type], id: TypeId) -> Option<(TypeId, TypeId)> {
+    let Type::Application(inner, result) = types.get(id.0 as usize)? else {
+        return None;
+    };
+    let Type::Application(head, parameter) = types.get(inner.0 as usize)? else {
+        return None;
+    };
+    matches!(
+        types.get(head.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Function))
+    )
+    .then_some((*parameter, *result))
+}
+
+/// The binders and body of a type-level universal quantifier.
+pub fn forall_parts(types: &[Type], id: TypeId) -> Option<(&[TypeVariableId], TypeId)> {
+    match types.get(id.0 as usize)? {
+        Type::ForAll { variables, body } => Some((variables, *body)),
+        _ => None,
+    }
 }
 
 /// A data constructor known to the module. `tag` is its zero-based position in
@@ -57,6 +146,11 @@ pub struct ConstructorInfo {
     /// THIR lets later representations choose a runtime layout without
     /// consulting HIR again.
     pub field_types: Vec<TypeId>,
+    /// The declaration's ordered type parameters, as the variables that
+    /// `field_types` templates refer to. The variable at `parameters[i]` is the
+    /// constructor's field type when the enclosing application's argument `i` is
+    /// substituted, so a resolved application can instantiate the templates.
+    pub parameters: Vec<TypeVariableId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,8 +167,19 @@ pub struct Module {
     /// `Constructor(User(id))`; this set, with an empty constructor list, is
     /// what keeps the type opaque. It is not a runtime layout.
     pub opaque_ids: Vec<HirTypeId>,
+    /// Type constructors whose application has a callable closure
+    /// representation, registered by the trusted elaboration through their
+    /// resolved type identity. Each entry names the number of hidden
+    /// calling-convention parameters; the call result is the application's last
+    /// type argument. This is representation metadata, not a type.
+    pub callable_types: Vec<(HirTypeId, u32)>,
     pub constructors: Vec<ConstructorInfo>,
     pub declarations: Vec<Declaration>,
+    /// Qualified names of the type declarations this module declares, keyed by
+    /// their stable id. Carried so later stages can recognize well-known
+    /// library types (for example `Data.Maybe.Maybe`) after names are otherwise
+    /// dropped.
+    pub type_names: Vec<(HirTypeId, String)>,
     pub span: TextRange,
 }
 
@@ -134,6 +239,15 @@ pub enum ExprKind {
     /// Selected class evidence. Core lowering erases this to ordinary values,
     /// applications, and record projections.
     Evidence(Evidence),
+    /// A typechecked representational conversion authorized by `Coercible`
+    /// evidence. The source and result types are carried by the value and this
+    /// expression respectively.
+    Coerce {
+        value: Box<Expr>,
+        evidence: Evidence,
+        source_type: TypeId,
+        target_type: TypeId,
+    },
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,
@@ -192,202 +306,11 @@ pub struct VerifyError {
 
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
-        let mut errors = Vec::new();
-        for ty in &self.types {
-            match ty {
-                Type::Function { parameter, result } | Type::Application(parameter, result) => {
-                    verify_type_id(*parameter, self.types.len(), self.span, &mut errors);
-                    verify_type_id(*result, self.types.len(), self.span, &mut errors);
-                }
-                Type::Record(fields) => {
-                    for (_, field) in fields {
-                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
-                    }
-                }
-                Type::OpenRecord { fields, tail } => {
-                    for (_, field) in fields {
-                        verify_type_id(*field, self.types.len(), self.span, &mut errors);
-                    }
-                    verify_type_id(*tail, self.types.len(), self.span, &mut errors);
-                }
-                _ => {}
-            }
-        }
-        for constructor in &self.constructors {
-            if self.opaque_ids.contains(&constructor.type_id) {
-                errors.push(VerifyError {
-                    span: self.span,
-                    message: "an opaque type has no constructors",
-                });
-            }
-        }
-        for declaration in &self.declarations {
-            verify_type_id(
-                declaration.ty,
-                self.types.len(),
-                declaration.name_span,
-                &mut errors,
-            );
-            verify_expr(&declaration.value, &self.types, &mut errors);
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
+        verify::verify_module(self)
     }
 }
 
-fn verify_expr(expression: &Expr, types: &[Type], errors: &mut Vec<VerifyError>) {
-    verify_type_id(expression.ty, types.len(), expression.span, errors);
-    match &expression.kind {
-        ExprKind::Local(_)
-        | ExprKind::Global(_)
-        | ExprKind::Integer(_)
-        | ExprKind::Number(_)
-        | ExprKind::Boolean(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => {}
-        ExprKind::Array(elements) => {
-            for element in elements {
-                verify_expr(element, types, errors);
-            }
-        }
-        ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                verify_expr(value, types, errors);
-            }
-        }
-        ExprKind::RecordUpdate { expression, fields } => {
-            verify_expr(expression, types, errors);
-            for (_, value) in fields {
-                verify_expr(value, types, errors);
-            }
-        }
-        ExprKind::FieldAccess { expression, .. } => verify_expr(expression, types, errors),
-        ExprKind::Evidence(evidence) => verify_evidence(evidence, types, errors),
-        ExprKind::Application(function, argument) => {
-            verify_expr(function, types, errors);
-            verify_expr(argument, types, errors);
-        }
-        ExprKind::Lambda { binder, body } => {
-            verify_type_id(binder.ty, types.len(), binder.span, errors);
-            verify_expr(body, types, errors);
-        }
-        ExprKind::Let { bindings, body } => {
-            for binding in bindings {
-                verify_type_id(binding.binder.ty, types.len(), binding.binder.span, errors);
-                verify_expr(&binding.value, types, errors);
-            }
-            verify_expr(body, types, errors);
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            verify_expr(condition, types, errors);
-            verify_expr(then_branch, types, errors);
-            verify_expr(else_branch, types, errors);
-        }
-        ExprKind::Case {
-            scrutinee,
-            branches,
-        } => {
-            verify_expr(scrutinee, types, errors);
-            for branch in branches {
-                verify_pattern(&branch.pattern, types.len(), errors);
-                verify_expr(&branch.value, types, errors);
-            }
-        }
-    }
-}
-
-fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyError>) {
-    verify_type_id(evidence.ty, types.len(), evidence.span, errors);
-    match &evidence.kind {
-        EvidenceKind::Given(_) | EvidenceKind::Global(_) => {}
-        EvidenceKind::Superclass { parent, field } => {
-            verify_evidence(parent, types, errors);
-            let Some(Type::Record(fields)) = types.get(parent.ty.0 as usize) else {
-                errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "superclass evidence parent is not a dictionary record",
-                });
-                return;
-            };
-            match fields.iter().find(|(label, _)| label == field) {
-                Some((_, field_ty)) if *field_ty == evidence.ty => {}
-                _ => errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "superclass evidence field has the wrong type",
-                }),
-            }
-        }
-        EvidenceKind::Instance {
-            constructor_type,
-            context,
-            ..
-        } => {
-            verify_type_id(*constructor_type, types.len(), evidence.span, errors);
-            let mut result = *constructor_type;
-            for argument in context {
-                verify_evidence(argument, types, errors);
-                let Some(Type::Function {
-                    parameter,
-                    result: next,
-                }) = types.get(result.0 as usize)
-                else {
-                    errors.push(VerifyError {
-                        span: argument.span,
-                        message: "instance dictionary constructor takes too few context arguments",
-                    });
-                    return;
-                };
-                if *parameter != argument.ty {
-                    errors.push(VerifyError {
-                        span: argument.span,
-                        message: "instance evidence does not match its context parameter",
-                    });
-                }
-                result = *next;
-            }
-            if result != evidence.ty {
-                errors.push(VerifyError {
-                    span: evidence.span,
-                    message: "instance evidence result has the wrong dictionary type",
-                });
-            }
-        }
-    }
-}
-
-fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyError>) {
-    verify_type_id(pattern.ty, type_count, pattern.span, errors);
-    match &pattern.kind {
-        PatternKind::Wildcard => {}
-        PatternKind::Var { ty, .. } => verify_type_id(*ty, type_count, pattern.span, errors),
-        PatternKind::Constructor { arguments, .. } => {
-            for argument in arguments {
-                verify_pattern(argument, type_count, errors);
-            }
-        }
-        PatternKind::Record { fields } => {
-            for (_, field) in fields {
-                verify_pattern(field, type_count, errors);
-            }
-        }
-    }
-}
-
-fn verify_type_id(id: TypeId, type_count: usize, span: TextRange, errors: &mut Vec<VerifyError>) {
-    if id.0 as usize >= type_count {
-        errors.push(VerifyError {
-            span,
-            message: "type reference is outside the THIR type table",
-        });
-    }
-}
-
+#[cfg(test)]
+mod rank_n_tests;
 #[cfg(test)]
 mod tests;

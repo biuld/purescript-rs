@@ -241,6 +241,30 @@ fn higher_order_adapters_are_value_sensitive_in_both_directions() {
 }
 
 #[test]
+fn a_curried_function_argument_generates_a_partial_adapter() {
+    // `ado x <- a; y <- b; in f x y` passes the curried concrete
+    // `\x -> \y -> f x y` where `map` expects a generic `a -> b`. The erased
+    // adapter must partially apply it: the outer closure takes the target's
+    // arguments and returns an inner closure for the source's remaining ones.
+    let source = "module Main where\nimport Prelude\nmain = runEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
+    let mir = pre_optimization_mir(source);
+    let names = mir
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.iter().any(|name| name.starts_with("curried_outer_")),
+        "the curried adapter must expose a partial outer closure: {names:?}"
+    );
+    assert!(
+        names.iter().any(|name| name.starts_with("curried_inner_")),
+        "the curried adapter must expose an inner closure for the remaining arguments: {names:?}"
+    );
+    expect_exit("curried_adapter", source, 42);
+}
+
+#[test]
 fn linked_modules_round_trip_an_erased_high_bit_int() {
     let producer = (
         "Producer.purs",
@@ -262,4 +286,80 @@ fn linked_modules_round_trip_an_erased_high_bit_int() {
         Ok(None) => {}
         Err(error) => panic!("{error}"),
     }
+}
+
+#[test]
+fn a_locally_generalized_binding_instantiates_at_int() {
+    // `id` is generalized at the local `let`, so its runtime value is erased.
+    // The `id 42` use must box the erased argument and recover the integer
+    // result exactly as a top-level polymorphic declaration would.
+    let source = "module Main where\nmain = let id = \\x -> x in id 42\n";
+    expect_exit("local_polymorphic_int", source, 42);
+}
+
+#[test]
+fn a_locally_generalized_binding_instantiates_at_two_types() {
+    // The same erased local value is recovered at `String` and at `Int`.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let id = \\x -> x in runEffect (do\n  log (id \"hello\")\n  pure (id 42))\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("the two-type local use should compile");
+    match execute_component("local_polymorphic_two_types", &artifact.wasm) {
+        Ok(Some(output)) => {
+            assert_eq!(output.status.code(), Some(42), "{output:?}");
+            assert_eq!(output.stdout, b"hello\n");
+        }
+        Ok(None) => {}
+        Err(error) => panic!("{error}"),
+    }
+}
+
+#[test]
+fn a_locally_generalized_binding_passes_to_a_polymorphic_function() {
+    // `apply :: forall a. (a -> a) -> a -> a` receives the erased local value,
+    // so the argument and result cross the erased boundary at the concrete type.
+    let source = "module Main where\napply :: forall a. (a -> a) -> a -> a\napply f x = f x\nmain = let id = \\x -> x in apply id 42\n";
+    expect_exit("local_polymorphic_argument", source, 42);
+}
+
+#[test]
+fn a_curried_locally_generalized_binding_instantiates() {
+    // A locally generalized curried function with an argument: the flattened
+    // erased source has two parameters, matching the concrete use.
+    let source = "module Main where\nmain = let const = \\x -> \\y -> x in const 42 \"ignored\"\n";
+    expect_exit("local_polymorphic_curried", source, 42);
+}
+
+#[test]
+fn a_locally_generalized_identity_instantiates_at_a_function_type() {
+    // `(id id) 42`: the outer `id` is instantiated at `Int -> Int`, so its
+    // flattened use type `(Int -> Int) -> (Int -> Int)` is wider than the
+    // erased source `a -> a`. The recursive adapter must eta-expand, call the
+    // erased source with the inner `id`, recover the result at `Int -> Int`,
+    // and apply `42`.
+    let source = "module Main where\nmain = let id = \\x -> x in (id id) 42\n";
+    expect_exit("local_polymorphic_function_type_identity", source, 42);
+}
+
+#[test]
+fn a_local_polymorphic_value_is_applied_after_a_function_type_instantiation() {
+    // The same eta-expansion reached with a concrete function argument:
+    // `id` is instantiated at `Int -> Int`, applied to `\y -> y + 1`, and the
+    // recovered function is applied to `41`.
+    let source = "module Main where\nmain = let id = \\x -> x in (id (\\y -> y + 1)) 41\n";
+    expect_exit("local_polymorphic_function_type_argument", source, 42);
+}
+
+#[test]
+fn a_global_polymorphic_value_instantiates_at_a_function_type() {
+    // The top-level polymorphic declaration crossed at a function type.
+    let source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = (identity (\\y -> y + 1)) 41\n";
+    expect_exit("global_polymorphic_function_type", source, 42);
+}
+
+#[test]
+fn a_local_value_of_a_polymorphic_function_type_instantiates() {
+    // A local value of polymorphic function type copied through another local
+    // binding and then instantiated at `Int`.
+    let source = "module Main where\nidentity :: forall a. a -> a\nidentity x = x\nmain = let f = identity in let g = f in g 42\n";
+    expect_exit("local_polymorphic_value", source, 42);
 }

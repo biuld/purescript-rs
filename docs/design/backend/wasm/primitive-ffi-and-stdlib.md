@@ -9,8 +9,8 @@
 
 This document owns the two-layer contract between the canonical ABI lowerer and
 the standard library: the primitive source types a foreign import may use, what
-the lowerer refuses to recognize, how a wrapper encodes and decodes library
-types, and why `SourceType` exists. It is the mechanism behind
+the lowerer refuses to recognize, and how a wrapper encodes and decodes library
+types. It is the mechanism behind
 [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
 
 It does not own canonical flattening, `lift`/`lower`, or `cabi_realloc`
@@ -41,12 +41,15 @@ the IR. WIT names stay out of CC and MIR for the same reason
 ([DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md),
 [canonical ABI and WIT](canonical-abi-and-wit.md)).
 
-**Why `SourceType` exists.** The foreign import's source signature is copied
-into an `ExternalBindings` side table before CC. P9 reads that `SourceType`
-when it lowers the call. `WasiParamKind` is the WIT side of the same boundary:
-it says which canonical slot the value fills. `SourceType` is how the lowerer
-tells the primitive representations apart. It is not a place to encode `Maybe`
-or `Either`.
+**Why the resolved type drives the lowerer.** The foreign import's resolved
+source type is interned into the Core type table and carried as a `type_id` in
+the `ExternalBindings` side table before CC. CC derives the declaration's
+abstract `Signature` (`ValueShape` per parameter and result) from that type, and
+MIR lowers the call from that signature plus the WIT descriptor
+(`WasiParamKind`). The descriptor says which canonical slot the value fills; the
+abstract signature says whether a value is an integer, a boolean, a number, a
+string, or a GC aggregate. Neither is a place to encode `Maybe` or `Either`.
+See [DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md).
 
 **Canonical aggregates.** WIT `option` and `result` are a discriminant plus a
 payload. In the flat ABI the payload occupies its canonical slots even for the
@@ -71,13 +74,16 @@ A foreign import the lowerer accepts uses only these source types:
 | `Number` | `f32` or `f64` |
 | `Char` | canonical `i32`; not an `Int` and not a handle |
 | `String` | one source argument; the lowerer expands the GC string to `(pointer, length)` |
-| `Unit` | the one result of an empty return, or of the unit-success `result` that traps on failure |
+| `Unit` | the one result of an empty return, or the unit payload of a mapped `result` |
 
 `String` is in this set even though its canonical form is two core values. The
 lowerer already expands a GC string; the import does not take a pointer and a
-length. A resource handle is an `i32` at the call and is declared as `Int`,
-which is what `WASI.Console` already does for `get-stdout`. There is no seventh
-source type for handles.
+length. A resource handle is an `i32` at the call. A raw import may declare it
+as `Int`, or as the library newtype `WASI.Resource.Resource a` over `Int`, which
+erases to the same handle slot; the standard library uses `Resource a` so every
+handle is a distinct phantom-typed value
+([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). There is no
+seventh primitive source type for handles.
 
 `Unit` is a result type. It contributes no canonical parameter, so a `Unit`
 parameter does not validate.
@@ -94,9 +100,11 @@ foreign import may use:
 
 `Array String` is a `list<string>`: its elements are themselves `(pointer,
 length)` pairs, transcoded element-wise and freed after the call. A `list<u8>`
-stays `String`, not `Array Int`. A nested `Array (Array _)`, an array of
-records, handles, tuples, or `option` values has no source mapping and is
-rejected. `Array` is not a compiler encoding of any aggregate; it is the source
+stays `String`, not `Array Int`. An element that is itself an aggregate follows
+the mapped aggregate forms below ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md));
+a nested `Array (Array _)` lowers recursively. This includes `Array (Resource a)`,
+which is a `list<own<T>>`/`list<borrow<T>>` whose element erases to the handle
+`i32`. `Array` is not a compiler encoding of any aggregate; it is the source
 type for a non-byte WIT list of an element that already maps.
 
 ### Two layers
@@ -106,7 +114,7 @@ user-facing function  :: library types -> Effect _
         |  case / pack / unpack, in PureScript
         v
 unexported foreign import :: primitives -> one primitive
-        |  SourceType + WasiParamKind, at P9
+        |  resolved type + WIT descriptor, at P8/P9
         v
 Resolve::wasm_signature   flat core values, linked by componentize
 ```
@@ -121,28 +129,52 @@ checks the flat shape; it does not check that a discriminant is a legal tag.
 An illegal tag is a bug in the wrapper, as it would be in hand-written glue.
 
 A PureScript foreign import has one result. The lowerer may rebuild one
-primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). The
-existing unit-success `result` that traps on failure stays a `Unit` return.
+primitive (`Int`, `Boolean`, `Number`, `Char`, `String`, or `Unit`). A
+unit-success `result` is the aggregate `Either E Unit` mapping
+([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)), not a
+primitive `Unit` return: the wrapper observes the error as `Left`.
 A WIT `option`, `result`, or `variant` whose canonical form is several values
-in a return area is not wrapped, and is not given a compiler source type, until
-that whole result can be expressed as one primitive.
+in a return area follows the aggregate mapping below; a wrapper may also pass
+one as a sequence of primitive arguments whose flattening matches.
 
-### What `SourceType` is not
+### What the source type is not
 
-`SourceType` has no `Option`, `Result`, or `Tuple` form. The lowerer does not
-recognize `Maybe`, `Either`, or tuples by constructor name (`Nothing`/`Just`,
-`Left`/`Right`) or by `_1`/`_2` record labels. Its `Array` form is not an
-aggregate encoding either: it exists only for a non-byte WIT `list<T>` whose
-element already maps.
+The resolved source type has no compiler `Option`, `Result`, or `Tuple` form:
+the aggregate mappings below are ordinary library types, not a compiler
+vocabulary. The lowerer recognizes `Data.Maybe.Maybe` and `Data.Either.Either`
+by their qualified type names, never by constructor name (`Nothing`/`Just`,
+`Left`/`Right`) or by `_1`/`_2` record labels. Its array form
+is not an aggregate encoding either: it exists only for a non-byte WIT
+`list<T>` whose element already maps.
 
 The normative set for a new standard-library foreign import is the primitives
-above, plus `Array` of a supported element for a non-byte `list<T>`. A `Maybe`,
-`Either`, tuple, `option`, or other new aggregate still
-produces no `SourceType` and is rejected.
+above, `Array` of a supported element for a non-byte `list<T>`, and the mapped
+aggregate forms below. `Maybe`, `Either`, and a non-unit variant are classified
+and validated against their WIT descriptor, and their MIR tag-branch lowering
+rebuilds the source value recursively for a directly flattenable payload, a
+closed record of directly flattenable fields, and a nested
+`option`/`result`/`variant` (a scalar of any width, a byte or non-byte list, an
+enum, `flags`, a handle, a closed record, or a nested mapped aggregate, recursing
+through record fields and a `list<record>`/`list<flags>` element); a
+result-handle payload is rejected with a named diagnostic.
 
 The existing enum, closed-record, and flags-record lowering still accepts
-those declarations and is not deleted. They keep a source signature and still
-lower. They are not the set new standard-library imports use.
+those declarations and is not deleted. They keep a resolved type and still
+lower.
+
+### Aggregate forms map to library types
+
+[DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
+higher-level WIT forms to existing idiomatic library types rather than a
+compiler vocabulary: `tuple<A, B>` to a closed record `{ _1, _2 }`,
+`option<T>` to `Maybe T`, `result<O, E>` to `Either E O` (the error on `Left`),
+and `variant` to a data type whose constructors follow the WIT case order. The
+compiler carries a
+small name table for `Data.Maybe.Maybe` and `Data.Either.Either` and lowers
+these through the resolved-type path fixed by
+[DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md). This supersedes
+DEC-11's primitive-only mechanism; the two-layer rule (library wrappers over
+primitive imports) still stands.
 
 ## Design
 
@@ -186,9 +218,9 @@ module export list names the wrappers only.
 Today's lowerer also accepts nullary enums, closed records, and flags records,
 and it projects record fields in WIT order. This decision does not delete or
 rewrite that path. It is current lowering, not the way the standard library
-grows. New foreign imports in the standard library use the primitive set.
-`SourceType` is not extended for `option`, `result`, non-unit `variant`, tuple,
-or any other aggregate WIT form. A public enum, flags record, or record is
+grows. New foreign imports in the standard library use the primitive set or the
+mapped aggregate forms ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)).
+A public enum, flags record, or record is
 still ordinary PureScript: the wrapper passes the tag `Int`, the packed flag
 words, or the fields as primitive arguments in canonical order.
 
@@ -200,7 +232,7 @@ words, or the fields as primitive arguments in canonical order.
   ambiguous, and the compiler would own types the standard library defines.
 - **Compiler builtins for `Maybe`, `Either`, or tuple.** Rejected: official
   PureScript keeps them in the library. A builtin would also put a source type
-  identity into the lowering, which is what `SourceType` is not for.
+  identity into the lowering, which the source side does not carry.
 - **Putting WIT types or HIR types into CC or MIR.** Rejected: CC and MIR keep
   runtime shapes. The side table already carries the source signature
   ([DEC-06](../../../decision/DEC-06-runtime-interface-via-wit.md)).
@@ -259,7 +291,7 @@ WIT-level arity and source arity need not match. `option<string>` is one WIT
 parameter; the import is `Int -> String -> Unit` because the flat form is a
 discriminant plus `(pointer, length)`. The binding's interface and function
 name select the WIT function. The comparison is against
-`Resolve::wasm_signature`, not against a `SourceType` for the aggregate.
+`Resolve::wasm_signature`, not against a source type for the aggregate.
 
 `flatten_primitive` does not inspect `Maybe`, constructor names, or record
 labels. A declaration written as `Maybe String -> Unit` never reaches this
@@ -268,16 +300,13 @@ import is rejected.
 
 The lowerer still distinguishes an `Int` from a `Char` even though both can be
 `i32`. `Char` matches only a WIT `char`. `Int` matches an integer slot or a
-handle. That distinction is `SourceType` beside `WasiParamKind`; it is not
+handle. That distinction is the resolved type beside `WasiParamKind`; it is not
 recoverable from the `i32` in MIR.
 
 ### What a wrapper may see of a return
 
 ```text
 visible_return(canonical, wit_function):
-    if the result is the unit-success result
-       (success payload empty, failure not returned to source):
-        return Unit          # lowerer traps on a nonzero discriminant
     values = canonical result values
              (the single core result, or the words in the return area)
     if values rebuild to exactly one of Int, Boolean, Number, Char, String:
@@ -289,9 +318,7 @@ A wrapper is allowed to see a return only by calling a foreign import that
 validates. Concretely:
 
 - **Allowed.** The canonical result is one primitive. The wrapper receives
-  that primitive and may `case` on it in PureScript. The unit-success `result`
-  is the `Unit` case of this rule: the wrapper sees `Unit`, not the
-  discriminant, and failure traps inside the lowerer.
+  that primitive and may `case` on it in PureScript.
 - **Not allowed.** The canonical result is several values (a discriminant plus
   a payload, a tuple, a record, or a non-unit variant in the return area).
   The foreign import is rejected. The wrapper cannot bind those words, and the
@@ -315,41 +342,51 @@ stdlib/lib/
   Prelude.purs                 ordinary library types (Effect)
   Data/Maybe.purs              data Maybe a = Nothing | Just a, plus eliminators
   Data/Either.purs             data Either a b = Left a | Right b, plus eliminators
+  WASI.purs                    umbrella re-exporting the curated API
+  WASI/Resource.purs           newtype Resource a = Resource Int
+  WASI/IO.purs                 streams, poll, and the error resource
   WASI/Console.purs            export list is the wrappers only
+  WASI/FileSystem.purs         descriptor operations
+  WASI/Network.purs            socket operations
   WASI/Clock.purs              same split
+  WASI/Random.purs             secure and insecure random
+  WASI/Process.purs            exit, arguments, environment
 crates/psrs-backend/src/
   bindings.rs                  ExternalBindings side table
-  abi.rs                       SourceType, SourceSignature, validate_signature
+  abi/link.rs                  intern the resolved type and validate conformance
+  cc/source_abi.rs             derive the abstract Signature from the resolved type
   mir/wit/                     lower a validated primitive call
 ```
 
 - A platform module exports only user-facing functions. `WASI.Console` exports
   `log :: String -> Effect Unit` and `error :: String -> Effect Unit`. It does
-  not export `writeStdout`, `getStdout`, or `getStderr`. `WASI.Clock` exports
-  `now :: Effect Int` and does not export `monotonicNow`. `WASI.Exit` exports
+  not export its raw imports. `WASI.Clock` exports `now :: Effect Int` and does
+  not export `monotonicNow`. `WASI.Process` exports
   `exitWithCode :: Int -> Effect Unit` and does not export `exitWithCodeRaw`.
+  The `WASI` umbrella re-exports the curated API of every focused module.
 - Each raw binding is an unexported `foreign import` whose parameters and
   single result are in the primitive set. The binding string is
   `<interface>#<function>`, as in the canonical ABI topic.
-- `ExternalBindings::from_core` runs before CC. It copies each WIT foreign
-  import's source signature into `SourceSignature`. A type outside the
-  primitive set (and outside the current enum/record/flags lowering) is stored
-  as a missing signature and rejected. CC and MIR receive the symbol and the
-  runtime shapes, not `SourceType` and not WIT names.
-- `SourceType` is `Int | Boolean | Number | Char | String | Unit`, plus the
-  existing `Enum` and `Record` forms the current lowerer already has. It must
-  not gain `Option`, `Result`, or `Tuple`. No function recognizes `Nothing`,
+- `ExternalBindings::from_core` runs before CC. It interns each WIT foreign
+  import's resolved source type into the Core type table and records the
+  resulting `type_id`. A type outside the primitive set (and outside the current
+  enum/record/flags lowering) fails to intern and is rejected. CC and MIR
+  receive the symbol and the runtime shapes, not WIT names.
+- The resolved type is `Int | Boolean | Number | Char | String | Unit`, plus the
+  existing enum and record forms the current lowerer already has. It must not
+  gain an `option`, `result`, or tuple form. No function recognizes `Nothing`,
   `Just`, `Left`, `Right`, or `_1`/`_2` as a WIT shape.
-- `WasiRegistry::validate_signature` implements `validate_primitive_import`
-  for imports in this set: primitive flattening equals
-  `Resolve::wasm_signature`, and `visible_return` is the one declared result.
-  `mir::wit::lower` lowers a call that has already passed that check. It
-  expands `String`, pushes a handle `Int` as `i32`, and rebuilds one primitive
-  result. It does not grow a new aggregate lowering for `option` or `result`.
+- `abi/link::validate_import_signature` implements `validate_primitive_import`
+  for imports in this set against the resolved Core type: primitive flattening
+  equals `Resolve::wasm_signature`, and `visible_return` is the one declared
+  result. `mir::wit::lower` lowers a call that has already passed that check,
+  from the CC abstract signature and the WIT descriptor. It expands `String`,
+  pushes a handle `Int` as `i32`, and rebuilds one primitive result. It does not
+  grow a new aggregate lowering for `option` or `result`.
 
 The current enum, record, and flags lowering stays behind the same
-`validate_signature` and `mir::wit::lower` entry points. New standard-library
-imports do not use it.
+`validate_import_signature` and `mir::wit::lower` entry points. New
+standard-library imports do not use it.
 
 ## Invariants and verification
 
@@ -361,57 +398,69 @@ imports do not use it.
   the declaration, including when the declaration is unused.
 - The import's source result is exactly `visible_return`. A multi-value
   canonical result is rejected, not approximated and not returned as a tuple.
-- The unit-success `result` is a `Unit` return that traps on failure. The
-  wrapper does not observe the discriminant.
+- The unit-success `result` maps to `Either E Unit`
+  ([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)); the
+  wrapper observes the error as `Left` and does not trap.
 - Exported platform names are wrappers. Raw imports are absent from the module
   export list. Tests that import `WASI.Console` can name `log` and cannot name
   `writeStdout`.
-- `SourceType` carries primitive identity that CC and MIR drop. It does not
-  carry `Maybe`, `Either`, or tuple structure. WIT interface and function names
-  remain only on `ExternalBindings` and the `WasiRegistry`.
+- The resolved type carries primitive identity that CC and MIR drop. It does
+  not carry `Maybe`, `Either`, or tuple structure. WIT interface and function
+  names remain only on `ExternalBindings` and the `WasiRegistry`.
 - A foreign import declared at `Maybe`, `Either`, or a tuple type is rejected
   before MIR emits a call. Constructor names are not consulted.
 
 ## Worked example
 
-### `log`, as the library defines it today
+### `log`
 
-The embedded console module is ordinary PureScript:
+`WASI.Console` is convenience over `WASI.IO`, which owns the raw imports. The
+source uses abstract `Effect` values. It does not name a token. Representation
+lowering suspends each `Effect`-typed foreign import and threads the token
+through `bind` ([effects](../fp/effects.md)).
 
 ```purescript
-foreign import "wasi:cli/stdout#get-stdout" getStdout :: Int
+-- WASI.IO
+foreign import "wasi:cli/stdout#get-stdout" getStdout :: Effect (Resource OutputStream)
 foreign import "wasi:io/streams#[method]output-stream.blocking-write-and-flush"
-  writeStdout :: Int -> String -> Unit
+  blockingWriteAndFlush :: Resource OutputStream -> String -> Effect (Either StreamError Unit)
 
+-- WASI.Console
 log :: String -> Effect Unit
-log s = \token ->
-  let ignored = writeStdout getStdout s
-  in writeStdout getStdout "\n"
+log message =
+  bind getStdout \handle ->
+  bind (blockingWriteAndFlush handle message) \_ ->
+  bind (blockingWriteAndFlush handle "\n") \_ ->
+  dropOutputStream handle
 ```
 
-`log` is the user-facing function. Its type uses `String`, `Effect`, and
-`Unit`. The effect body calls the raw imports. `getStdout` is a handle
-declared as `Int`. `writeStdout` takes that handle and a `String` and returns
-`Unit`. Neither raw import is part of the public API. The module exports
-`log` and `error` only. The call trace does not depend on that list.
+`log` is the user-facing function. Its source arity is one. The handle is a
+`Resource OutputStream`, a library newtype over `Int`.
+`blockingWriteAndFlush` takes that handle and a `String` and returns
+`Effect (Either StreamError Unit)`. Neither raw import is part of the public
+API. The module exports `log` and `error` only. The effect those calls return
+is suspended by `lower_effects`, so the host call runs when the effect runs
+([effects](../fp/effects.md)).
 
-Before CC, `ExternalBindings::from_core` records `writeStdout` as parameters
-`Int` and `String` and result `Unit`, and records the WIT binding
-`wasi:io/streams` / `[method]output-stream.blocking-write-and-flush`. CC and
-MIR then see an `i32`, a GC string, and a call symbol. They do not see the
-names `Int`, `String`, or `output-stream`.
+Before CC, `ExternalBindings::from_core` records `blockingWriteAndFlush` as the
+erased handle and `String`, and the mapped result `Either StreamError Unit`,
+and records the WIT binding `wasi:io/streams` /
+`[method]output-stream.blocking-write-and-flush`. CC and MIR then see an `i32`,
+a GC string, and a call symbol. They do not see the names `Resource`,
+`OutputStream`, or `output-stream`.
 
-P9 reads the side table. `Int` beside a handle kind pushes the `i32`. `String`
-is expanded to a transient `(pointer, length)` by the canonical ABI lowering.
-The WIT result is `result<_, stream-error>` with a unit success payload, so
-`visible_return` is `Unit`: the lowerer passes a return pointer, traps on a
-nonzero discriminant, and rebuilds `Unit`. The flattened parameters are the
-handle plus `(pointer, length)`, which is `Resolve::wasm_signature` for that
+P9 reads the side table. The `Resource` newtype erases to the handle `i32`.
+`String` is expanded to a transient `(pointer, length)` by the canonical ABI
+lowering. The WIT result is `result<_, stream-error>`, so the source result is
+`Either StreamError Unit`
+([DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md)): the
+lowerer passes a return pointer, decodes the error payload into `Left`, and
+builds the `Either` with the ok `Unit` on `Right`. The flattened parameters are
+the handle plus `(pointer, length)`, which is `Resolve::wasm_signature` for that
 function, so componentize links the core import. The instructions are the ones
 in the worked example of
 [canonical ABI and WIT](canonical-abi-and-wit.md). `log` itself is not a
-foreign import; after the two `writeStdout` calls return `Unit`, the effect
-function returns `Unit`.
+foreign import; it ignores the two write results and returns `Unit`.
 
 ### A `Maybe` parameter, specified and not added to the library
 
@@ -431,11 +480,16 @@ data Maybe a = Nothing | Just a
 foreign import "example:api#send" rawSend :: Int -> String -> Unit
 
 send :: Maybe String -> Effect Unit
-send message = \token ->
+send message =
   case message of
-    Nothing -> rawSend 0 ""
-    Just text -> rawSend 1 text
+    Nothing -> pure (rawSend 0 "")
+    Just text -> pure (rawSend 1 text)
 ```
+
+`pure` here is the effect embedding. Because the language is strict, a foreign
+call that must wait until the effect runs is itself declared at an `Effect`
+type and suspended by representation lowering, as `getStdout` is above. `pure`
+of an already computed primitive is only the embedding of that value.
 
 `Maybe` is an ordinary ADT. The type checker never asks the ABI about it.
 `send` cases on it and passes primitives. `Nothing` passes discriminant `0`
@@ -449,8 +503,8 @@ Validation does not look at `Maybe`. It flattens `Int` to one `i32` and
 `Unit`. Componentize then links the same flat core signature.
 
 The same function written as `foreign import rawSend :: Maybe String -> Unit`
-is rejected. Projecting `Maybe String` produces no `SourceType`, so the
-binding has no signature. The lowerer does not match `Nothing` and `Just`.
+is rejected. `Maybe String` does not intern to a supported source type, so the
+binding has no resolved type. The lowerer does not match `Nothing` and `Just`.
 
 If `send` instead returned `option<string>`, the canonical result would be a
 discriminant plus `(pointer, length)` in the return area. `visible_return`
@@ -463,13 +517,13 @@ on a success string it never receives. The function stays unexposed.
 - **From the frontend:** a typed foreign import and its binding string. This
   topic does not change how `Maybe` or `Either` are type-checked. A `Maybe`,
   `Either`, tuple, or other new aggregate fails ABI validation because it has
-  no `SourceType`. An existing nullary enum, closed record, or flags record
-  still validates on the current lowering path.
-- **To CC:** `ExternalBindings` already captured `SourceType`. CC does not gain
-  WIT types, HIR types, or a `SourceType` of its own.
+  no resolved source mapping. An existing nullary enum, closed record, or flags
+  record still validates on the current lowering path.
+- **To CC:** `ExternalBindings` already captured the resolved `type_id`. CC does
+  not gain WIT types, HIR types, or a source-type mirror of its own.
 - **To the canonical ABI:** the primitive declaration and the resolved WIT
   function. That topic owns flattening, the return pointer, and the
-  unit-success trap. This topic owns the rule that the primitive flat list
+  unit-success `Either` mapping. This topic owns the rule that the primitive flat list
   must equal `Resolve::wasm_signature`, including when the WIT-level parameter
   is an aggregate with no compiler source type.
 - **To the platform library:** which services exist, the component world, and
@@ -487,11 +541,14 @@ on a success string it never receives. The function stays unexposed.
 
 ## Implementation notes
 
-`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`.
-`WASI.Random` exports `randomBytes` and `randomU64`. `WASI.Exit` exports
-`exitWithCode`. Raw imports (`writeStdout`, `getStdout`, `getStderr`,
-`monotonicNow`, `getRandomBytes`, `getRandomU64`, `exitWithCodeRaw`) stay in
-their modules and are not exported. `wasi:cli/exit.exit` is not wrapped; the
+The on-disk library is `WASI.Resource`, `WASI.IO`, `WASI.Console`,
+`WASI.FileSystem`, `WASI.Network`, `WASI.Clock`, `WASI.Random`, and
+`WASI.Process`, with a `WASI` umbrella re-exporting the curated API.
+`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`, `wallNow`,
+and `wallResolution`. `WASI.Random` exports `randomBytes` and `randomU64`.
+`WASI.Process` exports `exitWithCode`, `arguments`, and `environment`. Raw
+imports stay in their modules and are not exported. `wasi:cli/exit.exit` is not
+wrapped; the
 [capability matrix](wasi-platform-library.md#capability-matrix) records why.
 A primitive import
 of an `option` parameter is accepted when the declared primitives flatten to
@@ -499,15 +556,14 @@ the canonical parameter list; `option<string>` is `Int -> String -> Unit`.
 `Maybe` and `Either` are ordinary data types in `Data.Maybe` and `Data.Either`,
 not in `Prelude` and not compiler builtins. Nullary enum, closed record, and
 flags-record foreign imports still lower; new library code should not use that
-path. No `SourceType::Option`, `SourceType::Result`, or `SourceType::Tuple`
-exists.
+path. Handles are declared as the `Resource a` newtype over `Int`.
 
 ## References
 
 - [DEC-11 — Primitive foreign imports and standard-library wrappers](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
 - [DEC-06 — Runtime Interface via WASI and the Component Model](../../../decision/DEC-06-runtime-interface-via-wit.md).
 - [Canonical ABI and WIT](canonical-abi-and-wit.md), including
-  `Resolve::wasm_signature` and the unit-success `result`.
+  `Resolve::wasm_signature` and the unit-success `result` mapping.
 - [WASI platform library](wasi-platform-library.md).
 - [Linear memory and the canonical ABI boundary](linear-memory-and-canonical-abi-boundary.md).
 - WebAssembly Component Model Canonical ABI: flattening of `option`, `result`,

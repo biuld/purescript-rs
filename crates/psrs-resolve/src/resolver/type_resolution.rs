@@ -169,6 +169,7 @@ impl Resolver {
         &mut self,
         plan: PlannedType,
         declaration: ast::TypeDeclaration,
+        role_declaration: Option<ast::RoleDeclaration>,
     ) -> Option<hir::TypeDeclaration> {
         match declaration {
             ast::TypeDeclaration::Data(declaration) => {
@@ -199,7 +200,9 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
+                    lower_role_declaration(role_declaration),
                     declaration.span,
                 )
             }
@@ -231,7 +234,9 @@ impl Resolver {
                     Vec::new(),
                     None,
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
+                    lower_role_declaration(role_declaration),
                     declaration.span,
                 )
             }
@@ -246,7 +251,9 @@ impl Resolver {
                     Vec::new(),
                     Some(body),
                     Vec::new(),
+                    Vec::new(),
                     declaration.kind_signature,
+                    None,
                     declaration.span,
                 )
             }
@@ -259,7 +266,9 @@ impl Resolver {
                 Vec::new(),
                 None,
                 Vec::new(),
+                Vec::new(),
                 Some(declaration.declared_kind),
+                lower_role_declaration(role_declaration),
                 declaration.span,
             ),
             ast::TypeDeclaration::Class(declaration) => {
@@ -267,6 +276,15 @@ impl Resolver {
                 for superclass in declaration.superclasses {
                     superclasses.push(self.resolve_type(superclass)?);
                 }
+                let fundeps = declaration
+                    .fundeps
+                    .into_iter()
+                    .map(|fundep| hir::FunctionalDependency {
+                        from: fundep.from.into_iter().map(|name| name.text).collect(),
+                        to: fundep.to.into_iter().map(|name| name.text).collect(),
+                        span: fundep.span,
+                    })
+                    .collect();
                 let members = declaration
                     .members
                     .into_iter()
@@ -294,7 +312,9 @@ impl Resolver {
                     members,
                     None,
                     superclasses,
+                    fundeps,
                     declaration.kind_signature,
+                    None,
                     declaration.span,
                 )
             }
@@ -312,7 +332,9 @@ impl Resolver {
         members: Vec<hir::ClassMember>,
         body: Option<HirType>,
         superclasses: Vec<HirType>,
+        fundeps: Vec<hir::FunctionalDependency>,
         kind_signature: Option<ast::Type>,
+        declared_roles: Option<hir::RoleDeclaration>,
         span: TextRange,
     ) -> Option<hir::TypeDeclaration> {
         let parameters = parameters
@@ -333,8 +355,30 @@ impl Resolver {
             members,
             body,
             superclasses,
+            fundeps,
             declared_kind,
+            declared_roles,
             span,
         })
     }
+}
+
+fn lower_role_declaration(
+    declaration: Option<ast::RoleDeclaration>,
+) -> Option<hir::RoleDeclaration> {
+    declaration.map(|declaration| hir::RoleDeclaration {
+        roles: declaration
+            .roles
+            .into_iter()
+            .map(|annotation| {
+                let role = match annotation.role {
+                    ast::TypeRole::Nominal => hir::Role::Nominal,
+                    ast::TypeRole::Representational => hir::Role::Representational,
+                    ast::TypeRole::Phantom => hir::Role::Phantom,
+                };
+                (role, annotation.span)
+            })
+            .collect(),
+        span: declaration.span,
+    })
 }

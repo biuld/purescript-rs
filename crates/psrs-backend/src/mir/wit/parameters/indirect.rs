@@ -2,48 +2,41 @@ use super::super::super::instruction::Instruction;
 use super::super::BlockId;
 use super::super::{PendingFree, WitCallLowerer};
 use crate::BackendError;
-use crate::abi;
+use crate::abi::canonical::{CanonicalType, flatten, payload_cases};
+use crate::abi::layout::{self, MemorySlot, SlotKind, discriminant_width};
+use crate::abi::{self};
 use crate::types::{MemoryId, ValueId, ValueType};
 use psrs_span::TextRange;
 
-#[derive(Clone, Copy)]
-struct MemorySlot {
-    offset: u32,
-    kind: SlotKind,
-}
-
-#[derive(Clone, Copy)]
-enum SlotKind {
-    Byte,
-    Half,
-    Word,
-    I64,
-    F32,
-    F64,
-}
-
-struct MemoryLayout {
-    size: u32,
-    align: u32,
-    slots: Vec<MemorySlot>,
-}
-
 pub(super) fn write_parameter_record<L: WitCallLowerer>(
     lowerer: &mut L,
-    kinds: &[abi::WasiParamKind],
+    params: &[CanonicalType],
     flattened: &[ValueId],
     output: &mut Vec<ValueId>,
     frees: &mut Vec<PendingFree>,
     current: BlockId,
     span: TextRange,
-) -> Result<(), Vec<BackendError>> {
-    let layout = record_layout(kinds.iter().map(|kind| parameter_layout(kind, span)), span)?;
-    if layout.slots.len() != flattened.len() || layout.size == 0 {
+) -> Result<BlockId, Vec<BackendError>> {
+    let layout = abi::layout::record_layout(params.iter().map(abi::layout::parameter_layout))
+        .ok_or_else(|| unsupported_parameter(span))?;
+    let offsets = abi::layout::record_fields(params.iter().map(abi::layout::parameter_layout))
+        .ok_or_else(|| unsupported_parameter(span))?;
+    if layout.size == 0 || offsets.len() != params.len() {
         return Err(unsupported_parameter(span));
     }
     let address = allocate_parameter_area(lowerer, layout.size, layout.align, current, span)?;
-    for (slot, value) in layout.slots.iter().zip(flattened) {
-        store_slot(lowerer, address, *value, *slot, current, span)?;
+    let mut current = current;
+    let mut index = 0;
+    for (param, (offset, _)) in params.iter().zip(&offsets) {
+        let count = flatten(param).len();
+        let Some(values) = flattened.get(index..index + count) else {
+            return Err(unsupported_parameter(span));
+        };
+        current = store_parameter(lowerer, address, *offset, param, values, current, span)?;
+        index += count;
+    }
+    if index != flattened.len() {
+        return Err(unsupported_parameter(span));
     }
     // The parameter record is call-local: free it after the call returns.
     let size = lowerer.fresh_wit_value(ValueType::I32);
@@ -60,151 +53,141 @@ pub(super) fn write_parameter_record<L: WitCallLowerer>(
         pointer: address,
         length: size,
         align: layout.align as i32,
-        string_elements: None,
+        elements: None,
     });
     output.push(address);
-    Ok(())
+    Ok(current)
 }
 
-fn parameter_layout(
-    kind: &abi::WasiParamKind,
+/// Stores one canonical value at `offset` within the parameter record. A
+/// variant writes its discriminant and a switch stores the selected case's
+/// payload in the shared payload region using that case's own layout.
+fn store_parameter<L: WitCallLowerer>(
+    lowerer: &mut L,
+    base: ValueId,
+    offset: u32,
+    ty: &CanonicalType,
+    values: &[ValueId],
+    current: BlockId,
     span: TextRange,
-) -> Result<MemoryLayout, Vec<BackendError>> {
-    match kind {
-        abi::WasiParamKind::Boolean => scalar_layout(1, SlotKind::Byte),
-        abi::WasiParamKind::Integer32
-        | abi::WasiParamKind::Char
-        | abi::WasiParamKind::Handle(_) => scalar_layout(4, SlotKind::Word),
-        abi::WasiParamKind::IntegerNarrow { bits, .. } => {
-            let width = u32::from(*bits) / 8;
-            scalar_layout(width, slot_for_width(width))
-        }
-        abi::WasiParamKind::Scalar64 { .. } => scalar_layout(8, SlotKind::I64),
-        abi::WasiParamKind::Float32 => scalar_layout(4, SlotKind::F32),
-        abi::WasiParamKind::Float64 => scalar_layout(8, SlotKind::F64),
-        abi::WasiParamKind::Enum { cases } => {
-            let width = discriminant_width(cases.len());
-            scalar_layout(width, slot_for_width(width))
-        }
-        abi::WasiParamKind::Flags { names } => flags_layout(names.len(), span),
-        abi::WasiParamKind::List => Ok(MemoryLayout {
-            size: 8,
-            align: 4,
-            slots: vec![
+) -> Result<BlockId, Vec<BackendError>> {
+    match ty {
+        CanonicalType::Option(_) | CanonicalType::Result { .. } | CanonicalType::Variant(_) => {
+            let cases = payload_cases(ty).ok_or_else(|| unsupported_parameter(span))?;
+            let Some((tag, payload_values)) = values.split_first() else {
+                return Err(unsupported_parameter(span));
+            };
+            let payload_offset = layout::variant_payload_offset(&cases)
+                .ok_or_else(|| unsupported_parameter(span))?;
+            store_slot(
+                lowerer,
+                base,
+                *tag,
                 MemorySlot {
-                    offset: 0,
-                    kind: SlotKind::Word,
+                    offset,
+                    kind: slot_for_discriminant(cases.len()),
                 },
-                MemorySlot {
-                    offset: 4,
-                    kind: SlotKind::Word,
-                },
-            ],
-        }),
-        abi::WasiParamKind::Record { fields } => record_layout(
-            fields
+                current,
+                span,
+            )?;
+            let case_blocks = cases
                 .iter()
-                .map(|field| parameter_layout(&field.kind, span)),
-            span,
-        ),
-        abi::WasiParamKind::ValueList { .. } | abi::WasiParamKind::Unsupported => {
-            Err(unsupported_parameter(span))
+                .map(|_| lowerer.wit_new_block(Vec::new()))
+                .collect::<Vec<_>>();
+            let default = lowerer.wit_new_block(Vec::new());
+            let merge = lowerer.wit_new_block(Vec::new());
+            lowerer.wit_switch(
+                current,
+                *tag,
+                case_blocks
+                    .iter()
+                    .enumerate()
+                    .map(|(index, block)| (index as i32, *block))
+                    .collect(),
+                default,
+                span,
+            )?;
+            lowerer.wit_jump(default, merge, Vec::new(), span)?;
+            for (index, case) in cases.iter().enumerate() {
+                let block = case_blocks[index];
+                let Some(case_ty) = case else {
+                    lowerer.wit_jump(block, merge, Vec::new(), span)?;
+                    continue;
+                };
+                let count = flatten(case_ty).len();
+                let case_values = payload_values
+                    .get(..count)
+                    .ok_or_else(|| unsupported_parameter(span))?;
+                let end = store_parameter(
+                    lowerer,
+                    base,
+                    offset + payload_offset,
+                    case_ty,
+                    case_values,
+                    block,
+                    span,
+                )?;
+                lowerer.wit_jump(end, merge, Vec::new(), span)?;
+            }
+            Ok(merge)
         }
-    }
-}
-
-fn record_layout(
-    fields: impl IntoIterator<Item = Result<MemoryLayout, Vec<BackendError>>>,
-    span: TextRange,
-) -> Result<MemoryLayout, Vec<BackendError>> {
-    let mut size = 0_u32;
-    let mut align = 1_u32;
-    let mut slots = Vec::new();
-    for field in fields {
-        let field = field?;
-        size = align_to(size, field.align).ok_or_else(|| unsupported_parameter(span))?;
-        for slot in field.slots {
-            slots.push(MemorySlot {
-                offset: size
-                    .checked_add(slot.offset)
-                    .ok_or_else(|| unsupported_parameter(span))?,
-                kind: slot.kind,
-            });
-        }
-        size = size
-            .checked_add(field.size)
+        CanonicalType::Record(fields) => {
+            let offsets = layout::record_fields(
+                fields
+                    .iter()
+                    .map(|field| layout::parameter_layout(&field.ty)),
+            )
             .ok_or_else(|| unsupported_parameter(span))?;
-        align = align.max(field.align);
-    }
-    size = align_to(size, align).ok_or_else(|| unsupported_parameter(span))?;
-    Ok(MemoryLayout { size, align, slots })
-}
-
-fn scalar_layout(size: u32, kind: SlotKind) -> Result<MemoryLayout, Vec<BackendError>> {
-    Ok(MemoryLayout {
-        size,
-        align: size,
-        slots: vec![MemorySlot { offset: 0, kind }],
-    })
-}
-
-fn flags_layout(count: usize, span: TextRange) -> Result<MemoryLayout, Vec<BackendError>> {
-    let (width, words) = match count {
-        0 => {
-            return Ok(MemoryLayout {
-                size: 0,
-                align: 4,
-                slots: Vec::new(),
-            });
+            let mut index = 0;
+            let mut current = current;
+            for (field, (field_offset, _)) in fields.iter().zip(&offsets) {
+                let count = flatten(&field.ty).len();
+                let field_values = values
+                    .get(index..index + count)
+                    .ok_or_else(|| unsupported_parameter(span))?;
+                current = store_parameter(
+                    lowerer,
+                    base,
+                    offset + field_offset,
+                    &field.ty,
+                    field_values,
+                    current,
+                    span,
+                )?;
+                index += count;
+            }
+            Ok(current)
         }
-        1..=8 => (1, 1),
-        9..=16 => (2, 1),
-        17..=32 => (4, 1),
-        _ => (4, count.div_ceil(32)),
-    };
-    let kind = slot_for_width(width);
-    let mut slots = Vec::with_capacity(words);
-    for index in 0..words {
-        let offset = u32::try_from(index)
-            .ok()
-            .and_then(|index| index.checked_mul(width))
-            .ok_or_else(|| unsupported_parameter(span))?;
-        slots.push(MemorySlot { offset, kind });
-    }
-    let size = u32::try_from(words)
-        .ok()
-        .and_then(|words| words.checked_mul(width))
-        .ok_or_else(|| unsupported_parameter(span))?;
-    Ok(MemoryLayout {
-        size,
-        align: width,
-        slots,
-    })
-}
-
-fn discriminant_width(cases: usize) -> u32 {
-    const U8_MAX: usize = u8::MAX as usize;
-    const U16_MAX: usize = u16::MAX as usize;
-    match cases.saturating_sub(1) {
-        0..=U8_MAX => 1,
-        256..=U16_MAX => 2,
-        _ => 4,
+        _ => {
+            let field_layout =
+                layout::parameter_layout(ty).ok_or_else(|| unsupported_parameter(span))?;
+            if field_layout.slots.len() != values.len() {
+                return Err(unsupported_parameter(span));
+            }
+            for (slot, value) in field_layout.slots.iter().zip(values) {
+                store_slot(
+                    lowerer,
+                    base,
+                    *value,
+                    MemorySlot {
+                        offset: offset + slot.offset,
+                        kind: slot.kind,
+                    },
+                    current,
+                    span,
+                )?;
+            }
+            Ok(current)
+        }
     }
 }
 
-fn slot_for_width(width: u32) -> SlotKind {
-    match width {
+fn slot_for_discriminant(cases: usize) -> SlotKind {
+    match discriminant_width(cases) {
         1 => SlotKind::Byte,
         2 => SlotKind::Half,
-        4 => SlotKind::Word,
-        _ => unreachable!("canonical ABI discriminants use 1, 2, or 4 bytes"),
+        _ => SlotKind::Word,
     }
-}
-
-fn align_to(value: u32, align: u32) -> Option<u32> {
-    value
-        .checked_add(align.checked_sub(1)?)
-        .map(|value| value & !(align - 1))
 }
 
 fn allocate_parameter_area<L: WitCallLowerer>(
@@ -242,7 +225,7 @@ fn allocate_parameter_area<L: WitCallLowerer>(
     Ok(address)
 }
 
-fn store_slot<L: WitCallLowerer>(
+pub(crate) fn store_slot<L: WitCallLowerer>(
     lowerer: &mut L,
     address: ValueId,
     value: ValueId,

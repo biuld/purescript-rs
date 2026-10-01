@@ -95,9 +95,19 @@ fn transitive_effect_types_keep_their_closure_representation() {
         .iter()
         .find(|declaration| declaration.name == "forward")
         .unwrap();
+    // `Effect Int` keeps the imported opaque type constructor into Core; it is
+    // not rewritten to an arrow. The backend selects the closure representation
+    // by identity.
+    let Some(psrs_thir::Type::Application(constructor, _)) =
+        library.types.get(action.ty.0 as usize)
+    else {
+        panic!("`Effect Int` must remain an applied opaque type");
+    };
     assert!(matches!(
-        library.types.get(action.ty.0 as usize),
-        Some(psrs_thir::Type::Function { .. })
+        library.types.get(constructor.0 as usize),
+        Some(psrs_thir::Type::Constructor(
+            psrs_thir::TypeConstructor::User(_)
+        ))
     ));
     assert_eq!(
         main.types.get(forward.ty.0 as usize),
@@ -325,6 +335,105 @@ fn a_boolean_effect_runs_through_bind() {
     };
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"yes\n");
+}
+
+#[test]
+fn discard_defined_from_bind_sequences_effects() {
+    // The Prelude defines `discard first next = bind first next`; the direct
+    // call returns an effect closure that must be adapted from the
+    // declaration's generic body result to the instantiated `Effect Int`.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let action = discard (log \"a\") (\\_ -> log \"b\") in let result = runEffect action in 0\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"a\nb\n");
+}
+
+#[test]
+fn a_standard_apply_composes_higher_order_effects() {
+    // `apply` is defined from `bind`; its first argument is an
+    // `Effect (a -> b)`, so the inner function must cross the erased boundary
+    // without losing its runtime call signature.
+    let source = "module Main where\nimport Prelude\nmain = runEffect (apply (pure (\\x -> x + 1)) (pure 41))\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn map_composes_a_higher_order_effect() {
+    let source =
+        "module Main where\nimport Prelude\nmain = runEffect (map (\\x -> x + 1) (pure 41))\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn ado_notation_combines_effectful_arguments_in_order() {
+    // `ado x <- a; y <- b; in f x y` desugars to
+    // `apply (map (\x -> \y -> f x y) a) b`; the curried continuation crosses
+    // the erased generic function boundary.
+    let source = "module Main where\nimport Prelude\nmain = runEffect (ado\n  x <- pure 40\n  y <- pure 2\n  in x + y)\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn ado_notation_runs_effects_left_to_right() {
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = runEffect (ado\n  first <- log \"first\"\n  second <- log \"second\"\n  in first)\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"first\nsecond\n");
+}
+
+#[test]
+fn an_effect_of_a_function_returns_a_separate_closure() {
+    // `Effect (Int -> Int)` is a closure whose result is a function value, not
+    // an effect that has been flattened into two parameters. Binding it and
+    // applying the returned function must still produce 42.
+    let source = "module Main where\nimport Prelude\nfoo :: Effect (Int -> Int)\nfoo = pure (\\x -> x + 1)\nmain = runEffect (bind foo (\\f -> pure (f 41)))\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn an_effect_of_an_effect_runs_the_inner_effect() {
+    // `Effect (Effect Int)` stores one effect closure as the value of another.
+    // The inner closure must survive the outer bind and run exactly here.
+    let source = "module Main where\nimport Prelude\nnested :: Effect (Effect Int)\nnested = pure (pure 42)\nmain = runEffect (bind nested (\\inner -> inner))\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
+fn a_polymorphic_effect_combinator_runs() {
+    // A user-defined higher-order combinator over an erased `Effect a` value
+    // must compose through the closure representation.
+    let source = "module Main where\nimport Prelude\nrepeatAction :: forall a. Effect a -> Effect a\nrepeatAction action = bind action (\\_ -> action)\nmain = runEffect (repeatAction (pure 42))\n";
+    let Some(output) = run_effect_program(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
 }
 
 fn run_effect_program(source: &str) -> Option<std::process::Output> {

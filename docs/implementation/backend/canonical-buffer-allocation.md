@@ -156,7 +156,7 @@ ALC-06:
 - ALC-06 outcome is a fixture-verified synthesis path. The only current
   production export, `wasi:cli/run`, returns no aggregate, and no source
   construct names a non-scalar export, so `assert_no_known_post_returns` keeps
-  the descriptor lists empty. Wiring a real export (the `SourceType::Array` /
+  the descriptor lists empty. Wiring a real export (the `Array` /
   aggregate source-type work tracked by ABI-08 and BE-19, or a component export
   declaration) will populate those lists, at which point the synthesis already
   tested here runs on the production path.

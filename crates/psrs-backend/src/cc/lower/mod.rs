@@ -1,10 +1,10 @@
-use super::layout::scalar_type;
+use super::layout::{scalar_type, unquantified_type};
 use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
 };
 use crate::{BackendError, BackendWarning};
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Type, dictionary::ClassLayout};
+use psrs_core::{Expr, ExprKind, Module as CoreModule, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -21,51 +21,14 @@ mod lambda;
 mod letrec;
 mod record;
 mod scalar;
+mod symbols;
 use call::ApplicationLowering;
-pub(in crate::cc) use conversion::ErasedFieldRecovery;
+pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 use letrec::LetLowering;
 use scalar::{lower_binary_op, lower_unary_op};
-
-/// Allocates generated callable symbols without relying on source offsets.
-///
-/// Linked Core keeps source declaration symbols from each input module but
-/// lowers generated functions after linking. A shared allocator therefore
-/// reserves every existing callable symbol and allocates within the
-/// originating source module so diagnostics retain their source ownership.
-pub(super) struct GeneratedSymbolAllocator {
-    used: HashSet<SymbolId>,
-    next: HashMap<ModuleId, u32>,
-}
-
-impl GeneratedSymbolAllocator {
-    pub(super) fn new(module: &CoreModule) -> Self {
-        let used = module
-            .declarations
-            .iter()
-            .map(|declaration| declaration.symbol)
-            .chain(module.externals.iter().map(|external| external.symbol))
-            .collect();
-        Self {
-            used,
-            next: HashMap::new(),
-        }
-    }
-
-    pub(super) fn fresh(&mut self, module: ModuleId) -> SymbolId {
-        let next = self.next.entry(module).or_default();
-        loop {
-            let symbol = SymbolId::new(module, *next);
-            *next = next
-                .checked_add(1)
-                .expect("generated symbol index space exhausted");
-            if self.used.insert(symbol) {
-                return symbol;
-            }
-        }
-    }
-}
+pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
@@ -95,6 +58,7 @@ pub(super) fn lower_function(
         next_value: 0,
         values: Vec::new(),
         locals: HashMap::new(),
+        local_types: HashMap::new(),
         signatures: context.signatures,
         representations: context.representations,
         module,
@@ -113,12 +77,60 @@ pub(super) fn lower_function(
         generated_symbols: Rc::clone(&context.generated_symbols),
         owner: declaration.symbol.module,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut value = &declaration.value;
+    let mut declaration_type = unquantified_type(module, declaration.ty);
     let mut parameters = Vec::new();
+    if let Some((closure_parameters, _)) = psrs_core::closure_parts(&module.types, declaration_type)
+    {
+        // When the value is the closure function, its fixed parameter list
+        // belongs to this function and the result is returned as a value. An
+        // alias of an existing closure is returned unchanged.
+        let count = closure_parameters.len();
+        let mut peeled = 0;
+        for _ in 0..count {
+            let ExprKind::Lambda { binder, body } = &value.kind else {
+                break;
+            };
+            let ty = scalar_type(
+                module,
+                binder.ty,
+                binder.span,
+                context.enum_types,
+                context.aggregate_types,
+                context.newtype_ids,
+                context.array_types,
+                context.record_types,
+                context.function_types,
+            )?;
+            let id = state.fresh(ty);
+            state.locals.insert(binder.id, id);
+            state.local_types.insert(binder.id, binder.ty);
+            parameters.push(id);
+            value = body;
+            peeled += 1;
+        }
+        if peeled != 0 && peeled != count {
+            return Err(vec![
+                BackendError::new(
+                    "P8 closure conversion",
+                    declaration.span,
+                    "closure declaration is missing a parameter",
+                )
+                .with_module(declaration.symbol.module),
+            ]);
+        }
+    }
     while let ExprKind::Lambda { binder, body } = &value.kind {
+        // Peel only ordinary function arrows. A closure in the result is a
+        // value of this function, lowered as a nested closure by `lower_value`.
+        if psrs_core::closure_parts(&module.types, declaration_type).is_some() {
+            break;
+        }
+        let Some((_, result)) = psrs_core::arrow_parts(&module.types, declaration_type) else {
+            break;
+        };
         let ty = scalar_type(
             module,
             binder.ty,
@@ -132,8 +144,16 @@ pub(super) fn lower_function(
         )?;
         let id = state.fresh(ty);
         state.locals.insert(binder.id, id);
+        state.local_types.insert(binder.id, binder.ty);
         parameters.push(id);
+        declaration_type = result;
         value = body;
+        // A quantified result is returned as its own polymorphic closure. Do
+        // not peel a syntactic lambda in that result into this function's
+        // parameter list.
+        if psrs_core::forall_parts(&module.types, declaration_type).is_some() {
+            break;
+        }
     }
     let mut assignments = Vec::new();
     let result = state.lower_value(value, &mut assignments)?;
@@ -173,6 +193,11 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) next_value: u32,
     pub(super) values: Vec<ValueDecl>,
     pub(super) locals: HashMap<LocalId, ValueId>,
+    /// The declared source type of every local binder in scope. Erased
+    /// adaptation is derived from this scope rather than from a side table:
+    /// a use of a local whose lowered representation is erased is adapted from
+    /// the binder's declared type to the use type.
+    pub(super) local_types: HashMap<LocalId, psrs_core::TypeId>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
     pub(super) module: &'a CoreModule,
@@ -191,7 +216,6 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) generated_symbols: Rc<RefCell<GeneratedSymbolAllocator>>,
     pub(super) owner: ModuleId,
     pub(super) warnings: Vec<BackendWarning>,
-    pub(super) erased_function_types: HashMap<ValueId, psrs_core::TypeId>,
     pub(super) generated: Vec<Function>,
 }
 
@@ -219,10 +243,7 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        if matches!(
-            self.module.types.get(expression.ty.0 as usize),
-            Some(Type::Record(_))
-        ) {
+        if self.module.is_record_type(expression.ty) {
             let layout =
                 ClassLayout::from_record_type(self.module, expression.ty).map_err(|message| {
                     vec![BackendError::new(
@@ -243,13 +264,22 @@ impl FunctionLowerer<'_> {
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
         match &expression.kind {
-            ExprKind::Local(local) => self.locals.get(local).copied().ok_or_else(|| {
-                vec![BackendError::new(
-                    "P8 closure conversion",
+            ExprKind::Local(local) => {
+                let value = self.locals.get(local).copied().ok_or_else(|| {
+                    vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "local value is unavailable before its binding is lowered",
+                    )]
+                })?;
+                self.adapt_erased_function_use(
+                    *local,
+                    value,
+                    expression.ty,
                     expression.span,
-                    "local value is unavailable before its binding is lowered",
-                )]
-            }),
+                    assignments,
+                )
+            }
             ExprKind::Global(function) => self.lower_global(expression, *function, ty, assignments),
             ExprKind::Integer(value) => {
                 let destination = self.fresh(ty);
@@ -298,6 +328,36 @@ impl FunctionLowerer<'_> {
             }
             ExprKind::FieldAccess { record, field } => {
                 self.lower_field_access(expression, record, field, ty, assignments)
+            }
+            ExprKind::RepresentationCast {
+                value,
+                source_type,
+                target_type,
+            } => {
+                if *source_type != value.ty || *target_type != expression.ty {
+                    return Err(vec![BackendError::new(
+                        "P8 closure conversion",
+                        expression.span,
+                        "representation cast boundary does not match its typed value",
+                    )]);
+                }
+                let source_shape = self.value_shape(*source_type, expression.span)?;
+                let value = self.lower_value(value, assignments)?;
+                let conversion = self.typed_conversion(
+                    *source_type,
+                    *target_type,
+                    source_shape,
+                    ty,
+                    expression.span,
+                )?;
+                Ok(self.emit_conversion(
+                    value,
+                    source_shape,
+                    ty,
+                    conversion,
+                    expression.span,
+                    assignments,
+                ))
             }
             ExprKind::ArrayIndex { array, index } => {
                 let Some(representation) = self.array_types.get(&array.ty).copied() else {

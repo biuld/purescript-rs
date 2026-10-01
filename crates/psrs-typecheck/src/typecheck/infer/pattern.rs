@@ -57,25 +57,26 @@ impl Checker {
             }
             hir::PatternKind::Record { fields } => {
                 let expected = self.resolve_type(expected.clone());
-                let record_fields = match &expected {
-                    InferType::Record(record) => record.fields.clone(),
-                    InferType::Variable(_) => {
-                        let fields = fields
-                            .iter()
-                            .map(|(label, _)| (label.clone(), self.fresh()))
-                            .collect::<Vec<_>>();
-                        let record = InferRecord::closed(fields);
-                        self.unify(expected.clone(), InferType::Record(record.clone()), span);
-                        record.fields
-                    }
-                    _ => {
-                        self.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::UnsupportedExpression,
-                            span,
-                            "record pattern requires a concrete record type",
-                        ));
-                        return None;
-                    }
+                let record_fields = if let Some(row) = record_row(&expected) {
+                    self.flatten_row(row).fields
+                } else if matches!(expected, InferType::Variable(_)) {
+                    let fields = fields
+                        .iter()
+                        .map(|(label, _)| (label.clone(), self.fresh()))
+                        .collect::<Vec<_>>();
+                    self.unify(
+                        expected.clone(),
+                        record_type(fields.clone(), InferType::RowEmpty),
+                        span,
+                    );
+                    fields
+                } else {
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::UnsupportedExpression,
+                        span,
+                        "record pattern requires a concrete record type",
+                    ));
+                    return None;
                 };
                 let mut labels = HashSet::new();
                 let mut lowered = Vec::with_capacity(fields.len());

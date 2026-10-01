@@ -16,8 +16,35 @@ mod tests;
 
 use captures::module_has_integer_capture;
 pub(crate) use functions::function_signature;
-use scalar::field_storage_shape;
-pub(super) use scalar::{declaration_shape, scalar_type};
+pub(super) use scalar::{declaration_shape, is_abstract_type, scalar_type};
+
+/// The runtime value shape of a Core primitive constructor, keyed by the
+/// constructor. This is the single mapping from a source primitive to its
+/// runtime representation; every layout site consults it rather than matching
+/// the scalar node itself.
+pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<ValueShape> {
+    Some(match constructor {
+        TypeConstructor::Int | TypeConstructor::Char | TypeConstructor::Unit => ValueShape::Integer,
+        TypeConstructor::String => ValueShape::String,
+        TypeConstructor::Number => ValueShape::Number,
+        TypeConstructor::Boolean => ValueShape::Boolean,
+        TypeConstructor::Function
+        | TypeConstructor::Record
+        | TypeConstructor::Array
+        | TypeConstructor::User(_) => {
+            return None;
+        }
+    })
+}
+
+/// The primitive shape of a Core type when its head is a primitive constructor.
+pub(super) fn primitive_shape_of(module: &CoreModule, id: TypeId) -> Option<ValueShape> {
+    let id = unquantified_type(module, id);
+    match module.types.get(id.0 as usize)? {
+        Type::Constructor(constructor) => primitive_value_shape(*constructor),
+        _ => None,
+    }
+}
 
 pub(super) fn enum_type_ids(
     module: &CoreModule,
@@ -71,13 +98,13 @@ fn layoutable_field_type_inner(
     newtype_ids: &HashSet<HirTypeId>,
     visiting: &mut HashSet<HirTypeId>,
 ) -> bool {
-    if depends_on_type_variable(module, id) {
+    if is_callable_type(module, id) || depends_on_type_variable(module, id) {
+        return true;
+    }
+    if primitive_shape_of(module, id).is_some() {
         return true;
     }
     match module.types.get(id.0 as usize) {
-        Some(Type::I32 | Type::Boolean | Type::F64 | Type::Char | Type::String | Type::Unit) => {
-            true
-        }
         Some(Type::Constructor(TypeConstructor::User(type_id)))
             if newtype_ids.contains(type_id) =>
         {
@@ -92,13 +119,40 @@ fn layoutable_field_type_inner(
             result
         }
         Some(Type::Constructor(TypeConstructor::User(_))) => true,
+        // A closed record has its own representation handle, so a variant case
+        // may carry one as a referenced payload (WIT `datetime`, socket
+        // addresses, and directory entries are records). An open row has no
+        // fixed layout.
+        Some(_) if module.is_record_type(id) => !module.record_is_open(id).unwrap_or(false),
         Some(Type::Variable(_))
-        | Some(Type::Constructor(TypeConstructor::Array))
-        | Some(Type::Record(_))
-        | Some(Type::OpenRecord { .. })
-        | Some(Type::Function { .. })
+        | Some(Type::ForAll { .. })
+        | Some(Type::Closure { .. })
+        | Some(Type::Constructor(_))
+        | Some(Type::RowEmpty)
+        | Some(Type::RowExtend { .. })
         | None => false,
-        Some(Type::Application(_, _)) => array_element_type(module, id).is_some(),
+        Some(Type::Application(_, _)) => {
+            if array_element_type(module, id).is_some() {
+                return true;
+            }
+            // An applied newtype such as `Resource a` erases to its single
+            // field, so a variant case may carry it as a storage field.
+            let Some(type_id) = user_type_id(module, id) else {
+                return false;
+            };
+            if !newtype_ids.contains(&type_id) {
+                return false;
+            }
+            let Some(inner) = newtype_field_type(module, type_id) else {
+                return false;
+            };
+            if !visiting.insert(type_id) {
+                return false;
+            }
+            let result = layoutable_field_type_inner(module, inner, newtype_ids, visiting);
+            visiting.remove(&type_id);
+            result
+        }
     }
 }
 
@@ -138,7 +192,9 @@ pub(super) fn type_layout(
     } else {
         None
     };
-    let boxed_number_type = if module.types.iter().any(|ty| matches!(ty, Type::F64)) {
+    let boxed_number_type = if module.types.iter().any(|ty| {
+        matches!(ty, Type::Constructor(c) if primitive_value_shape(*c) == Some(ValueShape::Number))
+    }) {
         let id = representations.reserve();
         representations.set(
             id,
@@ -182,11 +238,13 @@ pub(super) fn type_layout(
     for type_id in aggregate_ids {
         let id = representations.reserve();
         let mut cases = Vec::new();
-        for constructor in module
+        let mut constructors = module
             .constructors
             .iter()
             .filter(|constructor| constructor.type_id == type_id)
-        {
+            .collect::<Vec<_>>();
+        constructors.sort_by_key(|constructor| constructor.tag);
+        for constructor in constructors {
             if constructor.field_types.len() != constructor.field_count {
                 return Err(vec![BackendError::new(
                     "P8 closure conversion",
@@ -199,7 +257,7 @@ pub(super) fn type_layout(
                 .field_types
                 .iter()
                 .map(|field| {
-                    field_storage_shape(
+                    scalar_type(
                         module,
                         *field,
                         module.span,
@@ -254,6 +312,7 @@ pub(super) fn newtype_field_type(module: &CoreModule, type_id: HirTypeId) -> Opt
 }
 
 pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTypeId> {
+    id = unquantified_type(module, id);
     loop {
         match module.types.get(id.0 as usize)? {
             Type::Constructor(TypeConstructor::User(type_id)) => return Some(*type_id),
@@ -263,11 +322,73 @@ pub(super) fn user_type_id(module: &CoreModule, mut id: TypeId) -> Option<HirTyp
     }
 }
 
+/// Whether a Core type is a callable closure value: an ordinary function arrow
+/// or a closure born with a fixed parameter list.
+pub(super) fn is_callable_type(module: &CoreModule, id: TypeId) -> bool {
+    let id = unquantified_type(module, id);
+    psrs_core::arrow_parts(&module.types, id).is_some()
+        || psrs_core::closure_parts(&module.types, id).is_some()
+}
+
+/// Derives the calling convention of a value.
+///
+/// A closure contributes exactly the parameter list it was born with. Its
+/// result stays a value, even when that value is a function or another
+/// closure. An ordinary function flattens every arrow: the parameters are the
+/// arrow domains and the result is the codomain. A quantifier in a codomain
+/// stops the walk so that polymorphic result stays a separate closure.
+pub(crate) fn function_arrow_parameters(module: &CoreModule, id: TypeId) -> (Vec<TypeId>, TypeId) {
+    let id = unquantified_type(module, id);
+    if let Some((parameters, result)) = psrs_core::closure_parts(&module.types, id) {
+        return (parameters.to_vec(), result);
+    }
+    let mut parameters = Vec::new();
+    let mut current = id;
+    while let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, current) {
+        parameters.push(parameter);
+        current = result;
+        // A quantifier in the codomain starts a new polymorphic closure
+        // boundary. Keep that type intact as the result value; unwrapping it
+        // there would merge its arrows into the current closure's arity.
+        if psrs_core::forall_parts(&module.types, current).is_some() {
+            break;
+        }
+    }
+    (parameters, current)
+}
+
+/// Returns the runtime-facing body of a type after removing quantifiers that
+/// wrap the value itself. A quantifier reached in an arrow's codomain is kept
+/// by [`function_arrow_parameters`] as the type of a returned closure.
+pub(crate) fn unquantified_type(module: &CoreModule, mut id: TypeId) -> TypeId {
+    let mut visited = HashSet::new();
+    while visited.insert(id)
+        && let Some((_, body)) = psrs_core::forall_parts(&module.types, id)
+    {
+        id = body;
+    }
+    id
+}
+
+/// Finds the normalized closure signature, following leading `ForAll`
+/// wrappers when no scheme-specific entry is present.
+pub(crate) fn function_type_signature(
+    module: &CoreModule,
+    function_types: &HashMap<TypeId, SignatureId>,
+    id: TypeId,
+) -> Option<SignatureId> {
+    function_types
+        .get(&id)
+        .or_else(|| function_types.get(&unquantified_type(module, id)))
+        .copied()
+}
+
 pub(super) fn layout_error(span: TextRange, message: &'static str) -> Vec<BackendError> {
     vec![BackendError::new("P8 closure conversion", span, message)]
 }
 
 pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<TypeId> {
+    let id = unquantified_type(module, id);
     let Type::Application(function, element) = module.types.get(id.0 as usize)? else {
         return None;
     };
@@ -284,20 +405,20 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
         }
         let result = match module.types.get(id.0 as usize) {
             Some(Type::Variable(_)) => true,
-            Some(Type::Application(function, argument))
-            | Some(Type::Function {
-                parameter: function,
-                result: argument,
-            }) => visit(module, *function, visiting) || visit(module, *argument, visiting),
-            Some(Type::Record(fields)) => fields
-                .iter()
-                .any(|(_, field)| visit(module, *field, visiting)),
-            Some(Type::OpenRecord { fields, tail }) => {
-                visit(module, *tail, visiting)
-                    || fields
-                        .iter()
-                        .any(|(_, field)| visit(module, *field, visiting))
+            Some(Type::Application(function, argument)) => {
+                visit(module, *function, visiting) || visit(module, *argument, visiting)
             }
+            Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
+            Some(Type::RowExtend { ty, tail, .. }) => {
+                visit(module, *ty, visiting) || visit(module, *tail, visiting)
+            }
+            Some(Type::Closure { parameters, result }) => {
+                parameters
+                    .iter()
+                    .any(|parameter| visit(module, *parameter, visiting))
+                    || visit(module, *result, visiting)
+            }
+            Some(Type::RowEmpty) => false,
             _ => false,
         };
         visiting.remove(&id);

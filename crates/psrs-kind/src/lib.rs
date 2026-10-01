@@ -7,8 +7,8 @@
 mod check;
 mod kind;
 
-pub use check::check_module;
-pub use kind::{Kind, KindDiagnostic, KindScheme};
+pub use check::{check_module, check_roles};
+pub use kind::{CheckedKindEnv, Kind, KindDiagnostic, KindScheme};
 
 #[cfg(test)]
 mod tests;

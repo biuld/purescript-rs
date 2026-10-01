@@ -19,16 +19,18 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
     let true_symbol = SymbolId::new(module_id, 1);
     let false_symbol = SymbolId::new(module_id, 2);
     let module = Module {
+        type_names: Vec::new(),
         id: module_id,
         name: "NewtypeDecisionTest".into(),
         externals: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(wrapper_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),
-            Type::I32,
+            Type::Constructor(psrs_core::TypeConstructor::Int),
         ],
         newtype_ids: vec![wrapper_type],
         opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
         constructors: vec![
             ConstructorInfo {
                 symbol: wrapper,
@@ -37,6 +39,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 0,
                 field_count: 1,
                 field_types: vec![psrs_core::TypeId(1)],
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: true_symbol,
@@ -45,6 +48,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 0,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
             ConstructorInfo {
                 symbol: false_symbol,
@@ -53,6 +57,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
                 tag: 1,
                 field_count: 0,
                 field_types: Vec::new(),
+                parameters: Vec::new(),
             },
         ],
         declarations: Vec::new(),
@@ -132,7 +137,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         generated_symbols,
         owner: module_id,
         warnings: Vec::new(),
-        erased_function_types: HashMap::new(),
+        local_types: HashMap::new(),
         generated: Vec::new(),
     };
     let mut assignments = Vec::new();

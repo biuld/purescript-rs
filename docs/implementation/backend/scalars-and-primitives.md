@@ -120,7 +120,7 @@ SP-02:
   Implementation: cc/representation.rs adds `ValueShape::String`;
     cc/layout/scalar.rs (`scalar_type`, `declaration_shape`) and cc/mod.rs
     (`scalar_source_type`, `source_shape_matches`) map `Type::String` /
-    `SourceType::String` to it; cc/verify/ops/mod.rs requires `StringConstant`
+    `Type::String` to it; cc/verify/ops/mod.rs requires `StringConstant`
     to produce `String`; mir/layout/mod.rs reserves the GC `$string`
     `(array (mut i16))` and maps `String` to `(ref $string)`;
     mir/literals.rs plus `ArrayNewData` materialize literals with

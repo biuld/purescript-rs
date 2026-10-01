@@ -1,46 +1,138 @@
-use super::super::super::layout::depends_on_type_variable;
+use super::super::super::layout::{function_arrow_parameters, unquantified_type};
 use super::super::super::{
     Assignment, AssignmentKind, RefShape, Reference, SignatureId, ValueConversion, ValueId,
     ValueShape,
 };
 use super::super::FunctionLowerer;
-use psrs_core::{Expr, ExprKind, Module as CoreModule, Type};
+use psrs_core::{Expr, ExprKind, Module as CoreModule};
 use psrs_hir::SymbolId;
 use psrs_span::TextRange;
+use std::collections::HashMap;
 
-pub(super) fn collect_application(expression: &Expr) -> (&Expr, Vec<&Expr>) {
+pub(super) fn collect_application<'a>(
+    module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
+    expression: &'a Expr,
+) -> (&'a Expr, Vec<&'a Expr>) {
     let mut arguments = Vec::new();
     let mut head = expression;
     while let ExprKind::Application(function, argument) = &head.kind {
         arguments.push(argument.as_ref());
         head = function;
+        // A saturated closure returns its value. Further arguments belong to
+        // that value when the use-site signature does not already include
+        // them, which is how an effect's result stays a separate call.
+        if saturated_callable(module, local_types, head) {
+            break;
+        }
+        // A polymorphic result is a separate closure value. Stop here so an
+        // expression like `make 0 42`, where `make 0` returns `forall a. a ->
+        // a`, lowers as two calls with the second using that closure's own
+        // signature.
+        if application_returns_forall(module, local_types, head) {
+            break;
+        }
     }
     arguments.reverse();
     (head, arguments)
 }
 
-pub(in crate::cc::lower) fn is_erased_value_type(value_type: ValueShape) -> bool {
-    matches!(
-        value_type,
-        ValueShape::Reference(Reference {
-            nullable: false,
-            heap: RefShape::Erased,
-        })
-    )
+/// A call's result type can be instantiated at the use site, so its expression
+/// type may no longer contain the quantifier that marks the declaration's
+/// closure boundary. Recover that boundary from the raw callee scheme when an
+/// application spine reaches the declaration's full ordinary arity.
+fn application_returns_forall(
+    module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
+    expression: &Expr,
+) -> bool {
+    if psrs_core::forall_parts(&module.types, expression.ty).is_some() {
+        return true;
+    }
+    let mut root = expression;
+    let mut applied = 0usize;
+    while let ExprKind::Application(function, _) = &root.kind {
+        root = function;
+        applied += 1;
+    }
+    let source_type = match &root.kind {
+        ExprKind::Global(symbol) => module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.symbol == *symbol)
+            .map(|declaration| declaration.ty),
+        ExprKind::Local(local) => local_types.get(local).copied().or(Some(root.ty)),
+        _ => Some(root.ty),
+    };
+    let Some(source_type) = source_type else {
+        return false;
+    };
+    let mut remaining = applied;
+    let mut current = source_type;
+    for _ in 0..=module.types.len() {
+        let (parameters, result) = function_arrow_parameters(module, current);
+        if remaining == parameters.len() {
+            return psrs_core::forall_parts(&module.types, result).is_some();
+        }
+        if remaining < parameters.len() || parameters.is_empty() {
+            return false;
+        }
+        remaining -= parameters.len();
+        let Some((_, body)) = psrs_core::forall_parts(&module.types, result) else {
+            return false;
+        };
+        current = body;
+    }
+    false
 }
 
-pub(super) fn is_function_type(module: &CoreModule, type_id: psrs_core::TypeId) -> bool {
-    matches!(
-        module.types.get(type_id.0 as usize),
-        Some(Type::Function { .. })
-    )
+/// Whether `expression` is a call that has already received every parameter of
+/// its callee. The arguments peeled outside it belong to the returned value.
+fn saturated_callable(
+    module: &CoreModule,
+    local_types: &HashMap<psrs_hir::LocalId, psrs_core::TypeId>,
+    expression: &Expr,
+) -> bool {
+    let mut root = expression;
+    let mut applied = 0usize;
+    while let ExprKind::Application(function, _) = &root.kind {
+        root = function;
+        applied += 1;
+    }
+    let scheme_arity = match &root.kind {
+        ExprKind::Global(symbol) => declaration_parameter_types(module, *symbol).len(),
+        ExprKind::Local(local) => local_types
+            .get(local)
+            .copied()
+            .map(|ty| function_arrow_parameters(module, ty).0.len())
+            .unwrap_or(0),
+        _ => function_arrow_parameters(module, root.ty).0.len(),
+    };
+    // Equality, not a minimum: applications past the scheme belong to the
+    // returned value and stay in this spine until the peel reaches the
+    // scheme (`make 0` returns `Dict -> Int -> Int`; both the dictionary
+    // and `42` are that result's arguments).
+    if !(scheme_arity > 0 && applied == scheme_arity && is_function_type(module, expression.ty)) {
+        return false;
+    }
+    // A use site can instantiate a result variable at a function type and
+    // flatten those arrows into this callee (`(id id) 42`). Those arguments
+    // belong to the eta-expanded call. A closure result is not flattened, so
+    // once the use-site arity is reached the following arguments are a
+    // separate call (`next (first token) token`).
+    let use_arity = function_arrow_parameters(module, root.ty).0.len();
+    applied >= use_arity
 }
 
-pub(in crate::cc::lower) fn is_generic_function_type(
+/// Whether a value is a callable closure: a source arrow or a closure created
+/// with a fixed parameter list.
+pub(in crate::cc::lower) fn is_function_type(
     module: &CoreModule,
     type_id: psrs_core::TypeId,
 ) -> bool {
-    is_function_type(module, type_id) && depends_on_type_variable(module, type_id)
+    let type_id = unquantified_type(module, type_id);
+    psrs_core::arrow_parts(&module.types, type_id).is_some()
+        || psrs_core::closure_parts(&module.types, type_id).is_some()
 }
 
 pub(super) fn closure_value_type() -> ValueShape {
@@ -68,15 +160,13 @@ pub(super) fn declaration_parameter_types(
     else {
         return Vec::new();
     };
-    let mut parameters = Vec::new();
-    let mut type_id = declaration.ty;
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    parameters
+    function_arrow_parameters(module, declaration.ty).0
 }
 
+/// The value type a declaration produces after its ordinary arguments: its
+/// declared type with every arrow peeled, stopping before a callable
+/// constructor's hidden parameters. For `discard :: Effect a -> (a -> Effect
+/// b) -> Effect b` this is `Effect b`, not the value `b` inside the effect.
 pub(super) fn declaration_result_type(
     module: &CoreModule,
     symbol: SymbolId,
@@ -85,23 +175,17 @@ pub(super) fn declaration_result_type(
         .declarations
         .iter()
         .find(|declaration| declaration.symbol == symbol)?;
-    let mut type_id = declaration.ty;
-    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-        type_id = *result;
-    }
-    Some(type_id)
+    Some(function_arrow_parameters(module, declaration.ty).1)
 }
 
-/// The final result type of a (possibly curried) function type. A non-function
-/// type is its own result.
+/// The result type of a (possibly curried) function type: the value produced
+/// after the last ordinary argument, stopping before an effect's returned
+/// function's own arguments. A non-function type is its own result.
 pub(super) fn function_result_type(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> psrs_core::TypeId {
-    while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-        type_id = *result;
-    }
-    type_id
+    function_arrow_parameters(module, type_id).1
 }
 
 pub(super) fn callable_parameter_types(
@@ -125,38 +209,25 @@ pub(super) fn callable_result_type(
     callable_type: psrs_core::TypeId,
 ) -> Option<psrs_core::TypeId> {
     declaration_result_type(module, symbol).or_else(|| {
-        let mut type_id = callable_type;
-        while let Some(Type::Function { result, .. }) = module.types.get(type_id.0 as usize) {
-            type_id = *result;
-        }
-        module.types.get(type_id.0 as usize).map(|_| type_id)
+        let (_, result) = function_arrow_parameters(module, callable_type);
+        module.types.get(result.0 as usize).map(|_| result)
     })
 }
 
 fn function_parameter_types(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> Vec<psrs_core::TypeId> {
-    let mut parameters = Vec::new();
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    parameters
+    function_arrow_parameters(module, type_id).0
 }
 
 /// The source parameter and result types of a function-typed value, used to
 /// adapt concrete arguments and results across an erased method call.
 pub(super) fn function_value_types(
     module: &CoreModule,
-    mut type_id: psrs_core::TypeId,
+    type_id: psrs_core::TypeId,
 ) -> (Vec<psrs_core::TypeId>, psrs_core::TypeId) {
-    let mut parameters = Vec::new();
-    while let Some(Type::Function { parameter, result }) = module.types.get(type_id.0 as usize) {
-        parameters.push(*parameter);
-        type_id = *result;
-    }
-    (parameters, type_id)
+    function_arrow_parameters(module, type_id)
 }
 
 pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) -> bool {
@@ -167,7 +238,8 @@ pub(super) fn conversion_reconstructs_aggregate(conversion: &ValueConversion) ->
         | ValueConversion::BoxScalar { .. }
         | ValueConversion::UnboxScalar { .. }
         | ValueConversion::EraseReference
-        | ValueConversion::RecoverReference { .. } => false,
+        | ValueConversion::RecoverReference { .. }
+        | ValueConversion::FunctionAdapter { .. } => false,
     }
 }
 
