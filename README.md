@@ -14,12 +14,12 @@ breakdown, including what remains in each layer, is
 
 | Gate | Measured | Scope |
 | --- | --- | --- |
-| L0/L1 lexing, layout, parsing | 908/908 | non-FFI `layout`, `passing`, `failing`, `warning` files |
+| L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
 | L2 resolution | 54/70 failing, 36/413 passing | official `errorCode`s |
 | L3 kinds | 27/48 failing | official kind `errorCode`s |
 | L4 types | not measured | no scoreboard exists |
 | L5 classes | not measured | no scoreboard exists |
-| L6/M7 runtime | not measured | no corpus program runs end to end yet |
+| L6/M7 runtime | 0/413 passing | no non-FFI corpus program compiles, validates, and runs yet |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 ```sh
@@ -27,8 +27,10 @@ PSRS_ORACLE=annotations \
   cargo test -p psrs-driver --test suite -- --ignored --nocapture
 ```
 
-The scoreboard needs `purs` for the layout and parse boards and skips without
-it, so it is opt-in and never blocks `cargo test --workspace`.
+The scoreboard needs `purs` for the layout and parse boards, and `wasmtime` for
+the runtime board. Each board skips cleanly without its tool and fails under
+`PSRS_REQUIRE_WASMTIME=1`, so they are opt-in and never block
+`cargo test --workspace`.
 
 The compiler currently:
 
