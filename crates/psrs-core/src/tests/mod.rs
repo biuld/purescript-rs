@@ -1,6 +1,7 @@
 use super::*;
 use psrs_hir::{LocalId, ModuleId, SymbolId};
 
+mod effects;
 mod link;
 mod rank_n;
 mod rows;

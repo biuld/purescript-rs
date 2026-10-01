@@ -5,12 +5,13 @@
 **Design:** [Effects](../../design/backend/fp/effects.md)
 
 **Progress:** `lower_effects` replaces the opaque `Prelude.Effect` application
-with a one-parameter closure after Typed Core. EF-01 through EF-10 are verified
-on that encoding, including a saturated `log "message"` and a partial
-application of an effect-returning function. EF-11 stays in progress: signature
-mismatches are rejected, and no later pass checks that a closure's parameter
-list is the token. `callable_types` remains on the typed module and is always
-empty.
+with a one-parameter closure after Typed Core and records every closure it
+wrote. `EffectLowering::verify` rejects a recorded closure whose parameter list
+is not `[Token]` or whose result is not the lowered effect result. The executed
+negative fixtures call that check after replacing the node; they stay in Core.
+EF-01 through EF-11 are verified on that encoding, including a saturated
+`log "message"` and a partial application of an effect-returning function.
+`callable_types` remains on the typed module and is always empty.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21, with BE-02 and BE-26 at closure/library boundaries.
 
@@ -43,7 +44,7 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 | EF-08 | Polymorphic `Effect a` uses the normal erasure, boxing and closure adapters without exposing the token. | Execute effects returning Int, Number, String and a GC aggregate through generic functions; inspect signatures and recovered values. | Verified |
 | EF-09 | Linked source modules forward Effect values without running them or granting untrusted modules runner privilege. | Producer/consumer modules with delayed execution, repeated forwarding, and unauthorized `runEffect` attempt. | Verified |
 | EF-10 | Wasm/component entry executes only the selected trusted action and preserves WASI call order, results, and failures. | Mandatory Wasmtime component execution with stdout/stderr or another observable import, call counts, exit behavior, and valid binary. | Verified |
-| EF-11 | A representation closure whose parameter list is not `[Token]`, or whose result is not the lowered effect result, fails verification before encoding. | Negative fixtures for the closure emitted by representation lowering, including an `Effect (a -> b)` closure that was flattened to arity two. | In progress |
+| EF-11 | A representation closure whose parameter list is not `[Token]`, or whose result is not the lowered effect result, fails verification before encoding. | Negative fixtures for the closure emitted by representation lowering, including an `Effect (a -> b)` closure that was flattened to arity two. | Verified |
 
 ## Vertical execution order
 
@@ -66,14 +67,15 @@ run `cargo fmt --all --check`, `cargo test --workspace`, and
 `cargo clippy --workspace --all-targets -- -D warnings`, plus focused runtime
 cases. Close only when all rows and the complete present-tense design pass.
 
-Records (one test may support several IDs). Revision: `95aebe3` plus the
-uncommitted changes described here; Wasmtime 49.0.0 (17830bd3c 2026-09-21).
+Records (one test may support several IDs). Revision: `253809f` plus the
+uncommitted changes described here; Wasmtime 49.0.1 (46c23a87d 2026-09-24).
+A row's own `Revision` line records when that row was first verified.
 
 ```text
 EF-01:
   Implementation: stdlib/lib/Prelude.purs (`foreign import data Effect`,
     `psrs:effect#pure`, `psrs:effect#bind`, `psrs:effect#run`),
-    crates/psrs-core/src/effect.rs (`lower_effects`),
+    crates/psrs-core/src/effect/ (`lower_effects`),
     crates/psrs-backend/src/effects.rs (drop synthesized imports and suspend
     host calls), crates/psrs-driver/src/program/effects.rs (runner scope)
   Tests: psrs-driver tests/effects.rs
@@ -108,7 +110,7 @@ EF-02:
   Revision: 95aebe3 + uncommitted
   Gaps: none
 EF-03:
-  Implementation: crates/psrs-core/src/effect.rs (`pure_declaration`),
+  Implementation: crates/psrs-core/src/effect/ (`pure_declaration`),
     crates/psrs-backend/src/cc/lower/call/partial.rs
   Tests: running_pure_returns_the_supplied_value_without_an_external_action
     (asserts exit code 42 and empty stdout)
@@ -118,7 +120,7 @@ EF-03:
   Revision: 95aebe3 + uncommitted
   Gaps: none
 EF-04:
-  Implementation: crates/psrs-core/src/effect.rs (`bind` synthesis),
+  Implementation: crates/psrs-core/src/effect/ (`bind` synthesis),
     crates/psrs-backend/src/cc/lower/call/partial.rs,
     crates/psrs-ast/src/expr.rs (wildcard parameter lowering)
   Tests: bind_runs_the_first_effect_before_the_continuation,
@@ -135,7 +137,7 @@ EF-04:
 EF-05:
   Implementation: crates/psrs-driver/src/program/effects.rs,
     crates/psrs-driver/src/program/mod.rs (entry selection),
-    crates/psrs-core/src/effect.rs (`runEffect` synthesis, token `0`)
+    crates/psrs-core/src/effect/ (`runEffect` synthesis, token `0`)
   Tests: run_effect_is_only_available_from_the_selected_entry,
     a_stored_effect_runs_each_time_it_is_explicitly_run,
     running_pure_returns_the_supplied_value_without_an_external_action
@@ -146,7 +148,7 @@ EF-05:
   Revision: 95aebe3 + uncommitted
   Gaps: none
 EF-06:
-  Implementation: crates/psrs-core/src/effect.rs (closure parameter list stops
+  Implementation: crates/psrs-core/src/effect/ (closure parameter list stops
     at the token), crates/psrs-backend/src/cc/lower/call/partial.rs
     (`lower_partial_global_application`),
     crates/psrs-backend/src/cc/lower/call/helpers.rs (saturation stops at the
@@ -222,30 +224,43 @@ EF-10:
   Revision: 95aebe3 + uncommitted
   Gaps: none
 EF-11:
-  Implementation: crates/psrs-backend/src/cc/verify (module-level call and
-    function-reference checks), crates/psrs-backend/src/mir/verify/call.rs
-  Tests: psrs-backend cc::verify::tests::effects::
-    rejects_an_effect_closure_with_the_token_in_the_wrong_position,
-    rejects_an_effect_closure_call_with_the_wrong_result_shape,
-    rejects_an_effect_closure_call_with_the_wrong_arity,
-    rejects_a_direct_call_to_an_unbound_runner_external;
-    psrs-backend mir::verify::tests::effects::
-    rejects_an_effect_closure_call_with_the_wrong_token_arity,
-    rejects_an_effect_closure_call_with_the_wrong_result_type; plus existing
-    rejects_a_direct_call_with_the_wrong_arity and
-    rejects_ref_func_with_a_different_target_signature
-  Input boundary: malformed CC; malformed MIR
-  Commands: cargo test -p psrs-backend cc::verify::tests::effects;
-    cargo test -p psrs-backend mir::verify::tests::effects
-  Result: pass in the workspace suite. Every failure is classified
-    InvalidCompilerIr before encoding. Those fixtures reject a call or a
-    function whose arguments do not match the closure signature.
-  Revision: uncommitted on issue/wit-abi-resolved-type-lowering
-  Gaps: no fixture rejects a closure only because its parameter list is not
-    the token. After `lower_effects`, CC and MIR do not know which closures
-    came from `Effect`. The arity test shows `Effect (Int -> Int)` is not
-    emitted as a two-parameter function; that is lowering evidence, not the
-    negative verifier fixture this row asks for.
+  Implementation: crates/psrs-core/src/effect/mod.rs (`lower_effects`,
+    `rewrite_effect_applications`, `EffectLowering::verify`). The pass records
+    each written closure with its token and lowered result and calls `verify`
+    before returning. `verify` rejects a recorded node that is no longer that
+    closure. crates/psrs-backend/src/effects.rs (`verification_errors`) maps a
+    `VerifyError` returned by `lower_effects` to `InvalidCompilerIr` under
+    `P8 effect lowering`. The closures the pass writes already match the
+    record, so the negative fixtures do not exercise that mapping. CC and MIR
+    still reject a call whose arguments do not match an ordinary closure
+    signature, unchanged.
+  Tests: psrs-core tests::effects::
+    lowered_effect_closures_are_one_token_closure_over_the_effect_result (the
+    written `[Token]` closure keeps `a -> b` whole as its result, and
+    `module.verify()` accepts the table),
+    a_lowered_effect_closure_flattened_to_arity_two_is_rejected (the
+    `Effect (a -> b)` closure rewritten to `[Token, a]`; the general Core
+    verifier accepts that table, this check rejects it with "a lowered effect
+    closure must take only the runtime token"),
+    a_lowered_effect_closure_with_the_wrong_result_is_rejected (`[Token]` over
+    `b`; "a lowered effect closure must return the lowered effect result"),
+    a_lowered_effect_that_is_not_a_closure_is_rejected,
+    a_module_without_the_library_effect_has_no_lowered_closures; plus existing
+    psrs-backend cc::verify::tests::effects and mir::verify::tests::effects
+  Input boundary: linked Core type table carrying the opaque
+    `Prelude.Effect` application; no source fixture and no Wasm encoding
+  Commands: cargo test -p psrs-core tests::effects; cargo test --workspace;
+    PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
+  Result: `cargo test -p psrs-core --lib tests::effects` passed on 2026-10-01,
+    5 tests. Both required negatives run `lower_effects`, replace the recorded
+    node, and fail in `EffectLowering::verify` with a Core `VerifyError`. They
+    do not enter the backend, CC, MIR, or the encoder.
+  Revision: 253809f + uncommitted on issue/wit-abi-resolved-type-lowering
+  Gaps: the check sees only the closures this pass recorded, which is the only
+    place that still recognizes `Effect`; a table mutated after the pass ran is
+    not re-checked. `Type::Closure` stays a general representation: only nodes
+    the lowering wrote are constrained to `[Token]`. BE-21 remains the broader
+    landing gate for this topic.
 ```
 
 ## Discovered obligations

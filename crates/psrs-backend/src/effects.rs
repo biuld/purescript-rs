@@ -14,12 +14,25 @@ pub(crate) fn lower_effects(
     module: &mut CoreModule,
     bindings: &mut ExternalBindings,
 ) -> Result<(), Vec<BackendError>> {
-    let lowering = psrs_core::effect::lower_effects(module);
+    let lowering = psrs_core::effect::lower_effects(module)
+        .map_err(|errors| verification_errors(module, &errors))?;
     let synthesized = lowering.synthesized.to_vec();
     bindings
         .imports
         .retain(|binding| !synthesized.contains(&binding.symbol));
     suspend_imports(module, bindings)
+}
+
+/// Representation lowering rejects a closure that is not a token closure before
+/// closure conversion, so the backend never encodes one.
+fn verification_errors(
+    module: &CoreModule,
+    errors: &[psrs_core::VerifyError],
+) -> Vec<BackendError> {
+    errors
+        .iter()
+        .map(|error| effect_error(module, error.span, error.message))
+        .collect()
 }
 
 struct Suspension {
