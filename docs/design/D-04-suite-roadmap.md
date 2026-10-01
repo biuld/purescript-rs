@@ -489,6 +489,31 @@ language feature requiring them, and adopting one is a target-profile revision
 under [DEC-05](../decision/DEC-05-wasmtime-feature-set.md) rather than roadmap
 work. They stay `Planned` in the capability matrix.
 
+### Tracking conventions
+
+GitHub is the index for the phases above; this document stays the normative
+record. Three mechanisms carry what the document cannot:
+
+- **Milestone per phase**, named `Phase N — <title>`. Closed issues over total
+  issues is the phase's completion percentage. No due dates: the phases are
+  ordered by dependency, not by a schedule, and inventing dates would make the
+  ordering look like a commitment it is not.
+- **One `gate:` label per gate the issue unblocks.** This is the cross-cutting
+  view the phase order cannot give — "everything blocking L4" is one query. An
+  issue may carry several: #81 maps `TypeCheckErrorKind` to official codes and
+  unblocks both L4 and L5, so it is labelled both. `gate:L0/L1` is combined
+  because layout and parse share a phase.
+- **One `area:` label** for `frontend`, `backend`, `harness`, or `stdlib`,
+  naming which layer owns the work.
+
+Dependencies carry the blocking order that is not visible from the phase
+number. The phase epics are chained (#74 blocks #75 blocks #76 …) except that
+Phase 0 is independent. Below the epics, the edges that matter are
+#82 → #97 and #82 → #99 (a scoreboard is what makes a case measurable),
+#86 → #85 (operator patterns need operator aliases), #84, #86, #88, and #90 →
+#94 (the standard library is a client of the forms Phase 2 lands), #89 → #96,
+and #93 → #101 (backend coverage needs the runtime scoreboard to measure).
+
 ## Feature matrices and landing gates
 
 These tables track implementation and official-suite acceptance for the
