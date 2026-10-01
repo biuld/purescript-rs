@@ -7,6 +7,13 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Expr> {
+        let mut active_generics = generics.clone();
+        let mut scope = self.resolve_type(expression.ty.clone());
+        while let InferType::ForAll { variables, body } = scope {
+            active_generics.extend(variables);
+            scope = self.resolve_type(*body);
+        }
+        let generics = &active_generics;
         let ty = self.finalize_type(&expression.ty, expression.span, interner, generics);
         let kind = match expression.kind {
             InferredExprKind::Local(id) => thir::ExprKind::Local(id),

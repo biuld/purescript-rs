@@ -115,7 +115,9 @@ impl Checker {
                 Some(member) => {
                     let outer_level = self.level;
                     self.level = outer_level + 1;
-                    let value = self.infer_expr(&member.value);
+                    let mut method_variables = variables.clone();
+                    let expected = self.elaborate_type(&method.signature, &mut method_variables);
+                    let value = self.infer_expr_with_expected(&member.value, Some(expected));
                     self.level = outer_level;
                     let Some(value) = value else {
                         self.end_givens();

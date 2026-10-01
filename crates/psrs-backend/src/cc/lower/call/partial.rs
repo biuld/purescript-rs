@@ -1,3 +1,4 @@
+use super::super::super::layout::function_type_signature;
 use super::super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, ValueConversion, ValueId,
 };
@@ -35,7 +36,9 @@ impl FunctionLowerer<'_> {
             result_type,
             callable_type,
         } = application;
-        let Some(&target_signature_id) = self.function_types.get(&expression.ty) else {
+        let Some(target_signature_id) =
+            function_type_signature(self.module, self.function_types, expression.ty)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,

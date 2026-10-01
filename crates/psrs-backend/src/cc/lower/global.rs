@@ -1,3 +1,4 @@
+use super::super::layout::function_type_signature;
 use super::super::{Assignment, AssignmentKind, RefShape, Reference, ValueId, ValueShape};
 use super::FunctionLowerer;
 use super::call::is_function_type;
@@ -42,7 +43,9 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     "global function has no source declaration type",
                 ));
             };
-            let Some(signature_id) = self.function_types.get(&source_type).copied() else {
+            let Some(signature_id) =
+                function_type_signature(self.module, self.function_types, source_type)
+            else {
                 return Err(global_error(
                     expression,
                     "function value has no runtime function type",

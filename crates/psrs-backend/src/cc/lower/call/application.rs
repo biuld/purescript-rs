@@ -1,4 +1,4 @@
-use super::super::super::layout::function_signature;
+use super::super::super::layout::{function_signature, function_type_signature};
 use super::super::super::{Assignment, AssignmentKind, ValueId};
 use super::super::{FunctionLowerer, Signature, ValueShape};
 use super::helpers::{
@@ -18,7 +18,7 @@ impl ApplicationLowering for FunctionLowerer<'_> {
         result_type: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let (head, arguments) = collect_application(self.module, expression);
+        let (head, arguments) = collect_application(self.module, &self.local_types, expression);
         if let ExprKind::Global(function) = head.kind {
             let signature = self.signatures.get(&function).cloned().ok_or_else(|| {
                 vec![BackendError::new(
@@ -181,7 +181,8 @@ impl FunctionLowerer<'_> {
             signature.result,
             expression.span,
         )?;
-        let Some(signature_id) = self.function_types.get(&head.ty).copied() else {
+        let Some(signature_id) = function_type_signature(self.module, self.function_types, head.ty)
+        else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,

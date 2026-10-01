@@ -1,5 +1,6 @@
 use super::*;
 
+mod application;
 mod case;
 mod construct;
 mod expected;
@@ -243,20 +244,7 @@ impl Checker {
                 InferType::Constructor(TypeConstructor::Char),
             ),
             hir::ExprKind::Application(function, argument) => {
-                let function = self.infer_expr(function);
-                let argument = self.infer_expr(argument);
-                let result_ty = self.fresh();
-                if let (Some(function), Some(argument)) = (&function, &argument) {
-                    self.unify(
-                        function.ty.clone(),
-                        arrow(argument.ty.clone(), result_ty.clone()),
-                        span,
-                    );
-                }
-                (
-                    InferredExprKind::Application(Box::new(function?), Box::new(argument?)),
-                    result_ty,
-                )
+                self.infer_application(function, argument, span)?
             }
             hir::ExprKind::Operator { .. } => {
                 self.errors.push(TypeCheckError::new(
@@ -286,50 +274,7 @@ impl Checker {
                 )
             }
             hir::ExprKind::Let { bindings, body } => {
-                let outer_level = self.level;
-                self.level += 1;
-                let mut binders = Vec::with_capacity(bindings.len());
-                for binding in bindings {
-                    let ty = self.fresh();
-                    self.locals
-                        .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
-                    binders.push(InferredBinder {
-                        binder: binding.binder.clone(),
-                        scheme: Scheme::monomorphic(ty),
-                    });
-                }
-                let mut inferred_bindings = Vec::with_capacity(bindings.len());
-                for (binding, binder) in bindings.iter().zip(binders) {
-                    if let Some(value) = self.infer_expr(&binding.value) {
-                        self.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
-                        inferred_bindings.push(InferredBinding {
-                            binder,
-                            value,
-                            span: binding.span,
-                        });
-                    }
-                }
-                // Generalize the recursive group before the body, which is where
-                // uses of the bindings are instantiated.
-                for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-                    let scheme = self.generalize(&inferred.binder.scheme.ty, &[], outer_level);
-                    inferred.binder.scheme = scheme.clone();
-                    self.locals.insert(binding.binder.id, scheme);
-                }
-                self.level = outer_level;
-                let body = self.infer_expr(body);
-                for binding in bindings {
-                    self.locals.remove(&binding.binder.id);
-                }
-                let body = body?;
-                let ty = body.ty.clone();
-                (
-                    InferredExprKind::Let {
-                        bindings: inferred_bindings,
-                        body: Box::new(body),
-                    },
-                    ty,
-                )
+                self.infer_let_expression(bindings, body, None)?
             }
             hir::ExprKind::If {
                 condition,
@@ -370,5 +315,55 @@ impl Checker {
             } => return self.infer_case(scrutinee, branches, span),
         };
         Some(InferredExpr { kind, ty, span })
+    }
+
+    pub(super) fn infer_let_expression(
+        &mut self,
+        bindings: &[hir::LocalBinding],
+        body: &hir::Expr,
+        expected: Option<InferType>,
+    ) -> Option<(InferredExprKind, InferType)> {
+        let outer_level = self.level;
+        self.level += 1;
+        let mut binders = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let ty = self.fresh();
+            self.locals
+                .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
+            binders.push(InferredBinder {
+                binder: binding.binder.clone(),
+                scheme: Scheme::monomorphic(ty),
+            });
+        }
+        let mut inferred_bindings = Vec::with_capacity(bindings.len());
+        for (binding, binder) in bindings.iter().zip(binders) {
+            if let Some(value) = self.infer_expr(&binding.value) {
+                self.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
+                inferred_bindings.push(InferredBinding {
+                    binder,
+                    value,
+                    span: binding.span,
+                });
+            }
+        }
+        for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
+            let scheme = self.generalize(&inferred.binder.scheme.ty, &[], outer_level);
+            inferred.binder.scheme = scheme.clone();
+            self.locals.insert(binding.binder.id, scheme);
+        }
+        self.level = outer_level;
+        let body = self.infer_expr_with_expected(body, expected);
+        for binding in bindings {
+            self.locals.remove(&binding.binder.id);
+        }
+        let body = body?;
+        let ty = body.ty.clone();
+        Some((
+            InferredExprKind::Let {
+                bindings: inferred_bindings,
+                body: Box::new(body),
+            },
+            ty,
+        ))
     }
 }

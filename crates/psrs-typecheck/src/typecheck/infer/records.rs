@@ -1,6 +1,43 @@
 use super::super::*;
 
 impl Checker {
+    pub(super) fn infer_record_with_expected(
+        &mut self,
+        fields: &[(String, hir::Expr)],
+        span: TextRange,
+        expected: &InferType,
+    ) -> Option<(InferredExprKind, InferType)> {
+        let expected_row = record_row(expected)?;
+        let FlatRow {
+            fields: expected_fields,
+            ..
+        } = self.flatten_row(expected_row);
+        let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
+        let mut inferred = Vec::with_capacity(fields.len());
+        let mut labels = HashSet::new();
+        for (label, value) in fields {
+            if !labels.insert(label) {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::TypeMismatch,
+                    span,
+                    format!("record label `{label}` occurs more than once"),
+                ));
+                return None;
+            }
+            let value =
+                self.infer_expr_with_expected(value, expected_fields.get(label).cloned())?;
+            inferred.push((label.clone(), value));
+        }
+        let actual = record_type(
+            inferred
+                .iter()
+                .map(|(label, value)| (label.clone(), value.ty.clone()))
+                .collect(),
+            InferType::RowEmpty,
+        );
+        Some((InferredExprKind::Record(inferred), actual))
+    }
+
     pub(super) fn infer_record(
         &mut self,
         fields: &[(String, hir::Expr)],

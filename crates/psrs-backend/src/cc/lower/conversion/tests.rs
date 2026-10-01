@@ -1,6 +1,7 @@
 use super::*;
 use crate::cc::RepresentationTable;
 use crate::cc::lower::GeneratedSymbolAllocator;
+use psrs_core::Type;
 use psrs_hir::ModuleId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

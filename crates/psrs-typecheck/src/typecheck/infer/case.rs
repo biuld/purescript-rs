@@ -7,13 +7,23 @@ impl Checker {
         branches: &[hir::CaseBranch],
         span: TextRange,
     ) -> Option<InferredExpr> {
+        self.infer_case_with_expected(scrutinee, branches, span, None)
+    }
+
+    pub(super) fn infer_case_with_expected(
+        &mut self,
+        scrutinee: &hir::Expr,
+        branches: &[hir::CaseBranch],
+        span: TextRange,
+        expected: Option<InferType>,
+    ) -> Option<InferredExpr> {
         let scrutinee = self.infer_expr(scrutinee)?;
-        let mut result_ty: Option<InferType> = None;
+        let mut result_ty = expected;
         let mut inferred = Vec::with_capacity(branches.len());
         for branch in branches {
             let mut inserted = Vec::new();
             let pattern = self.check_pattern(&branch.pattern, &scrutinee.ty, &mut inserted)?;
-            let value = self.infer_expr(&branch.value)?;
+            let value = self.infer_expr_with_expected(&branch.value, result_ty.clone())?;
             for id in inserted {
                 self.locals.remove(&id);
             }

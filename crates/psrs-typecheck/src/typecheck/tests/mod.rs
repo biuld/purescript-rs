@@ -371,4 +371,5 @@ fn rejects_integer_literals_outside_i32() {
 }
 
 mod foreign_data;
+mod rank_n;
 mod user_types;

@@ -1,4 +1,4 @@
-use super::super::layout::scalar_type;
+use super::super::layout::{function_type_signature, scalar_type};
 use super::super::{
     Assignment, AssignmentKind, Function, RefShape, Reference, Signature, SignatureId, ValueId,
     ValueShape,
@@ -130,7 +130,9 @@ impl FunctionLowerer<'_> {
             if !recursive.contains(&index) {
                 continue;
             }
-            let Some(signature_id) = self.function_types.get(&binding.binder.ty).copied() else {
+            let Some(signature_id) =
+                function_type_signature(self.module, self.function_types, binding.binder.ty)
+            else {
                 return Err(lowering_error(
                     binding.span,
                     "recursive local binding is not a function",

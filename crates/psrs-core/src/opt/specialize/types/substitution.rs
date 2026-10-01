@@ -1,65 +1,34 @@
 use crate::{
-    Binding, CaseBranch, Declaration, Expr, ExprKind, Module, Pattern, PatternKind, Type,
-    TypeConstructor, TypeId,
+    Binding, CaseBranch, Declaration, Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId,
 };
 use psrs_hir::{SymbolId, TypeVariableId};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) enum TypeKey {
-    Constructor(TypeConstructor),
-    Application(Box<TypeKey>, Box<TypeKey>),
-    Record(Vec<(String, TypeKey)>),
-}
-
-pub(super) fn concrete_type_key(module: &Module, id: TypeId) -> Option<TypeKey> {
-    type_key(module, id, &mut HashSet::new())
-}
-
-pub(super) fn match_instantiation(
-    module: &Module,
-    declaration: &Declaration,
-    call_type: TypeId,
-) -> Option<(HashMap<TypeVariableId, TypeId>, Vec<TypeKey>)> {
-    if declaration.quantified.is_empty() || concrete_type_key(module, call_type).is_none() {
-        return None;
-    }
-    let quantifiers = declaration
-        .quantified
-        .iter()
-        .copied()
-        .collect::<HashSet<_>>();
-    let mut replacements = HashMap::new();
-    if !match_type(
-        module,
-        declaration.ty,
-        call_type,
-        &quantifiers,
-        &mut replacements,
-        &mut HashSet::new(),
-    ) || replacements.len() != quantifiers.len()
-    {
-        return None;
-    }
-    let key = declaration
-        .quantified
-        .iter()
-        .map(|variable| concrete_type_key(module, *replacements.get(variable)?))
-        .collect::<Option<Vec<_>>>()?;
-    Some((replacements, key))
-}
-
-pub(super) fn instantiate_declaration(
+pub(in crate::opt::specialize) fn instantiate_declaration(
     module: &mut Module,
     declaration: &Declaration,
     replacements: &HashMap<TypeVariableId, TypeId>,
     symbol: SymbolId,
     serial: usize,
 ) -> Option<Declaration> {
+    let mut replacement_free_variables = HashSet::new();
+    for id in replacements.values() {
+        free_variables(
+            module,
+            *id,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            &mut replacement_free_variables,
+        );
+    }
+    let used_variables = all_variables(module);
     let mut substitution = TypeSubstitution {
         module,
         replacements,
-        cache: HashMap::new(),
+        replacement_free_variables,
+        used_variables,
+        shadowed: HashSet::new(),
+        renamed: HashMap::new(),
         active: HashSet::new(),
     };
     let ty = substitution.type_id(declaration.ty)?;
@@ -75,160 +44,94 @@ pub(super) fn instantiate_declaration(
     })
 }
 
-fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option<TypeKey> {
-    if !active.insert(id) {
-        return None;
-    }
-    let result = if let Some(row) = module.record_row(id) {
-        record_key(module, row, active)
-    } else {
-        match module.types.get(id.0 as usize)? {
-            Type::Variable(_) => None,
-            Type::Constructor(constructor) => Some(TypeKey::Constructor(*constructor)),
-            Type::Application(function, argument) => Some(TypeKey::Application(
-                Box::new(type_key(module, *function, active)?),
-                Box::new(type_key(module, *argument, active)?),
-            )),
-            Type::RowEmpty | Type::RowExtend { .. } => None,
-        }
-    };
-    active.remove(&id);
-    result
-}
-
-/// A concrete key for a record row: closed rows only, with the same field
-/// labels and recursively concrete field types.
-fn record_key(module: &Module, row: TypeId, active: &mut HashSet<TypeId>) -> Option<TypeKey> {
-    let (fields, tail) = module.row_fields(row)?;
-    if tail.is_some() {
-        return None;
-    }
-    let mut keys = fields
-        .iter()
-        .map(|(label, field)| Some((label.clone(), type_key(module, *field, active)?)))
-        .collect::<Option<Vec<_>>>()?;
-    keys.sort_by(|left, right| left.0.cmp(&right.0));
-    Some(TypeKey::Record(keys))
-}
-
-fn is_record_head(module: &Module, id: TypeId) -> bool {
-    matches!(
-        module.types.get(id.0 as usize),
-        Some(Type::Constructor(TypeConstructor::Record))
-    )
-}
-
-fn match_type(
-    module: &Module,
-    generic: TypeId,
-    concrete: TypeId,
-    quantifiers: &HashSet<TypeVariableId>,
-    replacements: &mut HashMap<TypeVariableId, TypeId>,
-    active: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    if !active.insert((generic, concrete)) {
-        return true;
-    }
-    let (Some(generic_type), Some(concrete_type)) = (
-        module.types.get(generic.0 as usize),
-        module.types.get(concrete.0 as usize),
-    ) else {
-        return false;
-    };
-    if let Type::Variable(variable) = generic_type
-        && quantifiers.contains(variable)
-    {
-        let Some(key) = concrete_type_key(module, concrete) else {
-            return false;
-        };
-        if let Some(previous) = replacements.get(variable) {
-            return concrete_type_key(module, *previous).as_ref() == Some(&key);
-        }
-        replacements.insert(*variable, concrete);
-        return true;
-    }
-    match (generic_type, concrete_type) {
-        (Type::Constructor(left), Type::Constructor(right)) => left == right,
-        (Type::Application(gf, ga), Type::Application(cf, ca)) => {
-            if is_record_head(module, *gf) && is_record_head(module, *cf) {
-                match_record_rows(module, *ga, *ca, quantifiers, replacements, active)
-            } else {
-                match_type(module, *gf, *cf, quantifiers, replacements, active)
-                    && match_type(module, *ga, *ca, quantifiers, replacements, active)
-            }
-        }
-        _ => false,
-    }
-}
-
-fn match_record_rows(
-    module: &Module,
-    generic_row: TypeId,
-    concrete_row: TypeId,
-    quantifiers: &HashSet<TypeVariableId>,
-    replacements: &mut HashMap<TypeVariableId, TypeId>,
-    active: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    let (Some((generic_fields, _)), Some((concrete_fields, _))) = (
-        module.row_fields(generic_row),
-        module.row_fields(concrete_row),
-    ) else {
-        return false;
-    };
-    if generic_fields.len() != concrete_fields.len() {
-        return false;
-    }
-    generic_fields.iter().all(|(label, generic_field)| {
-        concrete_fields
-            .iter()
-            .find(|(other, _)| other == label)
-            .is_some_and(|(_, concrete_field)| {
-                match_type(
-                    module,
-                    *generic_field,
-                    *concrete_field,
-                    quantifiers,
-                    replacements,
-                    active,
-                )
-            })
-    })
-}
-
 struct TypeSubstitution<'a> {
     module: &'a mut Module,
     replacements: &'a HashMap<TypeVariableId, TypeId>,
-    cache: HashMap<TypeId, TypeId>,
+    replacement_free_variables: HashSet<TypeVariableId>,
+    used_variables: HashSet<TypeVariableId>,
+    shadowed: HashSet<TypeVariableId>,
+    renamed: HashMap<TypeVariableId, TypeVariableId>,
     active: HashSet<TypeId>,
 }
 
 impl TypeSubstitution<'_> {
     fn type_id(&mut self, id: TypeId) -> Option<TypeId> {
-        if let Some(substituted) = self.cache.get(&id) {
-            return Some(*substituted);
-        }
         if !self.active.insert(id) {
             return None;
         }
         let ty = self.module.types.get(id.0 as usize)?.clone();
         let substituted = match ty {
-            Type::Variable(variable) => self.replacements.get(&variable).copied().unwrap_or(id),
+            Type::Variable(variable) => {
+                if self.shadowed.contains(&variable) {
+                    if let Some(renamed) = self.renamed.get(&variable).copied() {
+                        self.intern(Type::Variable(renamed))?
+                    } else {
+                        id
+                    }
+                } else {
+                    self.replacements.get(&variable).copied().unwrap_or(id)
+                }
+            }
             Type::Application(function, argument) => {
                 let function = self.type_id(function)?;
                 let argument = self.type_id(argument)?;
                 self.intern(Type::Application(function, argument))?
+            }
+            Type::ForAll { variables, body } => {
+                let mut renamed_variables = variables.clone();
+                let mut previous_renamings = Vec::new();
+                let mut inserted_shadowed = Vec::new();
+                for (index, variable) in variables.iter().copied().enumerate() {
+                    if !self.shadowed.contains(&variable)
+                        && self.replacement_free_variables.contains(&variable)
+                    {
+                        let fresh = self.fresh_variable()?;
+                        renamed_variables[index] = fresh;
+                        previous_renamings.push((variable, self.renamed.insert(variable, fresh)));
+                    }
+                    if self.shadowed.insert(variable) {
+                        inserted_shadowed.push(variable);
+                    }
+                }
+                let body = self.type_id(body)?;
+                for variable in inserted_shadowed {
+                    self.shadowed.remove(&variable);
+                }
+                for (variable, previous) in previous_renamings.into_iter().rev() {
+                    if let Some(previous) = previous {
+                        self.renamed.insert(variable, previous);
+                    } else {
+                        self.renamed.remove(&variable);
+                    }
+                }
+                self.intern(Type::ForAll {
+                    variables: renamed_variables,
+                    body,
+                })?
             }
             Type::RowExtend { label, ty, tail } => {
                 let ty = self.type_id(ty)?;
                 let tail = self.type_id(tail)?;
                 self.intern(Type::RowExtend { label, ty, tail })?
             }
-            Type::RowEmpty => self.intern(Type::RowEmpty)?,
-            other => id_for_existing(self.module, &other).unwrap_or(id),
+            Type::RowEmpty | Type::Constructor(_) => id,
         };
         self.active.remove(&id);
-        self.cache.insert(id, substituted);
         Some(substituted)
+    }
+
+    fn fresh_variable(&mut self) -> Option<TypeVariableId> {
+        let mut candidate = match self.used_variables.iter().map(|variable| variable.0).max() {
+            Some(maximum) => maximum.checked_add(1)?,
+            None => 0,
+        };
+        loop {
+            let variable = TypeVariableId(candidate);
+            if self.used_variables.insert(variable) {
+                return Some(variable);
+            }
+            candidate = candidate.checked_add(1)?;
+        }
     }
 
     fn intern(&mut self, ty: Type) -> Option<TypeId> {
@@ -416,11 +319,61 @@ impl TypeSubstitution<'_> {
     }
 }
 
-fn id_for_existing(module: &Module, ty: &Type) -> Option<TypeId> {
-    module
-        .types
-        .iter()
-        .position(|candidate| candidate == ty)
-        .and_then(|index| u32::try_from(index).ok())
-        .map(TypeId)
+fn free_variables(
+    module: &Module,
+    id: TypeId,
+    bound: &mut HashSet<TypeVariableId>,
+    active: &mut HashSet<TypeId>,
+    out: &mut HashSet<TypeVariableId>,
+) {
+    if !active.insert(id) {
+        return;
+    }
+    match module.types.get(id.0 as usize) {
+        Some(Type::Variable(variable)) if !bound.contains(variable) => {
+            out.insert(*variable);
+        }
+        Some(Type::Application(function, argument)) => {
+            free_variables(module, *function, bound, active, out);
+            free_variables(module, *argument, bound, active, out);
+        }
+        Some(Type::ForAll { variables, body }) => {
+            let inserted = variables
+                .iter()
+                .copied()
+                .filter(|variable| bound.insert(*variable))
+                .collect::<Vec<_>>();
+            free_variables(module, *body, bound, active, out);
+            for variable in inserted {
+                bound.remove(&variable);
+            }
+        }
+        Some(Type::RowExtend { ty, tail, .. }) => {
+            free_variables(module, *ty, bound, active, out);
+            free_variables(module, *tail, bound, active, out);
+        }
+        _ => {}
+    }
+    active.remove(&id);
+}
+
+fn all_variables(module: &Module) -> HashSet<TypeVariableId> {
+    let mut variables = HashSet::new();
+    for ty in &module.types {
+        match ty {
+            Type::Variable(variable) => {
+                variables.insert(*variable);
+            }
+            Type::ForAll {
+                variables: binders, ..
+            } => {
+                variables.extend(binders.iter().copied());
+            }
+            _ => {}
+        }
+    }
+    for declaration in &module.declarations {
+        variables.extend(declaration.quantified.iter().copied());
+    }
+    variables
 }

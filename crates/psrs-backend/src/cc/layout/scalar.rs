@@ -1,4 +1,7 @@
-use super::{is_callable_type, layout_error, newtype_field_type, primitive_shape_of, user_type_id};
+use super::{
+    function_type_signature, is_callable_type, layout_error, newtype_field_type,
+    primitive_shape_of, unquantified_type, user_type_id,
+};
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
 use psrs_core::ExprKind;
@@ -18,7 +21,10 @@ pub(crate) fn declaration_shape(
     record_types: &HashMap<TypeId, ReprId>,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<Signature, Vec<BackendError>> {
-    let mut ty = declaration.ty;
+    // Declaration-level quantifiers describe the polymorphic value, not an
+    // extra runtime layer around its closure. Strip only those leading
+    // quantifiers; a quantifier in a result type remains a separate closure.
+    let mut ty = unquantified_type(module, declaration.ty);
     let mut parameters = Vec::new();
     let mut value = &declaration.value;
     while let ExprKind::Lambda { binder, body } = &value.kind {
@@ -49,6 +55,9 @@ pub(crate) fn declaration_shape(
             function_types,
         )?);
         value = body;
+        if psrs_core::forall_parts(&module.types, ty).is_some() {
+            break;
+        }
     }
     if is_callable_type(module, ty) {
         return Ok(Signature {
@@ -190,6 +199,7 @@ pub(crate) fn declaration_shape(
         }
         Some(Type::Variable(_))
         | Some(Type::Constructor(_))
+        | Some(Type::ForAll { .. })
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -221,6 +231,7 @@ pub(crate) fn scalar_type(
     if is_callable_type(module, id) {
         return callable_value_shape(module, id, span, function_types);
     }
+    let id = unquantified_type(module, id);
     if let Some(shape) = primitive_shape_of(module, id) {
         return Ok(shape);
     }
@@ -320,6 +331,7 @@ pub(crate) fn scalar_type(
         }
         Some(Type::Variable(_))
         | Some(Type::Constructor(_))
+        | Some(Type::ForAll { .. })
         | Some(Type::RowEmpty)
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
@@ -353,20 +365,21 @@ fn closure_value_type_for(signature: SignatureId) -> ValueShape {
 /// signature, including erased abstract arguments and results. The hidden
 /// context parameter lives only in the signature, never in this value shape.
 fn callable_value_shape(
-    _module: &CoreModule,
+    module: &CoreModule,
     id: TypeId,
     span: TextRange,
     function_types: &HashMap<TypeId, SignatureId>,
 ) -> Result<ValueShape, Vec<BackendError>> {
-    let Some(signature) = function_types.get(&id) else {
+    let Some(signature) = function_type_signature(module, function_types, id) else {
         return Err(layout_error(span, "callable value has no runtime layout"));
     };
-    Ok(closure_value_type_for(*signature))
+    Ok(closure_value_type_for(signature))
 }
 
 /// Bare variables and applications headed by a variable have no known storage
 /// constructor. Their instantiated value crosses the uniform erased protocol.
 pub(in crate::cc) fn is_abstract_type(module: &CoreModule, mut id: TypeId) -> bool {
+    id = unquantified_type(module, id);
     for _ in 0..module.types.len() {
         match module.types.get(id.0 as usize) {
             Some(Type::Variable(_)) => return true,

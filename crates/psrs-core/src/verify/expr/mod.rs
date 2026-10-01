@@ -1,35 +1,22 @@
 use super::{
-    Locals, array_element, callable_result, compatible, error, primitive_type_id, primitive_types,
-    record_field, restore_local, unary_primitive_types, user_type_constructor, verify_pattern,
+    Locals, SchemeType, array_element, callable_result, compatible, error, primitive_type_id,
+    primitive_types, record_field, restore_local, unary_primitive_types, verify_pattern,
     verify_type,
 };
-use crate::{Expr, ExprKind, Module, Type, TypeConstructor, TypeId, VerifyError};
+use crate::{Expr, ExprKind, Module, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
-pub(super) fn verify_expr(
-    expression: &Expr,
-    expected: Option<TypeId>,
-    module: &Module,
-    owner: ModuleId,
-    globals: &HashMap<SymbolId, Option<TypeId>>,
-    locals: &mut Locals,
-    errors: &mut Vec<VerifyError>,
-) {
-    let mut context = Context {
-        module,
-        owner,
-        globals,
-        locals,
-        errors,
-    };
-    context.expr(expression, expected);
-}
+mod entry;
+mod helpers;
+mod shapes;
+pub(super) use entry::verify_expr;
+use helpers::strip_leading_foralls;
 
 struct Context<'a> {
     module: &'a Module,
     owner: ModuleId,
-    globals: &'a HashMap<SymbolId, Option<TypeId>>,
+    globals: &'a HashMap<SymbolId, Option<SchemeType>>,
     locals: &'a mut Locals,
     errors: &'a mut Vec<VerifyError>,
 }
@@ -55,7 +42,7 @@ impl Context<'_> {
         }
         match &expression.kind {
             ExprKind::Local(id) => {
-                let Some(local_type) = self.locals.get(id).copied() else {
+                let Some(local_type) = self.locals.get(id) else {
                     self.errors.push(error(
                         self.owner,
                         expression.span,
@@ -63,24 +50,34 @@ impl Context<'_> {
                     ));
                     return;
                 };
-                compatible(
-                    local_type,
+                if !super::types::scheme_instance(
+                    local_type.ty,
+                    &local_type.quantified,
                     expression.ty,
                     self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                );
+                ) {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "Core expression type is inconsistent with its context",
+                    ));
+                }
             }
             ExprKind::Global(id) => match self.globals.get(id) {
-                Some(Some(global_type)) => compatible(
-                    *global_type,
-                    expression.ty,
-                    self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                ),
+                Some(Some(global_type)) => {
+                    if !super::types::scheme_instance(
+                        global_type.ty,
+                        &global_type.quantified,
+                        expression.ty,
+                        self.module,
+                    ) {
+                        self.errors.push(error(
+                            self.owner,
+                            expression.span,
+                            "Core expression type is inconsistent with its context",
+                        ));
+                    }
+                }
                 Some(None) => {}
                 None => self.errors.push(error(
                     self.owner,
@@ -275,15 +272,43 @@ impl Context<'_> {
                         "constructor application has the wrong field count",
                     ));
                 }
-                if user_type_constructor(expression.ty, self.module) != Some(constructor.type_id) {
+                let result_type = strip_leading_foralls(self.module, expression.ty);
+                let Some((result_constructor, type_arguments)) =
+                    self.module.applied_constructor(result_type)
+                else {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "constructor result is not an applied user type",
+                    ));
+                    return;
+                };
+                if result_constructor != TypeConstructor::User(constructor.type_id) {
                     self.errors.push(error(
                         self.owner,
                         expression.span,
                         "constructor result type does not match its parent type",
                     ));
                 }
-                for (argument, field_type) in arguments.iter().zip(constructor.field_types) {
-                    self.expr(argument, Some(field_type));
+                let field_instances = arguments
+                    .iter()
+                    .map(|argument| argument.ty)
+                    .collect::<Vec<_>>();
+                if !super::types::constructor_fields_match(
+                    self.module,
+                    &constructor.parameters,
+                    &type_arguments,
+                    &constructor.field_types,
+                    &field_instances,
+                ) {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "Core expression type is inconsistent with its context",
+                    ));
+                }
+                for argument in arguments {
+                    self.expr(argument, Some(argument.ty));
                 }
             }
             ExprKind::Primitive { op, left, right } => {
@@ -314,26 +339,9 @@ impl Context<'_> {
             ExprKind::Application(function, argument) => {
                 self.expr(function, None);
                 self.expr(argument, None);
-                if let Some((parameter, result)) =
-                    crate::arrow_parts(&self.module.types, function.ty)
+                if let Some(result) =
+                    callable_result(self.module, strip_leading_foralls(self.module, function.ty))
                 {
-                    compatible(
-                        parameter,
-                        argument.ty,
-                        self.module,
-                        self.owner,
-                        argument.span,
-                        self.errors,
-                    );
-                    compatible(
-                        result,
-                        expression.ty,
-                        self.module,
-                        self.owner,
-                        expression.span,
-                        self.errors,
-                    );
-                } else if let Some(result) = callable_result(self.module, function.ty) {
                     compatible(
                         result,
                         expression.ty,
@@ -343,13 +351,24 @@ impl Context<'_> {
                         self.errors,
                     );
                 } else {
-                    match self.module.types.get(function.ty.0 as usize) {
-                        Some(Type::Variable(_)) => {}
-                        _ => self.errors.push(error(
+                    let function_body = strip_leading_foralls(self.module, function.ty);
+                    if crate::arrow_parts(&self.module.types, function_body).is_none() {
+                        self.errors.push(error(
                             self.owner,
                             function.span,
                             "application target is not a function",
-                        )),
+                        ));
+                    } else if !super::types::application_matches(
+                        function.ty,
+                        argument.ty,
+                        expression.ty,
+                        self.module,
+                    ) {
+                        self.errors.push(error(
+                            self.owner,
+                            function.span,
+                            "Core expression type is inconsistent with its context",
+                        ));
                     }
                 }
             }
@@ -359,14 +378,21 @@ impl Context<'_> {
                 // context parameter and its body produces the value type. The
                 // context parameter is a calling-convention detail, so only the
                 // body result is checked.
-                if let Some(result) = callable_result(self.module, expression.ty) {
-                    let previous = self.locals.insert(binder.id, binder.ty);
+                let function_type = strip_leading_foralls(self.module, expression.ty);
+                if let Some(result) = callable_result(self.module, function_type) {
+                    let previous = self.locals.insert(
+                        binder.id,
+                        SchemeType {
+                            ty: binder.ty,
+                            quantified: Vec::new(),
+                        },
+                    );
                     self.expr(body, Some(result));
                     restore_local(self.locals, binder.id, previous);
                     return;
                 }
                 let Some((parameter, result)) =
-                    crate::arrow_parts(&self.module.types, expression.ty)
+                    crate::arrow_parts(&self.module.types, function_type)
                 else {
                     self.errors.push(error(
                         self.owner,
@@ -383,11 +409,18 @@ impl Context<'_> {
                     binder.span,
                     self.errors,
                 );
-                let previous = self.locals.insert(binder.id, binder.ty);
+                let previous = self.locals.insert(
+                    binder.id,
+                    SchemeType {
+                        ty: binder.ty,
+                        quantified: Vec::new(),
+                    },
+                );
                 self.expr(body, Some(result));
                 restore_local(self.locals, binder.id, previous);
             }
             ExprKind::Let { bindings, body } => {
+                let body_type = strip_leading_foralls(self.module, expression.ty);
                 let mut previous = Vec::new();
                 for binding in bindings {
                     verify_type(
@@ -399,13 +432,19 @@ impl Context<'_> {
                     );
                     previous.push((
                         binding.binder.id,
-                        self.locals.insert(binding.binder.id, binding.binder.ty),
+                        self.locals.insert(
+                            binding.binder.id,
+                            SchemeType {
+                                ty: binding.binder.ty,
+                                quantified: binding.quantified.clone(),
+                            },
+                        ),
                     ));
                 }
                 for binding in bindings {
                     self.expr(&binding.value, Some(binding.binder.ty));
                 }
-                self.expr(body, Some(expression.ty));
+                self.expr(body, Some(body_type));
                 for (id, old) in previous.into_iter().rev() {
                     restore_local(self.locals, id, old);
                 }
@@ -415,17 +454,19 @@ impl Context<'_> {
                 then_branch,
                 else_branch,
             } => {
+                let branch_type = strip_leading_foralls(self.module, expression.ty);
                 self.expr(
                     condition,
                     Some(primitive_type_id(self.module, TypeConstructor::Boolean)),
                 );
-                self.expr(then_branch, Some(expression.ty));
-                self.expr(else_branch, Some(expression.ty));
+                self.expr(then_branch, Some(branch_type));
+                self.expr(else_branch, Some(branch_type));
             }
             ExprKind::Case {
                 scrutinee,
                 branches,
             } => {
+                let branch_type = strip_leading_foralls(self.module, expression.ty);
                 self.expr(scrutinee, None);
                 for branch in branches {
                     let mut branch_locals = self.locals.clone();
@@ -444,20 +485,9 @@ impl Context<'_> {
                         locals: &mut branch_locals,
                         errors: self.errors,
                     };
-                    branch_context.expr(&branch.value, Some(expression.ty));
+                    branch_context.expr(&branch.value, Some(branch_type));
                 }
             }
         }
-    }
-
-    fn shape(&mut self, expression: &Expr, shape: TypeConstructor) {
-        compatible(
-            expression.ty,
-            primitive_type_id(self.module, shape),
-            self.module,
-            self.owner,
-            expression.span,
-            self.errors,
-        );
     }
 }

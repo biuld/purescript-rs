@@ -198,6 +198,8 @@ impl Checker {
                 }
                 Some(state.resolve(result_kind))
             }
+            InferType::ForAll { body, .. } => self.infer_kind(&body, state),
+            InferType::Constrained { body, .. } => self.infer_kind(&body, state),
             InferType::RowEmpty => Some(row_kind()),
             InferType::RowExtend { ty, tail, .. } => {
                 let field_kind = self.infer_kind(&ty, state)?;

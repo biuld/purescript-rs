@@ -28,8 +28,9 @@ fn collect_signature_variables(
                 out.push(name.clone());
             }
         }
-        hir::TypeKind::Constrained { .. } => {
-            return Err("class method signatures with constraints are not supported yet".into());
+        hir::TypeKind::Constrained { constraint, body } => {
+            collect_signature_variables(constraint, bound, out)?;
+            collect_signature_variables(body, bound, out)?;
         }
         hir::TypeKind::Forall { variables, body } => {
             let old_len = bound.len();

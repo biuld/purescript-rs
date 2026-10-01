@@ -1,3 +1,4 @@
+use super::super::super::layout::{function_type_signature, unquantified_type};
 use super::super::LoweringContext;
 use super::super::{Assignment, AssignmentKind, Function, ValueDecl, ValueId, ValueShape};
 use super::{closure_value_type, closure_value_type_for, is_erased_reference};
@@ -69,14 +70,16 @@ fn eta_expanded_wrapper(
     if source.parameters.is_empty() {
         return None;
     }
-    let flattened_id = *context.function_types.get(&declaration.ty)?;
+    let flattened_id =
+        function_type_signature(context.module, context.function_types, declaration.ty)?;
     let flattened = context.representations.signature(flattened_id)?;
     let peeled = source.parameters.len();
     if flattened.parameters.len() <= peeled {
         return None;
     }
     let body_type = peel_function_type(context.module, declaration.ty, peeled)?;
-    let body_signature = *context.function_types.get(&body_type)?;
+    let body_signature =
+        function_type_signature(context.module, context.function_types, body_type)?;
     let erased = is_erased_reference(source.result_type);
     if source.result_type != closure_value_type_for(body_signature) && !erased {
         return None;
@@ -166,6 +169,7 @@ fn peel_function_type(
     mut ty: psrs_core::TypeId,
     count: usize,
 ) -> Option<psrs_core::TypeId> {
+    ty = unquantified_type(module, ty);
     for _ in 0..count {
         let (_, result) = psrs_core::arrow_parts(&module.types, ty)?;
         ty = result;

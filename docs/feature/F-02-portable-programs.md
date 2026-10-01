@@ -50,6 +50,13 @@ the official compiler on accept/reject and diagnostic code. Suite files that
 require JavaScript or Node.js FFI are excluded from the target and count as
 neither coverage nor gaps.
 
+The language target includes rank-N polymorphism: annotated function
+parameters, record fields, constructor fields, and returned values may carry
+their own `forall` quantifiers. A caller can use one such value at different
+types, while a function specialized to one concrete type cannot satisfy a
+universally quantified parameter. Higher-rank programs generally require
+annotations, following official PureScript's checking rules.
+
 The current compiler can build a restricted program, including linked source
 modules, to a validated WASI component and print its WAT form:
 
@@ -69,8 +76,11 @@ field reads, record updates, and closed concrete record patterns with variable,
 wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
 higher-order calls, and the
 implemented effect-based WASI console and clock libraries plus random imports.
-The selected entry must be a zero-argument integer `main` function. Rank-1 generic direct calls
-and the supported higher-order generic adapters are lowered. Generic arrays
+The selected entry must be a zero-argument integer `main` function. Generic direct
+calls and annotated rank-N values are lowered, including quantified parameters,
+record and constructor fields, captures, and returned functions. Each use can
+instantiate a quantified value independently; nested constraints are supplied
+through the corresponding class instances. Generic arrays
 and records cross the supported polymorphic boundaries with their contents
 preserved. Open rows and unsupported WIT shapes receive source-oriented
 diagnostics.

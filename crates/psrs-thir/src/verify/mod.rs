@@ -3,6 +3,8 @@ use crate::{
 };
 use psrs_span::TextRange;
 
+mod semantics;
+
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
     let mut errors = Vec::new();
     for ty in &module.types {
@@ -10,6 +12,9 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
             Type::Application(parameter, result) => {
                 verify_type_id(*parameter, module.types.len(), module.span, &mut errors);
                 verify_type_id(*result, module.types.len(), module.span, &mut errors);
+            }
+            Type::ForAll { body, .. } => {
+                verify_type_id(*body, module.types.len(), module.span, &mut errors);
             }
             Type::RowExtend { ty, tail, .. } => {
                 verify_type_id(*ty, module.types.len(), module.span, &mut errors);
@@ -26,6 +31,10 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
             });
         }
     }
+    errors.extend(crate::scope::verify_module(module));
+    if !errors.is_empty() {
+        return Err(errors);
+    }
     for declaration in &module.declarations {
         verify_type_id(
             declaration.ty,
@@ -35,6 +44,10 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
         );
         verify_expr(&declaration.value, &module.types, &mut errors);
     }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    errors.extend(semantics::verify_module(module));
     if errors.is_empty() {
         Ok(())
     } else {

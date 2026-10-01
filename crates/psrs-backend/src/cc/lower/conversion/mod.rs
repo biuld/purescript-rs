@@ -1,5 +1,6 @@
 use super::super::layout::{
-    array_element_type, is_abstract_type, newtype_field_type, scalar_type, user_type_id,
+    array_element_type, is_abstract_type, newtype_field_type, scalar_type, unquantified_type,
+    user_type_id,
 };
 use super::super::{
     AggregateConvert, Assignment, AssignmentKind, BoxKind, RecoveryEvidence, RefShape, Reference,
@@ -7,7 +8,7 @@ use super::super::{
 };
 use super::FunctionLowerer;
 use crate::BackendError;
-use psrs_core::{Type, TypeId};
+use psrs_core::TypeId;
 use psrs_span::TextRange;
 
 pub(in crate::cc) struct VariantFieldConversion {
@@ -263,9 +264,10 @@ impl FunctionLowerer<'_> {
 
     fn conversion_template(
         &self,
-        mut ty: TypeId,
+        ty: TypeId,
         span: TextRange,
     ) -> Result<TypeId, Vec<BackendError>> {
+        let mut ty = unquantified_type(self.module, ty);
         let mut visited = std::collections::HashSet::new();
         while let Some(id) = user_type_id(self.module, ty) {
             if !self.newtype_ids.contains(&id) {
@@ -276,6 +278,7 @@ impl FunctionLowerer<'_> {
             }
             ty = newtype_field_type(self.module, id)
                 .ok_or_else(|| conversion_error(span, "newtype has no storage template"))?;
+            ty = unquantified_type(self.module, ty);
         }
         Ok(ty)
     }
@@ -355,10 +358,7 @@ impl FunctionLowerer<'_> {
         } = recovery;
         let template_shape = self.value_shape(template_type, span)?;
         if stored_shape == erased_shape()
-            && matches!(
-                template_type_of(self.module, template_type),
-                Some(Type::Variable(_))
-            )
+            && is_abstract_type(self.module, template_type)
             && matches!(target_shape, ValueShape::Reference(_))
             && target_shape != erased_shape()
         {
@@ -387,10 +387,6 @@ impl FunctionLowerer<'_> {
             span,
         )
     }
-}
-
-fn template_type_of(module: &psrs_core::Module, ty: TypeId) -> Option<&Type> {
-    module.types.get(ty.0 as usize)
 }
 
 pub(super) fn sequence(steps: Vec<ValueConversion>) -> ValueConversion {

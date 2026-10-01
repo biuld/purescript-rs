@@ -294,6 +294,16 @@ fn occurs_in(variable: u32, ty: &InferType) -> bool {
         InferType::RowExtend { ty, tail, .. } => {
             occurs_in(variable, ty) || occurs_in(variable, tail)
         }
+        InferType::ForAll { variables, body } => {
+            !variables.contains(&variable) && occurs_in(variable, body)
+        }
+        InferType::Constrained { constraints, body } => {
+            constraints
+                .iter()
+                .flat_map(|constraint| &constraint.arguments)
+                .any(|argument| occurs_in(variable, argument))
+                || occurs_in(variable, body)
+        }
         InferType::Constructor(_) | InferType::RowEmpty => false,
     }
 }
@@ -353,6 +363,44 @@ fn rewrite_type_by_role(
                     tail: Box::new(rewritten_tail),
                 },
                 changed_ty || changed_tail,
+            )
+        }
+        InferType::ForAll { variables, body } if !variables.contains(&variable) => {
+            let (body, changed) = rewrite_type_by_role(body, variable, replacement, checker);
+            (
+                InferType::ForAll {
+                    variables: variables.clone(),
+                    body: Box::new(body),
+                },
+                changed,
+            )
+        }
+        InferType::ForAll { .. } => (ty.clone(), false),
+        InferType::Constrained { constraints, body } => {
+            let mut changed = false;
+            let constraints = constraints
+                .iter()
+                .map(|constraint| ClassConstraint {
+                    arguments: constraint
+                        .arguments
+                        .iter()
+                        .map(|argument| {
+                            let (argument, did_change) =
+                                rewrite_type_by_role(argument, variable, replacement, checker);
+                            changed |= did_change;
+                            argument
+                        })
+                        .collect(),
+                    ..constraint.clone()
+                })
+                .collect();
+            let (body, body_changed) = rewrite_type_by_role(body, variable, replacement, checker);
+            (
+                InferType::Constrained {
+                    constraints,
+                    body: Box::new(body),
+                },
+                changed || body_changed,
             )
         }
         InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {

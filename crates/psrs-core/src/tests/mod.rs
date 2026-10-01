@@ -1,6 +1,10 @@
 use super::*;
 use psrs_hir::{LocalId, ModuleId, SymbolId};
 
+mod link;
+mod rank_n;
+mod rows;
+
 /// Appends an arrow `parameter -> result` as the application spine and returns
 /// its type id.
 fn arrow_type(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {

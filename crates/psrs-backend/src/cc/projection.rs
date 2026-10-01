@@ -80,6 +80,9 @@ impl Projector<'_> {
         if super::layout::is_callable_type(self.module, id) {
             return Err("function types have no canonical guest layout".into());
         }
+        if psrs_core::forall_parts(&self.module.types, id).is_some() {
+            return Err("polymorphic types have no canonical guest layout".into());
+        }
         if let Some(shape) = super::layout::primitive_shape_of(self.module, id) {
             return Ok(scalar(shape));
         }
@@ -110,6 +113,9 @@ impl Projector<'_> {
             }
             Some(Type::Constructor(TypeConstructor::Function)) => {
                 Err("function types have no canonical guest layout".into())
+            }
+            Some(Type::ForAll { .. }) => {
+                Err("polymorphic types have no canonical guest layout".into())
             }
             Some(Type::Constructor(_)) => Err("constructor has no canonical guest layout".into()),
             Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {

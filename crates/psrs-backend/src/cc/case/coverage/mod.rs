@@ -193,6 +193,7 @@ fn useful_inner(
 }
 
 fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
+    let ty = crate::cc::layout::unquantified_type(module, ty);
     if let Some(type_id) = user_type_id(module, ty) {
         return Some(
             module
@@ -222,6 +223,7 @@ fn signature(module: &Module, ty: TypeId) -> Option<Vec<Shape>> {
 }
 
 fn user_type_id(module: &Module, mut ty: TypeId) -> Option<HirTypeId> {
+    ty = crate::cc::layout::unquantified_type(module, ty);
     loop {
         match module.types.get(ty.0 as usize)? {
             Type::Constructor(TypeConstructor::User(id)) => return Some(*id),

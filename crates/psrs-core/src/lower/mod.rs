@@ -55,6 +55,10 @@ fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerErro
             psrs_thir::Type::Application(function, argument) => {
                 Type::Application(TypeId(function.0), TypeId(argument.0))
             }
+            psrs_thir::Type::ForAll { variables, body } => Type::ForAll {
+                variables,
+                body: TypeId(body.0),
+            },
             psrs_thir::Type::RowEmpty => Type::RowEmpty,
             psrs_thir::Type::RowExtend { label, ty, tail } => Type::RowExtend {
                 label,
@@ -474,24 +478,4 @@ fn flatten_intrinsic(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use psrs_hir::Intrinsic;
-
-    #[test]
-    fn primitive_mapping_covers_the_scalar_intrinsic_set() {
-        assert_eq!(
-            Primitive::from_intrinsic(Intrinsic::I32Add),
-            Some(Primitive::IntAdd)
-        );
-        assert_eq!(
-            Primitive::from_intrinsic(Intrinsic::NumberAdd),
-            Some(Primitive::NumberAdd)
-        );
-        assert_eq!(
-            UnaryPrimitive::from_intrinsic(Intrinsic::NumberToInt),
-            Some(UnaryPrimitive::NumberToInt)
-        );
-        assert_eq!(Primitive::from_intrinsic(Intrinsic::BoolTrue), None);
-    }
-}
+mod tests;

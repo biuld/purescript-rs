@@ -39,6 +39,22 @@ impl KnownDerivingClass {
 }
 
 impl Checker {
+    pub(super) fn infer_derived_method(
+        &mut self,
+        method: &MethodInfo,
+        class_arguments: &[InferType],
+        implementation: &hir::Expr,
+    ) -> Option<InferredExpr> {
+        let class_id = self.class_methods.get(&method.symbol)?.0;
+        let class = self.classes.get(&class_id)?.clone();
+        let mut variables = HashMap::new();
+        for (parameter, argument) in class.parameters.iter().zip(class_arguments) {
+            variables.insert(parameter.clone(), argument.clone());
+        }
+        let expected = self.elaborate_type(&method.signature, &mut variables);
+        self.infer_expr_with_expected(implementation, Some(expected))
+    }
+
     /// Generates the structural `Eq` method for a local data or newtype type.
     /// Field comparisons remain ordinary class-method selections, so explicit
     /// instance-context dictionaries and imported instances use the existing
@@ -212,7 +228,7 @@ impl Checker {
             },
             span,
         };
-        self.infer_expr(&implementation)
+        self.infer_derived_method(method, class_arguments, &implementation)
     }
 
     pub(super) fn validate_known_deriving_class(

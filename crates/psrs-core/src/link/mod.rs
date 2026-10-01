@@ -2,9 +2,11 @@ use crate::{
     Binding, CaseBranch, ConstructorInfo, Declaration, Expr, ExprKind, Module, PatternKind, Type,
     TypeId,
 };
-use psrs_hir::{ModuleId, SymbolId};
+use psrs_hir::{ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 use std::collections::HashSet;
+
+mod variables;
 
 /// Links lowered modules into one module: type IDs are renumbered into a single
 /// type table, while declarations, constructors, and externals are concatenated.
@@ -29,10 +31,14 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut seen_externals = std::collections::HashSet::new();
     let mut type_names = Vec::new();
     let mut seen_type_names = HashSet::new();
+    let mut type_variable_offset = 0u32;
     for module in modules {
         let offset = types.len() as u32;
+        let variable_span = variables::variable_span(&module);
+        let module_variable_offset = type_variable_offset;
+        type_variable_offset = type_variable_offset.saturating_add(variable_span);
         for ty in &module.types {
-            types.push(shift_type(ty, offset));
+            types.push(shift_type(ty, offset, module_variable_offset));
         }
         newtype_ids.extend(module.newtype_ids);
         opaque_ids.extend(module.opaque_ids);
@@ -51,6 +57,11 @@ pub fn link(modules: Vec<Module>) -> Module {
                     .into_iter()
                     .map(|field| shift_id(field, offset))
                     .collect(),
+                parameters: constructor
+                    .parameters
+                    .into_iter()
+                    .map(|variable| shift_variable(variable, module_variable_offset))
+                    .collect(),
                 ..constructor
             });
         }
@@ -58,7 +69,7 @@ pub fn link(modules: Vec<Module>) -> Module {
             module
                 .declarations
                 .into_iter()
-                .map(|declaration| shift_declaration(declaration, offset)),
+                .map(|declaration| shift_declaration(declaration, offset, module_variable_offset)),
         );
         for external in module.externals {
             if seen_externals.insert(external.symbol) {
@@ -92,11 +103,23 @@ fn shift_id(id: TypeId, offset: u32) -> TypeId {
     TypeId(id.0 + offset)
 }
 
-fn shift_type(ty: &Type, offset: u32) -> Type {
+fn shift_variable(variable: TypeVariableId, offset: u32) -> TypeVariableId {
+    TypeVariableId(variable.0 + offset)
+}
+
+fn shift_type(ty: &Type, offset: u32, variable_offset: u32) -> Type {
     match ty {
         Type::Application(parameter, argument) => {
             Type::Application(shift_id(*parameter, offset), shift_id(*argument, offset))
         }
+        Type::Variable(variable) => Type::Variable(shift_variable(*variable, variable_offset)),
+        Type::ForAll { variables, body } => Type::ForAll {
+            variables: variables
+                .iter()
+                .map(|variable| shift_variable(*variable, variable_offset))
+                .collect(),
+            body: shift_id(*body, offset),
+        },
         Type::RowExtend { label, ty, tail } => Type::RowExtend {
             label: label.clone(),
             ty: shift_id(*ty, offset),
@@ -106,7 +129,7 @@ fn shift_type(ty: &Type, offset: u32) -> Type {
     }
 }
 
-fn shift_binding(binding: Binding, offset: u32) -> Binding {
+fn shift_binding(binding: Binding, offset: u32, variable_offset: u32) -> Binding {
     Binding {
         binder: crate::Binder {
             id: binding.binder.id,
@@ -114,33 +137,41 @@ fn shift_binding(binding: Binding, offset: u32) -> Binding {
             ty: shift_id(binding.binder.ty, offset),
             span: binding.binder.span,
         },
-        quantified: binding.quantified,
-        value: shift_expr(binding.value, offset),
+        quantified: binding
+            .quantified
+            .into_iter()
+            .map(|variable| shift_variable(variable, variable_offset))
+            .collect(),
+        value: shift_expr(binding.value, offset, variable_offset),
         span: binding.span,
     }
 }
 
-fn shift_declaration(declaration: Declaration, offset: u32) -> Declaration {
+fn shift_declaration(declaration: Declaration, offset: u32, variable_offset: u32) -> Declaration {
     Declaration {
         symbol: declaration.symbol,
         name: declaration.name,
         name_span: declaration.name_span,
-        quantified: declaration.quantified,
+        quantified: declaration
+            .quantified
+            .into_iter()
+            .map(|variable| shift_variable(variable, variable_offset))
+            .collect(),
         ty: shift_id(declaration.ty, offset),
-        value: shift_expr(declaration.value, offset),
+        value: shift_expr(declaration.value, offset, variable_offset),
         span: declaration.span,
     }
 }
 
-fn shift_expr(expression: Expr, offset: u32) -> Expr {
+fn shift_expr(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
     Expr {
-        kind: shift_kind(expression.kind, offset),
+        kind: shift_kind(expression.kind, offset, variable_offset),
         ty: shift_id(expression.ty, offset),
         span: expression.span,
     }
 }
 
-fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
+fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> ExprKind {
     match kind {
         ExprKind::Local(id) => ExprKind::Local(id),
         ExprKind::Global(symbol) => ExprKind::Global(symbol),
@@ -148,7 +179,7 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
             symbol,
             arguments: arguments
                 .into_iter()
-                .map(|argument| shift_expr(argument, offset))
+                .map(|argument| shift_expr(argument, offset, variable_offset))
                 .collect(),
         },
         ExprKind::Integer(value) => ExprKind::Integer(value),
@@ -159,24 +190,24 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()
-                .map(|element| shift_expr(element, offset))
+                .map(|element| shift_expr(element, offset, variable_offset))
                 .collect(),
         },
         ExprKind::Record { fields } => ExprKind::Record {
             fields: fields
                 .into_iter()
-                .map(|(label, value)| (label, shift_expr(value, offset)))
+                .map(|(label, value)| (label, shift_expr(value, offset, variable_offset)))
                 .collect(),
         },
         ExprKind::RecordUpdate { record, fields } => ExprKind::RecordUpdate {
-            record: Box::new(shift_expr(*record, offset)),
+            record: Box::new(shift_expr(*record, offset, variable_offset)),
             fields: fields
                 .into_iter()
-                .map(|(label, value)| (label, shift_expr(value, offset)))
+                .map(|(label, value)| (label, shift_expr(value, offset, variable_offset)))
                 .collect(),
         },
         ExprKind::FieldAccess { record, field } => ExprKind::FieldAccess {
-            record: Box::new(shift_expr(*record, offset)),
+            record: Box::new(shift_expr(*record, offset, variable_offset)),
             field,
         },
         ExprKind::RepresentationCast {
@@ -184,36 +215,38 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
             source_type,
             target_type,
         } => ExprKind::RepresentationCast {
-            value: Box::new(shift_expr(*value, offset)),
+            value: Box::new(shift_expr(*value, offset, variable_offset)),
             source_type: shift_id(source_type, offset),
             target_type: shift_id(target_type, offset),
         },
-        ExprKind::ArrayLength(value) => ExprKind::ArrayLength(Box::new(shift_expr(*value, offset))),
+        ExprKind::ArrayLength(value) => {
+            ExprKind::ArrayLength(Box::new(shift_expr(*value, offset, variable_offset)))
+        }
         ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(shift_expr(*array, offset)),
-            index: Box::new(shift_expr(*index, offset)),
+            array: Box::new(shift_expr(*array, offset, variable_offset)),
+            index: Box::new(shift_expr(*index, offset, variable_offset)),
         },
         ExprKind::ArrayUpdate {
             array,
             index,
             value,
         } => ExprKind::ArrayUpdate {
-            array: Box::new(shift_expr(*array, offset)),
-            index: Box::new(shift_expr(*index, offset)),
-            value: Box::new(shift_expr(*value, offset)),
+            array: Box::new(shift_expr(*array, offset, variable_offset)),
+            index: Box::new(shift_expr(*index, offset, variable_offset)),
+            value: Box::new(shift_expr(*value, offset, variable_offset)),
         },
         ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
             op,
-            left: Box::new(shift_expr(*left, offset)),
-            right: Box::new(shift_expr(*right, offset)),
+            left: Box::new(shift_expr(*left, offset, variable_offset)),
+            right: Box::new(shift_expr(*right, offset, variable_offset)),
         },
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
             op,
-            value: Box::new(shift_expr(*value, offset)),
+            value: Box::new(shift_expr(*value, offset, variable_offset)),
         },
         ExprKind::Application(function, argument) => ExprKind::Application(
-            Box::new(shift_expr(*function, offset)),
-            Box::new(shift_expr(*argument, offset)),
+            Box::new(shift_expr(*function, offset, variable_offset)),
+            Box::new(shift_expr(*argument, offset, variable_offset)),
         ),
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder: crate::Binder {
@@ -222,34 +255,34 @@ fn shift_kind(kind: ExprKind, offset: u32) -> ExprKind {
                 ty: shift_id(binder.ty, offset),
                 span: binder.span,
             },
-            body: Box::new(shift_expr(*body, offset)),
+            body: Box::new(shift_expr(*body, offset, variable_offset)),
         },
         ExprKind::Let { bindings, body } => ExprKind::Let {
             bindings: bindings
                 .into_iter()
-                .map(|binding| shift_binding(binding, offset))
+                .map(|binding| shift_binding(binding, offset, variable_offset))
                 .collect(),
-            body: Box::new(shift_expr(*body, offset)),
+            body: Box::new(shift_expr(*body, offset, variable_offset)),
         },
         ExprKind::If {
             condition,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            condition: Box::new(shift_expr(*condition, offset)),
-            then_branch: Box::new(shift_expr(*then_branch, offset)),
-            else_branch: Box::new(shift_expr(*else_branch, offset)),
+            condition: Box::new(shift_expr(*condition, offset, variable_offset)),
+            then_branch: Box::new(shift_expr(*then_branch, offset, variable_offset)),
+            else_branch: Box::new(shift_expr(*else_branch, offset, variable_offset)),
         },
         ExprKind::Case {
             scrutinee,
             branches,
         } => ExprKind::Case {
-            scrutinee: Box::new(shift_expr(*scrutinee, offset)),
+            scrutinee: Box::new(shift_expr(*scrutinee, offset, variable_offset)),
             branches: branches
                 .into_iter()
                 .map(|branch| CaseBranch {
                     pattern: shift_pattern(branch.pattern, offset),
-                    value: shift_expr(branch.value, offset),
+                    value: shift_expr(branch.value, offset, variable_offset),
                     span: branch.span,
                 })
                 .collect(),

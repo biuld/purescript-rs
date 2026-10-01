@@ -36,6 +36,28 @@ Infer synthesizable expressions and check expressions with expected types. Insta
 
 Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Explicit type/kind applications and typed holes follow the official source rules. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
+Preserve `ForAll` beneath arrows and inside fields during signature
+elaboration. A lambda parameter with a quantified expected type enters the
+local environment as a polymorphic value; each reference opens only its
+leading quantifiers with fresh unknowns. Constructor patterns and record
+projections retain the same field quantifiers. Checking a record literal or
+constructor argument propagates the expected field type to its value, rather
+than first inferring all values as monotypes.
+
+Checking a leading `forall` allocates a fresh skolem scope and checks the body
+with rigid representatives of its binders. Substitutions of unknowns that
+outlive that scope must not contain its skolems. Restore quantified binders in
+the checked result after the escape audit; do not export solver skolems as free
+Core variables. Generalization excludes locally bound variables and never
+captures a skolem. Substitution below `ForAll` respects binder shadowing and
+uses fresh identities to avoid capture.
+
+Higher-rank checking does not imply arbitrary impredicative inference. When
+an expected type is an unconstrained unknown, instantiate an inferred
+polymorphic expression before solving the unknown, following the official
+checker's rule. Explicit polymorphic fields and annotations supply the
+boundaries at which a polymorphic value may be retained.
+
 Rejected alternatives: pure HM cannot check higher-rank signatures; unifying a `forall` as though it were a monotype is unsound; generalizing recursive uses before group checking admits unsound polymorphic recursion; and carrying solver cells into THIR breaks the P5 boundary.
 
 ## Algorithms
@@ -43,11 +65,21 @@ Rejected alternatives: pure HM cannot check higher-rank signatures; unifying a `
 ```text
 check(expr, expected):
     if expected begins with forall: skolemize binder, check body, reject escape
+    if expected begins with constraint: bind given evidence, check body
+    if expr is lambda and expected is arrow: bind parameter, check result
+    if expr is record: check each field against its expected field type
     otherwise synthesize expr and subsume synthesized type against expected
 
+infer_application(function, argument):
+    synthesize function; instantiate only its leading quantifiers/constraints
+    if its arrow is known: check argument against the parameter type
+    otherwise infer a monomorphic argument and solve an arrow with fresh result
+
 subsume(actual, expected):
-    instantiate leading forall in actual
-    skolemize leading forall in expected
+    if expected begins with forall:
+        enter a fresh scope; skolemize expected; recurse and reject escape
+    if actual begins with forall:
+        instantiate its leading binders inside the current comparison scope
     elaborate actual constraints where expression evidence can be inserted
     compare arrows contravariantly/covariantly and records by row rules
     otherwise unify kind-correct monotypes
@@ -60,10 +92,28 @@ infer_group(group, environment):
 ```
 
 Occurs checks traverse applications, rows, quantifiers, and constraints. Type errors retain both expected and actual types and the originating source range.
+Comparison-local unknowns may refer to the comparison's skolems; unknowns
+created outside that scope may not. This distinction accepts two equivalent
+quantified signatures without allowing an inferred monomorphic parameter to
+escape into a higher-rank signature.
 
 ## Code map
 
-`crates/psrs-typecheck/src/typecheck/` owns `infer.rs`, `unify.rs`, `subsumption.rs`, `skolems.rs`, and `groups.rs`; `classes.rs` and `rows.rs` provide the adjacent solvers. `typecheck(program: &hir::Program, kinds: &CheckedKindEnv) -> Result<thir::Program, Vec<Diagnostic>>` is the P5 entry point. `crates/psrs-thir/src/` owns checked types, expressions, evidence, and `verify_module(&Module) -> Result<(), Vec<Diagnostic>>`.
+`crates/psrs-typecheck/src/typecheck/` owns `infer/` for synthesis and expected
+type propagation, `signature.rs` for scoped signature elaboration, `unify.rs`
+for equality, and a focused `rank_n/` module for subsumption, quantified
+instantiation, and skolem scopes. Dependency-group checking and generalization
+respect the same scope contract. `classes/` and `rows.rs` provide the adjacent
+solvers. The semantic entry consumes HIR and checked kinds and produces THIR.
+`crates/psrs-thir/src/` owns checked types, expressions, evidence, and
+`verify_module(&Module) -> Result<(), Vec<VerifyError>>`.
+
+The higher-rank owner provides `check_expr(expr, expected)`,
+`subsume(actual, expected, evidence_mode)`, and scoped
+`instantiate_forall`/`skolemize_forall` operations. Evidence mode distinguishes
+expression boundaries that can insert dictionaries from structural comparison
+inside a type. Both THIR and Core retain `ForAll` with bound identities and
+body references, including at local binder and field types.
 
 ## Invariants and verification
 

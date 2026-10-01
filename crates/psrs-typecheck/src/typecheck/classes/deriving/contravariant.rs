@@ -108,7 +108,7 @@ impl Checker {
             },
             span,
         };
-        self.infer_expr(&implementation)
+        self.infer_derived_method(method, class_arguments, &implementation)
     }
 
     fn profunctor_lcmap_symbol(&self) -> Option<SymbolId> {

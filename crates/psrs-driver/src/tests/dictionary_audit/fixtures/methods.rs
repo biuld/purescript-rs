@@ -141,7 +141,7 @@ pub(crate) fn recursive_instance_module() -> (thir::Module, SymbolId) {
                         Box::new(typed(thir::ExprKind::Global(int_sub), sub_type, span)),
                         Box::new(value),
                     ),
-                    integer,
+                    sub_partial,
                     span,
                 )),
                 Box::new(typed(thir::ExprKind::Integer(amount), integer, span)),

@@ -56,9 +56,14 @@ pub(crate) fn erased_dictionary_module() -> (thir::Module, SymbolId) {
         boolean,
         span,
     );
+    let instantiated_identity = push_arrow(&mut types, eq_dictionary, eq_dictionary);
     let identity_application = typed(
         thir::ExprKind::Application(
-            Box::new(typed(thir::ExprKind::Global(identity), identity_type, span)),
+            Box::new(typed(
+                thir::ExprKind::Global(identity),
+                instantiated_identity,
+                span,
+            )),
             Box::new(typed(thir::ExprKind::Global(eq_int), eq_dictionary, span)),
         ),
         eq_dictionary,
@@ -156,7 +161,16 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
         id
     };
     let method = push_arrow(&mut types, variable, variable);
-    let dictionary = push_record(&mut types, vec![("poly".into(), method)]);
+    let quantified_method = {
+        let id = thir::TypeId(types.len() as u32);
+        types.push(thir::Type::ForAll {
+            variables: vec![TypeVariableId(0)],
+            body: method,
+        });
+        id
+    };
+    let dictionary = push_record(&mut types, vec![("poly".into(), quantified_method)]);
+    let boolean_method = push_arrow(&mut types, boolean, boolean);
     let main_type = {
         let id = thir::TypeId(types.len() as u32);
         types.push(thir::Type::Constructor(thir::TypeConstructor::Int));
@@ -174,7 +188,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
                     )),
                     field: "poly".into(),
                 },
-                method,
+                boolean_method,
                 span,
             )),
             Box::new(typed(thir::ExprKind::Boolean(true), boolean, span)),
@@ -214,7 +228,7 @@ pub(crate) fn polymorphic_method_module() -> (thir::Module, SymbolId) {
     let poly_dict_value = typed(
         thir::ExprKind::Record(vec![(
             "poly".into(),
-            typed(thir::ExprKind::Global(identity), method, span),
+            typed(thir::ExprKind::Global(identity), quantified_method, span),
         )]),
         dictionary,
         span,

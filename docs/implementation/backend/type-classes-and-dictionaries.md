@@ -7,12 +7,13 @@
 **Progress:** Backend dictionary lowering Verified (DICT-01..11), with Typed
 Core fixtures and source execution for constrained functions, instances,
 contexts, superclasses, imports, functional dependencies, ordered instance
-chains, rank-1 polymorphic class methods, and the covered `Eq`/`Ord`, `Functor`,
+chains, polymorphic class methods, and the covered `Eq`/`Ord`, `Functor`,
 `Bifunctor`, and newtype-derived dictionaries. `Contravariant` deriving is
 type-checked through the `Profunctor.lcmap` dictionary; its function adapter
 currently reaches a P8 closure-capture limit and is not runtime-verified.
-FE-14/15 remain partial because method-local
-constraints and official-suite reconciliation are incomplete. Other deriving
+Scoped method-local constraints and quantified method parameters have evidence
+in the [rank-N acceptance record](../frontend/rank-n.md). FE-14/15 remain partial
+because the complete official-suite reconciliation is incomplete. Other deriving
 rules remain tracked under FE-16.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), supporting BE-02 and BE-09; FE-14 and FE-15 supply resolved evidence.

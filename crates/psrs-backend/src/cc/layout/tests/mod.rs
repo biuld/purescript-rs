@@ -107,6 +107,21 @@ fn recursive_aggregate_normalization_terminates() {
 }
 
 #[test]
+fn quantifier_erasure_terminates_on_a_malformed_cycle() {
+    let quantified = TypeId(0);
+    let module = empty_module(vec![Type::ForAll {
+        variables: vec![TypeVariableId(0)],
+        body: quantified,
+    }]);
+
+    assert_eq!(
+        unquantified_type(&module, quantified),
+        quantified,
+        "backend erasure must remain bounded even before Core verification"
+    );
+}
+
+#[test]
 fn equal_normalized_function_signatures_share_one_signature_id() {
     let array = TypeId(0);
     let int = TypeId(1);
@@ -203,6 +218,64 @@ fn equal_normalized_function_signatures_share_one_signature_id() {
         ValueShape::Reference(Reference {
             nullable: false,
             heap: RefShape::Repr(layout.array_types[&array_int]),
+        })
+    );
+}
+
+#[test]
+fn quantified_results_keep_a_separate_callable_signature_and_arity() {
+    let int = TypeId(0);
+    let a = TypeId(1);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::Variable(TypeVariableId(0)),
+    ];
+    let identity_body = push_arrow(&mut types, a, a);
+    let quantified_identity = TypeId(types.len() as u32);
+    types.push(Type::ForAll {
+        variables: vec![TypeVariableId(0)],
+        body: identity_body,
+    });
+    let producer = push_arrow(&mut types, int, quantified_identity);
+    let mut module = empty_module(types);
+    module.declarations.push(Declaration {
+        symbol: SymbolId::new(ModuleId(0), 0),
+        name: "makeIdentity".into(),
+        name_span: psrs_span::TextRange::new(0, 1),
+        quantified: Vec::new(),
+        ty: producer,
+        value: Expr {
+            kind: ExprKind::Integer(0),
+            ty: TypeId(0),
+            span: psrs_span::TextRange::new(0, 1),
+        },
+        span: psrs_span::TextRange::new(0, 1),
+    });
+    let layout = layout_for(&module);
+
+    let (parameters, result) = function_arrow_parameters(&module, producer);
+    assert_eq!(parameters, vec![int]);
+    assert_eq!(result, quantified_identity);
+    let producer_signature = layout
+        .representations
+        .signature(layout.function_types[&producer]);
+    let identity_signature = layout
+        .representations
+        .signature(layout.function_types[&quantified_identity]);
+    assert_eq!(producer_signature.unwrap().parameters.len(), 1);
+    assert_eq!(
+        producer_signature.unwrap().result,
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Closure(layout.function_types[&quantified_identity]),
+        })
+    );
+    assert_eq!(identity_signature.unwrap().parameters.len(), 1);
+    assert_eq!(
+        identity_signature.unwrap().parameters[0],
+        ValueShape::Reference(Reference {
+            nullable: false,
+            heap: RefShape::Erased,
         })
     );
 }
