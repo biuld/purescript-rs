@@ -85,3 +85,44 @@ fn reports_duplicate_value_declaration_code() {
             .any(|error| error.diagnostic.code == Some("DuplicateValueDeclaration"))
     );
 }
+
+#[test]
+fn resolves_a_program_against_the_on_disk_standard_library() {
+    let source = "module Main where\nimport Prelude\nmain = runEffect (pure 1)\n";
+    let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("ModuleNotFound")
+                && error.diagnostic.message.contains("`Prelude`")),
+        "{errors:?}"
+    );
+    check_program_lenient_with_prelude(&[("Main.purs", source)])
+        .expect("the on-disk Prelude should be on the module path");
+}
+
+#[test]
+fn attributes_a_library_backed_diagnostic_to_the_user_source() {
+    let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
+    let errors = check_program_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors.iter().any(|error| {
+            error.source == 0
+                && error.diagnostic.code == Some("UnknownName")
+                && error.diagnostic.message.contains("`missingName`")
+        }),
+        "the trusted prefix must not shift a user's diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn kind_checks_a_program_against_the_on_disk_standard_library() {
+    let source = "module Main where\nimport Prelude\ndata KindError f a = One f | Two (f a)\n";
+    let errors = check_program_kinds_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.source == 0 && error.diagnostic.code == Some("KindsDoNotUnify")),
+        "{errors:?}"
+    );
+}

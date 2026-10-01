@@ -196,9 +196,9 @@ instance declarations are not resolved, and the transitive export rules for a
 type hidden by the export list, for kind signatures, and for value types are
 still open.
 
-**Measured baseline (annotations oracle):** the scoreboard also loads a case's
-support modules from its sibling directory, matching the corpus layout. M2
-failing agreement is 54/70, per code: `CycleInModules` 1/1, `DeclConflict`
+**Measured baseline (annotations oracle):** the scoreboard resolves each case
+against the on-disk standard library and the case's own modules plus the
+siblings its imports reach. M2 failing agreement is 54/70, per code: `CycleInModules` 1/1, `DeclConflict`
 11/11, `DuplicateModule` 1/1, `ModuleNotFound` 1/1, `OrphanKindDeclaration`
 2/2, `UnknownExport` 1/1, `UnknownExportDataConstructor` 1/1, `UnknownImport`
 1/1, `UnknownImportDataConstructor` 1/1, `UnknownName` 19/22,
@@ -225,13 +225,37 @@ failing agreement is 54/70, per code: `CycleInModules` 1/1, `DeclConflict`
 - unary-minus desugaring to `negate`, without which `2109-negate.purs` reports
   no diagnostic at all.
 
-`passing` resolution is 36/413. Of the 377 unresolved files, 230 fail on a
-support library the scoreboard does not provide (`Prelude` in 163 files,
-`Effect.Console` in 64, and `Data.Symbol`, `Data.Unit`, and `Effect` in one
-each), 13 fail because the harness loads only a same-stem support directory and
-not the case's other siblings in the same directory (`passing/Import/M2.purs`,
-`passing/Coercible/Lib.purs`), and 134 stop in surface lowering on unsupported
-syntax: expressions in 43 files, almost all of them the ascription `e :: T`
+`passing` resolution is 52/413, up from 36. The scoreboard assembles each case
+the way the compiler loads a program: its own modules are the case plus its
+same-stem support directory, and the driver's loader follows the case's import
+graph into the rest of the case's directory, with the library on the module
+path. A case in a category root is never given siblings, because
+`tests/upstream/failing` alone has three files declaring `module M1`, so
+resolving a name there would substitute another case's module for the one under
+test. A sibling's diagnostics never decide agreement: only the case's own
+modules do, which is why the board can report a case as blocked on harness
+loading rather than on itself.
+
+Measured one defect at a time, over the 413 non-FFI `passing` files: sibling
+loading alone recovers 9 and the library alone 6, for 52 together. 17 sibling
+modules are loaded across the corpus.
+
+| Sources | Resolved |
+| --- | --- |
+| Own modules only, no library | 36 |
+| Own modules plus siblings, no library | 45 |
+| Own modules only, with the library | 42 |
+| Own modules plus siblings, with the library | 52 |
+
+Of the 361 unresolved files, 214 fail on a library module the compiler does not
+provide (`Effect.Console` in 170, `Effect` in 24, then `Data.Eq`, `Test.Assert`,
+`Test`, `Data.Predicate`, `Unsafe.Coerce`, `Prim.Row`, and the `Prim.*` and
+`Data.*` hierarchies), 2 on a sibling this compiler cannot lower yet
+(`passing/RedefinedFixity/M2.purs` and `M3.purs`, which import a module
+declaring an `infixr ... as $` alias), 0 are blocked on assembly, 7 report
+another resolution error, 4 are the DEC-16 lone-surrogate cases at lexing, and
+134 stop in surface lowering on unsupported syntax: expressions in 43 files,
+almost all of them the ascription `e :: T`
 (`passing/1110.purs`, `passing/1335.purs`, `passing/2941.purs`,
 `passing/Do.purs`, `passing/FunctionalDependencies.purs`); patterns in 41;
 declarations in 26; types in 12; guards in 10; and multi-scrutinee `case` in 2.
@@ -266,10 +290,13 @@ also runs against the vendored corpus without `purs`.
 Per code: `CycleInKindDeclaration` 2/2, `InfiniteKind` 2/2,
 `CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
 `PartiallyAppliedSynonym` 8/12, `KindsDoNotUnify` 9/24. Of the 21 remaining
-files, 13 import `Prelude`, `Data.Foldable`, `Data.Newtype`, `Effect.Console`,
-or `Safe.Coerce`, which the scoreboard does not provide, so they stop at
-resolution. The other 8 need features outside the kind core: kind checking in
-an expression (`3077.purs`, `StandaloneKindSignatures1/4.purs`), polykinded data
+files, 9 import `Data.Foldable`, `Data.Newtype`, `Effect.Console`,
+`Safe.Coerce`, or `Prim.*`, which the library does not provide, so they stop at
+resolution (`3549`, `FoldableInstance1/2/3`, `RowConstructors1/2/3`), and 2 more
+report an `UnknownName` from the same gap (`NewtypeInstance6`,
+`PASTrumpsKDNU1`). `Prelude` itself is on the module path, so a case blocked
+only on it now reaches kind checking. The other 10 need features outside the
+kind core: kind checking in an expression (`3077.purs`, `StandaloneKindSignatures1/4.purs`), polykinded data
 types whose parameter kind is inferred at instantiation
 (`PolykindInstantiation.purs`, `PolykindInstantiatedInstance.purs`), a kind
 that is a function over a row (`3765-kinds.purs`), a free type variable in a
@@ -413,28 +440,42 @@ failure must reach the guest as a trap to be visible, which is the only
 execution signal the corpus can express. Nothing in the corpus needs argv,
 stdin, or a preopened directory, so the runner passes none.
 
-The 413 rejections, by first blocking stage:
+The 413 rejections, by the phase that recovers them. The board prints three
+histograms so the phases stay distinguishable: missing library module, harness
+loading, and every other blocking stage.
 
-| Stage | Cases | Meaning |
+| Blocker | Cases | Recovered by |
 | --- | --- | --- |
-| P3 resolve | 233 | Of these, 229 stop on a missing module. |
-| P2 surface lowering | 134 | Ascriptions, sections, and unsupported pattern forms. |
-| P10 Wasm structuring | 41 | Reached the backend; no `main` in a `Main` module to select as the entry. |
+| Missing library module | 216 | 214 are Phase 3's to land: #94 `Prelude`, #95 `Effect`/`Effect.Console`/`Test.Assert`. Two are Phase 2's, by #86. |
+| P2 surface lowering | 134 | Phase 2: ascriptions, patterns, guards, and the remaining forms. |
+| P10 Wasm structuring | 48 | Reached the backend; no `main` in a `Main` module to select as the entry. |
+| P3 resolve | 7 | Another resolution error behind the library gap. |
 | P0 lex | 4 | The DEC-16 lone-surrogate cases, which are also L1 differences. |
-| P5 kind check | 1 | One kind diagnostic behind the other blockers. |
+| P5 typecheck | 3 | One type error behind the other blockers. |
+| P5 kind check | 1 | One kind error behind the other blockers. |
+| Harness loading | 0 | Nothing: every case assembles. |
+
+The board also names the two cases blocked on a sibling that exists on disk but
+that this compiler cannot lower yet: `passing/RedefinedFixity/M2.purs` and
+`M3.purs` import `M1.purs`, which declares an `infixr ... as $` alias. The loader
+indexes a directory by parsing each file in it, so a file that parses but does
+not lower is never a candidate, and those two report `ModuleNotFound` for a
+module that is present. They are counted in the 216 above but recovered by
+Phase 2's operator aliases (#86), not by the library.
 
 `stdlib/lib` holds 12 modules (`Prelude`, `Data.Maybe`, `Data.Either`, and the
 `WASI` services) and exposes `WASI.Console`, while the corpus imports
 `Effect.Console` 339 times and `Effect` 57 times, then `Test.Assert` (29),
 `Type.Proxy` (17), `Partial.Unsafe` (12), `Data.Tuple` (8), `Prim.Row` (7), and
-the `Prim.*` and `Data.*` hierarchies. Of the 229 missing-module rejections, 13
-name a sibling corpus module the harness does not load (`M1`, `A`, `B`, `M2`,
-`M3`, `Foo`, `Coercible.Lib2`), so 216 are standard-library blockers: Phase 3,
-specifically #94 `Prelude` and #95 `Effect`/`Effect.Console`/`Test.Assert`. An
-`Effect`/`Effect.Console` surface over the existing WASI console and an
-`Effect`/`Test.Assert` pair are the first library work. The sibling-module gap
-is #83; the board reports the missing module names so the two categories stay
-distinguishable until that split exists.
+the `Prim.*` and `Data.*` hierarchies. The 216 missing-module rejections name
+`Effect.Console` in 170 and `Effect` in 24, then `Data.Eq`, `Test.Assert`,
+`Test`, `Data.Predicate`, `Unsafe.Coerce`, `Prim.Row`, and the `Prim.*` and
+`Data.*` hierarchies. Before the sibling-loading fix, 13 of the 229 named a
+corpus module the harness did not read (`M1`, `A`, `B`, `M2`, `M3`, `Foo`,
+`Coercible.Lib2`); those are now resolved by the driver's loader, which is why
+the missing-module count dropped by exactly 13. An `Effect`/`Effect.Console`
+surface over the existing WASI console and an `Effect`/`Test.Assert` pair are the
+first library work.
 
 ### M8 — Warnings and optimization
 
@@ -514,7 +555,7 @@ concrete slice issues as sub-issues; this table is the index.
 | 0 | [#80](https://github.com/biuld/purescript-rs/issues/80) Lexer and layout agreement | `failing/2434.purs`, `layout/Commas.purs`, `layout/CaseGuards.purs` | Self-contained parse agreement. L1 is measured at 904/908; the four remaining cases are the DEC-16 intentional differences. String values follow [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md); preserving lone UTF-16 surrogates is not a remaining gate. |
 | 1 | [#74](https://github.com/biuld/purescript-rs/issues/74) Make every gate measurable | [#81](https://github.com/biuld/purescript-rs/issues/81) official `errorCode` mapping, [#82](https://github.com/biuld/purescript-rs/issues/82) lenient type check and L4/L5 scoreboards, [#83](https://github.com/biuld/purescript-rs/issues/83) harness module path, [#93](https://github.com/biuld/purescript-rs/issues/93) runtime scoreboard | Nothing else can be verified until L4, L5, L6/M7, and M8-W report numbers. Changes no user-visible behavior. |
 | 2 | [#75](https://github.com/biuld/purescript-rs/issues/75) Frontend surface lowering | [#84](https://github.com/biuld/purescript-rs/issues/84) ascription, [#85](https://github.com/biuld/purescript-rs/issues/85) patterns, [#86](https://github.com/biuld/purescript-rs/issues/86) operator aliases, [#87](https://github.com/biuld/purescript-rs/issues/87) type wildcards and rows, [#88](https://github.com/biuld/purescript-rs/issues/88) guards and multi-scrutinee `case`, [#89](https://github.com/biuld/purescript-rs/issues/89) `Prim` and unary minus, [#90](https://github.com/biuld/purescript-rs/issues/90) instance resolution | The largest blocker in the corpus: 134 `passing` files stop in surface lowering, before resolution, kinds, or types run. A file that cannot lower cannot be measured by any later gate. |
-| 3 | [#76](https://github.com/biuld/purescript-rs/issues/76) Standard library | [#94](https://github.com/biuld/purescript-rs/issues/94) `Prelude`, [#95](https://github.com/biuld/purescript-rs/issues/95) `Effect`/`Test.Assert`, [#96](https://github.com/biuld/purescript-rs/issues/96) tuples, `Proxy`, `Prim` | 230 of the 377 unresolved `passing` files are blocked on nothing but a missing library module. Depends on Phase 2: the library itself uses ascriptions, guards, sections, and instances. |
+| 3 | [#76](https://github.com/biuld/purescript-rs/issues/76) Standard library | [#94](https://github.com/biuld/purescript-rs/issues/94) `Prelude`, [#95](https://github.com/biuld/purescript-rs/issues/95) `Effect`/`Test.Assert`, [#96](https://github.com/biuld/purescript-rs/issues/96) tuples, `Proxy`, `Prim` | 214 of the 361 unresolved `passing` files are blocked on nothing but a missing library module. Depends on Phase 2: the library itself uses ascriptions, guards, sections, and instances. |
 | 4 | [#77](https://github.com/biuld/purescript-rs/issues/77) L4 and L5 to 100% | [#97](https://github.com/biuld/purescript-rs/issues/97) missing class checks, [#98](https://github.com/biuld/purescript-rs/issues/98) deriving and fundeps, [#99](https://github.com/biuld/purescript-rs/issues/99) hole inference, [#100](https://github.com/biuld/purescript-rs/issues/100) M3 kind gate | Turns "measurable" into "passing". #81 makes 153 cases trackable; the rest need rules. |
 | 5 | [#78](https://github.com/biuld/purescript-rs/issues/78) Backend on real programs | [#73](https://github.com/biuld/purescript-rs/issues/73) aggregate fixture execution, [#101](https://github.com/biuld/purescript-rs/issues/101) CC/MIR coverage | Consumes the output of Phases 2–4. The backend rows are `Partial` on source coverage, not on design. |
 | 6 | [#79](https://github.com/biuld/purescript-rs/issues/79) M8 warnings and optimization | [#91](https://github.com/biuld/purescript-rs/issues/91) warning scoreboard, [#92](https://github.com/biuld/purescript-rs/issues/92) optimize comparison | Last, because both need a harness first and neither blocks another phase. |
@@ -597,11 +638,11 @@ for matrix status.
 | --- | --- | --- | --- |
 | L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
-| L2 | Module, import, export, and name resolution | 54/70 failing cases; 36/413 passing modules resolve | The mapped resolution cases and all required passing-module cases agree. |
+| L2 | Module, import, export, and name resolution | 54/70 failing cases; 52/413 passing modules resolve, with 214 blocked on a library module and 0 on assembly | The mapped resolution cases and all required passing-module cases agree. |
 | L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | Not measured: no scoreboard, and only `EscapedSkolem` carries an official code | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | Not measured: no scoreboard, and no mapped class code is emitted | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the standard library is 12 modules | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the board reports 216 blocked on a missing module (214 of them library modules), 134 in surface lowering, and 0 on assembly | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 

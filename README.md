@@ -15,11 +15,11 @@ breakdown, including what remains in each layer, is
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 54/70 failing, 36/413 passing | official `errorCode`s |
+| L2 resolution | 54/70 failing, 52/413 passing | official `errorCode`s |
 | L3 kinds | 27/48 failing | official kind `errorCode`s |
 | L4 types | not measured | no scoreboard exists |
 | L5 classes | not measured | no scoreboard exists |
-| L6/M7 runtime | 0/413 passing | no non-FFI corpus program compiles, validates, and runs yet |
+| L6/M7 runtime | 0/413 passing | 216 blocked on a missing module, 134 in surface lowering |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 ```sh
