@@ -22,8 +22,10 @@ structured Wasm encoding ([Wasm encoding](encoding-and-structuring.md)), the
 component world and WASI package set
 ([WASI platform library](wasi-platform-library.md)), or the WIT-root and
 `stdlib.toml` packaging work tracked by issue #66. It does not change the
-source-language contract: `Int` for every WIT integer, `String` as a GC UTF-16
-byte-sequence value, and explicit library-owned handle drops
+source-language contract: `Int` for every WIT integer, `String` as a GC array
+of canonical UTF-8 bytes
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)), and
+explicit library-owned handle drops
 ([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)) are preserved.
 
 The design supersedes the shape-enumerating internals of
@@ -110,7 +112,7 @@ CanonicalType =
   | Int   { width: 8 | 16 | 32 | 64, signed: bool }
   | Float { width: 32 | 64 }
   | Char
-  | String                              # UTF-8 bytes on the wire; GC UTF-16 in the guest
+  | String                              # UTF-8 bytes on the wire and in the GC guest string
   | List      { element: Box<CanonicalType> }
   | FixedList { element: Box<CanonicalType>, length: u32 }
   | Record    { fields: Vec<CanonicalField> }
@@ -134,10 +136,12 @@ A WIT `tuple<A, B>` and a method receiver are records; a tuple's field names are
 `Option`, `Result`, `Variant`, and `Enum` stay distinct from `Variant` because
 the guest mapping and diagnostic names differ, but every ABI operation first
 calls `despecialize`, which rewrites `Option`, `Result`, and `Enum` into
-`Variant` and is idempotent. `String` is distinct from `List` because the guest
-value is GC UTF-16 and the boundary codec is UTF-16 to UTF-8; `list<u8>` uses
-the same byte-list path. A resource handle carries its ownership as wire
-metadata on the type, never as a separate code path: an `Own` handle is an `i32`
+`Variant` and is idempotent. `String` is distinct from `List` because it is
+validated Unicode text: the guest value is a GC array of canonical UTF-8, and
+the boundary copies those bytes after strict validation. `list<u8>` is an
+uninterpreted byte list whose source type is `Array Int`, not `String`. A
+resource handle carries its ownership as wire metadata on the type, never as a
+separate code path: an `Own` handle is an `i32`
 table index plus a drop obligation discharged by the standard library, and a
 `Borrow` handle is a call-scoped `i32` that must not appear in a result
 ([DEC-14](../../../decision/DEC-14-resource-handle-ownership.md)). The drop
@@ -298,7 +302,7 @@ parameterized by an interface, not per-shape modules:
 ```text
 trait GuestProjection {
     fn scalar        (&mut self, ct, shape) -> ValueId
-    fn string_bytes  (&mut self, guest) -> (pointer, length)   # UTF-16 -> UTF-8
+    fn string_bytes  (&mut self, guest) -> (pointer, length)   # copy canonical UTF-8
     fn product_field (&mut self, guest, repr, index) -> ValueId
     fn variant_tag   (&mut self, guest, repr) -> ValueId
     fn variant_case  (&mut self, guest, repr, case) -> ValueId
@@ -792,7 +796,7 @@ would lower component types directly to core Wasm GC types behind a `gc`
 canonical option plus a `core-type`. The recursion here is representation
 agnostic: the guest layout and `CanonicalType` already share a skeleton with the
 proposed GC core types (`struct` for record/variant, `array` for list, GC
-`(array (mut i16))` for the project's UTF-16 `String`). A future `gc` backend
+`(array (mut i8))` for the project's UTF-8 `String`). A future `gc` backend
 replaces `store`/`load`/`cabi_realloc` with typed-reference `lift`/`lower` and
 `struct.get`/`array.get`, while `flatten`, `size_align` (for hosts that still
 need the linear form), and the guest walk compose unchanged. Until a supporting

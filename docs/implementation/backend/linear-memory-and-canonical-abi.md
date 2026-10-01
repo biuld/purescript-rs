@@ -7,11 +7,12 @@ and [Canonical ABI and WIT](../../design/backend/wasm/canonical-abi-and-wit.md),
 with [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md).
 
 **Progress:** Re-baselined by
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). Strings are
-now GC `(array (mut i16))` values, each distinct literal is a passive data
-segment materialized once with `array.new_data` and interned in a lazily
-initialized module global, and the ABI adapter transcodes UTF-16 to
-and from the component's UTF-8. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
+[DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md). The landed
+strings are GC `(array (mut i8))` values holding canonical UTF-8, each distinct
+literal is a passive data segment materialized once with `array.new_data` and
+interned in a lazily initialized module global, and the ABI adapter validates
+text strictly instead of transcoding: a malformed sequence or an unpaired
+surrogate traps. LM-02, LM-04, LM-05, ABI-01, ABI-03, ABI-06, and
 ABI-07 are Verified. LM-01 is In progress because the profile still fixes one
 wasm32 memory. ABI-02 is Verified, including `own`/`borrow` handle drop;
 scalar, enum, flags, char, and GC string mapping already has tests. ABI-08's
@@ -54,7 +55,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | LM-05 | Byte and width operations lower for the canonical ABI boundary. | `f64`/`f32`/`i64` adaptation tests and WIT scalar cases. | Verified |
 | ABI-01 | WIT is vendored, parsed, name-resolved, and validated against source signatures. | Registry/validation tests and the signature-mismatch rejection. | Verified |
 | ABI-02 | Scalars, enums, flags, chars, GC strings, and `own`/`borrow` handles map to canonical values and drop rules. | WIT scalar/enum/flags tests, string tests, and handle drop tests. | Verified |
-| ABI-03 | Byte lists and direct (including nested) records flatten in WIT field order and recover into GC values. | WIT record/flags flattening tests, the indirect composite fixture, and GC byte-list recovery. | Verified |
+| ABI-03 | `list<u8>` and direct (including nested) records flatten in WIT field order and recover into GC values: a `list<u8>` recovers into `Array Int`, not into text ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). | WIT record/flags flattening tests, the indirect composite fixture, GC `list<u8>` recovery, and a driver execution test passing a recovered byte array to another import. | Verified |
 | ABI-06 | Narrowed and unsigned WIT integers (`s8`/`u8`/`s16`/`u16`/`u32`) map to source `Int` with canonical masking and sign-extension. | Classification, validation, and lowering tests. | Verified |
 | ABI-07 | The componentizer lifts the core module and prunes unused imports. | Component emission and execution tests. | Verified |
 | ABI-08 | General aggregate results, `option`/`result`/`variant` payloads, non-byte lists, tuples, and export `post-return` release lower or are rejected with named diagnostics. | Non-byte `list<T>` of scalars, `bool`, `char`, `string`/`list<u8>`, nullary enums, flags, resource handles as parameters, and directly flattened records of scalar or string fields is classified, validated, and lowered; `list<string>` has a driver execution test and the record, flags, and handle elements have synthesized Wasm fixtures. `option`/`result`/`variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element ([DEC-13](../../decision/DEC-13-wit-to-source-type-mapping.md)); synthesized Wasm fixtures cover a `result`, `option`, `variant`, `option` parameter, a nested-variant error payload, nested record payloads, 64-bit/float payloads, a flags payload, a non-byte-list payload, a record with an aggregate field (both directions), `list<record>` payloads, and a large record result whose return area is allocated through `cabi_realloc`. An indirect parameter record carries a mapped aggregate as its discriminant and joined payload. Under [DEC-14](../../decision/DEC-14-resource-handle-ownership.md) the compiler no longer drops or releases a handle: a source-declared `[resource-drop]<resource>` import lowers to the canonical drop, a handle nested in a result aggregate is an ordinary value, and a `borrow<T>` result is rejected. `list<option<T>>`, `list<result<O, E>>`, and `list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and inside aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are now classified and lowered (recursively from the canonical element and its guest layout), and a unit-success `result<_, E>` maps to `Either E Unit` (the error on `Left`), sizes its return area from the error payload, and decodes the error into `Left`; the aggregate, nested, fixed-length, and owned-handle-list shapes have synthesized lower/encode/validate fixtures and the source-reachable aggregate list runs under Wasmtime. | In progress |
@@ -90,10 +91,10 @@ LM-01:
 LM-02:
   Implementation: the `$string` GC array in crates/psrs-backend/src/mir/layout/;
     `ArrayNewData` in mir/instruction.rs with the pool in mir/literals.rs;
-    passive UTF-16 segments and the one lazy interning global per used literal in
+    passive UTF-8 segments and the one lazy interning global per used literal in
     wasm/lower/runtime.rs; the `ref.is_null`/`global.set` guarded
-    `array.new_data` in wasm/lower/structure/instructions.rs; the UTF-16<->UTF-8
-    codec in wasm/lower/codec/; the adapter in mir/wit/.
+    `array.new_data` in wasm/lower/structure/instructions.rs; the strict
+    validation and byte codec in wasm/lower/codec/; the adapter in mir/wit/.
   Tests: psrs-driver tests::wasi::{lowers_string_log_to_wasi_stdout,
     prints_hello_world_when_wasmtime_is_available,
     prints_an_interned_literal_once_per_use_when_wasmtime_is_available,
@@ -107,8 +108,9 @@ LM-02:
   Input boundary: verified MIR and source.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass; a static literal never enters linear memory, a repeated literal
-    builds one GC string behind one global, and the ABI transcodes UTF-16 to
-    UTF-8 (invalid sequences and unpaired surrogates become U+FFFD).
+    builds one GC string behind one global, and the ABI validates UTF-8 strictly:
+    an invalid sequence or an unpaired surrogate traps instead of producing
+    U+FFFD.
   Gaps: none.
 ```
 
@@ -189,8 +191,8 @@ ABI-02:
     lowers_a_boolean_wit_result_with_a_boolean_source_type
     lowers_a_source_foreign_import_with_a_wit_binding.
   Result: pass for scalars, enums, flags, chars, GC strings, and handle
-    drop. A string literal is a GC `(array (mut i16))` linearized to UTF-8 at
-    the call. `resource.drop` is inserted for an owned handle the function does
+    drop. A string literal is a GC `(array (mut i8))` of canonical UTF-8
+    linearized at the call. `resource.drop` is inserted for an owned handle the function does
     not return, a borrow result is released at the call, and the verifier
     rejects a second drop and a use after the borrow scope.
   Gaps: an owned handle returned as `Int` from a non-export function is not
@@ -209,7 +211,7 @@ ABI-03:
     mir::indirect_tests::composite::
     indirect_composite_parameters_lower_to_the_canonical_layout;
     mir::wit::tests::buffers::list_results_free_the_import_buffer_after_decoding;
-    psrs-driver tests::wasi::passes_a_returned_wit_string_to_another_import.
+    psrs-driver tests::wasi::passes_a_byte_array_to_another_import.
   Input boundary: WIT records, verified MIR, and executed components.
   Commands: cargo test -p psrs-backend --lib
     record_arguments_flatten_in_wit_field_order
@@ -217,10 +219,13 @@ ABI-03:
     indirect_composite_parameters_lower_to_the_canonical_layout
     list_results_free_the_import_buffer_after_decoding;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
-    passes_a_returned_wit_string_to_another_import.
-  Result: pass. Direct and nested records flatten in WIT field order, and a
-    returned byte list is decoded into a GC string that another import can
-    print. Re-executed under Wasmtime 49.0.1.
+    passes_a_byte_array_to_another_import.
+  Result: pass. Direct and nested records flatten in WIT field order. A
+    returned WIT `string` decodes into a GC string and a returned `list<u8>`
+    into `Array Int`, each of which another import can consume, because the two
+    WIT types no longer share a source type under
+    [DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md).
+    Re-executed under Wasmtime 49.0.1.
   Gaps: source-level record signatures are rejected by the type checker, so
     record parameters are reachable through backend IR paths only.
 ```

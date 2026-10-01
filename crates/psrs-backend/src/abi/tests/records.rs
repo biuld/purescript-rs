@@ -154,7 +154,14 @@ fn accepts_records_with_nested_byte_list_fields() {
     };
     assert_eq!(fields.len(), 3);
     assert!(matches!(fields[0].ty, CanonicalType::Record(_)));
-    assert!(fields[1].ty.is_byte_list());
+    // DEC-16: the `list<u8>` field is an `Array Int`, not a `String`.
+    assert_eq!(
+        fields[1].ty,
+        CanonicalType::List(Box::new(CanonicalType::Int {
+            width: 8,
+            signed: false
+        }))
+    );
 
     let canonical = resolve.wasm_signature(AbiVariant::GuestImport, function);
     assert!(!canonical.indirect_params);

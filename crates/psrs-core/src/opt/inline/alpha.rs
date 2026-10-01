@@ -59,6 +59,12 @@ fn clone_expr(
             source_type: *source_type,
             target_type: *target_type,
         },
+        ExprKind::StringToBytes(value) => {
+            ExprKind::StringToBytes(Box::new(clone_expr(value, fresh, locals)?))
+        }
+        ExprKind::BytesToString(value) => {
+            ExprKind::BytesToString(Box::new(clone_expr(value, fresh, locals)?))
+        }
         ExprKind::ArrayLength(array) => {
             ExprKind::ArrayLength(Box::new(clone_expr(array, fresh, locals)?))
         }

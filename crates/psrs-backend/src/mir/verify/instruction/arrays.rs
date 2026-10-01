@@ -1,7 +1,8 @@
 //! Array instruction checks for MIR verification.
 
 use super::super::util::{
-    composite_at, is_any_array_reference, is_array_reference, mir_error, require_value, value_type,
+    composite_at, is_any_array_reference, is_array_reference, mir_error, require_value,
+    storage_value_type, value_type, value_type_assignable,
 };
 use crate::BackendError;
 use crate::mir::{Function, Instruction, ValueId, ValueType};
@@ -86,7 +87,7 @@ pub(super) fn verify_array_new_default(
 }
 
 /// `array.new_data` materializes static literal bytes into a fresh packed
-/// array. Only the GC string's packed `i16` element type is admitted.
+/// array. Only the GC string's packed `i8` element type is admitted.
 pub(super) fn verify_array_new_data(
     function: &Function,
     instruction: &Instruction,
@@ -104,10 +105,10 @@ pub(super) fn verify_array_new_data(
     let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
         return Err(mir_error(*span, "MIR array.new_data type is not an array"));
     };
-    if element.storage != StorageType::I16 {
+    if element.storage != StorageType::I8 {
         return Err(mir_error(
             *span,
-            "MIR array.new_data requires packed i16 element storage",
+            "MIR array.new_data requires packed i8 element storage",
         ));
     }
     if !element.mutable {
@@ -172,6 +173,130 @@ pub(super) fn verify_clone(
         return Err(mir_error(
             span,
             "MIR array.clone result must be a reference",
+        ));
+    }
+    Ok(())
+}
+
+/// One element read. `unsigned` selects the zero-extending form, which is how
+/// the packed byte storage of a source string is read: a signed read would
+/// return a negative `Int` for any byte above `0x7F`.
+pub(super) fn verify_array_get(
+    function: &Function,
+    instruction: &Instruction,
+    unsigned: bool,
+    definitions: &HashMap<ValueId, ValueType>,
+    defined: &[&crate::types::DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let name = if unsigned { "array.get_u" } else { "array.get" };
+    let (Instruction::ArrayGet {
+        destination,
+        type_index,
+        value,
+        index,
+        span,
+    }
+    | Instruction::ArrayGetU {
+        destination,
+        type_index,
+        value,
+        index,
+        span,
+    }) = instruction
+    else {
+        unreachable!("{name} verifier received another instruction")
+    };
+    let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+        return Err(mir_error(
+            *span,
+            format!("MIR {name} type is not an array").leak(),
+        ));
+    };
+    if !is_array_reference(
+        require_value(definitions, *value, *span)?,
+        *type_index,
+        defined,
+    ) {
+        return Err(mir_error(
+            *span,
+            format!("MIR {name} operand must be a reference").leak(),
+        ));
+    }
+    if require_value(definitions, *index, *span)? != ValueType::I32 {
+        return Err(mir_error(
+            *span,
+            format!("MIR {name} index must be i32").leak(),
+        ));
+    }
+    let expected = storage_value_type(&element.storage)
+        .ok_or_else(|| mir_error(*span, "MIR array element storage is not representable"))?;
+    if !value_type(function, *destination)
+        .is_some_and(|destination_type| value_type_assignable(expected, destination_type))
+    {
+        return Err(mir_error(
+            *span,
+            format!("MIR {name} result has the wrong type").leak(),
+        ));
+    }
+    Ok(())
+}
+
+/// `stringToBytes` reads the GC string array and builds the `Array Int` it
+/// names. Both element types are packed, and the result is a reference to the
+/// target array type.
+pub(super) fn verify_string_bytes(
+    function: &Function,
+    instruction: &Instruction,
+    definitions: &HashMap<ValueId, ValueType>,
+    defined: &[&crate::types::DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let Instruction::StringToBytes {
+        destination,
+        type_index,
+        string_type,
+        value,
+        span,
+        ..
+    } = instruction
+    else {
+        unreachable!("string/byte verifier received another instruction")
+    };
+    for array in [type_index, string_type] {
+        let Some(CompositeType::Array(element)) = composite_at(defined, *array) else {
+            return Err(mir_error(
+                *span,
+                "MIR string conversion type is not an array",
+            ));
+        };
+        if !element.mutable {
+            return Err(mir_error(
+                *span,
+                "MIR string conversion requires mutable array storage",
+            ));
+        }
+        if !matches!(element.storage, StorageType::I8 | StorageType::I32) {
+            return Err(mir_error(
+                *span,
+                "MIR string conversion requires packed i8 or i32 element storage",
+            ));
+        }
+    }
+    if !is_array_reference(
+        require_value(definitions, *value, *span)?,
+        *string_type,
+        defined,
+    ) {
+        return Err(mir_error(
+            *span,
+            "MIR string conversion operand must be a reference",
+        ));
+    }
+    let result = value_type(function, *destination)
+        .ok_or_else(|| mir_error(*span, "MIR string conversion result has no value type"))?;
+    if !is_array_reference(result, *type_index, defined) {
+        return Err(mir_error(
+            *span,
+            "MIR string conversion result must be a reference",
         ));
     }
     Ok(())

@@ -16,9 +16,10 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
                     .iter_mut()
                     .any(|(_, value)| clear_array_literals(value))
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            clear_array_literals(record)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => clear_array_literals(record),
         ExprKind::ArrayIndex { array, index } => {
             clear_array_literals(array) || clear_array_literals(index)
         }

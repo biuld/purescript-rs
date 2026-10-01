@@ -116,6 +116,14 @@ pub enum Intrinsic {
     CharLe,
     CharGt,
     CharGe,
+    /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
+    /// string is a sequence of Unicode scalar values, so this is lossless and
+    /// never fails ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+    StringToBytes,
+    /// An `Array Int` as a source `String`. Each element must be a canonical
+    /// byte and the bytes must be well-formed UTF-8; either violation traps
+    /// rather than producing replacement text.
+    BytesToString,
     /// Source-level `Safe.Coerce.coerce`, elaborated to a checked coercion.
     Coerce,
 }

@@ -49,7 +49,10 @@ fn record_expr(
                 record_expr(module, value, visiting, referenced);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => {
             record_expr(module, record, visiting, referenced);
         }
         ExprKind::ArrayIndex { array, index } => {

@@ -163,9 +163,12 @@ fn mark_instruction(instruction: &mir::Instruction, required: &mut RequiredCapab
         | Instruction::ArrayNew { .. }
         | Instruction::ArrayNewDefault { .. }
         | Instruction::ArrayGet { .. }
+        | Instruction::ArrayGetU { .. }
         | Instruction::ArrayClone { .. }
         | Instruction::ArraySet { .. }
-        | Instruction::ArrayLen { .. } => required.gc = true,
+        | Instruction::ArrayLen { .. }
+        // `stringToBytes` builds and reads a GC array.
+        | Instruction::StringToBytes { .. } => required.gc = true,
         Instruction::RefNull { .. } | Instruction::RefIsNull { .. } => {
             required.reference_types = true;
         }

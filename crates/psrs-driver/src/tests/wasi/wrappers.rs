@@ -99,7 +99,7 @@ fn writes_to_a_stream_when_wasmtime_is_available() {
     let source = "module Main where\n\
         import Prelude\n\
         import WASI.IO\n\
-        main = let out = runEffect getStdout in let ignored = runEffect (blockingWriteAndFlush out \"streamed\") in 0\n";
+        main = let out = runEffect getStdout in let ignored = runEffect (blockingWriteAndFlush out (stringToBytes \"streamed\")) in 0\n";
     let artifact =
         compile_source("Main.purs", source).expect("the stream write wrapper should lower");
     assert!(artifact.wat.contains("wasi:cli/stdout@0.2.12"));
@@ -256,7 +256,7 @@ fn raw_foreign_value_names(text: &str) -> Vec<String> {
 
 #[test]
 fn lowers_a_mapped_result_with_a_variant_payload() {
-    // `result<list<u8>, stream-error>` maps to `Either StreamError String`
+    // `result<list<u8>, stream-error>` maps to `Either StreamError (Array Int)`
     // (DEC-13, the error on `Left`). The `err` payload is itself a variant
     // whose case field is a resource handle, so the decode has to build the
     // nested source value before erasing it into the `Either` case field.
@@ -316,7 +316,7 @@ import WASI.IO (blockingRead, StreamError(..))
 main =
   let result = runEffect (blockingRead (runEffect getStdin) 5) in
   case result of
-    Right text -> let ignored = runEffect (log text) in 0
+    Right text -> let ignored = runEffect (log (bytesToString text)) in 0
     Left (LastOperationFailed _) -> 1
     Left Closed -> 2
 "#;
@@ -344,7 +344,7 @@ main =
   let dir = arrayIndex dirs 0 in
   let d = dir._1 in
   let opened = runEffect (openRead d "a.txt") in
-  let wrote = runEffect (writeFile d "x" 0) in
+  let wrote = runEffect (writeFile d (stringToBytes "x") 0) in
   let bytes = runEffect (readFile d 1 0) in
   let hash = runEffect (metadataHash d) in
   let kind = runEffect (getType d) in

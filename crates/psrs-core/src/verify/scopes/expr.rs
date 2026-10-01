@@ -46,9 +46,10 @@ pub(super) fn scoped_expr(
                 scoped_expr(value, module, scope, errors);
             }
         }
-        ExprKind::FieldAccess { record, .. } | ExprKind::ArrayLength(record) => {
-            scoped_expr(record, module, scope, errors)
-        }
+        ExprKind::FieldAccess { record, .. }
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => scoped_expr(record, module, scope, errors),
         ExprKind::RepresentationCast {
             value,
             source_type,

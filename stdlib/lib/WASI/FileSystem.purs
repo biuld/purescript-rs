@@ -159,19 +159,23 @@ openAppend :: Resource Descriptor -> String -> Effect (Either FileError (Resourc
 openAppend descriptor path =
   openAt descriptor defaultPathFlags path defaultOpenFlags (defaultDescriptorFlags { write = true })
 
-foreign import "wasi:filesystem/types#[method]descriptor.read" readRaw :: Resource Descriptor -> Int -> Int -> Effect (Either FileError { _1 :: String, _2 :: Boolean })
+-- | Reads up to `length` bytes at `offset`. A WIT `list<u8>` is `Array Int`,
+-- | not `String`, so the payload carries uninterpreted bytes
+-- | ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+foreign import "wasi:filesystem/types#[method]descriptor.read" readRaw :: Resource Descriptor -> Int -> Int -> Effect (Either FileError { _1 :: Array Int, _2 :: Boolean })
 
 -- | Reads up to `length` bytes at `offset`. `Right` is the decoded byte
 -- | sequence, `Left` a `FileError`.
 readFile :: Resource Descriptor -> Int -> Int -> Effect (Either FileError String)
 readFile descriptor length offset =
-  map (\result ->
+  bind (readRaw descriptor length offset) (\result ->
     case result of
-      Right value -> Right (value._1)
-      Left err -> Left err
-  ) (readRaw descriptor length offset)
+      Right value ->
+        let bytes = value._1
+        in pure (Right (bytesToString bytes))
+      Left err -> pure (Left err))
 
-foreign import "wasi:filesystem/types#[method]descriptor.write" writeFile :: Resource Descriptor -> String -> Int -> Effect (Either FileError Int)
+foreign import "wasi:filesystem/types#[method]descriptor.write" writeFile :: Resource Descriptor -> Array Int -> Int -> Effect (Either FileError Int)
 
 foreign import "wasi:filesystem/types#[method]descriptor.read-via-stream" readViaStream :: Resource Descriptor -> Int -> Effect (Either FileError (Resource InputStream))
 foreign import "wasi:filesystem/types#[method]descriptor.write-via-stream" writeViaStream :: Resource Descriptor -> Int -> Effect (Either FileError (Resource OutputStream))
@@ -190,7 +194,7 @@ writeString descriptor contents =
     case opened of
       Left err -> pure (Just err)
       Right stream ->
-        bind (blockingWriteAndFlush stream contents) (\ignored ->
+        bind (blockingWriteAndFlush stream (stringToBytes contents)) (\ignored ->
           bind (dropOutputStream stream) (\ignoredStream ->
             pure Nothing)))
 
@@ -204,7 +208,7 @@ readString descriptor length =
         bind (blockingRead stream length) (\contents ->
           bind (dropInputStream stream) (\ignored ->
             case contents of
-              Right bytes -> pure (Right bytes)
+              Right bytes -> pure (Right (bytesToString bytes))
               Left (LastOperationFailed err) ->
                 bind (filesystemErrorCode err) (\code ->
                   bind (dropError err) (\ignoredError ->

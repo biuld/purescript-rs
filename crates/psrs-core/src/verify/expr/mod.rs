@@ -9,6 +9,7 @@ use std::collections::HashMap;
 mod entry;
 mod helpers;
 mod shapes;
+mod string_bytes;
 pub(super) use entry::verify_expr;
 use helpers::{closure_call, strip_leading_foralls};
 
@@ -133,27 +134,7 @@ impl Context<'_> {
                     }
                 }
             }
-            ExprKind::RecordUpdate { record, fields } => {
-                self.expr(record, None);
-                for (label, value) in fields {
-                    if record_field(record.ty, label, self.module).is_none() {
-                        self.errors.push(error(
-                            self.owner,
-                            value.span,
-                            "record update field is not declared",
-                        ));
-                    }
-                    let field_type = record_field(expression.ty, label, self.module);
-                    self.expr(value, field_type);
-                    if field_type.is_none() {
-                        self.errors.push(error(
-                            self.owner,
-                            value.span,
-                            "record update field is not declared",
-                        ));
-                    }
-                }
-            }
+            ExprKind::RecordUpdate { record, .. } => self.record_update(expression, record),
             ExprKind::FieldAccess { record, field } => {
                 self.expr(record, None);
                 if let Some(field_type) = record_field(record.ty, field, self.module) {
@@ -187,6 +168,8 @@ impl Context<'_> {
                     ));
                 }
             }
+            ExprKind::StringToBytes(value) => self.verify_string_to_bytes(expression, value),
+            ExprKind::BytesToString(value) => self.verify_bytes_to_string(expression, value),
             ExprKind::ArrayLength(array) => {
                 self.expr(array, None);
                 if array_element(array.ty, self.module).is_none() {

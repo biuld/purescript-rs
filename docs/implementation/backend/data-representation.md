@@ -5,10 +5,13 @@
 **Design:** [Data representation](../../design/backend/fp/data-representation.md)
 
 **Progress:** Re-baselined by
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md). DR-01..DR-12
-are Verified. A source `String` is now the GC `(array (mut i16))` type reserved
-by the planner; string literals use `array.new_data`, and the erased protocol
-stores and recovers a `String` as a reference rather than the integer box.
+[DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md). DR-01..DR-12
+are Verified for the code that landed. A source `String` is the GC
+`(array (mut i8))` type reserved by the planner, holding canonical UTF-8;
+string literals use `array.new_data`, and the erased protocol stores and recovers
+a `String` as a reference rather than the integer box. `stringToBytes` and
+`bytesToString` convert between that string and an `Array Int`, and
+`bytesToString` rejects an out-of-range element or a malformed sequence.
 Runtime evidence executed under Wasmtime 49.0.0 with `PSRS_REQUIRE_WASMTIME=1`.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-05 through BE-10 and BE-15.

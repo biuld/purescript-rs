@@ -167,6 +167,9 @@ pub(crate) fn remap_instruction(
         | I::ArrayLen {
             destination, value, ..
         }
+        | I::StringToBytes {
+            destination, value, ..
+        }
         | I::WrapI64 {
             destination, value, ..
         }
@@ -251,6 +254,12 @@ pub(crate) fn remap_instruction(
             replace(new_value);
         }
         I::ArrayGet {
+            destination,
+            value,
+            index,
+            ..
+        }
+        | I::ArrayGetU {
             destination,
             value,
             index,

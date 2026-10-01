@@ -15,9 +15,9 @@ use super::lower_module_with_registry;
 use crate::ExternalBindings;
 use crate::TargetCapabilities;
 use crate::abi;
-use crate::cc::{self, VariantCase};
+use crate::cc::{self, ReprId, Representation, ValueShape, VariantCase};
 use collections::{flags_fixture, non_byte_list_fixture};
-use fixtures::{erased, fixture, parameter_fixture};
+use fixtures::{erased, fixture, fixture_with_representations, parameter_fixture};
 use indirect::indirect_aggregate_fixture;
 use large::large_record_fixture;
 use list_record::{option_list_record_fixture, result_list_record_fixture};
@@ -28,6 +28,15 @@ use record_fields::{
 use resource_result::resource_result_fixture;
 use scalars::{wide_scalar_fixture, wide_scalar_parameter_fixture};
 use wit_parser::Resolve;
+
+/// The `Array Int` a WIT `list<u8>` payload maps to (DEC-16). Repr 2 is the
+/// `Array` representation these fixtures append after the box and the variant.
+fn byte_array() -> ValueShape {
+    ValueShape::Reference(cc::Reference {
+        nullable: false,
+        heap: cc::RefShape::Repr(ReprId(2)),
+    })
+}
 
 fn lower_and_validate(module: cc::Module, bindings: ExternalBindings, resolve: Resolve) {
     let target = TargetCapabilities {
@@ -105,8 +114,9 @@ fn aggregate_parameter_lowers_to_a_wasm_artifact() {
 
 #[test]
 fn result_aggregate_lowers_to_a_wasm_artifact() {
-    // result<list<u8>, s32> -> Either String Int
-    let (module, bindings, resolve) = fixture(
+    // result<list<u8>, s32> -> Either Int (Array Int): DEC-16 maps `list<u8>`
+    // to `Array Int`, not `String`.
+    let (module, bindings, resolve) = fixture_with_representations(
         "package wasi:io@0.2.12; interface streams { get: func() -> result<list<u8>, s32>; }",
         "get",
         vec![
@@ -116,9 +126,12 @@ fn result_aggregate_lowers_to_a_wasm_artifact() {
             },
             VariantCase {
                 tag: 1,
-                fields: vec![erased()],
+                fields: vec![byte_array()],
             },
         ],
+        vec![Representation::Array {
+            element: ValueShape::Integer,
+        }],
     );
     lower_and_validate(module, bindings, resolve);
 }
@@ -425,8 +438,8 @@ fn result_list_record_lowers_to_a_wasm_artifact() {
 
 #[test]
 fn result_with_an_enum_payload_reads_a_narrow_discriminant() {
-    // result<list<u8>, error-code> -> Either String ErrorCode
-    let (module, bindings, resolve) = fixture(
+    // result<list<u8>, error-code> -> Either ErrorCode (Array Int)
+    let (module, bindings, resolve) = fixture_with_representations(
         "package wasi:io@0.2.12; interface streams { enum error-code { a, b, c } get: func() -> result<list<u8>, error-code>; }",
         "get",
         vec![
@@ -436,9 +449,12 @@ fn result_with_an_enum_payload_reads_a_narrow_discriminant() {
             },
             VariantCase {
                 tag: 1,
-                fields: vec![erased()],
+                fields: vec![byte_array()],
             },
         ],
+        vec![Representation::Array {
+            element: ValueShape::Integer,
+        }],
     );
     lower_and_validate(module, bindings, resolve);
 }

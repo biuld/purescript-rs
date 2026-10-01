@@ -133,7 +133,7 @@ fn writes_to_stderr_when_wasmtime_is_available() {
 #[test]
 fn lowers_a_list_returning_import_with_an_allocator() {
     let source = "module Main where\n\
-        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> Array Int\n\
         main = let bytes = randomBytes 8 in 0\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
@@ -291,7 +291,7 @@ fn reads_random_bytes_when_wasmtime_is_available() {
         import Prelude\n\
         import WASI.Console\n\
         import WASI.Random\n\
-        main = let noise = runEffect randomU64 in let ignored = runEffect (bind (randomBytes 8) log) in noise * 0\n";
+        main = let noise = runEffect randomU64 in let bytes = runEffect (randomBytes 8) in let length = arrayLength bytes in noise * length * 0\n";
     let artifact = compile_source("Main.purs", source).expect("library randomBytes should lower");
     assert!(artifact.wat.contains("wasi:random/random@0.2.12"));
     assert!(artifact.wat.contains("get-random-bytes"));
@@ -300,11 +300,10 @@ fn reads_random_bytes_when_wasmtime_is_available() {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
-    assert!(output.status.success(), "wasmtime failed: {output:?}");
-    // Random bytes are decoded as UTF-8 with U+FFFD replacement. `log` appends
-    // a newline to that GC string, so the payload is non-empty.
-    assert!(output.stdout.ends_with(b"\n"), "{output:?}");
-    assert!(output.stdout.len() > 1, "{output:?}");
+    assert_eq!(output.status.code(), Some(0), "wasmtime failed: {output:?}");
+    // A WIT `list<u8>` is `Array Int`, not `String`: the bytes are returned as
+    // uninterpreted integers and are never decoded as text (DEC-16).
+    assert!(output.stdout.is_empty(), "{output:?}");
 }
 
 /// `get-random-bytes` is not a direct call from the command entry in either
@@ -382,28 +381,25 @@ fn rejects_an_import_of_unexported_write_stdout() {
 }
 
 #[test]
-fn passes_a_returned_wit_string_to_another_import() {
+fn passes_a_byte_array_to_another_import() {
+    // A WIT `list<u8>` is `Array Int`, so a byte array crosses the boundary as
+    // uninterpreted integers rather than as text (DEC-16).
     let source = "module Main where\n\
         import Prelude\n\
-        import WASI.Console\n\
-        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
-        main = let ignored = runEffect (log (randomBytes 8)) in 0\n";
+        import WASI.IO (getStdout, blockingWriteAndFlush)\n\
+        main = let ignored = runEffect (bind getStdout (\\handle -> bind (blockingWriteAndFlush handle [104, 105]) (\\result -> pure 0))) in 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
     assert!(output.status.success(), "wasmtime failed: {output:?}");
-    // Random bytes are decoded as UTF-8 with U+FFFD replacement, so the
-    // re-encoded length is not the original byte count. The `log` call still
-    // appends its newline to a non-empty payload.
-    assert!(output.stdout.ends_with(b"\n"), "{output:?}");
-    assert!(!output.stdout.is_empty(), "{output:?}");
+    assert_eq!(output.stdout, b"hi", "{output:?}");
 }
 
 #[test]
 fn keeps_multiple_returned_wit_strings_in_distinct_allocations() {
     let source = "module Main where\n\
-        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> String\n\
+        foreign import \"wasi:random/random#get-random-bytes\" randomBytes :: Int -> Array Int\n\
         main = let first = randomBytes 8 in let second = randomBytes 8 in 0\n";
     let artifact = compile_source("Main.purs", source).expect("lowering repeated list results");
     assert!(artifact.wat.matches("cabi_realloc").count() >= 1);

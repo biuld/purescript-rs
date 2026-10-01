@@ -34,6 +34,7 @@ Token = { kind, range: TextRange, source: SourceId }
 Kind  = Identifier | Operator | Keyword | Literal | Punctuation
       | LayoutStart | LayoutSep | LayoutEnd | EndOfFile
 TokenStream = { source: SourceId, tokens: [Token], diagnostics: [Diagnostic] }
+StringValue = sequence of Unicode scalar values
 ```
 
 Physical token ranges cover exactly their source bytes. Virtual markers have
@@ -43,17 +44,34 @@ each implicit block; explicit braces are distinct stack entries. Columns are
 computed from the original source line, not from token order or UTF-8 byte
 count. Trivia stays recoverable from the source between token ranges.
 
+`StringValue` is a finite sequence of Unicode scalar values
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). It
+contains no surrogate code point. String literals, type-level `Symbol`
+literals, and quoted record labels carry this value through later
+representations. Identifier spelling remains Unicode text, and `TextRange`
+remains a range in the UTF-8 source bytes. Neither is converted to
+`StringValue`.
+
 ## Design
 
 Lexing and layout are consecutive operations in P0 so `psrs lex` can show
 physical tokens and `psrs layout` can show the augmented stream. The lexer
 validates escapes, character scalars, numeric forms, and unterminated strings
-or comments without inventing a semantic value. A character literal is one
-BMP code point (U+0000 through U+FFFF),
-written either directly or as a `\x` escape; astral code points are rejected,
-matching the official lexer. String literals permit astral code points and
-UTF-16 code-unit escapes, including lone surrogates. Their semantic value must
-preserve those code units rather than replace lone surrogates with U+FFFD.
+or comments. A character literal is one Unicode scalar value, written
+directly or as a `\x` escape, including a supplementary scalar. An unpaired
+surrogate escape is a lexical error. The compiler does not replace it with
+U+FFFD. In a string, a contiguous escaped high-surrogate/low-surrogate pair
+decodes as its one corresponding scalar, so `"\\xD834\\xDF06"` and
+`"\\x1D306"` are the same one-scalar value. A lone `"\\xD834"` is rejected.
+
+The same value type represents a type-level `Symbol` and a quoted record
+label. Row identity uses exact scalar-sequence equality, and row equivalence
+does not depend on declaration order. Source-level equality and concatenation
+operate on scalar sequences and do not apply Unicode normalization. Type-level
+symbol solver behavior belongs to [classes and evidence](../type-system/classes-and-evidence.md).
+At the WIT boundary a source string is already UTF-8 and is copied after
+validation, as specified by [the Canonical ABI boundary](../../backend/wasm/linear-memory-and-canonical-abi-boundary.md).
+WIT `list<u8>` is `Array Int`, not a string.
 
 The layout processor distinguishes implicit blocks from delimiter and masking
 contexts. Commas close every exposed implicit block; case binders, guards,
@@ -101,7 +119,11 @@ Tests compare the resulting markers with the official compiler on nested
 ## Code map
 
 `crates/psrs-span/src/` owns `SourceId`, `TextRange`, and line/column mapping.
-`crates/psrs-syntax/src/lexer.rs` owns
+String values are validated Unicode scalar sequences. Because every such
+sequence is well-formed Unicode text, UTF-8 text is a sufficient carrier from
+CST through backend constants. That carrier does not own source ranges,
+identifiers, or display text.
+`crates/psrs-syntax/src/lexer/` owns
 `lex(source: &SourceFile) -> Result<Vec<Token>, Vec<Diagnostic>>`;
 `layout.rs` owns
 `insert_layout(source: &SourceFile, tokens: &[Token]) -> Result<Vec<Token>, Vec<Diagnostic>>`.
@@ -113,8 +135,14 @@ module imports CST, AST, HIR, or type-checker types.
 Physical ranges are ordered, in bounds, and nonoverlapping except for
 documented composite tokens. Virtual markers have zero width, balanced block
 starts and ends, and deterministic placement. Every diagnostic points to the
-original source. Verify token/range consistency before P1 and compare layout
-traces across explicit and implicit brace spellings.
+original source. Equal string values have equal scalar sequences; appending
+values concatenates those sequences without normalization. A surrogate-pair
+escape and its supplementary scalar compare equal. An unpaired surrogate is
+rejected and is not stored as U+FFFD. Row labels and type-level symbols retain
+the same value through parsing and lowering. Verify token/range consistency
+before P1 and compare layout traces across explicit and implicit brace
+spellings. Lone-surrogate cases in the official string corpus are intentional
+differences ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 
 ## Worked example
 
@@ -151,7 +179,10 @@ diagnostics without weakening the verified-output contract.
 
 ## Implementation notes
 
-String tokens currently use Rust `String`, which cannot preserve lone UTF-16
-surrogates. The shared string-literal representation must be corrected across
-CST, AST, HIR, Typed Core, and lowering before `StringEscapes.purs` can establish
-value-level agreement. Parse agreement does not verify decoded string values.
+The lexer now decodes `\x` escapes as scalar values: a paired surrogate escape is
+one scalar, and an unpaired surrogate escape is rejected rather than becoming
+U+FFFD. A supplementary scalar is accepted as one `Char`. The backend stores GC
+strings as canonical UTF-8 bytes and transcodes them at the ABI boundary. The
+resulting L1 differences against `purs` are the DEC-16 intentional differences
+recorded in [D-04](../../D-04-suite-roadmap.md). Parse agreement does not
+verify scalar-string values.

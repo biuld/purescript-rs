@@ -30,6 +30,17 @@ impl Structurer<'_> {
         if canonical.is_byte_list() {
             return self.emit_string_node_store(body, context, offset, guest, path, span);
         }
+        // A WIT `list<u8>` is `Array Int`: each element is range-checked before
+        // it is narrowed to one canonical byte (DEC-16).
+        if matches!(
+            canonical,
+            CanonicalType::Int {
+                width: 8,
+                signed: false
+            }
+        ) {
+            return self.emit_byte_store(body, context, offset, path, span);
+        }
         match (canonical, guest) {
             (
                 CanonicalType::Record(fields),

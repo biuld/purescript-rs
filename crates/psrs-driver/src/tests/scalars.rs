@@ -220,12 +220,24 @@ main = if checkCharBound then 0 else 1
 ";
 
 #[test]
-fn rejects_astral_character_literals_before_typechecking() {
+fn accepts_a_supplementary_scalar_as_one_character() {
     for literal in [r"'\x10000'", r"'\x1F600'", "'😀'"] {
         let source = format!("module Main where\nmain = charToInt {literal}\n");
-        let errors = check_source("Main.purs", &source).expect_err("astral Char literal");
+        check_source("Main.purs", &source).unwrap_or_else(|errors| {
+            panic!("a supplementary scalar is one Char, per DEC-16: {errors:?}")
+        });
+    }
+}
+
+#[test]
+fn rejects_an_unpaired_surrogate_in_a_character_literal() {
+    for literal in [r"'\xD834'", r"'\xDF06'"] {
+        let source = format!("module Main where\nmain = charToInt {literal}\n");
+        let errors = check_source("Main.purs", &source).expect_err("lone surrogate Char literal");
         assert!(
-            errors.iter().any(|error| error.message.contains("astral")),
+            errors
+                .iter()
+                .any(|error| error.message.contains("unpaired surrogate")),
             "{errors:?}"
         );
     }
@@ -322,4 +334,112 @@ main = compute A + compute B + 39
         return;
     };
     assert_eq!(output.status.code(), Some(42));
+}
+
+const STRING_BYTES_SOURCE: &str = r#"module Main where
+
+-- `stringToBytes` is lossless: a source string is a sequence of Unicode scalar
+-- values, so every byte of its canonical UTF-8 encoding is one `Int` in
+-- `0..255`. The array length is the encoded byte count, not the scalar-value
+-- count.
+asciiLength = arrayLength (stringToBytes "A") == 1
+asciiByte = arrayIndex (stringToBytes "A") 0 == 65
+-- "e-acute" U+00E9 is two UTF-8 bytes
+accentLength = arrayLength (stringToBytes "é") == 2
+accentFirst = arrayIndex (stringToBytes "é") 0 == 195
+accentSecond = arrayIndex (stringToBytes "é") 1 == 169
+-- U+1F600 is one four-byte sequence, not a surrogate pair
+astralLength = arrayLength (stringToBytes "😀") == 4
+astralLast = arrayIndex (stringToBytes "😀") 3 == 128
+emptyLength = arrayLength (stringToBytes "") == 0
+
+main =
+  if booleanAnd asciiLength (booleanAnd asciiByte (booleanAnd accentLength
+    (booleanAnd accentFirst (booleanAnd accentSecond (booleanAnd astralLength
+      (booleanAnd astralLast emptyLength))))))
+  then 0
+  else 1
+"#;
+
+#[test]
+fn string_to_bytes_yields_the_canonical_utf8_encoding() {
+    let Some(output) = super::run_with_wasmtime(STRING_BYTES_SOURCE) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "each UTF-8 byte must become one Int in 0..255: {output:?}"
+    );
+}
+
+const STRING_BYTES_ROUND_TRIP_SOURCE: &str = r#"module Main where
+
+-- `bytesToString` is the checked direction: it reads the canonical UTF-8 of a
+-- scalar sequence back as a `String`, and that string re-encodes to exactly the
+-- same bytes.
+asciiLength = arrayLength (stringToBytes (bytesToString [104, 105])) == 2
+asciiFirst = arrayIndex (stringToBytes (bytesToString [104, 105])) 0 == 104
+asciiSecond = arrayIndex (stringToBytes (bytesToString [104, 105])) 1 == 105
+accentLength = arrayLength (stringToBytes (bytesToString [195, 169])) == 2
+astralLength = arrayLength (stringToBytes (bytesToString [240, 159, 152, 128])) == 4
+emptyLength = arrayLength (stringToBytes (bytesToString [])) == 0
+
+main =
+  if booleanAnd asciiLength (booleanAnd asciiFirst (booleanAnd asciiSecond
+    (booleanAnd accentLength (booleanAnd astralLength emptyLength))))
+  then 0
+  else 1
+"#;
+
+#[test]
+fn bytes_to_string_round_trips_canonical_utf8() {
+    let Some(output) = super::run_with_wasmtime(STRING_BYTES_ROUND_TRIP_SOURCE) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "valid UTF-8 bytes must round-trip through a source String: {output:?}"
+    );
+}
+
+const STRING_BYTES_REJECTED_SOURCE: &str = r#"module Main where
+
+-- A truncated two-byte sequence is malformed, so `bytesToString` rejects it
+-- instead of producing replacement text.
+main = arrayLength (stringToBytes (bytesToString [195])) * 0
+"#;
+
+/// An element outside `0..255` is not a byte, so it must trap before the
+/// `i32.store8` that would otherwise truncate it.
+const STRING_BYTES_OUT_OF_RANGE_SOURCE: &str = r#"module Main where
+
+main = arrayLength (stringToBytes (bytesToString [256])) * 0
+"#;
+
+#[test]
+fn bytes_to_string_traps_on_out_of_range_elements() {
+    let Some(output) = super::run_with_wasmtime(STRING_BYTES_OUT_OF_RANGE_SOURCE) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert!(
+        !output.status.success(),
+        "an element above 255 must trap instead of being narrowed to a byte: {output:?}"
+    );
+}
+
+#[test]
+fn bytes_to_string_traps_on_malformed_utf8() {
+    let Some(output) = super::run_with_wasmtime(STRING_BYTES_REJECTED_SOURCE) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert!(
+        !output.status.success(),
+        "a malformed UTF-8 byte sequence must trap, not decode to U+FFFD: {output:?}"
+    );
 }

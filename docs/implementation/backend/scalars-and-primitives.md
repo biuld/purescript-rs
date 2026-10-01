@@ -4,10 +4,12 @@
 
 **Design:** [Scalars and numeric operations](../../design/backend/fp/scalars-and-primitives.md)
 
-**Progress:** Audited. SP-01 through SP-12 are Verified. SP-02 now matches the
-[DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md) GC-string
-target: a `String` is the GC `(array (mut i16))` type, not an `i32` pointer.
-See the evidence records below.
+**Progress:** Audited. SP-01 through SP-13 are Verified for the code that
+landed. SP-02 matches the [DEC-10](../../decision/DEC-10-canonical-abi-buffer-lifetime.md)
+GC-string lifetime: a `String` is a GC array, not an `i32` pointer. Under
+[DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md) that array is
+`(array (mut i8))` holding canonical UTF-8, so the accepted element type is
+implemented rather than pending. See the evidence records below.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-04; FE-08 supplies source typing.
 
@@ -15,8 +17,12 @@ See the evidence records below.
 
 Implement the linked design's complete scalar value model, CC/MIR operation
 vocabulary, helper generation, verifier rules, and Wasm numeric semantics.
-`String` is a GC `(array (mut i16))` with a distinct CC semantic shape;
-linearization and memory ownership belong to the linear-memory design. The design's
+The landed `String` is a GC `(array (mut i8))` of canonical UTF-8 with a distinct
+CC semantic shape
+([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)); the
+operation vocabulary is unchanged, and `stringToBytes`/`bytesToString` are the
+checked bridge to `Array Int`.
+Linearization and memory ownership belong to the linear-memory design. The design's
 present-tense rules remain authoritative beyond the matrix. Source operator
 syntax/type checking belongs to the frontend, but this topic must accept all
 valid typed primitive inputs and report unsupported ones accurately.
@@ -40,6 +46,7 @@ Verified requires exact test and executed result evidence.
 | SP-10 | Generated helpers are emitted only when reachable, with collision-free symbols and deterministic scans through nested expressions. | Compare modules with/without div/mod/conversion, nested `If` uses, user-symbol collisions, and repeated calls. | Verified |
 | SP-11 | CC and MIR verifiers enforce exact scalar operand/result and helper-call signatures before encoding. | Negative full-module fixtures for mixed Int/Number, Boolean/i32 confusion, String arithmetic, wrong conversion types, and malformed helper calls. | Verified |
 | SP-12 | Normal optimization and Wasm encoding preserve values and expected traps under the selected target profile. | Execute optimized/unoptimized representative operations, validate core module/component, and compare against a reference arithmetic oracle. | Verified |
+| SP-13 | `stringToBytes` is lossless and `bytesToString` checks its input: every element must be a canonical byte and the sequence must be well-formed UTF-8, with a violation trapping rather than producing replacement text ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). | Executed round-trip over ASCII, two-byte, four-byte, and empty text; the exact encoded bytes; an out-of-range element; and a malformed UTF-8 sequence. | Verified |
 
 ## Vertical execution order
 
@@ -122,7 +129,7 @@ SP-02:
     (`scalar_source_type`, `source_shape_matches`) map `Type::String` /
     `Type::String` to it; cc/verify/ops/mod.rs requires `StringConstant`
     to produce `String`; mir/layout/mod.rs reserves the GC `$string`
-    `(array (mut i16))` and maps `String` to `(ref $string)`;
+    `(array (mut i8))` of packed i8 storage and maps `String` to `(ref $string)`;
     mir/literals.rs plus `ArrayNewData` materialize literals with
     `array.new_data`; the erased path uses `EraseReference`/`RecoverReference`
     rather than the integer box.
@@ -323,10 +330,40 @@ SP-12:
   Gaps: none.
 ```
 
+```text
+SP-13:
+  Implementation: psrs-hir/src/intrinsic.rs (Intrinsic::StringToBytes and
+    Intrinsic::BytesToString) and its bootstrap names in psrs-hir resolve;
+    psrs-typecheck assigns `String -> Array Int` and `Array Int -> String`;
+    psrs-core/src/lower/string_bytes.rs with the verifier arm in
+    psrs-core/src/verify/expr/string_bytes.rs; the CC assignment kinds and
+    psrs-backend/src/cc/lower/string_bytes.rs with the verifier in
+    cc/verify/ops/string_bytes.rs; psrs-backend/src/mir/lower/assignment_string.rs
+    (MIR `StringToBytes`, plus `BytesToString` staged through a transient
+    buffer, a `list<u8>` list copy whose byte store range-checks each element,
+    and the strict `bytes_to_string` boundary helper); the Wasm emission of both
+    in psrs-backend/src/wasm/lower/structure/arrays.rs.
+  Tests: psrs-driver tests/scalars.rs::
+    string_to_bytes_yields_the_canonical_utf8_encoding,
+    bytes_to_string_round_trips_canonical_utf8,
+    bytes_to_string_traps_on_malformed_utf8,
+    bytes_to_string_traps_on_out_of_range_elements. The first asserts the exact
+    byte sequence and length for `"A"`, `"é"`, `"😀"`, and `""`; the second
+    re-encodes `bytesToString` output for `[104,105]`, `[195,169]`,
+    `[240,159,152,128]`, and `[]`; the last two assert a non-success exit.
+  Input boundary: source through P10, executed under Wasmtime.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    tests::scalars::; common commands above.
+  Result: pass under Wasmtime 49.0.1; the four-byte sequence round-trips through
+    both intrinsics and neither malformed input yields replacement text.
+  Gaps: no source-level string length or index intrinsic exists yet, so
+    `bytesToString` is observable only through a re-encode.
+```
+
 ## Remaining work and blockers
 
-- Astral `Char` literals are accepted by the frontend lexer and type checker.
-  Backend scalar layout is unchanged.
+- There is still no source-level string length or index operation, so a converted
+  string can only be observed through `stringToBytes`.
 
 Implementation deviation: the worked example names the helpers
 `__psrs_floor_int_div`/`__psrs_floor_int_mod`, while the code emits

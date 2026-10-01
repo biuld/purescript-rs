@@ -3,7 +3,7 @@
 **Feature:** [F-02 — Build Portable Program Artifacts](../../../feature/F-02-portable-programs.md)  
 **Status:** Stable (design)  
 **Prerequisites:** the Canonical ABI exchange format (flattened values, the return pointer, `realloc`), WebAssembly linear memory and the wasm32 address model, and Wasm GC as the language heap. Read [canonical ABI and WIT](canonical-abi-and-wit.md), [MIR](../fp/mir.md), and [DEC-09](../../../decision/DEC-09-gc-only-language-heap.md) first.  
-**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: GC strings and byte lists transiently linearized, the return area of canonical calls, and passive data segments. It is not a general object heap. Language strings, aggregates, closures, variants, arrays, and erased values use Wasm GC. The allocator that backs transient buffers and their lifetime are owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
+**Summary:** Linear memory is retained only as the byte-oriented Canonical ABI and WASI boundary: source strings are stored as UTF-8 GC byte arrays and copied without transcoding to WIT `string`, byte lists retain arbitrary bytes, and canonical calls use return areas and passive data segments. It is not a general object heap. Language strings, aggregates, closures, variants, arrays, and erased values use Wasm GC. The allocator that backs transient buffers and their lifetime are owned by [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md).
 
 ## Scope
 
@@ -68,13 +68,16 @@ TrapIf { condition: ValueId, span }
 `address` and `value` take the profile's pointer/value types (`i32`/`i64`);
 `offset` is a constant of the pointer width.
 
-A source `String` is a **GC byte-sequence value**, not a linear pointer, and
-byte lists and every other source value are GC-managed
-([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md)). Linear
+A source `String` is a **Unicode scalar sequence stored as canonical UTF-8
+bytes** in a GC array, not a linear pointer. Every source string is well-formed
+UTF-8; its stored byte count differs from its public scalar-value length. Byte
+lists and every other source value are GC-managed
+([DEC-10](../../../decision/DEC-10-canonical-abi-buffer-lifetime.md),
+[DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). Linear
 memory exists only to carry canonical ABI bytes:
 
-- passive read-only data segments for static literal bytes, materialized into
-  GC strings with `array.new_data`;
+- passive read-only data segments containing canonical UTF-8 bytes of static
+  literals, materialized into GC strings with `array.new_data`;
 - transient call buffers (indirect parameter records and import return areas);
   and
 - export return areas.
@@ -102,8 +105,9 @@ values.
   into low memory.
 - The scratch region `[0, SCRATCH_END)` and the heap-state region are owned by
   the canonical allocator; no language value is stored there.
-- Passive data segments hold static literal bytes only; MIR never addresses
-  them. A distinct literal becomes a GC string once with `array.new_data` and is
+- Passive data segments hold static literal UTF-8 bytes only; MIR never
+  addresses them. A distinct literal becomes a GC string once with
+  `array.new_data` and is
   interned in a lazily initialized mutable global shared by every use.
 - An access whose address is statically known must fit wholly inside the
   scratch region, the heap-state region, or a proven allocation. Accesses with
@@ -135,15 +139,19 @@ CC references are opaque handles, so CC is unaffected
 
 ### Strings as GC values and static literals
 
-A source `String` is a GC byte-sequence value. String literals are encoded once
-as passive read-only data segments, deduplicated by content, and each distinct
-literal is materialized into a GC string exactly once with `array.new_data` and
-interned in a lazily initialized mutable module global that every use reads; a
-literal is never addressed by MIR and needs no linear buffer. Passing a string
-to an import copies its bytes into a transient linear buffer allocated by
-`cabi_realloc`, passes `(pointer, length)`, and frees the buffer when the call
-returns. Reading a returned string copies the host-written bytes into a fresh GC
-string and then frees the linear buffer.
+A source `String` is a GC array of canonical UTF-8 bytes representing Unicode
+scalar values. String literals are encoded once as passive read-only UTF-8 data
+segments, deduplicated by scalar sequence, and each distinct literal is
+materialized into a GC string exactly once with `array.new_data` and interned in a lazily
+initialized mutable module global that every use reads; a literal is never
+addressed by MIR and needs no linear buffer. Passing a string to an import
+copies its valid UTF-8 bytes into a transient linear buffer allocated by
+`cabi_realloc`, passes that byte pointer and byte length, and frees the buffer
+when the call returns. Reading a returned WIT string strictly validates its
+UTF-8 bytes, copies them unchanged into a fresh GC string, and then frees the
+linear buffer. Invalid text is rejected at the boundary, never replaced with
+U+FFFD. A `list<u8>` uses a separate opaque byte copy; its elements are neither
+validated as UTF-8 nor interpreted as source-string text.
 
 ### The canonical allocator and buffer lifetime
 
@@ -252,10 +260,8 @@ growth failure or address overflow.
 
 ```text
 lower_string_argument(string):
-    length = StringLength(string)          # GC byte-array length
-    buffer = cabi_realloc(0, 0, 1, length) # transient linear buffer
-    copy StringBytes(string) -> buffer
-    push (buffer, length)                  # canonical (pointer, length)
+    (buffer, byte_length) = copy_utf8_bytes(string)
+    push (buffer, byte_length)                  # canonical (pointer, length)
     # the caller frees `buffer` after the canonical call returns
 ```
 
@@ -267,13 +273,15 @@ read_returned_string(retptr):
     length  = Load [4] retptr
     if length == 0: return empty_gc_string
     bytes = LoadBytes [pointer, pointer + length)
-    value = StringFromBytes(bytes, length)   # fresh GC string
+    validate_utf8(bytes, length)             # reject malformed text
+    value = copy_utf8_bytes_to_gc(bytes)     # exact same UTF-8 bytes
     cabi_realloc(pointer, length, 1, 0)      # free the host buffer
     return value
 ```
 
 A returned list whose element type is not a byte is copied element-wise into a
-GC array instead; the byte path above is the `String`/`list<u8>` specialization.
+GC array. A returned `list<u8>` copies the payload bytes without UTF-8 decoding;
+it has a distinct path from `StringFromUtf8`.
 
 ### Verifying static access extents
 
@@ -485,15 +493,15 @@ non-scalar result to trigger it and resource handles are lowered. The ABI memory
 here is fixed to `MemoryId(0)` with `i32` addresses; the profile does not yet
 select a pointer width or additional memories.
 
-Strings and literals match the complete design: a source `String` is the GC
-`(array (mut i16))` type, literals are passive data segments materialized once
-with `array.new_data` and interned in a lazily initialized mutable global, and
-the ABI adapter transcodes UTF-16 to and from the
-component's UTF-8 (invalid sequences and unpaired surrogates become U+FFFD). The
-static MIR access-extent pass covers the scratch and heap-state regions; GC
-string literals are not MIR-addressable and define no region. The thin-IR
-verifier, the Wasm validator, and the allocator regression suite remain
-implemented against the current representation.
+The accepted string target is defined by
+[DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md): GC
+strings contain canonical UTF-8 bytes for scalar sequences and WIT strings use
+strict validation with byte-preserving copies. The landed backend stores `(array (mut i8))` and validates at the boundary
+without transcoding. The static MIR
+access-extent pass covers the scratch and heap-state regions; GC string
+literals are not MIR-addressable and define no region. The thin-IR verifier,
+the Wasm validator, and the allocator regression suite remain separate
+implementation evidence and do not prove string encoding or validation.
 
 ## References
 

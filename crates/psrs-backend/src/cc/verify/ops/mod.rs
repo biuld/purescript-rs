@@ -14,6 +14,8 @@ use super::variant::verify_variant_assignment;
 use tag_switch::verify_tag_switch;
 
 mod aggregate;
+mod arrays;
+mod string_bytes;
 mod table;
 mod tag_switch;
 
@@ -305,99 +307,33 @@ pub(super) fn verify_assignments(
             | AssignmentKind::VariantGet { .. } => {
                 uses.extend(verify_variant_assignment(assignment, declared, table)?);
             }
-            AssignmentKind::ArrayNew {
-                destination,
-                representation,
-                elements,
-            } => {
-                verify_embedded_destination(assignment, *destination)?;
-                let Some(Representation::Array { element }) = table.representation(*representation)
-                else {
-                    return Err(assignment_error(
-                        assignment,
-                        "array construction requires an array representation",
-                    ));
-                };
-                if elements
-                    .iter()
-                    .any(|element_id| declared.get(element_id).copied() != Some(*element))
-                {
-                    return Err(assignment_error(
-                        assignment,
-                        "array construction elements have incompatible shapes",
-                    ));
-                }
-                require_destination(
-                    declared,
-                    assignment,
-                    repr_shape(*representation),
-                    "array construction has an incompatible result shape",
-                )?;
-                uses.extend(elements.iter().copied());
+            AssignmentKind::ArrayNew { .. }
+            | AssignmentKind::ArrayLen { .. }
+            | AssignmentKind::ArrayGet { .. }
+            | AssignmentKind::ArrayClone { .. }
+            | AssignmentKind::ArraySet { .. } => {
+                arrays::verify_array_assignment(assignment, declared, table, &mut uses)?;
             }
-            AssignmentKind::ArrayLen { destination, value } => {
-                verify_embedded_destination(assignment, *destination)?;
-                verify_array_value(declared, *value, table, None, assignment)?;
-                require_destination(
-                    declared,
-                    assignment,
-                    ValueShape::Integer,
-                    "array length must produce Integer",
-                )?;
-                uses.push(*value);
-            }
-            AssignmentKind::ArrayGet {
-                destination,
+            AssignmentKind::StringToBytes {
                 representation,
                 value,
-                index,
-            } => {
-                verify_embedded_destination(assignment, *destination)?;
-                let element = verify_array_representation(table, *representation, assignment)?;
-                verify_array_value(declared, *value, table, Some(*representation), assignment)?;
-                require_value_shape(declared, *index, ValueShape::Integer, assignment)?;
-                require_destination(
-                    declared,
-                    assignment,
-                    element,
-                    "array projection has an incompatible result shape",
-                )?;
-                uses.extend([*value, *index]);
+                ..
             }
-            AssignmentKind::ArrayClone {
-                destination,
+            | AssignmentKind::BytesToString {
                 representation,
                 value,
+                ..
             } => {
-                verify_embedded_destination(assignment, *destination)?;
-                verify_array_representation(table, *representation, assignment)?;
-                verify_array_value(declared, *value, table, Some(*representation), assignment)?;
-                require_destination(
-                    declared,
+                let from_string = matches!(assignment.kind, AssignmentKind::StringToBytes { .. });
+                string_bytes::verify_conversion(
                     assignment,
-                    repr_shape(*representation),
-                    "array clone has an incompatible result shape",
+                    *representation,
+                    *value,
+                    declared,
+                    table,
+                    &mut uses,
+                    from_string,
                 )?;
-                uses.push(*value);
-            }
-            AssignmentKind::ArraySet {
-                destination,
-                representation,
-                value,
-                index,
-                new_value,
-            } => {
-                if assignment.destination != *destination || assignment.destination != *value {
-                    return Err(assignment_error(
-                        assignment,
-                        "array update destination must be the updated array",
-                    ));
-                }
-                let element = verify_array_representation(table, *representation, assignment)?;
-                verify_array_value(declared, *value, table, Some(*representation), assignment)?;
-                require_value_shape(declared, *index, ValueShape::Integer, assignment)?;
-                require_value_shape(declared, *new_value, element, assignment)?;
-                uses.extend([*value, *index, *new_value]);
             }
             AssignmentKind::If {
                 condition,

@@ -68,6 +68,18 @@ fn inline_expr(
             source_type,
             target_type,
         },
+        ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(inline_expr(
+            *value,
+            fresh,
+            sites_left,
+            max_body_nodes,
+        ))),
+        ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(inline_expr(
+            *value,
+            fresh,
+            sites_left,
+            max_body_nodes,
+        ))),
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(inline_expr(
             *array,
             fresh,

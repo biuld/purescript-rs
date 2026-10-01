@@ -48,14 +48,76 @@ fn decodes_common_string_and_character_escapes() {
             .iter()
             .any(|token| token.kind == RawTokenKind::Char('\t'))
     );
+}
 
+#[test]
+fn accepts_a_supplementary_scalar_as_one_character() {
     for literal in [r"'\x10000'", r"'\x1F600'", "'😀'"] {
+        let (tokens, errors) = lex(literal);
+        assert!(errors.is_empty(), "{errors:?}");
+        let character = tokens
+            .iter()
+            .find_map(|token| match token.kind {
+                RawTokenKind::Char(character) => Some(character),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no character token in {literal}"));
+        assert!(character as u32 > 0xFFFF, "{literal}: {character:?}");
+    }
+}
+
+#[test]
+fn rejects_an_unpaired_surrogate_escape() {
+    for literal in [
+        r#"main = "\xD834""#,
+        r#"main = "\xDF06""#,
+        r#"main = "a\xD834z""#,
+    ] {
         let (_, errors) = lex(literal);
         assert!(
-            errors.iter().any(|error| error.message.contains("astral")),
-            "{errors:?}"
+            errors
+                .iter()
+                .any(|error| error.message.contains("unpaired surrogate")),
+            "{literal}: {errors:?}"
         );
     }
+
+    for literal in [r"main = '\xD834'", r"main = '\xDF06'"] {
+        let (_, errors) = lex(literal);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("unpaired surrogate")),
+            "{literal}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn decodes_a_escaped_surrogate_pair_as_one_scalar() {
+    let paired = r#"main = "\xD834\xDF06""#;
+    let direct = r#"main = "\x1D306""#;
+    let (tokens, errors) = lex(paired);
+    assert!(errors.is_empty(), "{errors:?}");
+    let value = tokens
+        .iter()
+        .find_map(|token| match &token.kind {
+            RawTokenKind::String(value) => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert_eq!(value, "\u{1D306}");
+
+    let (tokens, errors) = lex(direct);
+    assert!(errors.is_empty(), "{errors:?}");
+    let other = tokens
+        .iter()
+        .find_map(|token| match &token.kind {
+            RawTokenKind::String(value) => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    assert_eq!(value, other);
 }
 
 #[test]

@@ -85,14 +85,17 @@ the vendored WIT once and produces a `ResolvedExternal`. `type_id` is the
 declaration's resolved source type, interned in the module type table, so CC can
 derive its layout from the shared representation table instead of re-deriving it
 from a source-type mirror. `import` is the WIT descriptor that carries the ABI
-facts the source type cannot: numeric width, `string` versus `list<u8>` byte
-semantics, flattening, `retptr`, and `own`/`borrow` ownership. A declaration the
+facts the source type cannot: numeric width, `string` versus `list<u8>`,
+flattening, `retptr`, and `own`/`borrow` ownership. A declaration the
 source ABI cannot express yields no `ResolvedExternal` and is rejected.
 
-`List` is a byte list (`string` or `list<u8>`) and flattens to a
-`(pointer, length)` pair of raw bytes. `ValueList { element }` is any other
-`list<T>`: it also flattens to `(pointer, length)`, but the pointer addresses an
-array of canonically laid-out `element` values. Its resolved source type is
+`List` is WIT `string`. It flattens to a `(pointer, length)` pair of UTF-8
+bytes and its source type is `String`
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+`list<u8>` is not that kind: it is a `ValueList` of bytes whose source type is
+`Array Int`. `ValueList { element }` is any `list<T>`, including `list<u8>`.
+It also flattens to `(pointer, length)`, but the pointer addresses an array of
+canonically laid-out `element` values. Its resolved source type is
 `Array(element)`; the descriptor is named `ValueList` rather than `Array` so it
 is not confused with the GC array that carries the source value.
 
@@ -142,7 +145,8 @@ never invents source values.
 | `s64`, `u64` | `Int` | widened to/from `i64`; `Int` keeps the low 32 bits on return. |
 | `f32`, `f64` | `Number` | `f32` narrows/widens at the boundary. |
 | `char` | `Char` | both are canonical `i32`; an `Int` is rejected. |
-| `string`, `list<u8>` | `String` | a GC byte-sequence value; copied to and from a transient linear `(pointer, length)` buffer at the boundary. |
+| `string` | `String` | a Unicode scalar sequence stored as canonical UTF-8; incoming bytes are strictly validated and valid bytes are copied without transcoding. |
+| `list<u8>` | `Array Int` | byte elements are zero-extended on input and range-checked to `0..255` before narrowing on output; never decoded as text. |
 | other `list<T>` | `Array(T)` | element-wise; not a byte list. |
 | `record` | `Record` | canonical field order by label. |
 | nullary `enum` | `Enum` | case order must match. |
@@ -162,8 +166,11 @@ types:
   unchanged. For a result, the canonical `i32` already carries the in-range
   value, so no conversion is needed. A source program that wants unsigned
   interpretation of a returned bit pattern is outside this contract.
-- `Array` is only produced for a non-byte `list<T>` whose element maps. Byte
-  lists stay `String`, so `list<u8>` never becomes `Array Int`.
+- `Array` is produced for WIT `list<T>`, including `list<u8>`. For `list<u8>`,
+  each canonical byte is zero-extended to an `Int` when recovering an array; a
+  source `Array Int` is range-checked element by element before an outgoing
+  value is narrowed to one byte. String validation and operations never apply
+  to this list.
 
 [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) maps the
 aggregate WIT forms to the idiomatic library types: a tuple to a closed record,
@@ -410,7 +417,7 @@ validate_import_signature(import, module, type_id):
         Boolean   => Boolean
         Enum      => the source cases equal the WIT cases in order
         Char      => Char
-        List      => String (byte list)
+        List      => String (WIT `string`, canonical UTF-8)
         IntegerNarrow { .. } => Int
         ValueList { element } => Array(source) whose element matches `element`
         Result    => the mapped Either source type (`Either err ok`)
@@ -422,9 +429,10 @@ validate_import_signature(import, module, type_id):
 - A method parameter list includes the receiver handle, so the declared arity
   and the canonical arity differ by one; classification keeps them aligned.
 - A `list<u8>` flattens to `(pointer, length)` while a scalar pushes one value.
-  The same expansion applies recursively to byte-list fields in directly
-  flattened records; `flattened_parameter_count` is compared with the canonical
-  signature to reject a shape the direct ABI cannot express.
+  Its source type is `Array Int`, not `String`. The same expansion applies
+  recursively to byte-list fields in directly flattened records;
+  `flattened_parameter_count` is compared with the canonical signature to
+  reject a shape the direct ABI cannot express.
 - A WIT `char` maps only to source `Char` even though both use the canonical
   `i32` core type; an `Int` is rejected.
 - A WIT `f32` parameter/result is narrowed/widened at the boundary because the
@@ -601,8 +609,8 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   unsigned WIT integers and non-byte `list<T>` results have a source mapping and
   are lowered ([Source type mapping](#source-type-mapping)). A non-byte `list<T>`
   is copied element-wise between a source GC array and the canonical
-  `(pointer, length)` buffer; `string` and `list<u8>` elements are transcoded and
-  their element buffers freed.
+  `(pointer, length)` buffer; `string` elements are validated UTF-8 copies and
+  `list<u8>` elements are uninterpreted bytes. Their element buffers are freed.
 - **Resources.** `own`/`borrow` handles are lowered
   ([Resources and handles](#resources-and-handles)): the compiler does not drop
   or release a handle on its own and exposes `resource.drop` to source, so the
@@ -614,7 +622,7 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
   `[resource-drop]<resource>` import lowers to the canonical drop.
 - **Source integration.** Parsed source can declare `Array` foreign signatures
   and reaches the ABI boundary; non-byte lists of supported elements (scalars,
-  `bool`, `char`, and `string`/`list<u8>`) are lowered.
+  `bool`, `char`, and `string`) are lowered, as is `list<u8>` as `Array Int`.
   Record and flags foreign signatures are not known to be reachable from
   parsed source.
 - **Aggregate source mapping.** `option`, `result`, and non-unit `variant` map
@@ -659,16 +667,23 @@ GC heap owns their lifetime. The proposed lowerings are:
 | `record`, `tuple`, `variant`, `option`, `result` | `(ref null? (struct ...))`, with subtyping |
 | `own`, `borrow`, `future`, `stream`, `error-context` | `externref` |
 
+This backend uses the utf8 row only. A source `String` is canonical UTF-8 in
+`(array (mut i8))`, and the utf16 row is recorded here because it is part of the
+proposal being summarized, not because the compiler accepts a second string
+encoding ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
+
 Zero copy is not automatic: mutability, rec-group identity, and not-yet-defined
 width/depth subtyping can still force a copy when the two components' at-rest
 representations disagree, which is exactly what the `core-type` option lets each
 side declare. The extension is opt-in, so a component may use it while another
 keeps the linear-memory ABI.
 
-This project's `String` is already the proposed UTF-16 GC array
-(`(array (mut i16))`), so if the `gc` option and a supporting toolchain land,
-the string path could move to GC lowering and drop linear memory and
-`cabi_realloc` for strings. Until then, the linear-memory boundary and its
+This project's `String` is the proposed UTF-8 GC array
+(`(array (mut i8))`)
+([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)), so if
+the `gc` option and a supporting toolchain land, the string path could move to
+GC lowering and drop linear memory and `cabi_realloc` for strings. Until then,
+the linear-memory boundary and its
 allocator ([canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md))
 remain the required path. WASI 0.3 (async, `stream`, `future`) does not include
 this extension, and `wit-component` 0.245 has no `gc` canonical option.
@@ -681,9 +696,13 @@ implementation coverage, not design choices. The allocator, buffer free, and
 `post-return` gaps are tracked specifically by
 [canonical buffer allocation and lifetime](canonical-buffer-allocation-and-lifetime.md):
 
-- A source `String` is now a GC byte-sequence value; the ABI adapter transcodes
-  it to and from the component's UTF-8 through the reclaiming `cabi_realloc`,
-  and frees the transient buffer at the boundary.
+- The accepted `String` is a GC array of canonical UTF-8 bytes, copied at the
+  boundary without transcoding, and a WIT `list<u8>` is `Array Int`
+  ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). The
+  backend implements both: GC strings are `(array (mut i8))`, the boundary
+  validates text strictly, and a `list<u8>` is copied element by element with a
+  `0..255` range check. The transient buffer is freed at the boundary either
+  way.
 - `cabi_realloc` is a reclaiming allocator. `wasi:cli/run` still returns a
   scalar, so that export has no `post-return`. An export whose canonical
   result is `own<T>` gets `cabi_post_<name>`, which calls `resource.drop` on

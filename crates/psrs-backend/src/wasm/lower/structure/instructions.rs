@@ -309,11 +309,25 @@ impl Structurer<'_> {
                     new_value,
                     span,
                 } => self.emit_array_set(body, *type_index, *value, *index, *new_value, *span)?,
+                MirInstruction::ArrayGetU {
+                    destination,
+                    type_index,
+                    value,
+                    index,
+                    span,
+                } => {
+                    self.emit_array_get_u(body, *destination, *type_index, *value, *index, *span)?
+                }
                 MirInstruction::ArrayLen {
                     destination,
                     value,
                     span,
                 } => self.emit_array_len(body, *destination, *value, *span)?,
+                // The element copy lives in the blocks the instruction names,
+                // so the structurer emits it the way it emits a list copy.
+                instruction @ MirInstruction::StringToBytes { .. } => {
+                    self.emit_string_bytes(body, instruction)?;
+                }
                 instruction @ MirInstruction::ListCopy { .. } => {
                     body.extend(self.emit_list_copy(instruction)?);
                 }

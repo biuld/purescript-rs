@@ -29,8 +29,10 @@ impl Instruction {
             | Self::ArrayNew { destination, .. }
             | Self::ArrayNewDefault { destination, .. }
             | Self::ArrayGet { destination, .. }
+            | Self::ArrayGetU { destination, .. }
             | Self::ArrayClone { destination, .. }
             | Self::ArrayLen { destination, .. }
+            | Self::StringToBytes { destination, .. }
             | Self::Load { destination, .. }
             | Self::Load8U { destination, .. }
             | Self::Load16U { destination, .. }
@@ -98,6 +100,7 @@ impl Instruction {
             | Self::I31GetS { value, .. }
             | Self::StructGet { value, .. }
             | Self::ArrayLen { value, .. } => vec![*value],
+            Self::StringToBytes { value, .. } => vec![*value],
             Self::StructNew { arguments, .. }
             | Self::ArrayNew {
                 elements: arguments,
@@ -107,7 +110,9 @@ impl Instruction {
             Self::StructSet {
                 value, new_value, ..
             } => vec![*value, *new_value],
-            Self::ArrayGet { value, index, .. } => vec![*value, *index],
+            Self::ArrayGet { value, index, .. } | Self::ArrayGetU { value, index, .. } => {
+                vec![*value, *index]
+            }
             Self::ArrayClone { value, .. } => vec![*value],
             Self::ArraySet {
                 value,
@@ -176,9 +181,11 @@ impl Instruction {
             | Self::ArrayNew { span, .. }
             | Self::ArrayNewDefault { span, .. }
             | Self::ArrayGet { span, .. }
+            | Self::ArrayGetU { span, .. }
             | Self::ArrayClone { span, .. }
             | Self::ArraySet { span, .. }
             | Self::ArrayLen { span, .. }
+            | Self::StringToBytes { span, .. }
             | Self::Load { span, .. }
             | Self::Load8U { span, .. }
             | Self::Load16U { span, .. }

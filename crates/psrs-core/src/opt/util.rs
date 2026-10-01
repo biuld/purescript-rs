@@ -49,6 +49,7 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
         ExprKind::FieldAccess { record, .. }
         | ExprKind::RepresentationCast { value: record, .. }
         | ExprKind::ArrayLength(record) => count_nodes(record),
+        ExprKind::StringToBytes(record) | ExprKind::BytesToString(record) => count_nodes(record),
         ExprKind::UnaryPrimitive { value, .. } => count_nodes(value),
         ExprKind::ArrayIndex { array, index } => count_nodes(array) + count_nodes(index),
         ExprKind::ArrayUpdate {
@@ -172,6 +173,12 @@ fn substitute_inner(
         },
         ExprKind::ArrayLength(array) => {
             ExprKind::ArrayLength(Box::new(substitute_inner(array, substitutions, shadowed)))
+        }
+        ExprKind::StringToBytes(value) => {
+            ExprKind::StringToBytes(Box::new(substitute_inner(value, substitutions, shadowed)))
+        }
+        ExprKind::BytesToString(value) => {
+            ExprKind::BytesToString(Box::new(substitute_inner(value, substitutions, shadowed)))
         }
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
             op: *op,
@@ -348,7 +355,9 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
         }
         ExprKind::FieldAccess { record, .. }
         | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record) => collect_ids(record, ids),
+        | ExprKind::ArrayLength(record)
+        | ExprKind::StringToBytes(record)
+        | ExprKind::BytesToString(record) => collect_ids(record, ids),
         ExprKind::UnaryPrimitive { value, .. } => collect_ids(value, ids),
         ExprKind::ArrayIndex { array, index } => {
             collect_ids(array, ids);

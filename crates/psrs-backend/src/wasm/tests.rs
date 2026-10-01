@@ -329,7 +329,7 @@ fn interns_repeated_string_literals_in_one_lazy_global() {
             final_type: true,
             supertype: None,
             composite: CompositeType::Array(FieldType {
-                storage: StorageType::I16,
+                storage: StorageType::I8,
                 mutable: true,
             }),
         }])],
