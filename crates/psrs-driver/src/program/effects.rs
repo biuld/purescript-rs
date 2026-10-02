@@ -98,7 +98,7 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
                 collect_runner_references(value, runner, spans);
             }
         }
-        ExprKind::FieldAccess { expression, .. } => {
+        ExprKind::FieldAccess { expression, .. } | ExprKind::Typed { expression, .. } => {
             collect_runner_references(expression, runner, spans);
         }
         ExprKind::Application(function, argument) => {

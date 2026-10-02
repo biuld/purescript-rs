@@ -45,11 +45,11 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 54/70 failing, 52/413 passing | official `errorCode`s |
+| L2 resolution | 54/70 failing, 52/413 passing | official `errorCode`s; 106 `passing` files stop in surface lowering |
 | L3 kinds | 27/48 failing | official kind `errorCode`s |
-| L4 types | 12/38 failing | official `errorCode`s; 16 of 26 mismatches blocked on a missing library module |
-| L5 classes | 37/74 failing | official `errorCode`s; 26 of 37 mismatches blocked on a missing library module |
-| L6/M7 runtime | 0/413 passing | 216 blocked on a missing module, 134 in surface lowering |
+| L4 types | 12/40 failing | official `errorCode`s; most mismatches blocked on a missing library module |
+| L5 classes | 41/81 failing | official `errorCode`s; most mismatches blocked on a missing library module |
+| L6/M7 runtime | 0/413 passing | 244 blocked on a missing module, 106 in surface lowering |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:
@@ -95,9 +95,10 @@ Verified working subsets, each with source tests and Wasmtime execution:
 
 ### What does not
 
-- **surface lowering** — guards on equations and `case` alternatives, the
-  ascription `e :: T`, operator and constructor-operator aliases, operator
-  sections, type wildcards, pattern bindings, and multi-scrutinee `case`;
+- **surface lowering** — guards on equations and `case` alternatives, operator
+  and constructor-operator aliases, operator sections, unary minus, type
+  wildcards, pattern bindings, and multi-scrutinee `case`; 106 `passing` files
+  stop here;
 - **resolution** — instance declarations are not resolved yet, the `Prim`
   module hierarchy is not provided, and unary minus is not desugared;
 - **diagnostics** — the type checker now emits official `errorCode`s for a type
@@ -112,7 +113,7 @@ Verified working subsets, each with source tests and Wasmtime execution:
   scalar, string, list, flags, handle, and variant shapes
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)), and the
   synthesized aggregate fixtures validate but do not yet execute;
-- **the standard library** — `stdlib/lib` holds 12 modules, and 216 corpus
+- **the standard library** — `stdlib/lib` holds 12 modules, and 244 corpus
   programs import a module it does not provide.
 
 ## Workspace

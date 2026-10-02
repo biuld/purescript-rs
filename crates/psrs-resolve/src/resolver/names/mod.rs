@@ -174,6 +174,14 @@ impl Resolver {
                 let argument = self.resolve_expr(*argument);
                 ExprKind::Application(Box::new(function?), Box::new(argument?))
             }
+            AstExprKind::Typed { expression, ty } => {
+                let expression = self.resolve_expr(*expression);
+                let ty = self.resolve_type(ty);
+                ExprKind::Typed {
+                    expression: Box::new(expression?),
+                    ty: ty?,
+                }
+            }
             AstExprKind::Operator {
                 operator,
                 left,
