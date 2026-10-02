@@ -1,15 +1,14 @@
 use super::*;
 
 impl Checker<'_> {
-    pub(super) fn check_local_type_annotations(&mut self) {
-        let mut expressions = self
-            .module
+    pub(super) fn check_local_type_annotations(&mut self, module: &psrs_hir::Module) {
+        let mut expressions = module
             .declarations
             .iter()
             .map(|declaration| declaration.value.clone())
             .collect::<Vec<_>>();
         expressions.extend(
-            self.module
+            module
                 .instances
                 .iter()
                 .flat_map(|instance| instance.members.iter().map(|member| member.value.clone())),
@@ -165,7 +164,7 @@ impl Checker<'_> {
     }
 
     fn check_annotation(&mut self, ty: &psrs_hir::Type) {
-        let kind = self.kind_of_type(ty, &mut HashMap::new());
-        self.unify(kind, Kind::Type, ty.span);
+        let kind = self.kind_of_type(ty, &mut std::collections::HashMap::new());
+        self.unify(kind, crate::kind::type_kind(), ty.span);
     }
 }

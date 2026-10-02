@@ -2,6 +2,8 @@
 //! kinds bound by its binders.
 
 use super::*;
+use crate::kind::{primitive_kind, type_kind};
+use psrs_hir::BuiltinType;
 
 impl Checker<'_> {
     // ----- Kind inference ----------------------------------------------
@@ -53,7 +55,7 @@ impl Checker<'_> {
             }
             TypeKind::OperatorChain { .. } => {
                 self.report(
-                    "UnloweredTypeOperator",
+                    UNLOWERED_TYPE_OPERATOR,
                     ty.span,
                     "type operator chain reached kind checking before P4",
                 );
@@ -61,7 +63,7 @@ impl Checker<'_> {
             }
             TypeKind::Named(id) | TypeKind::Opaque(id) => {
                 self.check_partial_synonym(ty, 0, ty.span);
-                self.instantiate_named(*id)
+                self.instantiate_named(*id, ty.span)
             }
             TypeKind::Constructor(BuiltinType::Function) => {
                 // A bare `(->)` is the function type constructor itself, of kind
@@ -71,7 +73,7 @@ impl Checker<'_> {
                 // partially applied synonym however it is spelled. Only an
                 // actual application reaches the arity rule, through the spine
                 // walk above.
-                builtin_type_kind(BuiltinType::Function)
+                primitive_kind(BuiltinType::Function)
             }
             _ => self.kind_of_atom(ty, scope),
         }
@@ -83,8 +85,10 @@ impl Checker<'_> {
         scope: &mut HashMap<String, Kind>,
     ) -> Kind {
         match &head.kind {
-            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
-            TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
+            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id, head.span),
+            // The one primitive kind table answers what kind a primitive has
+            // when it is used as a type.
+            TypeKind::Constructor(builtin) => primitive_kind(*builtin),
             TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| self.fresh()),
             _ => self.kind_of_atom(head, scope),
         }
@@ -102,12 +106,12 @@ impl Checker<'_> {
                 scope.insert(name.clone(), kind.clone());
                 kind
             }),
-            TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
-            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
+            TypeKind::Constructor(builtin) => primitive_kind(*builtin),
+            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id, ty.span),
             TypeKind::Application(..) => self.kind_of_type(ty, scope),
             TypeKind::OperatorChain { .. } => {
                 self.report(
-                    "UnloweredTypeOperator",
+                    UNLOWERED_TYPE_OPERATOR,
                     ty.span,
                     "type operator chain reached kind checking before P4",
                 );
@@ -115,16 +119,16 @@ impl Checker<'_> {
             }
             TypeKind::Function { parameter, result } => {
                 let parameter_kind = self.kind_of_type(parameter, scope);
-                self.unify(parameter_kind, Kind::Type, parameter.span);
+                self.unify(parameter_kind, type_kind(), parameter.span);
                 let result_kind = self.kind_of_type(result, scope);
-                self.unify(result_kind, Kind::Type, result.span);
-                Kind::Type
+                self.unify(result_kind, type_kind(), result.span);
+                type_kind()
             }
             TypeKind::Forall { variables, body } => {
                 let saved = scope.clone();
                 for variable in variables {
                     let kind = match &variable.kind {
-                        Some(annotation) => self.denote_kind(annotation, scope),
+                        Some(annotation) => self.denote_annotation(annotation, scope),
                         None => self.fresh(),
                     };
                     scope.insert(variable.name.clone(), kind);
@@ -135,7 +139,7 @@ impl Checker<'_> {
             }
             TypeKind::Constrained { constraint, body } => {
                 let constraint_kind = self.kind_of_type(constraint, scope);
-                self.unify(constraint_kind, Kind::Constraint, constraint.span);
+                self.unify(constraint_kind, super::constraint_kind(), constraint.span);
                 self.kind_of_type(body, scope)
             }
             TypeKind::Row { fields, tail } => {
@@ -146,13 +150,9 @@ impl Checker<'_> {
                 }
                 if let Some(tail) = tail {
                     let tail_kind = self.kind_of_type(tail, scope);
-                    self.unify(
-                        tail_kind,
-                        Kind::App(Box::new(Kind::Row), Box::new(field_kind.clone())),
-                        tail.span,
-                    );
+                    self.unify(tail_kind, Kind::row(field_kind.clone()), tail.span);
                 }
-                Kind::App(Box::new(Kind::Row), Box::new(field_kind))
+                Kind::row(field_kind)
             }
             TypeKind::Record { fields, tail } => {
                 let field_kind = self.fresh();
@@ -162,16 +162,63 @@ impl Checker<'_> {
                 }
                 if let Some(tail) = tail {
                     let tail_kind = self.kind_of_type(tail, scope);
-                    self.unify(
-                        tail_kind,
-                        Kind::App(Box::new(Kind::Row), Box::new(field_kind)),
-                        tail.span,
-                    );
+                    self.unify(tail_kind, Kind::row(field_kind), tail.span);
                 }
-                Kind::Type
+                type_kind()
             }
             TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
-            TypeKind::String(_) => Kind::Symbol,
+            TypeKind::String(_) => Kind::Builtin(BuiltinType::Symbol),
+        }
+    }
+
+    /// Rejects an unsaturated synonym read in a kind annotation.
+    ///
+    /// Saturation is a rule about how a synonym is *used*, so it is checked on
+    /// the expression rather than inside [`denote_kind`](crate::denote_kind):
+    /// `newtype C (a :: (->) (Type -> Type) -> Type)` is a partially applied
+    /// synonym whether the expression is read as a kind or as a type.
+    pub(in crate::check) fn check_annotation_saturation(&mut self, ty: &hir::Type) {
+        match &ty.kind {
+            TypeKind::Application(..) => {
+                let (head, arguments) = flatten_spine(ty);
+                self.check_partial_synonym(head, arguments.len(), ty.span);
+                self.check_annotation_saturation(head);
+                for argument in arguments {
+                    self.check_annotation_saturation(argument);
+                }
+            }
+            TypeKind::Function { parameter, result } => {
+                self.check_annotation_saturation(parameter);
+                self.check_annotation_saturation(result);
+            }
+            TypeKind::Forall { variables, body } => {
+                for variable in variables {
+                    if let Some(annotation) = &variable.kind {
+                        self.check_annotation_saturation(annotation);
+                    }
+                }
+                self.check_annotation_saturation(body);
+            }
+            TypeKind::Constrained { constraint, body } => {
+                self.check_annotation_saturation(constraint);
+                self.check_annotation_saturation(body);
+            }
+            TypeKind::Row { fields, tail } | TypeKind::Record { fields, tail } => {
+                for field in fields {
+                    self.check_annotation_saturation(&field.ty);
+                }
+                if let Some(tail) = tail {
+                    self.check_annotation_saturation(tail);
+                }
+            }
+            TypeKind::Variable(_)
+            | TypeKind::Wildcard
+            | TypeKind::Constructor(_)
+            | TypeKind::Named(_)
+            | TypeKind::Opaque(_)
+            | TypeKind::OperatorChain { .. }
+            | TypeKind::Integer(_)
+            | TypeKind::String(_) => {}
         }
     }
 

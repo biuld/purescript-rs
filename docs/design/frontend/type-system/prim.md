@@ -244,13 +244,21 @@ otherwise match the official environment member by member.
 
 Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
 foundations: its kind denotation, substitution, and unifier live in
-`crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs` and read `Row` as
-`Type -> Type` and `Record` as `Row Type -> Type`, which the kind checker's own
-readings contradict. It also owns a recursion-bounded solver that no other relation
-shares. The rule is entered from `solve.rs` by comparing `class_id` against the
-`COERCIBLE` constant directly, so the dispatch is a special case at the call site
-rather than a table lookup, and the coercion helpers are reached from the given
-rewriting and the newtype deriving rule as well.
+`crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs`, which still carries a
+private table and a private unifier. It now spells a primitive as
+`Kind::Builtin(...)` and `Row Type` as `App(Builtin(Row), Builtin(Type))`, so it agrees
+with the kind checker on the spine, but the duplication itself is unresolved: it also
+owns a recursion-bounded solver that no other relation shares. The rule is entered from
+`solve.rs` by comparing `class_id` against the `COERCIBLE` constant directly, so the
+dispatch is a special case at the call site rather than a table lookup, and the
+coercion helpers are reached from the given rewriting and the newtype deriving rule as
+well. `psrs-kind` exports `denote_kind`, `primitive_kind`, `unify_kind`,
+`bind_kind_variable`, and `KindState` for that move.
+
+Every `Prim` member's kind is now checked by the single program-level kind pass from
+the registry, through `psrs_kind::check_program`, and each member is in the checked
+environment that pass returns. A `Prim` declaration therefore cannot reach the missing
+scheme diagnostic the pass reports for a declaration nothing in the program declared.
 
 The other twelve relations have no rule and no dispatch entry: `Prim.Row.Cons`,
 `Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Cons`,

@@ -13,7 +13,7 @@ pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
     check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 mod effects;
 mod graph;
@@ -270,7 +270,23 @@ fn typecheck_program(
     }
     let modules = desugared;
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
-    let (checked_kinds, role_diagnostics) = psrs_kind::check_roles(&modules);
+    // Kind checking runs once for the whole program and produces the one
+    // environment every module's type check consumes. Its diagnostics are
+    // reported here rather than dropped: a conflict in module A is reported
+    // against A's declaration even though B's use exposed it.
+    let (checked_kinds, kind_diagnostics) = psrs_kind::check_program(&modules);
+    let failed_kind_modules = kind_failure_modules(&kind_diagnostics);
+    for error in kind_diagnostics {
+        errors.push(ProgramDiagnostic {
+            source: DiagnosticOrigin::Source(error.origin.0 as usize),
+            diagnostic: coded_diagnostic(
+                "P5 kind check",
+                error.span,
+                Some(error.code),
+                error.message,
+            ),
+        });
+    }
     let effect_type = modules
         .iter()
         .take(trusted_prefix)
@@ -324,36 +340,11 @@ fn typecheck_program(
         .collect::<HashMap<_, _>>();
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
-    errors.extend(
-        role_diagnostics
-            .into_iter()
-            .map(|(module, error)| ProgramDiagnostic {
-                source: DiagnosticOrigin::Source(module.0 as usize),
-                diagnostic: coded_diagnostic(
-                    "P5 kind check",
-                    error.span,
-                    Some(error.code),
-                    error.message,
-                ),
-            }),
-    );
     for index in order {
         let Some(module) = slots[index].take() else {
             continue;
         };
-        let kind_errors = psrs_kind::check_module(&module);
-        if !kind_errors.is_empty() {
-            for error in kind_errors {
-                errors.push(ProgramDiagnostic {
-                    source: DiagnosticOrigin::Source(index),
-                    diagnostic: coded_diagnostic(
-                        "P5 kind check",
-                        error.span,
-                        Some(error.code),
-                        error.message,
-                    ),
-                });
-            }
+        if failed_kind_modules.contains(&module.id) {
             continue;
         }
         let imported = imported_signatures(&module, &signatures);
@@ -411,6 +402,17 @@ fn typecheck_program(
     } else {
         Err(errors)
     }
+}
+
+/// The modules a program-level kind check reported a diagnostic against.
+///
+/// A module whose kind failed is not type checked: term inference consumes the
+/// checked kind environment, so an errored module would otherwise be elaborated
+/// against a kind that no module ever checked. The set is keyed by the module
+/// that *declares* the offending type, which is how a cross-module conflict
+/// stops the declaration rather than the use that exposed it.
+fn kind_failure_modules(diagnostics: &[psrs_kind::KindDiagnostic]) -> HashSet<psrs_hir::ModuleId> {
+    diagnostics.iter().map(|error| error.origin).collect()
 }
 
 /// The declared type of every value and external in the program, keyed by the
