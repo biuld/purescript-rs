@@ -246,6 +246,9 @@ impl Checker {
             hir::ExprKind::Application(function, argument) => {
                 self.infer_application(function, argument, span)?
             }
+            hir::ExprKind::Typed { expression, ty } => {
+                return self.infer_ascription(expression, ty, span);
+            }
             hir::ExprKind::Operator { .. } => {
                 self.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnloweredOperator,
