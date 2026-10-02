@@ -45,6 +45,7 @@ pub(super) fn kind_schemes_for_program(modules: &[hir::Module]) -> HashMap<TypeI
             .iter()
             .flat_map(|module| module.instances.iter().cloned())
             .collect(),
+        fixities: Vec::new(),
         span: first.span,
     };
     let mut checker = Checker::new(&combined);
@@ -177,6 +178,11 @@ impl<'a> Checker<'a> {
             TypeKind::Application(function, argument) => {
                 self.check_references(function, bound);
                 self.check_references(argument, bound);
+            }
+            TypeKind::OperatorChain { operands, .. } => {
+                for operand in operands {
+                    self.check_references(operand, bound);
+                }
             }
             TypeKind::Function { parameter, result } => {
                 self.check_references(parameter, bound);

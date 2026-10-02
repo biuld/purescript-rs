@@ -10,13 +10,14 @@ use super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_expression(&mut self, min_precedence: u8) -> Result<Expr, ParseError> {
-        self.parse_expression_impl(min_precedence, true)
+        self.parse_expression_impl(min_precedence, true, false)
     }
 
     fn parse_expression_impl(
         &mut self,
         min_precedence: u8,
         allow_backtick: bool,
+        allow_section: bool,
     ) -> Result<Expr, ParseError> {
         let mut left = self.parse_application()?;
         loop {
@@ -38,7 +39,7 @@ impl<'a> Parser<'a> {
                     self.bump();
                     let operator = self.parse_backticked_operator()?;
                     self.consume_raw(RawTokenKind::Backtick)?;
-                    let right = self.parse_expression_impl(precedence + 1, true)?;
+                    let right = self.parse_expression_impl(precedence + 1, true, allow_section)?;
                     let span = TextRange::new(left.span.start, right.span.end);
                     left = Expr {
                         kind: ExprKind::Operator {
@@ -56,7 +57,7 @@ impl<'a> Parser<'a> {
                 // tighten it if the corpus flags such a case.
                 let left_start = left.span.start;
                 self.bump();
-                let content = self.parse_expression_impl(0, false)?;
+                let content = self.parse_expression_impl(0, false, false)?;
                 self.consume_raw(RawTokenKind::Backtick)?;
                 let content_end = content.span.end;
                 let mut combined = Expr {
@@ -91,8 +92,12 @@ impl<'a> Parser<'a> {
             if precedence < min_precedence {
                 break;
             }
+            if allow_section && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::RParen) {
+                break;
+            }
             self.bump();
-            let right = self.parse_expression_impl(precedence + 1, allow_backtick)?;
+            let right =
+                self.parse_expression_impl(precedence + 1, allow_backtick, allow_section)?;
             let span = TextRange::new(left.span.start, right.span.end);
             left = Expr {
                 kind: ExprKind::Operator {

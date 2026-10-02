@@ -12,6 +12,7 @@ pub struct ExportList {
 pub enum ExportRef {
     Value(Name),
     Operator(Name),
+    TypeOperator(Name),
     Type {
         name: Name,
         members: Option<TypeMembers>,
@@ -37,6 +38,7 @@ fn lower_export_ref(reference: cst::ExportRef) -> ExportRef {
     match reference {
         cst::ExportRef::Value(name) => ExportRef::Value(lower_name(name)),
         cst::ExportRef::Operator(name) => ExportRef::Operator(lower_name(name)),
+        cst::ExportRef::TypeOperator(name) => ExportRef::TypeOperator(lower_name(name)),
         cst::ExportRef::Type { name, members } => ExportRef::Type {
             name: lower_name(name),
             members: members.map(lower_type_members),

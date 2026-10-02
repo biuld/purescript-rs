@@ -53,6 +53,15 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    OperatorChain {
+        operands: Vec<Expr>,
+        operators: Vec<super::Operator>,
+    },
+    OperatorSection {
+        operator: Name,
+        operand: Box<Expr>,
+        side: super::SectionSide,
+    },
     Lambda {
         binder: Binder,
         body: Box<Expr>,
@@ -93,6 +102,10 @@ pub enum PatternKind {
     Constructor {
         name: Name,
         arguments: Vec<Pattern>,
+    },
+    OperatorChain {
+        operands: Vec<Pattern>,
+        operators: Vec<super::Operator>,
     },
     Record {
         fields: Vec<(String, Pattern)>,
@@ -199,6 +212,13 @@ pub(super) fn check_pattern_names(
                 }
             }
         }
+        cst::PatternKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                if let Some(error) = check_pattern_names(operand, seen) {
+                    return Some(error);
+                }
+            }
+        }
         cst::PatternKind::Tuple { elements, .. } => {
             for element in elements {
                 if let Some(error) = check_pattern_names(element, seen) {
@@ -244,6 +264,22 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
                 .into_iter()
                 .map(lower_pattern)
                 .collect::<Result<_, _>>()?,
+        },
+        cst::PatternKind::OperatorChain {
+            operands,
+            operators,
+        } => PatternKind::OperatorChain {
+            operands: operands
+                .into_iter()
+                .map(lower_pattern)
+                .collect::<Result<_, _>>()?,
+            operators: operators
+                .into_iter()
+                .map(|name| super::Operator {
+                    span: name.span,
+                    name: super::lower_name(name),
+                })
+                .collect(),
         },
         cst::PatternKind::Record { fields, tail, .. } => {
             if tail.is_some() {

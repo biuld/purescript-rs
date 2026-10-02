@@ -56,6 +56,7 @@ fn module(declarations: Vec<HirDeclaration>, with_intrinsics: bool) -> hir::Modu
         declarations,
         types: Vec::new(),
         instances: Vec::new(),
+        fixities: Vec::new(),
         span: TextRange::new(0, 100),
     }
 }
