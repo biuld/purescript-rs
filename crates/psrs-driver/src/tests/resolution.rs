@@ -203,6 +203,41 @@ fn attributes_a_library_backed_diagnostic_to_the_user_source() {
 }
 
 #[test]
+fn a_source_partial_constraint_reaches_the_registry_declaration() {
+    // The official environment registers `Partial` both as a type of kind
+    // `Constraint` and as a parameterless class. Both entries share one name
+    // and one identity, so one registry declaration serves both and a source
+    // constraint resolves through the root `Prim` interface.
+    let source = "module Main where\n\
+        import Prim\n\
+        usePartial :: Partial => Int -> Int\n\
+        usePartial value = value\n\
+        main :: Int\n\
+        main = 0\n";
+    check_program(&[("Main.purs", source)])
+        .unwrap_or_else(|errors| panic!("`Partial` should resolve and type check: {errors:?}"));
+}
+
+#[test]
+fn a_source_partial_type_is_rejected_as_a_constraint_kinded_type() {
+    // `Partial` is a constraint, not a type of kind `Type`: `purs` reports the
+    // kind of `Partial` as `Constraint` for this same declaration.
+    let source = "module Main where\n\
+        import Prim\n\
+        value :: Partial\n\
+        value = 1\n\
+        main :: Int\n\
+        main = 0\n";
+    let errors = check_program(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("KindsDoNotUnify")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn kind_checks_a_program_against_the_on_disk_standard_library() {
     let source = "module Main where\nimport Prelude\ndata KindError f a = One f | Two (f a)\n";
     let errors = check_program_kinds_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
