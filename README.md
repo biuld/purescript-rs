@@ -47,8 +47,8 @@ what remains in each layer.
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
 | L2 resolution | 54/70 failing, 52/413 passing | official `errorCode`s |
 | L3 kinds | 27/48 failing | official kind `errorCode`s |
-| L4 types | not measured | no scoreboard exists |
-| L5 classes | not measured | no scoreboard exists |
+| L4 types | 12/38 failing | official `errorCode`s; 16 of 26 mismatches blocked on a missing library module |
+| L5 classes | 37/74 failing | official `errorCode`s; 26 of 37 mismatches blocked on a missing library module |
 | L6/M7 runtime | 0/413 passing | 216 blocked on a missing module, 134 in surface lowering |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
@@ -100,8 +100,11 @@ Verified working subsets, each with source tests and Wasmtime execution:
   sections, type wildcards, pattern bindings, and multi-scrutinee `case`;
 - **resolution** — instance declarations are not resolved yet, the `Prim`
   module hierarchy is not provided, and unary minus is not desugared;
-- **diagnostics** — the type checker emits official `errorCode`s only for
-  `EscapedSkolem`, so most type and class cases cannot be scored;
+- **diagnostics** — the type checker now emits official `errorCode`s for a type
+  mismatch, an occurs check, an out-of-range literal, a missing or overlapping
+  instance, a missing class member, an escaping skolem, and an ambiguous
+  constraint, so 49 M4/M5 cases are measurable; the eight class checks D-04
+  lists as `0/n` do not exist yet;
 - **runtime** — open rows have no runtime layout, variants are not implemented,
   and the scalar and numeric operation set is partial
   ([scalars](docs/design/backend/fp/scalars-and-primitives.md));
