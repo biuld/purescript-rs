@@ -14,7 +14,7 @@ pub fn check_program_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<Program
 /// against the corpus.
 pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
     let mut errors = Vec::new();
-    let resolved = resolve_partial(sources, &mut errors);
+    let resolved = desugar_resolved(resolve_partial(sources, &mut errors), &mut errors);
     let (_, role_errors) = psrs_kind::check_roles(&resolved);
     for (module, error) in role_errors {
         errors.push(ProgramDiagnostic {
@@ -59,7 +59,7 @@ pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
 /// that failed an earlier stage.
 pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
     let mut errors = Vec::new();
-    let resolved = resolve_partial(sources, &mut errors);
+    let resolved = desugar_resolved(resolve_partial(sources, &mut errors), &mut errors);
     let (checked_kinds, role_errors) = psrs_kind::check_roles(&resolved);
     for (module, error) in role_errors {
         errors.push(ProgramDiagnostic {
@@ -91,18 +91,6 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         if !psrs_kind::check_module(&module).is_empty() {
             continue;
         }
-        let module = match psrs_desugar::desugar_module(module) {
-            Ok(module) => module,
-            Err(module_errors) => {
-                for error in module_errors {
-                    errors.push(ProgramDiagnostic {
-                        source,
-                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
-                    });
-                }
-                continue;
-            }
-        };
         let imported = imported_signatures(&module, &signatures);
         let imported_instances =
             imported_instance_declarations(&dependencies, source, &instance_sets);
@@ -137,6 +125,28 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
     } else {
         Err(errors)
     }
+}
+
+fn desugar_resolved(
+    resolved: Vec<psrs_hir::Module>,
+    errors: &mut Vec<ProgramDiagnostic>,
+) -> Vec<psrs_hir::Module> {
+    let mut desugared = Vec::with_capacity(resolved.len());
+    for module in resolved {
+        let source = module.id.0 as usize;
+        match psrs_desugar::desugar_module(module) {
+            Ok(module) => desugared.push(module),
+            Err(module_errors) => {
+                for error in module_errors {
+                    errors.push(ProgramDiagnostic {
+                        source,
+                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
+                    });
+                }
+            }
+        }
+    }
+    desugared
 }
 
 /// Resolves leniently, pushing every resolution and parse diagnostic into

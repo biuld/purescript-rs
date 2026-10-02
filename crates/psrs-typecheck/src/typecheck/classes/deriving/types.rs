@@ -12,6 +12,9 @@ pub(super) fn contains_parameter(ty: &hir::Type, parameter: &str) -> bool {
         hir::TypeKind::Application(function, argument) => {
             contains_parameter(function, parameter) || contains_parameter(argument, parameter)
         }
+        hir::TypeKind::OperatorChain { operands, .. } => operands
+            .iter()
+            .any(|operand| contains_parameter(operand, parameter)),
         hir::TypeKind::Function {
             parameter: input,
             result,

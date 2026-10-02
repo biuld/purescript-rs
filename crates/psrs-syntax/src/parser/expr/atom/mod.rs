@@ -1,4 +1,5 @@
 mod records;
+mod sections;
 
 use crate::{LayoutTokenKind, RawTokenKind};
 use psrs_cst::{CstName, Expr, ExprKind, RecordField, RecordUpdateField};
@@ -352,55 +353,25 @@ impl<'a> Parser<'a> {
         Ok(name)
     }
 
-    fn parse_parenthesized_expression(&mut self) -> Result<Expr, ParseError> {
-        let open_paren_span = self.consume_raw(RawTokenKind::LParen)?.span;
-        if self.at_raw(&RawTokenKind::RParen) {
-            let close_paren_span = self.bump().span;
-            let span = TextRange::new(open_paren_span.start, close_paren_span.end);
-            return Ok(Expr {
-                kind: ExprKind::Name(CstName::new("unit", span)),
-                span,
-            });
-        }
-        if let LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) = &self.current().kind
-            && self.peek(1).kind == LayoutTokenKind::Raw(RawTokenKind::RParen)
-        {
-            let operator = operator.clone();
-            let operator_span = self.bump().span;
-            let close_paren_span = self.bump().span;
-            let span = TextRange::new(open_paren_span.start, close_paren_span.end);
-            return Ok(Expr {
-                kind: ExprKind::Name(CstName::new(operator, operator_span)),
-                span,
-            });
-        }
-        let first = self.parse_expression(0)?;
-        if self.at_raw(&RawTokenKind::Comma) {
-            let mut items = vec![first];
-            while self.at_raw(&RawTokenKind::Comma) {
-                self.bump();
-                items.push(self.parse_expression(0)?);
-            }
-            let close_paren_span = self.consume_raw(RawTokenKind::RParen)?.span;
-            let span = TextRange::new(open_paren_span.start, close_paren_span.end);
-            return Ok(Expr {
-                kind: ExprKind::Tuple {
-                    open_paren_span,
-                    items,
-                    close_paren_span,
-                },
-                span,
-            });
-        }
-        let close_paren_span = self.consume_raw(RawTokenKind::RParen)?.span;
-        Ok(Expr {
-            kind: ExprKind::Parens {
-                open_paren_span,
-                expression: Box::new(first),
-                close_paren_span,
-            },
-            span: TextRange::new(open_paren_span.start, close_paren_span.end),
-        })
+    fn is_expression_operator(&self) -> bool {
+        matches!(
+            self.current().kind,
+            LayoutTokenKind::Raw(
+                RawTokenKind::Operator(_) | RawTokenKind::Colon | RawTokenKind::DotDot
+            )
+        )
+    }
+
+    fn bump_expression_operator(&mut self) -> Option<CstName> {
+        let token = self.current().clone();
+        let name = match token.kind {
+            LayoutTokenKind::Raw(RawTokenKind::Operator(name)) => name,
+            LayoutTokenKind::Raw(RawTokenKind::Colon) => ":".to_owned(),
+            LayoutTokenKind::Raw(RawTokenKind::DotDot) => "..".to_owned(),
+            _ => return None,
+        };
+        self.bump();
+        Some(CstName::new(name, token.span))
     }
 }
 

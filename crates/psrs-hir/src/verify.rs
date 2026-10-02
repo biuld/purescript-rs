@@ -71,6 +71,48 @@ pub(crate) fn verify_expr(
             verify_expr(left, globals, visible_locals, declared_locals, errors);
             verify_expr(right, globals, visible_locals, declared_locals, errors);
         }
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            if operands.len() != operators.len() + 1 {
+                errors.push(VerifyError {
+                    span: expression.span,
+                    message: "operator chain must have exactly one more operand than operator",
+                });
+            }
+            for operator in operators {
+                if !globals.contains(&operator.symbol) {
+                    errors.push(VerifyError {
+                        span: operator.operator_span,
+                        message: "operator symbol is not declared in the module or intrinsic set",
+                    });
+                }
+            }
+            for operand in operands {
+                verify_expr(operand, globals, visible_locals, declared_locals, errors);
+            }
+        }
+        ExprKind::OperatorSection {
+            operator,
+            operand,
+            binder,
+            ..
+        } => {
+            if !globals.contains(&operator.symbol) {
+                errors.push(VerifyError {
+                    span: operator.operator_span,
+                    message: "operator symbol is not declared in the module or intrinsic set",
+                });
+            }
+            if !declared_locals.insert(binder.id) {
+                errors.push(VerifyError {
+                    span: binder.span,
+                    message: "duplicate local ID",
+                });
+            }
+            verify_expr(operand, globals, visible_locals, declared_locals, errors);
+        }
         ExprKind::Lambda { binder, body } => {
             if !declared_locals.insert(binder.id) {
                 errors.push(VerifyError {
@@ -195,6 +237,35 @@ fn verify_pattern(
             for argument in arguments {
                 verify_pattern(
                     argument,
+                    globals,
+                    visible_locals,
+                    declared_locals,
+                    inserted,
+                    errors,
+                );
+            }
+        }
+        PatternKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            if operands.len() != operators.len() + 1 {
+                errors.push(VerifyError {
+                    span: pattern.span,
+                    message: "operator pattern chain must have one more operand than operator",
+                });
+            }
+            for operator in operators {
+                if !globals.contains(&operator.symbol) {
+                    errors.push(VerifyError {
+                        span: operator.operator_span,
+                        message: "pattern operator is not a module constructor",
+                    });
+                }
+            }
+            for operand in operands {
+                verify_pattern(
+                    operand,
                     globals,
                     visible_locals,
                     declared_locals,

@@ -235,6 +235,25 @@ fn typecheck_program(
     modules: Vec<psrs_hir::Module>,
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
+    let mut desugared = Vec::with_capacity(modules.len());
+    let mut errors = Vec::new();
+    for (source, module) in modules.into_iter().enumerate() {
+        match psrs_desugar::desugar_module(module) {
+            Ok(module) => desugared.push(module),
+            Err(module_errors) => {
+                for error in module_errors {
+                    errors.push(ProgramDiagnostic {
+                        source,
+                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
+                    });
+                }
+            }
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    let modules = desugared;
     effects::check_run_effect_scope(&modules, trusted_prefix)?;
     let (checked_kinds, role_diagnostics) = psrs_kind::check_roles(&modules);
     let effect_type = modules
@@ -273,33 +292,22 @@ fn typecheck_program(
         .collect::<HashMap<_, _>>();
     let mut slots = modules.into_iter().map(Some).collect::<Vec<_>>();
     let mut typed = (0..slots.len()).map(|_| None).collect::<Vec<_>>();
-    let mut errors = role_diagnostics
-        .into_iter()
-        .map(|(module, error)| ProgramDiagnostic {
-            source: module.0 as usize,
-            diagnostic: coded_diagnostic(
-                "P5 kind check",
-                error.span,
-                Some(error.code),
-                error.message,
-            ),
-        })
-        .collect::<Vec<_>>();
+    errors.extend(
+        role_diagnostics
+            .into_iter()
+            .map(|(module, error)| ProgramDiagnostic {
+                source: module.0 as usize,
+                diagnostic: coded_diagnostic(
+                    "P5 kind check",
+                    error.span,
+                    Some(error.code),
+                    error.message,
+                ),
+            }),
+    );
     for index in order {
         let Some(module) = slots[index].take() else {
             continue;
-        };
-        let module = match psrs_desugar::desugar_module(module) {
-            Ok(module) => module,
-            Err(module_errors) => {
-                for error in module_errors {
-                    errors.push(ProgramDiagnostic {
-                        source: index,
-                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
-                    });
-                }
-                continue;
-            }
         };
         let kind_errors = psrs_kind::check_module(&module);
         if !kind_errors.is_empty() {

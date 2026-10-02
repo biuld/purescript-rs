@@ -149,6 +149,14 @@ impl Checker {
                     Box::new(self.elaborate_type_mode(argument, variables, rigid_variables)),
                 )
             }
+            hir::TypeKind::OperatorChain { .. } => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedType,
+                    ty.span,
+                    "type operator chain reached type checking before P4",
+                ));
+                self.fresh()
+            }
             hir::TypeKind::Function { parameter, result } => arrow(
                 self.elaborate_type_mode(parameter, variables, rigid_variables),
                 self.elaborate_type_mode(result, variables, rigid_variables),

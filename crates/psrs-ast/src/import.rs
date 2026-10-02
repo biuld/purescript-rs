@@ -22,6 +22,7 @@ pub struct ImportList {
 pub enum ImportRef {
     Value(Name),
     Operator(Name),
+    TypeOperator(Name),
     Type {
         name: Name,
         members: Option<TypeMembers>,
@@ -51,6 +52,7 @@ fn lower_import_ref(reference: cst::ImportRef) -> ImportRef {
     match reference {
         cst::ImportRef::Value(name) => ImportRef::Value(lower_name(name)),
         cst::ImportRef::Operator(name) => ImportRef::Operator(lower_name(name)),
+        cst::ImportRef::TypeOperator(name) => ImportRef::TypeOperator(lower_name(name)),
         cst::ImportRef::Type { name, members } => ImportRef::Type {
             name: lower_name(name),
             members: members.map(lower_type_members),
@@ -63,9 +65,11 @@ fn lower_import_ref(reference: cst::ImportRef) -> ImportRef {
 impl ImportRef {
     pub fn name(&self) -> &Name {
         match self {
-            Self::Value(name) | Self::Operator(name) | Self::Class(name) | Self::Module(name) => {
-                name
-            }
+            Self::Value(name)
+            | Self::Operator(name)
+            | Self::TypeOperator(name)
+            | Self::Class(name)
+            | Self::Module(name) => name,
             Self::Type { name, .. } => name,
         }
     }

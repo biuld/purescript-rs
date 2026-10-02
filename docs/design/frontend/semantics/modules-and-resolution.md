@@ -24,9 +24,12 @@ type validity; backend WIT validation owns target signatures.
 
 Textual names are meaningful only within a module environment and lexical
 scope. A value name can coincide with a type name, while constructors and
-classes have their own declaration rules. Imports may be qualified, selective,
-or hidden, and exports can re-export imported declarations. Stable identities
-let later passes refer to declarations without repeating name lookup.
+classes have their own declaration rules. Value and type operators occupy
+their respective namespaces; aliases resolve to the same declaration identity
+as their target and carry associativity and precedence into HIR. Imports may be
+qualified, selective, or hidden, and exports can re-export imported
+declarations. Stable identities let later passes refer to declarations
+without repeating name lookup.
 
 ## Model
 
@@ -54,6 +57,16 @@ their final IDs. Qualified lookup uses only the named imported module;
 unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
+P3 resolves every value and type fixity target in its own namespace, binds the
+operator alias to the target's `SymbolId` or `TypeId`, and stores associativity
+and precedence on the resolved module. Expression, constructor-pattern, and
+type operator chains keep their source order through P3. P3 does not
+re-associate them; P4 consumes their identities and fixities. Import and export
+resolution preserves aliases as aliases of the original declaration,
+including through re-exports. Unqualified fixity targets use the same ambiguity
+checks as ordinary references, and qualified targets resolve through the
+named import and its alias.
+
 `foreign import` WIT binding text stays attached to the resolved declaration.
 The quoted binding is a source string value: a Unicode scalar sequence
 ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)). P3
@@ -62,10 +75,9 @@ grammar, then stores the validated interface and function names on the
 resolved external. An unpaired surrogate or any other malformed binding is
 rejected; the compiler does not replace it or invent a different external
 name. The declared value name remains an identifier, not a source string
-value. P3 validates binding syntax and identity, but not the
-canonical ABI or target capability. Fixity declarations attach to resolved
-operator IDs; P4 consumes them. Type names are resolved even though kinds and
-type applications remain unchecked.
+value. P3 validates binding syntax and identity, but not the canonical ABI or
+target capability. Type names are resolved even though kinds and type
+applications remain unchecked.
 
 Rejected alternatives: source strings in HIR would force later passes to
 repeat lookup; one global namespace would mis-handle same-spelled value and
@@ -81,6 +93,7 @@ resolve_program(ast_modules):
     for each module in dependency order:
         register local declarations in disjoint namespaces
         compute the visible import environment and exports
+        resolve fixity targets and bind value/type operator aliases
         resolve declaration bodies with lexical scope stacks
         attach resolved fixities and validated external binding names
     verify_hir(program)
@@ -93,13 +106,13 @@ declaration span and list the competing origins.
 
 ## Code map
 
-`crates/psrs-hir/src/` defines disjoint IDs, declarations, expressions, and
-`verify::verify_program`. `crates/psrs-resolve/src/resolver/` owns
+The `psrs-hir` organization defines disjoint IDs, declarations, resolved
+fixities, and `verify::verify_program`. The `psrs-resolve` resolver separates
+program-graph planning, import/export visibility, lexical and qualified name
+lookup, fixity target binding, and type-name lookup around
 `resolve_program(modules: &[ast::Module]) -> Result<hir::Program,
-Vec<Diagnostic>>`. `program.rs` handles the graph, `exports.rs` visibility,
-`names.rs` lexical and qualified lookup, and `type_resolution.rs` type-name
-lookup. Source string values and quoted row labels stay scalar sequences;
-identifier text and `TextRange` remain separate representations.
+Vec<Diagnostic>>`. Source string values and quoted row labels stay scalar
+sequences; identifier text and `TextRange` remain separate representations.
 `psrs-resolve` converts a WIT binding to interface and function names only
 after that validation. `psrs-driver` supplies source modules and displays
 diagnostics.
