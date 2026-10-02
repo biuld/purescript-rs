@@ -216,6 +216,11 @@ impl<'a> Matcher<'a> {
                 }
             }
             (Type::RowEmpty, Type::RowEmpty) => true,
+            // Two decided literals are equal exactly when their scalar
+            // sequences, or their values, are equal. A literal is never
+            // flexible, so it cannot be solved to anything else here.
+            (Type::TypeLevelString(left), Type::TypeLevelString(right)) => left == right,
+            (Type::TypeLevelInt(left), Type::TypeLevelInt(right)) => left == right,
             (
                 Type::RowExtend {
                     label: left_label,
@@ -346,6 +351,8 @@ impl<'a> Matcher<'a> {
                 self.equal(*left_fn, *right_fn, active) && self.equal(*left_arg, *right_arg, active)
             }
             (Type::RowEmpty, Type::RowEmpty) => true,
+            (Type::TypeLevelString(left), Type::TypeLevelString(right)) => left == right,
+            (Type::TypeLevelInt(left), Type::TypeLevelInt(right)) => left == right,
             (
                 Type::RowExtend {
                     label: left_label,
@@ -421,6 +428,8 @@ fn equal_types(
             equal_types(*lb, *rb, module, &nested, active)
         }
         (Type::RowEmpty, Type::RowEmpty) => true,
+        (Type::TypeLevelString(left), Type::TypeLevelString(right)) => left == right,
+        (Type::TypeLevelInt(left), Type::TypeLevelInt(right)) => left == right,
         (
             Type::RowExtend {
                 label: ll,

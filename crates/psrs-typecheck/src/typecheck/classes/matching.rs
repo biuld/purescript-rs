@@ -272,6 +272,13 @@ impl Checker {
                 InferType::Variable(_) => MatchState::Unknown,
                 _ => MatchState::Apart,
             },
+            // A literal is decided, so it matches only the equal literal and is
+            // apart from every other known shape.
+            InferType::TypeLevelString(_) | InferType::TypeLevelInt(_) => match actual {
+                InferType::Variable(_) => MatchState::Unknown,
+                actual if pattern == &actual => MatchState::Match,
+                _ => MatchState::Apart,
+            },
         }
     }
 
@@ -381,6 +388,9 @@ fn contains_variable(ty: &InferType, variable: u32) -> bool {
                 .any(|argument| contains_variable(argument, variable))
                 || contains_variable(body, variable)
         }
-        InferType::Constructor(_) | InferType::RowEmpty => false,
+        InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => false,
     }
 }

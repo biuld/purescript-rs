@@ -24,6 +24,15 @@ pub(super) enum InferType {
         ty: Box<InferType>,
         tail: Box<InferType>,
     },
+    /// A type-level string literal, of kind `Symbol`. The payload is a sequence
+    /// of Unicode scalar values (DEC-16), so an unpaired surrogate cannot be
+    /// represented and never reaches the solver. Two literals are equal when
+    /// their scalar sequences are equal.
+    TypeLevelString(String),
+    /// A type-level integer literal, of kind `Int`. Two literals are equal when
+    /// their values are equal. A literal is decided: it never solves for a
+    /// variable, it is what a variable is solved to.
+    TypeLevelInt(i64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

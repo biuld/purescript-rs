@@ -58,6 +58,8 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
                 ty: TypeId(ty.0),
                 tail: TypeId(tail.0),
             },
+            psrs_thir::Type::TypeLevelString(value) => Type::TypeLevelString(value),
+            psrs_thir::Type::TypeLevelInt(value) => Type::TypeLevelInt(value),
         })
         .collect();
     let mut declarations = Vec::with_capacity(module.declarations.len());

@@ -122,7 +122,10 @@ impl TypeSubstitution<'_> {
                 let result = self.type_id(result)?;
                 self.intern(Type::Closure { parameters, result })?
             }
-            Type::RowEmpty | Type::Constructor(_) => id,
+            Type::RowEmpty
+            | Type::Constructor(_)
+            | Type::TypeLevelString(_)
+            | Type::TypeLevelInt(_) => id,
         };
         self.active.remove(&id);
         Some(substituted)

@@ -20,6 +20,10 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
                 verify_type_id(*ty, module.types.len(), module.span, &mut errors);
                 verify_type_id(*tail, module.types.len(), module.span, &mut errors);
             }
+            // A type-level literal indexes nothing and names no variable, so
+            // there is no reference to check. It is an ordinary checked type,
+            // not a trusted item: the semantic pass compares literals by value.
+            Type::TypeLevelString(_) | Type::TypeLevelInt(_) => {}
             _ => {}
         }
     }
