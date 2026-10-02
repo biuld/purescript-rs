@@ -169,29 +169,57 @@ Expression-level kind checking and explicit kind application elaboration remain 
 
 ## Implementation notes
 
-The current implementation has two kind paths and does not yet have the single one
-this document specifies. `psrs_kind::check_roles` runs a program-level pass to build
-the role table and keeps only its kind schemes; the diagnostics that run produced are
-dropped, and the driver then calls `psrs_kind::check_module` per module, which has no
-imported schemes and gives an unknown imported type a fresh kind variable so repeated
-uses agree. Roles are expanded and walked as specified, with nominal as the
-conservative fallback when synonym expansion meets a cycle.
+Kind checking runs once per program now. `psrs_kind::check_program` registers the
+primitive table and every declaration head, rejects synonym and kind-declaration
+cycles, infers and generalizes declaration kinds, infers roles to a fixed point, and
+returns one zonked `CheckedKindEnv` together with its diagnostics. The driver reports
+those diagnostics against the module each names and hands the same environment to
+every module's type check, so the program-wide conflict a use in one module exposes
+in another is found by the run that owns the declaration. `psrs_kind::check_module`
+re-checks one module's own declarations, annotations, and instance heads against the
+schemes that environment published, and reports a referenced declaration with no
+checked scheme instead of giving it a fresh kind variable. Roles are expanded and
+walked as specified, with nominal as the conservative fallback when synonym expansion
+meets a cycle.
 
-Kind semantics are also currently duplicated and already disagree. Within
-`psrs-kind` itself, `denote_kind` reads the primitive `Row` as a dedicated head,
-`Record` and `Int` as builtin constructors, and `builtin_type_kind` reads the same
-three as `Type -> Type`, `Row Type -> Type`, and `Type`; the dedicated head and the
-builtin reading of `Record` are two spellings that the unifier cannot reconcile. The
-coercion module under
-`crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs` carries a third
-denotation, substitution, and unifier, in which `Row` is `Type -> Type` and `Record`
-is `Row Type -> Type` — official PureScript's readings, which a dedicated `Row` head
-cannot express. Ordinary `bind_variable` performs the occurs, skolem-escape, and
-level steps only, so a type binding is checked for kinds only when it is reached
-through coercion. Unifying these with one spine requires every primitive to denote
-itself, retiring the dedicated kind constants and the `Row` head, and moving the kind
-state onto the inference variables.
+`Kind` has no reserved constant and no dedicated `Row` head: a primitive read as a
+kind is `Builtin`, `Row k` is `App(Builtin(Row), k)`, and `primitive_kind` is the one
+table of what kind a primitive has when it is used as a type. `denote_kind`,
+`primitive_kind`, `unify_kind`, `bind_kind_variable`, and `KindState` are exported from
+`psrs-kind` so a module cannot reach for a private table or a private unifier.
 
-Consolidating `psrs-kind` into the type checker is a consequence of that move rather
-than a prerequisite: kind checking's main consumer is still P5, and the crate split
-does not cause the drift above.
+What remains, and what the next wave owns:
+
+- The coercion module under
+  `crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs` still carries its own
+  denotation, substitution, and unifier. It now compiles against `Builtin` where the
+  retired constants used to be, but it is still a second reader. It moves onto the
+  exported operations here when ordinary `bind_variable` starts checking the kind of
+  a binding instead of only the occurs, level, and skolem-escape rules.
+- The well-scoped-quantification rule is not implemented. A scheme quantifies the kind
+  unknowns its own definition leaves undetermined and keeps the kinds the definition
+  determines, and `data Branch m = Branch (m Branch)` is rejected by the occurs check
+  rather than generalized, but no `QuantificationCheckFailureInKind` is reported when
+  an implicitly generalized kind mentions a type variable that is not quantified
+  explicitly. Kind variables and type-level `forall` binders live in different state
+  here, so the dependency order the official check needs is not recorded yet.
+- An instance head whose class is declared in another module is still skipped: the
+  arity rule needs the class declaration, and a class the checking module does not
+  declare has no arity here. Only the declaring module's own run checks such a head.
+- `data Wrap :: Lib.Box Type -> Type` reads `Lib.Box Type` as the kind "`Lib.Box`
+  applied to `Type`", because a kind annotation is read as a kind rather than
+  elaborated as a type. Official `elaborateKind` eliminates an application of an arrow
+  kind instead, so the two differ for a higher-kinded user declaration used in a kind
+  signature. The shared model is the target; the divergence is unmeasured.
+- Three signatures in the code map above differ from what is exported.
+  `denote_kind` returns `Option<Kind>` so an unlowered type operator chain is a
+  reported error rather than a fabricated kind; `infer_roles_fixed_point` takes no
+  separate foreign-role-signature argument, because a foreign declaration's roles
+  come from its own `type role` annotation; and `check_module` has no `local` flag,
+  because every caller is checking one module against an environment its declaring
+  modules produced. `kind_of_type` over an `InferType` is not implemented here at all
+  and remains in the type checker.
+
+Consolidating `psrs-kind` into the type checker is a consequence of the remaining
+duplicate rather than a prerequisite: kind checking's main consumer is still P5, and
+the crate split is not what caused the drift.

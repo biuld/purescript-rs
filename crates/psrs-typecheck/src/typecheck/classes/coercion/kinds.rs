@@ -62,10 +62,6 @@ impl KindState {
                 self.unify(*left_parameter, *right_parameter)
                     && self.unify(*left_result, *right_result)
             }
-            (Kind::Type, Kind::Type)
-            | (Kind::Constraint, Kind::Constraint)
-            | (Kind::Symbol, Kind::Symbol)
-            | (Kind::Row, Kind::Row) => true,
             (Kind::Builtin(left), Kind::Builtin(right)) => left == right,
             (Kind::Named(left), Kind::Named(right)) => left == right,
             _ => false,
@@ -123,9 +119,9 @@ impl Checker {
             }
             hir::TypeKind::Constrained { body, .. } => self.kind_from_hir(body, scope),
             hir::TypeKind::Row { .. } => row_kind(),
-            hir::TypeKind::Record { .. } => Kind::Type,
+            hir::TypeKind::Record { .. } => type_kind(),
             hir::TypeKind::Integer(_) => Kind::Builtin(hir::BuiltinType::Int),
-            hir::TypeKind::String(_) => Kind::Symbol,
+            hir::TypeKind::String(_) => Kind::Builtin(hir::BuiltinType::Symbol),
         }
     }
 
@@ -213,7 +209,7 @@ impl Checker {
             InferType::RowExtend { ty, tail, .. } => {
                 let field_kind = self.infer_kind(&ty, state)?;
                 let tail_kind = self.infer_kind(&tail, state)?;
-                if !state.unify(field_kind, Kind::Type) || !state.unify(tail_kind, row_kind()) {
+                if !state.unify(field_kind, type_kind()) || !state.unify(tail_kind, row_kind()) {
                     return None;
                 }
                 Some(row_kind())
@@ -230,12 +226,12 @@ impl Checker {
             TypeConstructor::Function => kind_for_builtin(hir::BuiltinType::Function),
             TypeConstructor::Record => kind_for_builtin(hir::BuiltinType::Record),
             TypeConstructor::Array => kind_for_builtin(hir::BuiltinType::Array),
-            TypeConstructor::Int => Kind::Type,
-            TypeConstructor::Number => Kind::Type,
-            TypeConstructor::Boolean => Kind::Type,
-            TypeConstructor::String => Kind::Type,
-            TypeConstructor::Char => Kind::Type,
-            TypeConstructor::Unit => Kind::Type,
+            TypeConstructor::Int
+            | TypeConstructor::Number
+            | TypeConstructor::Boolean
+            | TypeConstructor::String
+            | TypeConstructor::Char
+            | TypeConstructor::Unit => type_kind(),
             TypeConstructor::User(id) => {
                 let scheme = self.checked_kinds.kind(id)?.clone();
                 instantiate_kind_scheme(&scheme, state)
@@ -273,22 +269,41 @@ fn substitute_kind(kind: &Kind, mapping: &HashMap<u32, Kind>) -> Kind {
 
 fn kind_for_builtin(builtin: hir::BuiltinType) -> Kind {
     match builtin {
-        hir::BuiltinType::Type => Kind::Type,
-        hir::BuiltinType::Constraint => Kind::Constraint,
-        hir::BuiltinType::Symbol => Kind::Symbol,
-        hir::BuiltinType::Row => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
-        hir::BuiltinType::Record => Kind::Function(Box::new(row_kind()), Box::new(Kind::Type)),
+        hir::BuiltinType::Row => Kind::Function(Box::new(type_kind()), Box::new(type_kind())),
+        hir::BuiltinType::Record => Kind::Function(Box::new(row_kind()), Box::new(type_kind())),
         hir::BuiltinType::Function => Kind::Function(
-            Box::new(Kind::Type),
-            Box::new(Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type))),
+            Box::new(type_kind()),
+            Box::new(Kind::Function(Box::new(type_kind()), Box::new(type_kind()))),
         ),
-        hir::BuiltinType::Array => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
+        hir::BuiltinType::Array => Kind::Function(Box::new(type_kind()), Box::new(type_kind())),
+        other => type_kind_for(other),
+    }
+}
+
+fn type_kind() -> Kind {
+    Kind::Builtin(hir::BuiltinType::Type)
+}
+
+fn type_kind_for(builtin: hir::BuiltinType) -> Kind {
+    match builtin {
+        hir::BuiltinType::Type
+        | hir::BuiltinType::Constraint
+        | hir::BuiltinType::Symbol
+        | hir::BuiltinType::Int
+        | hir::BuiltinType::Number
+        | hir::BuiltinType::Boolean
+        | hir::BuiltinType::String
+        | hir::BuiltinType::Char
+        | hir::BuiltinType::Unit => type_kind(),
         other => Kind::Builtin(other),
     }
 }
 
 fn row_kind() -> Kind {
-    Kind::App(Box::new(Kind::Row), Box::new(Kind::Type))
+    Kind::App(
+        Box::new(Kind::Builtin(hir::BuiltinType::Row)),
+        Box::new(type_kind()),
+    )
 }
 
 fn kind_occurs(variable: u32, kind: &Kind) -> bool {
@@ -300,11 +315,6 @@ fn kind_occurs(variable: u32, kind: &Kind) -> bool {
         Kind::Function(parameter, result) => {
             kind_occurs(variable, parameter) || kind_occurs(variable, result)
         }
-        Kind::Type
-        | Kind::Constraint
-        | Kind::Symbol
-        | Kind::Row
-        | Kind::Builtin(_)
-        | Kind::Named(_) => false,
+        Kind::Builtin(_) | Kind::Named(_) => false,
     }
 }

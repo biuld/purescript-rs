@@ -1,14 +1,19 @@
 use super::*;
-use crate::kind::CheckedKindEnv;
+use psrs_hir::BuiltinType;
+use std::collections::HashSet;
 
 mod synonyms;
 
 /// Infers representation roles for every data, newtype, and foreign-data type in a
 /// resolved program. Explicit annotations constrain the published roles and
 /// are checked against the fixed point.
-pub fn check_roles(
+///
+/// Each diagnostic is attributed to the module that declares the type, which is
+/// the module whose `type role` annotation and constructor fields it comes
+/// from.
+pub(super) fn infer_roles_fixed_point(
     modules: &[hir::Module],
-) -> (CheckedKindEnv, Vec<(psrs_hir::ModuleId, KindDiagnostic)>) {
+) -> (HashMap<TypeId, Vec<Role>>, Vec<KindDiagnostic>) {
     let declarations = modules
         .iter()
         .flat_map(|module| {
@@ -80,15 +85,13 @@ pub fn check_roles(
         let expected = role_arity(declaration);
         let actual = annotation.roles.len();
         if actual != expected {
-            diagnostics.push((
+            diagnostics.push(KindDiagnostic::new(
                 module_id,
-                KindDiagnostic::new(
-                    "RoleDeclarationArityMismatch",
-                    annotation.span,
-                    format!(
-                        "the role declaration for `{}` has {actual} roles; expected {expected}",
-                        declaration.name
-                    ),
+                "RoleDeclarationArityMismatch",
+                annotation.span,
+                format!(
+                    "the role declaration for `{}` has {actual} roles; expected {expected}",
+                    declaration.name
                 ),
             ));
             continue;
@@ -97,13 +100,11 @@ pub fn check_roles(
             declaration.kind,
             TypeDeclarationKind::Data | TypeDeclarationKind::Newtype | TypeDeclarationKind::Foreign
         ) {
-            diagnostics.push((
+            diagnostics.push(KindDiagnostic::new(
                 module_id,
-                KindDiagnostic::new(
-                    "UnsupportedRoleDeclaration",
-                    annotation.span,
-                    "role declarations are supported only for data, newtype, and foreign data types",
-                ),
+                "UnsupportedRoleDeclaration",
+                annotation.span,
+                "role declarations are supported only for data, newtype, and foreign data types",
             ));
             continue;
         }
@@ -116,23 +117,20 @@ pub fn check_roles(
                 .get(index)
                 .is_some_and(|inferred| inferred < declared)
             {
-                diagnostics.push((
+                diagnostics.push(KindDiagnostic::new(
                     module_id,
-                    KindDiagnostic::new(
-                        "RoleMismatch",
-                        *span,
-                        format!(
-                            "the declared role for parameter {} of `{}` is more permissive than its inferred role",
-                            index + 1,
-                            declaration.name
-                        ),
+                    "RoleMismatch",
+                    *span,
+                    format!(
+                        "the declared role for parameter {} of `{}` is more permissive than its inferred role",
+                        index + 1,
+                        declaration.name
                     ),
                 ));
             }
         }
     }
-    let kinds = super::kind_schemes_for_program(modules);
-    (CheckedKindEnv { roles, kinds }, diagnostics)
+    (roles, diagnostics)
 }
 
 fn role_bearing(kind: TypeDeclarationKind) -> bool {
