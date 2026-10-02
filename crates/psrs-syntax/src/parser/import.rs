@@ -47,7 +47,9 @@ impl<'a> Parser<'a> {
 
     fn parse_export_type_ref(&mut self) -> Result<ExportRef, ParseError> {
         if self.at_raw(&RawTokenKind::LParen) {
-            return Ok(ExportRef::Operator(self.parse_parenthesized_operator()?));
+            return Ok(ExportRef::TypeOperator(
+                self.parse_parenthesized_operator()?,
+            ));
         }
         let name = self.consume_upper_name("type export name")?;
         let members = if self.at_raw(&RawTokenKind::LParen) {
@@ -206,7 +208,9 @@ impl<'a> Parser<'a> {
 
     fn parse_import_type_ref(&mut self) -> Result<ImportRef, ParseError> {
         if self.at_raw(&RawTokenKind::LParen) {
-            return Ok(ImportRef::Operator(self.parse_parenthesized_operator()?));
+            return Ok(ImportRef::TypeOperator(
+                self.parse_parenthesized_operator()?,
+            ));
         }
         let name = self.consume_upper_name("type import name")?;
         let members = if self.at_raw(&RawTokenKind::LParen) {

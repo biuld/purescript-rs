@@ -53,6 +53,17 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
             scan_expr(left, max);
             scan_expr(right, max);
         }
+        hir::ExprKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                scan_expr(operand, max);
+            }
+        }
+        hir::ExprKind::OperatorSection {
+            operand, binder, ..
+        } => {
+            note_local(binder.id, max);
+            scan_expr(operand, max);
+        }
         hir::ExprKind::Lambda { binder, body } => {
             note_local(binder.id, max);
             scan_expr(body, max);
@@ -117,6 +128,11 @@ fn scan_pattern(pattern: &hir::Pattern, max: &mut Option<u32>) {
         hir::PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 scan_pattern(argument, max);
+            }
+        }
+        hir::PatternKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                scan_pattern(operand, max);
             }
         }
         hir::PatternKind::Record { fields } => {

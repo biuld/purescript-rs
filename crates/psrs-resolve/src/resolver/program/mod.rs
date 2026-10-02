@@ -371,12 +371,41 @@ fn build_import(
                                 None => unknown_import(module_index, name, errors),
                             }
                         }
+                        ast::ImportRef::TypeOperator(name) => {
+                            match interface.types.get(&name.text).copied() {
+                                Some(id) if interface.type_fixities.contains_key(&name.text) => {
+                                    types.push(imported_type(
+                                        id,
+                                        &name.text,
+                                        name.span,
+                                        interface.opaque.contains(&id),
+                                    ));
+                                }
+                                _ => unknown_import(module_index, name, errors),
+                            }
+                        }
                         ast::ImportRef::Module(_) => {}
                     }
                 }
             }
         }
     }
+    let imported_names: HashSet<String> = symbols
+        .iter()
+        .map(|symbol| symbol.local_name.clone())
+        .chain(types.iter().map(|ty| ty.name.clone()))
+        .collect();
+    let fixities = interface
+        .into_iter()
+        .flat_map(|interface| {
+            interface
+                .value_fixities
+                .iter()
+                .chain(interface.type_fixities.iter())
+                .filter(|(name, _)| imported_names.contains(*name))
+                .map(|(_, fixity)| fixity.clone())
+        })
+        .collect();
     hir::Import {
         module: target,
         module_name: import.module.text.clone(),
@@ -384,6 +413,7 @@ fn build_import(
         hiding: import.list.as_ref().is_some_and(|list| list.hiding),
         symbols,
         types,
+        fixities,
         span: import.span,
     }
 }

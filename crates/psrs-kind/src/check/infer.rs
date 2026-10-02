@@ -209,6 +209,14 @@ impl Checker<'_> {
                 }
                 kind
             }
+            TypeKind::OperatorChain { .. } => {
+                self.report(
+                    "UnloweredTypeOperator",
+                    ty.span,
+                    "type operator chain reached kind denotation before P4",
+                );
+                self.fresh()
+            }
             TypeKind::Function { parameter, result } => Kind::Function(
                 Box::new(self.denote_kind(parameter, scope)),
                 Box::new(self.denote_kind(result, scope)),
@@ -255,6 +263,14 @@ impl Checker<'_> {
                 }
                 function
             }
+            TypeKind::OperatorChain { .. } => {
+                self.report(
+                    "UnloweredTypeOperator",
+                    ty.span,
+                    "type operator chain reached kind checking before P4",
+                );
+                self.fresh()
+            }
             TypeKind::Named(id) | TypeKind::Opaque(id) => {
                 self.check_partial_synonym(ty, 0, ty.span);
                 self.instantiate_named(*id)
@@ -286,6 +302,14 @@ impl Checker<'_> {
             TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
             TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
             TypeKind::Application(..) => self.kind_of_type(ty, scope),
+            TypeKind::OperatorChain { .. } => {
+                self.report(
+                    "UnloweredTypeOperator",
+                    ty.span,
+                    "type operator chain reached kind checking before P4",
+                );
+                self.fresh()
+            }
             TypeKind::Function { parameter, result } => {
                 let parameter_kind = self.kind_of_type(parameter, scope);
                 self.unify(parameter_kind, Kind::Type, parameter.span);

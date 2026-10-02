@@ -8,6 +8,7 @@ mod coercion;
 mod deriving;
 mod effect_arity;
 mod effects;
+mod operators;
 mod scalars;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {

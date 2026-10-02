@@ -7,6 +7,7 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
     let mut foreign_imports = Vec::new();
     let mut type_declarations = Vec::new();
     let mut role_declarations = Vec::new();
+    let mut fixities = Vec::new();
     let mut instances = Vec::new();
     let mut instance_chains = type_decl::InstanceChainTracker::default();
     let mut index = 0;
@@ -145,6 +146,13 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                 ));
                 index += 1;
             }
+            cst::Declaration::Fixity(declaration) => {
+                match super::fixity::lower_declaration(declaration) {
+                    Ok(declaration) => fixities.push(declaration),
+                    Err(error) => errors.push(error),
+                }
+                index += 1;
+            }
             other => {
                 match lower_declaration(other) {
                     Ok(declaration) => declarations.push(declaration),
@@ -167,6 +175,7 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
             foreign_imports,
             type_declarations,
             role_declarations,
+            fixities,
             instances,
             span: module.span,
         })
