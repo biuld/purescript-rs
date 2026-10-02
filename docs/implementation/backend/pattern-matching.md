@@ -346,7 +346,7 @@ PM-14:
   Result: pass locally. Workspace tests pass with Wasmtime required. The named
     upstream runtime cases stop at P3 because `Effect`, `Effect.Console`, and
     `Partial.Unsafe` are missing, so official runtime evidence remains open.
-  Revision: issue-88 worktree, uncommitted.
+  Revision: `34cfcff` on `issue-88-guards`.
   Gaps: no redundancy warning is emitted for Boolean alternatives lowered to
     conditionals; see FE-06's frontend acceptance record.
 ```
