@@ -3,6 +3,7 @@ use crate::kind::{builtin_type_kind, flatten_spine, occurs, substitute};
 use psrs_hir::BuiltinType;
 
 mod pattern_annotations;
+mod type_kind;
 
 impl Checker<'_> {
     pub(super) fn checked_schemes(&self) -> HashMap<TypeId, KindScheme> {
@@ -252,161 +253,6 @@ impl Checker<'_> {
         }
     }
 
-    // ----- Kind inference ----------------------------------------------
-
-    fn kind_of_type(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
-        match &ty.kind {
-            TypeKind::Wildcard => self.fresh(),
-            TypeKind::Application(..) => {
-                let (head, arguments) = flatten_spine(ty);
-                self.check_partial_synonym(head, arguments.len(), ty.span);
-                let mut function = self.head_kind(head, scope);
-                for argument in arguments {
-                    let argument = self.kind_of_type(argument, scope);
-                    let result = self.fresh();
-                    self.unify(
-                        function,
-                        Kind::Function(Box::new(argument), Box::new(result.clone())),
-                        ty.span,
-                    );
-                    function = result;
-                }
-                function
-            }
-            TypeKind::OperatorChain { .. } => {
-                self.report(
-                    "UnloweredTypeOperator",
-                    ty.span,
-                    "type operator chain reached kind checking before P4",
-                );
-                self.fresh()
-            }
-            TypeKind::Named(id) | TypeKind::Opaque(id) => {
-                self.check_partial_synonym(ty, 0, ty.span);
-                self.instantiate_named(*id)
-            }
-            TypeKind::Constructor(BuiltinType::Function) => {
-                self.check_partial_synonym(ty, 0, ty.span);
-                builtin_type_kind(BuiltinType::Function)
-            }
-            _ => self.kind_of_atom(ty, scope),
-        }
-    }
-
-    fn head_kind(&mut self, head: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
-        match &head.kind {
-            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
-            TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
-            TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| self.fresh()),
-            _ => self.kind_of_atom(head, scope),
-        }
-    }
-
-    fn kind_of_atom(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
-        match &ty.kind {
-            TypeKind::Wildcard => self.fresh(),
-            TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| {
-                let kind = self.fresh();
-                scope.insert(name.clone(), kind.clone());
-                kind
-            }),
-            TypeKind::Constructor(builtin) => builtin_type_kind(*builtin),
-            TypeKind::Named(id) | TypeKind::Opaque(id) => self.instantiate_named(*id),
-            TypeKind::Application(..) => self.kind_of_type(ty, scope),
-            TypeKind::OperatorChain { .. } => {
-                self.report(
-                    "UnloweredTypeOperator",
-                    ty.span,
-                    "type operator chain reached kind checking before P4",
-                );
-                self.fresh()
-            }
-            TypeKind::Function { parameter, result } => {
-                let parameter_kind = self.kind_of_type(parameter, scope);
-                self.unify(parameter_kind, Kind::Type, parameter.span);
-                let result_kind = self.kind_of_type(result, scope);
-                self.unify(result_kind, Kind::Type, result.span);
-                Kind::Type
-            }
-            TypeKind::Forall { variables, body } => {
-                let saved = scope.clone();
-                for variable in variables {
-                    let kind = match &variable.kind {
-                        Some(annotation) => self.denote_kind(annotation, scope),
-                        None => self.fresh(),
-                    };
-                    scope.insert(variable.name.clone(), kind);
-                }
-                let kind = self.kind_of_type(body, scope);
-                *scope = saved;
-                kind
-            }
-            TypeKind::Constrained { constraint, body } => {
-                let constraint_kind = self.kind_of_type(constraint, scope);
-                self.unify(constraint_kind, Kind::Constraint, constraint.span);
-                self.kind_of_type(body, scope)
-            }
-            TypeKind::Row { fields, tail } => {
-                let field_kind = self.fresh();
-                for field in fields {
-                    let kind = self.kind_of_type(&field.ty, scope);
-                    self.unify(kind, field_kind.clone(), field.ty.span);
-                }
-                if let Some(tail) = tail {
-                    let tail_kind = self.kind_of_type(tail, scope);
-                    self.unify(
-                        tail_kind,
-                        Kind::App(Box::new(Kind::Row), Box::new(field_kind.clone())),
-                        tail.span,
-                    );
-                }
-                Kind::App(Box::new(Kind::Row), Box::new(field_kind))
-            }
-            TypeKind::Record { fields, tail } => {
-                let field_kind = self.fresh();
-                for field in fields {
-                    let kind = self.kind_of_type(&field.ty, scope);
-                    self.unify(kind, field_kind.clone(), field.ty.span);
-                }
-                if let Some(tail) = tail {
-                    let tail_kind = self.kind_of_type(tail, scope);
-                    self.unify(
-                        tail_kind,
-                        Kind::App(Box::new(Kind::Row), Box::new(field_kind)),
-                        tail.span,
-                    );
-                }
-                Kind::Type
-            }
-            TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
-            TypeKind::String(_) => Kind::Symbol,
-        }
-    }
-
-    fn check_partial_synonym(&mut self, head: &hir::Type, arguments: usize, span: TextRange) {
-        match &head.kind {
-            TypeKind::Named(id) => {
-                if let Some(arity) = self.synonym_arity.get(id)
-                    && arguments < *arity
-                {
-                    self.report(
-                        PARTIALLY_APPLIED_SYNONYM,
-                        span,
-                        "a type synonym must be fully applied",
-                    );
-                }
-            }
-            TypeKind::Constructor(BuiltinType::Function) if arguments < 2 => {
-                self.report(
-                    PARTIALLY_APPLIED_SYNONYM,
-                    span,
-                    "a type synonym must be fully applied",
-                );
-            }
-            _ => {}
-        }
-    }
-
     // ----- Definition checking -----------------------------------------
 
     pub(super) fn check_definitions(&mut self) {
@@ -456,7 +302,44 @@ impl Checker<'_> {
                 TypeDeclarationKind::Foreign => {}
             }
         }
+        self.check_instance_heads();
         self.check_local_type_annotations();
+    }
+
+    /// Checks every instance head against its class's kind scheme.
+    ///
+    /// An instance head is the class applied to the instance arguments, so its
+    /// kind has to be a constraint. The class scheme is also what says at which
+    /// kinds those arguments are allowed, and a standalone kind signature on the
+    /// class is the only way to say so: a class without one is inferred as its
+    /// parameters at `Type` returning `Constraint`, which accepts any argument
+    /// kind and therefore cannot reject a head. Without this an instance is the
+    /// one place a type is applied to a kind signature and never checked, so
+    /// `class C :: Constraint -> Constraint` accepts `instance C Int`.
+    fn check_instance_heads(&mut self) {
+        for instance in &self.module.instances {
+            // A head that applies its class to the wrong number of arguments is
+            // an arity error, not a kind error, and the class environment owns
+            // that rule. Checking it here too would report `KindsDoNotUnify`
+            // where `ClassInstanceArityMismatch` is the official code, and would
+            // pre-empt the arity diagnostic entirely. A class this module does
+            // not declare has no known arity here either, so it is left alone.
+            let Some(declared) = self
+                .module
+                .types
+                .iter()
+                .find(|declaration| declaration.id == instance.class_id)
+            else {
+                continue;
+            };
+            let (_, arguments) = flatten_spine(&instance.head);
+            if arguments.len() != declared.parameters.len() {
+                continue;
+            }
+            let mut scope = HashMap::new();
+            let kind = self.kind_of_type_against(&instance.head, &mut scope, false);
+            self.unify(kind, Kind::Constraint, instance.head.span);
+        }
     }
 }
 

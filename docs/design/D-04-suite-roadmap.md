@@ -242,18 +242,27 @@ records/rows, constraints, and type-level literals. The checker infers kinds for
 `data`, `newtype`, `type`, and `class` declarations, unifies them with an occurs
 check, and reports `KindsDoNotUnify`, `InfiniteKind`, `PartiallyAppliedSynonym`,
 `CycleInTypeSynonym`, `CycleInKindDeclaration`, and `UndefinedTypeVariable`.
-The driver exposes a lenient kind check and the `l3` scoreboard; the scoreboard
-also runs against the vendored corpus without `purs`.
+An instance head is checked against its class's kind scheme, so a standalone
+kind signature on a class is enforced at the instance that uses it; a head that
+applies its class to the wrong number of arguments is left to the class
+environment, which owns `ClassInstanceArityMismatch`. The driver exposes a
+lenient kind check and the `l3` scoreboard; the scoreboard also runs against the
+vendored corpus without `purs`.
 
-**Measured current result (annotations oracle, 2026-10-02):** M3 failing
-agreement is **29/48**. Per code: `CycleInKindDeclaration` 2/2,
+**Measured current result (annotations oracle, 2026-10-03):** M3 failing
+agreement is **30/48**. Per code: `CycleInKindDeclaration` 2/2,
 `InfiniteKind` 2/2, `CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
-`PartiallyAppliedSynonym` 8/12, and `KindsDoNotUnify` 11/24. Nineteen expected
+`PartiallyAppliedSynonym` 8/12, and `KindsDoNotUnify` 12/24. Eighteen expected
 diagnostics still differ: some are blocked by absent cross-module libraries
 such as `Data.Foldable`, `Data.Newtype`, `Effect.Console`, `Safe.Coerce`, or
 `Prim.*`; the rest need kind checking in expressions, polykinded instantiation,
 type-level row functions, local scoped variables, or a shared cross-module kind
 environment. The scoreboard output records each case.
+`failing/StandaloneKindSignatures4.purs` now agrees: a standalone kind signature
+on a `class` reached the class scheme but nothing applied it to the instance, so
+`To Int "foo"` was accepted. The other three standalone-signature cases
+(`StandaloneKindSignatures1/2/3`, on `data`, `newtype`, and `type`) already
+agreed, so the signature itself was never lost.
 
 ### M4 — Core type checking
 
@@ -626,7 +635,7 @@ for matrix status.
 | L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
 | L2 | Module, import, export, and name resolution | 72/72 failing cases; 59/413 passing modules resolve, with 337 blocked on a missing module, 5 at P2, 8 at P3, and 4 at P0; no case is blocked on assembly. | The mapped resolution cases and all required passing-module cases agree. |
-| L3 | Kinds and higher-kinded types | 29/48 failing cases; `KindsDoNotUnify` 11/24 and the other mapped code totals as measured in M3. | 100% agreement for the mapped kind cases. |
+| L3 | Kinds and higher-kinded types | 30/48 failing cases; `KindsDoNotUnify` 12/24 and the other mapped code totals as measured in M3. | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | 17/38 failing cases; `TypesDoNotUnify` 15/31, `IntOutOfRange` 1/1, `InfiniteType` 2/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, `AmbiguousTypeVariables` 0/1. | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | 45/87 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 34/48, `MissingClassMember` 2/2, `DuplicateInstance` 1/1, and 0 for the other mapped codes. | 100% agreement for the mapped class cases. |
 | L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; 337 stop on missing modules, 5 at P2, 55 at P10, 8 at P3, 4 at P0, 3 at P5 typecheck, and 1 at P5 kind checking; no harness-loading blockers. | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
@@ -686,7 +695,7 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. The `1664.purs` wildcard binder lowers through P2. Visible type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The two remaining P2 type forms are negative type-level integer prefixes in `passing/IntToString.purs` and `passing/ParseTypeInt.purs`; row entailment remains under #97. | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
-| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 29/48, L4 17/38, L5 45/87. The L4/L5 denominators count cases reaching their owner stage; 33 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 30/48, L4 17/38, L5 45/87. The L4/L5 denominators count cases reaching their owner stage; 33 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
 | FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
 
 The frontend landing order is:
