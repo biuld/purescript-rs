@@ -161,10 +161,21 @@ pub struct Pattern {
     pub span: TextRange,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordPatternMode {
+    Partial,
+    Exact,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
     Boolean(bool),
+    Integer(String),
+    Number(String),
+    String(String),
+    Char(char),
+    Array(Vec<Pattern>),
     Var(LocalBinder),
     /// A data constructor pattern, resolved to the constructor's value symbol.
     Constructor {
@@ -178,5 +189,14 @@ pub enum PatternKind {
     },
     Record {
         fields: Vec<(String, Pattern)>,
+        mode: RecordPatternMode,
+    },
+    Named {
+        binder: LocalBinder,
+        pattern: Box<Pattern>,
+    },
+    Typed {
+        pattern: Box<Pattern>,
+        ty: Type,
     },
 }

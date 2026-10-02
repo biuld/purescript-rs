@@ -202,6 +202,7 @@ fn walk(
             record(occurrences, name, Role::Representational);
         }
         TypeKind::Variable(_)
+        | TypeKind::Wildcard
         | TypeKind::Constructor(_)
         | TypeKind::Named(_)
         | TypeKind::Opaque(_)

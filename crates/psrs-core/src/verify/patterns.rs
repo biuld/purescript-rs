@@ -1,5 +1,8 @@
-use super::{Locals, SchemeType, compatible, error, record_field, verify_type};
-use crate::{Module, Pattern, PatternKind, TypeId, VerifyError};
+use super::{
+    Locals, SchemeType, array_element, compatible, error, primitive_type_id, record_field,
+    verify_type,
+};
+use crate::{Literal, Module, Pattern, PatternKind, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::ModuleId;
 
 pub(super) fn verify_pattern(
@@ -23,13 +26,50 @@ pub(super) fn verify_pattern(
         PatternKind::Wildcard => {}
         PatternKind::Var { id, ty } => {
             compatible(*ty, pattern.ty, module, owner, pattern.span, errors);
-            locals.insert(
-                *id,
-                SchemeType {
-                    ty: *ty,
-                    quantified: Vec::new(),
-                },
-            );
+            bind_local(*id, *ty, pattern.span, owner, locals, errors);
+        }
+        PatternKind::Literal { value } => {
+            let constructor = match value {
+                Literal::Integer(_) => TypeConstructor::Int,
+                Literal::Number(_) => TypeConstructor::Number,
+                Literal::String(_) => TypeConstructor::String,
+                Literal::Char(_) => TypeConstructor::Char,
+                Literal::Boolean(_) => TypeConstructor::Boolean,
+            };
+            let expected = primitive_type_id(module, constructor);
+            compatible(expected, pattern.ty, module, owner, pattern.span, errors);
+            if let Literal::Number(value) = value
+                && value
+                    .parse::<f64>()
+                    .ok()
+                    .is_none_or(|number| !number.is_finite())
+            {
+                errors.push(error(
+                    owner,
+                    pattern.span,
+                    "number pattern literal is not a finite number",
+                ));
+            }
+        }
+        PatternKind::Array { elements } => {
+            let Some(element_type) = array_element(pattern.ty, module) else {
+                errors.push(error(
+                    owner,
+                    pattern.span,
+                    "array pattern type is not an array",
+                ));
+                return;
+            };
+            for element in elements {
+                verify_pattern(element, element_type, module, owner, locals, errors);
+            }
+        }
+        PatternKind::Named {
+            id,
+            pattern: nested,
+        } => {
+            bind_local(*id, pattern.ty, pattern.span, owner, locals, errors);
+            verify_pattern(nested, pattern.ty, module, owner, locals, errors);
         }
         PatternKind::Constructor { symbol, arguments } => {
             let Some(constructor) = module
@@ -102,4 +142,29 @@ pub(super) fn verify_pattern(
             }
         }
     }
+}
+
+fn bind_local(
+    id: psrs_hir::LocalId,
+    ty: TypeId,
+    span: psrs_span::TextRange,
+    owner: ModuleId,
+    locals: &mut Locals,
+    errors: &mut Vec<VerifyError>,
+) {
+    if locals.contains_key(&id) {
+        errors.push(error(
+            owner,
+            span,
+            "pattern local ID is already bound in this scope",
+        ));
+        return;
+    }
+    locals.insert(
+        id,
+        SchemeType {
+            ty,
+            quantified: Vec::new(),
+        },
+    );
 }

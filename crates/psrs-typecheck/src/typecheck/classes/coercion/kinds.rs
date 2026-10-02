@@ -86,6 +86,7 @@ impl Checker {
         scope: &HashMap<String, Kind>,
     ) -> Kind {
         match &ty.kind {
+            hir::TypeKind::Wildcard => self.fresh_kind(),
             hir::TypeKind::Variable(name) => scope
                 .get(name)
                 .cloned()

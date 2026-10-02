@@ -1,125 +1,19 @@
 use crate::{
-    Binder, Binding, Declaration, Expr, ExprKind, LowerError, Module, Primitive, Type, TypeId,
-    UnaryPrimitive,
+    Binder, Binding, Expr, ExprKind, LowerError, Module, Primitive, TypeId, UnaryPrimitive,
 };
 use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
 mod dictionary;
+mod module;
 mod string_bytes;
-
-fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::TypeConstructor {
-    match constructor {
-        psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
-        psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
-        psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
-        psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
-        psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
-        psrs_thir::TypeConstructor::Boolean => crate::TypeConstructor::Boolean,
-        psrs_thir::TypeConstructor::String => crate::TypeConstructor::String,
-        psrs_thir::TypeConstructor::Char => crate::TypeConstructor::Char,
-        psrs_thir::TypeConstructor::Unit => crate::TypeConstructor::Unit,
-        psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
-    }
-}
-
-fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
-    if let Err(errors) = module.verify() {
-        return Err(errors
-            .into_iter()
-            .map(|error| LowerError {
-                span: error.span,
-                message: "invalid THIR input",
-            })
-            .collect());
-    }
-    let externals = module
-        .externals
-        .iter()
-        .map(|external| (external.symbol, external.kind.clone()))
-        .collect::<HashMap<_, _>>();
-    let constructors = module
-        .constructors
-        .iter()
-        .map(|constructor| (constructor.symbol, constructor.clone()))
-        .collect::<HashMap<_, _>>();
-    let source_types = module.types;
-    let types = source_types
-        .iter()
-        .cloned()
-        .map(|ty| match ty {
-            psrs_thir::Type::Variable(variable) => Type::Variable(variable),
-            psrs_thir::Type::Constructor(constructor) => {
-                Type::Constructor(lower_type_constructor(constructor))
-            }
-            psrs_thir::Type::Application(function, argument) => {
-                Type::Application(TypeId(function.0), TypeId(argument.0))
-            }
-            psrs_thir::Type::ForAll { variables, body } => Type::ForAll {
-                variables,
-                body: TypeId(body.0),
-            },
-            psrs_thir::Type::RowEmpty => Type::RowEmpty,
-            psrs_thir::Type::RowExtend { label, ty, tail } => Type::RowExtend {
-                label,
-                ty: TypeId(ty.0),
-                tail: TypeId(tail.0),
-            },
-        })
-        .collect();
-    let mut declarations = Vec::with_capacity(module.declarations.len());
-    for declaration in module.declarations {
-        let value = lower_expr(declaration.value, &externals, &constructors, &source_types)
-            .map_err(|error| vec![error])?;
-        declarations.push(Declaration {
-            symbol: declaration.symbol,
-            name: declaration.name,
-            name_span: declaration.name_span,
-            quantified: declaration.quantified,
-            ty: TypeId(declaration.ty.0),
-            value,
-            span: declaration.span,
-        });
-    }
-    let lowered = Module {
-        id: module.id,
-        name: module.name,
-        externals: module.externals,
-        types,
-        newtype_ids: module.newtype_ids,
-        opaque_ids: module.opaque_ids,
-        callable_types: module.callable_types,
-        constructors: module
-            .constructors
-            .iter()
-            .map(|constructor| crate::ConstructorInfo {
-                symbol: constructor.symbol,
-                name: constructor.name.clone(),
-                type_id: constructor.type_id,
-                tag: constructor.tag,
-                field_count: constructor.field_count,
-                field_types: constructor
-                    .field_types
-                    .iter()
-                    .map(|field| TypeId(field.0))
-                    .collect(),
-                parameters: constructor.parameters.clone(),
-            })
-            .collect(),
-        declarations,
-        type_names: module.type_names,
-        entry: None,
-        span: module.span,
-    };
-    Ok(lowered)
-}
 
 /// Lowers a module and verifies the result. A module with unresolved
 /// cross-module global references cannot be verified on its own; use
 /// [`lower_module_unverified`] and verify the linked module instead.
 pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<LowerError>> {
-    let lowered = lower_module_inner(module)?;
+    let lowered = module::lower_module_inner(module)?;
     if lowered.verify().is_err() {
         return Err(vec![LowerError {
             span: lowered.span,
@@ -133,7 +27,7 @@ pub(super) fn lower_module(module: psrs_thir::Module) -> Result<Module, Vec<Lowe
 pub(super) fn lower_module_unverified(
     module: psrs_thir::Module,
 ) -> Result<Module, Vec<LowerError>> {
-    lower_module_inner(module)
+    module::lower_module_inner(module)
 }
 
 fn lower_expr(
@@ -416,6 +310,25 @@ fn lower_pattern(pattern: psrs_thir::Pattern) -> Result<crate::Pattern, LowerErr
     let span = pattern.span;
     let kind = match pattern.kind {
         psrs_thir::PatternKind::Wildcard => crate::PatternKind::Wildcard,
+        psrs_thir::PatternKind::Literal { literal } => crate::PatternKind::Literal {
+            value: match literal {
+                psrs_thir::PatternLiteral::Integer(value) => crate::Literal::Integer(value),
+                psrs_thir::PatternLiteral::Number(value) => crate::Literal::Number(value),
+                psrs_thir::PatternLiteral::String(value) => crate::Literal::String(value),
+                psrs_thir::PatternLiteral::Char(value) => crate::Literal::Char(value),
+                psrs_thir::PatternLiteral::Boolean(value) => crate::Literal::Boolean(value),
+            },
+        },
+        psrs_thir::PatternKind::Array { elements } => crate::PatternKind::Array {
+            elements: elements
+                .into_iter()
+                .map(lower_pattern)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        psrs_thir::PatternKind::Named { id, pattern } => crate::PatternKind::Named {
+            id,
+            pattern: Box::new(lower_pattern(*pattern)?),
+        },
         psrs_thir::PatternKind::Var { id, ty } => crate::PatternKind::Var {
             id,
             ty: TypeId(ty.0),

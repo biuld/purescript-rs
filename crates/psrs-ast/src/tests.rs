@@ -298,7 +298,7 @@ fn lowers_a_non_variable_do_binder_through_a_case() {
     let ExprKind::Lambda { binder, body } = &continuation.kind else {
         panic!("expected a continuation lambda");
     };
-    assert!(binder.name.starts_with("__psrs_pattern_"));
+    assert!(binder.name.starts_with("$psrs_pattern_"));
     let ExprKind::Case {
         scrutinee,
         branches,

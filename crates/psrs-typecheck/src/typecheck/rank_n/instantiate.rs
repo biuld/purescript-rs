@@ -6,19 +6,19 @@ impl Checker {
         match ty {
             InferType::ForAll { variables, body } => {
                 let mapping = self.instantiate_type_variables(variables.iter().copied());
-                let variables = variables
-                    .iter()
-                    .filter_map(|variable| match mapping.get(variable) {
-                        Some(InferType::Variable(fresh)) => {
-                            self.rigid.insert(*fresh);
-                            Some(*fresh)
+                let mut fresh_variables = Vec::with_capacity(variables.len());
+                for variable in variables {
+                    if let Some(InferType::Variable(fresh)) = mapping.get(variable) {
+                        self.rigid.insert(*fresh);
+                        if let Some(name) = self.type_variable_names.get(variable).cloned() {
+                            self.type_variable_names.insert(*fresh, name);
                         }
-                        _ => None,
-                    })
-                    .collect();
+                        fresh_variables.push(*fresh);
+                    }
+                }
                 let body = substitute(body, &mapping);
                 InferType::ForAll {
-                    variables,
+                    variables: fresh_variables,
                     body: Box::new(self.freshen_foralls(&body)),
                 }
             }

@@ -29,27 +29,10 @@ pub(crate) fn lower_guard(guard: cst::Guard) -> Result<Vec<Guard>, LowerError> {
         cst::Guard::Boolean(expression) => Ok(vec![Guard::Boolean(lower_expr(expression)?)]),
         cst::Guard::Pattern { pattern, value, .. } => {
             let value = lower_expr(value)?;
-            if let cst::PatternKind::Integer(integer) = pattern.kind {
-                let binder = Binder {
-                    name: format!("$psrs_guard_literal_{}", pattern.span.start),
-                    span: pattern.span,
-                };
-                Ok(vec![
-                    Guard::Pattern {
-                        pattern: Pattern {
-                            kind: PatternKind::Var(binder.clone()),
-                            span: pattern.span,
-                        },
-                        value,
-                    },
-                    equality_guard(binder.name, integer, pattern.span),
-                ])
-            } else {
-                Ok(vec![Guard::Pattern {
-                    pattern: super::lower_pattern(pattern)?,
-                    value,
-                }])
-            }
+            Ok(vec![Guard::Pattern {
+                pattern: super::lower_pattern(pattern)?,
+                value,
+            }])
         }
         cst::Guard::Let {
             let_keyword_span,
@@ -116,7 +99,10 @@ pub(crate) fn lower_case_patterns(
         .collect::<Result<Vec<_>, LowerError>>()?;
     Ok((
         Pattern {
-            kind: PatternKind::Record { fields },
+            kind: PatternKind::Record {
+                fields,
+                mode: super::RecordPatternMode::Exact,
+            },
             span,
         },
         guards,
@@ -125,44 +111,10 @@ pub(crate) fn lower_case_patterns(
 
 fn lower_case_argument(
     pattern: cst::Pattern,
-    index: usize,
-    alternative_span: TextRange,
+    _index: usize,
+    _alternative_span: TextRange,
 ) -> Result<(Pattern, Vec<Guard>), LowerError> {
-    if let cst::PatternKind::Integer(value) = pattern.kind {
-        let binder_name = format!("$psrs_case_literal_{}_{}", alternative_span.start, index);
-        let binder = Binder {
-            name: binder_name.clone(),
-            span: pattern.span,
-        };
-        let span = pattern.span;
-        let guard = equality_guard(binder_name, value, span);
-        return Ok((
-            Pattern {
-                kind: PatternKind::Var(binder),
-                span,
-            },
-            vec![guard],
-        ));
-    }
     Ok((super::lower_pattern(pattern)?, Vec::new()))
-}
-
-pub(crate) fn equality_guard(name: String, integer: String, span: TextRange) -> Guard {
-    let left = Expr {
-        kind: ExprKind::Name(Name { text: name, span }),
-        span,
-    };
-    let right = Expr {
-        kind: ExprKind::Integer(integer),
-        span,
-    };
-    Guard::Boolean(Expr {
-        kind: ExprKind::IntegerEqual {
-            left: Box::new(left),
-            right: Box::new(right),
-        },
-        span,
-    })
 }
 
 pub(crate) fn prepend_guards(mut expression: Expr, guards: Vec<Guard>, span: TextRange) -> Expr {

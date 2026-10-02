@@ -190,13 +190,28 @@ not carry them.
 Pattern     = { kind: PatternKind, ty: TypeId, span: TextRange }
 PatternKind = Wildcard
             | Var { id: LocalId, ty: TypeId }
+            | Literal { value: Literal }
+            | Array { elements: [Pattern] }
+            | Named { id: LocalId, pattern: Pattern }
             | Constructor { symbol: SymbolId, arguments: [Pattern] }
             | Record { fields: [(String, Pattern)] }
+
+Literal     = Integer(i32) | Number(String) | String(String) | Char(char)
+            | Boolean(bool)
 ```
 
 Patterns are nested and source-oriented; compiling them into tests, and checking
 exhaustiveness and redundancy, happens at the Core-to-CC boundary
 ([pattern matching](../../backend/fp/pattern-matching.md)).
+Typed source patterns have already been checked and are removed before Core.
+The Core verifier checks that literal payloads agree with their pattern type,
+Number text parses to a finite value, array elements have the array's element
+type, and a named binder has a unique local ID in the branch scope. A named
+pattern binds its current scrutinee before checking its nested pattern.
+P5 consumes the HIR record-pattern mode: source record patterns require their
+named fields and can retain an open row tail, while tuple and generated product
+patterns require an exact closed row. Core needs no separate mode because the
+checked `Pattern.ty` and the scrutinee type carry that record shape.
 
 ### Semantics
 
@@ -355,7 +370,9 @@ consistent before P8 consumes it:
 - constructor applications are saturating, have the constructor's field count,
   and produce the constructor's parent type;
 - pattern constructors are declared, have matching arity, and belong to the
-  scrutinee's type; record patterns name declared fields;
+  scrutinee's type; record patterns name declared fields; literals match their
+  primitive type; array patterns match an array and each element pattern has
+  its element type; named binders are unique and scoped to their branch;
 - `Application` targets a function type, `Lambda` has a function type, and both
   branches of `If` match the expression's type.
 
@@ -436,10 +453,9 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 - **Open rows.** Source row polymorphism is checked by P5. Core preserves the
   checked record type and evidence; P9 fixes concrete record layouts at each
   reachable use without changing the term grammar.
-- **Literal patterns.** `PatternKind` has no literal case. If source guards or
-  literal patterns arrive, the decision compiler already has a literal test
-  category ([pattern matching](../../backend/fp/pattern-matching.md)); the Core pattern grammar
-  would gain one case.
+- **Pattern forms not accepted by this slice.** Views and or-patterns remain
+  outside the Core pattern grammar. Guards are elaborated by the frontend into
+  branch coverage and fallthrough structure before Core.
 
 ## References
 

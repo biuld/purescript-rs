@@ -16,6 +16,16 @@ pub enum PatternKind {
         id: LocalId,
         ty: TypeId,
     },
+    Literal {
+        value: Literal,
+    },
+    Array {
+        elements: Vec<Pattern>,
+    },
+    Named {
+        id: LocalId,
+        pattern: Box<Pattern>,
+    },
     /// A constructor pattern, with one nested pattern per field.
     Constructor {
         symbol: SymbolId,
@@ -24,4 +34,13 @@ pub enum PatternKind {
     Record {
         fields: Vec<(String, Pattern)>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Literal {
+    Integer(i32),
+    Number(String),
+    String(String),
+    Char(char),
+    Boolean(bool),
 }

@@ -49,6 +49,12 @@ fn reports_a_kind_mismatch_between_constructor_fields() {
 }
 
 #[test]
+fn checks_kind_of_a_typed_pattern_annotation() {
+    let errors = check("module Main where\nbad (value :: Array) = value\n");
+    assert!(codes(&errors).contains(&"KindsDoNotUnify"), "{errors:?}");
+}
+
+#[test]
 fn reports_an_infinite_kind() {
     let errors = check("module Main where\ndata F a = F (a a)\n");
     assert!(codes(&errors).contains(&"InfiniteKind"), "{errors:?}");

@@ -180,11 +180,11 @@ impl Checker {
                 }
             },
             hir::ExprKind::Number(text) => match text.parse::<f64>() {
-                Ok(_) => (
+                Ok(value) if value.is_finite() => (
                     InferredExprKind::Number(text.clone()),
                     InferType::Constructor(TypeConstructor::Number),
                 ),
-                Err(_) => {
+                Ok(_) | Err(_) => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NumberOutOfRange,
                         span,

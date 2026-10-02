@@ -13,9 +13,23 @@ impl Resolver {
         let kind = match pattern.kind {
             ast::PatternKind::Wildcard => hir::PatternKind::Wildcard,
             ast::PatternKind::Boolean(value) => hir::PatternKind::Boolean(value),
+            ast::PatternKind::Integer(value) => hir::PatternKind::Integer(value),
+            ast::PatternKind::Number(value) => hir::PatternKind::Number(value),
+            ast::PatternKind::String(value) => hir::PatternKind::String(value),
+            ast::PatternKind::Char(value) => hir::PatternKind::Char(value),
+            ast::PatternKind::Array { elements } => hir::PatternKind::Array(
+                elements
+                    .into_iter()
+                    .map(|element| self.resolve_pattern(element, scope))
+                    .collect::<Option<Vec<_>>>()?,
+            ),
             ast::PatternKind::Var(binder) => {
                 let binder = self.new_local(binder.name, binder.span);
-                scope.insert(binder.name.clone(), binder.clone());
+                // Every occurrence keeps a stable identity. Pattern guards
+                // permit overlapping names and expose the first one, matching purs.
+                scope
+                    .entry(binder.name.clone())
+                    .or_insert_with(|| binder.clone());
                 hir::PatternKind::Var(binder)
             }
             ast::PatternKind::Constructor { name, arguments } => {
@@ -42,11 +56,30 @@ impl Resolver {
                     .map(|operator| self.resolve_operator(&operator.name.text, operator.span))
                     .collect::<Option<Vec<_>>>()?,
             },
-            ast::PatternKind::Record { fields } => hir::PatternKind::Record {
+            ast::PatternKind::Record { fields, mode } => hir::PatternKind::Record {
                 fields: fields
                     .into_iter()
                     .map(|(label, pattern)| Some((label, self.resolve_pattern(pattern, scope)?)))
                     .collect::<Option<Vec<_>>>()?,
+                mode: match mode {
+                    ast::RecordPatternMode::Partial => hir::RecordPatternMode::Partial,
+                    ast::RecordPatternMode::Exact => hir::RecordPatternMode::Exact,
+                },
+            },
+            ast::PatternKind::Named { binder, pattern } => {
+                let binder = self.new_local(binder.name, binder.span);
+                // The alias is inserted after nested binders, so `name@pattern`
+                // resolves references to the alias when the names overlap.
+                let pattern = self.resolve_pattern(*pattern, scope)?;
+                scope.insert(binder.name.clone(), binder.clone());
+                hir::PatternKind::Named {
+                    binder,
+                    pattern: Box::new(pattern),
+                }
+            }
+            ast::PatternKind::Typed { pattern, ty } => hir::PatternKind::Typed {
+                pattern: Box::new(self.resolve_pattern(*pattern, scope)?),
+                ty: self.resolve_type(ty)?,
             },
         };
         Some(hir::Pattern { kind, span })

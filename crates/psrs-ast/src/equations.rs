@@ -5,18 +5,13 @@ use psrs_span::TextRange;
 /// Combines adjacent equations for one value into one ordered case matrix.
 pub(super) fn lower_value_declarations(
     declarations: Vec<cst::ValueDeclaration>,
+    duplicate_code: &'static str,
 ) -> Result<Declaration, LowerError> {
     let first = declarations
         .first()
         .expect("a value-equation group is nonempty")
         .clone();
-    if declarations.len() == 1
-        && matches!(&first.rhs, cst::ValueRhs::Plain { .. })
-        && first
-            .parameters
-            .iter()
-            .all(|pattern| !matches!(pattern.kind, cst::PatternKind::Integer(_)))
-    {
+    if declarations.len() == 1 && matches!(&first.rhs, cst::ValueRhs::Plain { .. }) {
         return lower_plain_declaration(first.clone());
     }
 
@@ -36,7 +31,7 @@ pub(super) fn lower_value_declarations(
     if arity == 0 && declarations.len() > 1 && matches!(&first.rhs, cst::ValueRhs::Plain { .. }) {
         return Err(LowerError::coded(
             first.span,
-            "DuplicateValueDeclaration",
+            duplicate_code,
             "a value without arguments may have only one unguarded declaration",
         ));
     }
@@ -52,8 +47,7 @@ pub(super) fn lower_value_declarations(
     let scrutinee = argument_record(&arguments, group_span);
     let mut branches = Vec::with_capacity(declarations.len());
     for declaration in declarations {
-        let (pattern, guards) =
-            equation_pattern(declaration.parameters, &arguments, declaration.span)?;
+        let (pattern, guards) = equation_pattern(declaration.parameters, declaration.span)?;
         let value = lower_rhs(declaration.rhs, declaration.where_block, declaration.span)?;
         let value = super::expr::prepend_guards(value, guards, declaration.span);
         branches.push(CaseBranch {
@@ -148,48 +142,36 @@ fn argument_record(arguments: &[Binder], span: TextRange) -> Expr {
 
 fn equation_pattern(
     parameters: Vec<cst::Pattern>,
-    arguments: &[Binder],
     span: TextRange,
 ) -> Result<(Pattern, Vec<Guard>), LowerError> {
     if parameters.is_empty() {
         return Ok((
             Pattern {
-                kind: crate::PatternKind::Record { fields: Vec::new() },
+                kind: crate::PatternKind::Record {
+                    fields: Vec::new(),
+                    mode: crate::RecordPatternMode::Exact,
+                },
                 span,
             },
             Vec::new(),
         ));
     }
-    let mut guards = Vec::new();
     let fields = parameters
         .into_iter()
         .enumerate()
         .map(|(index, parameter)| {
-            let pattern = match parameter.kind {
-                cst::PatternKind::Integer(value) => {
-                    guards.push(super::expr::equality_guard(
-                        arguments[index].name.clone(),
-                        value,
-                        parameter.span,
-                    ));
-                    Pattern {
-                        kind: crate::PatternKind::Wildcard,
-                        span: parameter.span,
-                    }
-                }
-                kind => super::expr::lower_pattern(cst::Pattern {
-                    kind,
-                    span: parameter.span,
-                })?,
-            };
+            let pattern = super::expr::lower_pattern(parameter)?;
             Ok((super::tuple_label(index), pattern))
         })
         .collect::<Result<Vec<_>, LowerError>>()?;
     Ok((
         Pattern {
-            kind: crate::PatternKind::Record { fields },
+            kind: crate::PatternKind::Record {
+                fields,
+                mode: crate::RecordPatternMode::Exact,
+            },
             span,
         },
-        guards,
+        Vec::new(),
     ))
 }

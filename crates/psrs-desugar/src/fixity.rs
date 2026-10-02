@@ -170,10 +170,15 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
 
 fn validate_pattern(pattern: &Pattern, errors: &mut Vec<DesugarError>) {
     match &pattern.kind {
-        PatternKind::Constructor { arguments, .. } => {
+        PatternKind::Constructor { arguments, .. } | PatternKind::Array(arguments) => {
             for argument in arguments {
                 validate_pattern(argument, errors);
             }
+        }
+        PatternKind::Named { pattern, .. } => validate_pattern(pattern, errors),
+        PatternKind::Typed { pattern, ty } => {
+            validate_type(ty, errors);
+            validate_pattern(pattern, errors);
         }
         PatternKind::OperatorChain {
             operands,
@@ -190,12 +195,18 @@ fn validate_pattern(pattern: &Pattern, errors: &mut Vec<DesugarError>) {
                 validate_pattern(operand, errors);
             }
         }
-        PatternKind::Record { fields } => {
+        PatternKind::Record { fields, .. } => {
             for (_, pattern) in fields {
                 validate_pattern(pattern, errors);
             }
         }
-        PatternKind::Wildcard | PatternKind::Boolean(_) | PatternKind::Var(_) => {}
+        PatternKind::Wildcard
+        | PatternKind::Boolean(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_)
+        | PatternKind::Var(_) => {}
     }
 }
 
@@ -244,7 +255,8 @@ fn validate_type(ty: &Type, errors: &mut Vec<DesugarError>) {
                 validate_type(tail, errors);
             }
         }
-        TypeKind::Variable(_)
+        TypeKind::Wildcard
+        | TypeKind::Variable(_)
         | TypeKind::Constructor(_)
         | TypeKind::Named(_)
         | TypeKind::Opaque(_)

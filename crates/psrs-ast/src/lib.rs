@@ -18,6 +18,7 @@ mod type_decl;
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{
     Binder, CaseBranch, Declaration, Expr, ExprKind, Guard, GuardedExpr, Pattern, PatternKind,
+    RecordPatternMode,
 };
 pub use fixity::{Associativity, FixityDeclaration, FixityNamespace, Operator, SectionSide};
 pub use import::{Import, ImportList, ImportRef};
@@ -148,7 +149,10 @@ pub(crate) fn lower_declarations(
                     _ => unreachable!("the group contains only value declarations"),
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?;
-            lowered.push(equations::lower_value_declarations(group)?);
+            lowered.push(equations::lower_value_declarations(
+                group,
+                "OverlappingNamesInLet",
+            )?);
             index = end;
         } else {
             lowered.push(lower_declaration(declarations[index].clone())?);
@@ -161,7 +165,7 @@ pub(crate) fn lower_declarations(
 pub(crate) fn lower_value_declaration(
     declaration: cst::ValueDeclaration,
 ) -> Result<Declaration, LowerError> {
-    equations::lower_value_declarations(vec![declaration])
+    equations::lower_value_declarations(vec![declaration], "DuplicateValueDeclaration")
 }
 
 pub(crate) fn wrap_where(
@@ -249,6 +253,9 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         CstExprKind::Lambda {
             parameters, body, ..
         } => {
+            if let Some(error) = check_argument_names(&parameters) {
+                return Err(error);
+            }
             let mut body = lower_expr(*body)?;
             for parameter in parameters.into_iter().rev() {
                 body = expr::lower_pattern_lambda(parameter, body)?;
