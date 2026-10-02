@@ -2,7 +2,7 @@
 
 **Feature:** [FE-16](../../design/D-04-suite-roadmap.md#frontend-feature-matrix)
 
-**Design:** [Kinds and type constructors](../../design/frontend/type-system/kinds.md), [classes and evidence](../../design/frontend/type-system/classes-and-evidence.md), and [polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md).
+**Design:** [Kinds and type constructors](../../design/frontend/type-system/kinds.md), [classes and evidence](../../design/frontend/type-system/classes-and-evidence.md), [primitives](../../design/frontend/type-system/prim.md), and [polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md).
 
 **Progress:** Partial. Role inference/checking and the covered role-aware
 `Coercible` rules are implemented through source, Typed Core, and CC. Structural
@@ -76,7 +76,11 @@ user classes, and empty-class derivation validation.
 
 The solver implements higher-kinded application-head rewriting, checked kind
 compatibility, role-aware canonical given interactions, and aligned open rows
-for the covered source cases. Open-row values still have no runtime layout in
+for the covered source cases. Its kind reading is private to the coercion module
+and disagrees with the kind checker's on `Row` and `Record`, and its entry is a
+call-site special case rather than the primitive rule table the [primitives
+design](../../design/frontend/type-system/prim.md) specifies; both are recorded
+there as the deviations they are. Open-row values still have no runtime layout in
 the current CC path, while closed reordered records execute through Wasmtime.
 The structural deriving subset covers `Eq`, `Ord`, `Functor.map` through
 direct, nested application, and result-position function fields,
