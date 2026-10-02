@@ -7,6 +7,8 @@ mod newtype;
 mod ord;
 mod types;
 
+pub(crate) use types::contains_wildcard;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KnownDerivingClass {
     Eq,

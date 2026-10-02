@@ -338,3 +338,43 @@ bad = coerce
 "#;
     rejects(&[("Main.purs", source)], "NoInstanceFound");
 }
+
+#[test]
+fn rejects_a_type_wildcard_in_an_instance_head() {
+    // `failing/TypeWildcards3.purs`. An instance head is a pattern the solver
+    // matches against, so a wildcard in it has nothing to solve against. `purs`
+    // raises `InvalidInstanceHead` in `TypeChecker.checkTypeClassInstance`.
+    let source = concat!(
+        "module Main where\n",
+        "data Foo a = Foo\n",
+        "class Show a where\n",
+        "  show :: a -> String\n",
+        "\n",
+        "instance showFoo :: Show (Foo _) where\n",
+        "  show Foo = \"Foo\"\n",
+    );
+    rejects(&[("Main.purs", source)], "InvalidInstanceHead");
+}
+
+#[test]
+fn accepts_a_type_wildcard_in_an_instance_context() {
+    // A wildcard in a constraint is a fresh unification variable the solver can
+    // still solve, so only the head is rejected. The fundep is left out on
+    // purpose: a wildcard standing for a fundep-determined position is its own
+    // question, and `purs` only warns there
+    // (`passing/WildcardInInstance.purs` says so in a comment).
+    let source = concat!(
+        "module Main where\n",
+        "class MonadAsk r m where\n",
+        "  ask :: m r\n",
+        "\n",
+        "instance monadAskFun :: MonadAsk r ((->) r) where\n",
+        "  ask = \\x -> x\n",
+        "\n",
+        "test :: forall m r. MonadAsk _ m => m r -> Int\n",
+        "test _ = 1\n",
+    );
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("a wildcard in a constraint should be accepted: {errors:?}")
+    });
+}

@@ -147,3 +147,35 @@ failConstraint value = value
         .unwrap_or_default();
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+#[test]
+fn checks_an_instance_head_against_a_standalone_class_kind_signature() {
+    // `failing/StandaloneKindSignatures4.purs`. The signature reaches the class
+    // scheme, but nothing applied it to the instance that uses the class, so the
+    // head was never checked.
+    let codes = kind_codes(concat!(
+        "module Main where\n",
+        "class To :: forall k. k -> k -> Constraint\n",
+        "class To a b | a -> b\n",
+        "\n",
+        "instance to1 :: To Int \"foo\"\n",
+    ));
+    assert!(codes.contains(&"KindsDoNotUnify"), "{codes:?}");
+}
+
+#[test]
+fn accepts_an_instance_for_a_higher_kinded_class_parameter() {
+    // The standard library's own `instance functorFunction :: Functor ((->) r)`.
+    // Each head argument is checked against the kind its class declares, so the
+    // function constructor applied once is a parameter here rather than a
+    // partially applied synonym.
+    let codes = kind_codes(concat!(
+        "module Main where\n",
+        "class Functor f where\n",
+        "  map :: forall a b. (a -> b) -> f a -> f b\n",
+        "\n",
+        "instance functorFunction :: Functor ((->) r) where\n",
+        "  map f g = \\value -> f (g value)\n",
+    ));
+    assert!(codes.is_empty(), "{codes:?}");
+}

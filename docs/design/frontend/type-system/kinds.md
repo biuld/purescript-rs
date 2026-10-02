@@ -36,6 +36,18 @@ Roles are ordered from most restrictive to most permissive: `Nominal < Represent
 
 Register primitive kinds and declaration heads before checking bodies. Resolve kind signatures, infer missing parameter kinds, instantiate polymorphic kinds at uses, and skolemize expected `forall` kinds when checking annotations. Explicit kind applications select quantified kind arguments; ordinary type application consumes an arrow kind. Generalize undetermined kind variables at declaration boundaries according to the official compiler's scope rules. Check class heads against `Constraint`, value types against `Type`, row entries against their row parameter, and type-level literals against `Symbol` or `Int`.
 
+An instance head is checked against its class's kind scheme. That is the only
+place a standalone kind signature on a class is enforced: a class without one is
+inferred as its parameters at `Type` returning `Constraint`, which accepts any
+argument kind, so `class C :: Constraint -> Constraint` would otherwise accept
+`instance C Int`. Each head argument is elaborated against the parameter kind its
+class declares rather than read on its own, which is what makes `((->) r)` a
+higher-kinded class parameter in `Functor ((->) r)` rather than the partially
+applied function synonym it is elsewhere. A head that applies its class to the
+wrong number of arguments is an arity error owned by the class environment, so
+the kind check leaves it alone rather than reporting `KindsDoNotUnify` where
+`ClassInstanceArityMismatch` is the official code.
+
 Reject cyclic synonyms and unsaturated synonym use, including a partial synonym in a higher-kinded position. Ordinary data/newtype constructors may be partially applied when the expected kind allows it. Infer data/newtype roles from constructor fields to a fixed point across the resolved module graph, then check explicit annotations. Foreign data has no constructor fields from which to infer roles, so it is nominal by default; an explicit role annotation is its trusted interface contract. Keep source ranges on all kind uses and role annotations.
 
 A `Type | Row(Type) | Arrow` enum is rejected because it cannot express `Symbol`, polymorphic kinds, or explicit kind application. Eager synonym expansion before cycle checking is rejected because it may diverge.
