@@ -27,6 +27,14 @@ pub struct TypeField {
     pub span: TextRange,
 }
 
+/// A type name made visible by a module interface. Built-in constructors keep
+/// their existing compiler identity; declared types use their stable `TypeId`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeReference {
+    Builtin(BuiltinType),
+    Named(TypeId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
     Variable(String),

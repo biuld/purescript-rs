@@ -61,6 +61,14 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             collect_globals(left, out);
             collect_globals(right, out);
         }
+        hir::ExprKind::Negate {
+            function: function_expr,
+            expression,
+            ..
+        } => {
+            collect_globals(function_expr, out);
+            collect_globals(expression, out);
+        }
         hir::ExprKind::Application(function, argument) => {
             collect_globals(function, out);
             collect_globals(argument, out);

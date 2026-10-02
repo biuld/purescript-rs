@@ -1,8 +1,9 @@
-use super::names::{Resolver, builtin_type, is_uppercase, split_qualified};
+use super::names::{Resolver, builtin_type, is_uppercase, prim_type, split_qualified};
 use super::{PlannedType, ResolveErrorKind};
 use psrs_ast as ast;
 use psrs_hir::{
     self as hir, ModuleId, Type as HirType, TypeDeclarationKind, TypeId, TypeKind as HirTypeKind,
+    TypeReference,
 };
 use psrs_span::TextRange;
 
@@ -11,15 +12,13 @@ impl Resolver {
         let span = expression.span;
         let kind = match expression.kind {
             ast::TypeKind::Name(name) => {
-                if let Some(builtin) = builtin_type(&name.text) {
-                    HirTypeKind::Constructor(builtin)
-                } else if let Some((qualifier, member)) = split_qualified(&name.text) {
-                    let id =
+                if let Some((qualifier, member)) = split_qualified(&name.text) {
+                    let reference =
                         self.lookup_qualified_type(&name.text, qualifier, member, name.span)?;
-                    self.nominal(id)
+                    self.type_reference_kind(reference)
                 } else if is_uppercase(&name.text) {
-                    let id = self.lookup_type_name(&name.text, name.span)?;
-                    self.nominal(id)
+                    let reference = self.lookup_type_name(&name.text, name.span)?;
+                    self.type_reference_kind(reference)
                 } else {
                     HirTypeKind::Variable(name.text)
                 }
@@ -91,20 +90,41 @@ impl Resolver {
             .collect()
     }
 
-    fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeId> {
-        if let Some(id) = self.type_names.get(text) {
-            return Some(*id);
-        }
-        if let Some(ids) = self.imported_types.get(text) {
-            let first = ids[0];
-            if ids.iter().all(|id| *id == first) {
-                return Some(first);
+    fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeReference> {
+        let local = self.type_names.get(text).copied().map(TypeReference::Named);
+        let imported = self.imported_types.get(text);
+        match (local, imported) {
+            (Some(_), Some(_)) => {
+                self.report_conflict(text.to_owned(), span);
+                None
             }
-            self.report_conflict(text.to_string(), span);
-            return None;
+            (Some(reference), None) => Some(reference),
+            (None, Some(references)) => {
+                let first = references[0];
+                if references.iter().all(|reference| *reference == first) {
+                    Some(first)
+                } else {
+                    self.report_conflict(text.to_owned(), span);
+                    None
+                }
+            }
+            (None, None)
+                if self
+                    .imports
+                    .iter()
+                    .any(|import| import.module_name == "Prim") =>
+            {
+                self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
+                None
+            }
+            (None, None) => match builtin_type(text) {
+                Some(builtin) => Some(TypeReference::Builtin(builtin)),
+                None => {
+                    self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
+                    None
+                }
+            },
         }
-        self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
-        None
     }
 
     fn lookup_qualified_type(
@@ -113,11 +133,25 @@ impl Resolver {
         qualifier: &str,
         member: &str,
         span: TextRange,
-    ) -> Option<TypeId> {
-        let candidates = self.qualified_types.get(qualifier)?;
-        let mut found: Option<(ModuleId, TypeId)> = None;
+    ) -> Option<TypeReference> {
+        let has_explicit_prim_qualifier = self
+            .imports
+            .iter()
+            .any(|import| import.module_name == "Prim" && import.alias.as_deref() == Some("Prim"));
+        let default_prim = if qualifier == "Prim" && !has_explicit_prim_qualifier {
+            prim_type(member)
+                .map(|builtin| (ModuleId::COMPILER_PRELUDE, TypeReference::Builtin(builtin)))
+        } else {
+            None
+        };
+        let candidates = self.qualified_types.get(qualifier);
+        if candidates.is_none() && default_prim.is_none() {
+            self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
+            return None;
+        }
+        let mut found: Option<(ModuleId, TypeReference)> = default_prim;
         let mut conflict = false;
-        for candidate in candidates {
+        for candidate in candidates.into_iter().flatten() {
             let Some(id) = candidate.types.get(member) else {
                 continue;
             };
@@ -133,8 +167,8 @@ impl Resolver {
             self.report_conflict(text.to_string(), span);
             return None;
         }
-        if let Some((_, id)) = found {
-            return Some(id);
+        if let Some((_, reference)) = found {
+            return Some(reference);
         }
         self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
         None
@@ -150,6 +184,13 @@ impl Resolver {
         }
     }
 
+    fn type_reference_kind(&self, reference: TypeReference) -> HirTypeKind {
+        match reference {
+            TypeReference::Builtin(builtin) => HirTypeKind::Constructor(builtin),
+            TypeReference::Named(id) => self.nominal(id),
+        }
+    }
+
     /// Records opacity of imported foreign data so signatures in this module
     /// mention `Opaque` without looking at the declaring module again.
     pub(super) fn note_imported_opaque_types(&mut self) {
@@ -158,7 +199,10 @@ impl Resolver {
             .iter()
             .flat_map(|import| import.types.iter())
             .filter(|imported| imported.opaque)
-            .map(|imported| imported.id)
+            .filter_map(|imported| match imported.reference {
+                TypeReference::Named(id) => Some(id),
+                TypeReference::Builtin(_) => None,
+            })
             .collect::<Vec<_>>();
         self.opaque_types.extend(imported);
     }

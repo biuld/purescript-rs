@@ -10,6 +10,19 @@ fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
 }
 
 #[test]
+fn unary_minus_calls_the_in_scope_negate_function_at_runtime() {
+    let source = "module Main where\nnegate x = 0 - x\nmain = if -42 == negate 42 then 0 else 1\n";
+    let artifact = compile_source("Main.purs", source).unwrap();
+    assert!(artifact.wat.contains("i32.sub"));
+
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+}
+
+#[test]
 fn compiles_character_literals_as_integer_valued_scalars() {
     let source = "module Main where\nchoose :: Char -> Int\nchoose x = 42\nmain = choose 'A'\n";
     let mir = lower_source_to_mir(source);

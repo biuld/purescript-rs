@@ -8,8 +8,9 @@
 [frontend boundaries](../00-ir-boundaries.md), and source evaluation order.
 
 **Summary:** P4 rewrites surface constructs into a smaller resolved HIR without
-changing semantic identities. It owns fixity application, sections, `do` and
-`ado`, guards, multiple equations, and `where` scope. The rewrite preserves
+changing semantic identities. It owns fixity application, sections, unary
+minus, `do` and `ado`, guards, multiple equations, and `where` scope. P3
+resolves unary minus through the ordinary in-scope `negate` name; P4 preserves
 source order and source origins for P5 diagnostics.
 
 ## Scope
@@ -22,10 +23,12 @@ remaining high-level forms on the way to Core.
 ## Background
 
 Surface notation can describe the same operation in many forms. Fixity is
-known only after P3 resolves operators. `do` describes ordered binds, and
-guarded equations describe ordered alternatives. Lowering these before type
-inference gives the checker fewer term forms while retaining the user's
-declaration and subexpression ranges.
+known only after P3 resolves operators. Unary minus is syntax for applying the
+ordinary `negate` value, so P3 resolves that name with the same local and import
+rules as any other value. `do` describes ordered binds, and guarded equations
+describe ordered alternatives. Lowering these before type inference gives the
+checker fewer term forms while retaining the user's declaration and
+subexpression ranges.
 
 ## Model
 
@@ -37,15 +40,17 @@ Origin = { source: SourceId, range: TextRange, generated_from: NodeId }
 The output uses the same HIR IDs and type-expression forms. Generated local
 binders receive fresh IDs in the proper scope and an origin range. The
 normalized subset contains applications, lambdas, `let`, conditionals, cases,
-records, and primitive declarations, with operator and sequencing sugar
-expanded. Pattern syntax may remain for P5 and P6.
+records, and primitive declarations, with operator, unary-minus, and sequencing
+sugar expanded. Pattern syntax may remain for P5 and P6.
 
 ## Design
 
 P4 applies resolved fixities to operator chains, then expands sections and
-other syntactic operators into applications of their resolved symbol. It
-lowers `do` to `bind`/`pure` applications and `ado` to its applicative form
-using the resolved library identities, never matching a name's spelling.
+other syntactic operators into applications of their resolved symbol. For
+unary minus, P3 has already resolved `negate` as either a local or global value;
+P4 emits an application of that reference to the operand. It lowers `do` to
+`bind`/`pure` applications and `ado` to its applicative form using the resolved
+library identities, never matching a name's spelling.
 It converts multiple equations and guarded right-hand sides to ordered cases
 and conditions with explicit fallthrough, and makes `where` bindings explicit
 in their original lexical scope.
@@ -67,6 +72,7 @@ desugar(program):
     verify_resolved_hir(program)
     for each declaration in source order:
         resolve operator chain using its bound fixities
+        replace unary minus with an application of its resolved negate reference
         expand sections and sequencing forms
         compile equations/guards to ordered HIR cases
         turn where bindings into scoped lets
@@ -77,16 +83,16 @@ desugar(program):
 Fresh IDs are allocated monotonically per declaration. The verifier checks
 generated references and that no eliminated surface form remains. A rewrite
 that would need unavailable library evidence is diagnosed at its source span.
+Unary minus preserves the minus-token span on the generated function reference
+and the complete expression span on the application.
 
 ## Code map
 
-`crates/psrs-desugar/src/` owns
-`desugar(program: hir::Program) -> Result<hir::Program, Vec<Diagnostic>>`.
-`fixity.rs` handles operator precedence; `sections.rs` operator sections;
-`sequencing.rs` `do`/`ado`; `equations.rs` guards and function equations;
-`where_bindings.rs` local scope. `psrs-hir/src/verify.rs` exposes both the
-resolved and normalized profile checks. The desugar crate depends on HIR and
-source utilities, never THIR or backend types.
+`crates/psrs-desugar/src/lib.rs` owns the verified surface rewrites, including
+replacing a resolved unary-minus node with an ordinary function application.
+`psrs-hir/src/verify.rs` exposes both the resolved and normalized profile
+checks. The desugar crate depends on HIR and source utilities, never THIR or
+backend types.
 
 ## Invariants and verification
 
@@ -94,7 +100,8 @@ Existing IDs keep their meaning, new local IDs are unique and scoped, and
 source-origin ranges remain valid. Every output has the same observable
 evaluation order as its input; tests cover ordered guards and single
 evaluation of scrutinees. The normalized verifier rejects operator chains,
-sections, `do`/`ado`, guarded equations, and `where` nodes after P4.
+sections, unary-minus nodes, `do`/`ado`, guarded equations, and `where` nodes
+after P4.
 
 ## Worked example
 
@@ -106,6 +113,11 @@ f x | x > 0 = x
 P4 resolves `>` and `otherwise`, then produces an ordered conditional in a
 single equation body. `x` keeps its `LocalId`; the comparison and each guard
 keep source origins. The second body runs only if the first guard fails.
+
+For `value = -x`, P3 resolves the generated `negate` reference to the ordinary
+local or imported value in scope. P4 turns the resolved unary-minus node into
+`negate x`, with the minus token on the function reference and the full `-x`
+range on the application.
 
 ## Boundaries and interfaces
 
