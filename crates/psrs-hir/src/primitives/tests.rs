@@ -3,6 +3,7 @@
 //! publishes; none of them reproduces an official member in a private table.
 
 use super::*;
+use crate::RoleDeclaration;
 
 /// The official non-builtin member list, transcribed from
 /// `Language.PureScript.Constants.Prim`'s `primModules`. The twelve
@@ -82,6 +83,77 @@ fn boolean_literals_are_declared_at_the_boolean_kind() {
             Some(&TypeKind::Constructor(BuiltinType::Boolean)),
             "Prim.Boolean.{name} must be declared at kind `Boolean`"
         );
+    }
+}
+
+fn roles(declaration: &TypeDeclaration) -> Vec<Role> {
+    declaration
+        .declared_roles
+        .as_ref()
+        .unwrap_or_else(|| panic!("`{}` has no role signature", declaration.name))
+        .roles
+        .iter()
+        .map(|(role, _)| *role)
+        .collect()
+}
+
+#[test]
+fn phantom_roles_match_the_official_role_signatures() {
+    let phantom = Role::Phantom;
+    let expected: &[(&str, &str, &[Role])] = &[
+        ("Prim.RowList", "RowList", &[phantom]),
+        ("Prim.RowList", "Cons", &[phantom, phantom, phantom]),
+        ("Prim.RowList", "Nil", &[]),
+        ("Prim.TypeError", "Text", &[phantom]),
+        ("Prim.TypeError", "Quote", &[phantom]),
+        ("Prim.TypeError", "QuoteLabel", &[phantom]),
+        ("Prim.TypeError", "Beside", &[phantom, phantom]),
+        ("Prim.TypeError", "Above", &[phantom, phantom]),
+    ];
+    for (owner, name, expected) in expected {
+        assert_eq!(
+            roles(&declared(owner, name)),
+            *expected,
+            "{owner}.{name} must carry the official role signature"
+        );
+    }
+}
+
+#[test]
+fn every_parameterless_foreign_type_declares_an_empty_role_signature() {
+    for (owner, name) in [
+        ("Prim.Boolean", "True"),
+        ("Prim.Boolean", "False"),
+        ("Prim.Ordering", "Ordering"),
+        ("Prim.Ordering", "LT"),
+        ("Prim.Ordering", "EQ"),
+        ("Prim.Ordering", "GT"),
+        ("Prim.TypeError", "Doc"),
+    ] {
+        assert!(
+            roles(&declared(owner, name)).is_empty(),
+            "{owner}.{name} takes no parameter, so it has no role"
+        );
+    }
+}
+
+#[test]
+fn every_foreign_role_annotation_carries_its_own_range() {
+    for (owner, declaration) in primitive_type_declarations() {
+        if declaration.kind != TypeDeclarationKind::Foreign {
+            continue;
+        }
+        let RoleDeclaration { roles, span } = declaration
+            .declared_roles
+            .clone()
+            .expect("every registry foreign type declares its roles");
+        for (_, role_span) in roles {
+            assert!(
+                role_span.start <= role_span.end && role_span.end <= span.end,
+                "{owner}.{} must keep every role annotation inside its own span",
+                declaration.name
+            );
+        }
     }
 }
 

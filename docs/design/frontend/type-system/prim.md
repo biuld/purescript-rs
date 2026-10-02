@@ -50,7 +50,7 @@ EvidenceClass = CompileTimeProof    # no runtime value; a checked boundary
 
 ### Member inventory
 
-Kinds are the official ones, since source compatibility requires them. "Declared" means the registry supplies a stable identity, kind, fundeps, and role for the member; "Solved" means a rule discharges the relation. Roles marked *phantom* are the official declaration and are currently absent from the registry.
+Kinds are the official ones, since source compatibility requires them. "Declared" means the registry supplies a stable identity, kind, fundeps, and role for the member; "Solved" means a rule discharges the relation.
 
 | Member | Kind | Strategy | Evidence | Declared | Solved |
 | --- | --- | --- | --- | --- | --- |
@@ -220,7 +220,7 @@ A `Prim` declaration is not source and cannot be shadowed, replaced, or given a 
 
 ## Open questions and future work
 
-`Prim.undefined` has no compiler-owned value identity and is not exported by the virtual interface; it needs an identity, a type, and a lowering decision together, because a partial value is a runtime concern as much as a typing one. The official phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent, which makes those declarations nominal here and therefore restricts `Coercible` at them. `Prim.Partial` is registered as a class where the official environment registers both a constraint-kinded type and a parameterless class. Type-level `Reflectable` and `IsSymbol` relations exist in later official versions and are not part of the inventory above; adding a member is a registry change with the same requirements as any other.
+`Prim.undefined` has no compiler-owned value identity and is not exported by the virtual interface; it needs an identity, a type, and a lowering decision together, because a partial value is a runtime concern as much as a typing one. `Prim.Partial` is registered as a class where the official environment registers both a constraint-kinded type and a parameterless class. Type-level `Reflectable` and `IsSymbol` relations exist in later official versions and are not part of the inventory above; adding a member is a registry change with the same requirements as any other.
 
 Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 
@@ -233,20 +233,25 @@ Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-te
 ## Implementation notes
 
 The registry covers every official member except one: `Prim.undefined` has no
-identity here. Where the registry and the official environment disagree, it is
-recorded in the inventory above — the official phantom roles for `RowList`,
-`RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent
-so those members are nominal here, and `Prim.Partial` is registered only as a
-class where the official environment registers both a constraint-kinded type and
-a parameterless class. Kinds and functional dependencies otherwise match the
-official environment member by member, including `Prim.Boolean.True` and
-`.False` at kind `Boolean` and `Prim.RowList.Nil` at `forall k. RowList k`.
+identity here. Kinds, functional dependencies, and roles match the official
+environment member by member, including `Prim.Boolean.True` and `.False` at kind
+`Boolean` and `Prim.RowList.Nil` at `forall k. RowList k`. Where the registry and
+the official environment still disagree, it is recorded in the inventory above.
 
 `Prim.RowList.Nil` had been declared at `forall k. RowList k -> RowList k`,
 which is a different kind: it made the member look like it took one argument.
 It is the only official member whose kind is not an arrow chain, so the shared
 kind builder grew a `forall` form that takes the body outright rather than
 arrow parameters.
+
+Every registry foreign type now declares its official role signature rather
+than leaving `declared_roles` absent, which the role check reads as nominal. The
+role check itself consumes the registry alongside the resolved modules, the same
+way the kind pass already consumed it when it built its schemes, so a `Prim`
+member's roles reach the checked kind environment instead of falling back to
+the nominal default at every use. The effect on `Coercible` is not yet visible
+from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
+type-level `Symbol` literals, which the shared type spine does not carry yet.
 
 Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
 foundations: its kind denotation, substitution, and unifier live in

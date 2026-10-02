@@ -73,6 +73,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_ROW_LIST,
                 "RowList",
                 arrow_kind(vec![builtin(BuiltinType::Type)], builtin(BuiltinType::Type)),
+                &[Role::Phantom],
             ),
         ),
         (
@@ -89,6 +90,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                     ],
                     apply(named(TypeId::PRIM_ROW_LIST), variable("k")),
                 ),
+                &[Role::Phantom, Role::Phantom, Role::Phantom],
             ),
         ),
         (
@@ -97,6 +99,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_ROW_LIST_NIL,
                 "Nil",
                 forall("k", apply(named(TypeId::PRIM_ROW_LIST), variable("k"))),
+                &[],
             ),
         ),
         (

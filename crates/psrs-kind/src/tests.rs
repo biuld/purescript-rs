@@ -294,6 +294,54 @@ fn synonym_expansion_is_capture_avoiding_and_cycle_safe() {
 }
 
 #[test]
+fn primitive_registry_roles_reach_the_checked_kind_environment() {
+    // The registry's foreign types are trusted role signatures, so this also
+    // proves they survive the shared role check: a wrong arity would report
+    // `RoleDeclarationArityMismatch` and a weakened role `RoleMismatch`.
+    let module = resolve("module Main where\ndata Box a = Box a\n");
+    let (environment, errors) = crate::check_roles(std::slice::from_ref(&module));
+    assert!(errors.is_empty(), "unexpected role errors: {errors:?}");
+    let phantom = psrs_hir::Role::Phantom;
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST_CONS),
+        Some([phantom, phantom, phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_TEXT),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_QUOTE),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_QUOTE_LABEL),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_BESIDE),
+        Some([phantom, phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_ABOVE),
+        Some([phantom, phantom].as_slice())
+    );
+    // A member with no parameter carries no role at all.
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST_NIL),
+        Some([].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_DOC),
+        Some([].as_slice())
+    );
+}
+
+#[test]
 fn checks_an_instance_head_against_its_class_kind_signature() {
     // `purs` reports KindsDoNotUnify for this. The class signature is the only
     // thing that can reject the head: without one the class is inferred as

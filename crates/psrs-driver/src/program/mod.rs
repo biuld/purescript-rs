@@ -328,7 +328,14 @@ fn typecheck_program(
         role_diagnostics
             .into_iter()
             .map(|(module, error)| ProgramDiagnostic {
-                source: DiagnosticOrigin::Source(module.0 as usize),
+                // A role diagnostic about a compiler-provided declaration names
+                // no source module, so it belongs to the program rather than to
+                // an index in the caller's source list.
+                source: if module == psrs_hir::ModuleId::INTRINSICS {
+                    DiagnosticOrigin::Program
+                } else {
+                    DiagnosticOrigin::Source(module.0 as usize)
+                },
                 diagnostic: coded_diagnostic(
                     "P5 kind check",
                     error.span,

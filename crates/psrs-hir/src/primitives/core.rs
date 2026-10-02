@@ -22,6 +22,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_BOOLEAN_FALSE,
                 "False",
                 builtin(BuiltinType::Boolean),
+                &[],
             ),
         ),
         (
@@ -30,6 +31,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_BOOLEAN_TRUE,
                 "True",
                 builtin(BuiltinType::Boolean),
+                &[],
             ),
         ),
         (
@@ -48,19 +50,35 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_ORDERING,
                 "Ordering",
                 builtin(BuiltinType::Type),
+                &[],
             ),
         ),
         (
             "Prim.Ordering",
-            foreign_type(TypeId::PRIM_ORDERING_LT, "LT", named(TypeId::PRIM_ORDERING)),
+            foreign_type(
+                TypeId::PRIM_ORDERING_LT,
+                "LT",
+                named(TypeId::PRIM_ORDERING),
+                &[],
+            ),
         ),
         (
             "Prim.Ordering",
-            foreign_type(TypeId::PRIM_ORDERING_EQ, "EQ", named(TypeId::PRIM_ORDERING)),
+            foreign_type(
+                TypeId::PRIM_ORDERING_EQ,
+                "EQ",
+                named(TypeId::PRIM_ORDERING),
+                &[],
+            ),
         ),
         (
             "Prim.Ordering",
-            foreign_type(TypeId::PRIM_ORDERING_GT, "GT", named(TypeId::PRIM_ORDERING)),
+            foreign_type(
+                TypeId::PRIM_ORDERING_GT,
+                "GT",
+                named(TypeId::PRIM_ORDERING),
+                &[],
+            ),
         ),
     ]
 }
