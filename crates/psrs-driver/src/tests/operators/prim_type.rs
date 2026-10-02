@@ -70,7 +70,10 @@ fn builtin_type_operator_aliases_keep_prim_identity_through_reexport() {
     let psrs_hir::TypeKind::OperatorChain { operators, .. } = &body.kind else {
         panic!("P3 must retain the Function alias chain");
     };
-    assert_eq!(operators[0].reference, function);
+    assert_eq!(
+        operators[0].head,
+        psrs_hir::ResolvedTypeHead::Builtin(psrs_hir::BuiltinType::Function)
+    );
 
     let normalized = psrs_desugar::desugar_module(resolved[2].clone()).unwrap();
     let identity = normalized

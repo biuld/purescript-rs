@@ -1,7 +1,7 @@
 use crate::DesugarError;
 use psrs_hir::{
-    Associativity, Expr, ExprKind, Pattern, PatternKind, ResolvedOperator, ResolvedTypeOperator,
-    Type, TypeKind, TypeReference,
+    Associativity, Expr, ExprKind, Pattern, PatternKind, ResolvedOperator, ResolvedTypeHead,
+    ResolvedTypeOperator, Type, TypeKind,
 };
 use psrs_span::TextRange;
 
@@ -413,9 +413,10 @@ fn reduce_type(values: &mut Vec<Type>, operators: &mut Vec<ResolvedTypeOperator>
     let right = values.pop().expect("operator has a right type");
     let left = values.pop().expect("operator has a left type");
     let span = TextRange::new(left.span.start, right.span.end);
-    let kind = match operator.reference {
-        TypeReference::Builtin(builtin) => TypeKind::Constructor(builtin),
-        TypeReference::Named(id) => TypeKind::Named(id),
+    let kind = match operator.head {
+        ResolvedTypeHead::Builtin(builtin) => TypeKind::Constructor(builtin),
+        ResolvedTypeHead::Named(id) => TypeKind::Named(id),
+        ResolvedTypeHead::Opaque(id) => TypeKind::Opaque(id),
     };
     let constructor = Type {
         kind,

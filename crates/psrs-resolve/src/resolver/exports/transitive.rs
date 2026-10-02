@@ -219,14 +219,10 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
             operands,
             operators,
         } => {
-            out.extend(
-                operators
-                    .iter()
-                    .filter_map(|operator| match operator.reference {
-                        TypeReference::Builtin(_) => None,
-                        TypeReference::Named(id) => Some(id),
-                    }),
-            );
+            out.extend(operators.iter().filter_map(|operator| match operator.head {
+                hir::ResolvedTypeHead::Builtin(_) => None,
+                hir::ResolvedTypeHead::Named(id) | hir::ResolvedTypeHead::Opaque(id) => Some(id),
+            }));
             for operand in operands {
                 collect_named_types(operand, out);
             }

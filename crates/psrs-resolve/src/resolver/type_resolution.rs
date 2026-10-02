@@ -101,7 +101,7 @@ impl Resolver {
             .map(|fixity| (fixity.associativity, fixity.precedence))
             .unwrap_or((hir::Associativity::Left, 9));
         Some(hir::ResolvedTypeOperator {
-            reference,
+            head: self.resolved_type_head(reference),
             operator_span: span,
             associativity,
             precedence,
@@ -226,20 +226,21 @@ impl Resolver {
         None
     }
 
-    /// A foreign data type is nominal. Callers see `Opaque` rather than a
-    /// synonym or an ordinary data type, including when the type was imported.
-    fn nominal(&self, id: TypeId) -> HirTypeKind {
-        if self.opaque_types.contains(&id) {
-            HirTypeKind::Opaque(id)
-        } else {
-            HirTypeKind::Named(id)
+    fn resolved_type_head(&self, reference: TypeReference) -> hir::ResolvedTypeHead {
+        match reference {
+            TypeReference::Builtin(builtin) => hir::ResolvedTypeHead::Builtin(builtin),
+            TypeReference::Named(id) if self.opaque_types.contains(&id) => {
+                hir::ResolvedTypeHead::Opaque(id)
+            }
+            TypeReference::Named(id) => hir::ResolvedTypeHead::Named(id),
         }
     }
 
     fn type_reference_kind(&self, reference: TypeReference) -> HirTypeKind {
-        match reference {
-            TypeReference::Builtin(builtin) => HirTypeKind::Constructor(builtin),
-            TypeReference::Named(id) => self.nominal(id),
+        match self.resolved_type_head(reference) {
+            hir::ResolvedTypeHead::Builtin(builtin) => HirTypeKind::Constructor(builtin),
+            hir::ResolvedTypeHead::Named(id) => HirTypeKind::Named(id),
+            hir::ResolvedTypeHead::Opaque(id) => HirTypeKind::Opaque(id),
         }
     }
 
