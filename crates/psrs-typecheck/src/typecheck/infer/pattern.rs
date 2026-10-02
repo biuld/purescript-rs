@@ -135,8 +135,8 @@ impl Checker {
             hir::PatternKind::Record { fields, mode } => {
                 let expected = self.resolve_type(expected.clone());
                 let mut record_fields = if let Some(row) = record_row(&expected) {
-                    let flattened = self.flatten_row(row);
-                    (flattened.fields, flattened.tail)
+                    let normalized = self.normalize_row_or_report(row, span);
+                    (normalized.fields, normalized.tail)
                 } else if matches!(expected, InferType::Variable(_)) {
                     let inferred_fields = fields
                         .iter()

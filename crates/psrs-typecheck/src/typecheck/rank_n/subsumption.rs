@@ -42,8 +42,8 @@ impl Checker {
                 if let (Some(actual_row), Some(expected_row)) =
                     (record_row(&actual), record_row(&expected))
                 {
-                    let actual = self.flatten_row(actual_row);
-                    let expected = self.flatten_row(expected_row);
+                    let actual = self.normalize_row_or_report(actual_row, span);
+                    let expected = self.normalize_row_or_report(expected_row, span);
                     let actual_fields = actual.fields.into_iter().collect::<HashMap<_, _>>();
                     let expected_fields = expected.fields.into_iter().collect::<HashMap<_, _>>();
                     let mut actual_remainder = Vec::new();

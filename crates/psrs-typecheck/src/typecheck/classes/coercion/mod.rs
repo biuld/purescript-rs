@@ -136,6 +136,8 @@ impl Checker {
             | TypeConstructor::String
             | TypeConstructor::Char
             | TypeConstructor::Unit => Vec::new(),
+            // Official PureScript declares `Prim.Row` with a phantom role.
+            TypeConstructor::Row => vec![hir::Role::Phantom; arity],
         }
     }
 

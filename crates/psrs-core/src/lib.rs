@@ -25,6 +25,9 @@ pub struct TypeId(pub u32);
 pub enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor, declared with a phantom role. Its
+    /// application is a nominal type, not a row value.
+    Row,
     Array,
     Int,
     Number,
