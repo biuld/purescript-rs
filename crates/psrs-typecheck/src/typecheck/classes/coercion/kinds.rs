@@ -96,6 +96,14 @@ impl Checker {
                 Box::new(self.kind_from_hir(function, scope)),
                 Box::new(self.kind_from_hir(argument, scope)),
             ),
+            hir::TypeKind::OperatorChain { .. } => {
+                self.errors.push(crate::typecheck::TypeCheckError::new(
+                    crate::typecheck::TypeCheckErrorKind::UnsupportedType,
+                    ty.span,
+                    "type operator chain reached type checking before P4",
+                ));
+                self.fresh_kind()
+            }
             hir::TypeKind::Function { parameter, result } => Kind::Function(
                 Box::new(self.kind_from_hir(parameter, scope)),
                 Box::new(self.kind_from_hir(result, scope)),

@@ -28,6 +28,19 @@ impl Resolver {
                 Box::new(self.resolve_type(*function)?),
                 Box::new(self.resolve_type(*argument)?),
             ),
+            ast::TypeKind::OperatorChain {
+                operands,
+                operators,
+            } => HirTypeKind::OperatorChain {
+                operands: operands
+                    .into_iter()
+                    .map(|operand| self.resolve_type(operand))
+                    .collect::<Option<Vec<_>>>()?,
+                operators: operators
+                    .into_iter()
+                    .map(|operator| self.resolve_type_operator(&operator.name.text, operator.span))
+                    .collect::<Option<Vec<_>>>()?,
+            },
             ast::TypeKind::Function { parameter, result } => HirTypeKind::Function {
                 parameter: Box::new(self.resolve_type(*parameter)?),
                 result: Box::new(self.resolve_type(*result)?),
@@ -63,6 +76,25 @@ impl Resolver {
         Some(HirType { kind, span })
     }
 
+    fn resolve_type_operator(
+        &mut self,
+        name: &str,
+        span: TextRange,
+    ) -> Option<hir::ResolvedTypeOperator> {
+        let type_id = self.lookup_type_name(name, span)?;
+        let (associativity, precedence) = self
+            .type_fixities
+            .get(name)
+            .map(|fixity| (fixity.associativity, fixity.precedence))
+            .unwrap_or((hir::Associativity::Left, 9));
+        Some(hir::ResolvedTypeOperator {
+            type_id,
+            operator_span: span,
+            associativity,
+            precedence,
+        })
+    }
+
     fn resolve_type_parameter(
         &mut self,
         parameter: ast::TypeParameter,
@@ -91,7 +123,7 @@ impl Resolver {
             .collect()
     }
 
-    fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeId> {
+    pub(super) fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeId> {
         if let Some(id) = self.type_names.get(text) {
             return Some(*id);
         }
@@ -107,14 +139,17 @@ impl Resolver {
         None
     }
 
-    fn lookup_qualified_type(
+    pub(super) fn lookup_qualified_type(
         &mut self,
         text: &str,
         qualifier: &str,
         member: &str,
         span: TextRange,
     ) -> Option<TypeId> {
-        let candidates = self.qualified_types.get(qualifier)?;
+        let Some(candidates) = self.qualified_types.get(qualifier) else {
+            self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
+            return None;
+        };
         let mut found: Option<(ModuleId, TypeId)> = None;
         let mut conflict = false;
         for candidate in candidates {

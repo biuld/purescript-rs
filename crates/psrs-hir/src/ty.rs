@@ -1,4 +1,4 @@
-use super::TypeId;
+use super::{Associativity, TypeId};
 use psrs_span::TextRange;
 
 /// A resolved type signature. Type names have been resolved to built-in
@@ -37,6 +37,10 @@ pub enum TypeKind {
     /// synonym and has no constructors; source cannot build a value of it.
     Opaque(TypeId),
     Application(Box<Type>, Box<Type>),
+    OperatorChain {
+        operands: Vec<Type>,
+        operators: Vec<ResolvedTypeOperator>,
+    },
     Function {
         parameter: Box<Type>,
         result: Box<Type>,
@@ -61,6 +65,14 @@ pub enum TypeKind {
     Integer(String),
     /// A type-level string literal, whose kind is `Symbol`.
     String(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedTypeOperator {
+    pub type_id: TypeId,
+    pub operator_span: TextRange,
+    pub associativity: Associativity,
+    pub precedence: u32,
 }
 
 /// A built-in type or kind constructor known to the compiler. `Type`,

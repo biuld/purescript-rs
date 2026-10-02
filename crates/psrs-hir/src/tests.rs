@@ -117,6 +117,7 @@ fn module_with_instances(instances: Vec<InstanceDeclaration>) -> Module {
         declarations: Vec::new(),
         types: vec![class_type(module, 0), class_type(module, 1)],
         instances,
+        fixities: Vec::new(),
         span: TextRange::default(),
     }
 }
@@ -153,6 +154,7 @@ fn verifier_rejects_references_to_out_of_scope_locals() {
         }],
         types: Vec::new(),
         instances: Vec::new(),
+        fixities: Vec::new(),
         span: TextRange::new(0, 8),
     };
 
