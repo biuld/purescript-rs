@@ -309,7 +309,12 @@ fn verify_pattern(
     errors: &mut Vec<VerifyError>,
 ) {
     match &pattern.kind {
-        PatternKind::Wildcard | PatternKind::Boolean(_) => {}
+        PatternKind::Wildcard
+        | PatternKind::Boolean(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_) => {}
         PatternKind::Var(binder) => {
             if !declared_locals.insert(binder.id) {
                 errors.push(VerifyError {
@@ -370,7 +375,7 @@ fn verify_pattern(
                 );
             }
         }
-        PatternKind::Record { fields } => {
+        PatternKind::Record { fields, .. } => {
             for (_, field) in fields {
                 verify_pattern(
                     field,
@@ -382,5 +387,44 @@ fn verify_pattern(
                 );
             }
         }
+        PatternKind::Array(elements) => {
+            for element in elements {
+                verify_pattern(
+                    element,
+                    globals,
+                    visible_locals,
+                    declared_locals,
+                    inserted,
+                    errors,
+                );
+            }
+        }
+        PatternKind::Named { binder, pattern } => {
+            if !declared_locals.insert(binder.id) {
+                errors.push(VerifyError {
+                    span: binder.span,
+                    message: "duplicate local ID",
+                });
+            }
+            if visible_locals.insert(binder.id) {
+                inserted.push(binder.id);
+            }
+            verify_pattern(
+                pattern,
+                globals,
+                visible_locals,
+                declared_locals,
+                inserted,
+                errors,
+            );
+        }
+        PatternKind::Typed { pattern, .. } => verify_pattern(
+            pattern,
+            globals,
+            visible_locals,
+            declared_locals,
+            inserted,
+            errors,
+        ),
     }
 }

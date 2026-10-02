@@ -192,9 +192,18 @@ fn free_integer_local(
 
 fn bind_pattern(pattern: &Pattern, bound: &mut HashSet<LocalId>) {
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
         PatternKind::Var { id, .. } => {
             bound.insert(*id);
+        }
+        PatternKind::Named { id, pattern } => {
+            bound.insert(*id);
+            bind_pattern(pattern, bound);
+        }
+        PatternKind::Array { elements } => {
+            for element in elements {
+                bind_pattern(element, bound);
+            }
         }
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {

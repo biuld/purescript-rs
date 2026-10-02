@@ -167,7 +167,7 @@ fn maps_every_cc_value_shape_to_its_specified_mir_type() {
     for (shape, expected) in scalar_cases {
         assert_eq!(layout.value_type(&shape).unwrap(), expected, "{shape:?}");
     }
-    // A source `String` is a GC `(array (mut i16))`, not a linear pointer.
+    // A source `String` is a GC array of canonical UTF-8 bytes, not a linear pointer.
     let string_index = layout
         .string_index()
         .expect("a reachable String reserves the GC string type");

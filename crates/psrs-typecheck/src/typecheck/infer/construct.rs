@@ -155,6 +155,8 @@ impl Checker {
             wanted: Vec::new(),
             next_dictionary_local: 0,
             reported_fundep_conflicts: HashSet::new(),
+            annotation_variables: HashMap::new(),
+            type_variable_names: HashMap::new(),
             errors: Vec::new(),
         };
         checker.import_known_types(known_types);

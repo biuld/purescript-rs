@@ -1,10 +1,8 @@
 use crate::{
     alpha::{self, FreshLocals},
-    boolean_case::lower_boolean_case,
-    boolean_product_case,
     case_helpers::{
-        apply, boolean_case_exhaustive, guarded_rhs_exhaustive, is_guarded_rhs, product_expression,
-        product_pattern, wrap_lambdas,
+        apply, guarded_rhs_exhaustive, is_guarded_rhs, product_expression, product_pattern,
+        wrap_lambdas,
     },
     free_vars,
 };
@@ -135,27 +133,6 @@ impl Desugarer {
     fn case(&mut self, scrutinee: Expr, mut branches: Vec<CaseBranch>, span: TextRange) -> Expr {
         let mut scrutinee = self.expr(scrutinee);
         let has_guards = branches.iter().any(|branch| is_guarded_rhs(&branch.value));
-        let boolean_matrix = branches
-            .iter()
-            .any(|branch| matches!(branch.pattern.kind, PatternKind::Boolean(_)))
-            && branches.iter().all(|branch| {
-                matches!(
-                    branch.pattern.kind,
-                    PatternKind::Boolean(_) | PatternKind::Wildcard | PatternKind::Var(_)
-                )
-            });
-        if boolean_matrix {
-            if !boolean_case_exhaustive(&branches, self) {
-                self.errors.push(hir::VerifyError {
-                    span,
-                    message: "non-exhaustive case; missing Boolean alternative",
-                });
-            }
-            return lower_boolean_case(self, scrutinee, branches, span);
-        }
-        if boolean_product_case::supports(&branches) {
-            return boolean_product_case::lower(self, scrutinee, branches, span);
-        }
         if !has_guards {
             return Expr {
                 kind: ExprKind::Case {

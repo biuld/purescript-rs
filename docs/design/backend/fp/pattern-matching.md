@@ -63,20 +63,34 @@ Typed Core carries source-oriented patterns so diagnostics keep their spans
 ```text
 Pattern = Wildcard
         | Var { id, ty }
+        | Literal { value: Literal }
+        | Array { elements: [Pattern] }
+        | Named { id, pattern: Pattern }
         | Constructor { symbol: SymbolId, arguments: [Pattern] }
         | Record { fields: [(label, Pattern)] }
+
+Literal = Integer(i32) | Number(String) | String(String) | Char(char) | Boolean(bool)
 ```
 
 Wildcards and variables are **irrefutable**: they match every value.
 Constructors and records are **refutable** when they have more than one sibling
 case (constructors) or are always-irrefutable productions (records, newtypes,
-and single-constructor data types). A **scrutinee** is a value already bound in
-CC, and each `case` has one scrutinee.
+and single-constructor data types). `Named` binds the current scrutinee value
+before matching its nested pattern. `Literal` and `Array` are refutable. Typed
+patterns are checked and removed before Core; a Core literal's payload type
+must agree with its checked pattern type.
+
+A **scrutinee** is a value already bound in CC, and each `case` has one
+scrutinee. Integer, Number, Char, String, and Boolean tests use their primitive
+scalar equality. Number equality is numeric (`+0` equals `-0`), and String
+equality compares canonical UTF-8 byte length and content, never references.
+Boolean has the finite signature `false | true`; the other scalar domains use
+an infinite complement represented by the default edge.
 
 ### Pattern matrix
 
 A `case` is compiled as a matrix whose rows are the alternatives and whose
-columns are the scrutinee positions:
+columns are the current scrutinee and projected values:
 
 ```text
 Matrix  = [Row]
@@ -89,6 +103,13 @@ CaseSignature = { tag: i32, arity: usize, irrefutable: bool }
 decision carries to the diagnostic and to the branch body. `CaseSignature.tag`
 is the stable constructor tag from the representation table; `irrefutable` is
 true for wildcards, variables, records, and single-constructor data types.
+
+`Literal` heads specialize by primitive value. `Array` heads specialize by
+exact length, replacing the array column with its elements in left-to-right
+order. The array default covers every other length. Only an exact-length edge
+may project an element, and each projected index must be less than that tested
+length. `Named` adds a bind action against the existing column; it does not
+duplicate a scrutinee or projection.
 
 ### Decision DAG
 
@@ -103,14 +124,18 @@ Decision = Leaf   { branch: usize }
                     default: Option<Decision> }
 Test     = Constructor { type: TypeId, tag: i32 }
          | Literal(Literal)
+         | ArrayLength { length: usize }
          | Irrefutable
 
 Action   = Project { field: u32 }        // from a bound scrutinee
+         | ArrayGet { index: u32 }       // dominated by ArrayLength(index < length)
          | Bind    { id: LocalId }        // bind a value to a pattern variable
+         | Map     { source, target }     // map the current column into a matrix slot
          | TestTag { type: TypeId, tag: i32 }
 ```
 
-`Switch.edges` are the constructor or literal tests with their sub-decisions.
+`Switch.edges` are the constructor, literal, or exact array-length tests with
+their sub-decisions.
 `Switch.default` is taken when no edge matches; it is `None` only when the type
 is fully covered by `edges`, in which case a mismatch is a compiler bug and is
 lowered to a trap. Specialization threads `Action`s along each edge so the
@@ -125,6 +150,16 @@ them.
   re-evaluated.
 - A `Switch` on a sum type has at most one edge per case tag, and each tag is
   either an edge or in `default` (never both).
+- A scalar literal edge tests primitive equality; duplicate numeric spellings
+  with equal `f64` values share one test, including signed zero.
+- An array has one edge for each observed exact length and a default for every
+  other length. Every `ArrayGet(i)` is reached only through an edge proving
+  `i < length`; projections follow source element order.
+- A named pattern binds the exact value in its current column before its inner
+  tests. Coverage erases binders but keeps their nested refutable pattern.
+- Scalar literals do not cover an infinite scalar domain; a wildcard or
+  variable is required. Array rows at finitely many exact lengths do not cover
+  arrays of other lengths; an irrefutable row is required.
 - Every `Leaf.branch` indexes the original `branches` and keeps its span.
 - An alternative after an irrefutable one is unreachable and reported as
   redundant.
@@ -138,16 +173,23 @@ them.
 Compile each `case` by the matrix algorithm of Maranget (2008):
 
 1. **Column selection.** Pick the column whose patterns expose the fewest
-   distinct constructors (a heuristic that keeps the DAG small). A column with
-   only irrefutable patterns is not tested at all.
-2. **Specialize.** For a constructor `c` in the selected column, keep the rows
-   whose pattern is `c` or irrefutable, replace the column by `c`'s subpatterns,
-   and recurse on the smaller matrix. Irrefutable rows (wildcards or variables)
-   are expanded to `c`'s arity by repeating the irrefutable pattern, so the
-   recursion has a fixed column count.
-3. **Default.** For rows whose selected pattern is irrefutable, remove the
-   column and recurse. The default branch is taken only after all constructor
-   edges fail.
+   distinct refutable heads: constructor tags, canonical scalar literals, and
+   exact array lengths. A column with only irrefutable patterns is consumed
+   without testing it.
+2. **Specialize.** For a constructor `c`, keep rows whose pattern is `c` or
+   irrefutable, replace the column by `c`'s subpatterns, and recurse. For a
+   scalar literal `l`, keep rows for `l` and irrefutable rows, then remove the
+   column. Number heads are normalized by numeric value, so equal spellings
+   share an edge and `+0` and `-0` are one head. For an array length `n`, keep
+   rows for length `n` and irrefutable rows, replacing the column with its `n`
+   element patterns in source order. Irrefutable rows expand to the required
+   number of wildcard columns.
+3. **Default.** Keep only irrefutable rows and remove the selected column.
+   Literal defaults represent the unmatched scalar complement; array defaults
+   represent every length not selected by an exact-length edge. Boolean has a
+   closed two-value signature, so its default may be omitted only when both
+   literal edges cover that signature. Array element projections are attached
+   only to exact-length edges and are emitted left to right.
 4. **Share.** Hash-cons the recursive subproblems keyed by their normalized
    matrix; equal subproblems become one `Decision` node. This turns the tree
    into a DAG and tests a constructor once.
@@ -204,21 +246,21 @@ compile(matrix, columns):
     if the first row has only irrefutable patterns:
         return Leaf { branch = first row.branch }
     column = choose_column(matrix, columns)
-    if column has no constructor or literal patterns:
+    if column has no constructor, literal, or array patterns:
         // Only irrefutable heads remain; drop the column and recurse.
         return compile(default(matrix, column), columns - column)
 
-    // Collect the refutable heads appearing in the chosen column.
-    tests = distinct_heads(matrix, column)          // by tag or literal
+    // Collect constructor tags, canonical literals, or exact array lengths.
+    tests = distinct_heads(matrix, column)
     edges = []
     for test in tests:
         edges.push((test, compile(specialize(matrix, column, test), columns)))
-    // A closed constructor signature proves whether the remaining tags exist.
-    default_decision = if column_has_irrefutable_rows(matrix, column)
-                          or tests do not cover the closed signature:
-        Some(compile(default(matrix, column), columns - column))
-    else:
+    // Only a fully covered closed signature can omit its default.
+    default_decision = if signature_is_closed(column)
+                          and tests cover the full signature:
         None
+    else:
+        Some(compile(default(matrix, column), columns - column))
     return share(Switch {
         column,
         edges,
@@ -230,12 +272,16 @@ The base case checks the **first** row: a later wildcard may not preempt an
 earlier constructor row. A missing default compiles to `Fail` and must be
 unreachable only when coverage has proved the tested signature complete.
 
-`specialize(matrix, column, Constructor c)` keeps rows whose `column` pattern is
-`c` or irrefutable; for each kept row it removes the column and splices in `c`'s
-subpatterns (for an irrefutable row it splices `arity(c)` wildcards).
-`default(matrix, column)` keeps only rows whose `column` pattern is irrefutable
-and removes the column. `share` interns the normalized subproblem in a table;
-two structurally equal recursions under the same column return the same node.
+`specialize(matrix, column, Constructor c)` keeps rows whose selected pattern
+is `c` or irrefutable; it replaces the column with `c`'s subpatterns (or
+`arity(c)` wildcards for an irrefutable row). Literal specialization keeps the
+matching canonical literal and irrefutable rows, then removes the column.
+Array specialization keeps the requested exact length and irrefutable rows,
+replacing the column with the elements in source order. Its edge records the
+length fact before any `ArrayGet` action. `default(matrix, column)` keeps only
+irrefutable rows and removes the column. `share` interns the normalized
+subproblem in a table; two structurally equal recursions under the same column
+return the same node.
 
 ### Usefulness, exhaustiveness, and redundancy
 
@@ -254,24 +300,38 @@ useful(matrix, query):
             return useful(specialize(matrix, 0, c),
                           c_subpatterns(query))
         Literal l:
-            return useful(specialize(matrix, 0, l), query[1..])
+            return useful(specialize(matrix, 0, canonical(l)), query[1..])
+        Array elements:
+            return useful(specialize(matrix, 0, exact_length(length(elements))),
+                          elements ++ query[1..])
         Irrefutable:
             if matrix has a full first-column signature S:
-                // "Default" must cover every constructor c in S.
-                for c in S:
-                    if useful(specialize(matrix, 0, c),
-                              wildcards(arity(c)) ++ query[1..]):
+                // Boolean and closed ADT signatures enumerate every head.
+                for shape in S:
+                    if useful(specialize(matrix, 0, shape),
+                              wildcards(field_count(shape)) ++ query[1..]):
+                        return true
+                return false
+            else if the first column is an array:
+                // The default is a length absent from the matrix.
+                if useful(default(matrix, 0), query[1..]):
+                    return true
+                for length in observed_array_lengths(matrix, 0):
+                    if useful(specialize(matrix, 0, exact_length(length)),
+                              wildcards(length) ++ query[1..]):
                         return true
                 return false
             else:
+                // Infinite scalar domains retain their unmatched complement.
                 return useful(default(matrix, 0), query[1..])
 ```
 
 A witness is produced by returning a concrete pattern at the `Irrefutable`
 leaves: for a constructor case, prepend the constructor to the sub-witness; for
-the default case, pick any missing constructor and fill its fields with
-wildcards. Redundancy reports the row's own pattern; a non-exhaustive match
-reports the witness with the scrutinee type's constructors.
+an array default, use a length absent from the exact-length heads; for an open
+scalar domain, report its unmatched complement. Redundancy reports the row's
+own pattern. An open scalar complement may be rendered as `_` in diagnostics;
+that marker means at least one value remains, not that all values remain.
 
 `matrix has a full first-column signature` means every constructor of the
 scrutinee type occurs in the first column or can be supplied by an irrefutable
@@ -292,15 +352,18 @@ lower(decision, env):
             value = env[column]
             fallback = lower(default, env) if default exists else trap
             for (test, sub) in reverse(edges):
-                cond = test_constructor_tag_or_literal(test, value)
+                cond = test_constructor_tag_literal_or_length(test, value)
                 selected = lower_projecting(sub, value, test)
                 fallback = If(cond, selected, fallback)
             return fallback
 ```
 
 `lower_projecting` emits one `VariantGet` or `ProductGet` per field of the
-specialized constructor (skipping wildcard fields), binds variables, and
-recurses. A `Switch` whose type is a nullary sum has an empty test column, so it
+specialized constructor (skipping wildcard fields), and emits `ArrayGet(i)`
+only beneath the matching `ArrayLength(n)` edge where `i < n`. It binds
+variables to the current column value and recurses. Scalar literal tests use
+primitive equality; String equality compares canonical UTF-8 byte length and
+contents. A `Switch` whose type is a nullary sum has an empty test column, so it
 compiles to a chain of `If`s over integer tags; when tags are dense and the
 outer value is already the tag, the target is a MIR `Switch` rather than a chain
 ([control flow and tail calls](control-flow-and-tail-calls.md)).
@@ -322,12 +385,21 @@ outer value is already the tag, the target is a MIR `Switch` rather than a chain
 - **Parameterized fields:** project the declared template shape and convert
   to the consumer's shape, never re-running the outer test. Bare-variable slots
   require erased recovery; composite slots use aggregate maps or adapters.
-- **Guards and view patterns (planned):** a failed test falls through to the
-  next alternative at the same matrix position; the matrix structure is
-  unchanged and the guard is an extra refutable `Literal`-style edge.
-- **Literal patterns (planned):** specialize on the literal value; the final
-  default edge handles the infinite complement, so exhaustiveness over an
-  infinite type requires an irrefutable alternative.
+- **Guards:** the frontend lowers guarded alternatives to explicit coverage
+  provenance and fallthrough structure; only unconditional source rows prove
+  exhaustiveness. View patterns remain planned and would add a refutable test
+  with their own evaluation-order contract.
+- **Scalar literal patterns:** specialize on canonical primitive values; the
+  default edge handles the unmatched complement. Boolean's finite signature is
+  exhaustive with false and true. Integer, Number, Char, and String coverage
+  remains conservative and requires an irrefutable row to establish
+  exhaustiveness.
+- **Array patterns:** specialize each observed exact length and keep a default
+  edge for every other length. The default does not project elements; a
+  wildcard or variable row is required to cover all lengths.
+- **Named patterns:** bind the value in the current column and continue with
+  the nested pattern in that same column. Coverage erases only the binder, not
+  the nested tests.
 
 ## Code map
 
@@ -340,15 +412,20 @@ are produced by the decision compiler, not by the lowering.
 ```text
 cc/
   case/
-    mod.rs            # lower_case entry, newtype erasure, dispatch by pattern kind
-    decision.rs       # matrix construction, compile, specialize/default, sharing
-    coverage.rs       # usefulness, exhaustiveness, redundancy, witnesses
-    aggregate.rs      # constructor patterns and nested columns
-    record.rs         # record and single-constructor product patterns
-    erased.rs         # parameter-dependent field recovery
-  lower/
-    case.rs           # realize a Decision as CC assignments
+    mod.rs            # lower_case entry, coverage, and DAG dispatch
+    coverage/
+      mod.rs          # source-branch provenance and diagnostic report
+      engine.rs       # shared usefulness, specialization, witnesses
+    decision/
+      mod.rs          # SurfacePattern, Decision, Test, Action, ColumnKey
+      compile/        # matrix construction, specialization, sharing
+      verify.rs       # path-sensitive exact-length projection checks
+      realize/
+        mod.rs        # realize DAG nodes and bind selected branch values
+        switch.rs     # constructor, literal, and array-length tests
   layout/mod.rs       # constructor tags and variant representation requirements
+mir/lower/
+  assignment_string/  # StringEq lowering through UTF-8 byte comparisons
 mir/
   mod.rs              # Terminator::Switch produced from a tag decision
   instruction.rs      # instruction vocabulary the case lowerer emits
@@ -358,10 +435,12 @@ wasm/lower/structure/
 
 Required types and entry points:
 
-- The decision compiler must define the pattern model of this document:
-  `Matrix`, `Row`, `Surface`, `CaseSignature`, the decision node `Decision`
-  (`Leaf`, `Fail`, `Switch`), the matcher kinds `Test` (`Constructor`,
-  `Literal`, `Irrefutable`), and `Action` (`Project`, `Bind`, `TestTag`).
+- The decision compiler defines the pattern model of this document:
+  `Row`, `SurfacePattern`, the decision node `Decision` (`Leaf`, `Fail`,
+  `Switch`), matcher kinds `Test` (`Constructor`, `Literal`, `ArrayLength`,
+  `Irrefutable`), and `Action` (`Project`, `ArrayGet`, `Bind`, `Map`,
+  `TestTag`). The compiler entry is `compile_dag(module, newtypes,
+  scrutinee_type, branches, span) -> DecisionDag`.
 - Its entry point must compile one `case` against one scrutinee:
 
   ```rust
@@ -374,26 +453,30 @@ Required types and entry points:
   }
   ```
 
-- `cc/case/coverage.rs` must provide `useful(matrix, query) -> bool`, the
-  exhaustiveness and redundancy checks, and a `Witness`. It must report a
-  non-exhaustive match or a redundant row as a frontend diagnostic that
-  preserves the scrutinee or alternative span.
-- `cc/lower/case.rs` must realize a decision into CC assignments exactly once
-  per scrutinee, in first-match order:
+- `cc/case/coverage/` provides shared usefulness, exhaustiveness and
+  redundancy analysis, and witness reconstruction. It reports a non-exhaustive
+  match or a redundant row with the scrutinee or alternative span.
+- `cc/case/decision/realize/` realizes a decision into CC assignments exactly
+  once per scrutinee, in first-match order:
 
   ```rust
-  fn realize_decision(
-      decision: &Decision,
+  fn lower_decision(
+      &mut self,
+      dag: &DecisionDag,
       branches: &[CaseBranch],
-      cx: &mut CcLowerer,
-  ) -> Result<ValueId, CcError>;
+      scrutinee: ValueId,
+      result_type: ValueShape,
+      span: TextRange,
+      assignments: &mut Vec<Assignment>,
+  ) -> Result<ValueId, Vec<BackendError>>;
   ```
 
-  It must project with `VariantGet`/`ProductGet` and must never re-test an outer
-  constructor.
-- `cc/case/mod.rs` must remain the single dispatch point for `ExprKind::Case`
-  and must own newtype erasure and the choice between the aggregate, record, and
-  erased sub-lowerings.
+  It projects with `VariantGet`/`ProductGet`, uses `ArrayGet` only beneath a
+  matching length edge, and never re-tests an already specialized outer head.
+- `cc/case/mod.rs` remains the single entry point for Core cases: it checks
+  coverage, reports redundant rows, compiles one decision DAG, and asks the
+  realizer to produce the branch result. Newtype erasure is handled by the
+  decision compiler using the newtype and representation metadata.
 - `cc/layout/mod.rs` must supply the stable constructor tag per case used by
   `CaseSignature`; no decision node may name a Wasm type, cast, or basic block.
 - The MIR side must define `Terminator::Switch` in `mir/mod.rs` as an `i32`
@@ -420,6 +503,12 @@ assignments are built.
   in range for the representation, projections use the case type, and both
   `If` arms agree with the declared result shape (`cc/verify/variant.rs`,
   `cc/verify/ops.rs`).
+- The decision verifier proves every `ArrayGet(i)` is reached only from an
+  `ArrayLength(n)` edge with `i < n`. Action inputs are read from one snapshot;
+  mapped and projected outputs update the facts visible to the next DAG node.
+- Scalar literal tests use their declared primitive type. Number keys denote
+  finite numeric values and canonicalize signed zero; String equality compares
+  canonical UTF-8 byte contents, never references.
 - MIR verification checks that a `Switch` selector is an `i32`, its case values
   are unique, every case and the default target exists, and every block is
   dominated by the value it tests.

@@ -308,6 +308,19 @@ impl TypeSubstitution<'_> {
     fn pattern(&mut self, pattern: &Pattern) -> Option<Pattern> {
         let kind = match &pattern.kind {
             PatternKind::Wildcard => PatternKind::Wildcard,
+            PatternKind::Literal { value } => PatternKind::Literal {
+                value: value.clone(),
+            },
+            PatternKind::Array { elements } => PatternKind::Array {
+                elements: elements
+                    .iter()
+                    .map(|element| self.pattern(element))
+                    .collect::<Option<Vec<_>>>()?,
+            },
+            PatternKind::Named { id, pattern } => PatternKind::Named {
+                id: *id,
+                pattern: Box::new(self.pattern(pattern)?),
+            },
             PatternKind::Var { id, ty } => PatternKind::Var {
                 id: *id,
                 ty: self.type_id(*ty)?,

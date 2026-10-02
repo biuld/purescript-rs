@@ -2,6 +2,8 @@ use super::*;
 use crate::kind::{builtin_type_kind, flatten_spine, occurs, substitute};
 use psrs_hir::BuiltinType;
 
+mod pattern_annotations;
+
 impl Checker<'_> {
     pub(super) fn checked_schemes(&self) -> HashMap<TypeId, KindScheme> {
         self.schemes
@@ -196,6 +198,7 @@ impl Checker<'_> {
 
     fn denote_kind(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
         match &ty.kind {
+            TypeKind::Wildcard => self.fresh(),
             TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| self.fresh()),
             TypeKind::Constructor(builtin) => match builtin {
                 BuiltinType::Type => Kind::Type,
@@ -253,6 +256,7 @@ impl Checker<'_> {
 
     fn kind_of_type(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
         match &ty.kind {
+            TypeKind::Wildcard => self.fresh(),
             TypeKind::Application(..) => {
                 let (head, arguments) = flatten_spine(ty);
                 self.check_partial_synonym(head, arguments.len(), ty.span);
@@ -300,6 +304,7 @@ impl Checker<'_> {
 
     fn kind_of_atom(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
         match &ty.kind {
+            TypeKind::Wildcard => self.fresh(),
             TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| {
                 let kind = self.fresh();
                 scope.insert(name.clone(), kind.clone());
@@ -451,6 +456,7 @@ impl Checker<'_> {
                 TypeDeclarationKind::Foreign => {}
             }
         }
+        self.check_local_type_annotations();
     }
 }
 

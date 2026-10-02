@@ -60,7 +60,8 @@ fn collect_signature_variables(
                 collect_signature_variables(tail, bound, out)?;
             }
         }
-        hir::TypeKind::Constructor(_)
+        hir::TypeKind::Wildcard
+        | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)
         | hir::TypeKind::Integer(_)

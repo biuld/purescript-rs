@@ -98,6 +98,7 @@ CC BinaryOp = IntAdd | IntSub | IntMul
             | NumberAdd | NumberSub | NumberMul | NumberDiv
             | NumberEq | NumberNe | NumberLt | NumberLe | NumberGt | NumberGe
             | BooleanAnd | BooleanOr | BooleanEq | BooleanNe
+            | StringEq
             | CharEq | CharNe | CharLt | CharLe | CharGt | CharGe
 
 MIR UnaryOp  = I32Neg | I32Complement | F64Neg | BoolNot
@@ -125,6 +126,9 @@ reachable from the CC vocabulary.
 - Every MIR scalar operation has a defined operand and result `ValueType`; the
   MIR verifier checks them exactly.
 - A `String` is never passed to a numeric operation.
+- `StringEq` takes two `ValueShape::String` values and produces `Boolean`.
+  Canonical UTF-8 byte length and contents define equality; object identity is
+  not observable.
 - floor helpers are ordinary MIR functions with `i32` parameters and
   result, generated only when the module contains `IntDiv` or `IntMod`.
 
@@ -148,6 +152,7 @@ chosen mapping is:
 | `NumberEq`..`NumberGe` | `F64Eq`..`F64Ge` | `f64.eq`/`ne`/`lt`/`le`/`gt`/`ge` |
 | `BooleanAnd` / `BooleanOr` | `BoolAnd` / `BoolOr` | `i32.and` / `i32.or` |
 | `BooleanEq` / `BooleanNe` | `BoolEq` / `BoolNe` | `i32.eq` / `i32.ne` |
+| `StringEq` | MIR length check and UTF-8 byte loop | compare canonical byte lengths and contents |
 | `CharEq`..`CharGe` | `I32Eq`..`I32GeS` | integer comparisons |
 | `IntNeg` | `I32Neg` | `0 - x` |
 | `IntComplement` | `I32Complement` | `x ^ -1` |
@@ -162,6 +167,11 @@ chosen mapping is:
 The suffix `S` marks the signed integer operations; equality and bitwise
 operations are sign-agnostic. Shifts take their count modulo 32, as Wasm and
 JavaScript specify.
+
+`StringEq` is the only String operation in this vocabulary. Its MIR lowering
+checks byte lengths first, then compares unsigned bytes from index zero until a
+mismatch or the shared length is reached. Canonical UTF-8 gives each Unicode
+scalar sequence one byte sequence, so byte equality is scalar String equality.
 
 ### Integer arithmetic
 

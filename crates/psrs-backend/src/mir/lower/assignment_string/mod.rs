@@ -7,6 +7,8 @@
 //! sequence as UTF-8, matching Rust's `String::from_utf8` rather than a lossy
 //! decode ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 
+mod equality;
+
 use super::aggregate::{nullable_reference_shape, reference_type, representation_shape};
 use super::{BlockId, FunctionLowerer, layout_error};
 use crate::BackendError;

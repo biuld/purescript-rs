@@ -237,7 +237,13 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
 fn verify_pattern(pattern: &Pattern, type_count: usize, errors: &mut Vec<VerifyError>) {
     verify_type_id(pattern.ty, type_count, pattern.span, errors);
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
+        PatternKind::Array { elements } => {
+            for element in elements {
+                verify_pattern(element, type_count, errors);
+            }
+        }
+        PatternKind::Named { pattern, .. } => verify_pattern(pattern, type_count, errors),
         PatternKind::Var { ty, .. } => verify_type_id(*ty, type_count, pattern.span, errors),
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {

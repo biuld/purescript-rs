@@ -137,6 +137,12 @@ fn record_pattern(
     record_type(module, pattern.ty, visiting, referenced);
     match &pattern.kind {
         PatternKind::Var { ty, .. } => record_type(module, *ty, visiting, referenced),
+        PatternKind::Named { pattern, .. } => record_pattern(module, pattern, visiting, referenced),
+        PatternKind::Array { elements } => {
+            for element in elements {
+                record_pattern(module, element, visiting, referenced);
+            }
+        }
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 record_pattern(module, argument, visiting, referenced);
@@ -147,7 +153,7 @@ fn record_pattern(
                 record_pattern(module, field, visiting, referenced);
             }
         }
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
     }
 }
 

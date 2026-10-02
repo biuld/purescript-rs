@@ -1,8 +1,10 @@
 use super::*;
-use psrs_core::{CaseBranch, Expr, ExprKind};
-use psrs_hir::{LocalId, ModuleId};
+use psrs_core::{CaseBranch, Expr, ExprKind, PatternKind, Type, TypeConstructor};
+use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
 use psrs_span::TextRange;
 use std::rc::Rc;
+
+mod scalar_array;
 
 fn symbol(index: u32) -> SymbolId {
     SymbolId::new(ModuleId(0), index)

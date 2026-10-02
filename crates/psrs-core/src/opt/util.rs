@@ -291,6 +291,15 @@ fn pattern_ids(pattern: &Pattern) -> Vec<LocalId> {
     fn collect(pattern: &Pattern, ids: &mut Vec<LocalId>) {
         match &pattern.kind {
             PatternKind::Var { id, .. } => ids.push(*id),
+            PatternKind::Named { id, pattern } => {
+                ids.push(*id);
+                collect(pattern, ids);
+            }
+            PatternKind::Array { elements } => {
+                for element in elements {
+                    collect(element, ids);
+                }
+            }
             PatternKind::Constructor { arguments, .. } => {
                 for argument in arguments {
                     collect(argument, ids);
@@ -301,7 +310,7 @@ fn pattern_ids(pattern: &Pattern) -> Vec<LocalId> {
                     collect(field, ids);
                 }
             }
-            PatternKind::Wildcard => {}
+            PatternKind::Wildcard | PatternKind::Literal { .. } => {}
         }
     }
     let mut ids = Vec::new();
@@ -400,6 +409,15 @@ fn collect_pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
         PatternKind::Var { id, .. } => {
             ids.insert(*id);
         }
+        PatternKind::Named { id, pattern } => {
+            ids.insert(*id);
+            collect_pattern_ids(pattern, ids);
+        }
+        PatternKind::Array { elements } => {
+            for element in elements {
+                collect_pattern_ids(element, ids);
+            }
+        }
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 collect_pattern_ids(argument, ids);
@@ -410,6 +428,6 @@ fn collect_pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
                 collect_pattern_ids(field, ids);
             }
         }
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
     }
 }

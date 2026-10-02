@@ -192,6 +192,7 @@ pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
             }
         }
         TypeKind::Variable(_)
+        | TypeKind::Wildcard
         | TypeKind::Constructor(_)
         | TypeKind::Integer(_)
         | TypeKind::String(_) => {}

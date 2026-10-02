@@ -105,6 +105,7 @@ impl TryFrom<BinaryOp> for NumericOp {
             BinaryOp::BooleanOr => Self::BoolOr,
             BinaryOp::BooleanEq => Self::BoolEq,
             BinaryOp::BooleanNe => Self::BoolNe,
+            BinaryOp::StringEq => return Err(value),
             BinaryOp::CharEq => Self::I32Eq,
             BinaryOp::CharNe => Self::I32Ne,
             BinaryOp::CharLt => Self::I32LtS,

@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) type ElaboratedDeclarationSignature = (
+    Vec<ClassConstraint>,
+    Vec<(LocalId, InferType)>,
+    InferType,
+    HashMap<String, InferType>,
+);
+
 impl Checker {
     /// Elaborates a signature at a use site. Its universally quantified
     /// variables must be fresh and flexible so each imported use can choose a
@@ -22,8 +29,9 @@ impl Checker {
     pub(super) fn elaborate_declaration_signature(
         &mut self,
         ty: &hir::Type,
-    ) -> (Vec<ClassConstraint>, Vec<(LocalId, InferType)>, InferType) {
-        let (constraints, body) = self.elaborate_constrained_signature(ty, true);
+    ) -> ElaboratedDeclarationSignature {
+        let mut variables = HashMap::new();
+        let (constraints, body) = self.elaborate_constraint_spine(ty, &mut variables, true);
         let mut parameters = Vec::with_capacity(constraints.len());
         for constraint in &constraints {
             let dictionary_type = self.dictionary_type(constraint);
@@ -31,7 +39,7 @@ impl Checker {
             self.next_dictionary_local += 1;
             parameters.push((id, dictionary_type));
         }
-        (constraints, parameters, body)
+        (constraints, parameters, body, variables)
     }
 
     /// Walks a signature's `forall`/`=>` spine, elaborating every constraint
@@ -58,7 +66,9 @@ impl Checker {
             } => {
                 let mut scoped_variables = variables.clone();
                 self.bind_forall_variables(binders, &mut scoped_variables, rigid);
-                self.elaborate_constraint_spine(body, &mut scoped_variables, rigid)
+                let result = self.elaborate_constraint_spine(body, &mut scoped_variables, rigid);
+                *variables = scoped_variables;
+                result
             }
             hir::TypeKind::Constrained { constraint, body } => {
                 let class = self.elaborate_constraint(constraint, variables, rigid);
@@ -89,6 +99,7 @@ impl Checker {
         rigid_variables: bool,
     ) -> InferType {
         match &ty.kind {
+            hir::TypeKind::Wildcard => self.fresh(),
             hir::TypeKind::Variable(name) => {
                 if let Some(variable) = variables.get(name) {
                     return variable.clone();
@@ -96,6 +107,7 @@ impl Checker {
                 let variable = self.fresh();
                 if rigid_variables && let InferType::Variable(id) = variable {
                     self.rigid.insert(id);
+                    self.type_variable_names.insert(id, name.clone());
                 }
                 variables.insert(name.clone(), variable.clone());
                 variable
@@ -252,6 +264,7 @@ impl Checker {
                 if rigid {
                     self.rigid.insert(id);
                 }
+                self.type_variable_names.insert(id, binder.name.clone());
                 quantified.push(id);
             }
             // An unannotated forall binder can itself be a kind variable; a
