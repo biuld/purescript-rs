@@ -1,7 +1,9 @@
 use super::*;
 
 /// Normalizes a row into its fields and its tail by following solved row
-/// variables, or reports the shape it reached that is not a row.
+/// variables, or reports the shape it reached that is not a row. `span` is the
+/// range an invalid shape is reported at: `InferType` carries no ranges, so it
+/// is the range of the operation that reached the shape.
 ///
 /// A shape it does not understand is never converted into a closed row: that
 /// loses the entries already collected and leaves the caller unable to describe
@@ -34,8 +36,8 @@ impl Checker {
                         tail: RowTail::Open(variable),
                     });
                 }
-                // A row that resolved to a non-row value is a kind error at the
-                // value's own range, not a closed row.
+                // A row that resolved to a non-row value is a kind error, not a
+                // closed row.
                 found => {
                     return Err(RowShapeError {
                         span,
