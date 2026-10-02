@@ -1,3 +1,4 @@
+mod opaque_type;
 mod prim_type;
 
 use super::*;
@@ -140,7 +141,7 @@ fn imported_type_operator_chains_keep_fixity_until_p4() {
     assert!(operators.iter().all(|operator| {
         operator.precedence == 6
             && operator.associativity == psrs_hir::Associativity::Right
-            && operator.reference == psrs_hir::TypeReference::Named(resolved[0].types[0].id)
+            && operator.head == psrs_hir::ResolvedTypeHead::Named(resolved[0].types[0].id)
     }));
 
     let natural_id = resolved[0]
@@ -164,8 +165,8 @@ fn imported_type_operator_chains_keep_fixity_until_p4() {
         panic!("`~>` must remain a type operator chain through P3");
     };
     assert_eq!(
-        operators[0].reference,
-        psrs_hir::TypeReference::Named(natural_id)
+        operators[0].head,
+        psrs_hir::ResolvedTypeHead::Named(natural_id)
     );
     assert_eq!(operators[0].precedence, 0);
     assert_eq!(operators[0].associativity, psrs_hir::Associativity::Right);

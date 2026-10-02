@@ -21,7 +21,8 @@ pub use module::{
 pub use primitives::primitive_type_declarations;
 pub use substitution::substitute_type_variables;
 pub use ty::{
-    BuiltinType, ResolvedTypeOperator, Type, TypeField, TypeKind, TypeParameter, TypeReference,
+    BuiltinType, ResolvedTypeHead, ResolvedTypeOperator, Type, TypeField, TypeKind, TypeParameter,
+    TypeReference,
 };
 pub use types::{
     ClassMember, Constructor, DerivationStrategy, FunctionalDependency, InstanceDeclaration,
