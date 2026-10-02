@@ -56,7 +56,7 @@ Kinds are the official ones, since source compatibility requires them. "Declared
 | --- | --- | --- | --- | --- | --- |
 | `Prim` builtins: `Type`, `Constraint`, `Symbol`, `Row`, `Function`, `Array`, `Record`, `String`, `Char`, `Number`, `Int`, `Boolean` | see [kinds](kinds.md) | Interface | — | yes | n/a |
 | `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | by design |
-| `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes, kind differs | n/a |
+| `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes | n/a |
 | `Prim.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
@@ -220,7 +220,7 @@ A `Prim` declaration is not source and cannot be shadowed, replaced, or given a 
 
 ## Open questions and future work
 
-`Prim.undefined` has no compiler-owned value identity and is not exported by the virtual interface; it needs an identity, a type, and a lowering decision together, because a partial value is a runtime concern as much as a typing one. `Prim.Boolean.True` and `.False` are declared at kind `Type` where the official environment gives them kind `Boolean`, and the official phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent, which makes those declarations nominal here and therefore restricts `Coercible` at them. `Prim.Partial` is registered as a class where the official environment registers both a constraint-kinded type and a parameterless class. Type-level `Reflectable` and `IsSymbol` relations exist in later official versions and are not part of the inventory above; adding a member is a registry change with the same requirements as any other.
+`Prim.undefined` has no compiler-owned value identity and is not exported by the virtual interface; it needs an identity, a type, and a lowering decision together, because a partial value is a runtime concern as much as a typing one. The official phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent, which makes those declarations nominal here and therefore restricts `Coercible` at them. `Prim.Partial` is registered as a class where the official environment registers both a constraint-kinded type and a parameterless class. Type-level `Reflectable` and `IsSymbol` relations exist in later official versions and are not part of the inventory above; adding a member is a registry change with the same requirements as any other.
 
 Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 
@@ -234,13 +234,13 @@ Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-te
 
 The registry covers every official member except one: `Prim.undefined` has no
 identity here. Where the registry and the official environment disagree, it is
-recorded in the inventory above — `Prim.Boolean.True` and `.False` are declared at
-kind `Type` where the official environment gives them kind `Boolean`, the official
-phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`,
-`Beside`, and `Above` are absent so those members are nominal here, and `Prim.Partial`
-is registered only as a class where the official environment registers both a
-constraint-kinded type and a parameterless class. Kinds and functional dependencies
-otherwise match the official environment member by member.
+recorded in the inventory above — the official phantom roles for `RowList`,
+`RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent
+so those members are nominal here, and `Prim.Partial` is registered only as a
+class where the official environment registers both a constraint-kinded type and
+a parameterless class. Kinds and functional dependencies otherwise match the
+official environment member by member, including `Prim.Boolean.True` and
+`.False` at kind `Boolean` and `Prim.RowList.Nil` at `forall k. RowList k`.
 
 Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
 foundations: its kind denotation, substitution, and unifier live in

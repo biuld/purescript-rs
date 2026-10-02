@@ -12,12 +12,16 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 Vec::new(),
             ),
         ),
+        // `True` and `False` are type-level boolean literals, so the official
+        // environment gives them the type `Boolean` as their kind rather than
+        // `Type`. Nothing here is special-cased: the declared kind is the
+        // ordinary primitive spine node `Boolean`.
         (
             "Prim.Boolean",
             foreign_type(
                 TypeId::PRIM_BOOLEAN_FALSE,
                 "False",
-                builtin(BuiltinType::Type),
+                builtin(BuiltinType::Boolean),
             ),
         ),
         (
@@ -25,7 +29,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
             foreign_type(
                 TypeId::PRIM_BOOLEAN_TRUE,
                 "True",
-                builtin(BuiltinType::Type),
+                builtin(BuiltinType::Boolean),
             ),
         ),
         (
