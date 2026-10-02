@@ -4,7 +4,7 @@
 //! not depend on CC representations or Wasm layout.
 
 use psrs_core::{CaseBranch, Module, Pattern, PatternKind, Type, TypeConstructor, TypeId};
-use psrs_hir::{SymbolId, TypeId as HirTypeId};
+use psrs_hir::{CaseBranchCoverage, SymbolId, TypeId as HirTypeId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct CoverageReport {
@@ -68,8 +68,20 @@ pub(super) fn analyze(
     scrutinee_type: TypeId,
     branches: &[CaseBranch],
 ) -> CoverageReport {
+    if !branches.is_empty()
+        && branches
+            .iter()
+            .all(|branch| branch.coverage == CaseBranchCoverage::Generated)
+    {
+        return CoverageReport {
+            exhaustive: true,
+            witness: None,
+            redundant_branches: Vec::new(),
+        };
+    }
     let matrix = branches
         .iter()
+        .filter(|branch| branch.coverage == CaseBranchCoverage::Source)
         .map(|branch| vec![convert(&branch.pattern)])
         .collect::<Matrix>();
     let query = vec![Pat::Any(Some(scrutinee_type))];
@@ -79,11 +91,16 @@ pub(super) fn analyze(
     let mut prior = Vec::new();
     let mut redundant_branches = Vec::new();
     for (index, branch) in branches.iter().enumerate() {
+        if branch.coverage == CaseBranchCoverage::Generated {
+            continue;
+        }
         let query = vec![convert(&branch.pattern)];
         if useful(module, &prior, &query).is_none() {
             redundant_branches.push(index);
         }
-        prior.push(query);
+        if branch.coverage == CaseBranchCoverage::Source {
+            prior.push(query);
+        }
     }
     CoverageReport {
         exhaustive: witness.is_none(),

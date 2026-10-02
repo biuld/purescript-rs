@@ -24,6 +24,7 @@ fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
                     scrutinee: Box::new(expression(ExprKind::Local(LocalId(0)), 1, 10, 15)),
                     branches: vec![
                         CaseBranch {
+                            coverage: psrs_hir::CaseBranchCoverage::Source,
                             pattern: Pattern {
                                 kind: PatternKind::Constructor {
                                     symbol: constructor,
@@ -36,6 +37,7 @@ fn does_not_select_a_wildcard_after_an_unchecked_unknown_scrutinee() {
                             span: span(20, 29),
                         },
                         CaseBranch {
+                            coverage: psrs_hir::CaseBranchCoverage::Source,
                             pattern: Pattern {
                                 kind: PatternKind::Wildcard,
                                 ty: data_type,

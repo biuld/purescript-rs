@@ -12,7 +12,8 @@ pub use pattern::{Pattern, PatternKind};
 pub use records::{record_row, row_fields};
 
 use psrs_hir::{
-    ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId,
+    CaseBranchCoverage, ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId,
+    TypeId as HirTypeId, TypeVariableId,
 };
 use psrs_span::TextRange;
 
@@ -415,6 +416,7 @@ pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
     pub span: TextRange,
+    pub coverage: CaseBranchCoverage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

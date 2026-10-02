@@ -56,6 +56,7 @@ fn pat(ty: u32, kind: PatternKind) -> Pattern {
 
 fn branch(pattern: Pattern) -> CaseBranch {
     CaseBranch {
+        coverage: psrs_hir::CaseBranchCoverage::Source,
         pattern,
         value: Expr {
             kind: ExprKind::Integer(0),
@@ -64,6 +65,10 @@ fn branch(pattern: Pattern) -> CaseBranch {
         },
         span: TextRange::new(0, 1),
     }
+}
+
+fn coverage(branch: CaseBranch, coverage: psrs_hir::CaseBranchCoverage) -> CaseBranch {
+    CaseBranch { coverage, ..branch }
 }
 
 fn nullary(symbol_index: u32, ty: u32) -> Pattern {
@@ -119,6 +124,38 @@ fn reports_the_missing_nullary_constructor() {
     let report = analyze(&module, TypeId(0), &[branch(nullary(0, 0))]);
     assert!(!report.exhaustive);
     assert_eq!(report.witness.as_deref(), Some("Blue"));
+}
+
+#[test]
+fn guarded_rows_do_not_prove_exhaustiveness_and_generated_rows_are_ignored() {
+    let module = module(
+        vec![
+            Type::Constructor(TypeConstructor::User(hir_type_id(0))),
+            Type::Constructor(psrs_core::TypeConstructor::Int),
+        ],
+        vec![
+            constructor(0, "Red", 0, Vec::new()),
+            constructor(1, "Blue", 0, Vec::new()),
+        ],
+    );
+    let guarded = coverage(branch(nullary(0, 0)), psrs_hir::CaseBranchCoverage::Guarded);
+    let generated = coverage(
+        branch(pat(0, PatternKind::Wildcard)),
+        psrs_hir::CaseBranchCoverage::Generated,
+    );
+    let guarded_report = analyze(&module, TypeId(0), &[guarded.clone(), generated.clone()]);
+    assert!(!guarded_report.exhaustive);
+    assert_eq!(guarded_report.witness.as_deref(), Some("Red"));
+    assert!(guarded_report.redundant_branches.is_empty());
+
+    let source_wildcard = branch(pat(0, PatternKind::Wildcard));
+    let redundant = analyze(&module, TypeId(0), &[source_wildcard, guarded]);
+    assert!(redundant.exhaustive);
+    assert_eq!(redundant.redundant_branches, vec![1]);
+
+    let generated_only = analyze(&module, TypeId(0), &[generated]);
+    assert!(generated_only.exhaustive);
+    assert!(generated_only.redundant_branches.is_empty());
 }
 
 #[test]

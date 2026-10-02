@@ -1,4 +1,7 @@
-use psrs_hir::{ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
+use psrs_hir::{
+    CaseBranchCoverage, ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId,
+    TypeVariableId,
+};
 use psrs_span::TextRange;
 
 mod evidence;
@@ -273,6 +276,7 @@ pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
     pub span: TextRange,
+    pub coverage: CaseBranchCoverage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

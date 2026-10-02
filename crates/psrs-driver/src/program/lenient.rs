@@ -136,16 +136,17 @@ fn desugar_resolved(
     resolved: Vec<psrs_hir::Module>,
     errors: &mut Vec<ProgramDiagnostic>,
 ) -> Vec<psrs_hir::Module> {
+    let true_symbols = psrs_desugar::true_symbols(&resolved);
     let mut desugared = Vec::with_capacity(resolved.len());
     for module in resolved {
         let source = module.id.0 as usize;
-        match psrs_desugar::desugar_module(module) {
+        match psrs_desugar::desugar_module_with_true_symbols(module, &true_symbols) {
             Ok(module) => desugared.push(module),
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
                         source,
-                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
+                        diagnostic: super::desugar_diagnostic(error),
                     });
                 }
             }
