@@ -67,7 +67,11 @@ fn collect_user_type_modules(ty: &InferType, modules: &mut HashSet<hir::ModuleId
             }
             collect_user_type_modules(body, modules);
         }
-        InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+        InferType::Variable(_)
+        | InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => {}
     }
 }
 
@@ -170,6 +174,10 @@ fn type_heads_apart(left: &InferType, right: &InferType) -> bool {
                 || type_heads_apart(left_ty, right_ty)
                 || type_heads_apart(left_tail, right_tail)
         }
+        // Two decided literals that are equal are the same head; unequal ones
+        // cannot unify.
+        (InferType::TypeLevelString(l), InferType::TypeLevelString(r)) => l != r,
+        (InferType::TypeLevelInt(l), InferType::TypeLevelInt(r)) => l != r,
         _ => true,
     }
 }

@@ -243,6 +243,8 @@ pub(crate) fn declaration_shape(
         | Some(Type::ForAll { .. })
         | Some(Type::Closure { .. })
         | Some(Type::RowEmpty)
+        | Some(Type::TypeLevelString(_))
+        | Some(Type::TypeLevelInt(_))
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
             declaration.span,
@@ -376,6 +378,8 @@ pub(crate) fn scalar_type(
         | Some(Type::ForAll { .. })
         | Some(Type::Closure { .. })
         | Some(Type::RowEmpty)
+        | Some(Type::TypeLevelString(_))
+        | Some(Type::TypeLevelInt(_))
         | Some(Type::RowExtend { .. }) => Err(vec![BackendError::new(
             "P8 closure conversion",
             span,

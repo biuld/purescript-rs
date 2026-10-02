@@ -93,6 +93,25 @@ fn rejects_an_unpaired_surrogate_escape() {
     }
 }
 
+/// A type-level string is lexed by the same path as a value string, so an
+/// unpaired surrogate escape cannot become a `Symbol` type literal either.
+#[test]
+fn rejects_an_unpaired_surrogate_escape_in_a_type_literal() {
+    for literal in [
+        r#"main :: Proxy "\xD834""#,
+        r#"main :: Proxy "\xDF06""#,
+        r#"main :: Proxy "a\xDF06z""#,
+    ] {
+        let (_, errors) = lex(literal);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("unpaired surrogate")),
+            "{literal}: {errors:?}"
+        );
+    }
+}
+
 #[test]
 fn decodes_a_escaped_surrogate_pair_as_one_scalar() {
     let paired = r#"main = "\xD834\xDF06""#;

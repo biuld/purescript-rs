@@ -84,6 +84,12 @@ impl Checker {
                 self.unify(*left_body, *right_body, span);
             }
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            // Two decided literals unify when their scalar sequences or values
+            // are equal. A literal is never bound to anything: the arms above
+            // already solve an unknown variable *to* the literal, so this only
+            // decides the case where both sides are literals.
+            (InferType::TypeLevelString(a), InferType::TypeLevelString(b)) if a == b => {}
+            (InferType::TypeLevelInt(a), InferType::TypeLevelInt(b)) if a == b => {}
             (InferType::Application(f1, a1), InferType::Application(f2, a2))
                 if matches!(*f1, InferType::Constructor(TypeConstructor::Record))
                     && matches!(*f2, InferType::Constructor(TypeConstructor::Record)) =>
@@ -199,6 +205,8 @@ impl Checker {
             ),
             InferType::RowEmpty => "{ }".into(),
             row @ InferType::RowExtend { .. } => self.display_record(&row),
+            InferType::TypeLevelString(value) => format!("\"{value}\""),
+            InferType::TypeLevelInt(value) => value.to_string(),
         }
     }
 
@@ -272,7 +280,11 @@ impl Checker {
                     *level = max_level;
                 }
             }
-            InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+            InferType::Variable(_)
+            | InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => {}
             InferType::Application(function, argument) => {
                 self.adjust_levels_excluding(function, max_level, bound);
                 self.adjust_levels_excluding(argument, max_level, bound);
@@ -364,6 +376,10 @@ impl Checker {
             }
             InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
             row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
+            InferType::TypeLevelString(value) => {
+                Some(interner.intern(Type::TypeLevelString(value)))
+            }
+            InferType::TypeLevelInt(value) => Some(interner.intern(Type::TypeLevelInt(value))),
         }
     }
 }

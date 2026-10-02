@@ -198,49 +198,103 @@ impl Checker {
                 }
             }
             hir::TypeKind::Record { fields, tail } => {
-                let mut seen = HashSet::new();
-                let mut elaborated = Vec::with_capacity(fields.len());
-                for field in fields {
-                    if !seen.insert(field.label.clone()) {
-                        self.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::TypeMismatch,
-                            field.span,
-                            format!("record label `{}` occurs more than once", field.label),
-                        ));
-                        continue;
-                    }
-                    elaborated.push((
-                        field.label.clone(),
-                        self.elaborate_type_mode(&field.ty, variables, rigid_variables),
+                self.elaborate_record(fields, tail.as_deref(), variables, rigid_variables)
+            }
+            hir::TypeKind::Row { .. } => self.elaborate_row(ty, variables, rigid_variables),
+            hir::TypeKind::Integer(text) => match parse_type_level_int(text) {
+                Some(value) => InferType::TypeLevelInt(value),
+                None => {
+                    self.errors.push(TypeCheckError::new(
+                        TypeCheckErrorKind::UnsupportedType,
+                        ty.span,
+                        format!("type-level integer literal `{text}` is not a representable Int"),
                     ));
+                    self.fresh()
                 }
-                elaborated.sort_by(|left, right| left.0.cmp(&right.0));
-                let tail = match tail {
-                    None => InferType::RowEmpty,
-                    Some(tail) => {
-                        match self.elaborate_type_mode(tail, variables, rigid_variables) {
-                            InferType::Variable(variable) => InferType::Variable(variable),
-                            _ => {
-                                self.errors.push(TypeCheckError::new(
-                                    TypeCheckErrorKind::UnsupportedType,
-                                    tail.span,
-                                    "a record row tail must be a type variable",
-                                ));
-                                InferType::RowEmpty
-                            }
-                        }
-                    }
-                };
-                record_type(elaborated, tail)
+            },
+            hir::TypeKind::String(value) => {
+                // The lexer decodes a type-level string to a sequence of
+                // Unicode scalar values and rejects an unpaired surrogate
+                // escape, so the payload here is already a valid `Symbol`.
+                InferType::TypeLevelString(value.clone())
             }
-            hir::TypeKind::Row { .. } | hir::TypeKind::Integer(_) | hir::TypeKind::String(_) => {
+        }
+    }
+
+    /// Elaborates the general row form `( label :: field | tail )` as a row
+    /// value. A record type is the same construction applied to `Record`, so
+    /// both spellings reach one row.
+    fn elaborate_row(
+        &mut self,
+        ty: &hir::Type,
+        variables: &mut HashMap<String, InferType>,
+        rigid_variables: bool,
+    ) -> InferType {
+        let hir::TypeKind::Row { fields, tail } = &ty.kind else {
+            unreachable!("only a row type is elaborated as a row")
+        };
+        row_from_fields(
+            self.elaborate_row_fields(fields, variables, rigid_variables),
+            self.elaborate_row_tail(tail.as_deref(), variables, rigid_variables),
+        )
+    }
+
+    /// Elaborates a record type as `Record row`, the same construction an
+    /// explicit `Record` application reaches. There is one record construction
+    /// and record syntax does not have a second route into it.
+    fn elaborate_record(
+        &mut self,
+        fields: &[hir::TypeField],
+        tail: Option<&hir::Type>,
+        variables: &mut HashMap<String, InferType>,
+        rigid_variables: bool,
+    ) -> InferType {
+        record_type(
+            self.elaborate_row_fields(fields, variables, rigid_variables),
+            self.elaborate_row_tail(tail, variables, rigid_variables),
+        )
+    }
+
+    /// Elaborates row fields in canonical label order, reporting a duplicate
+    /// label once at the field that repeats it.
+    fn elaborate_row_fields(
+        &mut self,
+        fields: &[hir::TypeField],
+        variables: &mut HashMap<String, InferType>,
+        rigid_variables: bool,
+    ) -> Vec<(String, InferType)> {
+        let mut seen = HashSet::new();
+        let mut elaborated = Vec::with_capacity(fields.len());
+        for field in fields {
+            if !seen.insert(field.label.clone()) {
                 self.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedType,
-                    ty.span,
-                    "this type is not supported yet",
+                    TypeCheckErrorKind::TypeMismatch,
+                    field.span,
+                    format!("record label `{}` occurs more than once", field.label),
                 ));
-                self.fresh()
+                continue;
             }
+            elaborated.push((
+                field.label.clone(),
+                self.elaborate_type_mode(&field.ty, variables, rigid_variables),
+            ));
+        }
+        elaborated.sort_by(|left, right| left.0.cmp(&right.0));
+        elaborated
+    }
+
+    /// Elaborates a row tail. A tail is an ordinary type, so a variable, a
+    /// nested row, or a literal all reach the row normalizer as written; a
+    /// closed row ends here.
+    fn elaborate_row_tail(
+        &mut self,
+        tail: Option<&hir::Type>,
+        variables: &mut HashMap<String, InferType>,
+        rigid_variables: bool,
+    ) -> InferType {
+        match tail {
+            None => InferType::RowEmpty,
+            Some(tail) => self.elaborate_type_mode(tail, variables, rigid_variables),
         }
     }
 
@@ -331,4 +385,23 @@ pub(super) fn flatten_spine(ty: &hir::Type) -> (&hir::Type, Vec<&hir::Type>) {
     }
     arguments.reverse();
     (head, arguments)
+}
+
+/// Parses a type-level integer literal. The lexer spells these in decimal or
+/// hexadecimal, and a negative literal reaches here with its sign once the
+/// prefix operator has been lowered. A value outside `i64` has no
+/// representation as an `Int` and is rejected rather than truncated.
+fn parse_type_level_int(text: &str) -> Option<i64> {
+    let (sign, digits) = match text.strip_prefix('-') {
+        Some(digits) => (-1i64, digits),
+        None => (1i64, text.strip_prefix('+').unwrap_or(text)),
+    };
+    let magnitude = match digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+    {
+        Some(hexadecimal) => i64::from_str_radix(hexadecimal, 16).ok()?,
+        None => digits.parse::<i64>().ok()?,
+    };
+    magnitude.checked_mul(sign)
 }

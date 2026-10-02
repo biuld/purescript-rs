@@ -210,6 +210,10 @@ impl Checker {
             InferType::ForAll { body, .. } => self.infer_kind(&body, state),
             InferType::Constrained { body, .. } => self.infer_kind(&body, state),
             InferType::RowEmpty => Some(row_kind()),
+            // A type-level literal denotes its declared kind: a string is a
+            // `Symbol` and an integer is an `Int`.
+            InferType::TypeLevelString(_) => Some(Kind::Symbol),
+            InferType::TypeLevelInt(_) => Some(Kind::Builtin(hir::BuiltinType::Int)),
             InferType::RowExtend { ty, tail, .. } => {
                 let field_kind = self.infer_kind(&ty, state)?;
                 let tail_kind = self.infer_kind(&tail, state)?;

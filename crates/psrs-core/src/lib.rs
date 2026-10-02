@@ -73,6 +73,13 @@ pub enum Type {
         ty: TypeId,
         tail: TypeId,
     },
+    /// A type-level string literal, of kind `Symbol`. The payload is a sequence
+    /// of Unicode scalar values (DEC-16), so it never holds an unpaired
+    /// surrogate. Two literals are equal when their scalar sequences are equal.
+    TypeLevelString(String),
+    /// A type-level integer literal, of kind `Int`. Two literals are equal when
+    /// their values are equal.
+    TypeLevelInt(i64),
 }
 
 /// The parameter and result of an arrow type `a -> b`, spelled as the
