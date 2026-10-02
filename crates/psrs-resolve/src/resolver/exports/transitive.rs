@@ -1,6 +1,7 @@
 use super::super::{ResolveErrorKind, names::Resolver};
 use psrs_hir::{
-    self as hir, ExportedSymbol, ExportedType, SymbolId, TypeDeclarationKind, TypeId, TypeReference,
+    self as hir, ExportedOperator, ExportedSymbol, ExportedType, ExportedTypeOperator, SymbolId,
+    TypeDeclarationKind, TypeId, TypeReference,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -12,17 +13,72 @@ impl Resolver {
         declarations: &[hir::Declaration],
         exported_types: &[ExportedType],
         values: &[ExportedSymbol],
+        operators: &[ExportedOperator],
+        type_operators: &[ExportedTypeOperator],
     ) {
         let own: HashMap<TypeId, &hir::TypeDeclaration> = types
             .iter()
             .map(|declaration| (declaration.id, declaration))
             .collect();
-        let exported_type_ids: HashSet<TypeReference> = exported_types
+        let exported_type_references: HashSet<TypeReference> = exported_types
             .iter()
             .map(|exported| exported.reference)
             .collect();
         let exported_symbols: HashSet<SymbolId> = values.iter().map(|value| value.symbol).collect();
 
+        // An exported constructor alias must expose its complete parent type.
+        for operator in operators {
+            if let Some(parent) = types.iter().find(|declaration| {
+                declaration
+                    .constructors
+                    .iter()
+                    .any(|constructor| constructor.symbol == operator.symbol)
+            }) {
+                let complete = exported_types.iter().any(|exported| {
+                    exported.reference == TypeReference::Named(parent.id)
+                        && exported.constructors.as_ref().is_some_and(|constructors| {
+                            parent
+                                .constructors
+                                .iter()
+                                .all(|constructor| constructors.contains(&constructor.symbol))
+                        })
+                });
+                if !complete {
+                    self.report(
+                        ResolveErrorKind::TransitiveDctorExportError,
+                        parent.name.clone(),
+                        operator.span,
+                    );
+                }
+            } else if operator.target_name != operator.name
+                && !values.iter().any(|value| {
+                    value.symbol == operator.symbol && value.name == operator.target_name
+                })
+            {
+                self.report(
+                    ResolveErrorKind::TransitiveExportError,
+                    operator.target_name.clone(),
+                    operator.span,
+                );
+            }
+        }
+        for operator in type_operators {
+            if operator.target_name != operator.name
+                && matches!(operator.reference, TypeReference::Named(_))
+                && !exported_types.iter().any(|exported| {
+                    exported.reference == operator.reference
+                        && exported.name == operator.target_name
+                })
+            {
+                self.report(
+                    ResolveErrorKind::TransitiveExportError,
+                    operator.target_name.clone(),
+                    operator.span,
+                );
+            }
+        }
+
+        // A class member may only be exported together with its class.
         let mut member_owner: HashMap<SymbolId, (&hir::TypeDeclaration, String)> = HashMap::new();
         for declaration in types {
             if declaration.kind != TypeDeclarationKind::Class {
@@ -35,7 +91,7 @@ impl Resolver {
         let mut reported_classes = HashSet::new();
         for value in values {
             if let Some((declaration, class_name)) = member_owner.get(&value.symbol)
-                && !exported_type_ids.contains(&TypeReference::Named(declaration.id))
+                && !exported_type_references.contains(&TypeReference::Named(declaration.id))
                 && reported_classes.insert(class_name.clone())
             {
                 self.report(
@@ -81,7 +137,7 @@ impl Resolver {
 
             let mut missing: Vec<String> = Vec::new();
             for id in referenced {
-                if exported_type_ids.contains(&TypeReference::Named(id)) {
+                if exported_type_references.contains(&TypeReference::Named(id)) {
                     continue;
                 }
                 if let Some(referenced) = own.get(&id)
@@ -131,13 +187,13 @@ impl Resolver {
                 collect_named_types(signature, &mut required);
             }
             // Explicit signatures are checked at P3, where their named HIR
-            // references are already resolved. Inferred public value types
-            // are checked after inference at P5, where the complete type has
-            // stable TypeIds. Do not guess them from expression syntax here.
+            // references are already resolved. Inferred public value types are
+            // checked after inference at P5, where the complete type has stable
+            // TypeIds. Do not guess them from expression syntax here.
             required.sort_by_key(|id| (id.module.0, id.index));
             required.dedup();
             for id in required {
-                if exported_type_ids.contains(&TypeReference::Named(id)) {
+                if exported_type_references.contains(&TypeReference::Named(id)) {
                     continue;
                 }
                 if let Some(hidden) = own.get(&id) {
@@ -158,6 +214,22 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
         hir::TypeKind::Application(function, argument) => {
             collect_named_types(function, out);
             collect_named_types(argument, out);
+        }
+        hir::TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            out.extend(
+                operators
+                    .iter()
+                    .filter_map(|operator| match operator.reference {
+                        TypeReference::Builtin(_) => None,
+                        TypeReference::Named(id) => Some(id),
+                    }),
+            );
+            for operand in operands {
+                collect_named_types(operand, out);
+            }
         }
         hir::TypeKind::Function { parameter, result } => {
             collect_named_types(parameter, out);

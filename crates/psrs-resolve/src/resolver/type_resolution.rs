@@ -32,6 +32,19 @@ impl Resolver {
                 Box::new(self.resolve_type(*function)?),
                 Box::new(self.resolve_type(*argument)?),
             ),
+            ast::TypeKind::OperatorChain {
+                operands,
+                operators,
+            } => HirTypeKind::OperatorChain {
+                operands: operands
+                    .into_iter()
+                    .map(|operand| self.resolve_type(operand))
+                    .collect::<Option<Vec<_>>>()?,
+                operators: operators
+                    .into_iter()
+                    .map(|operator| self.resolve_type_operator(&operator.name.text, operator.span))
+                    .collect::<Option<Vec<_>>>()?,
+            },
             ast::TypeKind::Function { parameter, result } => HirTypeKind::Function {
                 parameter: Box::new(self.resolve_type(*parameter)?),
                 result: Box::new(self.resolve_type(*result)?),
@@ -67,6 +80,34 @@ impl Resolver {
         Some(HirType { kind, span })
     }
 
+    fn resolve_type_operator(
+        &mut self,
+        name: &str,
+        span: TextRange,
+    ) -> Option<hir::ResolvedTypeOperator> {
+        let reference = if let Some(fixity) = self.type_fixities.get(name) {
+            match fixity.target {
+                hir::FixityTarget::Type(reference) => reference,
+                hir::FixityTarget::Value(_) => unreachable!("type fixities target types"),
+            }
+        } else if let Some((qualifier, member)) = split_qualified(name) {
+            self.lookup_qualified_type(name, qualifier, member, span)?
+        } else {
+            self.lookup_type_name(name, span)?
+        };
+        let (associativity, precedence) = self
+            .type_fixities
+            .get(name)
+            .map(|fixity| (fixity.associativity, fixity.precedence))
+            .unwrap_or((hir::Associativity::Left, 9));
+        Some(hir::ResolvedTypeOperator {
+            reference,
+            operator_span: span,
+            associativity,
+            precedence,
+        })
+    }
+
     fn resolve_type_parameter(
         &mut self,
         parameter: ast::TypeParameter,
@@ -95,7 +136,11 @@ impl Resolver {
             .collect()
     }
 
-    fn lookup_type_name(&mut self, text: &str, span: TextRange) -> Option<TypeReference> {
+    pub(super) fn lookup_type_name(
+        &mut self,
+        text: &str,
+        span: TextRange,
+    ) -> Option<TypeReference> {
         let local = self.type_names.get(text).copied().map(TypeReference::Named);
         let imported = self.imported_types.get(text);
         match (local, imported) {
@@ -132,7 +177,7 @@ impl Resolver {
         }
     }
 
-    fn lookup_qualified_type(
+    pub(super) fn lookup_qualified_type(
         &mut self,
         text: &str,
         qualifier: &str,
@@ -151,31 +196,33 @@ impl Resolver {
         };
         let candidates = self.qualified_types.get(qualifier);
         if candidates.is_none() && default_prim.is_none() {
-            self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
+            self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
             return None;
         }
         let mut found: Option<(ModuleId, TypeReference)> = default_prim;
         let mut conflict = false;
         for candidate in candidates.into_iter().flatten() {
-            let Some(id) = candidate.types.get(member) else {
+            let Some(reference) = candidate.types.get(member) else {
                 continue;
             };
             match found {
-                None => found = Some((candidate.module, *id)),
-                Some((module, existing)) if module != candidate.module || existing != *id => {
+                None => found = Some((candidate.module, *reference)),
+                Some((module, existing))
+                    if module != candidate.module || existing != *reference =>
+                {
                     conflict = true;
                 }
                 _ => {}
             }
         }
         if conflict {
-            self.report_conflict(text.to_string(), span);
+            self.report_conflict(text.to_owned(), span);
             return None;
         }
         if let Some((_, reference)) = found {
             return Some(reference);
         }
-        self.report(ResolveErrorKind::UnknownTypeName, text.to_string(), span);
+        self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
         None
     }
 

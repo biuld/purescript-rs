@@ -225,6 +225,11 @@ fn walk(
                 }
             }
         }
+        TypeKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                mark_free_nominal(operand, bound, occurrences);
+            }
+        }
         TypeKind::Function { parameter, result } => {
             walk(parameter, bound, roles, occurrences);
             walk(result, bound, roles, occurrences);

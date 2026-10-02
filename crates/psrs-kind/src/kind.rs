@@ -1,4 +1,4 @@
-use psrs_hir::{BuiltinType, Role, TypeId, TypeKind};
+use psrs_hir::{BuiltinType, Role, TypeId, TypeKind, TypeReference};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -152,6 +152,22 @@ pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
         TypeKind::Application(function, argument) => {
             collect_type_ids(function, out);
             collect_type_ids(argument, out);
+        }
+        TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            out.extend(
+                operators
+                    .iter()
+                    .filter_map(|operator| match operator.reference {
+                        TypeReference::Builtin(_) => None,
+                        TypeReference::Named(id) => Some(id),
+                    }),
+            );
+            for operand in operands {
+                collect_type_ids(operand, out);
+            }
         }
         TypeKind::Function { parameter, result } => {
             collect_type_ids(parameter, out);

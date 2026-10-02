@@ -1,8 +1,36 @@
 use psrs_hir::{self as hir, Expr, ExprKind};
+use psrs_span::TextRange;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesugarError {
+    pub span: TextRange,
+    pub message: &'static str,
+}
+
+impl From<hir::VerifyError> for DesugarError {
+    fn from(error: hir::VerifyError) -> Self {
+        Self {
+            span: error.span,
+            message: error.message,
+        }
+    }
+}
+
+mod fixity;
+mod types;
 
 /// Lowers resolved operator nodes to ordinary symbol applications in HIR.
-pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<hir::VerifyError>> {
-    module.verify()?;
+pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<DesugarError>> {
+    module.verify().map_err(|errors| {
+        errors
+            .into_iter()
+            .map(DesugarError::from)
+            .collect::<Vec<_>>()
+    })?;
+    let fixity_errors = fixity::validate_module(&module);
+    if !fixity_errors.is_empty() {
+        return Err(fixity_errors);
+    }
     let declarations = module
         .declarations
         .into_iter()
@@ -26,12 +54,18 @@ pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<hir::Verif
             ..instance
         })
         .collect();
-    let lowered = hir::Module {
+    let mut lowered = hir::Module {
         declarations,
         instances,
         ..module
     };
-    lowered.verify()?;
+    types::desugar_module_types(&mut lowered);
+    lowered.verify().map_err(|errors| {
+        errors
+            .into_iter()
+            .map(DesugarError::from)
+            .collect::<Vec<_>>()
+    })?;
     Ok(lowered)
 }
 
@@ -64,6 +98,45 @@ fn desugar_expr(expression: Expr) -> Expr {
             Box::new(desugar_expr(*function)),
             Box::new(desugar_expr(*expression)),
         ),
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            let operands = operands.into_iter().map(desugar_expr).collect();
+            return desugar_expr(fixity::reassociate(operands, operators, span));
+        }
+        ExprKind::OperatorSection {
+            operator,
+            operand,
+            binder,
+            side,
+        } => {
+            let operand = desugar_expr(*operand);
+            let argument = Expr {
+                kind: ExprKind::Local(binder.id),
+                span: binder.span,
+            };
+            let function = Expr {
+                kind: ExprKind::Global(operator.symbol),
+                span: operator.operator_span,
+            };
+            let (left, right) = match side {
+                hir::SectionSide::Left => (operand, argument),
+                hir::SectionSide::Right => (argument, operand),
+            };
+            let partial = Expr {
+                kind: ExprKind::Application(Box::new(function), Box::new(left)),
+                span,
+            };
+            let body = Expr {
+                kind: ExprKind::Application(Box::new(partial), Box::new(right)),
+                span,
+            };
+            ExprKind::Lambda {
+                binder,
+                body: Box::new(body),
+            }
+        }
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(desugar_expr(*function)),
             Box::new(desugar_expr(*argument)),
@@ -116,7 +189,7 @@ fn desugar_expr(expression: Expr) -> Expr {
             branches: branches
                 .into_iter()
                 .map(|branch| hir::CaseBranch {
-                    pattern: branch.pattern,
+                    pattern: desugar_pattern(branch.pattern),
                     value: desugar_expr(branch.value),
                     span: branch.span,
                 })
@@ -125,6 +198,39 @@ fn desugar_expr(expression: Expr) -> Expr {
         leaf => leaf,
     };
     Expr { kind, span }
+}
+
+fn desugar_pattern(pattern: hir::Pattern) -> hir::Pattern {
+    let span = pattern.span;
+    let kind = match pattern.kind {
+        hir::PatternKind::Constructor {
+            symbol,
+            name_span,
+            arguments,
+        } => hir::PatternKind::Constructor {
+            symbol,
+            name_span,
+            arguments: arguments.into_iter().map(desugar_pattern).collect(),
+        },
+        hir::PatternKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            return fixity::reassociate_pattern(
+                operands.into_iter().map(desugar_pattern).collect(),
+                operators,
+                span,
+            );
+        }
+        hir::PatternKind::Record { fields } => hir::PatternKind::Record {
+            fields: fields
+                .into_iter()
+                .map(|(label, pattern)| (label, desugar_pattern(pattern)))
+                .collect(),
+        },
+        leaf => leaf,
+    };
+    hir::Pattern { kind, span }
 }
 
 #[cfg(test)]
@@ -150,6 +256,7 @@ mod tests {
             exports: None,
             types: Vec::new(),
             instances: Vec::new(),
+            fixities: Vec::new(),
             declarations: vec![Declaration {
                 symbol: SymbolId::new(module_id, 0),
                 name: "main".into(),
@@ -203,6 +310,7 @@ mod tests {
             exports: None,
             types: Vec::new(),
             instances: Vec::new(),
+            fixities: Vec::new(),
             declarations: vec![
                 Declaration {
                     symbol: negate,

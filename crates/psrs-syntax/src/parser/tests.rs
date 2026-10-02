@@ -77,6 +77,39 @@ fn parses_lambdas_conditionals_and_operator_precedence() {
 }
 
 #[test]
+fn distinguishes_parenthesized_negation_from_explicit_operator_sections() {
+    let module = parse(
+        "module Main where\nnegative = (-5)\nnegativeVariable x = (-x)\nsubtractOne = (_ - 1)\naddOne = (1 + _)\n",
+    )
+    .unwrap();
+
+    for declaration in &module.declarations[..2] {
+        let expression = plain_value(as_value(declaration));
+        let ExprKind::Parens { expression, .. } = &expression.kind else {
+            panic!("expected parenthesized negative expression, found {expression:?}");
+        };
+        assert!(matches!(expression.kind, ExprKind::Negate { .. }));
+    }
+
+    let subtract = plain_value(as_value(&module.declarations[2]));
+    assert!(matches!(
+        subtract.kind,
+        ExprKind::OperatorSection {
+            side: psrs_cst::OperatorSectionSide::Right,
+            ..
+        }
+    ));
+    let add = plain_value(as_value(&module.declarations[3]));
+    assert!(matches!(
+        add.kind,
+        ExprKind::OperatorSection {
+            side: psrs_cst::OperatorSectionSide::Left,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn distinguishes_lowercase_record_fields_from_uppercase_qualified_values() {
     let module =
         parse("module Main where\nfieldAccess record = record.value\nqualified = Data.Array.map\n")

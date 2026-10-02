@@ -53,6 +53,11 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    OperatorSection {
+        operator: CstName,
+        operand: Box<Expr>,
+        side: OperatorSectionSide,
+    },
     Negate {
         minus_span: TextRange,
         expression: Box<Expr>,
@@ -105,6 +110,14 @@ pub enum ExprKind {
         items: Vec<Expr>,
         close_paren_span: TextRange,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperatorSectionSide {
+    /// The section supplies the left operand: `(expression operator _)`.
+    Left,
+    /// The section supplies the right operand: `(_ operator expression)`.
+    Right,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,6 +192,10 @@ pub enum PatternKind {
     Constructor {
         name: CstName,
         arguments: Vec<Pattern>,
+    },
+    OperatorChain {
+        operands: Vec<Pattern>,
+        operators: Vec<CstName>,
     },
     Integer(String),
     Number(String),

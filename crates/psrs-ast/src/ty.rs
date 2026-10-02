@@ -21,6 +21,10 @@ pub struct TypeField {
 pub enum TypeKind {
     Name(Name),
     Application(Box<Type>, Box<Type>),
+    OperatorChain {
+        operands: Vec<Type>,
+        operators: Vec<super::Operator>,
+    },
     Function {
         parameter: Box<Type>,
         result: Box<Type>,
@@ -115,10 +119,9 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
             operator,
             left,
             right,
-        } if operator.text == "~>" => TypeKind::Function {
-            parameter: Box::new(lower_type(*left)?),
-            result: Box::new(lower_type(*right)?),
-        },
+        } => {
+            return lower_operator_chain(operator, *left, *right, span);
+        }
         CstTypeExprKind::Tuple { items, .. } => TypeKind::Record {
             fields: items
                 .into_iter()
@@ -140,7 +143,6 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
         },
         CstTypeExprKind::Wildcard(_)
         | CstTypeExprKind::Hole(_)
-        | CstTypeExprKind::Operator { .. }
         | CstTypeExprKind::PrefixOperator { .. } => {
             return Err(LowerError::new(
                 span,
@@ -149,6 +151,55 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
         }
     };
     Ok(Type { kind, span })
+}
+
+fn lower_operator_chain(
+    operator: cst::CstName,
+    left: cst::TypeExpr,
+    right: cst::TypeExpr,
+    span: TextRange,
+) -> Result<Type, LowerError> {
+    fn append(
+        expression: cst::TypeExpr,
+        operands: &mut Vec<Type>,
+        operators: &mut Vec<super::Operator>,
+    ) -> Result<(), LowerError> {
+        let span = expression.span;
+        match expression.kind {
+            CstTypeExprKind::Operator {
+                operator,
+                left,
+                right,
+            } => {
+                append(*left, operands, operators)?;
+                operators.push(super::Operator {
+                    name: lower_name(operator.clone()),
+                    span: operator.span,
+                });
+                append(*right, operands, operators)
+            }
+            kind => {
+                operands.push(lower_type(cst::TypeExpr { kind, span })?);
+                Ok(())
+            }
+        }
+    }
+
+    let mut operands = Vec::new();
+    let mut operators = Vec::new();
+    append(left, &mut operands, &mut operators)?;
+    operators.push(super::Operator {
+        name: lower_name(operator.clone()),
+        span: operator.span,
+    });
+    append(right, &mut operands, &mut operators)?;
+    Ok(Type {
+        kind: TypeKind::OperatorChain {
+            operands,
+            operators,
+        },
+        span,
+    })
 }
 
 fn lower_type_parameter(parameter: cst::TypeVarBinder) -> Result<TypeParameter, LowerError> {

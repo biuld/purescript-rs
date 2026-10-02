@@ -11,11 +11,18 @@ mod types;
 
 pub use expr::{
     CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
+    ResolvedOperator, SectionSide,
 };
-pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
+pub use module::{
+    Associativity, ExportList, ExportedOperator, ExportedSymbol, ExportedType,
+    ExportedTypeOperator, Fixity, FixityNamespace, FixityTarget, Import, ImportedSymbol,
+    ImportedType,
+};
 pub use primitives::primitive_type_declarations;
 pub use substitution::substitute_type_variables;
-pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter, TypeReference};
+pub use ty::{
+    BuiltinType, ResolvedTypeOperator, Type, TypeField, TypeKind, TypeParameter, TypeReference,
+};
 pub use types::{
     ClassMember, Constructor, DerivationStrategy, FunctionalDependency, InstanceDeclaration,
     InstanceMember, Role, RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
@@ -213,6 +220,7 @@ pub struct Module {
     pub declarations: Vec<Declaration>,
     pub types: Vec<TypeDeclaration>,
     pub instances: Vec<InstanceDeclaration>,
+    pub fixities: Vec<Fixity>,
     pub span: TextRange,
 }
 

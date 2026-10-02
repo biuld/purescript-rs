@@ -55,6 +55,14 @@ impl Checker {
                     arguments: lowered,
                 }
             }
+            hir::PatternKind::OperatorChain { .. } => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnloweredOperator,
+                    span,
+                    "operator patterns must be resolved before type checking",
+                ));
+                return None;
+            }
             hir::PatternKind::Record { fields } => {
                 let expected = self.resolve_type(expected.clone());
                 let record_fields = if let Some(row) = record_row(&expected) {

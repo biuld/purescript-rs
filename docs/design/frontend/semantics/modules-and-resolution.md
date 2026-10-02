@@ -27,9 +27,12 @@ validation owns target signatures.
 
 Textual names are meaningful only within a module environment and lexical
 scope. A value name can coincide with a type name, while constructors and
-classes have their own declaration rules. Imports may be qualified, selective,
-or hidden, and exports can re-export imported declarations. Stable identities
-let later passes refer to declarations without repeating name lookup.
+classes have their own declaration rules. Value and type operators occupy
+their respective namespaces; aliases resolve to the same declaration identity
+as their target and carry associativity and precedence into HIR. Imports may be
+qualified, selective, or hidden, and exports can re-export imported
+declarations. Stable identities let later passes refer to declarations
+without repeating name lookup.
 
 ## Model
 
@@ -73,6 +76,17 @@ named `Prim` or beginning with `Prim.` is rejected; source cannot replace a
 compiler interface. The root `undefined` value has no shared value identity
 yet and is not exported by the current virtual interface.
 
+P3 resolves every value and type fixity target in its own namespace, binds the
+operator alias to its target `SymbolId` or `TypeReference`, and stores
+associativity and precedence on the resolved module. Expression,
+constructor-pattern, and type operator chains keep source order through P3; P4
+consumes their identities and fixities. Imports and exports preserve aliases as
+aliases of their original declaration, including through module re-exports.
+Unqualified fixity targets use the same ambiguity checks as ordinary
+references, and qualified targets resolve through the named import and alias.
+Builtin `Prim.Function` and `Prim.Int` references stay builtins through the
+same interface path and are not assigned declaration `TypeId`s.
+
 Primitive class declarations make names, kinds, and fundeps available to
 resolution and kind checking. Import support does not imply entailment or
 runtime support for their rules: `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
@@ -87,10 +101,9 @@ grammar, then stores the validated interface and function names on the
 resolved external. An unpaired surrogate or any other malformed binding is
 rejected; the compiler does not replace it or invent a different external
 name. The declared value name remains an identifier, not a source string
-value. P3 validates binding syntax and identity, but not the
-canonical ABI or target capability. Fixity declarations attach to resolved
-operator IDs; P4 consumes them. Type names are resolved even though kinds and
-type applications remain unchecked.
+value. P3 validates binding syntax and identity, but not the canonical ABI or
+target capability. Type names are resolved even though kinds and type
+applications remain unchecked.
 
 Rejected alternatives: source strings in HIR would force later passes to
 repeat lookup; one global namespace would mis-handle same-spelled value and
@@ -108,6 +121,7 @@ resolve_program(ast_modules):
         register local declarations in disjoint namespaces
         combine source interfaces with virtual compiler interfaces
         compute the visible import environment and exports
+        resolve fixity targets and bind value/type operator aliases
         resolve declaration bodies with lexical scope stacks
         attach resolved fixities and validated external binding names
     verify_hir(program)
@@ -126,13 +140,16 @@ that qualifier to its own import.
 ## Code map
 
 `crates/psrs-hir/src/` defines disjoint IDs, `TypeReference`, declarations,
-expressions, and `verify::verify_program`. `crates/psrs-resolve/src/resolver/`
-owns `resolve_program(modules: &[ast::Module]) -> Result<hir::Program,
-Vec<Diagnostic>>`. `program.rs` handles the graph, `program/interface.rs` builds
-source and virtual interfaces, `exports.rs` resolves visibility, `names/`
-handles lexical and qualified lookup, and `type_resolution.rs` resolves type
-references. Source string values and quoted row labels stay scalar sequences;
-identifier text and `TextRange` remain separate representations.
+expressions, resolved fixities, and `verify::verify_program`.
+`crates/psrs-resolve/src/resolver/` owns
+`resolve_program(modules: &[ast::Module]) -> Result<hir::Program,
+Vec<Diagnostic>>`. `program.rs` handles graph planning,
+`program/interface.rs` builds source and virtual interfaces, `exports/` resolves
+visibility and transitive exports, `names/` handles lexical and qualified
+lookup, `fixities.rs` resolves operator targets, and `type_resolution.rs`
+resolves type references. Source string values and quoted row labels stay
+scalar sequences; identifier text and `TextRange` remain separate
+representations.
 `psrs-resolve` converts a WIT binding to interface and function names only
 after that validation. `psrs-driver` supplies source modules and displays
 diagnostics.

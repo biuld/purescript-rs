@@ -14,9 +14,11 @@ pub use program::{
 
 mod bootstrap;
 mod exports;
+mod fixities;
 mod instances;
 mod module_resolution;
 mod names;
+mod operators;
 mod type_resolution;
 
 pub use bootstrap::bootstrap_externals;
