@@ -99,6 +99,9 @@ fn branch(pattern: Pattern, index: i32, span: TextRange) -> CaseBranch {
     }
 }
 
+#[cfg(test)]
+mod scalar_array;
+
 #[test]
 fn repeated_residual_matrix_is_shared_across_projection_paths() {
     let (module, true_symbol, _) = bool_module();

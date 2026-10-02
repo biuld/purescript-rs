@@ -42,18 +42,7 @@ fn desugar_do(
                 ));
             }
             let body = desugar_do(rest, do_keyword_span, span)?;
-            let declarations = declarations
-                .iter()
-                .cloned()
-                .map(super::lower_declaration)
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr {
-                kind: ExprKind::Let {
-                    declarations,
-                    body: Box::new(body),
-                },
-                span,
-            })
+            super::local::lower_local_declarations(declarations.clone(), body, span)
         }
         cst::DoStatement::Discard(value) => {
             if rest.is_empty() {
@@ -112,18 +101,8 @@ pub(super) fn lower_ado(
     for statement in statements.iter().rev() {
         match statement {
             cst::DoStatement::Let { declarations, .. } => {
-                let declarations = declarations
-                    .iter()
-                    .cloned()
-                    .map(super::lower_declaration)
-                    .collect::<Result<Vec<_>, _>>()?;
-                function = Expr {
-                    kind: ExprKind::Let {
-                        declarations,
-                        body: Box::new(function),
-                    },
-                    span,
-                };
+                function =
+                    super::local::lower_local_declarations(declarations.clone(), function, span)?;
             }
             cst::DoStatement::Discard(value) => {
                 let value = super::lower_expr(value.clone())?;

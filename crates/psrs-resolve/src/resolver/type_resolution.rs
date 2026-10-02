@@ -11,6 +11,7 @@ impl Resolver {
     pub(super) fn resolve_type(&mut self, expression: ast::Type) -> Option<HirType> {
         let span = expression.span;
         let kind = match expression.kind {
+            ast::TypeKind::Wildcard => HirTypeKind::Wildcard,
             ast::TypeKind::Name(name) => {
                 if let Some((qualifier, member)) = split_qualified(&name.text) {
                     let reference =

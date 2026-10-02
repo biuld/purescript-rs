@@ -254,6 +254,16 @@ struct InferredPattern {
 #[derive(Clone, Debug)]
 enum InferredPatternKind {
     Wildcard,
+    Literal {
+        literal: thir::PatternLiteral,
+    },
+    Array {
+        elements: Vec<InferredPattern>,
+    },
+    Named {
+        binder: LocalBinder,
+        pattern: Box<InferredPattern>,
+    },
     Var {
         binder: LocalBinder,
         ty: InferType,
@@ -333,6 +343,13 @@ struct Checker {
     /// Functional-dependency conflicts already reported, keyed by span and
     /// message, so the fixed-point improvement pass does not duplicate them.
     reported_fundep_conflicts: HashSet<(TextRange, String)>,
+    /// Source names for type variables in the signature scope currently being
+    /// checked. Typed patterns and expression ascriptions reuse these exact
+    /// variables instead of elaborating a second rigid variable by name.
+    annotation_variables: HashMap<String, InferType>,
+    /// Source names attached to quantified variables so entering a nested
+    /// forall can extend the annotation scope at the matching expression.
+    type_variable_names: HashMap<u32, String>,
     errors: Vec<TypeCheckError>,
 }
 

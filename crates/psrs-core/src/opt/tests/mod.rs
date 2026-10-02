@@ -449,5 +449,6 @@ fn selects_a_known_constructor_case_and_substitutes_its_field() {
 
 mod edge;
 mod global_inline;
+mod patterns;
 mod rank_inline;
 mod specialization;

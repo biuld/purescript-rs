@@ -287,7 +287,7 @@ fn scoped_pattern(
         errors,
     );
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
         PatternKind::Var { ty, .. } => scoped_type(
             *ty,
             module,
@@ -296,6 +296,12 @@ fn scoped_pattern(
             &mut HashSet::new(),
             errors,
         ),
+        PatternKind::Array { elements } => {
+            for element in elements {
+                scoped_pattern(element, module, scope, errors);
+            }
+        }
+        PatternKind::Named { pattern, .. } => scoped_pattern(pattern, module, scope, errors),
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 scoped_pattern(argument, module, scope, errors);

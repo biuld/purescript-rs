@@ -357,3 +357,32 @@ fn layout_closes_case_and_guard_blocks_at_their_terminators() {
         ));
     }
 }
+
+#[test]
+fn parses_negative_number_patterns_after_prior_alternative() {
+    let source =
+        "module Main where\nchoose value = case value of\n  0.0 -> 20\n  -0.0 -> 30\n  _ -> 0\n";
+    let module = parse(source).unwrap();
+    let ExprKind::Case { alternatives, .. } = &plain_value(as_value(&module.declarations[0])).kind
+    else {
+        panic!("expected a case expression");
+    };
+    assert_eq!(alternatives.len(), 3);
+    assert!(
+        matches!(alternatives[1].patterns[0].kind, PatternKind::Number(ref value) if value == "-0.0")
+    );
+}
+
+#[test]
+fn keeps_a_deeper_indented_minus_in_a_case_rhs_as_an_operator() {
+    let source = "module Main where\nvalue = case input of\n  _ ->\n    20\n      - 1\n";
+    let module = parse(source).unwrap();
+    let ExprKind::Case { alternatives, .. } = &plain_value(as_value(&module.declarations[0])).kind
+    else {
+        panic!("expected a case expression");
+    };
+    let psrs_cst::CaseRhs::Plain { value, .. } = &alternatives[0].rhs else {
+        panic!("expected a plain case alternative");
+    };
+    assert!(matches!(&value.kind, ExprKind::Operator { operator, .. } if operator.text == "-"));
+}

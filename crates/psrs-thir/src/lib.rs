@@ -287,8 +287,27 @@ pub struct Pattern {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PatternLiteral {
+    Integer(i32),
+    Number(String),
+    String(String),
+    Char(char),
+    Boolean(bool),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
+    Literal {
+        literal: PatternLiteral,
+    },
+    Array {
+        elements: Vec<Pattern>,
+    },
+    Named {
+        id: LocalId,
+        pattern: Box<Pattern>,
+    },
     Var {
         id: LocalId,
         ty: TypeId,

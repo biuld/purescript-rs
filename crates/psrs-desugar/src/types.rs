@@ -48,7 +48,7 @@ pub(super) fn desugar_module_types(module: &mut hir::Module) {
     }
 }
 
-fn desugar_type(ty: Type) -> Type {
+pub(super) fn desugar_type(ty: Type) -> Type {
     let span = ty.span;
     let kind = match ty.kind {
         TypeKind::Application(function, argument) => TypeKind::Application(

@@ -3,8 +3,7 @@ use crate::{
     expr::Desugarer,
 };
 use psrs_hir::{
-    CaseBranch, CaseBranchCoverage, Expr, ExprKind, Guard, GuardedExpr, Intrinsic, Pattern,
-    PatternKind,
+    CaseBranch, CaseBranchCoverage, Expr, ExprKind, Guard, GuardedExpr, Pattern, PatternKind,
 };
 use psrs_span::TextRange;
 
@@ -106,30 +105,6 @@ impl Desugarer {
         failure: Expr,
         span: TextRange,
     ) -> Expr {
-        if let PatternKind::Boolean(expected) = &pattern.kind {
-            let expected = *expected;
-            let value = self.expr(value);
-            let condition = if expected {
-                value
-            } else {
-                let function = Expr {
-                    kind: ExprKind::Global(Intrinsic::BooleanNot.symbol()),
-                    span,
-                };
-                Expr {
-                    kind: ExprKind::Application(Box::new(function), Box::new(value)),
-                    span,
-                }
-            };
-            return Expr {
-                kind: ExprKind::If {
-                    condition: Box::new(condition),
-                    then_branch: Box::new(success),
-                    else_branch: Box::new(failure),
-                },
-                span,
-            };
-        }
         let scrutinee = pattern_scrutinee(self.expr(value), &pattern);
         self.expr(Expr {
             kind: ExprKind::Case {

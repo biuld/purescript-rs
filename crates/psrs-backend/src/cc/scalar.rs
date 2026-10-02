@@ -49,6 +49,7 @@ pub enum BinaryOp {
     BooleanOr,
     BooleanEq,
     BooleanNe,
+    StringEq,
     CharEq,
     CharNe,
     CharLt,

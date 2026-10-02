@@ -1,4 +1,4 @@
-use super::super::super::layout::user_type_id;
+use super::super::super::layout::{array_element_type, user_type_id};
 use super::super::super::lower::{FunctionLowerer, VariantFieldConversion};
 use super::{Action, ColumnKey, Decision, DecisionDag, DecisionEdge, NodeId, Test};
 use crate::BackendError;
@@ -140,6 +140,10 @@ impl FunctionLowerer<'_> {
                 };
                 if self.is_nullary_sum(*ty) {
                     self.lower_nullary_switch(switch)
+                } else if edges.iter().any(|edge| {
+                    matches!(&edge.test, Test::Literal { .. } | Test::ArrayLength { .. })
+                }) {
+                    self.lower_test_switch(switch)
                 } else {
                     self.lower_variant_switch(switch)
                 }
@@ -170,6 +174,71 @@ impl FunctionLowerer<'_> {
             } = action
             {
                 let value = lookup(values, source, *span)?;
+                projected.insert(target.clone(), value);
+                continue;
+            }
+            if let Action::ArrayGet {
+                source,
+                target,
+                index,
+                source_type,
+                target_type,
+                span,
+            } = action
+            {
+                let source_value = lookup(values, source, *span)?;
+                let representation =
+                    self.array_types.get(source_type).copied().ok_or_else(|| {
+                        case_error(*span, "array pattern has no representation requirement")
+                    })?;
+                let Some(crate::cc::Representation::Array {
+                    element: stored_shape,
+                }) = self.representations.representation(representation)
+                else {
+                    return Err(case_error(
+                        *span,
+                        "array pattern has no array storage shape",
+                    ));
+                };
+                let stored_shape = *stored_shape;
+                let declared_type = array_element_type(self.module, *source_type)
+                    .ok_or_else(|| case_error(*span, "array pattern type is not an array"))?;
+                let index_value = self.fresh(ValueShape::Integer);
+                assignments.push(Assignment {
+                    destination: index_value,
+                    kind: AssignmentKind::Constant(
+                        i32::try_from(*index)
+                            .map_err(|_| case_error(*span, "array index exceeds i32"))?,
+                    ),
+                    span: *span,
+                });
+                let stored_value = self.fresh(stored_shape);
+                assignments.push(Assignment {
+                    destination: stored_value,
+                    kind: AssignmentKind::ArrayGet {
+                        destination: stored_value,
+                        representation,
+                        value: source_value,
+                        index: index_value,
+                    },
+                    span: *span,
+                });
+                let target_shape = self.value_shape(*target_type, *span)?;
+                let conversion = self.typed_conversion(
+                    declared_type,
+                    *target_type,
+                    stored_shape,
+                    target_shape,
+                    *span,
+                )?;
+                let value = self.emit_conversion(
+                    stored_value,
+                    stored_shape,
+                    target_shape,
+                    conversion,
+                    *span,
+                    &mut assignments,
+                );
                 projected.insert(target.clone(), value);
                 continue;
             }
@@ -315,13 +384,18 @@ impl FunctionLowerer<'_> {
 fn pattern_binding_type(pattern: &Pattern, local: psrs_hir::LocalId) -> Option<psrs_core::TypeId> {
     match &pattern.kind {
         PatternKind::Var { id, ty } if *id == local => Some(*ty),
+        PatternKind::Named { id, pattern } if *id == local => Some(pattern.ty),
+        PatternKind::Named { pattern, .. } => pattern_binding_type(pattern, local),
+        PatternKind::Array { elements } => elements
+            .iter()
+            .find_map(|element| pattern_binding_type(element, local)),
         PatternKind::Constructor { arguments, .. } => arguments
             .iter()
             .find_map(|argument| pattern_binding_type(argument, local)),
         PatternKind::Record { fields } => fields
             .iter()
             .find_map(|(_, field)| pattern_binding_type(field, local)),
-        PatternKind::Wildcard | PatternKind::Var { .. } => None,
+        PatternKind::Wildcard | PatternKind::Var { .. } | PatternKind::Literal { .. } => None,
     }
 }
 

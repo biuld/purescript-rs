@@ -18,6 +18,13 @@ impl Checker {
             let outer_level = self.level;
             let skolem_level = outer_level + 1;
             self.level = skolem_level;
+            let previous_annotation_variables = self.annotation_variables.clone();
+            for variable in &variables {
+                if let Some(name) = self.type_variable_names.get(variable) {
+                    self.annotation_variables
+                        .insert(name.clone(), InferType::Variable(*variable));
+                }
+            }
             let previous_levels = variables
                 .iter()
                 .map(|variable| {
@@ -28,6 +35,7 @@ impl Checker {
                 .collect::<Vec<_>>();
             let checked = self.infer_expr_with_expected(expression, Some(*body));
             self.level = outer_level;
+            self.annotation_variables = previous_annotation_variables;
             for (variable, previous) in previous_levels {
                 if let Some(previous) = previous {
                     self.levels.insert(variable, previous);
@@ -213,7 +221,7 @@ impl Checker {
         ty: &hir::Type,
         span: TextRange,
     ) -> Option<InferredExpr> {
-        let mut variables = HashMap::new();
+        let mut variables = self.annotation_variables.clone();
         let expected = self.elaborate_type(ty, &mut variables);
         let mut checked = self.infer_expr_with_expected(expression, Some(expected.clone()))?;
         checked.ty = expected;

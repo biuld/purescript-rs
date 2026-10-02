@@ -375,7 +375,15 @@ fn verify_pattern_scope(
         errors,
     );
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
+        PatternKind::Array { elements } => {
+            for element in elements {
+                verify_pattern_scope(element, types, scope, errors);
+            }
+        }
+        PatternKind::Named { pattern, .. } => {
+            verify_pattern_scope(pattern, types, scope, errors);
+        }
         PatternKind::Var { ty, .. } => {
             verify_type_scope(*ty, types, scope, pattern.span, &mut HashSet::new(), errors)
         }

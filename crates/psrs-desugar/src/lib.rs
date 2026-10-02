@@ -18,8 +18,6 @@ impl From<hir::VerifyError> for DesugarError {
 }
 
 mod alpha;
-mod boolean_case;
-mod boolean_product_case;
 mod case_helpers;
 mod constant_truth;
 mod expr;
@@ -310,11 +308,23 @@ fn desugar_pattern(pattern: hir::Pattern) -> hir::Pattern {
                 span,
             );
         }
-        hir::PatternKind::Record { fields } => hir::PatternKind::Record {
+        hir::PatternKind::Array(elements) => {
+            hir::PatternKind::Array(elements.into_iter().map(desugar_pattern).collect())
+        }
+        hir::PatternKind::Named { binder, pattern } => hir::PatternKind::Named {
+            binder,
+            pattern: Box::new(desugar_pattern(*pattern)),
+        },
+        hir::PatternKind::Typed { pattern, ty } => hir::PatternKind::Typed {
+            pattern: Box::new(desugar_pattern(*pattern)),
+            ty: types::desugar_type(ty),
+        },
+        hir::PatternKind::Record { fields, mode } => hir::PatternKind::Record {
             fields: fields
                 .into_iter()
                 .map(|(label, pattern)| (label, desugar_pattern(pattern)))
                 .collect(),
+            mode,
         },
         leaf => leaf,
     };

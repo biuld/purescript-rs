@@ -8,7 +8,7 @@ mod records;
 mod verify;
 
 pub use link::{link, prune_unreachable};
-pub use pattern::{Pattern, PatternKind};
+pub use pattern::{Literal, Pattern, PatternKind};
 pub use records::{record_row, row_fields};
 
 use psrs_hir::{

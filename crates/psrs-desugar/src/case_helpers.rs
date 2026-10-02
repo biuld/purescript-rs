@@ -1,7 +1,5 @@
 use crate::expr::Desugarer;
-use psrs_hir::{
-    CaseBranch, CaseBranchCoverage, Expr, ExprKind, Guard, LocalBinder, Pattern, PatternKind,
-};
+use psrs_hir::{Expr, ExprKind, Guard, LocalBinder, Pattern, PatternKind};
 use psrs_span::TextRange;
 
 pub(super) fn apply(
@@ -43,6 +41,7 @@ pub(super) fn product_pattern(pattern: Pattern) -> Pattern {
     Pattern {
         kind: PatternKind::Record {
             fields: vec![("_1".into(), pattern)],
+            mode: psrs_hir::RecordPatternMode::Exact,
         },
         span,
     }
@@ -73,31 +72,6 @@ pub(super) fn is_guarded_rhs(expression: &Expr) -> bool {
         ExprKind::Let { body, .. } => is_guarded_rhs(body),
         _ => false,
     }
-}
-
-pub(super) fn boolean_case_exhaustive(branches: &[CaseBranch], desugarer: &Desugarer) -> bool {
-    let (mut true_covered, mut false_covered) = (false, false);
-    for branch in branches {
-        let value_is_exhaustive = branch.coverage != CaseBranchCoverage::Guarded
-            || guarded_rhs_exhaustive(&branch.value, desugarer);
-        if !value_is_exhaustive {
-            continue;
-        }
-        match &branch.pattern.kind {
-            PatternKind::Boolean(true) => true_covered = true,
-            PatternKind::Boolean(false) => false_covered = true,
-            PatternKind::Wildcard | PatternKind::Var(_) => {
-                true_covered = true;
-                false_covered = true;
-            }
-            PatternKind::Constructor { .. }
-            | PatternKind::Record { .. }
-            | PatternKind::OperatorChain { .. } => {
-                unreachable!("boolean case rows were checked before lowering")
-            }
-        }
-    }
-    true_covered && false_covered
 }
 
 pub(super) fn guarded_rhs_exhaustive(expression: &Expr, desugarer: &Desugarer) -> bool {
@@ -132,10 +106,19 @@ fn is_true_expression(expression: &Expr, desugarer: &Desugarer) -> bool {
 fn pattern_is_irrefutable(pattern: &Pattern) -> bool {
     match &pattern.kind {
         PatternKind::Wildcard | PatternKind::Var(_) => true,
-        PatternKind::Boolean(_) => false,
-        PatternKind::Record { fields } => fields
+        PatternKind::Named { pattern, .. } | PatternKind::Typed { pattern, .. } => {
+            pattern_is_irrefutable(pattern)
+        }
+        PatternKind::Record { fields, .. } => fields
             .iter()
             .all(|(_, field)| pattern_is_irrefutable(field)),
-        PatternKind::Constructor { .. } | PatternKind::OperatorChain { .. } => false,
+        PatternKind::Array(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_)
+        | PatternKind::Boolean(_)
+        | PatternKind::Constructor { .. }
+        | PatternKind::OperatorChain { .. } => false,
     }
 }

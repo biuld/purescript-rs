@@ -11,7 +11,7 @@ mod types;
 
 pub use expr::{
     CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
-    LocalBinding, Pattern, PatternKind, ResolvedOperator, SectionSide,
+    LocalBinding, Pattern, PatternKind, RecordPatternMode, ResolvedOperator, SectionSide,
 };
 pub use module::{
     Associativity, ExportList, ExportedOperator, ExportedSymbol, ExportedType,

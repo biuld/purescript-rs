@@ -251,7 +251,8 @@ fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
                 collect_named_types(tail, out);
             }
         }
-        hir::TypeKind::Variable(_)
+        hir::TypeKind::Wildcard
+        | hir::TypeKind::Variable(_)
         | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Integer(_)
         | hir::TypeKind::String(_) => {}

@@ -2,12 +2,13 @@
 
 mod compile;
 mod realize;
+mod verify;
 
-use psrs_core::TypeId;
+use psrs_core::{Literal, TypeId};
 use psrs_hir::{LocalId, SymbolId};
 use psrs_span::TextRange;
 
-pub(super) use compile::compile_dag;
+pub(in crate::cc::case) use compile::{canonical_literal, compile_dag, surface_pattern};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ColumnKey(Vec<PathStep>);
@@ -18,6 +19,7 @@ enum PathStep {
     ConstructorField(SymbolId, u32),
     /// Field index in the canonical, label-sorted product representation.
     RecordField(u32),
+    ArrayElement(u32),
 }
 
 impl ColumnKey {
@@ -43,6 +45,22 @@ pub(super) enum SurfacePattern {
     },
     Var {
         id: LocalId,
+        ty: TypeId,
+        span: TextRange,
+    },
+    Literal {
+        value: Literal,
+        ty: TypeId,
+        span: TextRange,
+    },
+    Array {
+        elements: Vec<SurfacePattern>,
+        ty: TypeId,
+        span: TextRange,
+    },
+    Named {
+        id: LocalId,
+        pattern: Box<SurfacePattern>,
         ty: TypeId,
         span: TextRange,
     },
@@ -116,9 +134,11 @@ pub(super) struct DecisionEdge {
     pub(super) span: TextRange,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum Test {
     Constructor { symbol: SymbolId, tag: u32 },
+    Literal { value: Literal, ty: TypeId },
+    ArrayLength { length: usize },
     Irrefutable,
 }
 
@@ -139,6 +159,14 @@ pub(super) enum Action {
         target_type: TypeId,
         constructor: Option<(SymbolId, u32)>,
         newtype: bool,
+        span: TextRange,
+    },
+    ArrayGet {
+        source: ColumnKey,
+        target: ColumnKey,
+        index: u32,
+        source_type: TypeId,
+        target_type: TypeId,
         span: TextRange,
     },
     Bind {

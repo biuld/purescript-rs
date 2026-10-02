@@ -56,6 +56,19 @@ and it keeps all forms whose meaning depends on imports, types, or the
 language's sequencing rules. The AST is a separate type, not a view or alias
 of CST.
 
+Pattern normalization removes grouping parentheses, maps tuples to closed
+records, and turns record puns into field-variable patterns. Record patterns
+carry a match mode: source `{ field }` patterns are partial and accept other
+fields, while tuple patterns and compiler-created products are exact closed
+records. Literal, array, named (`name@pattern`), typed (`pattern :: Type`),
+constructor, and unresolved operator-chain patterns remain explicit AST forms
+with their original spans.
+P2 does not replace a literal pattern with a generated equality expression or
+discard a typed pattern's annotation; P3 resolves binders and operators, and P5
+checks pattern types, enforces exact versus partial record rows, and consumes
+typed annotations. The record mode ends at P5: the checked pattern type carries
+the resulting row shape into Typed Core.
+
 The conversion is total for every verified CST form. An unsupported construct
 is a diagnostic at its own span, never a placeholder AST node. P2 does not
 sort record fields when their expressions can evaluate in source order.

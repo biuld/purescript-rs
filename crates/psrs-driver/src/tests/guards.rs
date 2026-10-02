@@ -60,7 +60,7 @@ fn guarded_helper_cases_do_not_emit_source_coverage_diagnostics() {
 
 #[test]
 fn record_pattern_guard_matches_a_record_held_in_a_local() {
-    let source = "module Main where\nimport Prelude\nread value = case 0 of\n  _ | { x } <- value -> x\n  _ -> 44\nmain = read { x: 9 }\n";
+    let source = "module Main where\nimport Prelude\nread :: { x :: Int } -> Int\nread value = case 0 of\n  _ | { x } <- value -> x\n  _ -> 44\nmain = read { x: 9 }\n";
     let artifact = compile_source("Main.purs", source).expect("record pattern guard compiles");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -72,7 +72,7 @@ fn record_pattern_guard_matches_a_record_held_in_a_local() {
 
 #[test]
 fn nested_boolean_record_pattern_guard_matches_through_a_compiler_test() {
-    let source = "module Main where\nread value = case 0 of\n  _ | { enabled: true } <- value -> 9\n  _ -> 44\nmain = read { enabled: true }\n";
+    let source = "module Main where\nread :: { enabled :: Boolean } -> Int\nread value = case 0 of\n  _ | { enabled: true } <- value -> 9\n  _ -> 44\nmain = read { enabled: true }\n";
     let artifact = compile_source("Main.purs", source).expect("nested Boolean guard compiles");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -152,17 +152,14 @@ fn multi_scrutinee_boolean_patterns_lower_and_prove_coverage() {
 }
 
 #[test]
-fn unsupported_nested_boolean_constructor_pattern_is_rejected_at_p4() {
+fn nested_boolean_constructor_pattern_selects_the_matching_row() {
     let source = "module Main where\ndata Flag = Flag Boolean\nmain = case Flag true of\n  Flag true -> 11\n  _ -> 22\n";
-    let errors = compile_source("Main.purs", source)
-        .expect_err("Boolean constructor arguments are outside this lowering slice");
-    assert!(
-        errors.iter().any(|error| {
-            error.stage == "P4 desugar"
-                && error.kind == Some(psrs_backend::BackendErrorKind::UnsupportedSource)
-        }),
-        "{errors:?}"
-    );
+    compile_source("Main.purs", source).expect("nested Boolean constructor patterns compile");
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(11), "{output:?}");
 }
 
 #[test]
@@ -178,17 +175,23 @@ fn integer_literal_function_equations_preserve_clause_order() {
 }
 
 #[test]
-fn integer_pattern_equality_resolves_to_the_compiler_intrinsic() {
+fn integer_literal_patterns_remain_in_typed_core() {
     let source = "module Main where\nmain = case 1 of\n  1 -> 10\n  _ -> 20\n";
-    let modules = resolve_program_sources(&[("Main.purs", source)]).unwrap();
-    let intrinsic = psrs_hir::Intrinsic::I32Eq.symbol();
-    assert!(
-        modules[0]
-            .declarations
-            .iter()
-            .any(|declaration| expr_contains_global(&declaration.value, intrinsic)),
-        "integer pattern equality must lower to compiler-owned I32Eq"
-    );
+    let core = lower_source_to_core("Main.purs", source).expect("integer patterns lower to Core");
+    let main = core
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "main")
+        .expect("Core should retain main");
+    let psrs_core::ExprKind::Case { branches, .. } = &main.value.kind else {
+        panic!("main should retain its case expression");
+    };
+    assert!(matches!(
+        branches[0].pattern.kind,
+        psrs_core::PatternKind::Literal {
+            value: psrs_core::Literal::Integer(1)
+        }
+    ));
 }
 
 #[test]
@@ -415,76 +418,4 @@ pub(super) fn has_non_exhaustive_warning(artifact: &crate::Artifact) -> bool {
         .warnings
         .iter()
         .any(|warning| warning.diagnostic.message.contains("non-exhaustive case"))
-}
-
-fn expr_contains_global(expression: &psrs_hir::Expr, target: psrs_hir::SymbolId) -> bool {
-    use psrs_hir::{ExprKind, Guard};
-
-    let contains = |expression: &psrs_hir::Expr| expr_contains_global(expression, target);
-    let bindings = |bindings: &[psrs_hir::LocalBinding]| {
-        bindings.iter().any(|binding| contains(&binding.value))
-    };
-    match &expression.kind {
-        ExprKind::Global(symbol) => *symbol == target,
-        ExprKind::Array(elements) => elements.iter().any(contains),
-        ExprKind::Record(fields) => fields.iter().any(|(_, value)| contains(value)),
-        ExprKind::RecordUpdate { expression, fields } => {
-            contains(expression) || fields.iter().any(|(_, value)| contains(value))
-        }
-        ExprKind::FieldAccess { expression, .. }
-        | ExprKind::Typed { expression, .. }
-        | ExprKind::Lambda {
-            body: expression, ..
-        } => contains(expression),
-        ExprKind::Application(function, argument) => contains(function) || contains(argument),
-        ExprKind::Operator {
-            operator,
-            left,
-            right,
-            ..
-        } => *operator == target || contains(left) || contains(right),
-        ExprKind::OperatorChain {
-            operands,
-            operators,
-        } => {
-            operators.iter().any(|operator| operator.symbol == target)
-                || operands.iter().any(contains)
-        }
-        ExprKind::OperatorSection {
-            operator, operand, ..
-        } => operator.symbol == target || contains(operand),
-        ExprKind::Negate {
-            function,
-            expression,
-            ..
-        } => contains(function) || contains(expression),
-        ExprKind::Let {
-            bindings: local,
-            body,
-        } => bindings(local) || contains(body),
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => contains(condition) || contains(then_branch) || contains(else_branch),
-        ExprKind::Case {
-            scrutinee,
-            branches,
-        } => contains(scrutinee) || branches.iter().any(|branch| contains(&branch.value)),
-        ExprKind::Guarded(clauses) => clauses.iter().any(|clause| {
-            bindings(&clause.where_bindings)
-                || clause.guards.iter().any(|guard| match guard {
-                    Guard::Boolean(value) | Guard::Pattern { value, .. } => contains(value),
-                    Guard::Let {
-                        bindings: local, ..
-                    } => bindings(local),
-                })
-                || contains(&clause.value)
-        }),
-        ExprKind::Local(_)
-        | ExprKind::Integer(_)
-        | ExprKind::Number(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_) => false,
-    }
 }

@@ -33,7 +33,9 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
                     _ => unreachable!("the group contains only value declarations"),
                 })
                 .collect::<Result<Vec<_>, LowerError>>();
-            match equations.and_then(equations::lower_value_declarations) {
+            match equations.and_then(|group| {
+                equations::lower_value_declarations(group, "DuplicateValueDeclaration")
+            }) {
                 Ok(declaration) => declarations.push(declaration),
                 Err(error) => errors.push(error),
             }
