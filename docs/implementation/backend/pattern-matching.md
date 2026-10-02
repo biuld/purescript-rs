@@ -4,11 +4,11 @@
 
 **Design:** [Pattern matching](../../design/backend/fp/pattern-matching.md)
 
-**Progress:** PM-01..PM-13 and PM-15 are Verified after a full design audit,
+**Progress:** PM-01..PM-15 are Verified after a full design audit,
 first-match oracle, malformed CC/MIR fixtures, and mandatory Wasmtime execution
-evidence. PM-14 remains in progress: guard coverage provenance still needs its
-source-level warning and exhaustiveness checks. Missing standard library modules
-continue to block the broader official guard corpus.
+evidence. PM-14 now has source-spanned Boolean redundancy and guard fallthrough
+evidence. Missing standard library modules continue to block the broader
+official guard corpus.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-05 and BE-06, with BE-08 and BE-09 for generic fields.
 
@@ -48,7 +48,7 @@ Verified row needs exact implementation, test and execution evidence.
 | PM-11 | Optimization and Wasm lowering preserve warnings, source order, and selected-branch values. | Compare pre/post optimization execution on duplicate, nested, and generic cases; assert diagnostics remain source-associated. | Verified |
 | PM-12 | Internal decision-DAG and realizer invariant violations are classified `InvalidCompilerIr`, not `UnsupportedSource`; genuine coverage failures stay source-associated. | Negative fixtures assert the `BackendErrorKind` of an unbound decision column and of structural DAG failures. | Verified |
 | PM-13 | MIR verification rejects a variant projection read outside the dominance scope of its tag test. | A malformed MIR fixture reads a value defined in a sibling switch arm and must fail dominance. | Verified |
-| PM-14 | Coverage provenance survives guard lowering: only unconditional source rows contribute to exhaustiveness; guarded rows can be redundant relative to earlier unconditional rows; generated fallthrough rows are omitted from source diagnostics. | Core coverage tests assert each provenance rule. Driver tests reject partial guarded equations and Boolean cases whose only route is a failing guard, accept an unconditional `true` guard, and execute pattern-guard fallthrough. The source-level guard corpus is recorded separately in [frontend guard acceptance](../frontend/guards-and-multi-scrutinee-cases.md). | In progress |
+| PM-14 | Coverage provenance survives guard lowering: only unconditional source rows contribute to exhaustiveness; guarded rows can be redundant relative to earlier unconditional rows; generated fallthrough rows are omitted from source diagnostics. | Core tests `guarded_boolean_rows_are_redundant_only_after_unconditional_coverage` and `guarded_boolean_rows_do_not_cover_or_make_each_other_redundant` check Boolean-matrix provenance. Driver tests reject partial guarded equations and Boolean cases whose only route is a failing guard, accept an unconditional `true` guard, assert the exact source span for a shadowed Boolean guarded row, check that guarded rows do not shadow each other, and execute both the selected earlier row (11) and guard fallthrough (22). The source-level guard corpus is recorded separately in [frontend guard acceptance](../frontend/guards-and-multi-scrutinee-cases.md). | Verified |
 | PM-15 | Core verifies scalar literal payload types, finite Number values, array element types, and named-binder scope. Coverage and first-match compilation share canonical literal/array heads. Scalar tests use primitive equality; arrays branch on exact length and only project in-bounds elements under that branch; named aliases bind the current column before nested tests. | Malformed Core fixtures reject wrong literal and element types, non-finite Number text, and alias scope/ID collisions. Coverage/compiler tests cover Boolean signatures, numeric equality and duplicate rows, open scalar complements, exact lengths, left-to-right projections, and alias binding. DAG verifier fixtures reject absent/insufficient length guards and stale fact remaps. Seven required Wasmtime source executions assert Pair first-field selection (41), nested alias field values (84), short/failing array fallback (8), canonical UTF-8 String equality (45), Number `+0`/`-0` and astral Char equality (62), upstream-shaped multi-field `Person name true` selection (85), and upstream-shaped nested named record under `Cons` (84). | Verified |
 
 PM-12 and PM-13 were discovered during the audit. The design's present-tense
@@ -341,18 +341,28 @@ PM-14:
     unconditional rows, and omits `Generated` rows from diagnostics.
   Tests: coverage::tests::guarded_rows_do_not_prove_exhaustiveness_and_generated_rows_are_ignored
     checks the missing witness, guarded-row redundancy, and generated-only
-    fallthrough matrix; driver tests::guards::guarded_rows_do_not_claim_unconditional_coverage
-    rejects partial guarded equations and Boolean cases with a failing guard;
-    `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` executes the source guard
-    fallthrough cases.
+    fallthrough matrix. The scalar coverage tests check Boolean guarded rows
+    against unconditional predecessors and ensure guarded rows do not cover or
+    make each other redundant. Driver tests verify partial guarded equations,
+    Boolean cases with a failing guard, unconditional `true`, the source span
+    of a redundant Boolean alternative, and runtime first-match and guard
+    fallthrough behavior.
   Input boundary: source, Typed Core coverage fixtures, executed Wasm.
-  Commands: common commands; frontend official guard scoreboards.
-  Result: pass locally. Workspace tests pass with Wasmtime required. The named
-    upstream runtime cases stop at P3 because `Effect`, `Effect.Console`, and
-    `Partial.Unsafe` are missing, so official runtime evidence remains open.
-  Revision: `34cfcff` on `issue-88-guards`.
-  Gaps: no redundancy warning is emitted for Boolean alternatives lowered to
-    conditionals; see FE-06's frontend acceptance record.
+  Commands: common commands; `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver
+    --lib tests::guard -- --nocapture`; frontend official guard scoreboards.
+  Result: pass locally. The new source regression warns on the exact second
+    Boolean alternative span and executes the first row (11); a second source
+    case fails its first dynamic guard, selects the next guarded row (22), and
+    emits no false redundancy warning. The focused guard filter passes 31/31
+    tests with Wasmtime required. `purs 0.15.16` reports `OverlappingPattern`
+    for an equivalent Boolean case. The full annotations and runtime suite
+    passes 5/5 scoreboard tests; parse agreement is 904/908 and runtime
+    agreement is 0/413 because 337 cases lack library modules, 55 stop at P10
+    without a component entry point, and the remaining cases stop earlier.
+    Broader named upstream runtime cases therefore remain open.
+  Revision: acceptance added after `1693408`.
+  Gaps: broader official guard runtime coverage remains blocked by the missing
+    standard library modules; it is tracked separately from PM-14.
 ```
 
 ```text
@@ -394,8 +404,8 @@ PM-15:
     returns `84`.
   Runtime command: `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test pattern_matrix_execution -- --nocapture` (7 passed, 0 failed).
   Full validation: `cargo fmt --all --check`, `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `PURESCRIPT_REPO=/Users/biu/Projects/purescript cargo test -p psrs-driver --test upstream`, and `PSRS_ORACLE=annotations PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test suite -- --ignored --nocapture` all pass. The scoreboards report L1 904/908, L0 15/15, L2 70/72, L3 29/48, L4 16/40, L5 45/89, and L6 0/413; 34 issue-85 pattern blockers and 22 additional P2 blockers moved past P2, leaving five P2 blockers in other syntax/type forms.
-  Result: PM-15 passes malformed-Core, decision-matrix, verifier, source-runtime, full-workspace, lint, official differential, and suite-scoreboard gates. PM-14 remains an independent open requirement.
-  Gaps: PM-14 guard-coverage provenance and broader official M7 acceptance remain open; do not count them as part of PM-15.
+  Result: PM-15 passes malformed-Core, decision-matrix, verifier, source-runtime, full-workspace, lint, official differential, and suite-scoreboard gates. PM-14 is verified independently in the preceding record.
+  Gaps: broader official M7 acceptance remains open; it is separate from PM-14 and PM-15.
 ```
 
 ## Discovered obligations and remaining work
