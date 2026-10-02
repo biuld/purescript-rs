@@ -8,6 +8,7 @@ mod coercion;
 mod deriving;
 mod effect_arity;
 mod effects;
+mod guard_coverage;
 mod operators;
 mod scalars;
 
