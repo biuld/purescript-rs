@@ -6,10 +6,12 @@ use super::{
     lower_source_to_ast,
 };
 
-pub use lenient::{check_program_kinds_lenient, check_program_lenient};
+pub use lenient::{
+    check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
+};
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
-    compile_program_sources_with_prelude,
+    check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
 };
 use std::collections::HashMap;
 
@@ -263,24 +265,7 @@ fn typecheck_program(
     // its declared type even when it imported it through an umbrella module.
     // Foreign imports contribute the same way; their type lives on the
     // external rather than on a value declaration.
-    let signatures = modules
-        .iter()
-        .flat_map(|module| {
-            let declarations = module.declarations.iter().filter_map(|declaration| {
-                declaration
-                    .signature
-                    .clone()
-                    .map(|signature| (declaration.symbol, signature))
-            });
-            let externals = module.externals.iter().filter_map(|external| {
-                external
-                    .signature
-                    .clone()
-                    .map(|signature| (external.symbol, signature))
-            });
-            declarations.chain(externals)
-        })
-        .collect::<HashMap<_, _>>();
+    let signatures = declared_signatures(&modules);
     let order = typecheck_order(&dependencies);
     let module_names = modules
         .iter()
@@ -382,6 +367,32 @@ fn typecheck_program(
     } else {
         Err(errors)
     }
+}
+
+/// The declared type of every value and external in the program, keyed by the
+/// symbol that declares it. A re-exported symbol keeps the signature of the
+/// declaration that owns it, so the table is global rather than per module.
+fn declared_signatures(
+    modules: &[psrs_hir::Module],
+) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
+    modules
+        .iter()
+        .flat_map(|module| {
+            let declarations = module.declarations.iter().filter_map(|declaration| {
+                declaration
+                    .signature
+                    .clone()
+                    .map(|signature| (declaration.symbol, signature))
+            });
+            let externals = module.externals.iter().filter_map(|external| {
+                external
+                    .signature
+                    .clone()
+                    .map(|signature| (external.symbol, signature))
+            });
+            declarations.chain(externals)
+        })
+        .collect()
 }
 
 /// Resolves a module's imported symbols to their declared type from the global

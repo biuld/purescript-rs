@@ -7,7 +7,8 @@ mod program;
 pub use loader::load_program_files;
 pub use program::{
     check_program, check_program_kinds_lenient, check_program_kinds_lenient_with_prelude,
-    check_program_lenient, check_program_lenient_with_prelude, compile_program_sources,
+    check_program_lenient, check_program_lenient_with_prelude, check_program_types_lenient,
+    check_program_types_lenient_with_prelude, compile_program_sources,
     compile_program_sources_with_prelude, resolve_program_sources, typecheck_program_sources,
 };
 
