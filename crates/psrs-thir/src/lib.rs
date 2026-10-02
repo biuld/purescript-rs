@@ -21,6 +21,11 @@ pub struct TypeId(pub u32);
 pub enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor of kind `Type -> Type`, declared with a
+    /// phantom role. Its application is a nominal type, not a row: a row value
+    /// is [`Type::RowEmpty`], [`Type::RowExtend`], or a row-polymorphic
+    /// [`Type::Variable`].
+    Row,
     Array,
     Int,
     Number,

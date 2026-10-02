@@ -1,50 +1,112 @@
 use super::*;
 
+/// Normalizes a row into its fields and its tail by following solved row
+/// variables, or reports the shape it reached that is not a row.
+///
+/// A shape it does not understand is never converted into a closed row: that
+/// loses the entries already collected and leaves the caller unable to describe
+/// the mistake. Every consumer — row unification, record literals, field
+/// access, record patterns, and finalization — goes through this one function,
+/// so two of them cannot disagree about a row's tail.
 impl Checker {
-    /// Flattens a row into its fields and its tail by following solved row
-    /// variables. Field order is not significant.
-    pub(super) fn flatten_row(&self, row: InferType) -> FlatRow {
+    pub(super) fn normalize_row(
+        &self,
+        row: InferType,
+        span: TextRange,
+    ) -> Result<FlatRow, RowShapeError> {
         let mut fields = Vec::new();
         let mut current = self.resolve_type(row);
         loop {
             match current {
                 InferType::RowEmpty => {
-                    return FlatRow {
+                    return Ok(FlatRow {
                         fields,
                         tail: RowTail::Closed,
-                    };
+                    });
                 }
                 InferType::RowExtend { label, ty, tail } => {
                     fields.push((label, *ty));
                     current = self.resolve_type(*tail);
                 }
                 InferType::Variable(variable) => {
-                    return FlatRow {
+                    return Ok(FlatRow {
                         fields,
                         tail: RowTail::Open(variable),
-                    };
+                    });
                 }
-                // A row that has resolved to a non-row type contributes no more
-                // fields; the caller reports the mismatch.
-                _ => {
-                    return FlatRow {
+                // A row that resolved to a non-row value is a kind error at the
+                // value's own range, not a closed row.
+                found => {
+                    return Err(RowShapeError {
+                        span,
                         fields,
-                        tail: RowTail::Closed,
-                    };
+                        found,
+                    });
                 }
             }
         }
     }
 
+    /// Normalizes a row, reporting an invalid shape as a diagnostic and using
+    /// an empty row when the caller cannot proceed without one.
+    pub(super) fn normalize_row_or_report(&mut self, row: InferType, span: TextRange) -> FlatRow {
+        match self.normalize_row(row, span) {
+            Ok(row) => row,
+            Err(error) => {
+                self.report_row_shape(&error);
+                FlatRow {
+                    fields: error.fields,
+                    tail: RowTail::Closed,
+                }
+            }
+        }
+    }
+
+    /// Reports a value that a row consumer reached but that is not a row. The
+    /// diagnostic names the shape and the entries collected before it, so the
+    /// caller can still see what the row had.
+    pub(super) fn report_row_shape(&mut self, error: &RowShapeError) {
+        let found = self.display_type(&error.found);
+        let message = if error.fields.is_empty() {
+            format!("type mismatch: expected a row type, found {found}")
+        } else {
+            let fields = self.display_row_fields(&error.fields);
+            format!("type mismatch: expected a row type, found {found} after {fields}")
+        };
+        self.errors.push(TypeCheckError::new(
+            TypeCheckErrorKind::TypeMismatch,
+            error.span,
+            message,
+        ));
+    }
+
     pub(super) fn unify_rows(&mut self, left: InferType, right: InferType, span: TextRange) {
+        let left = match self.normalize_row(left, span) {
+            Ok(row) => row,
+            Err(error) => {
+                self.report_row_shape(&error);
+                return;
+            }
+        };
+        let right = match self.normalize_row(right, span) {
+            Ok(row) => row,
+            Err(error) => {
+                self.report_row_shape(&error);
+                return;
+            }
+        };
+        self.unify_flat_rows(left, right, span);
+    }
+
+    fn unify_flat_rows(&mut self, left: FlatRow, right: FlatRow, span: TextRange) {
         let FlatRow {
             fields: mut left_fields,
             tail: left_tail,
-        } = self.flatten_row(left);
+        } = left;
         let FlatRow {
             fields: mut right_fields,
             tail: right_tail,
-        } = self.flatten_row(right);
+        } = right;
         left_fields.sort_by(|left, right| left.0.cmp(&right.0));
         right_fields.sort_by(|left, right| left.0.cmp(&right.0));
         let mut left_rest = Vec::new();
@@ -145,11 +207,7 @@ impl Checker {
         span: TextRange,
     ) -> bool {
         if fields.iter().any(|(_, ty)| occurs(variable, ty)) {
-            let displayed = fields
-                .iter()
-                .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let displayed = self.display_row_fields(fields);
             self.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OccursCheck,
                 span,
@@ -197,7 +255,8 @@ impl Checker {
 
     /// Finalizes a row into THIR row nodes, in canonical field order. An open
     /// row is accepted only when its tail variable is generalized at this
-    /// binding site.
+    /// binding site, and a value that is not a row is a diagnostic rather than
+    /// a closed row.
     pub(super) fn finalize_row(
         &mut self,
         row: InferType,
@@ -205,8 +264,15 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<TypeId> {
-        let FlatRow { mut fields, tail } = self.flatten_row(row);
-        fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let mut flat = match self.normalize_row(row, span) {
+            Ok(flat) => flat,
+            Err(error) => {
+                self.report_row_shape(&error);
+                return None;
+            }
+        };
+        flat.fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let FlatRow { fields, tail } = flat;
         let mut current = match tail {
             RowTail::Closed => interner.intern(Type::RowEmpty),
             RowTail::Open(variable) if generics.contains(&variable) => {
@@ -231,6 +297,15 @@ impl Checker {
         }
         Some(current)
     }
+}
+
+/// A value a row consumer reached that is not a row. `InferType` carries no
+/// source ranges, so `span` is the range of the operation that found it.
+#[derive(Clone, Debug)]
+pub(super) struct RowShapeError {
+    pub(super) span: TextRange,
+    pub(super) fields: Vec<(String, InferType)>,
+    pub(super) found: InferType,
 }
 
 fn tail_is_fixed(tail: RowTail, rigid: &HashSet<u32>) -> bool {

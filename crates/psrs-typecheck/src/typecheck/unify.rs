@@ -151,6 +151,7 @@ impl Checker {
             InferType::Constructor(constructor) => match constructor {
                 TypeConstructor::Function => "Function".into(),
                 TypeConstructor::Record => "Record".into(),
+                TypeConstructor::Row => "Row".into(),
                 TypeConstructor::Array => "Array".into(),
                 TypeConstructor::Int => "Int".into(),
                 TypeConstructor::Number => "Number".into(),
@@ -210,20 +211,43 @@ impl Checker {
         }
     }
 
-    fn display_record(&self, row: &InferType) -> String {
-        let FlatRow { fields, tail } = self.flatten_row(row.clone());
-        let rendered = fields
+    /// Renders the labelled entries of a row, in the order given.
+    pub(super) fn display_row_fields(&self, fields: &[(String, InferType)]) -> String {
+        fields
             .iter()
             .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
             .collect::<Vec<_>>()
-            .join(", ");
-        match tail {
-            RowTail::Closed => format!("{{{rendered}}}"),
-            RowTail::Open(variable) => {
-                if rendered.is_empty() {
-                    format!("{{ | _T{variable} }}")
+            .join(", ")
+    }
+
+    /// Renders a row type for a diagnostic. A value that reached this path
+    /// without being a row is rendered between angle brackets, so the rendering
+    /// shows the shape instead of silently claiming a closed row.
+    fn display_record(&self, row: &InferType) -> String {
+        // A rendering has no expression of its own to name, so an invalid shape
+        // is reported at an empty range; the containing diagnostic carries the
+        // span that matters.
+        match self.normalize_row(row.clone(), TextRange::new(0, 0)) {
+            Err(error) => {
+                let fields = self.display_row_fields(&error.fields);
+                let found = self.display_type(&error.found);
+                if fields.is_empty() {
+                    format!("<{found}>")
                 } else {
-                    format!("{{{rendered} | _T{variable}}}")
+                    format!("{{{fields} | <{found}>}}")
+                }
+            }
+            Ok(FlatRow { fields, tail }) => {
+                let rendered = self.display_row_fields(&fields);
+                match tail {
+                    RowTail::Closed => format!("{{{rendered}}}"),
+                    RowTail::Open(variable) => {
+                        if rendered.is_empty() {
+                            format!("{{ | _T{variable} }}")
+                        } else {
+                            format!("{{{rendered} | _T{variable}}}")
+                        }
+                    }
                 }
             }
         }
@@ -333,6 +357,7 @@ impl Checker {
                 Some(interner.intern(Type::Constructor(match constructor {
                     TypeConstructor::Function => thir::TypeConstructor::Function,
                     TypeConstructor::Record => thir::TypeConstructor::Record,
+                    TypeConstructor::Row => thir::TypeConstructor::Row,
                     TypeConstructor::Array => thir::TypeConstructor::Array,
                     TypeConstructor::Int => thir::TypeConstructor::Int,
                     TypeConstructor::Number => thir::TypeConstructor::Number,

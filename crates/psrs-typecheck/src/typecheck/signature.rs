@@ -121,11 +121,15 @@ impl Checker {
                 hir::BuiltinType::Unit => InferType::Constructor(TypeConstructor::Unit),
                 hir::BuiltinType::Array => InferType::Constructor(TypeConstructor::Array),
                 hir::BuiltinType::Function => InferType::Constructor(TypeConstructor::Function),
+                hir::BuiltinType::Record => InferType::Constructor(TypeConstructor::Record),
+                hir::BuiltinType::Row => InferType::Constructor(TypeConstructor::Row),
+                // `Type`, `Constraint`, and `Symbol` name kinds rather than
+                // spine heads. Naming one in a type position needs the
+                // `KindApplication` node, which this spine does not carry yet,
+                // so they stay rejected instead of becoming a fresh unknown.
                 hir::BuiltinType::Type
                 | hir::BuiltinType::Constraint
-                | hir::BuiltinType::Symbol
-                | hir::BuiltinType::Row
-                | hir::BuiltinType::Record => {
+                | hir::BuiltinType::Symbol => {
                     self.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::UnsupportedType,
                         ty.span,

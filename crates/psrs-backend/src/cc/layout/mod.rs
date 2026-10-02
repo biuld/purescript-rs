@@ -30,6 +30,7 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
         TypeConstructor::Boolean => ValueShape::Boolean,
         TypeConstructor::Function
         | TypeConstructor::Record
+        | TypeConstructor::Row
         | TypeConstructor::Array
         | TypeConstructor::User(_) => {
             return None;

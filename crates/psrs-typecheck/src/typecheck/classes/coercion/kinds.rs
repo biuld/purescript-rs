@@ -233,6 +233,7 @@ impl Checker {
         Some(match constructor {
             TypeConstructor::Function => kind_for_builtin(hir::BuiltinType::Function),
             TypeConstructor::Record => kind_for_builtin(hir::BuiltinType::Record),
+            TypeConstructor::Row => kind_for_builtin(hir::BuiltinType::Row),
             TypeConstructor::Array => kind_for_builtin(hir::BuiltinType::Array),
             TypeConstructor::Int => Kind::Type,
             TypeConstructor::Number => Kind::Type,

@@ -39,6 +39,11 @@ pub(super) enum InferType {
 pub(super) enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor of kind `Type -> Type`. Official PureScript
+    /// declares it with a phantom role, so it is a nominal head whose
+    /// application is not itself a row: a row value is [`InferType::RowEmpty`],
+    /// [`InferType::RowExtend`], or a variable whose recorded kind is `Row k`.
+    Row,
     Array,
     Int,
     Number,

@@ -11,7 +11,7 @@ impl Checker {
         let FlatRow {
             fields: expected_fields,
             ..
-        } = self.flatten_row(expected_row);
+        } = self.normalize_row_or_report(expected_row, span);
         let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
         let mut inferred = Vec::with_capacity(fields.len());
         let mut labels = HashSet::new();

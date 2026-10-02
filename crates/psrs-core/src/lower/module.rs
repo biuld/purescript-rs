@@ -5,6 +5,7 @@ fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::Typ
     match constructor {
         psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
         psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
+        psrs_thir::TypeConstructor::Row => crate::TypeConstructor::Row,
         psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
         psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
         psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
