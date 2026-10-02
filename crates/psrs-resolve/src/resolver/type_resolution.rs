@@ -19,6 +19,11 @@ impl Resolver {
                 } else if is_uppercase(&name.text) {
                     let reference = self.lookup_type_name(&name.text, name.span)?;
                     self.type_reference_kind(reference)
+                } else if matches!(name.text.as_str(), "->" | "~>") {
+                    // Function arrows are type operators, not names imported
+                    // from `Prim`. Keep their builtin identity independent of
+                    // the source-level implicit import rules for `Function`.
+                    HirTypeKind::Constructor(builtin_type(&name.text)?)
                 } else {
                     HirTypeKind::Variable(name.text)
                 }

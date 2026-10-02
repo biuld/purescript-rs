@@ -32,14 +32,6 @@ impl Interface {
                         .insert(name.to_owned(), TypeReference::Builtin(builtin));
                 }
             }
-            "Prim.Coerce" => {
-                interface.types.insert(
-                    "Coercible".to_owned(),
-                    TypeReference::Named(TypeId::COERCIBLE),
-                );
-            }
-            "Prim.Boolean" | "Prim.Int" | "Prim.Ordering" | "Prim.Row" | "Prim.RowList"
-            | "Prim.Symbol" | "Prim.TypeError" => {}
             "Safe.Coerce" => {
                 interface
                     .values
@@ -49,7 +41,27 @@ impl Interface {
                     TypeReference::Named(TypeId::COERCIBLE),
                 );
             }
-            _ => return None,
+            _ if !hir::primitive_type_declarations()
+                .iter()
+                .any(|(owner, _)| *owner == name) =>
+            {
+                return None;
+            }
+            _ => {}
+        }
+        for (owner, declaration) in hir::primitive_type_declarations() {
+            if owner != name {
+                continue;
+            }
+            interface.types.insert(
+                declaration.name.clone(),
+                TypeReference::Named(declaration.id),
+            );
+            if declaration.kind == hir::TypeDeclarationKind::Class {
+                interface
+                    .class_members
+                    .insert(declaration.name.clone(), Vec::new());
+            }
         }
         Some(interface)
     }

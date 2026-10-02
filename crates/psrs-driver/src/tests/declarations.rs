@@ -111,6 +111,61 @@ fn reports_a_transitive_export_of_an_unexported_type() {
 }
 
 #[test]
+fn checks_an_inferred_public_result_type_after_typechecking() {
+    let source = "module Main (value) where\ndata Hidden = Hidden\nidentity x = x\nvalue = identity Hidden\n";
+    let errors = crate::check_program(&[("Main.purs", source)])
+        .expect_err("the inferred public result exposes Hidden");
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.stage == "P5 typecheck"
+            && error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Hidden")
+    }));
+}
+
+#[test]
+fn checks_the_official_required_hidden_type_case_after_inference() {
+    let source = "module Foo (B(..), a, b) where\ndata A = A\ndata B = B\na = A\nb = B\n";
+    for check in [
+        crate::check_program(&[("RequiredHiddenType.purs", source)]),
+        crate::check_program_types_lenient_with_prelude(&[("RequiredHiddenType.purs", source)]),
+    ] {
+        let errors = check.expect_err("the official case exports a value whose type is hidden");
+        assert!(
+            errors.iter().any(|error| {
+                error.diagnostic.stage == "P5 typecheck"
+                    && error.diagnostic.code == Some("TransitiveExportError")
+                    && error.diagnostic.message.contains("A")
+            }),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn checks_an_inferred_function_parameter_hidden_in_a_case() {
+    let source = "module Main (value) where\ndata Hidden = Hidden\nvalue = \\x -> case x of\n  Hidden -> x\n";
+    let errors = crate::check_program(&[("Main.purs", source)])
+        .expect_err("the inferred function parameter exposes Hidden");
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.stage == "P5 typecheck"
+            && error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Hidden")
+    }));
+}
+
+#[test]
+fn checks_hidden_types_reached_through_an_inferred_record_field() {
+    let source = "module Main (value) where\ndata Hidden = Hidden\nvalue = \\record -> case record.secret of\n  Hidden -> record.secret\n";
+    let errors = crate::check_program(&[("Main.purs", source)])
+        .expect_err("the inferred record and result types expose Hidden");
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.stage == "P5 typecheck"
+            && error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Hidden")
+    }));
+}
+
+#[test]
 fn reports_a_partial_constructor_export() {
     let source = "module Main (T(A)) where\ndata T = A | B\n";
     let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();

@@ -58,18 +58,26 @@ their final IDs. Qualified lookup uses only the named imported module;
 unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
-`Prim` is a virtual module family. Its root interface maps built-in type names
-to the existing `BuiltinType` identities, and `Prim.Coerce` exposes the
-compiler-owned `Coercible` class identity. Other official `Prim.*` module names
-are recognized by the loader. Import and export interfaces carry a
-`TypeReference`, so a built-in name keeps the same identity when it is
-qualified, imported, or re-exported. A source module named `Prim` or beginning
-with `Prim.` is rejected; source cannot replace a compiler interface.
+`Prim` is a virtual module family. The root interface maps built-in type names
+to their existing `BuiltinType` identities. Official child-module types and
+classes are declared once in shared HIR primitive metadata with stable
+`TypeId`s, kinds, and class functional dependencies; the resolver, kind
+checker, and class environment consume those declarations. The interfaces do
+not assign separate identities to aliases of the same primitive. In
+particular, `Number` is exported from `Prim`, not a `Prim.Number` child module.
+The official `Prim.*` module registry is derived from the shared declarations,
+so a recognized child module always has the member metadata it advertises.
+Import and export interfaces carry a `TypeReference`, preserving built-in and
+declared identities through qualification and re-exports. A source module
+named `Prim` or beginning with `Prim.` is rejected; source cannot replace a
+compiler interface. The root `undefined` value has no shared value identity
+yet and is not exported by the current virtual interface.
 
-The virtual interfaces do not synthesize declarations for primitive types or
-classes that have no representation in the current shared type spine. Those
-names become available when their owning type or class representation is
-implemented; the resolver must not imitate them with private equations.
+Primitive class declarations make names, kinds, and fundeps available to
+resolution and kind checking. Import support does not imply entailment or
+runtime support for their rules: `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
+`Prim.Int`, and `Prim.TypeError` constraints still need their compiler-owned
+solver semantics.
 
 `foreign import` WIT binding text stays attached to the resolved declaration.
 The quoted binding is a source string value: a Unicode scalar sequence
@@ -164,9 +172,13 @@ key policy. Orphan and overlapping instance visibility is specified with
 [classes and evidence](../type-system/classes-and-evidence.md), not by value
 lookup alone.
 
-The complete transitive-export rule also checks inferred public value types.
-P3 currently checks explicit signatures and constructor results it can identify
-directly; general inferred result dependencies need checked type information.
+P3 checks explicit public signatures and declaration dependencies while their
+resolved type references are available. It does not infer a public value's
+type from expression syntax. After generalization, P5 traverses the checked
+scheme by stable `TypeId` and reports hidden local types in inferred results,
+function parameters, aliases, record fields, and constraints. The L2 export
+scoreboard runs annotated transitive-export cases through the lenient typed
+pipeline so each check is measured at its owning stage.
 
 ## References
 

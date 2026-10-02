@@ -299,3 +299,10 @@ fn rejects_source_modules_in_the_reserved_prim_namespace() {
     let errors = resolve_program(vec![reserved]).unwrap_err();
     assert!(has_kind(&errors, ResolveErrorKind::CannotDefinePrimModules));
 }
+
+#[test]
+fn primitive_registry_does_not_invent_a_prim_number_module() {
+    let main = module("Main", vec![import("Prim.Number")], None, Vec::new());
+    let errors = resolve_program(vec![main]).unwrap_err();
+    assert!(has_kind(&errors, ResolveErrorKind::ModuleNotFound));
+}

@@ -25,6 +25,8 @@ pub enum TypeCheckErrorKind {
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
     InvalidCoercibleInstanceDeclaration,
+    /// An inferred public value mentions a local type omitted from exports.
+    TransitiveExport,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +95,7 @@ impl TypeCheckError {
             TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration => {
                 "InvalidCoercibleInstanceDeclaration"
             }
+            TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
             TypeCheckErrorKind::InvalidHir
             | TypeCheckErrorKind::UnconstrainedType
             | TypeCheckErrorKind::NumberOutOfRange

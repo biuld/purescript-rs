@@ -73,10 +73,15 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         });
     }
     let signatures = declared_signatures(&resolved);
-    let known_types = resolved
+    let mut known_types = resolved
         .iter()
         .flat_map(|module| module.types.iter().cloned())
         .collect::<Vec<_>>();
+    known_types.extend(
+        psrs_hir::primitive_type_declarations()
+            .into_iter()
+            .map(|(_, declaration)| declaration),
+    );
     let instance_sets = resolved
         .iter()
         .map(|module| module.instances.clone())

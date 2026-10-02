@@ -186,12 +186,17 @@ brings the type and its constructors, `T(A, B)` selects constructors
 (`UnknownImportDataConstructor`), and export lists validate constructors
 (`UnknownExportDataConstructor`, `TransitiveDctorExportError`) and require
 referenced types, kinds, superclasses, class members, and explicit public value
-signatures to be exported too (`TransitiveExportError`). Public values that
-return a local data constructor also require its owning type to be exported.
-The virtual `Prim` module family exposes existing built-in type identities and
-preserves those references through imports and re-exports; source modules in
-the reserved `Prim` namespace are rejected. Unary minus resolves the ordinary
-in-scope `negate` value and P4 lowers it to an application. An unaliased
+signatures to be exported too (`TransitiveExportError`). After generalization,
+P5 checks inferred public value schemes by stable type identity, including
+function parameters, indirect results, aliases, fields, and constraints; the
+L2 export scoreboard runs those cases through the lenient typed pipeline.
+The virtual `Prim` family preserves existing root `BuiltinType` identities and
+declares official child-module types and classes once on the shared HIR spine,
+including their kinds and fundeps. Import availability does not add solver
+rules. `Prim.Number` is not an official child module, and the root `undefined`
+value is not represented yet. Source modules in the reserved `Prim` namespace
+are rejected. Unary minus resolves the ordinary in-scope `negate` value and P4
+lowers it to an application. An unaliased
 selective import from `Prim` narrows its visible primitive names. An import
 with an `as` alias is qualified-only, so
 `module A` re-exports validate through the alias: ambiguous aliases and
@@ -200,13 +205,14 @@ two modules reports `ExportConflict`. Surface lowering reports
 `OrphanTypeDeclaration`, `OrphanKindDeclaration`, and `OverlappingArgNames`;
 resolution reports `DuplicateValueDeclaration` and `OverlappingNamesInLet`.
 Operator, constructor-operator, and type-operator aliases are not lowered yet,
-and instance declarations are not resolved. Inferred public value types cannot
-be inspected before type checking; transitive value checks therefore cover
-explicit signatures and constructor results visible in the resolved expression.
+and instance declarations are not resolved. Type-level class entailment for
+the imported `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and
+`Prim.TypeError` classes remains separate from module-resolution support.
 
-**Measured (annotations oracle, 2026-10-02):** the scoreboard resolves each case
-against the on-disk standard library and the case's own modules plus the
-siblings its imports reach. M2 failing agreement is 61/72, per code:
+**Measured (annotations oracle, vendored v0.15.16 corpus, 2026-10-02):** the
+scoreboard resolves each case against the on-disk standard library and the
+case's own modules plus the siblings its imports reach. M2 failing agreement
+is 61/72, per code:
 `CannotDefinePrimModules` 2/2, `CycleInModules` 1/1, `DeclConflict` 11/11,
 `DuplicateModule` 1/1, `ModuleNotFound` 1/1, `OrphanKindDeclaration` 2/2,
 `UnknownExport` 1/1, `UnknownExportDataConstructor` 1/1, `UnknownImport` 1/1,
@@ -722,7 +728,7 @@ resolved, type checked, and represented in Typed Core as required.
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
 | FE-01 | Lexing, Unicode tokens, comments, literals, and layout | Lexer and layout agree with the L1 annotations scoreboard at 904/908, including 15/15 layout cases. The four differences are the DEC-16 intentional differences: a supplementary scalar is accepted as one `Char` (`failing/2434.purs`), and an unpaired surrogate escape is rejected in `StringEscapes.purs` and the two `StringEdgeCases` files. A paired surrogate escape decodes as one scalar, and no surrogate becomes U+FFFD. Parse agreement does not verify string values. | Partial | Cover the remaining literal forms the corpus exercises. |
-| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, aliases, cycles, the virtual `Prim` interfaces, and unary minus through ordinary `negate` resolution work in a subset; 61/72 mapped failing cases agree. Transitive checks cover hidden type and kind dependencies, explicit public signatures, and visible constructor results. Operator aliases are not lowered, instances are not resolved, and inferred public value types need checked type information for complete transitive checks. | Partial | Complete operator/fixity aliases, instance resolution, and inferred public value dependency checks. |
+| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, aliases, cycles, official virtual `Prim.*` type/class interfaces on the shared HIR spine, and unary minus through ordinary `negate` resolution work in a subset; 61/72 mapped failing cases agree and 52/413 passing modules resolve at P3. P3 checks explicit signatures and declaration dependencies; P5 checks inferred public schemes by stable type identity. The root `Prim.undefined` value and primitive class entailment are not represented. Operator aliases are not lowered and instances are not resolved. | Partial | Complete operator/fixity aliases and instance resolution; add `Prim.undefined` when its compiler-owned value identity and runtime lowering exist, and implement primitive class rules under entailment. |
 | FE-03 | Value declarations, signatures, recursive groups, pattern bindings, and `where` | Named declarations, signatures, recursive local groups, and top-level SCC inference work; pattern declarations and `where` are not end-to-end. | Partial | Lower pattern declarations and local `where` blocks. |
 | FE-04 | Declaration forms: `data`, `newtype`, `type`, `class`, `instance`, `derive`, `foreign`, roles, fixities, and kind signatures | Data/newtype roles are inferred and checked, foreign role signatures enter the checked kind environment, and source role errors retain spans. Deriving and several declaration forms remain incomplete. | Partial | Complete deriving and the remaining declaration-form semantics. |
 | FE-05 | Expressions: application, operators, lambdas, `if`, `let`, `case`, records, arrays, literals, sections, `do`, and `ado` | Application, operators in the bootstrap subset, unary minus through the ordinary in-scope `negate` value, lambdas, `if`, `let`, `case`, scalar arrays, empty array literals whose element type is determined, records, and selected literals work, and `do`/`ado` lower to bind, discard, and `let`. The ascription `e :: T` is checked against its written type and the expression keeps that type, with no node left in Typed Core; it carries an explicit `forall` but not a free type variable, which only `passing/2941.purs` needs. Sections are rejected at parse time. | Partial | Land sections and the remaining literal forms. |

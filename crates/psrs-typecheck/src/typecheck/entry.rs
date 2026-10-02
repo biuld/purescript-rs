@@ -215,6 +215,8 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
         }
     }
 
+    super::checked_exports::check(&module, &inferred, &mut checker.errors);
+
     if !checker.errors.is_empty() {
         return Err(checker.errors);
     }
