@@ -86,6 +86,24 @@ fn boolean_literals_are_declared_at_the_boolean_kind() {
 }
 
 #[test]
+fn row_list_nil_takes_its_kind_variable_as_an_argument() {
+    // The official kind is `forall k. RowList k`, not an arrow chain, so `Nil`
+    // takes no parameter at all.
+    let declaration = declared("Prim.RowList", "Nil");
+    let kind = declaration.declared_kind.as_ref().expect("a declared kind");
+    let TypeKind::Forall { variables, body } = &kind.kind else {
+        panic!("`Nil` must quantify its kind variable")
+    };
+    assert_eq!(variables.len(), 1);
+    assert_eq!(variables[0].name, "k");
+    let TypeKind::Application(head, argument) = &body.kind else {
+        panic!("`Nil`'s kind body must apply `RowList` to the kind variable")
+    };
+    assert_eq!(head.kind, TypeKind::Named(TypeId::PRIM_ROW_LIST));
+    assert_eq!(argument.kind, TypeKind::Variable("k".into()));
+}
+
+#[test]
 fn the_registry_declares_no_rules_or_diagnostics() {
     for (_, declaration) in primitive_type_declarations() {
         assert!(

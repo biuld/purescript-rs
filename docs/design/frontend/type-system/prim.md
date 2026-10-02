@@ -242,6 +242,12 @@ a parameterless class. Kinds and functional dependencies otherwise match the
 official environment member by member, including `Prim.Boolean.True` and
 `.False` at kind `Boolean` and `Prim.RowList.Nil` at `forall k. RowList k`.
 
+`Prim.RowList.Nil` had been declared at `forall k. RowList k -> RowList k`,
+which is a different kind: it made the member look like it took one argument.
+It is the only official member whose kind is not an arrow chain, so the shared
+kind builder grew a `forall` form that takes the body outright rather than
+arrow parameters.
+
 Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
 foundations: its kind denotation, substitution, and unifier live in
 `crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs` and read `Row` as
