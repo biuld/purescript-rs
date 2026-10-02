@@ -35,6 +35,7 @@ impl Checker {
                 pattern,
                 value,
                 span: branch.span,
+                coverage: branch.coverage,
             });
         }
         let ty = result_ty.unwrap_or_else(|| self.fresh());

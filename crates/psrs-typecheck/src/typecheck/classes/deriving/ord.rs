@@ -101,6 +101,7 @@ impl Checker {
                     global_expr(result_symbol, span)
                 };
                 right_branches.push(hir::CaseBranch {
+                    coverage: hir::CaseBranchCoverage::Source,
                     pattern: constructor_pattern(other.symbol, &right_fields, span),
                     value,
                     span,
@@ -114,6 +115,7 @@ impl Checker {
                 span,
             };
             left_branches.push(hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: constructor_pattern(constructor.symbol, &left_fields, span),
                 value: right_case,
                 span,
@@ -121,6 +123,7 @@ impl Checker {
         }
         if left_branches.is_empty() {
             left_branches.push(hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Wildcard,
                     span,
@@ -190,6 +193,7 @@ fn derive_ord_field_tests(
 
 fn ordering_branch(symbol: SymbolId, value: hir::Expr, span: TextRange) -> hir::CaseBranch {
     hir::CaseBranch {
+        coverage: hir::CaseBranchCoverage::Source,
         pattern: constructor_pattern(symbol, &[], span),
         value,
         span,

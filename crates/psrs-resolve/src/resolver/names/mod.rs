@@ -1,8 +1,8 @@
 use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
-    self as hir, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding, LocalId, ModuleId,
-    SymbolId, TypeId, TypeReference,
+    self as hir, CaseBranchCoverage, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding,
+    LocalId, ModuleId, SymbolId, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -198,6 +198,20 @@ impl Resolver {
                     ty: ty?,
                 }
             }
+            AstExprKind::IntegerEqual { left, right } => {
+                let function = Expr {
+                    kind: ExprKind::Global(hir::Intrinsic::I32Eq.symbol()),
+                    span,
+                };
+                let partial = Expr {
+                    kind: ExprKind::Application(
+                        Box::new(function),
+                        Box::new(self.resolve_expr(*left)?),
+                    ),
+                    span,
+                };
+                ExprKind::Application(Box::new(partial), Box::new(self.resolve_expr(*right)?))
+            }
             AstExprKind::Operator {
                 operator,
                 left,
@@ -262,6 +276,11 @@ impl Resolver {
                 for branch in branches {
                     let mut scope = HashMap::new();
                     let pattern = self.resolve_pattern(branch.pattern, &mut scope)?;
+                    let coverage = if ast_expr_is_guarded(&branch.value) {
+                        CaseBranchCoverage::Guarded
+                    } else {
+                        CaseBranchCoverage::Source
+                    };
                     self.scopes.push(scope);
                     let value = self.resolve_expr(branch.value);
                     self.scopes.pop();
@@ -269,12 +288,16 @@ impl Resolver {
                         pattern,
                         value: value?,
                         span: branch.span,
+                        coverage,
                     });
                 }
                 ExprKind::Case {
                     scrutinee: Box::new(scrutinee),
                     branches: lowered,
                 }
+            }
+            AstExprKind::Guarded(clauses) => {
+                ExprKind::Guarded(self.resolve_guarded_exprs(clauses)?)
             }
         };
         Some(Expr { kind, span })
@@ -436,7 +459,16 @@ impl Resolver {
     }
 }
 
+mod guards;
 mod negate;
 mod util;
+
+fn ast_expr_is_guarded(expression: &ast::Expr) -> bool {
+    match &expression.kind {
+        AstExprKind::Guarded(_) => true,
+        AstExprKind::Let { body, .. } => ast_expr_is_guarded(body),
+        _ => false,
+    }
+}
 
 pub(super) use util::{PRIM_TYPES, builtin_type, is_uppercase, prim_type, split_qualified};

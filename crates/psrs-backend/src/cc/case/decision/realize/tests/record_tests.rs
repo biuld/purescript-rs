@@ -88,6 +88,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
     };
     let branches = vec![
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: record_pattern(true_symbol, 1),
             value: Expr {
                 kind: ExprKind::Integer(1),
@@ -97,6 +98,7 @@ fn nested_record_patterns_share_one_product_projection_and_keep_source_spans() {
             span: TextRange::new(1, 10),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: record_pattern(false_symbol, 12),
             value: Expr {
                 kind: ExprKind::Integer(0),

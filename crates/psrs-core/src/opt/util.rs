@@ -268,6 +268,7 @@ fn substitute_inner(
                         pattern: branch.pattern.clone(),
                         value,
                         span: branch.span,
+                        coverage: branch.coverage,
                     }
                 })
                 .collect(),

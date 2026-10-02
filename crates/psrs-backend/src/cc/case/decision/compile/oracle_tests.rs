@@ -211,6 +211,7 @@ fn branches(matrix: &[PatT]) -> Vec<CaseBranch> {
         .map(|(index, pattern)| {
             let span = TextRange::new(index as u32 * 10, index as u32 * 10 + 5);
             CaseBranch {
+                coverage: psrs_hir::CaseBranchCoverage::Source,
                 pattern: pattern.core(span),
                 value: Expr {
                     kind: ExprKind::Integer(index as i32),

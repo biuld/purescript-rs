@@ -81,6 +81,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
     };
     let branches = vec![
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: wrapped_bool(true_symbol, 1),
             value: Expr {
                 kind: ExprKind::Integer(1),
@@ -90,6 +91,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
             span: TextRange::new(1, 8),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: wrapped_bool(false_symbol, 10),
             value: Expr {
                 kind: ExprKind::Integer(0),

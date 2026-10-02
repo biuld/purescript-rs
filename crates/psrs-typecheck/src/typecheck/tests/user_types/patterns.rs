@@ -38,11 +38,13 @@ fn types_a_case_with_constructor_patterns() {
             scrutinee: Box::new(local(0, 48)),
             branches: vec![
                 psrs_hir::CaseBranch {
+                    coverage: psrs_hir::CaseBranchCoverage::Source,
                     pattern: constructor_pattern(1, Vec::new(), 55),
                     value: integer("0", 60),
                     span: TextRange::new(55, 61),
                 },
                 psrs_hir::CaseBranch {
+                    coverage: psrs_hir::CaseBranchCoverage::Source,
                     pattern: constructor_pattern(2, vec![var_pattern(1, "x", 70)], 70),
                     value: local(1, 74),
                     span: TextRange::new(70, 75),
@@ -91,6 +93,7 @@ fn rejects_a_constructor_pattern_with_the_wrong_arity() {
         HirExprKind::Case {
             scrutinee: Box::new(local(0, 48)),
             branches: vec![psrs_hir::CaseBranch {
+                coverage: psrs_hir::CaseBranchCoverage::Source,
                 pattern: constructor_pattern(2, Vec::new(), 55),
                 value: integer("0", 60),
                 span: TextRange::new(55, 61),

@@ -75,6 +75,7 @@ fn execute_adt_field_case(newtype: bool) {
         ExprKind::Case {
             scrutinee: Box::new(local(use_argument, identity_type_constructor)),
             branches: vec![CaseBranch {
+                coverage: psrs_hir::CaseBranchCoverage::Source,
                 pattern,
                 value: body,
                 span: super::super::span(),

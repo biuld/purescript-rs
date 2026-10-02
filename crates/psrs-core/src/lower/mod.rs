@@ -403,6 +403,7 @@ fn lower_expr(
                         pattern: lower_pattern(branch.pattern)?,
                         value: lower_expr(branch.value, externals, constructors, source_types)?,
                         span: branch.span,
+                        coverage: branch.coverage,
                     })
                 })
                 .collect::<Result<Vec<_>, LowerError>>()?,

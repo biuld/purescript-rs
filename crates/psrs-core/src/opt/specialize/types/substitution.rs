@@ -301,6 +301,7 @@ impl TypeSubstitution<'_> {
             pattern: self.pattern(&branch.pattern)?,
             value: self.expression(&branch.value)?,
             span: branch.span,
+            coverage: branch.coverage,
         })
     }
 

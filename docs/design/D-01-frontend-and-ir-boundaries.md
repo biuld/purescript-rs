@@ -36,7 +36,7 @@ flowchart TD
 | --- | --- | --- |
 | P0 | Lex and Layout | Recognize raw tokens and insert logical layout markers. |
 | P1 | Parse | Build source-oriented syntax and report parse errors. |
-| P2 | Surface Lowering | Normalize parser-only distinctions into AST. |
+| P2 | Surface Lowering | Normalize surface forms into AST while keeping names unresolved. |
 | P3 | Resolve | Resolve modules, imports, values, types, and constructors to stable IDs. |
 | P4 | Frontend Desugaring | Normalize operators, sections, do/ado, equations, and guards while preserving HIR. |
 | P5 | Kind, Type, and Class Elaboration | Check kinds and types, resolve constraints, and attach explicit evidence. |

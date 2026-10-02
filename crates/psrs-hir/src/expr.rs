@@ -96,6 +96,8 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         branches: Vec<CaseBranch>,
     },
+    /// Guarded RHS form retained through name resolution and eliminated by P4.
+    Guarded(Vec<GuardedExpr>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +121,38 @@ pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
     pub span: TextRange,
+    pub coverage: CaseBranchCoverage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaseBranchCoverage {
+    /// An unguarded source alternative contributes to coverage.
+    Source,
+    /// A source alternative whose guard may fail does not cover its pattern.
+    Guarded,
+    /// A generated fallthrough or guard test is excluded from diagnostics.
+    Generated,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuardedExpr {
+    pub guards: Vec<Guard>,
+    pub value: Expr,
+    pub where_bindings: Vec<LocalBinding>,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Guard {
+    Boolean(Expr),
+    Pattern {
+        pattern: Pattern,
+        value: Expr,
+    },
+    Let {
+        bindings: Vec<LocalBinding>,
+        span: TextRange,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,6 +164,7 @@ pub struct Pattern {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
+    Boolean(bool),
     Var(LocalBinder),
     /// A data constructor pattern, resolved to the constructor's value symbol.
     Constructor {

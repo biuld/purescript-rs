@@ -10,8 +10,8 @@ mod ty;
 mod types;
 
 pub use expr::{
-    CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
-    ResolvedOperator, SectionSide,
+    CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
+    LocalBinding, Pattern, PatternKind, ResolvedOperator, SectionSide,
 };
 pub use module::{
     Associativity, ExportList, ExportedOperator, ExportedSymbol, ExportedType,
@@ -478,6 +478,12 @@ impl Module {
         } else {
             Err(errors)
         }
+    }
+
+    /// Checks that P4-only surface forms have been eliminated from term expressions.
+    pub fn verify_normalized(&self) -> Result<(), Vec<VerifyError>> {
+        self.verify()?;
+        verify::normalized(self)
     }
 }
 

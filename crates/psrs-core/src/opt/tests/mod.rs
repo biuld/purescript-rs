@@ -397,6 +397,7 @@ fn selects_a_known_constructor_case_and_substitutes_its_field() {
                 8,
             )),
             branches: vec![CaseBranch {
+                coverage: psrs_hir::CaseBranchCoverage::Source,
                 pattern: Pattern {
                     kind: PatternKind::Constructor {
                         symbol: constructor,
