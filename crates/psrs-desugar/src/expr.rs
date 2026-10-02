@@ -37,6 +37,9 @@ impl Desugarer {
     pub(super) fn expr(&mut self, expression: Expr) -> Expr {
         let span = expression.span;
         let kind = match expression.kind {
+            ExprKind::OperatorChain { .. } | ExprKind::OperatorSection { .. } => {
+                unreachable!("P4 fixity normalization runs before guard and case lowering")
+            }
             ExprKind::Operator {
                 operator,
                 operator_span,
@@ -210,6 +213,7 @@ impl Desugarer {
                 }
             } else {
                 let mut source = alpha::clone_branch(&branches[row_index], &mut self.fresh);
+                source.coverage = CaseBranchCoverage::Generated;
                 source.value = free_vars::rebind(source.value, &local_mapping);
                 let failure = apply(
                     self.local_expr(&next_functions[0], span),

@@ -48,7 +48,9 @@ pub(super) fn lower_boolean_case(
                     span: branch.span,
                 };
             }
-            PatternKind::Constructor { .. } | PatternKind::Record { .. } => {
+            PatternKind::Constructor { .. }
+            | PatternKind::Record { .. }
+            | PatternKind::OperatorChain { .. } => {
                 unreachable!("boolean case rows were checked before lowering")
             }
         }

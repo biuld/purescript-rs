@@ -128,6 +128,17 @@ fn collect_expr_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
             collect_expr_ids(left, ids);
             collect_expr_ids(right, ids);
         }
+        ExprKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_expr_ids(operand, ids);
+            }
+        }
+        ExprKind::OperatorSection {
+            operand, binder, ..
+        } => {
+            ids.insert(binder.id);
+            collect_expr_ids(operand, ids);
+        }
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
@@ -173,6 +184,11 @@ fn collect_pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
         PatternKind::Record { fields } => {
             for (_, field) in fields {
                 collect_pattern_ids(field, ids);
+            }
+        }
+        PatternKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_pattern_ids(operand, ids);
             }
         }
         PatternKind::Wildcard | PatternKind::Boolean(_) => {}
@@ -224,6 +240,27 @@ fn rename_expr(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> Expr {
             operator_span,
             left: Box::new(rename_expr(*left, mapping)),
             right: Box::new(rename_expr(*right, mapping)),
+        },
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => ExprKind::OperatorChain {
+            operands: operands
+                .into_iter()
+                .map(|operand| rename_expr(operand, mapping))
+                .collect(),
+            operators,
+        },
+        ExprKind::OperatorSection {
+            operator,
+            operand,
+            binder,
+            side,
+        } => ExprKind::OperatorSection {
+            operator,
+            operand: Box::new(rename_expr(*operand, mapping)),
+            binder: rename_binder(binder, mapping),
+            side,
         },
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder: rename_binder(binder, mapping),
@@ -341,6 +378,16 @@ fn rename_pattern(pattern: Pattern, mapping: &HashMap<LocalId, LocalId>) -> Patt
                 .into_iter()
                 .map(|(label, field)| (label, rename_pattern(field, mapping)))
                 .collect(),
+        },
+        PatternKind::OperatorChain {
+            operands,
+            operators,
+        } => PatternKind::OperatorChain {
+            operands: operands
+                .into_iter()
+                .map(|operand| rename_pattern(operand, mapping))
+                .collect(),
+            operators,
         },
     };
     Pattern { kind, ..pattern }

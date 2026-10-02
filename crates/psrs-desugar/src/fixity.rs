@@ -129,6 +129,28 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
                 validate_expr(&branch.value, errors);
             }
         }
+        ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                for binding in &clause.where_bindings {
+                    validate_expr(&binding.value, errors);
+                }
+                for guard in &clause.guards {
+                    match guard {
+                        psrs_hir::Guard::Boolean(value) => validate_expr(value, errors),
+                        psrs_hir::Guard::Pattern { pattern, value } => {
+                            validate_pattern(pattern, errors);
+                            validate_expr(value, errors);
+                        }
+                        psrs_hir::Guard::Let { bindings, .. } => {
+                            for binding in bindings {
+                                validate_expr(&binding.value, errors);
+                            }
+                        }
+                    }
+                }
+                validate_expr(&clause.value, errors);
+            }
+        }
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)
@@ -165,7 +187,7 @@ fn validate_pattern(pattern: &Pattern, errors: &mut Vec<DesugarError>) {
                 validate_pattern(pattern, errors);
             }
         }
-        PatternKind::Wildcard | PatternKind::Var(_) => {}
+        PatternKind::Wildcard | PatternKind::Boolean(_) | PatternKind::Var(_) => {}
     }
 }
 

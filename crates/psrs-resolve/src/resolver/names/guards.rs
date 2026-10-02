@@ -1,6 +1,6 @@
-use super::{ResolveErrorKind, Resolver};
+use super::Resolver;
 use psrs_ast as ast;
-use psrs_hir::{self as hir, LocalBinder, LocalBinding};
+use psrs_hir as hir;
 use std::collections::HashMap;
 
 impl Resolver {
@@ -47,52 +47,5 @@ impl Resolver {
             lowered.push(resolved?);
         }
         Some(lowered)
-    }
-
-    /// Resolves a recursive local binding group and returns its lexical scope.
-    pub(super) fn resolve_local_bindings(
-        &mut self,
-        declarations: Vec<ast::Declaration>,
-    ) -> Option<(Vec<LocalBinding>, HashMap<String, LocalBinder>)> {
-        let mut scope = HashMap::new();
-        let mut binders = Vec::with_capacity(declarations.len());
-        for declaration in &declarations {
-            let binder = self.new_local(declaration.name.text.clone(), declaration.name.span);
-            if scope.insert(binder.name.clone(), binder.clone()).is_some() {
-                self.report(
-                    ResolveErrorKind::DuplicateLocalBinding,
-                    binder.name.clone(),
-                    binder.span,
-                );
-            }
-            binders.push(binder);
-        }
-        self.scopes.push(scope.clone());
-        let bindings = declarations
-            .into_iter()
-            .zip(binders)
-            .map(|(declaration, binder)| {
-                let span = declaration.span;
-                let value = self.resolve_expr(declaration.value)?;
-                let value = if let Some(annotation) = declaration.annotation {
-                    hir::Expr {
-                        kind: hir::ExprKind::Typed {
-                            expression: Box::new(value),
-                            ty: self.resolve_type(annotation)?,
-                        },
-                        span,
-                    }
-                } else {
-                    value
-                };
-                Some(LocalBinding {
-                    binder,
-                    value,
-                    span,
-                })
-            })
-            .collect::<Option<Vec<_>>>();
-        self.scopes.pop();
-        Some((bindings?, scope))
     }
 }
