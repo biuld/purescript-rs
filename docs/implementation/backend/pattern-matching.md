@@ -6,7 +6,8 @@
 
 **Progress:** PM-01..PM-13 Verified after a full design audit and the addition of
 a first-match oracle, negative CC/MIR fixtures, and mandatory Wasmtime execution
-evidence.
+evidence. PM-14 is in progress while the frontend guard corpus is blocked on
+missing standard library modules.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-05 and BE-06, with BE-08 and BE-09 for generic fields.
 
@@ -19,8 +20,10 @@ syntax belong to the frontend; [data representation](data-representation.md)
 owns constructor layouts; [generic aggregate erasure](generic-aggregate-erasure.md)
 owns recovery of dependent aggregate fields; [control flow and tail calls](control-flow-and-tail-calls.md)
 owns MIR/Wasm switch structuring. Track source and backend fixture evidence
-separately. Literal, guard, view, tuple, array, as, and or patterns listed as
-future work are not silently promoted to present source support.
+separately. FE-06 currently lowers guarded source rows and the supported Boolean
+and integer literal patterns before Typed Core; this record does not treat that
+frontend lowering as backend literal-pattern support. View, tuple, array, as,
+and or patterns remain outside the verified Core input contract.
 
 ## Acceptance matrix
 
@@ -42,6 +45,7 @@ Verified row needs exact implementation, test and execution evidence.
 | PM-11 | Optimization and Wasm lowering preserve warnings, source order, and selected-branch values. | Compare pre/post optimization execution on duplicate, nested, and generic cases; assert diagnostics remain source-associated. | Verified |
 | PM-12 | Internal decision-DAG and realizer invariant violations are classified `InvalidCompilerIr`, not `UnsupportedSource`; genuine coverage failures stay source-associated. | Negative fixtures assert the `BackendErrorKind` of an unbound decision column and of structural DAG failures. | Verified |
 | PM-13 | MIR verification rejects a variant projection read outside the dominance scope of its tag test. | A malformed MIR fixture reads a value defined in a sibling switch arm and must fail dominance. | Verified |
+| PM-14 | Coverage provenance survives guard lowering: only unconditional source rows contribute to exhaustiveness; guarded rows can be redundant relative to earlier unconditional rows; generated fallthrough rows are omitted from source diagnostics. | Core coverage tests assert each provenance rule. Driver tests reject partial guarded equations and Boolean cases whose only route is a failing guard, accept an unconditional `true` guard, and execute pattern-guard fallthrough. The source-level guard corpus is recorded separately in [frontend guard acceptance](../frontend/guards-and-multi-scrutinee-cases.md). | In progress |
 
 PM-12 and PM-13 were discovered during the audit. The design's present-tense
 contract (`Model`, `Design`, `Algorithms`, `Invariants and verification`, and
@@ -80,7 +84,7 @@ PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Runtime: `wasmtime 49.0.0 (17830bd3c 2026-09-21)`. All execution cases below ran;
+Runtime: `wasmtime 49.0.1 (46c23a87d 2026-09-24)`. All execution cases below ran;
 nothing was skipped under `PSRS_REQUIRE_WASMTIME=1`.
 
 ```text
@@ -325,6 +329,28 @@ PM-13:
   Gaps: none.
 ```
 
+```text
+PM-14:
+  Implementation: psrs-hir::CaseBranchCoverage is propagated through THIR and
+    Core; cc/case/coverage/mod.rs `analyze` counts only `Source` rows toward
+    exhaustive coverage, checks `Guarded` rows for redundancy against earlier
+    unconditional rows, and omits `Generated` rows from diagnostics.
+  Tests: coverage::tests::guarded_rows_do_not_prove_exhaustiveness_and_generated_rows_are_ignored
+    checks the missing witness, guarded-row redundancy, and generated-only
+    fallthrough matrix; driver tests::guards::guarded_rows_do_not_claim_unconditional_coverage
+    rejects partial guarded equations and Boolean cases with a failing guard;
+    `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace` executes the source guard
+    fallthrough cases.
+  Input boundary: source, Typed Core coverage fixtures, executed Wasm.
+  Commands: common commands; frontend official guard scoreboards.
+  Result: pass locally. Workspace tests pass with Wasmtime required. The named
+    upstream runtime cases stop at P3 because `Effect`, `Effect.Console`, and
+    `Partial.Unsafe` are missing, so official runtime evidence remains open.
+  Revision: issue-88 worktree, uncommitted.
+  Gaps: no redundancy warning is emitted for Boolean alternatives lowered to
+    conditionals; see FE-06's frontend acceptance record.
+```
+
 ## Discovered obligations and remaining work
 
 - **PM-12 (typed internal failures).** The audit found that decision-DAG and
@@ -341,7 +367,9 @@ PM-13:
   Opening the oracle to newtypes and multi-column records is straightforward
   future work; current source-level newtype and record cases execute instead.
 - Tuple patterns are source sugar for closed-record patterns `{ _1, _2, ... }`
-  and are not a separate Core pattern. Excluded and not claimed as present
-  support: literal, guard, view, array, as, and or patterns; open-row patterns.
+  and are not a separate Core pattern. FE-06 lowers guards and the supported
+  Boolean and integer literal subset before Typed Core; the backend does not
+  implement literal or guard pattern nodes. Views, arrays, as/or patterns, and
+  open-row patterns remain outside the accepted input contract.
 - Frontend pattern syntax and official-suite landing remain independently
   tracked (FE-06/FE-12, M8-W).

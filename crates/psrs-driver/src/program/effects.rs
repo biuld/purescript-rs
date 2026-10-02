@@ -142,6 +142,29 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
                 collect_runner_references(&branch.value, runner, spans);
             }
         }
+        ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                for binding in &clause.where_bindings {
+                    collect_runner_references(&binding.value, runner, spans);
+                }
+                for guard in &clause.guards {
+                    match guard {
+                        psrs_hir::Guard::Boolean(value) => {
+                            collect_runner_references(value, runner, spans)
+                        }
+                        psrs_hir::Guard::Pattern { value, .. } => {
+                            collect_runner_references(value, runner, spans)
+                        }
+                        psrs_hir::Guard::Let { bindings, .. } => {
+                            for binding in bindings {
+                                collect_runner_references(&binding.value, runner, spans);
+                            }
+                        }
+                    }
+                }
+                collect_runner_references(&clause.value, runner, spans);
+            }
+        }
         ExprKind::Local(_)
         | ExprKind::Global(_)
         | ExprKind::Integer(_)

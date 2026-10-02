@@ -1,8 +1,8 @@
 use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
-    self as hir, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding, LocalId, ModuleId,
-    SymbolId, TypeId,
+    self as hir, CaseBranchCoverage, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding,
+    LocalId, ModuleId, SymbolId, TypeId,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -233,6 +233,11 @@ impl Resolver {
                 for branch in branches {
                     let mut scope = HashMap::new();
                     let pattern = self.resolve_pattern(branch.pattern, &mut scope)?;
+                    let coverage = if ast_expr_is_guarded(&branch.value) {
+                        CaseBranchCoverage::Guarded
+                    } else {
+                        CaseBranchCoverage::Source
+                    };
                     self.scopes.push(scope);
                     let value = self.resolve_expr(branch.value);
                     self.scopes.pop();
@@ -240,12 +245,16 @@ impl Resolver {
                         pattern,
                         value: value?,
                         span: branch.span,
+                        coverage,
                     });
                 }
                 ExprKind::Case {
                     scrutinee: Box::new(scrutinee),
                     branches: lowered,
                 }
+            }
+            AstExprKind::Guarded(clauses) => {
+                ExprKind::Guarded(self.resolve_guarded_exprs(clauses)?)
             }
         };
         Some(Expr { kind, span })
@@ -332,6 +341,7 @@ impl Resolver {
         let span = pattern.span;
         let kind = match pattern.kind {
             ast::PatternKind::Wildcard => hir::PatternKind::Wildcard,
+            ast::PatternKind::Boolean(value) => hir::PatternKind::Boolean(value),
             ast::PatternKind::Var(binder) => {
                 let binder = self.new_local(binder.name, binder.span);
                 scope.insert(binder.name.clone(), binder.clone());
@@ -363,33 +373,8 @@ impl Resolver {
         declarations: Vec<ast::Declaration>,
         body: ast::Expr,
     ) -> Option<ExprKind> {
-        let mut scope = HashMap::new();
-        let mut binders = Vec::with_capacity(declarations.len());
-        for declaration in &declarations {
-            let binder = self.new_local(declaration.name.text.clone(), declaration.name.span);
-            if scope.insert(binder.name.clone(), binder.clone()).is_some() {
-                self.report(
-                    ResolveErrorKind::DuplicateLocalBinding,
-                    binder.name.clone(),
-                    binder.span,
-                );
-            }
-            binders.push(binder);
-        }
-
+        let (bindings, scope) = self.resolve_local_bindings(declarations)?;
         self.scopes.push(scope);
-        let bindings = declarations
-            .into_iter()
-            .zip(binders)
-            .filter_map(|(declaration, binder)| {
-                let value = self.resolve_expr(declaration.value)?;
-                Some(LocalBinding {
-                    binder,
-                    value,
-                    span: declaration.span,
-                })
-            })
-            .collect::<Vec<_>>();
         let body = self.resolve_expr(body);
         self.scopes.pop();
         Some(ExprKind::Let {
@@ -481,6 +466,15 @@ impl Resolver {
     }
 }
 
+mod guards;
 mod util;
+
+fn ast_expr_is_guarded(expression: &ast::Expr) -> bool {
+    match &expression.kind {
+        AstExprKind::Guarded(_) => true,
+        AstExprKind::Let { body, .. } => ast_expr_is_guarded(body),
+        _ => false,
+    }
+}
 
 pub(super) use util::{builtin_type, is_uppercase, split_qualified};

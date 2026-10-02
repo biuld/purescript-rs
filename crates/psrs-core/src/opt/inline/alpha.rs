@@ -166,6 +166,7 @@ fn clone_expr(
                         pattern,
                         value,
                         span: branch.span,
+                        coverage: branch.coverage,
                     })
                 })
                 .collect::<Option<Vec<_>>>()?,

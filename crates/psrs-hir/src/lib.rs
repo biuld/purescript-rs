@@ -9,7 +9,8 @@ mod ty;
 mod types;
 
 pub use expr::{
-    CaseBranch, Declaration, Expr, ExprKind, LocalBinder, LocalBinding, Pattern, PatternKind,
+    CaseBranch, CaseBranchCoverage, Declaration, Expr, ExprKind, Guard, GuardedExpr, LocalBinder,
+    LocalBinding, Pattern, PatternKind,
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use substitution::substitute_type_variables;
@@ -427,6 +428,12 @@ impl Module {
         } else {
             Err(errors)
         }
+    }
+
+    /// Checks that P4-only surface forms have been eliminated from term expressions.
+    pub fn verify_normalized(&self) -> Result<(), Vec<VerifyError>> {
+        self.verify()?;
+        verify::normalized(self)
     }
 }
 

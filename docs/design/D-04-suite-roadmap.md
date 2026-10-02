@@ -198,14 +198,14 @@ still open.
 
 **Measured baseline (annotations oracle):** the scoreboard resolves each case
 against the on-disk standard library and the case's own modules plus the
-siblings its imports reach. M2 failing agreement is 54/70, per code: `CycleInModules` 1/1, `DeclConflict`
+siblings its imports reach. M2 failing agreement is 56/70, per code: `CycleInModules` 1/1, `DeclConflict`
 11/11, `DuplicateModule` 1/1, `ModuleNotFound` 1/1, `OrphanKindDeclaration`
 2/2, `UnknownExport` 1/1, `UnknownExportDataConstructor` 1/1, `UnknownImport`
-1/1, `UnknownImportDataConstructor` 1/1, `UnknownName` 19/22,
+1/1, `UnknownImportDataConstructor` 1/1, `UnknownName` 20/22,
 `TransitiveExportError` 6/10, `ExportConflict` 5/7, `ScopeConflict` 5/6,
 `OverlappingNamesInLet` 1/4, `DuplicateValueDeclaration` 1/2,
-`OrphanTypeDeclaration` 1/2, `OverlappingArgNames` 1/2, and
-`TransitiveDctorExportError` 1/2. The 16 remaining files need one of:
+`OrphanTypeDeclaration` 1/2, `OverlappingArgNames` 2/2, and
+`TransitiveDctorExportError` 1/2. The 14 remaining files need one of:
 
 - operator, constructor-operator, and type-operator aliases, which surface
   lowering rejects and export checking ignores
@@ -217,8 +217,7 @@ siblings its imports reach. M2 failing agreement is 54/70, per code: `CycleInMod
 - instance declarations, which are not part of resolution yet: duplicate
   members in one instance (`881.purs`) and a type declared in an instance
   signature (`InstanceSigsOrphanTypeDeclaration`);
-- pattern bindings and pattern binders (`DuplicateDeclarationsInLet2/3`,
-  `OverlappingBinders`, `LetPatterns2`);
+- duplicate pattern declarations (`DuplicateDeclarationsInLet2/3`);
 - the built-in `Prim` module hierarchy, which we do not provide as source, so
   `2197-shouldFail.purs` and `2197-shouldFail2.purs` report `ModuleNotFound`
   instead of `ScopeConflict` and `UnknownName`;
@@ -247,22 +246,24 @@ modules are loaded across the corpus.
 | Own modules only, with the library | 42 |
 | Own modules plus siblings, with the library | 52 |
 
-Of the 361 unresolved files, 244 fail on a module the compiler does not provide
-(`Effect.Console` in 170, `Effect` in 24, then `Data.Eq`, `Test.Assert`,
-`Test`, `Data.Predicate`, `Unsafe.Coerce`, `Prim.Row`, and the `Prim.*` and
-`Data.*` hierarchies), 2 on a sibling this compiler cannot lower yet
+Of the 361 unresolved files, 265 fail because an imported module is unavailable
+(`Effect.Console` in 206, `Effect` in 29, then `Data.Eq`, `Test.Assert`, `Test`,
+`Data.Predicate`, `Unsafe.Coerce`, `Prim.Row`, and the `Prim.*` and `Data.*`
+hierarchies). Two of these are corpus siblings this compiler cannot lower yet
 (`passing/RedefinedFixity/M2.purs` and `M3.purs`, which import a module
-declaring an `infixr ... as $` alias), 0 are blocked on assembly, 7 report
+declaring an `infixr ... as $` alias). Zero are blocked on assembly, 7 report
 another resolution error, 4 are the DEC-16 lone-surrogate cases at lexing, and
-106 stop in surface lowering.
+85 stop in surface lowering.
 
 The ascription `e :: T` is no longer in that last column. #84 moved 28 `passing`
 files out of it, which is why the missing-module count rose from 216 to 244: those
-files now reach resolution and stop on the library instead. What is left in
-lowering is the remaining expression forms (operator sections and unary minus),
-patterns in 41 files, declarations in 26, types in 12, guards in 10, and
-multi-scrutinee `case` in 2. Representative gaps are multi-field constructor
-patterns (`passing/1185.purs`), record patterns nested in a constructor pattern
+files now reach resolution and stop on the library instead. Issue #88 moved 21
+more files through P2; the runtime scoreboard now has 265 module-not-found
+blockers and 85 P2 surface-lowering blockers. The remaining P2 rejections are
+33 pattern forms, 27 declarations, 19 types, and 6 expressions. Guards and
+multi-scrutinee `case` no longer appear as separate P2 blocker categories.
+Representative gaps are multi-field constructor patterns
+(`passing/1185.purs`), record patterns nested in a constructor pattern
 (`passing/2049.purs`), type wildcards (`passing/TypeWildcards.purs`), and row
 constructor constraints (`passing/RowConstructors.purs`).
 
@@ -316,8 +317,8 @@ local signature (`2542.purs`), and a shared cross-module kind environment
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M3 and M6.
 
-**Measured baseline (annotations oracle):** **12/40** failing cases agree, per
-code: `IntOutOfRange` 1/1, `InfiniteType` 1/1, `TypesDoNotUnify` 10/34,
+**Measured baseline (annotations oracle):** **13/41** failing cases agree, per
+code: `IntOutOfRange` 1/1, `InfiniteType` 1/1, `TypesDoNotUnify` 12/36,
 `EscapedSkolem` 0/2, `ExpectedType` 0/1, and `AmbiguousTypeVariables` 0/1.
 The ascription (#84) did not change this count; it moved two `passing` files to
 resolution and two more `failing` cases now reach the type checker.
@@ -327,7 +328,7 @@ and contribute no case.
 `TypeCheckError::error_code` now maps `TypeMismatch` to `TypesDoNotUnify`,
 `OccursCheck` to `InfiniteType`, `IntegerOutOfRange` to `IntOutOfRange`, and
 `AmbiguousConstraint` to `AmbiguousTypeVariables`, which is what moves the gate
-from "not measured" to 12/38. Three kinds deliberately have no code, each
+from "not measured" to 13/41. Three kinds deliberately have no code, each
 decided by reading `purs` rather than by guessing:
 
 | Kind | Why it is unmapped |
@@ -336,16 +337,15 @@ decided by reading `purs` rather than by guessing:
 | `FundepConflict` | Our "a fundep's determined positions disagree". There is no `FunctionalDependencyError` in `purs`' `Errors.hs`; `purs` reports the consequence — the corpus files `RowInInstanceNotDetermined0/1` expect `InvalidInstanceHead`, raised in `TypeChecker.checkTypeClassInstance`. |
 | `AmbiguousConstraint` | Mapped to `AmbiguousTypeVariables`, which `purs` throws in `TypeChecker/Types.hs` with the same set of undetermined variables, but at generalization rather than while solving a goal. The mapping is right and the stage differs. |
 
-The 26 M4 mismatches decompose by what we produced instead of the expected code:
+The 28 M4 mismatches decompose by what we produced instead of the expected code:
 
 | Produced | Cases | What it means |
 | --- | --- | --- |
-| `ModuleNotFound` | 12 | `CompareInt1..10` need `Prelude`'s comparison operators; `SkolemEscape2` and `3701` need other library exports. Blocked on Phase 3, not on the type checker. |
-| `UnknownName` | 4 | `TypeError`, `OperatorSections`, `SuggestComposition`, and `ConstraintInference` name library exports we do not provide, so they never reach unification. |
+| `ModuleNotFound` or `UnknownName` | 18 | Fourteen fixtures report a missing module, including `CompareInt1..10`, `IntToString1/3`, and `SkolemEscape2`; four name missing exports directly. They stop before the expected type error. |
 | `NoInstanceFound` | 6 | Every `Coercible*` case. The role check rejects the instance before unification sees the type, so the expected `TypesDoNotUnify` is never produced. |
 | nothing | 4 | `1175` and `InstanceSigsDifferentTypes` (`TypesDoNotUnify`), `KindStar` (`ExpectedType`), `SkolemEscapeKinds` (`EscapedSkolem`). We accept the program. |
 
-So 16 are Phase 3's to unblock and **10 are #99's**: the `Coercible` ordering
+So 18 are Phase 3's to unblock and **10 are #99's**: the `Coercible` ordering
 and the four cases we accept that `purs` rejects.
 
 ### M5 — Type classes and instances
@@ -362,8 +362,8 @@ and the four cases we accept that `purs` rejects.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M4.
 
-**Measured baseline (annotations oracle):** **41/81** failing cases agree, per
-code: `OverlappingInstances` 8/8, `NoInstanceFound` 28/36,
+**Measured baseline (annotations oracle):** **41/83** failing cases agree, per
+code: `OverlappingInstances` 8/8, `NoInstanceFound` 32/45,
 `MissingClassMember` 1/2, and 0 for each of the eight codes that need a check we
 do not have — `CannotDeriveInvalidConstructorArg` 0/7, `OrphanInstance` 0/6,
 `InvalidInstanceHead` 0/6, `InvalidNewtypeInstance` 0/5,
@@ -371,17 +371,17 @@ do not have — `CannotDeriveInvalidConstructorArg` 0/7, `OrphanInstance` 0/6,
 `DuplicateInstance` 0/1, and `ClassInstanceArityMismatch` 0/1.
 
 The instance solver, fundeps, and `Coercible` evidence exist and execute (see
-FE-14, FE-15, and FE-16), so `NoInstance`, `OverlappingInstances`, and
-`MissingInstanceMethod` only needed their official code to make 37 cases
-measurable. The 37 M5 mismatches decompose by what we produced instead:
+FE-14, FE-15, and FE-16). The 42 mismatched error-code annotations span 40
+fixtures; grouped by produced diagnostics, they decompose as follows:
 
 | Produced | Cases | What it means |
 | --- | --- | --- |
-| `UnknownName` or `ModuleNotFound` | 26 | The case names a library export or module we do not provide, so it stops before the solver. Blocked on Phase 3. |
-| nothing | 11 | We accept a program `purs` rejects. |
+| `ModuleNotFound` and `UnknownName` | 15 | The case names a library export or module we do not provide, so it stops before the solver. Blocked on Phase 3. |
+| `UnknownName` | 11 | A required library name is unavailable, so it stops before the solver. Blocked on Phase 3. |
+| nothing | 12 | We accept a program `purs` rejects. |
 | another resolution error | 2 | `DeclConflict` and `UnknownImport` are M2 codes, so the case is measured against a stage it never reaches. |
 
-So 28 are Phase 3's to unblock and **11 are #97's to add a check for**, in
+So 26 fixtures are Phase 3's to unblock and **12 fixtures are #97's to add a check for**, in
 addition to the eight codes that have no case reaching them. `CycleInTypeClass`
 contributes no case: `SelfCycleInTypeClassDeclaration` and `Superclasses2` are
 both reported as blocked before the type checker. `DerivingFunctor.purs`,
@@ -481,8 +481,8 @@ loading, and every other blocking stage.
 
 | Blocker | Cases | Recovered by |
 | --- | --- | --- |
-| Missing library module | 216 | 214 are Phase 3's to land: #94 `Prelude`, #95 `Effect`/`Effect.Console`/`Test.Assert`. Two are Phase 2's, by #86. |
-| P2 surface lowering | 106 | Phase 2: patterns, guards, operator aliases, sections, and unary minus. |
+| Missing library module | 265 | 263 are Phase 3's to land: #94 `Prelude`, #95 `Effect`/`Effect.Console`/`Test.Assert`. Two are Phase 2's, by #86. |
+| P2 surface lowering | 85 | Phase 2: patterns, declarations, types, expressions, operator aliases, sections, and unary minus. |
 | P10 Wasm structuring | 48 | Reached the backend; no `main` in a `Main` module to select as the entry. |
 | P3 resolve | 7 | Another resolution error behind the library gap. |
 | P0 lex | 4 | The DEC-16 lone-surrogate cases, which are also L1 differences. |
@@ -495,17 +495,18 @@ that this compiler cannot lower yet: `passing/RedefinedFixity/M2.purs` and
 `M3.purs` import `M1.purs`, which declares an `infixr ... as $` alias. The loader
 indexes a directory by parsing each file in it, so a file that parses but does
 not lower is never a candidate, and those two report `ModuleNotFound` for a
-module that is present. They are counted in the 216 above but recovered by
+module that is present. They are counted in the 265 above but recovered by
 Phase 2's operator aliases (#86), not by the library.
 
 `stdlib/lib` holds 12 modules (`Prelude`, `Data.Maybe`, `Data.Either`, and the
 `WASI` services) and exposes `WASI.Console`, while the corpus imports
 `Effect.Console` 339 times and `Effect` 57 times, then `Test.Assert` (29),
 `Type.Proxy` (17), `Partial.Unsafe` (12), `Data.Tuple` (8), `Prim.Row` (7), and
-the `Prim.*` and `Data.*` hierarchies. The 216 missing-module rejections name
-`Effect.Console` in 170 and `Effect` in 24, then `Data.Eq`, `Test.Assert`,
+the `Prim.*` and `Data.*` hierarchies. The 265 module-not-found rejections name
+`Effect.Console` in 206 and `Effect` in 29, then `Data.Eq` (4), `Test.Assert` (3),
 `Test`, `Data.Predicate`, `Unsafe.Coerce`, `Prim.Row`, and the `Prim.*` and
-`Data.*` hierarchies. Before the sibling-loading fix, 13 of the 229 named a
+`Data.*` hierarchies; this count includes the two unsupported `M1` sibling
+imports. Before the sibling-loading fix, 13 of the 229 named a
 corpus module the harness did not read (`M1`, `A`, `B`, `M2`, `M3`, `Foo`,
 `Coercible.Lib2`); those are now resolved by the driver's loader, which is why
 the missing-module count dropped by exactly 13. An `Effect`/`Effect.Console`
@@ -593,8 +594,8 @@ concrete slice issues as sub-issues; this table is the index.
 | --- | --- | --- | --- |
 | 0 | [#80](https://github.com/biuld/purescript-rs/issues/80) Lexer and layout agreement | `failing/2434.purs`, `layout/Commas.purs`, `layout/CaseGuards.purs` | Self-contained parse agreement. L1 is measured at 904/908; the four remaining cases are the DEC-16 intentional differences. String values follow [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md); preserving lone UTF-16 surrogates is not a remaining gate. |
 | 1 | [#74](https://github.com/biuld/purescript-rs/issues/74) Make every gate measurable | [#81](https://github.com/biuld/purescript-rs/issues/81) official `errorCode` mapping, [#82](https://github.com/biuld/purescript-rs/issues/82) lenient type check and L4/L5 scoreboards, [#83](https://github.com/biuld/purescript-rs/issues/83) harness module path, [#93](https://github.com/biuld/purescript-rs/issues/93) runtime scoreboard | Nothing else can be verified until L4, L5, L6/M7, and M8-W report numbers. Changes no user-visible behavior. |
-| 2 | [#75](https://github.com/biuld/purescript-rs/issues/75) Frontend surface lowering | [#84](https://github.com/biuld/purescript-rs/issues/84) ascription, [#85](https://github.com/biuld/purescript-rs/issues/85) patterns, [#86](https://github.com/biuld/purescript-rs/issues/86) operator aliases, [#87](https://github.com/biuld/purescript-rs/issues/87) type wildcards and rows, [#88](https://github.com/biuld/purescript-rs/issues/88) guards and multi-scrutinee `case`, [#89](https://github.com/biuld/purescript-rs/issues/89) `Prim` and unary minus, [#90](https://github.com/biuld/purescript-rs/issues/90) instance resolution | The largest blocker in the corpus: 106 `passing` files still stop in surface lowering, before resolution, kinds, or types run — down from 134 once the ascription landed. A file that cannot lower cannot be measured by any later gate. |
-| 3 | [#76](https://github.com/biuld/purescript-rs/issues/76) Standard library | [#94](https://github.com/biuld/purescript-rs/issues/94) `Prelude`, [#95](https://github.com/biuld/purescript-rs/issues/95) `Effect`/`Test.Assert`, [#96](https://github.com/biuld/purescript-rs/issues/96) tuples, `Proxy`, `Prim` | 242 of the 361 unresolved `passing` files are blocked on nothing but a missing library module. Depends on Phase 2: the library itself uses ascriptions, guards, sections, and instances. |
+| 2 | [#75](https://github.com/biuld/purescript-rs/issues/75) Frontend surface lowering | [#84](https://github.com/biuld/purescript-rs/issues/84) ascription, [#85](https://github.com/biuld/purescript-rs/issues/85) patterns, [#86](https://github.com/biuld/purescript-rs/issues/86) operator aliases, [#87](https://github.com/biuld/purescript-rs/issues/87) type wildcards and rows, [#88](https://github.com/biuld/purescript-rs/issues/88) guards and multi-scrutinee `case`, [#89](https://github.com/biuld/purescript-rs/issues/89) `Prim` and unary minus, [#90](https://github.com/biuld/purescript-rs/issues/90) instance resolution | The largest blocker in the corpus: 85 `passing` files still stop in surface lowering, before resolution, kinds, or types run — down from 134 after #84 and by 21 more after #88. A file that cannot lower cannot be measured by any later gate. |
+| 3 | [#76](https://github.com/biuld/purescript-rs/issues/76) Standard library | [#94](https://github.com/biuld/purescript-rs/issues/94) `Prelude`, [#95](https://github.com/biuld/purescript-rs/issues/95) `Effect`/`Test.Assert`, [#96](https://github.com/biuld/purescript-rs/issues/96) tuples, `Proxy`, `Prim` | 265 of the 361 unresolved `passing` files are blocked on a missing module. Depends on Phase 2: the library itself uses ascriptions, guards, sections, and instances. |
 | 4 | [#77](https://github.com/biuld/purescript-rs/issues/77) L4 and L5 to 100% | [#97](https://github.com/biuld/purescript-rs/issues/97) missing class checks, [#98](https://github.com/biuld/purescript-rs/issues/98) deriving and fundeps, [#99](https://github.com/biuld/purescript-rs/issues/99) hole inference, [#100](https://github.com/biuld/purescript-rs/issues/100) M3 kind gate | Turns "measurable" into "passing". #81 makes 153 cases trackable; the rest need rules. |
 | 5 | [#78](https://github.com/biuld/purescript-rs/issues/78) Backend on real programs | [#73](https://github.com/biuld/purescript-rs/issues/73) aggregate fixture execution, [#101](https://github.com/biuld/purescript-rs/issues/101) CC/MIR coverage | Consumes the output of Phases 2–4. The backend rows are `Partial` on source coverage, not on design. |
 | 6 | [#79](https://github.com/biuld/purescript-rs/issues/79) M8 warnings and optimization | [#91](https://github.com/biuld/purescript-rs/issues/91) warning scoreboard, [#92](https://github.com/biuld/purescript-rs/issues/92) optimize comparison | Last, because both need a harness first and neither blocks another phase. |
@@ -677,11 +678,11 @@ for matrix status.
 | --- | --- | --- | --- |
 | L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
-| L2 | Module, import, export, and name resolution | 54/70 failing cases; 52/413 passing modules resolve, with 214 blocked on a library module and 0 on assembly; 106 `passing` files stop in surface lowering, down from 134 after #84 | The mapped resolution cases and all required passing-module cases agree. |
+| L2 | Module, import, export, and name resolution | 56/70 failing cases; 52/413 passing modules resolve, with 265 blocked on a missing module and 0 on assembly; 85 `passing` files stop in surface lowering, down from 134 after #84 and by 21 after #88 | The mapped resolution cases and all required passing-module cases agree. |
 | L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
-| L4 | Core type checking | 12/40 failing cases; `TypesDoNotUnify` 10/34, `IntOutOfRange` 1/1, `InfiniteType` 1/1, `EscapedSkolem` 0/2, `ExpectedType` 0/1, `AmbiguousTypeVariables` 0/1. Most mismatches are blocked on a missing library module. | 100% agreement for the mapped type cases. |
-| L5 | Classes and instances | 41/81 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 32/43, `MissingClassMember` 1/2, and 0 for the eight codes that have no check. Most mismatches are blocked on a missing library module. | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the board reports 244 blocked on a missing module, 106 in surface lowering (down from 134 after #84), and 0 on assembly | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| L4 | Core type checking | 13/41 failing cases; `TypesDoNotUnify` 12/36, `IntOutOfRange` 1/1, `InfiniteType` 1/1, `EscapedSkolem` 0/2, `ExpectedType` 0/1, `AmbiguousTypeVariables` 0/1. Most mismatches are blocked on a missing library module. | 100% agreement for the mapped type cases. |
+| L5 | Classes and instances | 41/83 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 32/45, `MissingClassMember` 1/2, and 0 for the eight codes that have no check. Most mismatches are blocked on a missing library module. | 100% agreement for the mapped class cases. |
+| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the board reports 265 blocked on a missing module, 85 in surface lowering (down from 134 after #84 and by 21 after #88), and 0 on assembly | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 
@@ -720,11 +721,11 @@ resolved, type checked, and represented in Typed Core as required.
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
 | FE-01 | Lexing, Unicode tokens, comments, literals, and layout | Lexer and layout agree with the L1 annotations scoreboard at 904/908, including 15/15 layout cases. The four differences are the DEC-16 intentional differences: a supplementary scalar is accepted as one `Char` (`failing/2434.purs`), and an unpaired surrogate escape is rejected in `StringEscapes.purs` and the two `StringEdgeCases` files. A paired surrogate escape decodes as one scalar, and no surrogate becomes U+FFFD. Parse agreement does not verify string values. | Partial | Cover the remaining literal forms the corpus exercises. |
-| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, aliases, and cycles work in a subset; 54/70 mapped failing cases agree. Operator, constructor-operator, and type-operator aliases are not lowered, instance declarations are not resolved, and the transitive export rules for a hidden type, a kind signature, and a value type are missing. | Partial | Complete operator/fixity aliases, instance resolution, and all transitive export rules. |
-| FE-03 | Value declarations, signatures, recursive groups, pattern bindings, and `where` | Named declarations, signatures, recursive local groups, and top-level SCC inference work; pattern declarations and `where` are not end-to-end. | Partial | Lower pattern declarations and local `where` blocks. |
+| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, aliases, and cycles work in a subset; 56/70 mapped failing cases agree. Operator, constructor-operator, and type-operator aliases are not lowered, instance declarations are not resolved, and the transitive export rules for a hidden type, a kind signature, and a value type are missing. | Partial | Complete operator/fixity aliases, instance resolution, and all transitive export rules. |
+| FE-03 | Value declarations, signatures, recursive groups, pattern bindings, and `where` | Named declarations, signatures, recursive local groups, and top-level SCC inference work. Local let/where pattern declarations lower in source order through the supported pattern subset; top-level pattern declarations and broader pattern forms remain incomplete. | Partial | Complete top-level pattern declarations and remaining pattern forms. |
 | FE-04 | Declaration forms: `data`, `newtype`, `type`, `class`, `instance`, `derive`, `foreign`, roles, fixities, and kind signatures | Data/newtype roles are inferred and checked, foreign role signatures enter the checked kind environment, and source role errors retain spans. Deriving and several declaration forms remain incomplete. | Partial | Complete deriving and the remaining declaration-form semantics. |
 | FE-05 | Expressions: application, operators, lambdas, `if`, `let`, `case`, records, arrays, literals, sections, `do`, and `ado` | Application, operators in the bootstrap subset, lambdas, `if`, `let`, `case`, scalar arrays, empty array literals whose element type is determined, records, and selected literals work, and `do`/`ado` lower to bind, discard, and `let`. The ascription `e :: T` is checked against its written type and the expression keeps that type, with no node left in Typed Core; it carries an explicit `forall` but not a free type variable, which only `passing/2941.purs` needs. Sections are rejected at parse time. | Partial | Land sections, unary minus, and the remaining literal forms. |
-| FE-06 | Patterns: variables, wildcards, constructors, records, literals, tuples, arrays, guards, and binders | Variable, wildcard, single-field constructor, restricted closed-record, and tuple patterns work. A tuple is the closed record `{ _1, _2, ... }` in typing and Core. A multi-field constructor pattern in a `case` alternative (`passing/1185.purs`) and a record pattern nested in a constructor pattern (`passing/2049.purs`) are the two largest gaps: 41 `passing` files stop in pattern lowering. Guards, multiple scrutinees, literal/array patterns, exhaustiveness, and redundancy checks remain open. | Partial | Complete the remaining pattern forms, coverage checking, and lowering. |
+| FE-06 | Patterns: variables, wildcards, constructors, records, literals, tuples, arrays, guards, and binders | Variable, wildcard, single-field constructor, restricted closed-record, and tuple patterns work. A tuple is the closed record `{ _1, _2, ... }` in typing and Core. Ordered guarded equations and case alternatives support comma Boolean guards, let guards, pattern guards, Boolean alternatives, and integer literal patterns in function equations and cases; failed guards fall through without re-evaluating case scrutinees. Multiple case scrutinees lower to one anonymous record. Guarded rows do not establish coverage unless an unconditional guard path exists; partial guarded and Boolean cases are rejected. Repeated binders, including `@` binders in case alternatives, report `OverlappingArgNames`. Local pattern declarations scope over following declarations only. See the [guards and multi-scrutinee acceptance record](../implementation/frontend/guards-and-multi-scrutinee-cases.md). Named upstream runtime cases currently stop at P3 on missing `Effect`, `Effect.Console`, or `Partial.Unsafe`; 33 passing files still stop in pattern lowering. Array patterns, broader nested literal patterns, and redundancy warnings for Boolean cases lowered to conditionals remain open. | Partial | Complete the remaining pattern forms, Boolean redundancy analysis, and broader literal/array lowering; rerun named runtime cases when the missing modules are available. |
 | FE-07 | Operators, sections, fixity declarations, and type/value operators | Operator syntax and the current intrinsic operators work; complete fixity resolution, aliases, sections, and type operators are pending. | Partial | Implement one shared fixity and operator-resolution pass. |
 | FE-08 | Primitive types and monomorphic inference | `Int`, `Number` (IEEE-754 binary64), `Boolean`, `Char` (a Unicode scalar as `i32`; source literals currently reject supplementary scalars), `String` (frontend Rust text; the accepted contract is [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)), `Unit`, function types, unification, occurs check, and source-spanned primitive errors work in the compiler slice. | Partial | Reach the complete L4/L6 gate and add official-suite evidence for the expanded primitive set and remaining literal semantics. |
 | FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, outermost `forall`, and the first generic CC/Wasm representation work through THIR/Core. | Partial | Reach the corresponding type/runtime suite gate, then add dictionary passing and the remaining generic representations. |
@@ -738,7 +739,7 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Some type syntax and kinded binders parse; visible application, holes, and full annotation checking remain incomplete. 12 `passing` files stop in type lowering, dominated by type wildcards (`passing/TypeWildcards.purs`, `passing/WildcardType.purs`, `passing/TypeWildcardsRecordExtension.purs`) and row constructor constraints (`passing/RowConstructors.purs`). | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
-| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and the resolution, kind, type, and class `errorCode`s are now measured: L1 904/908, L2 54/70, L3 27/48, L4 12/38, L5 37/74. Most remaining L4/L5 mismatches are blocked on a library module rather than on a missing diagnostic. Warning coverage and complete diagnostic agreement do not. | Partial | Add the eight missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and the resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 56/70, L3 27/48, L4 13/41, and L5 41/83. Most remaining L4/L5 mismatches are blocked on a library module rather than on a missing diagnostic. Warning coverage and complete diagnostic agreement do not. | Partial | Add the eight missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
 | FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
 
 The frontend landing order is:

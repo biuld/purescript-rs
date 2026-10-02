@@ -3,17 +3,21 @@ use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod do_notation;
+mod equations;
 mod export;
 mod expr;
 mod import;
 mod instance_decl;
+mod local;
 mod lower;
 mod role;
 mod ty;
 mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
-pub use expr::{Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind};
+pub use expr::{
+    Binder, CaseBranch, Declaration, Expr, ExprKind, Guard, GuardedExpr, Pattern, PatternKind,
+};
 pub use import::{Import, ImportList, ImportRef};
 pub use lower::lower_module;
 pub use role::{RoleAnnotation, RoleDeclaration, TypeRole};
@@ -121,58 +125,55 @@ fn lower_declaration(declaration: cst::Declaration) -> Result<Declaration, Lower
     }
 }
 
+pub(crate) fn lower_declarations(
+    declarations: Vec<cst::Declaration>,
+) -> Result<Vec<Declaration>, LowerError> {
+    let mut lowered = Vec::new();
+    let mut index = 0;
+    while index < declarations.len() {
+        if let cst::Declaration::Value(first) = &declarations[index] {
+            let mut end = index + 1;
+            while let Some(cst::Declaration::Value(next)) = declarations.get(end)
+                && next.name.text == first.name.text
+            {
+                end += 1;
+            }
+            let group = declarations[index..end]
+                .iter()
+                .map(|declaration| match declaration {
+                    cst::Declaration::Value(value) => Ok(value.clone()),
+                    _ => unreachable!("the group contains only value declarations"),
+                })
+                .collect::<Result<Vec<_>, LowerError>>()?;
+            lowered.push(equations::lower_value_declarations(group)?);
+            index = end;
+        } else {
+            lowered.push(lower_declaration(declarations[index].clone())?);
+            index += 1;
+        }
+    }
+    Ok(lowered)
+}
+
 pub(crate) fn lower_value_declaration(
     declaration: cst::ValueDeclaration,
 ) -> Result<Declaration, LowerError> {
-    if let Some(error) = check_argument_names(&declaration.parameters) {
-        return Err(error);
-    }
-    let cst::ValueRhs::Plain { value, .. } = declaration.rhs else {
-        return Err(LowerError::new(
-            declaration.span,
-            "guarded equations are not supported yet",
-        ));
-    };
-    let value = lower_expr(value)?;
-    // `x args = body where decls` is `x args = let decls in body`: the `where`
-    // declarations are a local binding group scoped over the right-hand side,
-    // and its parameters remain in scope because the `let` is inside them.
-    let mut value = wrap_where(declaration.where_block, value)?;
-    for parameter in declaration.parameters.into_iter().rev() {
-        value = expr::lower_pattern_lambda(parameter, value)?;
-    }
-    Ok(Declaration {
-        name: lower_name(declaration.name),
-        value,
-        span: declaration.span,
-        annotation: declaration.annotation.map(lower_type).transpose()?,
-    })
+    equations::lower_value_declarations(vec![declaration])
 }
 
-/// Wraps a right-hand side in a local `let` for its `where` declarations,
-/// matching the official PureScript `Where` desugaring. The declarations form a
-/// recursive binding group and stay unresolved, like any other `let`.
-fn wrap_where(block: Option<cst::DeclarationBlock>, value: Expr) -> Result<Expr, LowerError> {
+pub(crate) fn wrap_where(
+    block: Option<cst::DeclarationBlock>,
+    value: Expr,
+) -> Result<Expr, LowerError> {
     let Some(block) = block else {
         return Ok(value);
     };
-    let declarations = block
-        .declarations
-        .into_iter()
-        .map(lower_declaration)
-        .collect::<Result<Vec<_>, _>>()?;
-    let span = value.span;
-    Ok(Expr {
-        kind: ExprKind::Let {
-            declarations,
-            body: Box::new(value),
-        },
-        span,
-    })
+    let span = TextRange::new(block.span.start, value.span.end);
+    local::lower_local_declarations(block.declarations, value, span)
 }
 
 /// Reports the second occurrence of a repeated value argument name.
-fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
+pub(crate) fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
     let mut seen = HashSet::new();
     for parameter in parameters {
         if let Some(error) = expr::check_pattern_names(parameter, &mut seen) {
@@ -182,9 +183,17 @@ fn check_argument_names(parameters: &[cst::Pattern]) -> Option<LowerError> {
     None
 }
 
-fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
+pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
     let span = expression.span;
-    let kind = match expression.kind {
+    let cst_kind = match expression.kind {
+        CstExprKind::Let {
+            declarations, body, ..
+        } => {
+            return local::lower_local_declarations(declarations, lower_expr(*body)?, span);
+        }
+        kind => kind,
+    };
+    let kind = match cst_kind {
         CstExprKind::Name(name) => ExprKind::Name(lower_name(name)),
         CstExprKind::Integer(value) => ExprKind::Integer(value),
         CstExprKind::Number(value) => ExprKind::Number(value),
@@ -231,17 +240,8 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 span,
             });
         }
-        CstExprKind::Let {
-            declarations, body, ..
-        } => {
-            let mut lowered = Vec::with_capacity(declarations.len());
-            for declaration in declarations {
-                lowered.push(lower_declaration(declaration)?);
-            }
-            ExprKind::Let {
-                declarations: lowered,
-                body: Box::new(lower_expr(*body)?),
-            }
+        CstExprKind::Let { .. } => {
+            unreachable!("let expressions are lowered before this match")
         }
         CstExprKind::If {
             condition,
@@ -258,34 +258,47 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             alternatives,
             ..
         } => {
-            if scrutinees.len() != 1 {
-                return Err(LowerError::new(
-                    span,
-                    "case with multiple scrutinees is not supported yet",
-                ));
-            }
-            let scrutinee = Box::new(lower_expr(scrutinees.into_iter().next().unwrap())?);
+            let scrutinee = Box::new(expr::lower_case_scrutinees(scrutinees, span)?);
             let mut branches = Vec::with_capacity(alternatives.len());
             for alternative in alternatives {
-                if alternative.patterns.len() != 1 {
+                if alternative.patterns.is_empty() {
                     return Err(LowerError::new(
                         alternative.span,
-                        "case alternatives with multiple patterns are not supported yet",
+                        "case alternatives require at least one pattern",
                     ));
                 }
-                let cst::CaseRhs::Plain {
-                    value, where_block, ..
-                } = alternative.rhs
-                else {
-                    return Err(LowerError::new(
-                        alternative.span,
-                        "guarded case alternatives are not supported yet",
-                    ));
+                let (pattern, pattern_guards) =
+                    expr::lower_case_patterns(alternative.patterns, alternative.span)?;
+                let value = match alternative.rhs {
+                    cst::CaseRhs::Plain {
+                        value, where_block, ..
+                    } => wrap_where(where_block, lower_expr(value)?)?,
+                    cst::CaseRhs::Guarded(clauses) => Expr {
+                        kind: ExprKind::Guarded(
+                            clauses
+                                .into_iter()
+                                .map(|clause| {
+                                    let where_declarations = match clause.where_block {
+                                        Some(block) => lower_declarations(block.declarations)?,
+                                        None => Vec::new(),
+                                    };
+                                    Ok(expr::GuardedExpr {
+                                        guards: clause
+                                            .guards
+                                            .into_iter()
+                                            .map(expr::lower_guard)
+                                            .collect::<Result<Vec<_>, _>>()?,
+                                        value: lower_expr(clause.value)?,
+                                        where_declarations,
+                                        span: clause.span,
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, LowerError>>()?,
+                        ),
+                        span: alternative.span,
+                    },
                 };
-                let pattern =
-                    expr::lower_pattern(alternative.patterns.into_iter().next().unwrap())?;
-                let value = lower_expr(value)?;
-                let value = wrap_where(where_block, value)?;
+                let value = expr::prepend_guards(value, pattern_guards, alternative.span);
                 branches.push(CaseBranch {
                     pattern,
                     value,
