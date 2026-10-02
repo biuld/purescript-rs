@@ -324,7 +324,8 @@ impl Primitive {
             | Intrinsic::IntToChar
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
-            | Intrinsic::Coerce => return None,
+            | Intrinsic::Coerce
+            | Intrinsic::Undefined => return None,
         })
     }
 }

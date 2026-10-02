@@ -89,10 +89,12 @@ particular, `Number` is exported from `Prim`, not a `Prim.Number` child module.
 The official `Prim.*` module registry is derived from the shared declarations,
 so a recognized child module always has the member metadata it advertises.
 Import and export interfaces carry a `TypeReference`, preserving built-in and
-declared identities through qualification and re-exports. A source module
-named `Prim` or beginning with `Prim.` is rejected; source cannot replace a
-compiler interface. The root `undefined` value has no shared value identity
-yet and is not exported by the current virtual interface.
+declared identities through qualification and re-exports, and carry a
+`SymbolId` for the root `undefined` value, so an alias and a re-export of it
+reach the same compiler-owned identity. A source module named `Prim` or
+beginning with `Prim.` is rejected; source cannot replace a compiler interface.
+The root `undefined` value reaches source only through this interface, not as a
+free name.
 
 This document owns that interface: which names exist, which identity each carries,
 and that nothing in source can replace one. What a member *means* — which of them
