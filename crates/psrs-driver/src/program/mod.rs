@@ -267,10 +267,15 @@ fn typecheck_program(
                 .find(|declaration| declaration.name == "Effect")
                 .map(|declaration| declaration.id)
         });
-    let known_types = modules
+    let mut known_types = modules
         .iter()
         .flat_map(|module| module.types.iter().cloned())
         .collect::<Vec<_>>();
+    known_types.extend(
+        psrs_hir::primitive_type_declarations()
+            .into_iter()
+            .map(|(_, declaration)| declaration),
+    );
     // Instance declarations are threaded per module, like values: a module can
     // only select an instance declared in a module it imports, directly or
     // transitively.

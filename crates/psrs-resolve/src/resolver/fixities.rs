@@ -57,10 +57,7 @@ impl Resolver {
                         continue;
                     };
                     if declaration.operator.text != declaration.target.text
-                        && self
-                            .type_names
-                            .insert(declaration.operator.text.clone(), target)
-                            .is_some()
+                        && self.type_names.contains_key(&declaration.operator.text)
                     {
                         self.report(
                             ResolveErrorKind::DeclConflict,

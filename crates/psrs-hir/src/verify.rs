@@ -71,6 +71,14 @@ pub(crate) fn verify_expr(
             verify_expr(left, globals, visible_locals, declared_locals, errors);
             verify_expr(right, globals, visible_locals, declared_locals, errors);
         }
+        ExprKind::Negate {
+            function,
+            expression,
+            ..
+        } => {
+            verify_expr(function, globals, visible_locals, declared_locals, errors);
+            verify_expr(expression, globals, visible_locals, declared_locals, errors);
+        }
         ExprKind::OperatorChain {
             operands,
             operators,

@@ -18,7 +18,7 @@ use super::corpus::{
 use std::collections::BTreeMap;
 
 /// The `errorCode`s the M2 milestone is accountable for, from D-04.
-const M2_CODES: [&str; 18] = [
+const M2_CODES: [&str; 19] = [
     "UnknownName",
     "DeclConflict",
     "TransitiveExportError",
@@ -31,6 +31,7 @@ const M2_CODES: [&str; 18] = [
     "OverlappingArgNames",
     "DuplicateValueDeclaration",
     "DuplicateModule",
+    "CannotDefinePrimModules",
     "CycleInModules",
     "UnknownImport",
     "UnknownImportDataConstructor",
@@ -75,7 +76,16 @@ fn l2_resolution_scoreboard_with_annotations() {
 
         failing_total += 1;
         let case = load_case(&path, &failing_dir, &text);
-        let result = psrs_driver::check_program_lenient_with_prelude(&case.inputs());
+        // Public declarations with written types are checked by resolution,
+        // while inferred public value dependencies are only known after P5
+        // generalizes their schemes. Measure annotated transitive-export
+        // cases through the typed lenient pipeline so each rule is observed at
+        // its owning boundary; this pipeline retains any P3 diagnostics too.
+        let result = if expected.iter().any(|code| code == "TransitiveExportError") {
+            psrs_driver::check_program_types_lenient_with_prelude(&case.inputs())
+        } else {
+            psrs_driver::check_program_lenient_with_prelude(&case.inputs())
+        };
         let ours = match &result {
             Ok(()) => std::collections::HashSet::new(),
             Err(errors) => diagnostic_codes(case.own_diagnostics(errors)),

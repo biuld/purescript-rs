@@ -52,3 +52,98 @@ fn accepts_well_kinded_higher_kinded_declarations() {
     let codes = kind_codes("module Main where\ndata Compose f g a = Compose (f (g a))\n");
     assert!(codes.is_empty(), "{codes:?}");
 }
+
+#[test]
+fn kindchecks_official_polykind_row_symbol_and_ordering_interfaces() {
+    let source = r#"module Main where
+import Prim.Row (class Cons)
+import Prim.Symbol (class Append, class Compare)
+import Prim.Ordering (Ordering, LT, EQ, GT)
+
+rowType :: forall label value tail row. Cons label value tail row => Int
+rowType = 0
+
+rowHigherKind
+  :: forall label (value :: Type -> Type) (tail :: Row (Type -> Type)) (row :: Row (Type -> Type))
+   . Cons label value tail row
+  => Int
+rowHigherKind = 0
+
+rowSymbolKind
+  :: forall label (value :: Symbol) (tail :: Row Symbol) (row :: Row Symbol)
+   . Cons label value tail row
+  => Int
+rowSymbolKind = 0
+
+append :: forall left right result. Append left right result => Int
+append = 0
+
+compare :: forall left right. Compare left right LT => Int
+compare = 0
+"#;
+    let errors = check_program_kinds_lenient(&[("Main.purs", source)])
+        .err()
+        .unwrap_or_default();
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn kindchecks_all_official_primitive_class_schemes() {
+    let source = r#"module Main where
+import Prim (class Partial, Int, Row, Symbol, Type)
+import Prim.Boolean (True, False)
+import Prim.Coerce (class Coercible)
+import Prim.Int (class Add, class Compare, class Mul, class ToString)
+import Prim.Ordering (Ordering, LT, EQ, GT)
+import Prim.RowList (RowList, Cons, Nil, class RowToList)
+import Prim.TypeError
+
+data Proxy :: forall k. k -> Type
+data Proxy value = Proxy
+
+partial :: Partial => Int
+partial = 0
+
+coercible :: forall k (left :: k) (right :: k). Coercible left right => Int
+coercible = 0
+
+add :: forall (left :: Int) (right :: Int) (sum :: Int). Add left right sum => Int
+add = 0
+
+multiply :: forall (left :: Int) (right :: Int) (product :: Int). Mul left right product => Int
+multiply = 0
+
+compareInt :: forall (left :: Int) (right :: Int). Compare left right LT => Int
+compareInt = 0
+
+toString :: forall (value :: Int) (text :: Symbol). ToString value text => Int
+toString = 0
+
+rowList :: forall k (row :: Row k) (list :: RowList k). RowToList row list => Int
+rowList = 0
+
+rowListNil :: Proxy (Nil :: RowList Type)
+rowListNil = Proxy
+
+falseProxy :: Proxy False
+falseProxy = Proxy
+
+trueProxy :: Proxy True
+trueProxy = Proxy
+
+warn :: forall (doc :: Doc) value. Warn doc => value -> value
+warn value = value
+
+failConstraint :: forall (doc :: Doc) value. Fail doc => value -> value
+failConstraint value = value
+
+"#;
+    let errors = check_program_kinds_lenient(&[("Main.purs", source)])
+        .err()
+        .unwrap_or_default();
+    assert!(errors.is_empty(), "{errors:?}");
+    let errors = crate::check_program_types_lenient(&[("Main.purs", source)])
+        .err()
+        .unwrap_or_default();
+    assert!(errors.is_empty(), "{errors:?}");
+}

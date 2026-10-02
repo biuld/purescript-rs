@@ -230,6 +230,13 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 cst::OperatorSectionSide::Right => SectionSide::Right,
             },
         },
+        CstExprKind::Negate {
+            minus_span,
+            expression,
+        } => ExprKind::Negate {
+            minus_span,
+            expression: Box::new(lower_expr(*expression)?),
+        },
         CstExprKind::Lambda {
             parameters, body, ..
         } => {
@@ -348,7 +355,7 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 ty,
             }
         }
-        CstExprKind::Hole(_) | CstExprKind::Negate { .. } | CstExprKind::TypeApplication { .. } => {
+        CstExprKind::Hole(_) | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError::new(
                 span,
                 "this expression syntax is not supported yet",
@@ -432,3 +439,5 @@ pub(crate) fn lower_name(name: cst::CstName) -> Name {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod unary_minus_tests;

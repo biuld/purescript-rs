@@ -9,16 +9,19 @@
 systems.
 
 **Summary:** P3 resolves a complete program's module graph, imports, exports,
-fixities, and references into stable HIR identities. It keeps source spans and
-WIT binding declarations as metadata, while leaving kinds and types for P5.
-No unresolved source name crosses the P3 boundary.
+fixities, and references into stable HIR identities. Compiler-provided `Prim`
+interfaces expose existing built-in type identities without source modules or
+duplicate type equations. P3 keeps source spans and WIT binding declarations
+as metadata, while leaving kinds and types for P5; no unresolved source name
+crosses the P3 boundary.
 
 ## Scope
 
 This document owns module loading order, namespace lookup, import/export
-resolution, local scope, stable IDs, and HIR construction. P4 owns operator
-and term desugaring; [type checking](../type-system/type-inference.md) owns
-type validity; backend WIT validation owns target signatures.
+resolution, local scope, stable IDs, compiler-provided `Prim` interfaces, and
+HIR construction. P4 owns operator and term desugaring; [type
+checking](../type-system/type-inference.md) owns type validity; backend WIT
+validation owns target signatures.
 
 ## Background
 
@@ -37,6 +40,7 @@ without repeating name lookup.
 ModuleKey = canonical module name
 SymbolId = stable value declaration identity within a linked program
 TypeId | ConstructorId | ClassId | LocalId = disjoint identity spaces
+TypeReference = Builtin(BuiltinType) | Named(TypeId)
 ResolveEnv = { modules, imports, value_ns, type_ns, ctor_ns, class_ns, fixities }
 HIR = { declarations, resolved references, imports, exports, spans }
 ```
@@ -57,15 +61,37 @@ their final IDs. Qualified lookup uses only the named imported module;
 unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
+`Prim` is a virtual module family. The root interface maps built-in type names
+to their existing `BuiltinType` identities. Official child-module types and
+classes are declared once in shared HIR primitive metadata with stable
+`TypeId`s, kinds, and class functional dependencies; the resolver, kind
+checker, and class environment consume those declarations. The interfaces do
+not assign separate identities to aliases of the same primitive. In
+particular, `Number` is exported from `Prim`, not a `Prim.Number` child module.
+The official `Prim.*` module registry is derived from the shared declarations,
+so a recognized child module always has the member metadata it advertises.
+Import and export interfaces carry a `TypeReference`, preserving built-in and
+declared identities through qualification and re-exports. A source module
+named `Prim` or beginning with `Prim.` is rejected; source cannot replace a
+compiler interface. The root `undefined` value has no shared value identity
+yet and is not exported by the current virtual interface.
+
 P3 resolves every value and type fixity target in its own namespace, binds the
-operator alias to the target's `SymbolId` or `TypeId`, and stores associativity
-and precedence on the resolved module. Expression, constructor-pattern, and
-type operator chains keep their source order through P3. P3 does not
-re-associate them; P4 consumes their identities and fixities. Import and export
-resolution preserves aliases as aliases of the original declaration,
-including through re-exports. Unqualified fixity targets use the same ambiguity
-checks as ordinary references, and qualified targets resolve through the
-named import and its alias.
+operator alias to its target `SymbolId` or `TypeReference`, and stores
+associativity and precedence on the resolved module. Expression,
+constructor-pattern, and type operator chains keep source order through P3; P4
+consumes their identities and fixities. Imports and exports preserve aliases as
+aliases of their original declaration, including through module re-exports.
+Unqualified fixity targets use the same ambiguity checks as ordinary
+references, and qualified targets resolve through the named import and alias.
+Builtin `Prim.Function` and `Prim.Int` references stay builtins through the
+same interface path and are not assigned declaration `TypeId`s.
+
+Primitive class declarations make names, kinds, and fundeps available to
+resolution and kind checking. Import support does not imply entailment or
+runtime support for their rules: `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
+`Prim.Int`, and `Prim.TypeError` constraints still need their compiler-owned
+solver semantics.
 
 `foreign import` WIT binding text stays attached to the resolved declaration.
 The quoted binding is a source string value: a Unicode scalar sequence
@@ -88,10 +114,12 @@ the frontend.
 
 ```text
 resolve_program(ast_modules):
+    reject source modules in the reserved Prim namespace
     index each module by canonical name; reject duplicates
     construct import graph; report missing modules and illegal cycles
     for each module in dependency order:
         register local declarations in disjoint namespaces
+        combine source interfaces with virtual compiler interfaces
         compute the visible import environment and exports
         resolve fixity targets and bind value/type operator aliases
         resolve declaration bodies with lexical scope stacks
@@ -102,29 +130,39 @@ resolve_program(ast_modules):
 For each binder, allocate one `LocalId` before resolving its scope. A use
 checks the innermost local scope, then the permitted module environment.
 Duplicate exports, hidden-name uses, and ambiguous imports point to the use or
-declaration span and list the competing origins.
+declaration span and list the competing origins. Modules have implicit
+unqualified and qualified access to the root `Prim` interface. Any explicit
+`Prim` import suppresses the implicit unqualified access: a selective import
+provides only its listed names, and an aliased import is qualified-only. The
+implicit `Prim` qualifier remains available unless the source explicitly binds
+that qualifier to its own import.
 
 ## Code map
 
-The `psrs-hir` organization defines disjoint IDs, declarations, resolved
-fixities, and `verify::verify_program`. The `psrs-resolve` resolver separates
-program-graph planning, import/export visibility, lexical and qualified name
-lookup, fixity target binding, and type-name lookup around
+`crates/psrs-hir/src/` defines disjoint IDs, `TypeReference`, declarations,
+expressions, resolved fixities, and `verify::verify_program`.
+`crates/psrs-resolve/src/resolver/` owns
 `resolve_program(modules: &[ast::Module]) -> Result<hir::Program,
-Vec<Diagnostic>>`. Source string values and quoted row labels stay scalar
-sequences; identifier text and `TextRange` remain separate representations.
+Vec<Diagnostic>>`. `program.rs` handles graph planning,
+`program/interface.rs` builds source and virtual interfaces, `exports/` resolves
+visibility and transitive exports, `names/` handles lexical and qualified
+lookup, `fixities.rs` resolves operator targets, and `type_resolution.rs`
+resolves type references. Source string values and quoted row labels stay
+scalar sequences; identifier text and `TextRange` remain separate
+representations.
 `psrs-resolve` converts a WIT binding to interface and function names only
 after that validation. `psrs-driver` supplies source modules and displays
 diagnostics.
 
 ## Invariants and verification
 
-Every reference points to a declaration in the correct namespace, every
-imported name is exported by its source module, every export is unambiguous,
-and local uses are in scope. HIR carries no checked type or runtime layout.
-Source ranges remain in bounds and refer to the originating source module.
-The verifier runs before P4 and P5; official-suite comparison checks resolution
-accept/reject and diagnostic categories.
+Every reference points to a declaration or existing built-in identity in the
+correct namespace, every imported name is exported by its source or virtual
+interface, every export is unambiguous, and local uses are in scope. HIR carries
+no checked type or runtime layout. Source ranges remain in bounds and refer to
+the originating source module. The verifier runs before P4 and P5;
+official-suite comparison checks resolution accept/reject and diagnostic
+categories.
 
 ## Worked example
 
@@ -132,6 +170,10 @@ With `import Lib (value)` and `f x = value x`, P3 resolves `value` to Lib's
 `SymbolId`, both occurrences of `x` to one `LocalId`, and `f` to its own
 `SymbolId`. Exporting `f` exposes that same ID; it does not copy its body or
 assign a backend function index.
+
+With `import Prim as P` and `value :: P.Number`, P3 resolves `P.Number` to the
+existing `BuiltinType::Number`. Re-exporting `module P` carries that same
+reference through the facade interface.
 
 ## Boundaries and interfaces
 
@@ -146,6 +188,14 @@ Package-qualified identity and incremental cache keys need a durable module
 key policy. Orphan and overlapping instance visibility is specified with
 [classes and evidence](../type-system/classes-and-evidence.md), not by value
 lookup alone.
+
+P3 checks explicit public signatures and declaration dependencies while their
+resolved type references are available. It does not infer a public value's
+type from expression syntax. After generalization, P5 traverses the checked
+scheme by stable `TypeId` and reports hidden local types in inferred results,
+function parameters, aliases, record fields, and constraints. The L2 export
+scoreboard runs annotated transitive-export cases through the lenient typed
+pipeline so each check is measured at its owning stage.
 
 ## References
 

@@ -2,10 +2,14 @@ use super::{
     ModuleInputs, ResolveError, ResolveErrorKind, bootstrap_externals, resolve_ast_module,
 };
 use psrs_ast as ast;
-use psrs_hir::{self as hir, ImportedSymbol, ImportedType, ModuleId, SymbolId, TypeId};
+use psrs_hir::{self as hir, ImportedSymbol, ImportedType, ModuleId, SymbolId, TypeReference};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+#[cfg(test)]
+mod prim_and_negate_tests;
+#[cfg(test)]
+mod primitive_interface_tests;
 #[cfg(test)]
 mod tests;
 
@@ -249,12 +253,12 @@ fn build_import(
                 for (name, symbol) in &interface.values {
                     symbols.push(imported(*symbol, name, name, import.span));
                 }
-                for (name, id) in &interface.types {
+                for (name, reference) in &interface.types {
                     types.push(imported_type(
-                        *id,
+                        *reference,
                         name,
                         import.span,
-                        interface.opaque.contains(id),
+                        reference_is_opaque(interface, *reference),
                     ));
                 }
             }
@@ -281,13 +285,13 @@ fn build_import(
                         symbols.push(imported(*symbol, name, name, import.span));
                     }
                 }
-                for (name, id) in &interface.types {
+                for (name, reference) in &interface.types {
                     if !hidden.contains(name) {
                         types.push(imported_type(
-                            *id,
+                            *reference,
                             name,
                             import.span,
-                            interface.opaque.contains(id),
+                            reference_is_opaque(interface, *reference),
                         ));
                     }
                 }
@@ -303,15 +307,15 @@ fn build_import(
                             }
                         }
                         ast::ImportRef::Type { name, members } => {
-                            let Some(id) = interface.types.get(&name.text).copied() else {
+                            let Some(reference) = interface.types.get(&name.text).copied() else {
                                 unknown_import(module_index, name, errors);
                                 continue;
                             };
                             types.push(imported_type(
-                                id,
+                                reference,
                                 &name.text,
                                 name.span,
-                                interface.opaque.contains(&id),
+                                reference_is_opaque(interface, reference),
                             ));
                             match members {
                                 None => {}
@@ -352,9 +356,9 @@ fn build_import(
                         }
                         ast::ImportRef::Class(name) => {
                             match interface.types.get(&name.text).copied() {
-                                Some(id) => {
+                                Some(TypeReference::Named(id)) => {
                                     types.push(imported_type(
-                                        id,
+                                        TypeReference::Named(id),
                                         &name.text,
                                         name.span,
                                         interface.opaque.contains(&id),
@@ -368,17 +372,21 @@ fn build_import(
                                         symbols.push(imported(*symbol, member, member, name.span));
                                     }
                                 }
-                                None => unknown_import(module_index, name, errors),
+                                Some(TypeReference::Builtin(_)) | None => {
+                                    unknown_import(module_index, name, errors)
+                                }
                             }
                         }
                         ast::ImportRef::TypeOperator(name) => {
                             match interface.types.get(&name.text).copied() {
-                                Some(id) if interface.type_fixities.contains_key(&name.text) => {
+                                Some(reference)
+                                    if interface.type_fixities.contains_key(&name.text) =>
+                                {
                                     types.push(imported_type(
-                                        id,
+                                        reference,
                                         &name.text,
                                         name.span,
-                                        interface.opaque.contains(&id),
+                                        reference_is_opaque(interface, reference),
                                     ));
                                 }
                                 _ => unknown_import(module_index, name, errors),
@@ -443,11 +451,23 @@ fn imported(
     }
 }
 
-fn imported_type(id: TypeId, name: &str, span: TextRange, opaque: bool) -> ImportedType {
+fn imported_type(
+    reference: TypeReference,
+    name: &str,
+    span: TextRange,
+    opaque: bool,
+) -> ImportedType {
     ImportedType {
-        id,
+        reference,
         name: name.to_string(),
         span,
         opaque,
+    }
+}
+
+fn reference_is_opaque(interface: &Interface, reference: TypeReference) -> bool {
+    match reference {
+        TypeReference::Builtin(_) => false,
+        TypeReference::Named(id) => interface.opaque.contains(&id),
     }
 }

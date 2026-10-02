@@ -27,6 +27,25 @@ pub struct TypeField {
     pub span: TextRange,
 }
 
+/// A type name made visible by a module interface. Built-in constructors keep
+/// their existing compiler identity; declared types use their stable `TypeId`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypeReference {
+    Builtin(BuiltinType),
+    Named(TypeId),
+}
+
+/// The semantic constructor head named by a resolved type operator.
+///
+/// Unlike [`TypeReference`], this records whether a declared type constructor
+/// is opaque in the current module's resolved type environment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ResolvedTypeHead {
+    Builtin(BuiltinType),
+    Named(TypeId),
+    Opaque(TypeId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
     Variable(String),
@@ -69,7 +88,7 @@ pub enum TypeKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedTypeOperator {
-    pub type_id: TypeId,
+    pub head: ResolvedTypeHead,
     pub operator_span: TextRange,
     pub associativity: Associativity,
     pub precedence: u32,

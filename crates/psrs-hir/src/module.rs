@@ -1,4 +1,4 @@
-use super::{SymbolId, TypeId};
+use super::{SymbolId, TypeReference};
 use psrs_span::TextRange;
 
 /// A value introduced into a module's scope by an import declaration.
@@ -16,8 +16,8 @@ pub struct ImportedSymbol {
 /// A type, class, or synonym introduced into a module's scope by an import.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImportedType {
-    /// The `TypeId` as declared in the imported module.
-    pub id: TypeId,
+    /// The compiler primitive or declaration as exposed by the imported module.
+    pub reference: TypeReference,
     /// The name used to reference the type inside the importing module.
     pub name: String,
     pub span: TextRange,
@@ -58,7 +58,7 @@ pub enum Associativity {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FixityTarget {
     Value(SymbolId),
-    Type(TypeId),
+    Type(TypeReference),
 }
 
 /// A fixity alias resolved to the declaration it names. Operator spellings
@@ -85,7 +85,7 @@ pub struct ExportedOperator {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportedTypeOperator {
-    pub id: TypeId,
+    pub reference: TypeReference,
     pub name: String,
     pub target_name: String,
     pub span: TextRange,
@@ -104,7 +104,7 @@ pub struct ExportedSymbol {
 /// exactly the exported constructors, which may be empty for `T()`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportedType {
-    pub id: TypeId,
+    pub reference: TypeReference,
     pub name: String,
     pub name_span: TextRange,
     pub constructors: Option<Vec<SymbolId>>,

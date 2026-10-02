@@ -1,3 +1,6 @@
+mod opaque_type;
+mod prim_type;
+
 use super::*;
 
 const FIXITY_SOURCE: &str = "module Main where\n\
@@ -138,7 +141,7 @@ fn imported_type_operator_chains_keep_fixity_until_p4() {
     assert!(operators.iter().all(|operator| {
         operator.precedence == 6
             && operator.associativity == psrs_hir::Associativity::Right
-            && operator.type_id == resolved[0].types[0].id
+            && operator.head == psrs_hir::ResolvedTypeHead::Named(resolved[0].types[0].id)
     }));
 
     let natural_id = resolved[0]
@@ -161,7 +164,10 @@ fn imported_type_operator_chains_keep_fixity_until_p4() {
     let psrs_hir::TypeKind::OperatorChain { operators, .. } = &body.kind else {
         panic!("`~>` must remain a type operator chain through P3");
     };
-    assert_eq!(operators[0].type_id, natural_id);
+    assert_eq!(
+        operators[0].head,
+        psrs_hir::ResolvedTypeHead::Named(natural_id)
+    );
     assert_eq!(operators[0].precedence, 0);
     assert_eq!(operators[0].associativity, psrs_hir::Associativity::Right);
 
@@ -241,7 +247,7 @@ main = case values of
 fn official_type_operator_fixture_resolves_and_lowers_chains_through_p4() {
     let library = (
         "A.purs",
-        include_str!("../../../../tests/upstream/passing/TypeOperators/A.purs"),
+        include_str!("../../../../../tests/upstream/passing/TypeOperators/A.purs"),
     );
     let console = (
         "Effect.Console.purs",
@@ -249,7 +255,7 @@ fn official_type_operator_fixture_resolves_and_lowers_chains_through_p4() {
     );
     let main = (
         "Main.purs",
-        include_str!("../../../../tests/upstream/passing/TypeOperators.purs"),
+        include_str!("../../../../../tests/upstream/passing/TypeOperators.purs"),
     );
     let resolved = resolve_program_sources(&[library, console, main]).unwrap();
     let tuple_id = resolved[0]
