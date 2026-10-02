@@ -112,9 +112,13 @@ Use official tests to pin down duplicate-label diagnostics, record-update edge c
 
 ## Implementation notes
 
-`normalize_row` exists as `flatten_row` and returns a `FlatRow` with no failure
-case: a row that resolved to a non-row value contributes the fields collected so
-far and reports a closed tail, leaving the caller to report a mismatch it may no
-longer be able to describe. Record literals have a dedicated checking path, and row
-unification consults no kind at all, so the kind of a tail is never checked where it
-is solved. There is no per-member `Prim.Row` rule; see [primitives](prim.md).
+`normalize_row` is the one normalizer, and it returns the fields and tail it
+found or a `RowShapeError` carrying the entries it had already collected; a row
+that resolved to a non-row value is a diagnostic, never a closed row. Because
+`InferType` holds no source ranges, the error carries the range of the operation
+that reached the shape rather than the shape's own construction site. Record
+literals no longer have a dedicated checking path: record syntax and an explicit
+`Record` application reach one `Application(Constructor(Record), row)`, so both
+reach this normalizer with the same kinds. Row unification still consults no kind,
+so the kind of a tail is never checked where it is solved. There is no per-member
+`Prim.Row` rule; see [primitives](prim.md).

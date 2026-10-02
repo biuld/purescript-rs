@@ -206,14 +206,17 @@ Track official behavior for partial signatures, visible type applications, and a
 
 ## Implementation notes
 
-The shared spine is only partly reached today. `InferType` has no `KindApplication`,
-`TypeLevelString`, `TypeLevelInt`, or explicit row-constructor node, and signature
-elaboration rejects the `Type`, `Constraint`, `Symbol`, `Row`, and `Record` primitive
-heads, a general `Row` type, type-level literals, and a record row tail that is not a
-variable. Record syntax therefore has a dedicated path that an equivalent constructor
-application does not share. The `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
-`Prim.Int`, and `Prim.TypeError` classes are declared with their kinds and
-functional dependencies but have no rule; see [primitives](prim.md).
+`InferType` has no `KindApplication` and no explicit row-constructor node.
+Signature elaboration accepts the `Record` and `Row` primitive heads, the general
+`Row` form, type-level `String` and `Integer` literals, and a record row tail that
+is an ordinary type; `Type`, `Constraint`, and `Symbol` are still rejected,
+because naming a kind in a type position needs `KindApplication` and rejecting
+them is more honest than giving them a fresh unknown kind. Record syntax and an
+equivalent `Record` application reach one construction: `elaborate_record` builds
+the same `Application(Constructor(Record), row)` the explicit application does.
+The `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError`
+classes are declared with their kinds and functional dependencies but have no
+rule; see [primitives](prim.md).
 
 Generalization currently keeps only a signature's constraints. A signatureless
 declaration starts as a monomorphic scheme with no constraints and every wanted
@@ -221,6 +224,8 @@ constraint is solved before generalization, so an unsolvable one becomes
 `NoInstance` and no residual-constraint abstraction exists. A scheme records only
 its quantified type variables, not their kinds. Kind checking during inference is
 the coercion module's private denotation and unifier, and ordinary bindings do not
-check kinds. Two paths save and restore different subsets of solver state by hand,
-and `flatten_row` treats a non-row shape as a closed row. Finalization discharges
-`Constrained` into dictionary arrows, which matches the boundary stated above.
+check kinds. Two paths save and restore different subsets of solver state by hand.
+`normalize_row` reports an invalid row shape instead of reading it as a closed
+row, and it carries the range of the operation that reached the shape because
+`InferType` holds no ranges of its own. Finalization discharges `Constrained` into
+dictionary arrows, which matches the boundary stated above.
