@@ -88,6 +88,15 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
     // whichever module took that slot and answer a dependency lookup with
     // another module's declarations.
     let instance_sets = module_table(&resolved, Vec::new(), |module| module.instances.clone());
+    let exported_instances = module_table(&resolved, None, |module| {
+        module.exports.as_ref().map(|exports| {
+            exports
+                .instances
+                .iter()
+                .map(|instance| instance.symbol)
+                .collect()
+        })
+    });
     let dependencies = module_dependencies(&resolved);
     let module_names = resolved
         .iter()
@@ -100,8 +109,12 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             continue;
         }
         let imported = imported_signatures(&module, &signatures);
-        let imported_instances =
-            imported_instance_declarations(&dependencies, source, &instance_sets);
+        let imported_instances = imported_instance_declarations(
+            &dependencies,
+            source,
+            &instance_sets,
+            &exported_instances,
+        );
         let check = psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names(
             module,
             &imported,

@@ -14,7 +14,7 @@ pub use expr::{
     LocalBinding, Pattern, PatternKind, RecordPatternMode, ResolvedOperator, SectionSide,
 };
 pub use module::{
-    Associativity, ExportList, ExportedOperator, ExportedSymbol, ExportedType,
+    Associativity, ExportList, ExportedInstance, ExportedOperator, ExportedSymbol, ExportedType,
     ExportedTypeOperator, Fixity, FixityNamespace, FixityTarget, Import, ImportedSymbol,
     ImportedType,
 };
@@ -448,6 +448,7 @@ impl Module {
                 });
             }
         }
+        errors.extend(verify::exported_instances(self));
 
         let mut declared_locals = HashSet::new();
         for declaration in &self.declarations {

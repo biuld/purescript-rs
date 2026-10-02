@@ -91,6 +91,89 @@ fn reports_duplicate_value_declaration_code() {
 }
 
 #[test]
+fn reports_duplicate_value_members_across_interleaved_instance_equations() {
+    let source = r#"module Main where
+class Foo a where
+  foo :: a -> a
+  bar :: a
+instance fooX :: Foo Int where
+  foo x = x
+  bar = 1
+  foo x = x
+"#;
+    let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.diagnostic.code == Some("DuplicateValueDeclaration") }),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
+#[test]
+fn reports_an_orphan_signature_inside_an_instance() {
+    let source = r#"module Main where
+class Foo a where
+  foo :: a -> a
+instance fooInt :: Foo Int where
+  bar :: Int
+  foo x = x
+"#;
+    let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("OrphanTypeDeclaration")),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
+#[test]
+fn importing_a_class_does_not_import_its_method_values() {
+    let library = "module Library where\nclass Identity a where\n  identity :: a -> a\n";
+    let main = "module Main where\nimport Library (class Identity)\nmain = identity 1\n";
+    let errors = resolve_program_sources(&[("Library.purs", library), ("Main.purs", main)])
+        .expect_err("a class import does not import class methods");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("UnknownName")),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
+#[test]
+fn rejects_duplicate_named_instances_across_classes() {
+    let source = "module Main where\n\
+class First a\n\
+class Second a\n\
+instance shared :: First Int\n\
+instance shared :: Second Int\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("DuplicateInstance")),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
+#[test]
+fn rejects_a_named_instance_that_redefines_a_module_value() {
+    let source = "module Main where\n\
+class Marker a\n\
+instance markerInt :: Marker Int\n\
+markerInt = 1\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("RedefinedIdent")),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
+#[test]
 fn resolves_a_program_against_the_on_disk_standard_library() {
     let source = "module Main where\nimport Prelude\nmain = runEffect (pure 1)\n";
     let errors = check_program_lenient(&[("Main.purs", source)]).unwrap_err();

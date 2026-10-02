@@ -29,6 +29,8 @@ pub enum ResolveErrorKind {
     DuplicateDeclaration,
     DuplicateLocalBinding,
     DuplicateExternal,
+    DuplicateInstance,
+    RedefinedIdentifier,
     UnknownName,
     UnknownTypeName,
     DuplicateModule,
@@ -69,6 +71,8 @@ impl ResolveErrorKind {
             Self::ScopeConflict => "ScopeConflict",
             Self::DeclConflict => "DeclConflict",
             Self::DuplicateExternal | Self::InvalidHir => return None,
+            Self::DuplicateInstance => "DuplicateInstance",
+            Self::RedefinedIdentifier => "RedefinedIdent",
         })
     }
 }
@@ -91,6 +95,12 @@ impl ResolveError {
             }
             ResolveErrorKind::DuplicateExternal => {
                 format!("duplicate external symbol `{name}`")
+            }
+            ResolveErrorKind::DuplicateInstance => {
+                format!("duplicate instance name `{name}`")
+            }
+            ResolveErrorKind::RedefinedIdentifier => {
+                format!("the value `{name}` has been defined multiple times")
             }
             ResolveErrorKind::DuplicateModule => format!("duplicate module `{name}`"),
             ResolveErrorKind::CannotDefinePrimModules => {

@@ -60,6 +60,7 @@ pub(super) fn imported_instance_declarations(
     dependencies: &[Vec<usize>],
     index: usize,
     instance_sets: &[Vec<psrs_hir::InstanceDeclaration>],
+    exported_instances: &[Option<std::collections::HashSet<psrs_hir::SymbolId>>],
 ) -> Vec<psrs_hir::InstanceDeclaration> {
     let mut seen = vec![false; dependencies.len()];
     let mut stack = dependencies.get(index).cloned().unwrap_or_default();
@@ -70,7 +71,14 @@ pub(super) fn imported_instance_declarations(
         }
         seen[dependency] = true;
         if let Some(set) = instance_sets.get(dependency) {
-            instances.extend(set.iter().cloned());
+            let visible = exported_instances.get(dependency).and_then(Option::as_ref);
+            instances.extend(
+                set.iter()
+                    .filter(|instance| {
+                        visible.is_none_or(|visible| visible.contains(&instance.symbol))
+                    })
+                    .cloned(),
+            );
         }
         stack.extend(dependencies.get(dependency).into_iter().flatten().copied());
     }

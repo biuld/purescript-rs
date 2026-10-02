@@ -11,13 +11,14 @@ impl Checker {
         instance: &hir::InstanceDeclaration,
     ) -> Option<InferredDeclaration> {
         let class = self.classes.get(&instance.class_id).cloned()?;
-        let (head_arguments, context, context_parameters) = {
+        let (head_arguments, head_variables, context, context_parameters) = {
             let info = self
                 .instances
                 .iter()
                 .find(|info| info.symbol == instance.symbol)?;
             (
                 info.head_arguments.clone(),
+                info.head_variables.clone(),
                 info.context.clone(),
                 info.context_parameters.clone(),
             )
@@ -117,7 +118,10 @@ impl Checker {
                     self.level = outer_level + 1;
                     let mut method_variables = variables.clone();
                     let expected = self.elaborate_type(&method.signature, &mut method_variables);
+                    let previous_annotation_variables =
+                        std::mem::replace(&mut self.annotation_variables, head_variables.clone());
                     let value = self.infer_expr_with_expected(&member.value, Some(expected));
+                    self.annotation_variables = previous_annotation_variables;
                     self.level = outer_level;
                     let Some(value) = value else {
                         self.end_givens();
