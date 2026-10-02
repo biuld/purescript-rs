@@ -50,14 +50,14 @@ EvidenceClass = CompileTimeProof    # no runtime value; a checked boundary
 
 ### Member inventory
 
-Kinds are the official ones, since source compatibility requires them. "Declared" means the registry supplies a stable identity, kind, fundeps, and role for the member; "Solved" means a rule discharges the relation. Roles marked *phantom* are the official declaration and are currently absent from the registry.
+Kinds are the official ones, since source compatibility requires them. "Declared" means the registry supplies a stable identity, kind, fundeps, and role for the member; "Solved" means a rule discharges the relation.
 
 | Member | Kind | Strategy | Evidence | Declared | Solved |
 | --- | --- | --- | --- | --- | --- |
 | `Prim` builtins: `Type`, `Constraint`, `Symbol`, `Row`, `Function`, `Array`, `Record`, `String`, `Char`, `Number`, `Int`, `Boolean` | see [kinds](kinds.md) | Interface | — | yes | n/a |
 | `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | by design |
-| `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes, kind differs | n/a |
-| `Prim.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
+| `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes | n/a |
+| `Safe.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
 | `Prim.Ordering.LT`, `EQ`, `GT` | `Ordering` | Interface | — | yes | n/a |
@@ -83,7 +83,7 @@ Kinds are the official ones, since source compatibility requires them. "Declared
 | `Prim.TypeError.Beside`, `Prim.TypeError.Above` | `Doc -> Doc -> Doc` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.TypeError.Fail` | `Doc -> Constraint` | Diagnostic | ReportOnly | yes | by design |
 | `Prim.TypeError.Warn` | `Doc -> Constraint` | Diagnostic | RuntimeDictionary + report | yes | no |
-| `Prim.undefined` | `forall a. a` (value) | Interface | — | **no** | n/a |
+| `Prim.undefined` | `forall a. a` (value) | Interface | — | yes | n/a |
 
 The inventory is the design's completeness statement: a member is either an interface others may name, a relation the compiler must decide, a proof it must derive, or a report it must emit, and it is never a fourth thing.
 
@@ -173,11 +173,12 @@ Every branch above reads its arguments through the shared row normalizer, the sh
 
 The registry owns declarations and nothing else:
 
-- `crates/psrs-hir/src/primitives/` holds one module per family — `core.rs`, `rows.rs`, `numbers.rs`, `type_error.rs` — behind `primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)>`. Each entry carries its `TypeId`, name, declared kind, fundeps, and roles. The registry contains no rule, no solver, and no diagnostic text.
+- `crates/psrs-hir/src/primitives/` holds one module per family — `core.rs`, `rows.rs`, `numbers.rs`, `type_error.rs` — behind `primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)>`. Each entry carries its `TypeId`, name, declared kind, fundeps, and roles; `tests.rs` holds the fidelity tests against the official environment. The registry contains no rule, no solver, and no diagnostic text.
 - `Interface::primitive_module` in the resolver derives each virtual module's members from the registry, so a recognized module always advertises exactly what the registry declares. [Modules and resolution](../semantics/modules-and-resolution.md) owns that derivation.
+- `psrs_kind::check_roles` consumes the registry alongside the resolved modules, the same way the kind pass already consumed it when it built its schemes, so a member's declared roles reach the checked kind environment instead of the nominal default.
 - `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for dispatch and the outcome types, and one module per family — `row.rs`, `symbol.rs`, `int.rs`, `type_error.rs`, `coercible.rs` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. `coercible.rs` uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
 - `crates/psrs-typecheck/src/typecheck/classes/solve.rs` owns the single dispatch site, so givens, primitive rules, and instance search are consulted in one place and in one order.
-- Intrinsic values stay where they are: `psrs_hir::Intrinsic` for identity, the type checker's intrinsic typing for term types, and the backend for lowering. No `Prim` name appears in that path.
+- Intrinsic values stay where they are: `psrs_hir::Intrinsic` for identity, the type checker's intrinsic typing for term types, and the backend for lowering. `Prim.undefined` is one of them and reaches the root `Prim` interface the same way `Safe.Coerce.coerce` does. No `Prim` name appears in that path.
 
 ## Invariants and verification
 
@@ -220,7 +221,26 @@ A `Prim` declaration is not source and cannot be shadowed, replaced, or given a 
 
 ## Open questions and future work
 
-`Prim.undefined` has no compiler-owned value identity and is not exported by the virtual interface; it needs an identity, a type, and a lowering decision together, because a partial value is a runtime concern as much as a typing one. `Prim.Boolean.True` and `.False` are declared at kind `Type` where the official environment gives them kind `Boolean`, and the official phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are absent, which makes those declarations nominal here and therefore restricts `Coercible` at them. `Prim.Partial` is registered as a class where the official environment registers both a constraint-kinded type and a parameterless class. Type-level `Reflectable` and `IsSymbol` relations exist in later official versions and are not part of the inventory above; adding a member is a registry change with the same requirements as any other.
+`Prim.undefined` now has an identity, a type, and an interface export, but not a
+runtime representation: a partial value is a runtime concern as much as a typing
+one, and no lowering for it is decided here. Core lowering reports it instead of
+inventing one, which means a program that mentions it is rejected even when the
+binding turns out to be dead.
+
+`Prim.Partial` is one declaration here rather than the two the official
+environment keeps, and that is a modelling difference rather than a gap: the
+official `primTypes` entry `(C.Partial, kindConstraint)` and the `primClasses`
+entry share the name `Partial`, the kind `Constraint`, and one meaning, and
+`Interface::primitive_module` already exports a registry declaration in both the
+type and the class namespace. Giving them two `TypeId`s would give one name two
+identities, which the derivation this document depends on forbids. A source
+constraint and a source `import Prim (Partial)` therefore reach
+`TypeId::PRIM_PARTIAL`, and `purs` reads the same kind for `Partial` as this
+compiler does.
+
+Type-level `Reflectable` and `IsSymbol` relations exist in later official versions
+and are not part of the inventory above; adding a member is a registry change
+with the same requirements as any other.
 
 Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 
@@ -232,15 +252,36 @@ Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-te
 
 ## Implementation notes
 
-The registry covers every official member except one: `Prim.undefined` has no
-identity here. Where the registry and the official environment disagree, it is
-recorded in the inventory above — `Prim.Boolean.True` and `.False` are declared at
-kind `Type` where the official environment gives them kind `Boolean`, the official
-phantom roles for `RowList`, `RowList.Cons`, `Text`, `Quote`, `QuoteLabel`,
-`Beside`, and `Above` are absent so those members are nominal here, and `Prim.Partial`
-is registered only as a class where the official environment registers both a
-constraint-kinded type and a parameterless class. Kinds and functional dependencies
-otherwise match the official environment member by member.
+The registry declares every official member. Kinds, functional dependencies, and
+roles match the official environment member by member, including
+`Prim.Boolean.True` and `.False` at kind `Boolean` and `Prim.RowList.Nil` at
+`forall k. RowList k`.
+
+`Prim.undefined` is a compiler-owned value rather than a registry declaration,
+because a registry declaration is a type-level entity and this member is a
+value. It follows the same identity contract as the other intrinsics: one
+`SymbolId` in the compiler-owned namespace, an interface export from the root
+`Prim` module, and no free spelling in the value namespace. Its type is
+`forall a. a`, so the use decides the type variable, and its runtime
+representation is the one thing still missing — Core lowering reports it rather
+than choosing one, because a partial value is a target decision the
+[backend dictionaries](../../backend/fp/type-classes-and-dictionaries.md) and
+[effects](../../backend/fp/effects.md) documents own.
+
+`Prim.RowList.Nil` had been declared at `forall k. RowList k -> RowList k`,
+which is a different kind: it made the member look like it took one argument.
+It is the only official member whose kind is not an arrow chain, so the shared
+kind builder grew a `forall` form that takes the body outright rather than
+arrow parameters.
+
+Every registry foreign type now declares its official role signature rather
+than leaving `declared_roles` absent, which the role check reads as nominal. The
+role check itself consumes the registry alongside the resolved modules, the same
+way the kind pass already consumed it when it built its schemes, so a `Prim`
+member's roles reach the checked kind environment instead of falling back to
+the nominal default at every use. The effect on `Coercible` is not yet visible
+from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
+type-level `Symbol` literals, which the shared type spine does not carry yet.
 
 Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
 foundations: its kind denotation, substitution, and unifier live in

@@ -158,3 +158,57 @@ fn synonym_expansion_is_capture_avoiding_and_cycle_safe() {
         Some([psrs_hir::Role::Nominal].as_slice())
     );
 }
+
+#[test]
+fn primitive_registry_roles_reach_the_checked_kind_environment() {
+    // The registry's foreign types carry trusted role signatures, so this also
+    // proves they survive the shared role check: a wrong arity would report
+    // `RoleDeclarationArityMismatch` and a weakened role `RoleMismatch`.
+    let module = resolve("module Main where\ndata Box a = Box a\n");
+    let (environment, errors) = check_env(std::slice::from_ref(&module));
+    assert!(errors.is_empty(), "unexpected role errors: {errors:?}");
+    let phantom = psrs_hir::Role::Phantom;
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST_CONS),
+        Some([phantom, phantom, phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_TEXT),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_QUOTE),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_QUOTE_LABEL),
+        Some([phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_BESIDE),
+        Some([phantom, phantom].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_ABOVE),
+        Some([phantom, phantom].as_slice())
+    );
+    // A member with no parameter carries no role at all.
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_ROW_LIST_NIL),
+        Some([].as_slice())
+    );
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_TYPE_ERROR_DOC),
+        Some([].as_slice())
+    );
+    // `Prim.Boolean`'s members are declarations like any other, so they are
+    // present in the environment even though they take no parameter.
+    assert_eq!(
+        environment.roles(psrs_hir::TypeId::PRIM_BOOLEAN_FALSE),
+        Some([].as_slice())
+    );
+}

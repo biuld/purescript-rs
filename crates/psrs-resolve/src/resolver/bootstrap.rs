@@ -60,6 +60,7 @@ pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
         ("stringToBytes", Intrinsic::StringToBytes),
         ("bytesToString", Intrinsic::BytesToString),
         ("__psrs_coerce", Intrinsic::Coerce),
+        ("__psrs_undefined", Intrinsic::Undefined),
     ]
     .into_iter()
     .map(|(name, intrinsic)| ExternalSymbol {

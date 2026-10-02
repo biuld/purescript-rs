@@ -278,7 +278,14 @@ fn typecheck_program(
     let failed_kind_modules = kind_failure_modules(&kind_diagnostics);
     for error in kind_diagnostics {
         errors.push(ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(error.origin.0 as usize),
+            // A diagnostic about a compiler-provided declaration names no source
+            // module, so it belongs to the program rather than to an index in
+            // the caller's source list.
+            source: if error.origin == psrs_hir::ModuleId::INTRINSICS {
+                DiagnosticOrigin::Program
+            } else {
+                DiagnosticOrigin::Source(error.origin.0 as usize)
+            },
             diagnostic: coded_diagnostic(
                 "P5 kind check",
                 error.span,

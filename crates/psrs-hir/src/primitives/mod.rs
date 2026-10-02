@@ -1,6 +1,6 @@
 use crate::{
-    BuiltinType, FunctionalDependency, Type, TypeDeclaration, TypeDeclarationKind, TypeId,
-    TypeKind, TypeParameter,
+    BuiltinType, FunctionalDependency, Role, RoleDeclaration, Type, TypeDeclaration,
+    TypeDeclarationKind, TypeId, TypeKind, TypeParameter,
 };
 use psrs_span::TextRange;
 
@@ -8,6 +8,9 @@ mod core;
 mod numbers;
 mod rows;
 mod type_error;
+
+#[cfg(test)]
+mod tests;
 
 /// HIR declarations for official primitive names with stable identities on the
 /// shared type spine. Each declaration is owned by its virtual interface.
@@ -54,7 +57,7 @@ fn class(
     }
 }
 
-fn foreign_type(id: TypeId, name: &str, declared_kind: Type) -> TypeDeclaration {
+fn foreign_type(id: TypeId, name: &str, declared_kind: Type, roles: &[Role]) -> TypeDeclaration {
     TypeDeclaration {
         id,
         name: name.to_owned(),
@@ -67,7 +70,21 @@ fn foreign_type(id: TypeId, name: &str, declared_kind: Type) -> TypeDeclaration 
         superclasses: Vec::new(),
         fundeps: Vec::new(),
         declared_kind: Some(declared_kind),
-        declared_roles: None,
+        declared_roles: Some(role_declaration(roles)),
+        span: empty_span(),
+    }
+}
+
+/// A foreign type's trusted role signature. The shared role check compares it
+/// against the arity its declared kind implies, so an omitted or extra role is
+/// a diagnostic rather than a silently different coercion. Every registry
+/// foreign type therefore states its roles, including an empty vector.
+fn role_declaration(roles: &[Role]) -> RoleDeclaration {
+    RoleDeclaration {
+        roles: roles
+            .iter()
+            .map(|role| (*role, empty_span()))
+            .collect::<Vec<_>>(),
         span: empty_span(),
     }
 }
@@ -81,10 +98,21 @@ fn fd(from: &[&str], to: &[&str]) -> FunctionalDependency {
 }
 
 fn forall_kind(variable_name: &str, parameters: Vec<Type>) -> Type {
-    forall_kind_result(variable_name, parameters, builtin(BuiltinType::Constraint))
+    forall(
+        variable_name,
+        arrow_kind(parameters, builtin(BuiltinType::Constraint)),
+    )
 }
 
 fn forall_kind_result(variable_name: &str, parameters: Vec<Type>, result: Type) -> Type {
+    forall(variable_name, arrow_kind(parameters, result))
+}
+
+/// `forall k. body` over one quantified kind variable. `body` is written out
+/// rather than given as arrow parameters because `RowList.Nil` is the one
+/// official member whose kind takes the kind variable as an ordinary argument,
+/// `forall k. RowList k`, instead of as an arrow parameter.
+fn forall(variable_name: &str, body: Type) -> Type {
     Type {
         kind: TypeKind::Forall {
             variables: vec![TypeParameter {
@@ -92,7 +120,7 @@ fn forall_kind_result(variable_name: &str, parameters: Vec<Type>, result: Type) 
                 name_span: empty_span(),
                 kind: None,
             }],
-            body: Box::new(arrow_kind(parameters, result)),
+            body: Box::new(body),
         },
         span: empty_span(),
     }
