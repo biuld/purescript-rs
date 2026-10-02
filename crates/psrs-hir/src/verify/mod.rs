@@ -1,4 +1,4 @@
-use crate::{Expr, ExprKind, Guard, GuardedExpr, LocalId, Pattern, PatternKind, SymbolId};
+use crate::{Expr, ExprKind, Guard, GuardedExpr, LocalId, Module, Pattern, PatternKind, SymbolId};
 
 mod normalized;
 pub(crate) use normalized::normalized;
@@ -218,6 +218,37 @@ pub(crate) fn verify_expr(
             }
         }
     }
+}
+
+pub(crate) fn exported_instances(module: &Module) -> Vec<VerifyError> {
+    let Some(exports) = &module.exports else {
+        return Vec::new();
+    };
+    let declared: HashSet<SymbolId> = module
+        .instances
+        .iter()
+        .map(|instance| instance.symbol)
+        .collect();
+    let mut seen = HashSet::new();
+    let mut errors = Vec::new();
+    for exported in &exports.instances {
+        let message = if exported.symbol.module != module.id {
+            Some("exported instance belongs to a different module")
+        } else if !declared.contains(&exported.symbol) {
+            Some("exported instance is not declared in module")
+        } else if !seen.insert(exported.symbol) {
+            Some("duplicate exported instance symbol")
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            errors.push(VerifyError {
+                span: exported.name_span,
+                message,
+            });
+        }
+    }
+    errors
 }
 
 fn verify_guarded_expr(

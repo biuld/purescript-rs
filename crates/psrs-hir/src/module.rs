@@ -114,6 +114,16 @@ pub struct ExportedType {
     pub opaque: bool,
 }
 
+/// An instance made visible by the module's implicit instance export rule.
+/// Instances are not selected by import lists; a consumer imports all visible
+/// instances from each module in its dependency closure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportedInstance {
+    pub symbol: SymbolId,
+    pub name: String,
+    pub name_span: TextRange,
+}
+
 /// A resolved explicit export list. The absence of a list means the module
 /// exports every declaration it defines.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,5 +132,6 @@ pub struct ExportList {
     pub operators: Vec<ExportedOperator>,
     pub types: Vec<ExportedType>,
     pub type_operators: Vec<ExportedTypeOperator>,
+    pub instances: Vec<ExportedInstance>,
     pub span: TextRange,
 }

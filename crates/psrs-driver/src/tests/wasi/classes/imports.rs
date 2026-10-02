@@ -234,6 +234,91 @@ fn an_instance_from_an_unimported_module_is_unavailable() {
     );
 }
 
+const SELECTIVE_INSTANCE_SOURCE: &str = r#"
+module Source (class ToInt, toInt) where
+
+class ToInt a where
+  toInt :: a -> Int
+
+data Hidden = Hidden
+
+instance hidden :: ToInt Hidden where
+  toInt _ = 1
+else instance toIntInt :: ToInt Int where
+  toInt value = value
+"#;
+
+const INSTANCE_FACADE_SOURCE: &str = r#"
+module Facade (module Source) where
+
+import Source
+"#;
+
+const SELECTIVE_INSTANCE_CONSUMER_SOURCE: &str = r#"
+module Main where
+
+import Facade (class ToInt)
+
+consume :: forall a. ToInt a => a -> Int
+consume _ = 42
+
+main :: Int
+main = consume 42
+"#;
+
+#[test]
+fn resolves_an_exported_instance_through_a_selective_class_import() {
+    check_program_types_lenient(&[
+        ("Source.purs", SELECTIVE_INSTANCE_SOURCE),
+        ("Facade.purs", INSTANCE_FACADE_SOURCE),
+        ("Main.purs", SELECTIVE_INSTANCE_CONSUMER_SOURCE),
+    ])
+    .expect("selective class imports retain all visible instances");
+}
+
+const HIDDEN_CONTEXT_INSTANCE_SOURCE: &str = r#"
+module Provider (class ToInt, toInt) where
+
+class ToInt a where
+  toInt :: a -> Int
+
+class Hidden a
+data Secret = Secret
+
+instance hiddenSecret :: Hidden Secret
+instance toIntInt :: Hidden Secret => ToInt Int where
+  toInt _ = 99
+"#;
+
+#[test]
+fn does_not_import_an_instance_whose_context_mentions_hidden_local_types() {
+    let facade = r#"
+module Facade (module Provider) where
+
+import Provider
+"#;
+    let main = r#"
+module Main where
+
+import Facade (class ToInt, toInt)
+
+main :: Int
+main = toInt 42
+"#;
+    let errors = compile_program_sources(&[
+        ("Provider.purs", HIDDEN_CONTEXT_INSTANCE_SOURCE),
+        ("Facade.purs", facade),
+        ("Main.purs", main),
+    ])
+    .expect_err("a hidden context instance must not cross the facade");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("NoInstanceFound")),
+        "unexpected diagnostics: {errors:?}"
+    );
+}
+
 #[test]
 fn adapts_function_arrays_in_imported_generic_records_when_wasmtime_is_available() {
     let library = r#"

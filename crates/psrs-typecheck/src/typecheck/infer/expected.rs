@@ -14,6 +14,59 @@ impl Checker {
         };
         let expected = self.resolve_type(expected);
 
+        if let hir::ExprKind::Typed {
+            expression: inner,
+            ty,
+        } = &expression.kind
+        {
+            let saved_substitutions = self.substitutions.clone();
+            let saved_levels = self.levels.clone();
+            let saved_generics = self.generic_variables.clone();
+            let saved_rigid = self.rigid.clone();
+            let saved_locals = self.locals.clone();
+            let saved_givens = self.givens.clone();
+            let saved_given_rigid = self.given_rigid.clone();
+            let saved_wanted = self.wanted.clone();
+            let saved_reported_fundeps = self.reported_fundep_conflicts.clone();
+            let saved_annotation_variables = self.annotation_variables.clone();
+            let saved_type_variable_names = self.type_variable_names.clone();
+            let saved_infer_variable_kinds = self.infer_variable_kinds.clone();
+            let saved_level = self.level;
+            let errors_before = self.errors.len();
+
+            let mut annotation_variables = self.annotation_variables.clone();
+            let annotation = self.elaborate_type(ty, &mut annotation_variables);
+            let checked = self.infer_expr_with_expected(inner, Some(annotation));
+            let valid = checked.is_some() && self.errors.len() == errors_before;
+
+            self.substitutions = saved_substitutions;
+            self.levels = saved_levels;
+            self.generic_variables = saved_generics;
+            self.rigid = saved_rigid;
+            self.locals = saved_locals;
+            self.givens = saved_givens;
+            self.given_rigid = saved_given_rigid;
+            self.wanted = saved_wanted;
+            self.reported_fundep_conflicts = saved_reported_fundeps;
+            self.annotation_variables = saved_annotation_variables;
+            self.type_variable_names = saved_type_variable_names;
+            self.infer_variable_kinds = saved_infer_variable_kinds;
+            self.level = saved_level;
+
+            if !valid {
+                return None;
+            }
+
+            let errors_before = self.errors.len();
+            let mut annotation_variables = self.annotation_variables.clone();
+            let annotation = self.elaborate_type(ty, &mut annotation_variables);
+            self.subsume(annotation, expected.clone(), expression.span);
+            if self.errors.len() != errors_before {
+                return None;
+            }
+            return self.infer_expr_with_expected(inner, Some(self.resolve_type(expected)));
+        }
+
         if let InferType::ForAll { variables, body } = expected.clone() {
             let outer_level = self.level;
             let skolem_level = outer_level + 1;

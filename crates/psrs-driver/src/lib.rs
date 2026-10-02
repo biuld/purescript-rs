@@ -40,11 +40,40 @@ pub struct Warning {
     pub diagnostic: Diagnostic,
 }
 
+/// Where a diagnostic in a multi-module program came from.
+///
+/// A diagnostic is not always attributable to one source. The backend reports
+/// some failures against the program as a whole, such as a component with no
+/// entry point, and an entry point that prepends the standard library reports
+/// failures inside a module the caller never passed. Both cases need to stay
+/// distinguishable from a real source index, or a caller reads them as a
+/// diagnostic against a file it owns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticOrigin {
+    /// The source at this index in the source list passed to the entry point.
+    Source(usize),
+    /// A module of the trusted standard library an entry point prepends. The
+    /// library is not part of the caller's source list, so it has no index there.
+    Library,
+    /// The program as a whole, with no single module at fault.
+    Program,
+}
+
+impl DiagnosticOrigin {
+    /// The index of a source the caller passed, or [`None`] for a diagnostic
+    /// that names no source the caller owns.
+    pub fn source_index(self) -> Option<usize> {
+        match self {
+            Self::Source(index) => Some(index),
+            Self::Library | Self::Program => None,
+        }
+    }
+}
+
 /// A diagnostic attributed to one source in a multi-module program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramDiagnostic {
-    /// Index into the source list passed to [`resolve_program_sources`].
-    pub source: usize,
+    pub source: DiagnosticOrigin,
     pub diagnostic: Diagnostic,
 }
 
@@ -91,7 +120,7 @@ fn lower_source_with_prelude_to_core(
 ) -> Result<(psrs_core::Module, usize), Vec<Diagnostic>> {
     let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
     let module = program::lower_program_to_core_with_trusted_prefix(&sources, trusted_prefix)
-        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, trusted_prefix))?;
+        .map_err(program_diagnostics_from_hidden_prelude)?;
     Ok((module, trusted_prefix))
 }
 
@@ -107,18 +136,14 @@ fn prepend_stdlib<'a>(
     })
 }
 
-fn program_diagnostics_from_hidden_prelude(
-    errors: Vec<ProgramDiagnostic>,
-    hidden_sources: usize,
-) -> Vec<Diagnostic> {
-    errors
-        .into_iter()
-        .map(|mut error| {
-            error.source = error.source.saturating_sub(hidden_sources);
-            error
-        })
-        .map(|error| error.diagnostic)
-        .collect()
+/// Drops the source index from diagnostics reported against a hidden standard
+/// library prefix.
+///
+/// These entry points return a bare [`Diagnostic`], which has no source index, so
+/// there is nothing to rebase: the index is discarded rather than clamped onto a
+/// caller source that does not exist.
+fn program_diagnostics_from_hidden_prelude(errors: Vec<ProgramDiagnostic>) -> Vec<Diagnostic> {
+    errors.into_iter().map(|error| error.diagnostic).collect()
 }
 
 #[cfg(test)]
@@ -195,7 +220,7 @@ pub(crate) fn lower_source_to_ast(
 pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
     let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
     program::check_program_with_trusted_prefix(&sources, trusted_prefix)
-        .map_err(|errors| program_diagnostics_from_hidden_prelude(errors, trusted_prefix))
+        .map_err(program_diagnostics_from_hidden_prelude)
 }
 
 /// Runs lexing, layout, and parsing only (P0–P2). Reports diagnostics and

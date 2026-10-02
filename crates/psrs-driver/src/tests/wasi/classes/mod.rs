@@ -407,4 +407,5 @@ mod deriving;
 mod fundeps;
 mod imports;
 mod instance_chains;
+mod instance_signatures;
 mod polymorphic_methods;
