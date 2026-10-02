@@ -90,7 +90,9 @@ pub(super) fn boolean_case_exhaustive(branches: &[CaseBranch], desugarer: &Desug
                 true_covered = true;
                 false_covered = true;
             }
-            PatternKind::Constructor { .. } | PatternKind::Record { .. } => {
+            PatternKind::Constructor { .. }
+            | PatternKind::Record { .. }
+            | PatternKind::OperatorChain { .. } => {
                 unreachable!("boolean case rows were checked before lowering")
             }
         }
@@ -134,6 +136,6 @@ fn pattern_is_irrefutable(pattern: &Pattern) -> bool {
         PatternKind::Record { fields } => fields
             .iter()
             .all(|(_, field)| pattern_is_irrefutable(field)),
-        PatternKind::Constructor { .. } => false,
+        PatternKind::Constructor { .. } | PatternKind::OperatorChain { .. } => false,
     }
 }

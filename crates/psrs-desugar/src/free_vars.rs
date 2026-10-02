@@ -59,6 +59,27 @@ pub(super) fn rebind(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> E
             left: Box::new(rebind(*left, mapping)),
             right: Box::new(rebind(*right, mapping)),
         },
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => ExprKind::OperatorChain {
+            operands: operands
+                .into_iter()
+                .map(|operand| rebind(operand, mapping))
+                .collect(),
+            operators,
+        },
+        ExprKind::OperatorSection {
+            operator,
+            operand,
+            binder,
+            side,
+        } => ExprKind::OperatorSection {
+            operator,
+            operand: Box::new(rebind(*operand, mapping)),
+            binder,
+            side,
+        },
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder,
             body: Box::new(rebind(*body, mapping)),
@@ -182,6 +203,12 @@ fn collect(expression: &Expr, bound: &mut HashSet<LocalId>, free: &mut HashSet<L
             collect(left, bound, free);
             collect(right, bound, free);
         }
+        ExprKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect(operand, bound, free);
+            }
+        }
+        ExprKind::OperatorSection { operand, .. } => collect(operand, bound, free),
         ExprKind::Lambda { binder, body } => {
             let inserted = bound.insert(binder.id);
             collect(body, bound, free);
@@ -300,6 +327,11 @@ fn pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
         PatternKind::Record { fields } => {
             for (_, field) in fields {
                 pattern_ids(field, ids);
+            }
+        }
+        PatternKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                pattern_ids(operand, ids);
             }
         }
         PatternKind::Wildcard | PatternKind::Boolean(_) => {}

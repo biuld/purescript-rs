@@ -19,6 +19,7 @@ fn lowers_operator_to_applications_and_preserves_source_ranges() {
         exports: None,
         types: Vec::new(),
         instances: Vec::new(),
+        fixities: Vec::new(),
         declarations: vec![Declaration {
             symbol: SymbolId::new(module_id, 0),
             name: "main".into(),

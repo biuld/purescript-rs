@@ -16,10 +16,14 @@ pub(super) fn supports(branches: &[CaseBranch]) -> bool {
                 true
             }
             PatternKind::Wildcard | PatternKind::Var(_) => true,
-            PatternKind::Constructor { .. } | PatternKind::Record { .. } => false,
+            PatternKind::Constructor { .. }
+            | PatternKind::Record { .. }
+            | PatternKind::OperatorChain { .. } => false,
         }),
         PatternKind::Wildcard | PatternKind::Var(_) => true,
-        PatternKind::Boolean(_) | PatternKind::Constructor { .. } => false,
+        PatternKind::Boolean(_)
+        | PatternKind::Constructor { .. }
+        | PatternKind::OperatorChain { .. } => false,
     }) && has_boolean
 }
 
@@ -142,7 +146,9 @@ fn boolean_at(pattern: &Pattern, label: &str) -> Option<bool> {
         (field == label).then(|| match pattern.kind {
             PatternKind::Boolean(value) => Some(value),
             PatternKind::Wildcard | PatternKind::Var(_) => None,
-            PatternKind::Constructor { .. } | PatternKind::Record { .. } => unreachable!(
+            PatternKind::Constructor { .. }
+            | PatternKind::Record { .. }
+            | PatternKind::OperatorChain { .. } => unreachable!(
                 "supported Boolean product rows contain only direct Boolean, variable, or wildcard fields"
             ),
         })
@@ -166,6 +172,9 @@ fn bind_boolean_fields(
                 })
                 .collect(),
         },
+        PatternKind::OperatorChain { .. } => {
+            unreachable!("fixity chains are normalized before Boolean case lowering")
+        }
         PatternKind::Boolean(expected) => {
             let binder = desugarer.local_binder("boolean_pattern", pattern.span);
             let value = Expr {

@@ -138,6 +138,7 @@ mod arrays;
 mod records;
 
 mod functions;
+mod guard_let;
 mod guards;
 
 mod module_loader;

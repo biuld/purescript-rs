@@ -68,9 +68,18 @@ and conditions with explicit fallthrough, and makes `where` bindings explicit
 in their original lexical scope. Boolean `true` guards are unconditional only
 when their resolved symbol is a compiler Boolean-true intrinsic or a
 whole-program declaration proven to be a transparent alias of that intrinsic.
-The proof follows resolved symbol identity through typed expressions and local
-aliases; it does not infer truth from an import path or the spelling
-`otherwise`.
+The driver computes this proof from the complete resolved module set before
+running P4, then passes the same proof to each module lowering. The proof follows
+resolved symbol identity through typed expressions and local aliases; it does
+not infer truth from an import path or the spelling `otherwise`.
+
+Boolean guards contain ordinary expressions, so a `let ... in ...` expression
+is valid inside a condition guard and its names remain local to that expression.
+This implementation also retains the issue-requested bare `let` guard
+qualifier, such as `| let next = e, next > 0 = result`, which scopes `next`
+over the remaining guards and result. That qualifier is a project extension;
+PureScript 0.15.16 supports expression guards and `<-` pattern guards, but not
+the bare cross-guard binding form.
 
 P2 lowers integer literal patterns to a generated binder plus a compiler-owned
 integer equality node. P3 resolves that node to `Intrinsic::I32Eq`, so a
@@ -104,8 +113,9 @@ desugar(program):
     return program
 ```
 
-Fresh IDs are allocated monotonically per declaration. The verifier checks
-generated references and that no eliminated surface form remains. A rewrite
+Fresh IDs are allocated monotonically per module so duplicated continuations
+cannot reuse any declaration's local IDs. The verifier checks generated
+references and that no eliminated surface form remains. A rewrite
 that would need unavailable library evidence is diagnosed at its source span.
 
 ## Code map

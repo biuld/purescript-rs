@@ -37,6 +37,28 @@ fn case_alternative_pattern_guard_scopes_binders_and_falls_through() {
 }
 
 #[test]
+fn guarded_helper_cases_do_not_emit_source_coverage_diagnostics() {
+    let source = "module Main where\ndata Maybe a = Nothing | Just a\nchoose value = case value of\n  Just n | n > 0 -> n\n  _ -> 42\nmain = choose (Just (0 - 1))\n";
+    let artifact = compile_source("Main.purs", source).expect("guard helper case compiles");
+    assert!(
+        artifact.warnings.iter().all(|warning| {
+            !warning.diagnostic.message.contains("non-exhaustive case")
+                && !warning
+                    .diagnostic
+                    .message
+                    .contains("redundant case alternative")
+        }),
+        "generated guard continuations are not source coverage rows: {:?}",
+        artifact.warnings
+    );
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn record_pattern_guard_matches_a_record_held_in_a_local() {
     let source = "module Main where\nimport Prelude\nread value = case 0 of\n  _ | { x } <- value -> x\n  _ -> 44\nmain = read { x: 9 }\n";
     let artifact = compile_source("Main.purs", source).expect("record pattern guard compiles");
@@ -170,15 +192,19 @@ fn integer_pattern_equality_resolves_to_the_compiler_intrinsic() {
 }
 
 #[test]
-fn let_guards_bind_values_for_later_guards_and_the_body() {
-    let source = "module Main where\npositive n\n  | let next = n + 1, next > 0 = next\n  | true = 0\nmain = positive 9\n";
-    let artifact = compile_source("Main.purs", source).expect("let guards compile");
+fn integer_patterns_ignore_a_user_defined_equal_operator() {
+    let source = "module Main where\ninfix 4 alwaysFalse as ==\nalwaysFalse _ _ = false\nmain = case 1 of\n  1 -> 10\n  _ -> 20\n";
+    let artifact = compile_source("Main.purs", source).expect("custom equality pattern compiles");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
     };
-    assert_eq!(output.status.code(), Some(10), "{output:?}");
+    assert_eq!(
+        output.status.code(),
+        Some(10),
+        "literal patterns use compiler equality"
+    );
 }
 
 #[test]
@@ -384,7 +410,7 @@ fn cross_module_true_alias_is_a_verified_unconditional_guard() {
     );
 }
 
-fn has_non_exhaustive_warning(artifact: &crate::Artifact) -> bool {
+pub(super) fn has_non_exhaustive_warning(artifact: &crate::Artifact) -> bool {
     artifact
         .warnings
         .iter()
@@ -417,6 +443,16 @@ fn expr_contains_global(expression: &psrs_hir::Expr, target: psrs_hir::SymbolId)
             right,
             ..
         } => *operator == target || contains(left) || contains(right),
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            operators.iter().any(|operator| operator.symbol == target)
+                || operands.iter().any(contains)
+        }
+        ExprKind::OperatorSection {
+            operator, operand, ..
+        } => operator.symbol == target || contains(operand),
         ExprKind::Let {
             bindings: local,
             body,
