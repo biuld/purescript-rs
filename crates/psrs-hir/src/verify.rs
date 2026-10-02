@@ -21,10 +21,33 @@ pub(crate) fn normalized(module: &crate::Module) -> Result<(), Vec<VerifyError>>
 
 fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
     match &expression.kind {
-        ExprKind::Guarded(_) => errors.push(VerifyError {
-            span: expression.span,
-            message: "guarded expression survived P4 desugaring",
-        }),
+        ExprKind::Guarded(clauses) => {
+            errors.push(VerifyError {
+                span: expression.span,
+                message: "guarded expression survived P4 desugaring",
+            });
+            for clause in clauses {
+                for guard in &clause.guards {
+                    match guard {
+                        Guard::Boolean(value) | Guard::Pattern { value, .. } => {
+                            check_normalized_expr(value, errors);
+                        }
+                        Guard::Let { bindings, .. } => {
+                            for binding in bindings {
+                                check_normalized_expr(&binding.value, errors);
+                            }
+                        }
+                    }
+                    if let Guard::Pattern { pattern, .. } = guard {
+                        check_normalized_pattern(pattern, errors);
+                    }
+                }
+                for binding in &clause.where_bindings {
+                    check_normalized_expr(&binding.value, errors);
+                }
+                check_normalized_expr(&clause.value, errors);
+            }
+        }
         ExprKind::Operator { left, right, .. } => {
             errors.push(VerifyError {
                 span: expression.span,
@@ -78,6 +101,7 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
         } => {
             check_normalized_expr(scrutinee, errors);
             for branch in branches {
+                check_normalized_pattern(&branch.pattern, errors);
                 check_normalized_expr(&branch.value, errors);
             }
         }
@@ -87,6 +111,26 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
         | ExprKind::Number(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+    }
+}
+
+fn check_normalized_pattern(pattern: &Pattern, errors: &mut Vec<VerifyError>) {
+    match &pattern.kind {
+        PatternKind::Boolean(_) => errors.push(VerifyError {
+            span: pattern.span,
+            message: "boolean literal pattern survived P4 desugaring",
+        }),
+        PatternKind::Constructor { arguments, .. } => {
+            for argument in arguments {
+                check_normalized_pattern(argument, errors);
+            }
+        }
+        PatternKind::Record { fields } => {
+            for (_, pattern) in fields {
+                check_normalized_pattern(pattern, errors);
+            }
+        }
+        PatternKind::Wildcard | PatternKind::Var(_) => {}
     }
 }
 

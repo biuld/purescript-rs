@@ -258,7 +258,7 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             alternatives,
             ..
         } => {
-            let scrutinee = Box::new(expr::lower_case_scrutinees(scrutinees, span)?);
+            let (scrutinee, anonymous_inputs) = expr::lower_case_scrutinees(scrutinees, span)?;
             let mut branches = Vec::with_capacity(alternatives.len());
             for alternative in alternatives {
                 if alternative.patterns.is_empty() {
@@ -287,7 +287,10 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                                             .guards
                                             .into_iter()
                                             .map(expr::lower_guard)
-                                            .collect::<Result<Vec<_>, _>>()?,
+                                            .collect::<Result<Vec<_>, _>>()?
+                                            .into_iter()
+                                            .flatten()
+                                            .collect(),
                                         value: lower_expr(clause.value)?,
                                         where_declarations,
                                         span: clause.span,
@@ -305,10 +308,23 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                     span: alternative.span,
                 });
             }
-            ExprKind::Case {
-                scrutinee,
-                branches,
+            let mut case = Expr {
+                kind: ExprKind::Case {
+                    scrutinee: Box::new(scrutinee),
+                    branches,
+                },
+                span,
+            };
+            for binder in anonymous_inputs.into_iter().rev() {
+                case = Expr {
+                    kind: ExprKind::Lambda {
+                        binder,
+                        body: Box::new(case),
+                    },
+                    span,
+                };
             }
+            return Ok(case);
         }
         CstExprKind::Parens { expression, .. } => {
             let mut expression = lower_expr(*expression)?;

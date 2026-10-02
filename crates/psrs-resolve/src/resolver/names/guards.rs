@@ -72,10 +72,23 @@ impl Resolver {
             .into_iter()
             .zip(binders)
             .map(|(declaration, binder)| {
+                let span = declaration.span;
+                let value = self.resolve_expr(declaration.value)?;
+                let value = if let Some(annotation) = declaration.annotation {
+                    hir::Expr {
+                        kind: hir::ExprKind::Typed {
+                            expression: Box::new(value),
+                            ty: self.resolve_type(annotation)?,
+                        },
+                        span,
+                    }
+                } else {
+                    value
+                };
                 Some(LocalBinding {
                     binder,
-                    value: self.resolve_expr(declaration.value)?,
-                    span: declaration.span,
+                    value,
+                    span,
                 })
             })
             .collect::<Option<Vec<_>>>();

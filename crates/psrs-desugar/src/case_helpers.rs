@@ -49,9 +49,10 @@ pub(super) fn product_pattern(pattern: Pattern) -> Pattern {
 }
 
 pub(super) fn pattern_scrutinee(value: Expr, pattern: &Pattern) -> Expr {
-    if matches!(value.kind, ExprKind::Record(_))
-        && matches!(pattern.kind, PatternKind::Record { .. })
-    {
+    // A record pattern consumes its value directly, regardless of whether the
+    // source expression happened to be written as a record literal. Other
+    // pattern guards share the generated one-column product with case rows.
+    if matches!(pattern.kind, PatternKind::Record { .. }) {
         value
     } else {
         product_expression(value)
@@ -119,10 +120,11 @@ fn guard_is_exhaustive(guard: &Guard, desugarer: &Desugarer) -> bool {
 }
 
 fn is_true_expression(expression: &Expr, desugarer: &Desugarer) -> bool {
-    let ExprKind::Global(symbol) = expression.kind else {
-        return false;
-    };
-    desugarer.true_symbols.contains(&symbol) || desugarer.otherwise_symbols.contains(&symbol)
+    match &expression.kind {
+        ExprKind::Global(symbol) => desugarer.true_symbols.contains(symbol),
+        ExprKind::Typed { expression, .. } => is_true_expression(expression, desugarer),
+        _ => false,
+    }
 }
 
 fn pattern_is_irrefutable(pattern: &Pattern) -> bool {

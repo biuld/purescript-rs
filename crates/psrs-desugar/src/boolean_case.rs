@@ -11,8 +11,8 @@ pub(super) fn lower_boolean_case(
     let temp = desugarer.local_binder("boolean_scrutinee", span);
     let mut next = desugarer.failure(span);
     for branch in branches.into_iter().rev() {
-        let failure = next.clone();
-        let branch_value = desugarer.branch_value(branch.value, failure.clone());
+        let failure = desugarer.clone_expression(&next);
+        let branch_value = desugarer.branch_value(branch.value, failure);
         match branch.pattern.kind {
             PatternKind::Wildcard => next = branch_value,
             PatternKind::Var(binder) => {
@@ -33,7 +33,7 @@ pub(super) fn lower_boolean_case(
                     kind: ExprKind::If {
                         condition: Box::new(desugarer.local_expr(&temp, branch.span)),
                         then_branch: Box::new(branch_value),
-                        else_branch: Box::new(failure),
+                        else_branch: Box::new(desugarer.clone_expression(&next)),
                     },
                     span: branch.span,
                 };
@@ -42,7 +42,7 @@ pub(super) fn lower_boolean_case(
                 next = Expr {
                     kind: ExprKind::If {
                         condition: Box::new(desugarer.local_expr(&temp, branch.span)),
-                        then_branch: Box::new(failure),
+                        then_branch: Box::new(desugarer.clone_expression(&next)),
                         else_branch: Box::new(branch_value),
                     },
                     span: branch.span,

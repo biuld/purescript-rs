@@ -8,9 +8,12 @@
 [frontend boundaries](../00-ir-boundaries.md), and source evaluation order.
 
 **Summary:** P4 rewrites surface constructs into a smaller resolved HIR without
-changing semantic identities. It owns fixity application, sections, `do` and
-`ado`, guards, multiple equations, and `where` scope. The rewrite preserves
-source order and source origins for P5 diagnostics.
+changing semantic identities. P2 retains equation and guard forms while
+normalizing case arity: multiple scrutinees become one closed record product
+with `_1`, `_2`, and subsequent fields, and `_` scrutinees become generated
+function inputs. P3 assigns those names stable IDs. P4 owns fixity application,
+sections, `do` and `ado`, guarded equations and alternatives, and `where`
+scope. The rewrite preserves source order and source origins for P5 diagnostics.
 
 ## Scope
 
@@ -22,10 +25,13 @@ remaining high-level forms on the way to Core.
 ## Background
 
 Surface notation can describe the same operation in many forms. Fixity is
-known only after P3 resolves operators. `do` describes ordered binds, and
-guarded equations describe ordered alternatives. Lowering these before type
-inference gives the checker fewer term forms while retaining the user's
-declaration and subexpression ranges.
+known only after P3 resolves operators. P2 converts case arity to a record
+product without introducing a library tuple dependency; each source scrutinee
+is a field expression in its original order. P2 retains guards and equation
+alternatives for name resolution. `do` describes ordered binds, and guarded
+equations describe ordered alternatives. Lowering these before type inference
+gives the checker fewer term forms while retaining the user's declaration and
+subexpression ranges.
 
 ## Model
 
@@ -48,7 +54,18 @@ lowers `do` to `bind`/`pure` applications and `ado` to its applicative form
 using the resolved library identities, never matching a name's spelling.
 It converts multiple equations and guarded right-hand sides to ordered cases
 and conditions with explicit fallthrough, and makes `where` bindings explicit
-in their original lexical scope.
+in their original lexical scope. Boolean `true` guards are unconditional only
+when their resolved symbol is a compiler Boolean-true intrinsic or a
+whole-program declaration proven to be a transparent alias of that intrinsic.
+The proof follows resolved symbol identity through typed expressions and local
+aliases; it does not infer truth from an import path or the spelling
+`otherwise`.
+
+P2 lowers integer literal patterns to a generated binder plus a compiler-owned
+integer equality node. P3 resolves that node to `Intrinsic::I32Eq`, so a
+source-level `==` binding cannot change pattern matching. Local `let` and
+guarded `where` declaration annotations are retained as resolved `Typed`
+expressions for P5 rather than discarded during name resolution.
 
 Every rewrite evaluates source operands in the order defined by the language.
 A failed guard proceeds to the next guard without evaluating that guard's body.
@@ -80,21 +97,27 @@ that would need unavailable library evidence is diagnosed at its source span.
 
 ## Code map
 
-`crates/psrs-desugar/src/` owns
-`desugar(program: hir::Program) -> Result<hir::Program, Vec<Diagnostic>>`.
-`fixity.rs` handles operator precedence; `sections.rs` operator sections;
-`sequencing.rs` `do`/`ado`; `equations.rs` guards and function equations;
-`where_bindings.rs` local scope. `psrs-hir/src/verify.rs` exposes both the
-resolved and normalized profile checks. The desugar crate depends on HIR and
-source utilities, never THIR or backend types.
+`crates/psrs-ast/src/expr/guards.rs` owns P2 case-arity and literal-pattern
+normalization. `crates/psrs-resolve/src/resolver/names/guards.rs` assigns local
+IDs and resolves local annotations. `crates/psrs-desugar/src/expr.rs` owns P4
+case and equation lowering; `guards.rs`, `boolean_case.rs`, and
+`boolean_product_case.rs` expand guard and Boolean paths; `case_helpers.rs`
+contains coverage predicates and shared product helpers; `alpha.rs` assigns
+fresh IDs to duplicated continuations; and `constant_truth.rs` proves
+transparent Boolean-true aliases over resolved modules. `psrs-hir/src/verify.rs`
+exposes the resolved and normalized profile checks. The desugar crate depends
+on HIR and source utilities, never THIR or backend types.
 
 ## Invariants and verification
 
 Existing IDs keep their meaning, new local IDs are unique and scoped, and
 source-origin ranges remain valid. Every output has the same observable
 evaluation order as its input; tests cover ordered guards and single
-evaluation of scrutinees. The normalized verifier rejects operator chains,
-sections, `do`/`ado`, guarded equations, and `where` nodes after P4.
+evaluation of scrutinees. Multi-scrutinee records are bound once before pattern
+tests, preserving field evaluation order. Generated continuation branches use
+fresh local IDs and generated coverage provenance. The normalized verifier
+rejects operator chains, sections, `do`/`ado`, guarded equations, `where` nodes,
+and any Boolean pattern nested inside a remaining case after P4.
 
 ## Worked example
 
@@ -103,9 +126,11 @@ f x | x > 0 = x
     | otherwise = 0
 ```
 
-P4 resolves `>` and `otherwise`, then produces an ordered conditional in a
-single equation body. `x` keeps its `LocalId`; the comparison and each guard
-keep source origins. The second body runs only if the first guard fails.
+P4 resolves `>` and uses the resolved, verified definition of `otherwise` only
+if that declaration is a transparent alias of Boolean `true`. It then produces
+an ordered conditional in a single equation body. `x` keeps its `LocalId`; the
+comparison and each guard keep source origins. The second body runs only if the
+first guard fails.
 
 ## Boundaries and interfaces
 

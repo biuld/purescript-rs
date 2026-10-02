@@ -55,6 +55,12 @@ pub enum ExprKind {
         expression: Box<Expr>,
         ty: Type,
     },
+    /// Compiler-owned equality used by integer pattern lowering. This must not
+    /// resolve through a source-level equality binding.
+    IntegerEqual {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Operator {
         operator: Name,
         left: Box<Expr>,

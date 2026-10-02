@@ -182,6 +182,20 @@ impl Resolver {
                     ty: ty?,
                 }
             }
+            AstExprKind::IntegerEqual { left, right } => {
+                let function = Expr {
+                    kind: ExprKind::Global(hir::Intrinsic::I32Eq.symbol()),
+                    span,
+                };
+                let partial = Expr {
+                    kind: ExprKind::Application(
+                        Box::new(function),
+                        Box::new(self.resolve_expr(*left)?),
+                    ),
+                    span,
+                };
+                ExprKind::Application(Box::new(partial), Box::new(self.resolve_expr(*right)?))
+            }
             AstExprKind::Operator {
                 operator,
                 left,
