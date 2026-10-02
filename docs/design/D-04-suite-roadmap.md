@@ -264,6 +264,36 @@ on a `class` reached the class scheme but nothing applied it to the instance, so
 (`StandaloneKindSignatures1/2/3`, on `data`, `newtype`, and `type`) already
 agreed, so the signature itself was never lost.
 
+**Polykind generalization is not yet generalizing, and a naive version is
+measurably worse.** An unannotated `data`/`newtype`/`type` parameter gets a
+fresh kind variable in a *monomorphic* scheme, so its first use fixes that
+variable and a later use at a different kind is rejected. Quantifying those
+variables instead was measured and lowered M3 from 30/48 to 28/48:
+`failing/InfiniteKind2.purs` (`data Tree m = Tree (m Tree)`) and
+`failing/MonoKindDataBindingGroup.purs` (`data A a = A (B a)` with `type B a = F A`)
+depend on a parameter whose kind their own definition determines, and
+generalizing it loses the occurs check and the fundep mismatch. The rule has to
+be *infer the parameter kind from the declaration's own definition, then quantify
+what is left unconstrained*, which needs the declaration check to run before the
+scheme is fixed. `failing/PolykindInstantiatedInstance.purs` and
+`failing/PolykindGeneralizationLet.purs` stay open until then. More broadly,
+every `passing` file that would exercise this is blocked at P3 on
+`Effect.Console` or `Effect`, so none of the polykind generalization work is
+measurable until Phase 3 provides those modules.
+
+**A type wildcard is a binder on the type spine except in an instance head, and
+`InvalidInstanceHead` is now mapped.** A wildcard in a value signature was
+already accepted in every shape `purs` accepts — `_ -> Int`, `(_ -> _) -> _`,
+`_ -> _`, a row tail, and a wildcard under `forall` — and is still rejected at
+the positions `failing/TypeWildcards1/2/4.purs` name. A wildcard in an instance
+*head* has nothing to solve against, so `failing/TypeWildcards3.purs` is now
+reported as `InvalidInstanceHead`, raised where `purs` raises it in
+`TypeChecker.checkTypeClassInstance`; a wildcard in an instance *context* stays
+legal. That case still cannot be measured: it imports `Prelude` for `Show`, so it
+stops at P3 on an unknown type name and stays counted among the seven
+`InvalidInstanceHead` cases at 0/7. Every board number is unchanged by this
+work.
+
 ### M4 — Core type checking
 
 - **Suite:** `TypesDoNotUnify` (41), `HoleInferredType` (10), `EscapedSkolem`
@@ -692,7 +722,7 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-14 | Constraints, type classes, superclasses, class members, and instances | Source constraint elaboration, contextual and multi-parameter instances, superclass evidence, imported generic dictionaries, ordered source instance chains, and rank-1 polymorphic method signatures execute. Instance member signatures are associated with consecutive equations, resolve instance-head variables, and are checked against specialized class method types; source and Wasmtime tests cover specialized and more-general signatures plus mismatches. Duplicate member groups, orphan member signatures, duplicate named instances, and ordinary-value/name collisions use official diagnostics. Explicit export lists filter instance branches by class/head/context visibility while preserving identity and chain positions; imports do not require the class in their selective list to receive visible instances. Class-only imports keep methods out of the ordinary value namespace. Subsumption retains constraints from annotations, but constrained annotations that need instance solving to specialize to monomorphic expected method types remain unsupported. Scoped method-local constraints and quantified method parameters have evidence in the [rank-N acceptance record](../implementation/frontend/rank-n.md). | Partial | Reconcile remaining constraint rules and official-suite coverage; deriving is tracked under FE-16. |
 | FE-15 | Functional dependencies | Source fundep improvement uses transitive determining closure and selected branches; independent class arguments still prove apartness. Ambiguity and consistency diagnostics are covered. | Partial | Reconcile official-suite fundep coverage and remaining advanced class forms. |
 | FE-16 | Deriving, roles, `Coercible`, and newtype-based derivation | Role inference/checking (including imported aliases), compiler-owned `Coercible` solving, checked kind compatibility, higher-kinded given rewriting, canonical open-row alignment, constructor-visibility checks, explicit Typed Core evidence boundaries, and backend-planned conversions work for the covered subset. Source and Wasmtime tests cover phantom/nominal/representational roles, parameterized newtype scalar/function/array payloads, structural `Eq`/`Ord`, nested alias-aware `Functor.map`, direct `Bifunctor.bimap`, recursive `Eq`, checked `derive newtype` adapters, empty-class underlying-instance validation, and cross-module dictionaries. Differential tests also cover function-result traversal, `Contravariant` via `Profunctor.lcmap`, and resolved re-exported class identity. Runtime closure capture still blocks the function-based `Contravariant` case; other upstream deriving classes, method-local class constraints, and open-row runtime conversion remain incomplete. | Partial | Implement the remaining upstream deriving classes and method-local constraints; expand closure-capture runtime support and remaining coercion cases. See [roles and coercions acceptance](../implementation/frontend/roles-and-coercions.md). |
-| FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. The `1664.purs` wildcard binder lowers through P2. Visible type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The two remaining P2 type forms are negative type-level integer prefixes in `passing/IntToString.purs` and `passing/ParseTypeInt.purs`; row entailment remains under #97. | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
+| FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. A wildcard in a value signature is solved by unification and is accepted in every shape `purs` accepts; a wildcard in an instance head is rejected as `InvalidInstanceHead`, while one in an instance context stays legal. The `1664.purs` wildcard binder lowers through P2. Visible type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The two remaining P2 type forms are negative type-level integer prefixes in `passing/IntToString.purs` and `passing/ParseTypeInt.purs`; row entailment remains under #97. | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
 | FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 30/48, L4 17/38, L5 45/87. The L4/L5 denominators count cases reaching their owner stage; 33 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
