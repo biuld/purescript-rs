@@ -2,7 +2,7 @@
 //! checking against imported signatures, Core lowering, and linking.
 
 use super::{
-    Artifact, ProgramDiagnostic, backend_warnings, coded_diagnostic, diagnostic,
+    Artifact, DiagnosticOrigin, ProgramDiagnostic, backend_warnings, coded_diagnostic, diagnostic,
     lower_source_to_ast,
 };
 
@@ -32,7 +32,7 @@ fn desugar_diagnostic(error: psrs_desugar::DesugarError) -> super::Diagnostic {
     }
 }
 
-use graph::{imported_instance_declarations, module_dependencies, typecheck_order};
+use graph::{imported_instance_declarations, module_dependencies, module_table, typecheck_order};
 
 /// Compiles a whole program to a single Wasm component. Every module is type
 /// checked in dependency order and lowered to Core; the modules are then linked
@@ -52,7 +52,9 @@ fn compile_program_sources_with_trusted_prefix(
         errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: error.module.map_or(0, |module| module.0 as usize),
+                source: error.module.map_or(DiagnosticOrigin::Program, |module| {
+                    DiagnosticOrigin::Source(module.0 as usize)
+                }),
                 diagnostic: diagnostic(error.pass, error.span, error.message),
             })
             .collect::<Vec<_>>()
@@ -86,7 +88,7 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix(
                 return Err(errors
                     .into_iter()
                     .map(|error| ProgramDiagnostic {
-                        source: index,
+                        source: DiagnosticOrigin::Source(index),
                         diagnostic: diagnostic("P6 Core lowering", error.span, error.message),
                     })
                     .collect());
@@ -102,7 +104,7 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix(
         return Err(errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: error.module.0 as usize,
+                source: DiagnosticOrigin::Source(error.module.0 as usize),
                 diagnostic: diagnostic("P7 Core verification", error.span, error.message),
             })
             .collect());
@@ -140,7 +142,7 @@ fn select_entry(
         return Err(main_module
             .into_iter()
             .map(|(source, _, declaration)| ProgramDiagnostic {
-                source: *source,
+                source: DiagnosticOrigin::Source(*source),
                 diagnostic: diagnostic(
                     "P7 entry selection",
                     declaration.name_span,
@@ -162,7 +164,7 @@ fn select_entry(
     Err(candidates
         .into_iter()
         .map(|(source, _, declaration)| ProgramDiagnostic {
-            source,
+            source: DiagnosticOrigin::Source(source),
             diagnostic: diagnostic(
                 "P7 entry selection",
                 declaration.name_span,
@@ -186,7 +188,7 @@ pub fn resolve_program_sources(
             Err(diagnostics) => {
                 for diagnostic in diagnostics {
                     errors.push(ProgramDiagnostic {
-                        source: index,
+                        source: DiagnosticOrigin::Source(index),
                         diagnostic,
                     });
                 }
@@ -201,7 +203,7 @@ pub fn resolve_program_sources(
         Err(program_errors) => Err(program_errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: error.module,
+                source: DiagnosticOrigin::Source(error.module),
                 diagnostic: coded_diagnostic(
                     "P3 resolve",
                     error.error.span,
@@ -256,7 +258,7 @@ fn typecheck_program(
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
-                        source,
+                        source: DiagnosticOrigin::Source(source),
                         diagnostic: desugar_diagnostic(error),
                     });
                 }
@@ -314,7 +316,7 @@ fn typecheck_program(
         role_diagnostics
             .into_iter()
             .map(|(module, error)| ProgramDiagnostic {
-                source: module.0 as usize,
+                source: DiagnosticOrigin::Source(module.0 as usize),
                 diagnostic: coded_diagnostic(
                     "P5 kind check",
                     error.span,
@@ -331,7 +333,7 @@ fn typecheck_program(
         if !kind_errors.is_empty() {
             for error in kind_errors {
                 errors.push(ProgramDiagnostic {
-                    source: index,
+                    source: DiagnosticOrigin::Source(index),
                     diagnostic: coded_diagnostic(
                         "P5 kind check",
                         error.span,
@@ -376,7 +378,7 @@ fn typecheck_program(
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
-                        source: index,
+                        source: DiagnosticOrigin::Source(index),
                         diagnostic: coded_diagnostic(
                             "P5 typecheck",
                             error.span,

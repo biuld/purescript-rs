@@ -1,4 +1,4 @@
-use super::{ProgramDiagnostic, diagnostic};
+use super::{DiagnosticOrigin, ProgramDiagnostic, diagnostic};
 use psrs_hir::{Expr, ExprKind, Module, SymbolId};
 use psrs_span::TextRange;
 
@@ -40,7 +40,7 @@ pub(super) fn check_run_effect_scope(
             }
             for span in references {
                 errors.push(ProgramDiagnostic {
-                    source,
+                    source: DiagnosticOrigin::Source(source),
                     diagnostic: diagnostic(
                         "P7 entry selection",
                         span,

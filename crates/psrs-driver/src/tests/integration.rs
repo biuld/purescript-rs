@@ -227,7 +227,7 @@ fn attributes_backend_errors_to_their_declaring_module() {
     let b = ("B.purs", "module B where\nanswer = 0\n");
     let errors = compile_program_sources(&[a, b]).unwrap_err();
     assert!(errors.iter().any(|error| {
-        error.source == 0
+        error.source == DiagnosticOrigin::Source(0)
             && error.diagnostic.stage == "P8 closure conversion"
             && error
                 .diagnostic

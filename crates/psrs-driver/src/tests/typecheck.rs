@@ -324,13 +324,15 @@ fn a_lenient_type_check_type_checks_a_module_whose_sibling_is_missing() {
     assert!(
         errors
             .iter()
-            .any(|error| error.source == 0 && error.diagnostic.code == Some("ModuleNotFound")),
+            .any(|error| error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("ModuleNotFound")),
         "the missing module is reported against its own source: {errors:?}"
     );
     assert!(
         errors
             .iter()
-            .any(|error| error.source == 1 && error.diagnostic.code == Some("TypesDoNotUnify")),
+            .any(|error| error.source == DiagnosticOrigin::Source(1)
+                && error.diagnostic.code == Some("TypesDoNotUnify")),
         "the resolvable module is still type checked: {errors:?}"
     );
 }
@@ -340,10 +342,79 @@ fn a_lenient_type_check_attributes_a_diagnostic_to_the_user_source_not_the_libra
     let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
     let errors = check_program_types_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
     assert!(
+        errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("UnknownName")
+        }),
+        "the trusted prefix must not shift a user's diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_reports_a_module_by_its_own_module_id() {
+    // A lenient program type checks only the modules that resolved, so the list
+    // it iterates is shorter than the source list: a module whose names do not
+    // resolve is dropped from it. The module id is the position in the source
+    // list, and it is what a diagnostic must use. Enumerating the surviving
+    // modules reports this error against `Broken.purs`, which is exactly the
+    // module that failed to resolve.
+    let broken = "module Broken where\nvalue = missingName\n";
+    let good = "module Main where\nanswer :: Int\nanswer = \"not an int\"\n";
+    let errors =
+        check_program_types_lenient(&[("Broken.purs", broken), ("Main.purs", good)]).unwrap_err();
+    assert!(
         errors
             .iter()
-            .any(|error| { error.source == 0 && error.diagnostic.code == Some("UnknownName") }),
-        "the trusted prefix must not shift a user's diagnostic: {errors:?}"
+            .any(|error| error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("UnknownName")),
+        "`Broken` is the source that does not resolve: {errors:?}"
+    );
+    assert!(
+        errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(1)
+                && error.diagnostic.code == Some("TypesDoNotUnify")
+        }),
+        "the type error belongs to the second source: {errors:?}"
+    );
+    assert!(
+        !errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("TypesDoNotUnify")
+        }),
+        "the unresolvable module must not inherit the surviving module's error: {errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_sees_the_instances_of_the_module_it_imports() {
+    // Instance visibility is resolved through the dependency table, which is
+    // indexed by module id. Here `Broken` does not resolve, so the surviving
+    // modules sit one position below their ids: `Support` is the third module
+    // but the second surviving one. Indexing the table by position would answer
+    // `Main`'s lookup with `Main`'s own instances, and report `NoInstanceFound`
+    // for an instance the program does declare.
+    let support = "module Support where\ndata Wrapper a = Wrapper a\nclass Size a where\n  size :: a -> Int\ninstance sizeWrapper :: Size (Wrapper a) where\n  size _ = 1\n";
+    let user = "module Main where\nimport Support\nmain = size (Wrapper 1)\n";
+    let sources = [
+        ("Broken.purs", "module Broken where\nvalue = missingName\n"),
+        ("Other.purs", "module Other where\nvalue = 1\n"),
+        ("Support.purs", support),
+        ("Main.purs", user),
+    ];
+    let errors = check_program_types_lenient(&sources)
+        .expect_err("`Broken` names something that does not exist");
+    assert!(
+        !errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("NoInstanceFound")),
+        "the instance declared in Support is visible to Main: {errors:?}"
+    );
+    assert!(
+        errors.iter().any(|error| {
+            error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("UnknownName")
+        }),
+        "the unresolved name is reported against its own source: {errors:?}"
     );
 }
 

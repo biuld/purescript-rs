@@ -18,7 +18,7 @@ fn reports_a_missing_imported_module() {
     let main = "module Main where\nimport Missing\nmain = 1\n";
     let errors = check_program(&[("Main.purs", main)]).unwrap_err();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].source, 0);
+    assert_eq!(errors[0].source, DiagnosticOrigin::Source(0));
     assert!(errors[0].diagnostic.message.contains("`Missing`"));
 }
 
@@ -39,7 +39,11 @@ fn uses_an_explicit_export_list_as_the_module_interface() {
     let main = "module Main where\nimport Library\nmain = hidden\n";
     let errors =
         resolve_program_sources(&[("Library.purs", library), ("Main.purs", main)]).unwrap_err();
-    assert!(errors.iter().any(|error| error.source == 1));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.source == DiagnosticOrigin::Source(1))
+    );
 }
 
 #[test]
@@ -107,7 +111,7 @@ fn attributes_a_library_backed_diagnostic_to_the_user_source() {
     let errors = check_program_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
     assert!(
         errors.iter().any(|error| {
-            error.source == 0
+            error.source == DiagnosticOrigin::Source(0)
                 && error.diagnostic.code == Some("UnknownName")
                 && error.diagnostic.message.contains("`missingName`")
         }),
@@ -122,7 +126,8 @@ fn kind_checks_a_program_against_the_on_disk_standard_library() {
     assert!(
         errors
             .iter()
-            .any(|error| error.source == 0 && error.diagnostic.code == Some("KindsDoNotUnify")),
+            .any(|error| error.source == DiagnosticOrigin::Source(0)
+                && error.diagnostic.code == Some("KindsDoNotUnify")),
         "{errors:?}"
     );
 }
