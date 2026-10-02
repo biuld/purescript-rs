@@ -323,10 +323,21 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         } => {
             return do_notation::lower_do(statements, do_keyword_span, span);
         }
-        CstExprKind::Hole(_)
-        | CstExprKind::Negate { .. }
-        | CstExprKind::Typed { .. }
-        | CstExprKind::TypeApplication { .. } => {
+        CstExprKind::Typed {
+            expression,
+            type_expr,
+            ..
+        } => {
+            // The outer span already covers the expression and its type, so the
+            // ascription keeps it and the parser's punctuation span is dropped.
+            let expression = lower_expr(*expression)?;
+            let ty = lower_type(type_expr)?;
+            ExprKind::Typed {
+                expression: Box::new(expression),
+                ty,
+            }
+        }
+        CstExprKind::Hole(_) | CstExprKind::Negate { .. } | CstExprKind::TypeApplication { .. } => {
             return Err(LowerError::new(
                 span,
                 "this expression syntax is not supported yet",

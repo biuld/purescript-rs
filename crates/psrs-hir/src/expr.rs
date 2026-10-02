@@ -50,6 +50,13 @@ pub enum ExprKind {
         field: String,
     },
     Application(Box<Expr>, Box<Expr>),
+    /// A type ascription `e :: T`, with the written type already resolved. The
+    /// checker elaborates it and keeps the expression with its checked type, so
+    /// the node does not survive into Typed Core.
+    Typed {
+        expression: Box<Expr>,
+        ty: Type,
+    },
     Operator {
         operator: SymbolId,
         operator_span: TextRange,
