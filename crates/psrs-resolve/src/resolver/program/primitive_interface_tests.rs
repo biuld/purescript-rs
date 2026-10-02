@@ -277,6 +277,93 @@ fn qualified_types(module: &psrs_hir::Module) -> BTreeMap<String, TypeReference>
 }
 
 #[test]
+fn the_root_prim_interface_exports_undefined_with_a_stable_identity() {
+    // `undefined` is the one value the official root `Prim` module exports, so
+    // it has to reach source through the interface the resolver derives from
+    // the registry rather than as a free bootstrap name.
+    let resolved = resolve_program(vec![module(vec![import("Prim")])]).unwrap();
+    let imported = imported_values(&resolved[0]);
+    assert_eq!(
+        imported.get("undefined"),
+        Some(&psrs_hir::Intrinsic::Undefined.symbol()),
+        "`Prim.undefined` must keep one compiler-owned identity"
+    );
+    assert_eq!(
+        imported.get("__psrs_undefined"),
+        None,
+        "the bootstrap spelling must stay out of the value namespace"
+    );
+}
+
+#[test]
+fn undefined_keeps_one_identity_through_an_alias_and_a_re_export() {
+    let mut aliased = import("Prim");
+    aliased.alias = Some(name("P"));
+    let facade = ast::Module {
+        name: name("Facade"),
+        exports: Some(ast::ExportList {
+            items: vec![ast::ExportRef::Module(name("P"))],
+            span: TextRange::new(0, 20),
+        }),
+        imports: vec![aliased],
+        declarations: Vec::new(),
+        foreign_imports: Vec::new(),
+        type_declarations: Vec::new(),
+        role_declarations: Vec::new(),
+        fixities: Vec::new(),
+        instances: Vec::new(),
+        span: TextRange::new(0, 200),
+    };
+    let mut facade_import = import("Facade");
+    facade_import.alias = Some(name("F"));
+    let main = module(vec![facade_import]);
+
+    let resolved = resolve_program(vec![facade, main]).unwrap();
+    assert_eq!(
+        imported_values(&resolved[1]).get("undefined"),
+        Some(&psrs_hir::Intrinsic::Undefined.symbol()),
+        "a re-exported value must keep the compiler-owned identity"
+    );
+    let qualified = qualified_values(&resolved[1]);
+    assert_eq!(
+        qualified.get("F.undefined"),
+        Some(&psrs_hir::Intrinsic::Undefined.symbol()),
+        "a qualified member must keep the compiler-owned identity"
+    );
+}
+
+fn imported_values(module: &psrs_hir::Module) -> HashMap<&str, psrs_hir::SymbolId> {
+    module
+        .imports
+        .iter()
+        .flat_map(|import| {
+            import
+                .symbols
+                .iter()
+                .map(|item| (item.local_name.as_str(), item.symbol))
+        })
+        .collect()
+}
+
+fn qualified_values(module: &psrs_hir::Module) -> BTreeMap<String, psrs_hir::SymbolId> {
+    module
+        .imports
+        .iter()
+        .filter_map(|import| {
+            let qualifier = import.alias.as_deref()?;
+            Some(
+                import
+                    .symbols
+                    .iter()
+                    .map(|item| (format!("{qualifier}.{}", item.local_name), item.symbol))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .flatten()
+        .collect()
+}
+
+#[test]
 fn prim_number_is_not_a_child_module() {
     let errors = resolve_program(vec![module(vec![import("Prim.Number")])]).unwrap_err();
     assert!(

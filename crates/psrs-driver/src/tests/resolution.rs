@@ -238,6 +238,55 @@ fn a_source_partial_type_is_rejected_as_a_constraint_kinded_type() {
 }
 
 #[test]
+fn prim_undefined_resolves_and_types_as_a_polymorphic_value() {
+    // `Prim.undefined` has a compiler-owned identity and the official type
+    // `forall a. a`, so a use decides the type variable.
+    let source = "module Main where\n\
+        import Prim\n\
+        polymorphic :: forall a. a\n\
+        polymorphic = undefined\n\
+        main :: Int\n\
+        main = polymorphic\n";
+    check_program(&[("Main.purs", source)])
+        .unwrap_or_else(|errors| panic!("`undefined` should resolve and type check: {errors:?}"));
+}
+
+#[test]
+fn prim_undefined_is_not_a_free_name() {
+    let source = "module Main where\n\
+        main :: Int\n\
+        main = undefined\n";
+    let errors = check_program(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("UnknownName")),
+        "`undefined` must be reached through the root `Prim` interface: {errors:?}"
+    );
+}
+
+#[test]
+fn prim_undefined_reports_its_missing_runtime_representation() {
+    // The value type checks but nothing lowers it: a partial value has no
+    // representation yet, and the compiler says so rather than emitting a
+    // reference to a global that does not exist.
+    let source = "module Main where\n\
+        import Prim\n\
+        thing :: Int\n\
+        thing = undefined\n\
+        main :: Int\n\
+        main = thing\n";
+    let errors = lower_program_to_core(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.message
+                == "`Prim.undefined` has no runtime representation"),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn kind_checks_a_program_against_the_on_disk_standard_library() {
     let source = "module Main where\nimport Prelude\ndata KindError f a = One f | Two (f a)\n";
     let errors = check_program_kinds_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
