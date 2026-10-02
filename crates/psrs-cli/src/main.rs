@@ -199,10 +199,24 @@ fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
         Ok(artifact) => artifact,
         Err(errors) => {
             for error in errors {
-                let Some((path, text)) = sources.get(error.source) else {
+                // A diagnostic in a standard-library module names a file the
+                // caller did not pass, so there is no snippet to print, and
+                // naming the first source instead would blame a file the caller
+                // wrote for the library's error.
+                let Some((path, text)) = error
+                    .source
+                    .source_index()
+                    .and_then(|source| sources.get(source))
+                else {
                     eprintln!(
-                        "source #{}: {}: {}",
-                        error.source, error.diagnostic.stage, error.diagnostic.message
+                        "{}: {} [{}]: {}",
+                        match error.source {
+                            psrs_driver::DiagnosticOrigin::Library => "standard library",
+                            _ => "program",
+                        },
+                        error.diagnostic.message,
+                        error.diagnostic.stage,
+                        error.diagnostic.code.unwrap_or("no error code")
                     );
                     continue;
                 };
@@ -261,7 +275,17 @@ fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(errors) => {
             for error in errors {
-                let Some((path, text)) = sources.get(error.source) else {
+                let Some((path, text)) = error
+                    .source
+                    .source_index()
+                    .and_then(|source| sources.get(source))
+                else {
+                    eprintln!(
+                        "program: {} [{}]: {}",
+                        error.diagnostic.message,
+                        error.diagnostic.stage,
+                        error.diagnostic.code.unwrap_or("no error code")
+                    );
                     continue;
                 };
                 let source = SourceFile::new(path.as_str(), text.as_str());

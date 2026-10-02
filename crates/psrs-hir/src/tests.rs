@@ -183,6 +183,73 @@ fn verifier_rejects_instance_chain_position_gaps_and_reordering() {
 }
 
 #[test]
+fn verifier_rejects_duplicate_exported_instance_identities() {
+    let module_id = ModuleId(0);
+    let mut module = module_with_instances(vec![chain_instance(module_id, 0, 0, 0, 0)]);
+    let exported = ExportedInstance {
+        symbol: SymbolId::new(module_id, 0),
+        name: "instance0".into(),
+        name_span: TextRange::default(),
+    };
+    module.exports = Some(ExportList {
+        values: Vec::new(),
+        operators: Vec::new(),
+        types: Vec::new(),
+        type_operators: Vec::new(),
+        instances: vec![exported.clone(), exported],
+        span: TextRange::default(),
+    });
+
+    let errors = module
+        .verify()
+        .expect_err("an instance export is a set of IDs");
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.message == "duplicate exported instance symbol" })
+    );
+}
+
+#[test]
+fn verifier_rejects_missing_and_foreign_exported_instances() {
+    let module_id = ModuleId(0);
+    let mut module = module_with_instances(Vec::new());
+    module.exports = Some(ExportList {
+        values: Vec::new(),
+        operators: Vec::new(),
+        types: Vec::new(),
+        type_operators: Vec::new(),
+        instances: vec![
+            ExportedInstance {
+                symbol: SymbolId::new(module_id, 0),
+                name: "missing".into(),
+                name_span: TextRange::default(),
+            },
+            ExportedInstance {
+                symbol: SymbolId::new(ModuleId(1), 0),
+                name: "foreign".into(),
+                name_span: TextRange::default(),
+            },
+        ],
+        span: TextRange::default(),
+    });
+
+    let errors = module
+        .verify()
+        .expect_err("exported instances must be declared by their module");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message == "exported instance is not declared in module")
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message == "exported instance belongs to a different module")
+    );
+}
+
+#[test]
 fn verifier_rejects_reopened_chains_and_class_changes() {
     let module = ModuleId(0);
     assert_chain_error(

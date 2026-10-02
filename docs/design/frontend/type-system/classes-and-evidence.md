@@ -28,7 +28,30 @@ Evidence = Given(LocalId) | Superclass(Evidence, FieldId)
          | Coercible(SourceType, TargetType) | Primitive(PrimitiveEvidence)
 ```
 
-An instance chain is a contiguous, ordered group of alternatives. `chain_id` is unique within its declaring module and `chain_position` is contiguous from zero; both survive imports. Ordinary instances are singleton groups. The class environment records imported and local instances with stable identities and visibility. Evidence terms are checked against the instantiated constraint they prove. Primitive classes such as `Prim.Row.Cons`, `Prim.Row.Union`, and `Prim.Row.Lacks` are solved by dedicated rules but present ordinary constraint interfaces to inference. `Prim.Coerce.Coercible source target` is compiler-owned: users cannot provide instances for it, and its evidence is a checked proof of a representation relation rather than a runtime dictionary selected by ordinary instance search.
+An instance chain is a contiguous, ordered group of alternatives in its
+declaring module. `chain_id` is unique within that module and local
+`chain_position` is contiguous from zero. Export filtering may leave gaps in a
+visible subset, so surviving branches retain their original positions and
+identity. Ordinary instances are singleton groups. The class environment
+records imported and local instances with stable identities and visibility.
+Evidence terms are checked against the instantiated constraint they prove.
+Primitive classes such as `Prim.Row.Cons`, `Prim.Row.Union`, and
+`Prim.Row.Lacks` are solved by dedicated rules but present ordinary constraint
+interfaces to inference. `Prim.Coerce.Coercible source target` is
+compiler-owned: users cannot provide instances for it, and its evidence is a
+checked proof of a representation relation rather than a runtime dictionary
+selected by ordinary instance search.
+
+Instance bodies contain dictionary members, not module value declarations. A
+member's optional type signature must immediately precede its first equation;
+the signature applies to that consecutive equation group. Consecutive equations
+for one member form one definition, while a later separated group with the
+same name is a duplicate declaration. A signature without its matching member
+is an orphan type declaration. Member signatures are checked against the class
+method after substituting the instance head, and their unbound type variables
+resolve in the instance-head scope. The implementation supports the existing
+subsumption rules for these annotations; it does not yet solve a constrained
+annotation merely to specialize it to a monomorphic expected method type.
 
 ## Design
 

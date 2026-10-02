@@ -125,18 +125,31 @@ fn checks_an_inferred_public_result_type_after_typechecking() {
 #[test]
 fn checks_the_official_required_hidden_type_case_after_inference() {
     let source = "module Foo (B(..), a, b) where\ndata A = A\ndata B = B\na = A\nb = B\n";
-    for check in [
-        crate::check_program(&[("RequiredHiddenType.purs", source)]),
-        crate::check_program_types_lenient_with_prelude(&[("RequiredHiddenType.purs", source)]),
+    // The case is checked twice: on the bare program path, and on the lenient path
+    // that carries the standard library. The two report different diagnostic types,
+    // because the library path has to say which diagnostics the caller owns, so
+    // the assertion is made over the diagnostic each one wraps.
+    let bare = crate::check_program(&[("RequiredHiddenType.purs", source)])
+        .expect_err("the official case exports a value whose type is hidden");
+    let with_library =
+        crate::check_program_types_lenient_with_prelude(&[("RequiredHiddenType.purs", source)])
+            .expect_err("the official case exports a value whose type is hidden");
+    for diagnostics in [
+        bare.iter()
+            .map(|error| &error.diagnostic)
+            .collect::<Vec<_>>(),
+        with_library
+            .iter()
+            .map(|error| &error.diagnostic)
+            .collect::<Vec<_>>(),
     ] {
-        let errors = check.expect_err("the official case exports a value whose type is hidden");
         assert!(
-            errors.iter().any(|error| {
-                error.diagnostic.stage == "P5 typecheck"
-                    && error.diagnostic.code == Some("TransitiveExportError")
-                    && error.diagnostic.message.contains("A")
+            diagnostics.iter().any(|error| {
+                error.stage == "P5 typecheck"
+                    && error.code == Some("TransitiveExportError")
+                    && error.message.contains('A')
             }),
-            "{errors:?}"
+            "{diagnostics:?}"
         );
     }
 }

@@ -61,6 +61,24 @@ their final IDs. Qualified lookup uses only the named imported module;
 unqualified lookup combines local declarations and permitted imports and
 rejects ambiguity.
 
+Instance dictionary names follow the module's declared-identifier conflict
+rules: a named instance may not reuse another instance name, and a named
+instance may not collide with an ordinary value (`DuplicateInstance` and
+`RedefinedIdent`, respectively). Generated dictionary names avoid both
+spaces. Instance methods remain fields of their dictionary and do not enter
+the ordinary value namespace. Importing a class does not import its methods as
+ordinary values; a method used by name must also be imported from the class's
+module.
+
+An import brings the dependency's visible instances even when its import list
+selects no values. Visibility is determined at the declaring module: an implicitly
+exported module exposes its instances, while an explicit export list exposes
+each instance branch only when its class and every locally owned type in its
+head and context are exported. External class/type owners are already visible.
+Filter branches independently while retaining their original chain identity
+and positions, so a hidden branch cannot leak through a facade and a later
+public branch remains usable.
+
 `Prim` is a virtual module family. The root interface maps built-in type names
 to their existing `BuiltinType` identities. Official child-module types and
 classes are declared once in shared HIR primitive metadata with stable

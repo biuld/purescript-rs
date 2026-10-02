@@ -363,14 +363,6 @@ fn build_import(
                                         name.span,
                                         interface.opaque.contains(&id),
                                     ));
-                                    for (member, symbol) in interface
-                                        .class_members
-                                        .get(&name.text)
-                                        .into_iter()
-                                        .flatten()
-                                    {
-                                        symbols.push(imported(*symbol, member, member, name.span));
-                                    }
                                 }
                                 Some(TypeReference::Builtin(_)) | None => {
                                     unknown_import(module_index, name, errors)

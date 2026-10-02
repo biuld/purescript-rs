@@ -8,9 +8,9 @@ use psrs_hir::{self as hir, ModuleId, SymbolId, TypeId};
 pub(super) fn resolve_instance(
     resolver: &mut Resolver,
     module_id: ModuleId,
-    index: usize,
     instance: ast::InstanceDeclaration,
     next_symbol: &mut u32,
+    generated_name: &str,
 ) -> Option<hir::InstanceDeclaration> {
     let context = instance
         .context
@@ -29,7 +29,21 @@ pub(super) fn resolve_instance(
         .members
         .into_iter()
         .filter_map(|member| {
+            let signature = match member.annotation {
+                Some(signature) => Some(resolver.resolve_type(signature)?),
+                None => None,
+            };
             let value = resolver.resolve_expr(member.value)?;
+            let value = match signature {
+                Some(ty) => hir::Expr {
+                    kind: hir::ExprKind::Typed {
+                        expression: Box::new(value),
+                        ty,
+                    },
+                    span: member.span,
+                },
+                None => value,
+            };
             Some(hir::InstanceMember {
                 name: member.name.text,
                 name_span: member.name.span,
@@ -39,7 +53,7 @@ pub(super) fn resolve_instance(
         })
         .collect::<Vec<_>>();
     let (name, name_span) = if instance.name.text.is_empty() {
-        (format!("$instance${index}"), instance.span)
+        (generated_name.to_owned(), instance.span)
     } else {
         (instance.name.text.clone(), instance.name.span)
     };

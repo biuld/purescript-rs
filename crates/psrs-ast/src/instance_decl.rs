@@ -1,4 +1,6 @@
-use crate::{DerivationStrategy, InstanceDeclaration, LowerError, Name, Type, lower_type};
+use crate::{
+    Declaration, DerivationStrategy, InstanceDeclaration, LowerError, Name, Type, lower_type,
+};
 use psrs_cst as cst;
 
 /// Lowers an `instance` declaration. Its where-block members become ordinary
@@ -14,21 +16,18 @@ pub(crate) fn lower_instance(
         None => Vec::new(),
     };
     let head = lower_type(declaration.head)?;
-    let mut members = Vec::new();
-    if let Some(block) = declaration.where_block {
-        for member in block.declarations {
-            match member {
-                cst::Declaration::Value(value) => {
-                    members.push(crate::lower_value_declaration(value)?);
-                }
-                cst::Declaration::TypeSignature(_) => {}
-                other => {
-                    return Err(LowerError::new(
-                        other.span(),
-                        "this instance member is not supported yet",
-                    ));
-                }
-            }
+    let members = match declaration.where_block {
+        Some(block) => lower_instance_members(block.declarations)?,
+        None => Vec::new(),
+    };
+    let mut member_names = std::collections::HashSet::new();
+    for member in &members {
+        if !member_names.insert(member.name.text.clone()) {
+            return Err(LowerError::coded(
+                member.name.span,
+                "DuplicateValueDeclaration",
+                "an instance cannot define the same class member more than once",
+            ));
         }
     }
     let name = match declaration.name {
@@ -48,6 +47,67 @@ pub(crate) fn lower_instance(
         derivation,
         span: declaration.span,
     })
+}
+
+/// Lowers instance methods as declaration groups. A signature belongs to the
+/// immediately following equation group with the same name; equations remain
+/// grouped only while they are consecutive in source order.
+fn lower_instance_members(
+    declarations: Vec<cst::Declaration>,
+) -> Result<Vec<Declaration>, LowerError> {
+    let mut members = Vec::new();
+    let mut index = 0;
+    while index < declarations.len() {
+        let (first, group_start) = match &declarations[index] {
+            cst::Declaration::TypeSignature(signature) => {
+                let Some(cst::Declaration::Value(value)) = declarations.get(index + 1) else {
+                    return Err(orphan_instance_signature(signature));
+                };
+                if signature.name.text != value.name.text {
+                    return Err(orphan_instance_signature(signature));
+                }
+                let mut value = value.clone();
+                value.annotation = Some(signature.type_expr.clone());
+                (value, index + 1)
+            }
+            cst::Declaration::Value(value) => (value.clone(), index),
+            other => {
+                return Err(LowerError::new(
+                    other.span(),
+                    "only value declarations are supported in an instance body",
+                ));
+            }
+        };
+
+        let mut end = group_start + 1;
+        while let Some(cst::Declaration::Value(value)) = declarations.get(end)
+            && value.name.text == first.name.text
+        {
+            end += 1;
+        }
+        let mut group = Vec::with_capacity(end - group_start);
+        group.push(first);
+        for declaration in &declarations[group_start + 1..end] {
+            let cst::Declaration::Value(value) = declaration else {
+                unreachable!("equation group contains only values")
+            };
+            group.push(value.clone());
+        }
+        members.push(crate::equations::lower_value_declarations(
+            group,
+            "DuplicateValueDeclaration",
+        )?);
+        index = end;
+    }
+    Ok(members)
+}
+
+fn orphan_instance_signature(signature: &cst::TypeSignature) -> LowerError {
+    LowerError::coded(
+        signature.span,
+        "OrphanTypeDeclaration",
+        "an instance member type declaration must be followed by a matching value declaration",
+    )
 }
 
 pub(crate) fn lower_derive(
