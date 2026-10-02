@@ -259,8 +259,9 @@ impl Checker {
         )
     }
 
-    /// Elaborates row fields in canonical label order, reporting a duplicate
-    /// label once at the field that repeats it.
+    /// Elaborates row fields, reporting a duplicate label once at the field
+    /// that repeats it. The construction sorts them into canonical label order,
+    /// so this keeps source order.
     fn elaborate_row_fields(
         &mut self,
         fields: &[hir::TypeField],
@@ -283,7 +284,6 @@ impl Checker {
                 self.elaborate_type_mode(&field.ty, variables, rigid_variables),
             ));
         }
-        elaborated.sort_by(|left, right| left.0.cmp(&right.0));
         elaborated
     }
 

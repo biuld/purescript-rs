@@ -261,6 +261,41 @@ fn accepts_a_row_tail_that_is_not_a_variable() {
     typed.verify().unwrap();
 }
 
+/// `Prim.Row` is a phantom nominal constructor, so `Row Int` is a type on the
+/// spine rather than a row value. It reaches THIR as the same head official
+/// PureScript declares.
+#[test]
+fn accepts_the_row_constructor_as_a_head() {
+    let signature = function(
+        applied(
+            builtin(psrs_hir::BuiltinType::Row, 26),
+            builtin(psrs_hir::BuiltinType::Int, 30),
+            26,
+            33,
+        ),
+        applied(
+            builtin(psrs_hir::BuiltinType::Row, 26),
+            builtin(psrs_hir::BuiltinType::Int, 30),
+            26,
+            33,
+        ),
+        26,
+    );
+    let declaration = declaration_with_signature(0, "r", 19, signature, identity_lambda(0, 40));
+    let resolved = module(vec![declaration], false);
+
+    let typed = typecheck_module(resolved).unwrap();
+    assert!(
+        typed
+            .types
+            .iter()
+            .any(|ty| matches!(ty, Type::Constructor(thir::TypeConstructor::Row))),
+        "{:?}",
+        typed.types
+    );
+    typed.verify().unwrap();
+}
+
 /// A value that resolved to a non-row is reported as the shape it is, at the
 /// range where it was found, instead of becoming a closed row.
 #[test]

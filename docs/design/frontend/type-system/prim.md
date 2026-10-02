@@ -264,10 +264,13 @@ not for a supported one. `Warn` and `Fail` and `Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
 unsolved class, and `Warn` does not defer to an enclosing warning.
 
-The shared types those rules need are not all reachable yet: signature elaboration
-rejects a general `Row`, type-level `String` and `Integer` literals, and the
-`Type`, `Constraint`, `Symbol`, `Row`, and `Record` primitive heads, and `InferType`
-and THIR have no literal or row-constructor nodes to hold them. Record literals are
-checked by a dedicated path in the row module rather than through constructor
-application. Until the spine carries those forms, a rule could only be written by
-reading source syntax privately, which this document rejects.
+The shared types those rules need are now reachable: `InferType` and THIR
+carry `TypeLevelString` and `TypeLevelInt`, a type-level literal is decided by
+its value and is what an unknown variable is solved to, and signature
+elaboration accepts a general `Row`, both literals, and the `Row` and `Record`
+primitive heads, so a rule receives its arguments as ordinary types. A row
+reaches one normalizer whether it was written with row syntax, record syntax,
+or a `Record` application, and `normalize_row` reports an invalid shape rather
+than reading it as a closed row. `Type`, `Constraint`, and `Symbol` are still
+rejected in a type position because that needs `KindApplication`, and
+`KindApplication` is still missing.
