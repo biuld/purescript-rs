@@ -71,6 +71,7 @@ impl Checker {
                 result = apply_expr(result, mapped, span);
             }
             branches.push(hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Constructor {
                         symbol: constructor.symbol,

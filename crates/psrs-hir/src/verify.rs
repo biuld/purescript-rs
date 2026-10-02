@@ -1,6 +1,94 @@
-use crate::{Expr, ExprKind, LocalId, Pattern, PatternKind, SymbolId};
+use crate::{Expr, ExprKind, Guard, GuardedExpr, LocalId, Pattern, PatternKind, SymbolId};
 use psrs_span::TextRange;
 use std::collections::HashSet;
+
+pub(crate) fn normalized(module: &crate::Module) -> Result<(), Vec<VerifyError>> {
+    let mut errors = Vec::new();
+    for declaration in &module.declarations {
+        check_normalized_expr(&declaration.value, &mut errors);
+    }
+    for instance in &module.instances {
+        for member in &instance.members {
+            check_normalized_expr(&member.value, &mut errors);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
+    match &expression.kind {
+        ExprKind::Guarded(_) => errors.push(VerifyError {
+            span: expression.span,
+            message: "guarded expression survived P4 desugaring",
+        }),
+        ExprKind::Operator { left, right, .. } => {
+            errors.push(VerifyError {
+                span: expression.span,
+                message: "operator expression survived P4 desugaring",
+            });
+            check_normalized_expr(left, errors);
+            check_normalized_expr(right, errors);
+        }
+        ExprKind::Array(items) => {
+            for item in items {
+                check_normalized_expr(item, errors);
+            }
+        }
+        ExprKind::Record(fields) => {
+            for (_, value) in fields {
+                check_normalized_expr(value, errors);
+            }
+        }
+        ExprKind::RecordUpdate { expression, fields } => {
+            check_normalized_expr(expression, errors);
+            for (_, value) in fields {
+                check_normalized_expr(value, errors);
+            }
+        }
+        ExprKind::FieldAccess { expression, .. } | ExprKind::Typed { expression, .. } => {
+            check_normalized_expr(expression, errors);
+        }
+        ExprKind::Application(function, argument) => {
+            check_normalized_expr(function, errors);
+            check_normalized_expr(argument, errors);
+        }
+        ExprKind::Lambda { body, .. } => check_normalized_expr(body, errors),
+        ExprKind::Let { bindings, body } => {
+            for binding in bindings {
+                check_normalized_expr(&binding.value, errors);
+            }
+            check_normalized_expr(body, errors);
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            check_normalized_expr(condition, errors);
+            check_normalized_expr(then_branch, errors);
+            check_normalized_expr(else_branch, errors);
+        }
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => {
+            check_normalized_expr(scrutinee, errors);
+            for branch in branches {
+                check_normalized_expr(&branch.value, errors);
+            }
+        }
+        ExprKind::Local(_)
+        | ExprKind::Global(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => {}
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyError {
@@ -159,6 +247,91 @@ pub(crate) fn verify_expr(
                 }
             }
         }
+        ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                verify_guarded_expr(clause, globals, visible_locals, declared_locals, errors);
+            }
+        }
+    }
+}
+
+fn verify_guarded_expr(
+    clause: &GuardedExpr,
+    globals: &HashSet<SymbolId>,
+    visible_locals: &mut HashSet<LocalId>,
+    declared_locals: &mut HashSet<LocalId>,
+    errors: &mut Vec<VerifyError>,
+) {
+    let mut inserted = Vec::new();
+    for binding in &clause.where_bindings {
+        if !declared_locals.insert(binding.binder.id) {
+            errors.push(VerifyError {
+                span: binding.binder.span,
+                message: "duplicate local ID",
+            });
+        }
+        if visible_locals.insert(binding.binder.id) {
+            inserted.push(binding.binder.id);
+        }
+    }
+    for binding in &clause.where_bindings {
+        verify_expr(
+            &binding.value,
+            globals,
+            visible_locals,
+            declared_locals,
+            errors,
+        );
+    }
+    for guard in &clause.guards {
+        match guard {
+            Guard::Boolean(expression) => {
+                verify_expr(expression, globals, visible_locals, declared_locals, errors);
+            }
+            Guard::Pattern { pattern, value } => {
+                verify_expr(value, globals, visible_locals, declared_locals, errors);
+                verify_pattern(
+                    pattern,
+                    globals,
+                    visible_locals,
+                    declared_locals,
+                    &mut inserted,
+                    errors,
+                );
+            }
+            Guard::Let { bindings, .. } => {
+                for binding in bindings {
+                    if !declared_locals.insert(binding.binder.id) {
+                        errors.push(VerifyError {
+                            span: binding.binder.span,
+                            message: "duplicate local ID",
+                        });
+                    }
+                    if visible_locals.insert(binding.binder.id) {
+                        inserted.push(binding.binder.id);
+                    }
+                }
+                for binding in bindings {
+                    verify_expr(
+                        &binding.value,
+                        globals,
+                        visible_locals,
+                        declared_locals,
+                        errors,
+                    );
+                }
+            }
+        }
+    }
+    verify_expr(
+        &clause.value,
+        globals,
+        visible_locals,
+        declared_locals,
+        errors,
+    );
+    for id in inserted {
+        visible_locals.remove(&id);
     }
 }
 
@@ -171,7 +344,7 @@ fn verify_pattern(
     errors: &mut Vec<VerifyError>,
 ) {
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Boolean(_) => {}
         PatternKind::Var(binder) => {
             if !declared_locals.insert(binder.id) {
                 errors.push(VerifyError {

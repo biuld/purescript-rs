@@ -378,6 +378,7 @@ fn leaves_case_bodies_out_of_global_inlining_to_keep_diagnostics_singular() {
                         )),
                         branches: vec![
                             CaseBranch {
+                                coverage: psrs_hir::CaseBranchCoverage::Source,
                                 pattern: Pattern {
                                     kind: PatternKind::Wildcard,
                                     ty: boolean_type,
@@ -387,6 +388,7 @@ fn leaves_case_bodies_out_of_global_inlining_to_keep_diagnostics_singular() {
                                 span: span(55, 61),
                             },
                             CaseBranch {
+                                coverage: psrs_hir::CaseBranchCoverage::Source,
                                 pattern: Pattern {
                                     kind: PatternKind::Wildcard,
                                     ty: boolean_type,

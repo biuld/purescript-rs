@@ -316,6 +316,14 @@ impl Checker {
                 scrutinee,
                 branches,
             } => return self.infer_case(scrutinee, branches, span),
+            hir::ExprKind::Guarded(_) => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::InvalidHir,
+                    span,
+                    "guarded expression survived P4 desugaring",
+                ));
+                return None;
+            }
         };
         Some(InferredExpr { kind, ty, span })
     }

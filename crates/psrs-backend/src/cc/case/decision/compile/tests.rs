@@ -88,6 +88,7 @@ fn constructor(symbol: SymbolId, ty: psrs_core::TypeId, span: TextRange) -> Patt
 
 fn branch(pattern: Pattern, index: i32, span: TextRange) -> CaseBranch {
     CaseBranch {
+        coverage: psrs_hir::CaseBranchCoverage::Source,
         pattern,
         value: Expr {
             kind: ExprKind::Integer(index),

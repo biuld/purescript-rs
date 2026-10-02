@@ -96,6 +96,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
     let skip_local = LocalId(71);
     let branches = vec![
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: pick_pattern(bool_pattern(true_symbol, TextRange::new(6, 10)), 1),
             value: Expr {
                 kind: ExprKind::Integer(11),
@@ -105,6 +106,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             span: TextRange::new(1, 13),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: pick_pattern(bool_pattern(false_symbol, TextRange::new(21, 26)), 16),
             value: Expr {
                 kind: ExprKind::Integer(22),
@@ -114,6 +116,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
             span: TextRange::new(16, 29),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: Pattern {
                 kind: PatternKind::Constructor {
                     symbol: skip,

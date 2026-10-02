@@ -11,6 +11,14 @@ impl Checker {
         let span = pattern.span;
         let kind = match &pattern.kind {
             hir::PatternKind::Wildcard => InferredPatternKind::Wildcard,
+            hir::PatternKind::Boolean(_) => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::InvalidHir,
+                    span,
+                    "boolean literal pattern survived P4 desugaring",
+                ));
+                return None;
+            }
             hir::PatternKind::Var(binder) => {
                 self.locals
                     .insert(binder.id, Scheme::monomorphic(expected.clone()));

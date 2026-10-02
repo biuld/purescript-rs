@@ -90,6 +90,25 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
                 collect_globals(&branch.value, out);
             }
         }
+        hir::ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                for binding in &clause.where_bindings {
+                    collect_globals(&binding.value, out);
+                }
+                for guard in &clause.guards {
+                    match guard {
+                        hir::Guard::Boolean(value) => collect_globals(value, out),
+                        hir::Guard::Pattern { value, .. } => collect_globals(value, out),
+                        hir::Guard::Let { bindings, .. } => {
+                            for binding in bindings {
+                                collect_globals(&binding.value, out);
+                            }
+                        }
+                    }
+                }
+                collect_globals(&clause.value, out);
+            }
+        }
     }
 }
 
