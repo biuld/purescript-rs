@@ -1,5 +1,5 @@
 use super::*;
-use psrs_hir::BuiltinType;
+use psrs_hir::{BuiltinType, ModuleId};
 use std::collections::HashSet;
 
 mod synonyms;
@@ -11,9 +11,15 @@ mod synonyms;
 /// Each diagnostic is attributed to the module that declares the type, which is
 /// the module whose `type role` annotation and constructor fields it comes
 /// from.
+///
+/// Compiler-provided declarations enter through the same registry the kind pass
+/// builds its schemes from, so a `Prim` member is role-bearing exactly as a
+/// source declaration is and carries its official role signature into the
+/// checked environment.
 pub(super) fn infer_roles_fixed_point(
     modules: &[hir::Module],
 ) -> (HashMap<TypeId, Vec<Role>>, Vec<KindDiagnostic>) {
+    let primitives = psrs_hir::primitive_type_declarations();
     let declarations = modules
         .iter()
         .flat_map(|module| {
@@ -23,6 +29,12 @@ pub(super) fn infer_roles_fixed_point(
                 .filter(move |declaration| role_bearing(declaration.kind))
                 .map(move |declaration| (module.id, declaration))
         })
+        .chain(
+            primitives
+                .iter()
+                .filter(|(_, declaration)| role_bearing(declaration.kind))
+                .map(|(_, declaration)| (ModuleId::INTRINSICS, declaration)),
+        )
         .collect::<Vec<_>>();
     let synonyms = synonyms::collect(modules);
     let mut roles = declarations

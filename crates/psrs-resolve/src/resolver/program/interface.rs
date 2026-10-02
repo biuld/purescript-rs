@@ -35,6 +35,12 @@ impl Interface {
                         .types
                         .insert(member.to_owned(), TypeReference::Builtin(builtin));
                 }
+                // `undefined` is the one value the official root `Prim` module
+                // exports. It has no runtime representation yet, so the stages
+                // that would have to choose one report it.
+                interface
+                    .values
+                    .insert("undefined".to_owned(), Intrinsic::Undefined.symbol());
             }
             "Safe.Coerce" => {
                 interface

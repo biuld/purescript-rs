@@ -169,6 +169,10 @@ pub enum Intrinsic {
     BytesToString,
     /// Source-level `Safe.Coerce.coerce`, elaborated to a checked coercion.
     Coerce,
+    /// The compiler-provided partial value `Prim.undefined`, whose type is
+    /// `forall a. a`. It has no runtime representation yet, so the stages that
+    /// would have to choose one report it instead of inventing it.
+    Undefined,
 }
 
 impl Intrinsic {
