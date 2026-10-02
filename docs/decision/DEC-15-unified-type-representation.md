@@ -8,9 +8,9 @@
 The frontend type-system design fixes the checked-type spine:
 
 ```text
-CheckedType = Var | Constructor | Application | KindApplication | ForAll
-            | Constrained | RowEmpty | RowExtend | TypeLevelString
-            | TypeLevelInt | Skolem
+InferType = Constructor | Variable | Application | KindApplication
+          | ForAll | Constrained | RowEmpty | RowExtend | TypeLevelString
+          | TypeLevelInt | Skolem | Wildcard | Unknown
 ```
 
 An arrow is application of the function kind constructor, and the primitive
@@ -68,6 +68,10 @@ retain them only where P5 still needs them, never past the checked boundary.
 - A record is `Application(Constructor(Record), row)`, where a row is
   `RowEmpty` or `RowExtend`; a tuple is the closed record `{ _1, _2, ... }`.
 - `Array a` is `Application(Constructor(Array), a)`.
+- `Constrained` is a typechecker node. P5 discharges each constraint of a scheme
+  into an explicit dictionary parameter, so THIR and Core keep this spine without
+  it, as official PureScript does once dictionaries are elaborated. `Unknown`,
+  `Wildcard`, and `Skolem` are inference-only for the same reason.
 - Primitive and user constructors are heads on the same spine; nothing is
   special-cased by syntax.
 
@@ -111,7 +115,7 @@ official does.
 - **Keep the ad-hoc `Function`/`Record`/inline-primitive variants (the current
   deviation).** Rejected: it cannot express a polymorphic effect's arity without
   an effect-specific rule, and it diverges from the already-fixed frontend
-  `CheckedType` and from official PureScript's `TypeApp`.
+  type spine and from official PureScript's `TypeApp`.
 - **Add a `Type::EffectToken` variant.** Rejected: it makes the effect encoding a
   Core type and bakes one library's representation into the shared IR, so a
   different effect representation or a new effect library would need a new Core

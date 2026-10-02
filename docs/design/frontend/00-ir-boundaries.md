@@ -38,7 +38,7 @@ checkable condition.
 | P2 | CST | AST | Syntax-only distinctions are normalized; names remain textual. |
 | P3 | AST + module environment | Resolved HIR | Every value, type, constructor, class, and module reference has a stable ID. |
 | P4 | Resolved HIR | Resolved HIR | Surface sugar is removed without changing IDs or binding scope. |
-| P5 | Resolved HIR | THIR | Kinds and types are checked; overloads carry explicit evidence. |
+| P5 | Resolved HIR + program-wide checked kind and role environment | THIR | Kinds and types are checked; overloads carry explicit evidence. |
 | P6 | THIR | Typed Core | Only the small Core grammar remains; checked types and spans survive. |
 
 `SourceId` identifies a source file; `TextRange` is a half-open byte interval in
@@ -82,17 +82,30 @@ run_frontend(source_set):
 ```
 
 The driver preserves deterministic module and declaration order for dumps and
-diagnostics. P3 checks the full import/export graph before P5. P5 checks all
+diagnostics. P3 checks the full import/export graph before P5. P5 runs kind
+checking once per program, keeps its diagnostics attributed to the module that
+declares the offending type, and gives each module's type check that checked
+environment instead of letting a module re-derive what it imports. P5 checks all
 declared signatures before producing THIR, and P6 refuses incomplete evidence.
+
+A boundary verifier states what it decides from its own input and what it trusts
+from the producer. P5's THIR verifier checks type-reference validity, quantifier
+scope, term typing, and evidence boundaries; it trusts P5 for kind legality,
+instance-selection coherence, and the derivation of a coercion proof, because THIR
+does not carry the metadata those checks need. [Type inference](type-system/type-inference.md#boundaries-and-interfaces)
+states that boundary, and a guarantee that moves from trusted to verified brings
+the corresponding immutable metadata across the boundary with it.
 
 ## Code map
 
 `psrs-span` owns source files, byte ranges, and line mapping. `psrs-syntax`
 owns P0/P1 over `psrs-cst`; `psrs-ast` owns P2; `psrs-resolve` owns P3 over
-`psrs-hir`; `psrs-desugar` owns P4; `psrs-kind` and `psrs-typecheck` own P5 and
+`psrs-hir`; `psrs-desugar` owns P4; the kind and type-check modules own P5 and
 produce `psrs-thir`; `psrs-core` owns P6 and Core verification. `psrs-driver`
-orchestrates pass entry points and diagnostics. Each topic's Code map specifies
-the modules and signatures within that owner.
+orchestrates pass entry points and diagnostics, and owns the program's checked
+kind environment as the value it threads from kind checking into every module's
+type check. Each topic's Code map specifies the modules and signatures within that
+owner.
 
 ## Invariants and verification
 

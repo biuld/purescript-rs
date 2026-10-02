@@ -489,8 +489,10 @@ user data types all use `Constructor`/`Application` with `RowEmpty`/`RowExtend`
 rows, and the ad-hoc `Function`, `Record`, `OpenRecord`, and inline primitive
 variants are gone ([DEC-15](../../../decision/DEC-15-unified-type-representation.md)).
 An open row is `Application(Constructor(Record), Variable)`, so closure
-conversion still rejects it when it cannot choose a field layout. The remaining
-`CheckedType` nodes the design lists — `KindApplication`, `Constrained`,
-`TypeLevel*`, and `Skolem` — remain part of the semantic design. Current nested
-constraints elaborate to dictionary arrows beneath `ForAll`, and solver
-skolems leave the frontend as scoped quantified variables.
+conversion still rejects it when it cannot choose a field layout. `Constrained`
+is discharged into explicit dictionary arguments before THIR, which is why it is
+absent from this Model even though the frontend spine lists it; the remaining
+spine nodes the frontend design lists — `KindApplication`, `TypeLevel*`, and
+`Skolem` — remain part of the semantic design. Current nested constraints
+elaborate to dictionary arrows beneath `ForAll`, and solver skolems leave the
+frontend as scoped quantified variables.
