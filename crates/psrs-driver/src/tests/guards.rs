@@ -37,6 +37,30 @@ fn case_alternative_pattern_guard_scopes_binders_and_falls_through() {
 }
 
 #[test]
+fn record_pattern_guard_matches_a_record_held_in_a_local() {
+    let source = "module Main where\nimport Prelude\nread value = case 0 of\n  _ | { x } <- value -> x\n  _ -> 44\nmain = read { x: 9 }\n";
+    let artifact = compile_source("Main.purs", source).expect("record pattern guard compiles");
+    assert!(!has_non_exhaustive_warning(&artifact));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(9), "{output:?}");
+}
+
+#[test]
+fn nested_boolean_record_pattern_guard_matches_through_a_compiler_test() {
+    let source = "module Main where\nread value = case 0 of\n  _ | { enabled: true } <- value -> 9\n  _ -> 44\nmain = read { enabled: true }\n";
+    let artifact = compile_source("Main.purs", source).expect("nested Boolean guard compiles");
+    assert!(!has_non_exhaustive_warning(&artifact));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(9), "{output:?}");
+}
+
+#[test]
 fn boolean_case_patterns_preserve_source_order() {
     let source =
         "module Main where\nmain = case false of\n  true -> 11\n  false -> 22\n  _ -> 33\n";
@@ -45,6 +69,18 @@ fn boolean_case_patterns_preserve_source_order() {
         return;
     };
     assert_eq!(output.status.code(), Some(22), "{output:?}");
+}
+
+#[test]
+fn anonymous_case_inputs_become_function_parameters_in_source_order() {
+    let source = "module Main where\nchoose = case _, 2, _ of\n  _, 2, _ -> 19\n  _, _, _ -> 23\nmain = choose 1 3\n";
+    let artifact = compile_source("Main.purs", source).expect("anonymous case inputs compile");
+    assert!(!has_non_exhaustive_warning(&artifact));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(19), "{output:?}");
 }
 
 #[test]
@@ -72,6 +108,42 @@ fn integer_literal_patterns_fall_through_and_share_case_scrutinees() {
 }
 
 #[test]
+fn multi_scrutinee_boolean_patterns_lower_and_prove_coverage() {
+    let source = "module Main where\nchoose left right = case left, right of\n  true, true -> 11\n  true, false -> 12\n  false, true -> 13\n  false, false -> 14\nmain = choose false true\n";
+    let artifact = compile_source("Main.purs", source).expect("Boolean product case compiles");
+    assert!(!has_non_exhaustive_warning(&artifact));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(13), "{output:?}");
+
+    let partial = "module Main where\nmain = case true, false of\n  true, false -> 1\n";
+    let errors = compile_source("Main.purs", partial)
+        .expect_err("a Boolean product case missing rows remains partial");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("non-exhaustive case")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn unsupported_nested_boolean_constructor_pattern_is_rejected_at_p4() {
+    let source = "module Main where\ndata Flag = Flag Boolean\nmain = case Flag true of\n  Flag true -> 11\n  _ -> 22\n";
+    let errors = compile_source("Main.purs", source)
+        .expect_err("Boolean constructor arguments are outside this lowering slice");
+    assert!(
+        errors.iter().any(|error| {
+            error.stage == "P4 desugar"
+                && error.kind == Some(psrs_backend::BackendErrorKind::UnsupportedSource)
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn integer_literal_function_equations_preserve_clause_order() {
     let source = "module Main where\nchoose 0 = 11\nchoose n\n  | n > 0 = 22\nchoose _ = 33\nmain = choose 0\n";
     let artifact = compile_source("Main.purs", source).expect("integer equations compile");
@@ -84,6 +156,20 @@ fn integer_literal_function_equations_preserve_clause_order() {
 }
 
 #[test]
+fn integer_pattern_equality_resolves_to_the_compiler_intrinsic() {
+    let source = "module Main where\nmain = case 1 of\n  1 -> 10\n  _ -> 20\n";
+    let modules = resolve_program_sources(&[("Main.purs", source)]).unwrap();
+    let intrinsic = psrs_hir::Intrinsic::I32Eq.symbol();
+    assert!(
+        modules[0]
+            .declarations
+            .iter()
+            .any(|declaration| expr_contains_global(&declaration.value, intrinsic)),
+        "integer pattern equality must lower to compiler-owned I32Eq"
+    );
+}
+
+#[test]
 fn let_guards_bind_values_for_later_guards_and_the_body() {
     let source = "module Main where\npositive n\n  | let next = n + 1, next > 0 = next\n  | true = 0\nmain = positive 9\n";
     let artifact = compile_source("Main.purs", source).expect("let guards compile");
@@ -93,6 +179,33 @@ fn let_guards_bind_values_for_later_guards_and_the_body() {
         return;
     };
     assert_eq!(output.status.code(), Some(10), "{output:?}");
+}
+
+#[test]
+fn guarded_where_type_annotations_are_checked() {
+    let source = "module Main where\nimport Prelude\nchoose n\n  | true = next\n  where\n    next :: Boolean\n    next = n\nmain = choose 10\n";
+    let errors = compile_source("Main.purs", source)
+        .expect_err("a local guarded-where annotation cannot be ignored");
+    assert!(
+        errors.iter().any(|error| {
+            error.stage == "P5 typecheck" && error.code == Some("TypesDoNotUnify")
+        }),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn local_let_type_annotations_are_checked() {
+    let source =
+        "module Main where\nimport Prelude\nmain = let\n  next :: Boolean\n  next = 1\n in next\n";
+    let errors = compile_source("Main.purs", source)
+        .expect_err("a local let annotation must reach type checking");
+    assert!(
+        errors.iter().any(|error| {
+            error.stage == "P5 typecheck" && error.code == Some("TypesDoNotUnify")
+        }),
+        "{errors:?}"
+    );
 }
 
 #[test]
@@ -134,7 +247,7 @@ fn repeated_names_inside_a_case_named_pattern_are_rejected() {
 
 #[test]
 fn multiple_case_scrutinees_preserve_order_and_guard_fallthrough() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let left = runEffect (log \"left\") in\n  let right = runEffect (log \"right\") in\n    case left, right of\n      _, _ | false -> 10\n      _, _ | true -> 22\n";
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = case runEffect (log \"1\"), runEffect (log \"2\"), runEffect (log \"3\"), runEffect (log \"4\"), runEffect (log \"5\"), runEffect (log \"6\"), runEffect (log \"7\"), runEffect (log \"8\"), runEffect (log \"9\"), runEffect (log \"10\") of\n  _, _, _, _, _, _, _, _, _, _ | false -> 10\n  _, _, _, _, _, _, _, _, _, _ | true -> 22\n";
     let artifact =
         compile_source("Main.purs", source).expect("multi-scrutinee guarded case compiles");
     assert!(!has_non_exhaustive_warning(&artifact));
@@ -143,7 +256,20 @@ fn multiple_case_scrutinees_preserve_order_and_guard_fallthrough() {
         return;
     };
     assert_eq!(output.status.code(), Some(22), "{output:?}");
-    assert_eq!(output.stdout, b"left\nright\n");
+    assert_eq!(output.stdout, b"1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+}
+
+#[test]
+fn later_guard_clause_binders_are_renamed_in_each_fallthrough_copy() {
+    let source = "module Main where\nimport Prelude\nchoose n\n  | n > 0, n < 10 = 1\n  | let next = n + 1, next > 0 = next\n  | true = 0\nmain = choose 10\n";
+    let artifact =
+        compile_source("Main.purs", source).expect("guard continuations have fresh locals");
+    assert!(!has_non_exhaustive_warning(&artifact));
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(11), "{output:?}");
 }
 
 #[test]
@@ -151,10 +277,13 @@ fn guarded_rows_do_not_claim_unconditional_coverage() {
     let source = "module Main where\nread n\n  | n > 0 = n\nmain = read 1\n";
     let errors = compile_source("Main.purs", source)
         .expect_err("a partial guarded equation is not exhaustive");
-    assert!(
+    assert_eq!(
         errors
             .iter()
-            .any(|error| { error.message.contains("non-exhaustive case") })
+            .filter(|error| error.message.contains("non-exhaustive case"))
+            .count(),
+        1,
+        "{errors:?}"
     );
 
     let boolean_case =
@@ -169,8 +298,90 @@ fn guarded_rows_do_not_claim_unconditional_coverage() {
 
     let exhaustive = "module Main where\nread n\n  | true = n\nmain = read 1\n";
     let artifact =
-        compile_source("Main.purs", exhaustive).expect("otherwise makes the row exhaustive");
+        compile_source("Main.purs", exhaustive).expect("an intrinsic true guard is exhaustive");
     assert!(!has_non_exhaustive_warning(&artifact));
+
+    let typed_true = "module Main where\nread n\n  | true :: Boolean = n\nmain = read 1\n";
+    let artifact = compile_source("Main.purs", typed_true)
+        .expect("a typed Boolean true guard is unconditional");
+    assert!(!has_non_exhaustive_warning(&artifact));
+}
+
+#[test]
+fn official_guard_and_case_sources_lower_through_p2() {
+    let corpus = std::env::var_os("PURESCRIPT_REPO").map_or_else(
+        || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/upstream/passing"),
+        |repo| std::path::PathBuf::from(repo).join("tests/purs/passing"),
+    );
+    let cases = [
+        "2787.purs",
+        "2806.purs",
+        "DctorName.purs",
+        "FunctionAndCaseGuards.purs",
+        "TCO.purs",
+        "2795.purs",
+        "3114/VendoredVariant.purs",
+        "4357.purs",
+        "Guards.purs",
+        "MultiArgFunctions.purs",
+        "CaseMultipleExpressions.purs",
+        "CaseInputWildcard.purs",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let path = corpus.join(case);
+        let source = std::fs::read_to_string(&path).expect("official fixture is readable");
+        if let Err(errors) = lower_source_to_ast(&path.to_string_lossy(), &source) {
+            failures.push(format!("{case}: {errors:?}"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "official P2 lowering failures: {failures:#?}"
+    );
+}
+
+#[test]
+fn user_defined_false_otherwise_does_not_prove_guard_coverage() {
+    let constants = "module Boolean.Constants (otherwise) where\nimport Prelude\notherwise :: Boolean\notherwise = false\n";
+    let boolean = "module Data.Boolean (otherwise) where\nimport Boolean.Constants (otherwise)\n";
+    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 1\n";
+    let errors = compile_program_sources_with_prelude(&[
+        ("Boolean.Constants.purs", constants),
+        ("Data.Boolean.purs", boolean),
+        ("Main.purs", main),
+    ])
+    .expect_err("an arbitrary binding named otherwise is not a coverage proof");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.diagnostic.message.contains("non-exhaustive case"))
+            .count(),
+        1,
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn cross_module_true_alias_is_a_verified_unconditional_guard() {
+    let constants =
+        "module Boolean.Constants (truth) where\nimport Prelude\ntruth :: Boolean\ntruth = true\n";
+    let boolean = "module Data.Boolean (otherwise) where\nimport Prelude\nimport Boolean.Constants (truth)\notherwise :: Boolean\notherwise = truth\n";
+    let main = "module Main where\nimport Prelude\nimport Data.Boolean (otherwise)\nread n\n  | otherwise = n\nmain = read 11\n";
+    let artifact = compile_program_sources_with_prelude(&[
+        ("Boolean.Constants.purs", constants),
+        ("Data.Boolean.purs", boolean),
+        ("Main.purs", main),
+    ])
+    .expect("resolved aliases to true prove guard coverage");
+    assert!(
+        artifact
+            .warnings
+            .iter()
+            .all(|warning| !warning.diagnostic.message.contains("non-exhaustive case")),
+        "{:?}",
+        artifact.warnings
+    );
 }
 
 fn has_non_exhaustive_warning(artifact: &crate::Artifact) -> bool {
@@ -178,4 +389,61 @@ fn has_non_exhaustive_warning(artifact: &crate::Artifact) -> bool {
         .warnings
         .iter()
         .any(|warning| warning.diagnostic.message.contains("non-exhaustive case"))
+}
+
+fn expr_contains_global(expression: &psrs_hir::Expr, target: psrs_hir::SymbolId) -> bool {
+    use psrs_hir::{ExprKind, Guard};
+
+    let contains = |expression: &psrs_hir::Expr| expr_contains_global(expression, target);
+    let bindings = |bindings: &[psrs_hir::LocalBinding]| {
+        bindings.iter().any(|binding| contains(&binding.value))
+    };
+    match &expression.kind {
+        ExprKind::Global(symbol) => *symbol == target,
+        ExprKind::Array(elements) => elements.iter().any(contains),
+        ExprKind::Record(fields) => fields.iter().any(|(_, value)| contains(value)),
+        ExprKind::RecordUpdate { expression, fields } => {
+            contains(expression) || fields.iter().any(|(_, value)| contains(value))
+        }
+        ExprKind::FieldAccess { expression, .. }
+        | ExprKind::Typed { expression, .. }
+        | ExprKind::Lambda {
+            body: expression, ..
+        } => contains(expression),
+        ExprKind::Application(function, argument) => contains(function) || contains(argument),
+        ExprKind::Operator {
+            operator,
+            left,
+            right,
+            ..
+        } => *operator == target || contains(left) || contains(right),
+        ExprKind::Let {
+            bindings: local,
+            body,
+        } => bindings(local) || contains(body),
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => contains(condition) || contains(then_branch) || contains(else_branch),
+        ExprKind::Case {
+            scrutinee,
+            branches,
+        } => contains(scrutinee) || branches.iter().any(|branch| contains(&branch.value)),
+        ExprKind::Guarded(clauses) => clauses.iter().any(|clause| {
+            bindings(&clause.where_bindings)
+                || clause.guards.iter().any(|guard| match guard {
+                    Guard::Boolean(value) | Guard::Pattern { value, .. } => contains(value),
+                    Guard::Let {
+                        bindings: local, ..
+                    } => bindings(local),
+                })
+                || contains(&clause.value)
+        }),
+        ExprKind::Local(_)
+        | ExprKind::Integer(_)
+        | ExprKind::Number(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_) => false,
+    }
 }

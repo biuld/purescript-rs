@@ -24,22 +24,42 @@ pub enum Guard {
     },
 }
 
-pub(crate) fn lower_guard(guard: cst::Guard) -> Result<Guard, LowerError> {
+pub(crate) fn lower_guard(guard: cst::Guard) -> Result<Vec<Guard>, LowerError> {
     match guard {
-        cst::Guard::Boolean(expression) => Ok(Guard::Boolean(lower_expr(expression)?)),
-        cst::Guard::Pattern { pattern, value, .. } => Ok(Guard::Pattern {
-            pattern: super::lower_pattern(pattern)?,
-            value: lower_expr(value)?,
-        }),
+        cst::Guard::Boolean(expression) => Ok(vec![Guard::Boolean(lower_expr(expression)?)]),
+        cst::Guard::Pattern { pattern, value, .. } => {
+            let value = lower_expr(value)?;
+            if let cst::PatternKind::Integer(integer) = pattern.kind {
+                let binder = Binder {
+                    name: format!("$psrs_guard_literal_{}", pattern.span.start),
+                    span: pattern.span,
+                };
+                Ok(vec![
+                    Guard::Pattern {
+                        pattern: Pattern {
+                            kind: PatternKind::Var(binder.clone()),
+                            span: pattern.span,
+                        },
+                        value,
+                    },
+                    equality_guard(binder.name, integer, pattern.span),
+                ])
+            } else {
+                Ok(vec![Guard::Pattern {
+                    pattern: super::lower_pattern(pattern)?,
+                    value,
+                }])
+            }
+        }
         cst::Guard::Let {
             let_keyword_span,
             layout_end_span,
             declarations,
             ..
-        } => Ok(Guard::Let {
+        } => Ok(vec![Guard::Let {
             declarations: lower_declarations(declarations)?,
             span: TextRange::new(let_keyword_span.start, layout_end_span.end),
-        }),
+        }]),
     }
 }
 
@@ -54,7 +74,10 @@ pub(crate) fn lower_guarded_rhs(
                     .guards
                     .into_iter()
                     .map(lower_guard)
-                    .collect::<Result<Vec<_>, _>>()?,
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect(),
                 value: lower_expr(clause.value)?,
                 where_declarations: Vec::new(),
                 span: clause.span,
@@ -134,11 +157,7 @@ pub(crate) fn equality_guard(name: String, integer: String, span: TextRange) -> 
         span,
     };
     Guard::Boolean(Expr {
-        kind: ExprKind::Operator {
-            operator: Name {
-                text: "==".into(),
-                span,
-            },
+        kind: ExprKind::IntegerEqual {
             left: Box::new(left),
             right: Box::new(right),
         },
@@ -184,22 +203,52 @@ pub(crate) fn prepend_guards(mut expression: Expr, guards: Vec<Guard>, span: Tex
 pub(crate) fn lower_case_scrutinees(
     scrutinees: Vec<psrs_cst::Expr>,
     span: TextRange,
-) -> Result<Expr, LowerError> {
-    match scrutinees.len() {
-        0 => Err(LowerError::new(
+) -> Result<(Expr, Vec<Binder>), LowerError> {
+    if scrutinees.is_empty() {
+        return Err(LowerError::new(
             span,
             "a case expression requires a scrutinee",
-        )),
-        1 => lower_expr(scrutinees.into_iter().next().expect("one scrutinee")),
-        _ => Ok(Expr {
+        ));
+    }
+    let mut anonymous = Vec::new();
+    let mut lowered = scrutinees
+        .into_iter()
+        .enumerate()
+        .map(|(index, expression)| {
+            let is_anonymous =
+                matches!(&expression.kind, cst::ExprKind::Name(name) if name.text == "_");
+            let value = if is_anonymous {
+                let binder = Binder {
+                    name: format!("$psrs_case_input_{}_{}", span.start, index),
+                    span: expression.span,
+                };
+                let value = Expr {
+                    kind: ExprKind::Name(Name {
+                        text: binder.name.clone(),
+                        span: binder.span,
+                    }),
+                    span: expression.span,
+                };
+                anonymous.push(binder);
+                value
+            } else {
+                lower_expr(expression)?
+            };
+            Ok((index, value))
+        })
+        .collect::<Result<Vec<_>, LowerError>>()?;
+    let scrutinee = if lowered.len() == 1 {
+        lowered.pop().expect("one case scrutinee").1
+    } else {
+        Expr {
             kind: ExprKind::Record(
-                scrutinees
+                lowered
                     .into_iter()
-                    .enumerate()
-                    .map(|(index, expression)| Ok((tuple_label(index), lower_expr(expression)?)))
-                    .collect::<Result<Vec<_>, LowerError>>()?,
+                    .map(|(index, value)| (tuple_label(index), value))
+                    .collect(),
             ),
             span,
-        }),
-    }
+        }
+    };
+    Ok((scrutinee, anonymous))
 }

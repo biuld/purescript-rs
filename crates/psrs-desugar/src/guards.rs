@@ -75,12 +75,13 @@ impl Desugarer {
                     kind: ExprKind::If {
                         condition: Box::new(self.expr(condition)),
                         then_branch: Box::new(next),
-                        else_branch: Box::new(failure.clone()),
+                        else_branch: Box::new(self.clone_expression(&failure)),
                     },
                     span: guard_span,
                 },
                 Guard::Pattern { pattern, value } => {
-                    self.pattern_guard(pattern, value, next, failure.clone(), guard_span)
+                    let failure = self.clone_expression(&failure);
+                    self.pattern_guard(pattern, value, next, failure, guard_span)
                 }
                 Guard::Let { bindings, span } => Expr {
                     kind: ExprKind::Let {
@@ -130,7 +131,7 @@ impl Desugarer {
             };
         }
         let scrutinee = pattern_scrutinee(self.expr(value), &pattern);
-        Expr {
+        self.expr(Expr {
             kind: ExprKind::Case {
                 scrutinee: Box::new(scrutinee),
                 branches: vec![
@@ -152,6 +153,6 @@ impl Desugarer {
                 ],
             },
             span,
-        }
+        })
     }
 }

@@ -86,18 +86,19 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         .iter()
         .map(|module| (module.id, module.name.clone()))
         .collect::<HashMap<_, _>>();
+    let true_symbols = psrs_desugar::true_symbols(&resolved);
 
     for (source, module) in resolved.into_iter().enumerate() {
         if !psrs_kind::check_module(&module).is_empty() {
             continue;
         }
-        let module = match psrs_desugar::desugar_module(module) {
+        let module = match psrs_desugar::desugar_module_with_true_symbols(module, &true_symbols) {
             Ok(module) => module,
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
                         source,
-                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
+                        diagnostic: super::desugar_diagnostic(error),
                     });
                 }
                 continue;

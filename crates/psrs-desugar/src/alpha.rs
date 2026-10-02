@@ -52,6 +52,18 @@ pub(super) fn clone_branch(branch: &CaseBranch, fresh: &mut FreshLocals) -> Case
     clone
 }
 
+pub(super) fn clone_expression(expression: &Expr, fresh: &mut FreshLocals) -> Expr {
+    let mut binder_ids = HashSet::new();
+    collect_expr_ids(expression, &mut binder_ids);
+    let mut binder_ids = binder_ids.into_iter().collect::<Vec<_>>();
+    binder_ids.sort_by_key(|id| id.0);
+    let mapping = binder_ids
+        .into_iter()
+        .map(|id| (id, fresh.alloc()))
+        .collect::<HashMap<_, _>>();
+    rename_expr(expression.clone(), &mapping)
+}
+
 fn collect_expr_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
     match &expression.kind {
         ExprKind::Lambda { binder, body } => {

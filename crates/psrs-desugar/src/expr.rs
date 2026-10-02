@@ -1,6 +1,7 @@
 use crate::{
     alpha::{self, FreshLocals},
     boolean_case::lower_boolean_case,
+    boolean_product_case,
     case_helpers::{
         apply, boolean_case_exhaustive, guarded_rhs_exhaustive, is_guarded_rhs, product_expression,
         product_pattern, wrap_lambdas,
@@ -8,8 +9,8 @@ use crate::{
     free_vars,
 };
 use psrs_hir::{
-    self as hir, CaseBranch, CaseBranchCoverage, Expr, ExprKind, Intrinsic, LocalBinder,
-    LocalBinding, Pattern, PatternKind, SymbolId,
+    self as hir, CaseBranch, CaseBranchCoverage, Expr, ExprKind, LocalBinder, LocalBinding,
+    Pattern, PatternKind, SymbolId,
 };
 use psrs_span::TextRange;
 use std::collections::HashSet;
@@ -17,33 +18,14 @@ use std::collections::HashSet;
 pub(super) struct Desugarer {
     fresh: FreshLocals,
     pub(super) true_symbols: HashSet<SymbolId>,
-    pub(super) otherwise_symbols: HashSet<SymbolId>,
     pub(super) errors: Vec<hir::VerifyError>,
 }
 
 impl Desugarer {
-    pub(super) fn new(module: &hir::Module) -> Self {
+    pub(super) fn new(module: &hir::Module, known_true_symbols: &HashSet<SymbolId>) -> Self {
         Self {
             fresh: FreshLocals::after_module(module),
-            true_symbols: module
-                .externals
-                .iter()
-                .filter_map(|external| {
-                    matches!(
-                        external.kind,
-                        hir::ExternalKind::Intrinsic(Intrinsic::BoolTrue)
-                    )
-                    .then_some(external.symbol)
-                })
-                .collect(),
-            otherwise_symbols: module
-                .imports
-                .iter()
-                .filter(|import| matches!(import.module_name.as_str(), "Prelude" | "Data.Boolean"))
-                .flat_map(|import| &import.symbols)
-                .filter(|import| import.external_name == "otherwise")
-                .map(|import| import.symbol)
-                .collect(),
+            true_symbols: known_true_symbols.clone(),
             errors: Vec::new(),
         }
     }
@@ -160,6 +142,9 @@ impl Desugarer {
             }
             return lower_boolean_case(self, scrutinee, branches, span);
         }
+        if boolean_product_case::supports(&branches) {
+            return boolean_product_case::lower(self, scrutinee, branches, span);
+        }
         if !has_guards {
             return Expr {
                 kind: ExprKind::Case {
@@ -239,13 +224,14 @@ impl Desugarer {
                         .chain(std::iter::once(self.local_expr(&temp_parameter, span))),
                     span,
                 );
-                source.value = self.branch_value(source.value, failure.clone());
+                let guard_failure = self.clone_expression(&failure);
+                source.value = self.branch_value(source.value, guard_failure);
                 let wildcard = CaseBranch {
                     pattern: Pattern {
                         kind: PatternKind::Wildcard,
                         span: source.span,
                     },
-                    value: failure,
+                    value: self.clone_expression(&failure),
                     span: source.span,
                     coverage: CaseBranchCoverage::Generated,
                 };
@@ -341,6 +327,10 @@ impl Desugarer {
             kind: ExprKind::Local(binder.id),
             span,
         }
+    }
+
+    pub(super) fn clone_expression(&mut self, expression: &Expr) -> Expr {
+        alpha::clone_expression(expression, &mut self.fresh)
     }
 
     pub(super) fn local_binder(&mut self, hint: &str, span: TextRange) -> LocalBinder {
