@@ -274,3 +274,75 @@ leaked = scoped
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_lenient_type_check_reports_a_mismatch_with_its_official_code() {
+    let source = "module Main where\ng :: Int\ng = 1\nmain = g 2\n";
+    let errors = check_program_types_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("TypesDoNotUnify")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_reports_a_missing_instance_with_its_official_code() {
+    let source = "module Main where\n\
+        class C a where\n  m :: a -> Int\n\
+        main = m 1\n";
+    let errors = check_program_types_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("NoInstanceFound")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_reports_an_occurs_check_with_its_official_code() {
+    let source = "module Main where\nf x = x x\nmain = 0\n";
+    let errors = check_program_types_lenient(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("InfiniteType")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_type_checks_a_module_whose_sibling_is_missing() {
+    // The case that resolves is type checked even though its sibling does not,
+    // which is what makes the M4 and M5 layers measurable without a library.
+    let broken = "module Broken where\nimport Absent\nvalue = 1\n";
+    let good = "module Main where\nimport Broken\ng :: Int\ng = 1\nmain = g 2\n";
+    let errors =
+        check_program_types_lenient(&[("Broken.purs", broken), ("Main.purs", good)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.source == 0 && error.diagnostic.code == Some("ModuleNotFound")),
+        "the missing module is reported against its own source: {errors:?}"
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.source == 1 && error.diagnostic.code == Some("TypesDoNotUnify")),
+        "the resolvable module is still type checked: {errors:?}"
+    );
+}
+
+#[test]
+fn a_lenient_type_check_attributes_a_diagnostic_to_the_user_source_not_the_library() {
+    let source = "module Main where\nimport Prelude\nmain = runEffect (pure missingName)\n";
+    let errors = check_program_types_lenient_with_prelude(&[("Main.purs", source)]).unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.source == 0 && error.diagnostic.code == Some("UnknownName") }),
+        "the trusted prefix must not shift a user's diagnostic: {errors:?}"
+    );
+}

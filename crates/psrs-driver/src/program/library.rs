@@ -2,7 +2,7 @@
 
 use super::{
     Artifact, ProgramDiagnostic, check_program_kinds_lenient, check_program_lenient,
-    compile_program_sources_with_trusted_prefix, diagnostic,
+    check_program_types_lenient, compile_program_sources_with_trusted_prefix, diagnostic,
 };
 use crate::prelude;
 
@@ -40,6 +40,15 @@ pub fn check_program_kinds_lenient_with_prelude(
 ) -> Result<(), Vec<ProgramDiagnostic>> {
     let (all_sources, trusted_prefix) = with_prelude(sources)?;
     check_program_kinds_lenient(&all_sources).map_err(|errors| shift(errors, trusted_prefix))
+}
+
+/// Type checks user sources leniently together with the on-disk standard
+/// library. See [`check_program_lenient_with_prelude`].
+pub fn check_program_types_lenient_with_prelude(
+    sources: &[(&str, &str)],
+) -> Result<(), Vec<ProgramDiagnostic>> {
+    let (all_sources, trusted_prefix) = with_prelude(sources)?;
+    check_program_types_lenient(&all_sources).map_err(|errors| shift(errors, trusted_prefix))
 }
 
 fn with_prelude<'a>(
