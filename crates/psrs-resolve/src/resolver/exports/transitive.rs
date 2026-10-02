@@ -125,18 +125,15 @@ impl Resolver {
             if let Some(owner) = constructor_owners.get(&value.symbol) {
                 required.push(*owner);
             }
-            if let Some(declaration) = own_declarations.get(&value.symbol) {
-                if let Some(signature) = &declaration.signature {
-                    collect_named_types(signature, &mut required);
-                }
-                let mut returned_constructors = Vec::new();
-                collect_result_constructors(&declaration.value, &mut returned_constructors);
-                required.extend(
-                    returned_constructors
-                        .into_iter()
-                        .filter_map(|symbol| constructor_owners.get(&symbol).copied()),
-                );
+            if let Some(declaration) = own_declarations.get(&value.symbol)
+                && let Some(signature) = &declaration.signature
+            {
+                collect_named_types(signature, &mut required);
             }
+            // Explicit signatures are checked at P3, where their named HIR
+            // references are already resolved. Inferred public value types
+            // are checked after inference at P5, where the complete type has
+            // stable TypeIds. Do not guess them from expression syntax here.
             required.sort_by_key(|id| (id.module.0, id.index));
             required.dedup();
             for id in required {
@@ -152,64 +149,6 @@ impl Resolver {
                 }
             }
         }
-    }
-}
-
-fn collect_result_constructors(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
-    match &expression.kind {
-        hir::ExprKind::Global(symbol) => out.push(*symbol),
-        hir::ExprKind::Application(function, _) => {
-            let mut head = function.as_ref();
-            while let hir::ExprKind::Application(next, _) = &head.kind {
-                head = next;
-            }
-            if let hir::ExprKind::Global(symbol) = &head.kind {
-                out.push(*symbol);
-            }
-        }
-        hir::ExprKind::Typed { expression, .. } => {
-            collect_result_constructors(expression, out);
-        }
-        hir::ExprKind::Lambda { body, .. } | hir::ExprKind::Let { body, .. } => {
-            collect_result_constructors(body, out);
-        }
-        hir::ExprKind::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_result_constructors(then_branch, out);
-            collect_result_constructors(else_branch, out);
-        }
-        hir::ExprKind::Case { branches, .. } => {
-            for branch in branches {
-                collect_result_constructors(&branch.value, out);
-            }
-        }
-        hir::ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                collect_result_constructors(value, out);
-            }
-        }
-        hir::ExprKind::Array(values) => {
-            for value in values {
-                collect_result_constructors(value, out);
-            }
-        }
-        hir::ExprKind::RecordUpdate { expression, fields } => {
-            collect_result_constructors(expression, out);
-            for (_, value) in fields {
-                collect_result_constructors(value, out);
-            }
-        }
-        hir::ExprKind::FieldAccess { .. }
-        | hir::ExprKind::Local(_)
-        | hir::ExprKind::Integer(_)
-        | hir::ExprKind::Number(_)
-        | hir::ExprKind::String(_)
-        | hir::ExprKind::Char(_)
-        | hir::ExprKind::Operator { .. }
-        | hir::ExprKind::Negate { .. } => {}
     }
 }
 

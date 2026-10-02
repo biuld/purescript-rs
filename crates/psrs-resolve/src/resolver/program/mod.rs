@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 #[cfg(test)]
 mod prim_and_negate_tests;
 #[cfg(test)]
+mod primitive_interface_tests;
+#[cfg(test)]
 mod tests;
 
 mod interface;
