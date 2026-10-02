@@ -314,19 +314,35 @@ local signature (`2542.purs`), and a shared cross-module kind environment
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M3 and M6.
 
-**Progress:** no scoreboard measures M4 yet, and the type checker cannot agree
-on most of this suite: `TypeCheckError::error_code` maps only
-`EscapedSkolem` and `InvalidCoercibleInstanceDeclaration` to an official code,
-so a type mismatch is reported with a message and no code at all. Mapping the
-existing kinds is the first step and makes 61 corpus cases measurable;
-`TypeMismatch` to `TypesDoNotUnify` (41 cases), `OccursCheck` to `InfiniteType`,
-and `IntegerOutOfRange` to `IntOutOfRange` follow directly, while
-`UnconstrainedType`, `AmbiguousConstraint`, and `FundepConflict` need their
-`purs` counterparts chosen before they can be mapped. `HoleInferredType` and
-`CannotApplyExpressionOfTypeOnType` need rules we do not have yet. There is
-also no lenient type-check entry point: the driver offers
-`check_program_lenient` (resolution) and `check_program_kinds_lenient`
-(resolution and kinds) only.
+**Measured baseline (annotations oracle):** **12/38** failing cases agree, per
+code: `IntOutOfRange` 1/1, `InfiniteType` 1/1, `TypesDoNotUnify` 10/32,
+`EscapedSkolem` 0/2, `ExpectedType` 0/1, and `AmbiguousTypeVariables` 0/1.
+`HoleInferredType` and `CannotApplyExpressionOfTypeOnType` have no mapped kind
+and contribute no case.
+
+`TypeCheckError::error_code` now maps `TypeMismatch` to `TypesDoNotUnify`,
+`OccursCheck` to `InfiniteType`, `IntegerOutOfRange` to `IntOutOfRange`, and
+`AmbiguousConstraint` to `AmbiguousTypeVariables`, which is what moves the gate
+from "not measured" to 12/38. Three kinds deliberately have no code, each
+decided by reading `purs` rather than by guessing:
+
+| Kind | Why it is unmapped |
+| --- | --- |
+| `UnconstrainedType` | Our "a monomorphic variable was never determined". `purs` has no error for it: it generalizes the variable or reports the mismatch that left it unsolved, so the honest code is whichever `TypesDoNotUnify` or `UndefinedTypeVariable` applies. `WildcardInferredType` is a *warning* about a wildcard, not an error about a determined variable. |
+| `FundepConflict` | Our "a fundep's determined positions disagree". There is no `FunctionalDependencyError` in `purs`' `Errors.hs`; `purs` reports the consequence — the corpus files `RowInInstanceNotDetermined0/1` expect `InvalidInstanceHead`, raised in `TypeChecker.checkTypeClassInstance`. |
+| `AmbiguousConstraint` | Mapped to `AmbiguousTypeVariables`, which `purs` throws in `TypeChecker/Types.hs` with the same set of undetermined variables, but at generalization rather than while solving a goal. The mapping is right and the stage differs. |
+
+The 26 M4 mismatches decompose by what we produced instead of the expected code:
+
+| Produced | Cases | What it means |
+| --- | --- | --- |
+| `ModuleNotFound` | 12 | `CompareInt1..10` need `Prelude`'s comparison operators; `SkolemEscape2` and `3701` need other library exports. Blocked on Phase 3, not on the type checker. |
+| `UnknownName` | 4 | `TypeError`, `OperatorSections`, `SuggestComposition`, and `ConstraintInference` name library exports we do not provide, so they never reach unification. |
+| `NoInstanceFound` | 6 | Every `Coercible*` case. The role check rejects the instance before unification sees the type, so the expected `TypesDoNotUnify` is never produced. |
+| nothing | 4 | `1175` and `InstanceSigsDifferentTypes` (`TypesDoNotUnify`), `KindStar` (`ExpectedType`), `SkolemEscapeKinds` (`EscapedSkolem`). We accept the program. |
+
+So 16 are Phase 3's to unblock and **10 are #99's**: the `Coercible` ordering
+and the four cases we accept that `purs` rejects.
 
 ### M5 — Type classes and instances
 
@@ -342,16 +358,31 @@ also no lenient type-check entry point: the driver offers
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M4.
 
-**Progress:** the instance solver, fundeps, and `Coercible` evidence exist and
-execute (see FE-14, FE-15, and FE-16), but none of the codes above is emitted,
-so M5 agreement is not measurable yet: `NoInstance`,
-`OverlappingInstances`, `MissingInstanceMethod`, and `AmbiguousConstraint`
-already exist as checker kinds and only need their official code, while
-`OrphanInstance`, `InvalidInstanceHead`, `InvalidNewtypeInstance`,
-`ClassInstanceArityMismatch`, `PossiblyInfiniteInstance`, `DuplicateTypeClass`,
-`DuplicateInstance`, and `CycleInTypeClassDeclaration` need new checks.
-`DerivingFunctor.purs`, `DerivingFoldable.purs`, and `DerivingTraversable.purs`
-show that `passing` cases also reach the solver.
+**Measured baseline (annotations oracle):** **37/74** failing cases agree, per
+code: `OverlappingInstances` 8/8, `NoInstanceFound` 28/36,
+`MissingClassMember` 1/2, and 0 for each of the eight codes that need a check we
+do not have — `CannotDeriveInvalidConstructorArg` 0/7, `OrphanInstance` 0/6,
+`InvalidInstanceHead` 0/6, `InvalidNewtypeInstance` 0/5,
+`PossiblyInfiniteInstance` 0/1, `DuplicateTypeClass` 0/1,
+`DuplicateInstance` 0/1, and `ClassInstanceArityMismatch` 0/1.
+
+The instance solver, fundeps, and `Coercible` evidence exist and execute (see
+FE-14, FE-15, and FE-16), so `NoInstance`, `OverlappingInstances`, and
+`MissingInstanceMethod` only needed their official code to make 37 cases
+measurable. The 37 M5 mismatches decompose by what we produced instead:
+
+| Produced | Cases | What it means |
+| --- | --- | --- |
+| `UnknownName` or `ModuleNotFound` | 26 | The case names a library export or module we do not provide, so it stops before the solver. Blocked on Phase 3. |
+| nothing | 11 | We accept a program `purs` rejects. |
+| another resolution error | 2 | `DeclConflict` and `UnknownImport` are M2 codes, so the case is measured against a stage it never reaches. |
+
+So 28 are Phase 3's to unblock and **11 are #97's to add a check for**, in
+addition to the eight codes that have no case reaching them. `CycleInTypeClass`
+contributes no case: `SelfCycleInTypeClassDeclaration` and `Superclasses2` are
+both reported as blocked before the type checker. `DerivingFunctor.purs`,
+`DerivingFoldable.purs`, and `DerivingTraversable.purs` show that `passing`
+cases also reach the solver.
 
 ### M6 — Data, newtypes, records, and rows
 
@@ -529,15 +560,19 @@ The resolution scoreboard reads the corpus's own `@shouldFailWith` annotations
 and does not need `purs` or the support libraries, so it also runs against the
 vendored corpus without `PURESCRIPT_REPO`.
 
-Four scoreboards are implemented today, one per submodule of
+Five scoreboards are implemented today, one per submodule of
 `crates/psrs-driver/tests/suite`: `parse::l1_parse_scoreboard_against_purs`,
 `resolve::l2_resolution_scoreboard_with_annotations`,
-`kinds::l3_kind_scoreboard_with_annotations`, and
-`runtime::l6_runtime_scoreboard`. The runtime board needs `wasmtime`, skips
-cleanly without it, and fails instead of skipping under
-`PSRS_REQUIRE_WASMTIME=1`. L4, L5, and M8 have no scoreboard yet, so their rows
-below are recorded from code inspection rather than from a measurement, and the
-gate stays open until a harness exists.
+`kinds::l3_kind_scoreboard_with_annotations`,
+`types::l4_l5_scoreboard_with_annotations`, and
+`runtime::l6_runtime_scoreboard`. L4 and L5 share one pass because they share an
+entry point, `check_program_types_lenient`: it resolves leniently, then
+kind-checks and type checks every module that resolved, so a case blocked on a
+missing library module still reaches the type checker for the modules it does
+provide. The runtime board needs `wasmtime`, skips cleanly without it, and fails
+instead of skipping under `PSRS_REQUIRE_WASMTIME=1`. M8 has no scoreboard yet,
+so its row below is recorded from code inspection rather than from a
+measurement, and the gate stays open until a harness exists.
 
 Each milestone is complete only when its subset reaches 100% agreement. New
 diagnostics must align to an official `errorCode`; message text and `.out`
@@ -640,8 +675,8 @@ for matrix status.
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
 | L2 | Module, import, export, and name resolution | 54/70 failing cases; 52/413 passing modules resolve, with 214 blocked on a library module and 0 on assembly | The mapped resolution cases and all required passing-module cases agree. |
 | L3 | Kinds and higher-kinded types | 27/48 failing cases | 100% agreement for the mapped kind cases. |
-| L4 | Core type checking | Not measured: no scoreboard, and only `EscapedSkolem` carries an official code | 100% agreement for the mapped type cases. |
-| L5 | Classes and instances | Not measured: no scoreboard, and no mapped class code is emitted | 100% agreement for the mapped class cases. |
+| L4 | Core type checking | 12/38 failing cases; `TypesDoNotUnify` 10/32, `IntOutOfRange` 1/1, `InfiniteType` 1/1, `EscapedSkolem` 0/2, `ExpectedType` 0/1, `AmbiguousTypeVariables` 0/1. 16 of the 26 mismatches are blocked on a missing library module. | 100% agreement for the mapped type cases. |
+| L5 | Classes and instances | 37/74 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 28/36, `MissingClassMember` 1/2, and 0 for the eight codes that have no check. 26 of the 37 mismatches are blocked on a missing library module. | 100% agreement for the mapped class cases. |
 | L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; the board reports 216 blocked on a missing module (214 of them library modules), 134 in surface lowering, and 0 on assembly | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
@@ -699,7 +734,7 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Some type syntax and kinded binders parse; visible application, holes, and full annotation checking remain incomplete. 12 `passing` files stop in type lowering, dominated by type wildcards (`passing/TypeWildcards.purs`, `passing/WildcardType.purs`, `passing/TypeWildcardsRecordExtension.purs`) and row constructor constraints (`passing/RowConstructors.purs`). | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
-| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans and several error-code mappings exist; warning coverage and complete diagnostic agreement do not. | Partial | Track warning-code agreement separately from acceptance errors. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and the resolution, kind, type, and class `errorCode`s are now measured: L1 904/908, L2 54/70, L3 27/48, L4 12/38, L5 37/74. Most remaining L4/L5 mismatches are blocked on a library module rather than on a missing diagnostic. Warning coverage and complete diagnostic agreement do not. | Partial | Add the eight missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
 | FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
 
 The frontend landing order is:

@@ -1,18 +1,11 @@
-fn rejects(sources: &[(&str, &str)], expected_code: Option<&str>) {
+fn rejects(sources: &[(&str, &str)], expected_code: &str) {
     let errors = crate::check_program(sources).expect_err("program should be rejected");
-    if let Some(expected_code) = expected_code {
-        assert!(
-            errors.iter().any(|error| {
-                error.diagnostic.code == Some(expected_code)
-                    || (expected_code == "NoInstanceFound"
-                        && error
-                            .diagnostic
-                            .message
-                            .contains("no instance for constraint"))
-            }),
-            "expected {expected_code}, got {errors:?}"
-        );
-    }
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some(expected_code)),
+        "expected {expected_code}, got {errors:?}"
+    );
 }
 
 #[test]
@@ -53,7 +46,7 @@ fn a_nominal_data_role_blocks_newtype_coercion_of_its_parameter() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
 }
 
 #[test]
@@ -148,7 +141,7 @@ fn rejects_open_record_rows_with_different_known_labels() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
 }
 
 #[test]
@@ -160,7 +153,7 @@ fn does_not_rewrite_a_noncanonical_recursive_given() {
         bad = coerce\n\
         main :: Int\n\
         main = 42\n";
-    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
 }
 
 #[test]
@@ -222,7 +215,7 @@ fn rejects_a_role_annotation_that_weakens_inference() {
         type role Box phantom\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], Some("RoleMismatch"));
+    rejects(&[("Main.purs", source)], "RoleMismatch");
 }
 
 #[test]
@@ -232,10 +225,7 @@ fn reports_role_arity_mismatch_on_a_data_declaration() {
         type role Box nominal phantom\n\
         main :: Int\n\
         main = 0\n";
-    rejects(
-        &[("Main.purs", source)],
-        Some("RoleDeclarationArityMismatch"),
-    );
+    rejects(&[("Main.purs", source)], "RoleDeclarationArityMismatch");
 }
 
 #[test]
@@ -245,7 +235,7 @@ fn reports_an_orphan_role_declaration_during_surface_lowering() {
         data Box a = Box a\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", source)], Some("OrphanRoleDeclaration"));
+    rejects(&[("Main.purs", source)], "OrphanRoleDeclaration");
 }
 
 #[test]
@@ -257,7 +247,7 @@ fn rejects_user_defined_coercible_instances() {
         main = 0\n";
     rejects(
         &[("Main.purs", source)],
-        Some("InvalidCoercibleInstanceDeclaration"),
+        "InvalidCoercibleInstanceDeclaration",
     );
 }
 
@@ -266,7 +256,7 @@ fn compiler_coercion_intrinsic_is_only_in_scope_through_safe_coerce() {
     let source = "module Main where\n\
         main :: Int\n\
         main = __psrs_coerce 42\n";
-    rejects(&[("Main.purs", source)], Some("UnknownName"));
+    rejects(&[("Main.purs", source)], "UnknownName");
 }
 
 #[test]
@@ -282,7 +272,7 @@ fn an_imported_newtype_requires_its_constructor_for_unwrapping() {
         main = coerce (age 42)\n";
     rejects(
         &[("Lib.purs", library), ("Main.purs", consumer)],
-        Some("NoInstanceFound"),
+        "NoInstanceFound",
     );
 }
 
@@ -301,7 +291,7 @@ fn imported_role_metadata_restricts_coercion() {
         main = 0\n";
     rejects(
         &[("Lib.purs", library), ("Main.purs", consumer)],
-        Some("NoInstanceFound"),
+        "NoInstanceFound",
     );
 }
 
@@ -314,7 +304,7 @@ fn foreign_data_roles_default_to_nominal_and_accept_explicit_signatures() {
         bad = coerce\n\
         main :: Int\n\
         main = 0\n";
-    rejects(&[("Main.purs", conservative)], Some("NoInstanceFound"));
+    rejects(&[("Main.purs", conservative)], "NoInstanceFound");
 
     let annotated = "module Main where\n\
         import Safe.Coerce (coerce)\n\
@@ -346,5 +336,5 @@ type role Proxy representational
 bad :: Proxy Unary -> Proxy Binary
 bad = coerce
 "#;
-    rejects(&[("Main.purs", source)], Some("NoInstanceFound"));
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
 }
