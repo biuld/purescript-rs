@@ -96,11 +96,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
             foreign_type(
                 TypeId::PRIM_ROW_LIST_NIL,
                 "Nil",
-                forall_kind_result(
-                    "k",
-                    vec![apply(named(TypeId::PRIM_ROW_LIST), variable("k"))],
-                    apply(named(TypeId::PRIM_ROW_LIST), variable("k")),
-                ),
+                forall("k", apply(named(TypeId::PRIM_ROW_LIST), variable("k"))),
             ),
         ),
         (
