@@ -1,5 +1,6 @@
 use super::super::signature::{flatten_spine, nominal_type_id};
 use super::super::*;
+use super::deriving::contains_wildcard;
 mod method;
 
 use method::validate_method_signature;
@@ -317,6 +318,14 @@ impl Checker {
             return;
         }
         let (_, arguments) = flatten_spine(&instance.head);
+        if local && arguments.iter().any(|argument| contains_wildcard(argument)) {
+            self.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::InvalidInstanceHead,
+                instance.head.span,
+                "an instance head cannot contain a type wildcard",
+            ));
+            return;
+        }
         if arguments.len() != class.parameters.len() {
             if local {
                 self.errors.push(TypeCheckError::new(

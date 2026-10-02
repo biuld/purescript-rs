@@ -25,6 +25,10 @@ pub enum TypeCheckErrorKind {
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
     InvalidCoercibleInstanceDeclaration,
+    /// An instance head the solver cannot match against, such as one that
+    /// contains a type wildcard. `purs` raises this in
+    /// `TypeChecker.checkTypeClassInstance`; see `failing/TypeWildcards3.purs`.
+    InvalidInstanceHead,
     /// An inferred public value mentions a local type omitted from exports.
     TransitiveExport,
 }
@@ -95,6 +99,7 @@ impl TypeCheckError {
             TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration => {
                 "InvalidCoercibleInstanceDeclaration"
             }
+            TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
             TypeCheckErrorKind::InvalidHir
             | TypeCheckErrorKind::UnconstrainedType

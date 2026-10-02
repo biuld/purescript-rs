@@ -6,6 +6,42 @@ impl Checker {
     }
 }
 
+/// Whether a type mentions a type wildcard anywhere inside it.
+///
+/// A wildcard is a fresh unification variable in a value signature, but an
+/// instance head is a pattern the solver matches against, so a wildcard there
+/// has nothing to solve against. `purs` rejects it in
+/// `TypeChecker.checkTypeClassInstance` with `InvalidInstanceHead`; see
+/// `failing/TypeWildcards3.purs`. A wildcard in an instance *context* is a
+/// different matter and stays legal, as `passing/WildcardInInstance.purs` needs.
+pub(crate) fn contains_wildcard(ty: &hir::Type) -> bool {
+    match &ty.kind {
+        hir::TypeKind::Wildcard => true,
+        hir::TypeKind::Application(function, argument) => {
+            contains_wildcard(function) || contains_wildcard(argument)
+        }
+        hir::TypeKind::OperatorChain { operands, .. } => operands.iter().any(contains_wildcard),
+        hir::TypeKind::Function {
+            parameter: input,
+            result,
+        } => contains_wildcard(input) || contains_wildcard(result),
+        hir::TypeKind::Record { fields, tail } | hir::TypeKind::Row { fields, tail } => {
+            fields.iter().any(|field| contains_wildcard(&field.ty))
+                || tail.as_deref().is_some_and(contains_wildcard)
+        }
+        hir::TypeKind::Forall { body, .. } => contains_wildcard(body),
+        hir::TypeKind::Constrained { constraint, body } => {
+            contains_wildcard(constraint) || contains_wildcard(body)
+        }
+        hir::TypeKind::Constructor(_)
+        | hir::TypeKind::Named(_)
+        | hir::TypeKind::Opaque(_)
+        | hir::TypeKind::Variable(_)
+        | hir::TypeKind::Integer(_)
+        | hir::TypeKind::String(_) => false,
+    }
+}
+
 pub(super) fn contains_parameter(ty: &hir::Type, parameter: &str) -> bool {
     match &ty.kind {
         hir::TypeKind::Variable(name) => name == parameter,
