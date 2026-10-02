@@ -117,6 +117,14 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
             collect_runner_references(left, runner, spans);
             collect_runner_references(right, runner, spans);
         }
+        ExprKind::Negate {
+            function,
+            expression,
+            ..
+        } => {
+            collect_runner_references(function, runner, spans);
+            collect_runner_references(expression, runner, spans);
+        }
         ExprKind::Lambda { body, .. } => collect_runner_references(body, runner, spans),
         ExprKind::Let { bindings, body } => {
             for binding in bindings {

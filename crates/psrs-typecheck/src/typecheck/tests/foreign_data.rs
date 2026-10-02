@@ -170,7 +170,9 @@ fn keeps_an_imported_foreign_type_opaque() {
             .imports
             .iter()
             .flat_map(|import| import.types.iter())
-            .any(|imported| imported.opaque && imported.id == foreign.id)
+            .any(|imported| {
+                imported.opaque && imported.reference == psrs_hir::TypeReference::Named(foreign.id)
+            })
     );
     check_types(resolved[1].clone());
 }

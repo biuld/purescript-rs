@@ -13,7 +13,7 @@ pub use expr::{
 };
 pub use module::{ExportList, ExportedSymbol, ExportedType, Import, ImportedSymbol, ImportedType};
 pub use substitution::substitute_type_variables;
-pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter};
+pub use ty::{BuiltinType, Type, TypeField, TypeKind, TypeParameter, TypeReference};
 pub use types::{
     ClassMember, Constructor, DerivationStrategy, FunctionalDependency, InstanceDeclaration,
     InstanceMember, Role, RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
@@ -238,7 +238,7 @@ impl Module {
                 globals.insert(symbol.symbol);
             }
             for imported in &import.types {
-                if imported.id.module == self.id {
+                if matches!(imported.reference, TypeReference::Named(id) if id.module == self.id) {
                     errors.push(VerifyError {
                         span: imported.span,
                         message: "imported type is declared in this module",
@@ -291,10 +291,10 @@ impl Module {
             }
         }
 
-        let mut imported_type_ids = HashSet::new();
+        let mut imported_type_references = HashSet::new();
         for import in &self.imports {
             for imported in &import.types {
-                imported_type_ids.insert(imported.id);
+                imported_type_references.insert(imported.reference);
             }
         }
         if let Some(exports) = &self.exports {
@@ -307,7 +307,14 @@ impl Module {
                 }
             }
             for exported in &exports.types {
-                if !type_ids.contains(&exported.id) && !imported_type_ids.contains(&exported.id) {
+                let declared = match exported.reference {
+                    TypeReference::Builtin(_) => true,
+                    TypeReference::Named(id) => {
+                        type_ids.contains(&id)
+                            || imported_type_references.contains(&exported.reference)
+                    }
+                };
+                if !declared {
                     errors.push(VerifyError {
                         span: exported.name_span,
                         message: "exported type is not declared or imported",
@@ -390,7 +397,7 @@ impl Module {
                         message: "instance class is not declared in this module",
                     });
                 }
-            } else if !imported_type_ids.contains(&instance.class_id) {
+            } else if !imported_type_references.contains(&TypeReference::Named(instance.class_id)) {
                 errors.push(VerifyError {
                     span: instance.name_span,
                     message: "instance class is not declared or imported",

@@ -3,9 +3,12 @@ use super::names::Resolver;
 use psrs_ast as ast;
 use psrs_hir::{
     self as hir, ExportedSymbol, ExportedType, ModuleId, SymbolId, TypeDeclarationKind, TypeId,
+    TypeReference,
 };
 use psrs_span::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+mod transitive;
 
 impl Resolver {
     /// Resolves an explicit export list into values, types, and classes, and
@@ -17,6 +20,7 @@ impl Resolver {
     pub(super) fn build_exports(
         &mut self,
         types: &[hir::TypeDeclaration],
+        declarations: &[hir::Declaration],
     ) -> Option<hir::ExportList> {
         let items = self.export_items.take()?;
         let own: HashMap<TypeId, &hir::TypeDeclaration> = types
@@ -26,7 +30,7 @@ impl Resolver {
         let mut values = Vec::new();
         let mut exported_types = Vec::new();
         let mut value_sources: HashMap<String, ModuleId> = HashMap::new();
-        let mut type_sources: HashMap<String, ModuleId> = HashMap::new();
+        let mut type_sources: HashMap<String, TypeReference> = HashMap::new();
         for item in items.items {
             match item {
                 ast::ExportRef::Value(name) | ast::ExportRef::Operator(name) => {
@@ -44,17 +48,23 @@ impl Resolver {
                 }
                 ast::ExportRef::Type { name, members } => {
                     match self.lookup_export_type(&name.text) {
-                        Some(id) => {
-                            let declaration = own.get(&id).copied();
+                        Some(reference) => {
+                            let declaration = match reference {
+                                TypeReference::Builtin(_) => None,
+                                TypeReference::Named(id) => own.get(&id).copied(),
+                            };
                             let constructors =
                                 self.export_members(declaration, members.as_ref(), &name);
                             let opaque = declaration.is_some_and(|declaration| {
                                 declaration.kind == TypeDeclarationKind::Foreign
-                            }) || self.imported_opaque(id);
+                            }) || match reference {
+                                TypeReference::Builtin(_) => false,
+                                TypeReference::Named(id) => self.imported_opaque(id),
+                            };
                             self.add_type(
                                 &mut exported_types,
                                 &mut type_sources,
-                                id,
+                                reference,
                                 name.text,
                                 name.span,
                                 declaration.is_some_and(|declaration| {
@@ -78,7 +88,7 @@ impl Resolver {
                 }
             }
         }
-        self.check_transitive_exports(types, &exported_types, &values);
+        self.check_transitive_exports(types, declarations, &exported_types, &values);
         Some(hir::ExportList {
             values,
             types: exported_types,
@@ -110,8 +120,8 @@ impl Resolver {
     fn add_type(
         &mut self,
         exported_types: &mut Vec<ExportedType>,
-        sources: &mut HashMap<String, ModuleId>,
-        id: TypeId,
+        sources: &mut HashMap<String, TypeReference>,
+        reference: TypeReference,
         name: String,
         name_span: TextRange,
         is_class: bool,
@@ -119,14 +129,14 @@ impl Resolver {
         opaque: bool,
     ) {
         match sources.get(&name) {
-            Some(existing) if *existing != id.module => {
+            Some(existing) if *existing != reference => {
                 self.report(ResolveErrorKind::ExportConflict, name, name_span);
             }
             Some(_) => {}
             None => {
-                sources.insert(name.clone(), id.module);
+                sources.insert(name.clone(), reference);
                 exported_types.push(ExportedType {
-                    id,
+                    reference,
                     name,
                     name_span,
                     constructors,
@@ -146,7 +156,7 @@ impl Resolver {
         values: &mut Vec<ExportedSymbol>,
         exported_types: &mut Vec<ExportedType>,
         value_sources: &mut HashMap<String, ModuleId>,
-        type_sources: &mut HashMap<String, ModuleId>,
+        type_sources: &mut HashMap<String, TypeReference>,
     ) {
         let matches: Vec<hir::Import> = self
             .imports
@@ -195,7 +205,7 @@ impl Resolver {
             self.add_type(
                 exported_types,
                 type_sources,
-                imported.id,
+                imported.reference,
                 imported.name.clone(),
                 name.span,
                 false,
@@ -257,7 +267,7 @@ impl Resolver {
             import
                 .types
                 .iter()
-                .any(|imported| imported.id == id && imported.opaque)
+                .any(|imported| imported.reference == TypeReference::Named(id) && imported.opaque)
         })
     }
 
@@ -273,141 +283,12 @@ impl Resolver {
             .and_then(|symbols| symbols.first().copied())
     }
 
-    fn lookup_export_type(&self, name: &str) -> Option<TypeId> {
+    fn lookup_export_type(&self, name: &str) -> Option<TypeReference> {
         if let Some(id) = self.type_names.get(name) {
-            return Some(*id);
+            return Some(TypeReference::Named(*id));
         }
         self.imported_types
             .get(name)
             .and_then(|ids| ids.first().copied())
-    }
-
-    /// Reports in-module types and class members referenced by an exported
-    /// declaration but not exported themselves.
-    fn check_transitive_exports(
-        &mut self,
-        types: &[hir::TypeDeclaration],
-        exported_types: &[ExportedType],
-        values: &[ExportedSymbol],
-    ) {
-        let own: HashMap<TypeId, &hir::TypeDeclaration> = types
-            .iter()
-            .map(|declaration| (declaration.id, declaration))
-            .collect();
-        let exported_type_ids: HashSet<TypeId> =
-            exported_types.iter().map(|exported| exported.id).collect();
-        let exported_symbols: HashSet<SymbolId> = values.iter().map(|value| value.symbol).collect();
-
-        // A class member may only be exported together with its class.
-        let mut member_owner: HashMap<SymbolId, (&hir::TypeDeclaration, String)> = HashMap::new();
-        for declaration in types {
-            if declaration.kind != TypeDeclarationKind::Class {
-                continue;
-            }
-            for member in &declaration.members {
-                member_owner.insert(member.symbol, (declaration, declaration.name.clone()));
-            }
-        }
-        let mut reported_classes = HashSet::new();
-        for value in values {
-            if let Some((declaration, class_name)) = member_owner.get(&value.symbol)
-                && !exported_type_ids.contains(&declaration.id)
-                && reported_classes.insert(class_name.clone())
-            {
-                self.report(
-                    ResolveErrorKind::TransitiveExportError,
-                    class_name.clone(),
-                    value.span,
-                );
-            }
-        }
-
-        for exported in exported_types {
-            let Some(declaration) = own.get(&exported.id).copied() else {
-                continue;
-            };
-            let mut referenced = Vec::new();
-            for constructor in &declaration.constructors {
-                for field in &constructor.fields {
-                    collect_named_types(field, &mut referenced);
-                }
-            }
-            if let Some(body) = &declaration.body {
-                collect_named_types(body, &mut referenced);
-            }
-            for superclass in &declaration.superclasses {
-                collect_named_types(superclass, &mut referenced);
-            }
-            for member in &declaration.members {
-                if let Some(signature) = &member.signature {
-                    collect_named_types(signature, &mut referenced);
-                }
-            }
-
-            let mut missing: Vec<String> = Vec::new();
-            for id in referenced {
-                if exported_type_ids.contains(&id) {
-                    continue;
-                }
-                if let Some(referenced) = own.get(&id)
-                    && !missing.contains(&referenced.name)
-                {
-                    missing.push(referenced.name.clone());
-                }
-            }
-            if declaration.kind == TypeDeclarationKind::Class {
-                for member in &declaration.members {
-                    if !exported_symbols.contains(&member.symbol) && !missing.contains(&member.name)
-                    {
-                        missing.push(member.name.clone());
-                    }
-                }
-            }
-            for name in missing {
-                self.report(
-                    ResolveErrorKind::TransitiveExportError,
-                    name,
-                    exported.name_span,
-                );
-            }
-        }
-    }
-}
-
-fn collect_named_types(ty: &hir::Type, out: &mut Vec<TypeId>) {
-    match &ty.kind {
-        hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => out.push(*id),
-        hir::TypeKind::Application(function, argument) => {
-            collect_named_types(function, out);
-            collect_named_types(argument, out);
-        }
-        hir::TypeKind::Function { parameter, result } => {
-            collect_named_types(parameter, out);
-            collect_named_types(result, out);
-        }
-        hir::TypeKind::Forall { variables, body } => {
-            for variable in variables {
-                if let Some(kind) = &variable.kind {
-                    collect_named_types(kind, out);
-                }
-            }
-            collect_named_types(body, out);
-        }
-        hir::TypeKind::Constrained { constraint, body } => {
-            collect_named_types(constraint, out);
-            collect_named_types(body, out);
-        }
-        hir::TypeKind::Row { fields, tail } | hir::TypeKind::Record { fields, tail } => {
-            for field in fields {
-                collect_named_types(&field.ty, out);
-            }
-            if let Some(tail) = tail {
-                collect_named_types(tail, out);
-            }
-        }
-        hir::TypeKind::Variable(_)
-        | hir::TypeKind::Constructor(_)
-        | hir::TypeKind::Integer(_)
-        | hir::TypeKind::String(_) => {}
     }
 }

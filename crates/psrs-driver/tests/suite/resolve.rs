@@ -18,7 +18,7 @@ use super::corpus::{
 use std::collections::BTreeMap;
 
 /// The `errorCode`s the M2 milestone is accountable for, from D-04.
-const M2_CODES: [&str; 18] = [
+const M2_CODES: [&str; 19] = [
     "UnknownName",
     "DeclConflict",
     "TransitiveExportError",
@@ -31,6 +31,7 @@ const M2_CODES: [&str; 18] = [
     "OverlappingArgNames",
     "DuplicateValueDeclaration",
     "DuplicateModule",
+    "CannotDefinePrimModules",
     "CycleInModules",
     "UnknownImport",
     "UnknownImportDataConstructor",

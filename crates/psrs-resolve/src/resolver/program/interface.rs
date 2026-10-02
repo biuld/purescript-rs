@@ -1,11 +1,12 @@
-use psrs_hir::{self as hir, Intrinsic, SymbolId, TypeId};
+use super::super::names::PRIM_TYPES;
+use psrs_hir::{self as hir, Intrinsic, SymbolId, TypeId, TypeReference};
 use std::collections::{HashMap, HashSet};
 
 /// The namespaces a resolved module exposes to its importers.
 #[derive(Clone)]
 pub(super) struct Interface {
     pub(super) values: HashMap<String, SymbolId>,
-    pub(super) types: HashMap<String, TypeId>,
+    pub(super) types: HashMap<String, TypeReference>,
     /// Exported data constructors per type name.
     pub(super) constructors: HashMap<String, Vec<(String, SymbolId)>>,
     /// Exported class members per class name.
@@ -24,18 +25,29 @@ impl Interface {
             opaque: HashSet::new(),
         };
         match name {
-            "Prim.Coerce" => {
-                interface
-                    .types
-                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+            "Prim" => {
+                for &(name, builtin) in &PRIM_TYPES {
+                    interface
+                        .types
+                        .insert(name.to_owned(), TypeReference::Builtin(builtin));
+                }
             }
+            "Prim.Coerce" => {
+                interface.types.insert(
+                    "Coercible".to_owned(),
+                    TypeReference::Named(TypeId::COERCIBLE),
+                );
+            }
+            "Prim.Boolean" | "Prim.Int" | "Prim.Ordering" | "Prim.Row" | "Prim.RowList"
+            | "Prim.Symbol" | "Prim.TypeError" => {}
             "Safe.Coerce" => {
                 interface
                     .values
                     .insert("coerce".to_owned(), Intrinsic::Coerce.symbol());
-                interface
-                    .types
-                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+                interface.types.insert(
+                    "Coercible".to_owned(),
+                    TypeReference::Named(TypeId::COERCIBLE),
+                );
             }
             _ => return None,
         }
@@ -59,11 +71,14 @@ impl Interface {
                     .map(|declaration| (declaration.id, declaration))
                     .collect::<HashMap<_, _>>();
                 for exported in &exports.types {
-                    types.insert(exported.name.clone(), exported.id);
+                    types.insert(exported.name.clone(), exported.reference);
+                    let TypeReference::Named(id) = exported.reference else {
+                        continue;
+                    };
                     if exported.opaque {
-                        opaque.insert(exported.id);
+                        opaque.insert(id);
                     }
-                    let Some(declaration) = declarations.get(&exported.id).copied() else {
+                    let Some(declaration) = declarations.get(&id).copied() else {
                         continue;
                     };
                     if let Some(symbols) = &exported.constructors {
@@ -103,7 +118,10 @@ impl Interface {
                     }
                 }
                 for declaration in &module.types {
-                    types.insert(declaration.name.clone(), declaration.id);
+                    types.insert(
+                        declaration.name.clone(),
+                        TypeReference::Named(declaration.id),
+                    );
                     if declaration.kind == hir::TypeDeclarationKind::Foreign {
                         opaque.insert(declaration.id);
                     }

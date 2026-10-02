@@ -53,6 +53,14 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
             scan_expr(left, max);
             scan_expr(right, max);
         }
+        hir::ExprKind::Negate {
+            function,
+            expression,
+            ..
+        } => {
+            scan_expr(function, max);
+            scan_expr(expression, max);
+        }
         hir::ExprKind::Lambda { binder, body } => {
             note_local(binder.id, max);
             scan_expr(body, max);

@@ -63,6 +63,12 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// Unary minus after P3 has resolved its ordinary `negate` name.
+    Negate {
+        function: Box<Expr>,
+        minus_span: TextRange,
+        expression: Box<Expr>,
+    },
     Lambda {
         binder: LocalBinder,
         body: Box<Expr>,

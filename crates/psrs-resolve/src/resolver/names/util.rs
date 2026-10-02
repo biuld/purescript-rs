@@ -1,5 +1,20 @@
 use psrs_hir::BuiltinType;
 
+pub(in crate::resolver) const PRIM_TYPES: [(&str, BuiltinType); 12] = [
+    ("Array", BuiltinType::Array),
+    ("Boolean", BuiltinType::Boolean),
+    ("Char", BuiltinType::Char),
+    ("Constraint", BuiltinType::Constraint),
+    ("Function", BuiltinType::Function),
+    ("Int", BuiltinType::Int),
+    ("Number", BuiltinType::Number),
+    ("Record", BuiltinType::Record),
+    ("Row", BuiltinType::Row),
+    ("String", BuiltinType::String),
+    ("Symbol", BuiltinType::Symbol),
+    ("Type", BuiltinType::Type),
+];
+
 pub(in crate::resolver) fn split_qualified(text: &str) -> Option<(&str, &str)> {
     if let Some(index) = text.rfind(".(")
         && text.ends_with(')')
@@ -33,4 +48,10 @@ pub(in crate::resolver) fn builtin_type(name: &str) -> Option<BuiltinType> {
         "Function" | "->" | "~>" => BuiltinType::Function,
         _ => return None,
     })
+}
+
+pub(in crate::resolver) fn prim_type(name: &str) -> Option<BuiltinType> {
+    PRIM_TYPES
+        .iter()
+        .find_map(|(prim_name, builtin)| (*prim_name == name).then_some(*builtin))
 }

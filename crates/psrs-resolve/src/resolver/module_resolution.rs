@@ -6,6 +6,14 @@ pub(crate) fn resolve_ast_module(
     module_id: ModuleId,
     inputs: ModuleInputs,
 ) -> Result<hir::Module, Vec<ResolveError>> {
+    if is_prim_module(&module.name.text) {
+        return Err(vec![ResolveError::named(
+            ResolveErrorKind::CannotDefinePrimModules,
+            module.name.text,
+            module.name.span,
+        )]);
+    }
+
     let mut globals = HashMap::new();
     let mut errors = Vec::new();
 
@@ -159,7 +167,7 @@ pub(crate) fn resolve_ast_module(
             resolver.resolve_type_declaration(plan, declaration, role)
         })
         .collect();
-    let exports = resolver.build_exports(&types);
+    let exports = resolver.build_exports(&types, &declarations);
     let instances: Vec<hir::InstanceDeclaration> = module
         .instances
         .into_iter()
@@ -191,4 +199,8 @@ pub(crate) fn resolve_ast_module(
     } else {
         Err(resolver.errors)
     }
+}
+
+fn is_prim_module(name: &str) -> bool {
+    name == "Prim" || name.starts_with("Prim.")
 }
