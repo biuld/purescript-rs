@@ -7,6 +7,8 @@ use psrs_hir::{
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
+mod patterns;
+
 struct QualifiedImport {
     module: ModuleId,
     values: HashMap<String, SymbolId>,
@@ -28,6 +30,8 @@ pub(super) struct Resolver {
     pub(super) qualified_types: HashMap<String, Vec<QualifiedTypeImport>>,
     pub(super) externals: Vec<ExternalSymbol>,
     pub(super) imports: Vec<hir::Import>,
+    pub(super) fixities: HashMap<String, hir::Fixity>,
+    pub(super) type_fixities: HashMap<String, hir::Fixity>,
     pub(super) unqualified: HashMap<String, Vec<SymbolId>>,
     qualified: HashMap<String, Vec<QualifiedImport>>,
     pub(super) export_items: Option<ast::ExportList>,
@@ -46,6 +50,7 @@ impl Resolver {
         externals: Vec<ExternalSymbol>,
         imports: Vec<hir::Import>,
         export_items: Option<ast::ExportList>,
+        fixities: Vec<hir::Fixity>,
         errors: Vec<ResolveError>,
     ) -> Self {
         let mut unqualified: HashMap<String, Vec<SymbolId>> = HashMap::new();
@@ -98,6 +103,7 @@ impl Resolver {
                     types,
                 });
         }
+        let (fixities, type_fixities) = super::operators::merge_fixities(fixities, &imports);
         Self {
             globals,
             external_globals,
@@ -107,6 +113,8 @@ impl Resolver {
             qualified_types,
             externals,
             imports,
+            fixities,
+            type_fixities,
             unqualified,
             qualified,
             export_items,
@@ -198,6 +206,15 @@ impl Resolver {
                     right: Box::new(right?),
                 }
             }
+            AstExprKind::OperatorChain {
+                operands,
+                operators,
+            } => self.resolve_operator_chain(operands, operators)?,
+            AstExprKind::OperatorSection {
+                operator,
+                operand,
+                side,
+            } => self.resolve_operator_section(operator, *operand, side, span)?,
             AstExprKind::Lambda { binder, body } => {
                 let binder = self.new_local(binder.name, binder.span);
                 self.scopes
@@ -324,85 +341,11 @@ impl Resolver {
             .collect()
     }
 
-    fn resolve_pattern(
-        &mut self,
-        pattern: ast::Pattern,
-        scope: &mut HashMap<String, LocalBinder>,
-    ) -> Option<hir::Pattern> {
-        let span = pattern.span;
-        let kind = match pattern.kind {
-            ast::PatternKind::Wildcard => hir::PatternKind::Wildcard,
-            ast::PatternKind::Var(binder) => {
-                let binder = self.new_local(binder.name, binder.span);
-                scope.insert(binder.name.clone(), binder.clone());
-                hir::PatternKind::Var(binder)
-            }
-            ast::PatternKind::Constructor { name, arguments } => {
-                let symbol = self.lookup_global(&name.text, name.span)?;
-                hir::PatternKind::Constructor {
-                    symbol,
-                    name_span: name.span,
-                    arguments: arguments
-                        .into_iter()
-                        .map(|argument| self.resolve_pattern(argument, scope))
-                        .collect::<Option<Vec<_>>>()?,
-                }
-            }
-            ast::PatternKind::Record { fields } => hir::PatternKind::Record {
-                fields: fields
-                    .into_iter()
-                    .map(|(label, pattern)| Some((label, self.resolve_pattern(pattern, scope)?)))
-                    .collect::<Option<Vec<_>>>()?,
-            },
-        };
-        Some(hir::Pattern { kind, span })
-    }
-
-    fn resolve_let(
-        &mut self,
-        declarations: Vec<ast::Declaration>,
-        body: ast::Expr,
-    ) -> Option<ExprKind> {
-        let mut scope = HashMap::new();
-        let mut binders = Vec::with_capacity(declarations.len());
-        for declaration in &declarations {
-            let binder = self.new_local(declaration.name.text.clone(), declaration.name.span);
-            if scope.insert(binder.name.clone(), binder.clone()).is_some() {
-                self.report(
-                    ResolveErrorKind::DuplicateLocalBinding,
-                    binder.name.clone(),
-                    binder.span,
-                );
-            }
-            binders.push(binder);
-        }
-
-        self.scopes.push(scope);
-        let bindings = declarations
-            .into_iter()
-            .zip(binders)
-            .filter_map(|(declaration, binder)| {
-                let value = self.resolve_expr(declaration.value)?;
-                Some(LocalBinding {
-                    binder,
-                    value,
-                    span: declaration.span,
-                })
-            })
-            .collect::<Vec<_>>();
-        let body = self.resolve_expr(body);
-        self.scopes.pop();
-        Some(ExprKind::Let {
-            bindings,
-            body: Box::new(body?),
-        })
-    }
-
     fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
         self.scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
-    fn lookup_global(&mut self, text: &str, span: TextRange) -> Option<SymbolId> {
+    pub(super) fn lookup_global(&mut self, text: &str, span: TextRange) -> Option<SymbolId> {
         if let Some((qualifier, member)) = split_qualified(text) {
             return self.lookup_qualified(text, qualifier, member, span);
         }
@@ -460,7 +403,7 @@ impl Resolver {
         None
     }
 
-    fn new_local(&mut self, name: String, span: TextRange) -> LocalBinder {
+    pub(super) fn new_local(&mut self, name: String, span: TextRange) -> LocalBinder {
         let id = LocalId(self.next_local);
         self.next_local += 1;
         LocalBinder { id, name, span }

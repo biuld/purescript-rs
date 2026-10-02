@@ -117,6 +117,27 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
             collect_runner_references(left, runner, spans);
             collect_runner_references(right, runner, spans);
         }
+        ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            for operator in operators {
+                if operator.symbol == runner {
+                    spans.push(operator.operator_span);
+                }
+            }
+            for operand in operands {
+                collect_runner_references(operand, runner, spans);
+            }
+        }
+        ExprKind::OperatorSection {
+            operator, operand, ..
+        } => {
+            if operator.symbol == runner {
+                spans.push(operator.operator_span);
+            }
+            collect_runner_references(operand, runner, spans);
+        }
         ExprKind::Lambda { body, .. } => collect_runner_references(body, runner, spans),
         ExprKind::Let { bindings, body } => {
             for binding in bindings {

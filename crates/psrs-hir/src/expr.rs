@@ -1,4 +1,4 @@
-use super::{LocalId, SymbolId, Type};
+use super::{Associativity, LocalId, SymbolId, Type};
 use psrs_span::TextRange;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +63,16 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    OperatorChain {
+        operands: Vec<Expr>,
+        operators: Vec<ResolvedOperator>,
+    },
+    OperatorSection {
+        operator: ResolvedOperator,
+        operand: Box<Expr>,
+        binder: LocalBinder,
+        side: SectionSide,
+    },
     Lambda {
         binder: LocalBinder,
         body: Box<Expr>,
@@ -80,6 +90,20 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         branches: Vec<CaseBranch>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedOperator {
+    pub symbol: SymbolId,
+    pub operator_span: TextRange,
+    pub associativity: Associativity,
+    pub precedence: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionSide {
+    Left,
+    Right,
 }
 
 /// One alternative of a `case` expression. The pattern binds locals that are in
@@ -106,6 +130,10 @@ pub enum PatternKind {
         symbol: SymbolId,
         name_span: TextRange,
         arguments: Vec<Pattern>,
+    },
+    OperatorChain {
+        operands: Vec<Pattern>,
+        operators: Vec<ResolvedOperator>,
     },
     Record {
         fields: Vec<(String, Pattern)>,

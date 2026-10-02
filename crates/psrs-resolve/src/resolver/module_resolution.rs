@@ -64,8 +64,10 @@ pub(crate) fn resolve_ast_module(
         inputs.externals,
         inputs.imports,
         inputs.export_items,
+        Vec::new(),
         errors,
     );
+    let local_fixities = resolver.resolve_fixity_declarations(&module.fixities);
     resolver.opaque_types.extend(opaque_types);
     resolver.note_imported_opaque_types();
 
@@ -179,6 +181,7 @@ pub(crate) fn resolve_ast_module(
             declarations,
             types,
             instances,
+            fixities: local_fixities,
             span: module.span,
         };
         match resolved.verify() {

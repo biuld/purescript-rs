@@ -38,6 +38,56 @@ pub struct Import {
     pub hiding: bool,
     pub symbols: Vec<ImportedSymbol>,
     pub types: Vec<ImportedType>,
+    pub fixities: Vec<Fixity>,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixityNamespace {
+    Value,
+    Type,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Associativity {
+    Left,
+    Right,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FixityTarget {
+    Value(SymbolId),
+    Type(TypeId),
+}
+
+/// A fixity alias resolved to the declaration it names. Operator spellings
+/// remain separate from declaration names because several spellings can refer
+/// to one value or type with different fixities.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fixity {
+    pub namespace: FixityNamespace,
+    pub operator: String,
+    pub target_name: String,
+    pub target: FixityTarget,
+    pub associativity: Associativity,
+    pub precedence: u32,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportedOperator {
+    pub symbol: SymbolId,
+    pub name: String,
+    pub target_name: String,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportedTypeOperator {
+    pub id: TypeId,
+    pub name: String,
+    pub target_name: String,
     pub span: TextRange,
 }
 
@@ -69,6 +119,8 @@ pub struct ExportedType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportList {
     pub values: Vec<ExportedSymbol>,
+    pub operators: Vec<ExportedOperator>,
     pub types: Vec<ExportedType>,
+    pub type_operators: Vec<ExportedTypeOperator>,
     pub span: TextRange,
 }

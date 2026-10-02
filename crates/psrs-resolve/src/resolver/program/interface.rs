@@ -6,6 +6,8 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct Interface {
     pub(super) values: HashMap<String, SymbolId>,
     pub(super) types: HashMap<String, TypeId>,
+    pub(super) value_fixities: HashMap<String, hir::Fixity>,
+    pub(super) type_fixities: HashMap<String, hir::Fixity>,
     /// Exported data constructors per type name.
     pub(super) constructors: HashMap<String, Vec<(String, SymbolId)>>,
     /// Exported class members per class name.
@@ -19,6 +21,8 @@ impl Interface {
         let mut interface = Self {
             values: HashMap::new(),
             types: HashMap::new(),
+            value_fixities: HashMap::new(),
+            type_fixities: HashMap::new(),
             constructors: HashMap::new(),
             class_members: HashMap::new(),
             opaque: HashSet::new(),
@@ -45,6 +49,8 @@ impl Interface {
     pub(super) fn from_module(module: &hir::Module) -> Self {
         let mut values = HashMap::new();
         let mut types = HashMap::new();
+        let mut value_fixities = HashMap::new();
+        let mut type_fixities = HashMap::new();
         let mut constructors = HashMap::new();
         let mut class_members = HashMap::new();
         let mut opaque = HashSet::new();
@@ -52,6 +58,12 @@ impl Interface {
             Some(exports) => {
                 for value in &exports.values {
                     values.insert(value.name.clone(), value.symbol);
+                }
+                for operator in &exports.operators {
+                    values.insert(operator.name.clone(), operator.symbol);
+                    if let Some(fixity) = find_fixity(module, &operator.name) {
+                        value_fixities.insert(operator.name.clone(), fixity);
+                    }
                 }
                 let declarations = module
                     .types
@@ -92,6 +104,12 @@ impl Interface {
                         class_members.insert(exported.name.clone(), members);
                     }
                 }
+                for operator in &exports.type_operators {
+                    types.insert(operator.name.clone(), operator.id);
+                    if let Some(fixity) = find_fixity(module, &operator.name) {
+                        type_fixities.insert(operator.name.clone(), fixity);
+                    }
+                }
             }
             None => {
                 for declaration in &module.declarations {
@@ -122,14 +140,41 @@ impl Interface {
                             .push((member.name.clone(), member.symbol));
                     }
                 }
+                for fixity in &module.fixities {
+                    match fixity.namespace {
+                        hir::FixityNamespace::Value => {
+                            if let hir::FixityTarget::Value(symbol) = fixity.target {
+                                values.insert(fixity.operator.clone(), symbol);
+                                value_fixities.insert(fixity.operator.clone(), fixity.clone());
+                            }
+                        }
+                        hir::FixityNamespace::Type => {
+                            if let hir::FixityTarget::Type(id) = fixity.target {
+                                types.insert(fixity.operator.clone(), id);
+                                type_fixities.insert(fixity.operator.clone(), fixity.clone());
+                            }
+                        }
+                    }
+                }
             }
         }
         Self {
             values,
             types,
+            value_fixities,
+            type_fixities,
             constructors,
             class_members,
             opaque,
         }
     }
+}
+
+fn find_fixity(module: &hir::Module, name: &str) -> Option<hir::Fixity> {
+    module
+        .fixities
+        .iter()
+        .chain(module.imports.iter().flat_map(|import| &import.fixities))
+        .find(|fixity| fixity.operator == name)
+        .cloned()
 }

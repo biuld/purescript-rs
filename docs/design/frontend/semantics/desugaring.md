@@ -35,17 +35,28 @@ Origin = { source: SourceId, range: TextRange, generated_from: NodeId }
 ```
 
 The output uses the same HIR IDs and type-expression forms. Generated local
-binders receive fresh IDs in the proper scope and an origin range. The
-normalized subset contains applications, lambdas, `let`, conditionals, cases,
-records, and primitive declarations, with operator and sequencing sugar
-expanded. Pattern syntax may remain for P5 and P6.
+binders receive fresh IDs in the proper scope and an origin range. P4 consumes
+resolved value, constructor-pattern, and type operator chains, applying their
+associated fixity before lowering them to applications or constructor
+patterns. It expands both operator sections to lambdas and applications of
+the resolved operator. The normalized subset contains applications, lambdas,
+`let`, conditionals, cases, records, and primitive declarations, with operator
+and sequencing sugar expanded. Pattern syntax may remain for P5 and P6.
 
 ## Design
 
-P4 applies resolved fixities to operator chains, then expands sections and
-other syntactic operators into applications of their resolved symbol. It
-lowers `do` to `bind`/`pure` applications and `ado` to its applicative form
-using the resolved library identities, never matching a name's spelling.
+P4 applies resolved fixities to expression, constructor-pattern, and type
+operator chains. It reassociates each chain by precedence and associativity;
+type operators become type applications headed by the resolved `TypeId`.
+Sections become lambdas whose bodies apply the resolved operator to the saved
+operand and the new parameter in source order. Other syntactic operators
+expand to applications of their resolved identity. P4 lowers `do` to
+`bind`/`pure` applications and `ado` to its applicative form using the
+resolved library identities, never matching a name's spelling.
+If one unparenthesized chain uses operators of the same precedence with mixed
+associativity, or repeats non-associative operators at that precedence, P4
+reports the ambiguity at an operator span and requires parentheses. Parentheses
+form separate chains, so an inner group is validated independently.
 It converts multiple equations and guarded right-hand sides to ordered cases
 and conditions with explicit fallthrough, and makes `where` bindings explicit
 in their original lexical scope.
@@ -66,8 +77,10 @@ duplicating a scrutinee in each equation can duplicate effectful calls.
 desugar(program):
     verify_resolved_hir(program)
     for each declaration in source order:
-        resolve operator chain using its bound fixities
-        expand sections and sequencing forms
+        reject mixed associativity and repeated non-associative operators
+        reassociate expression, pattern, and type operator chains by fixity
+        expand sections using the resolved operator and retained operand side
+        expand sequencing forms
         compile equations/guards to ordered HIR cases
         turn where bindings into scoped lets
     verify_normalized_hir(program)
@@ -80,21 +93,22 @@ that would need unavailable library evidence is diagnosed at its source span.
 
 ## Code map
 
-`crates/psrs-desugar/src/` owns
-`desugar(program: hir::Program) -> Result<hir::Program, Vec<Diagnostic>>`.
-`fixity.rs` handles operator precedence; `sections.rs` operator sections;
-`sequencing.rs` `do`/`ado`; `equations.rs` guards and function equations;
-`where_bindings.rs` local scope. `psrs-hir/src/verify.rs` exposes both the
-resolved and normalized profile checks. The desugar crate depends on HIR and
-source utilities, never THIR or backend types.
+The `psrs-desugar` organization separates fixity reassociation and type
+normalization from section, sequencing, equation, and `where` lowering around
+`desugar_module(module: hir::Module) -> Result<hir::Module, Vec<DesugarError>>`.
+The fixity logic handles value chains, constructor-pattern chains, and type
+chains; type normalization traverses signatures and declaration types.
+`psrs-hir::verify` exposes resolved and normalized profile checks. The
+desugar crate depends on HIR and source utilities, never THIR or backend types.
 
 ## Invariants and verification
 
 Existing IDs keep their meaning, new local IDs are unique and scoped, and
 source-origin ranges remain valid. Every output has the same observable
-evaluation order as its input; tests cover ordered guards and single
-evaluation of scrutinees. The normalized verifier rejects operator chains,
-sections, `do`/`ado`, guarded equations, and `where` nodes after P4.
+evaluation order as its input; tests cover fixity reassociation, ambiguity
+diagnostics, sections, ordered guards, and single evaluation of scrutinees. The normalized verifier
+rejects expression, pattern, and type operator chains, sections, `do`/`ado`,
+guarded equations, and `where` nodes after P4.
 
 ## Worked example
 
