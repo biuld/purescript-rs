@@ -1,6 +1,6 @@
 use super::layout::user_type_id;
 use super::lower::FunctionLowerer;
-use super::{Assignment, ValueId, ValueShape};
+use super::{Assignment, AssignmentKind, ValueId, ValueShape};
 use crate::{BackendError, BackendWarning};
 use psrs_core::CaseBranch;
 use psrs_span::TextRange;
@@ -19,6 +19,15 @@ impl FunctionLowerer<'_> {
         span: TextRange,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
+        if branches.is_empty() {
+            let destination = self.fresh(result_type);
+            assignments.push(Assignment {
+                destination,
+                kind: AssignmentKind::Unreachable,
+                span,
+            });
+            return Ok(destination);
+        }
         let coverage = coverage::analyze(self.module, scrutinee_type, branches);
         let is_record = self.module.is_record_type(scrutinee_type);
         let type_id = if is_record {

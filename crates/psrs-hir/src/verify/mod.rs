@@ -1,4 +1,7 @@
-use crate::{Expr, ExprKind, LocalId, Pattern, PatternKind, SymbolId};
+use crate::{Expr, ExprKind, Guard, GuardedExpr, LocalId, Pattern, PatternKind, SymbolId};
+
+mod normalized;
+pub(crate) use normalized::normalized;
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
@@ -209,6 +212,91 @@ pub(crate) fn verify_expr(
                 }
             }
         }
+        ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                verify_guarded_expr(clause, globals, visible_locals, declared_locals, errors);
+            }
+        }
+    }
+}
+
+fn verify_guarded_expr(
+    clause: &GuardedExpr,
+    globals: &HashSet<SymbolId>,
+    visible_locals: &mut HashSet<LocalId>,
+    declared_locals: &mut HashSet<LocalId>,
+    errors: &mut Vec<VerifyError>,
+) {
+    let mut inserted = Vec::new();
+    for binding in &clause.where_bindings {
+        if !declared_locals.insert(binding.binder.id) {
+            errors.push(VerifyError {
+                span: binding.binder.span,
+                message: "duplicate local ID",
+            });
+        }
+        if visible_locals.insert(binding.binder.id) {
+            inserted.push(binding.binder.id);
+        }
+    }
+    for binding in &clause.where_bindings {
+        verify_expr(
+            &binding.value,
+            globals,
+            visible_locals,
+            declared_locals,
+            errors,
+        );
+    }
+    for guard in &clause.guards {
+        match guard {
+            Guard::Boolean(expression) => {
+                verify_expr(expression, globals, visible_locals, declared_locals, errors);
+            }
+            Guard::Pattern { pattern, value } => {
+                verify_expr(value, globals, visible_locals, declared_locals, errors);
+                verify_pattern(
+                    pattern,
+                    globals,
+                    visible_locals,
+                    declared_locals,
+                    &mut inserted,
+                    errors,
+                );
+            }
+            Guard::Let { bindings, .. } => {
+                for binding in bindings {
+                    if !declared_locals.insert(binding.binder.id) {
+                        errors.push(VerifyError {
+                            span: binding.binder.span,
+                            message: "duplicate local ID",
+                        });
+                    }
+                    if visible_locals.insert(binding.binder.id) {
+                        inserted.push(binding.binder.id);
+                    }
+                }
+                for binding in bindings {
+                    verify_expr(
+                        &binding.value,
+                        globals,
+                        visible_locals,
+                        declared_locals,
+                        errors,
+                    );
+                }
+            }
+        }
+    }
+    verify_expr(
+        &clause.value,
+        globals,
+        visible_locals,
+        declared_locals,
+        errors,
+    );
+    for id in inserted {
+        visible_locals.remove(&id);
     }
 }
 
@@ -221,7 +309,7 @@ fn verify_pattern(
     errors: &mut Vec<VerifyError>,
 ) {
     match &pattern.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Boolean(_) => {}
         PatternKind::Var(binder) => {
             if !declared_locals.insert(binder.id) {
                 errors.push(VerifyError {

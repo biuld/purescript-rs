@@ -19,6 +19,27 @@ pub fn lower_module(module: cst::Module) -> Result<Module, Vec<LowerError>> {
         ) {
             instance_chains.reset();
         }
+        if let cst::Declaration::Value(first) = &declaration {
+            let mut end = index + 1;
+            while let Some(cst::Declaration::Value(next)) = module.declarations.get(end)
+                && next.name.text == first.name.text
+            {
+                end += 1;
+            }
+            let equations = module.declarations[index..end]
+                .iter()
+                .map(|declaration| match declaration {
+                    cst::Declaration::Value(value) => Ok(value.clone()),
+                    _ => unreachable!("the group contains only value declarations"),
+                })
+                .collect::<Result<Vec<_>, LowerError>>();
+            match equations.and_then(equations::lower_value_declarations) {
+                Ok(declaration) => declarations.push(declaration),
+                Err(error) => errors.push(error),
+            }
+            index = end;
+            continue;
+        }
         match declaration {
             cst::Declaration::KindSignature(signature) => {
                 if matches_kind_declaration(&signature, module.declarations.get(index + 1)) {

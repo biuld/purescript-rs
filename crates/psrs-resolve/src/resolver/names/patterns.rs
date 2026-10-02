@@ -12,6 +12,7 @@ impl Resolver {
         let span = pattern.span;
         let kind = match pattern.kind {
             ast::PatternKind::Wildcard => hir::PatternKind::Wildcard,
+            ast::PatternKind::Boolean(value) => hir::PatternKind::Boolean(value),
             ast::PatternKind::Var(binder) => {
                 let binder = self.new_local(binder.name, binder.span);
                 scope.insert(binder.name.clone(), binder.clone());
@@ -56,6 +57,20 @@ impl Resolver {
         declarations: Vec<ast::Declaration>,
         body: ast::Expr,
     ) -> Option<ExprKind> {
+        let (bindings, scope) = self.resolve_local_bindings(declarations)?;
+        self.scopes.push(scope);
+        let body = self.resolve_expr(body);
+        self.scopes.pop();
+        Some(ExprKind::Let {
+            bindings,
+            body: Box::new(body?),
+        })
+    }
+
+    pub(super) fn resolve_local_bindings(
+        &mut self,
+        declarations: Vec<ast::Declaration>,
+    ) -> Option<(Vec<LocalBinding>, HashMap<String, LocalBinder>)> {
         let mut scope = HashMap::new();
         let mut binders = Vec::with_capacity(declarations.len());
         for declaration in &declarations {
@@ -69,25 +84,32 @@ impl Resolver {
             }
             binders.push(binder);
         }
-
-        self.scopes.push(scope);
+        self.scopes.push(scope.clone());
         let bindings = declarations
             .into_iter()
             .zip(binders)
-            .filter_map(|(declaration, binder)| {
+            .map(|(declaration, binder)| {
+                let span = declaration.span;
                 let value = self.resolve_expr(declaration.value)?;
+                let value = if let Some(annotation) = declaration.annotation {
+                    hir::Expr {
+                        kind: hir::ExprKind::Typed {
+                            expression: Box::new(value),
+                            ty: self.resolve_type(annotation)?,
+                        },
+                        span,
+                    }
+                } else {
+                    value
+                };
                 Some(LocalBinding {
                     binder,
                     value,
-                    span: declaration.span,
+                    span,
                 })
             })
-            .collect::<Vec<_>>();
-        let body = self.resolve_expr(body);
+            .collect::<Option<Vec<_>>>();
         self.scopes.pop();
-        Some(ExprKind::Let {
-            bindings,
-            body: Box::new(body?),
-        })
+        Some((bindings?, scope))
     }
 }

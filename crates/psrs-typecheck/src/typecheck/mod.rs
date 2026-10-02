@@ -241,6 +241,7 @@ struct InferredCaseBranch {
     pattern: InferredPattern,
     value: InferredExpr,
     span: TextRange,
+    coverage: hir::CaseBranchCoverage,
 }
 
 #[derive(Clone, Debug)]

@@ -62,6 +62,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
     let redundant_local = LocalId(43);
     let branches = vec![
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: pattern(first_local, 1),
             value: Expr {
                 kind: ExprKind::Local(first_local),
@@ -71,6 +72,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
             span: TextRange::new(1, 8),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: pattern(redundant_local, 10),
             value: Expr {
                 kind: ExprKind::Local(redundant_local),

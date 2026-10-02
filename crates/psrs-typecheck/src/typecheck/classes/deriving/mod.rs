@@ -146,6 +146,7 @@ impl Checker {
                 span,
             );
             let same_constructor = hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Constructor {
                         symbol: constructor.symbol,
@@ -165,6 +166,7 @@ impl Checker {
                 span,
             };
             let mismatch = hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Wildcard,
                     span,
@@ -180,6 +182,7 @@ impl Checker {
                 span,
             };
             left_case_branches.push(hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Constructor {
                         symbol: constructor.symbol,
@@ -201,6 +204,7 @@ impl Checker {
         }
         if left_case_branches.is_empty() {
             left_case_branches.push(hir::CaseBranch {
+                coverage: hir::CaseBranchCoverage::Source,
                 pattern: hir::Pattern {
                     kind: hir::PatternKind::Wildcard,
                     span,

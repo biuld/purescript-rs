@@ -200,6 +200,7 @@ impl Checker {
                             pattern,
                             value,
                             span: branch.span,
+                            coverage: branch.coverage,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;

@@ -126,6 +126,7 @@ pub(super) fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> E
                     pattern: super::shift_pattern(branch.pattern, offset),
                     value: super::shift_expr(branch.value, offset, variable_offset),
                     span: branch.span,
+                    coverage: branch.coverage,
                 })
                 .collect(),
         },

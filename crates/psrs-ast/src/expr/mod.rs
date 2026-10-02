@@ -3,6 +3,13 @@ use psrs_cst::{self as cst, RecordField, RecordUpdateField};
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
+mod guards;
+pub use guards::{Guard, GuardedExpr};
+pub(super) use guards::{
+    equality_guard, lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs,
+    prepend_guards,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binder {
     pub name: String,
@@ -48,6 +55,12 @@ pub enum ExprKind {
         expression: Box<Expr>,
         ty: Type,
     },
+    /// Compiler-owned equality used by integer pattern lowering. This must not
+    /// resolve through a source-level equality binding.
+    IntegerEqual {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Operator {
         operator: Name,
         left: Box<Expr>,
@@ -83,6 +96,9 @@ pub enum ExprKind {
         scrutinee: Box<Expr>,
         branches: Vec<CaseBranch>,
     },
+    /// A guarded declaration RHS. P4 expands clauses to ordered conditions and
+    /// cases after the resolver has assigned IDs to pattern and let guards.
+    Guarded(Vec<GuardedExpr>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,6 +117,7 @@ pub struct Pattern {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
+    Boolean(bool),
     Var(Binder),
     /// A data constructor pattern; the name is resolved in the value namespace.
     Constructor {
@@ -230,7 +247,7 @@ pub(super) fn check_pattern_names(
                 }
             }
         }
-        cst::PatternKind::Record { fields, .. } => {
+        cst::PatternKind::Record { fields, tail, .. } => {
             for field in fields {
                 if let Some((_, pattern)) = &field.value {
                     if let Some(error) = check_pattern_names(pattern, seen) {
@@ -244,6 +261,28 @@ pub(super) fn check_pattern_names(
                     ));
                 }
             }
+            if let Some(tail) = tail
+                && !seen.insert(tail.text.clone())
+            {
+                return Some(LowerError::coded(
+                    tail.span,
+                    "OverlappingArgNames",
+                    "two arguments share the same name",
+                ));
+            }
+        }
+        cst::PatternKind::Named { name, pattern, .. } => {
+            if !seen.insert(name.text.clone()) {
+                return Some(LowerError::coded(
+                    name.span,
+                    "OverlappingArgNames",
+                    "two arguments share the same name",
+                ));
+            }
+            return check_pattern_names(pattern, seen);
+        }
+        cst::PatternKind::Typed { pattern, .. } => {
+            return check_pattern_names(pattern, seen);
         }
         cst::PatternKind::Parens { pattern, .. } => {
             return check_pattern_names(pattern, seen);
@@ -258,6 +297,7 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
     let span = pattern.span;
     let kind = match pattern.kind {
         cst::PatternKind::Wildcard(_) => PatternKind::Wildcard,
+        cst::PatternKind::Boolean(value) => PatternKind::Boolean(value),
         cst::PatternKind::Var(name) => PatternKind::Var(Binder {
             name: name.text,
             span: name.span,

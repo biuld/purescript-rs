@@ -20,6 +20,18 @@ mod graph;
 mod lenient;
 mod library;
 
+fn desugar_diagnostic(error: psrs_desugar::DesugarError) -> super::Diagnostic {
+    let kind = (error.message == "boolean literal pattern survived P4 desugaring")
+        .then_some(psrs_backend::BackendErrorKind::UnsupportedSource);
+    super::Diagnostic {
+        stage: "P4 desugar",
+        span: error.span,
+        message: error.message.into(),
+        code: None,
+        kind,
+    }
+}
+
 use graph::{imported_instance_declarations, module_dependencies, typecheck_order};
 
 /// Compiles a whole program to a single Wasm component. Every module is type
@@ -235,16 +247,17 @@ fn typecheck_program(
     modules: Vec<psrs_hir::Module>,
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
+    let true_symbols = psrs_desugar::true_symbols(&modules);
     let mut desugared = Vec::with_capacity(modules.len());
     let mut errors = Vec::new();
     for (source, module) in modules.into_iter().enumerate() {
-        match psrs_desugar::desugar_module(module) {
+        match psrs_desugar::desugar_module_with_true_symbols(module, &true_symbols) {
             Ok(module) => desugared.push(module),
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
                         source,
-                        diagnostic: diagnostic("P4 desugar", error.span, error.message),
+                        diagnostic: desugar_diagnostic(error),
                     });
                 }
             }
