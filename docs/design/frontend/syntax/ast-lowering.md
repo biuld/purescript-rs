@@ -30,7 +30,7 @@ an unresolved operator chain for later resolution.
 ## Model
 
 ```text
-AstModule = { name: TextName, imports, exports, declarations, span }
+AstModule = { name: TextName, imports, exports, fixities, declarations, span }
 AstExpr   = { kind: AstExprKind, span: TextRange }
 AstName   = { text: String, span: TextRange }
 ```
@@ -39,6 +39,13 @@ AST nodes have no token indices or punctuation fields. They keep unresolved
 value, type, constructor, class, and module names. Declaration and field
 orders are stable, as are ranges for names, binders, patterns, and operators.
 When one CST node produces several AST nodes, each gets a source origin.
+Fixity declarations retain their namespace, associativity, precedence, target,
+alias, and spans. Expression and type operator chains retain source order, and
+operator sections retain which side supplies their operand using explicit
+anonymous arguments such as `(_ + 1)` and `(1 + _)`. Parenthesized unary
+negation remains a negation expression; it is not interpreted as a section.
+Constructor operator patterns remain chains as well. None of these forms binds
+an operator name or applies precedence in P2.
 
 ## Design
 
@@ -64,6 +71,7 @@ lower_expr(cst):
     Paren(inner)        -> lower_expr(inner) with enclosing origin retained
     Lambda([x, y], b)  -> Lambda(x, Lambda(y, lower_expr(b)))
     OperatorChain(xs)  -> AstOperatorChain(lower each operand/operator in order)
+    OperatorSection   -> AstOperatorSection(lower operand, retain side/name)
     other               -> convert children in source order
 
 lower_module(cst):
@@ -76,12 +84,11 @@ nodes to the concrete tokens that introduced them.
 
 ## Code map
 
-`crates/psrs-ast/src/` defines distinct AST node types and
+The `psrs-ast` module organization separates declarations, expressions,
+patterns, types, and fixity declarations around the conversion entry point
 `lower_module(cst: &psrs_cst::Module) -> Result<Module, Vec<Diagnostic>>`.
-Focused conversion modules handle declarations, expressions, patterns, and
-types. `verify_ast` checks spans, well-formed binders, and absence of CST
-nodes. This crate depends on `psrs-cst` and `psrs-span`, not HIR or the type
-checker.
+`verify_ast` checks spans, well-formed binders, and absence of CST nodes. This
+crate depends on `psrs-cst` and `psrs-span`, not HIR or the type checker.
 
 ## Invariants and verification
 
@@ -100,7 +107,9 @@ f = \x y -> (x + y)
 
 P1 keeps the grouped binders and parentheses. P2 produces two nested lambda
 nodes and an unresolved `+` chain, retaining the ranges of `x`, `y`, and `+`.
-P3 later resolves the names; P4 lowers the operator after its fixity is known.
+P2 leaves the operator, precedence, and section side explicit; P3 binds the
+operator to a declaration and attaches its fixity; P4 reassociates the chain
+and expands the section.
 
 ## Boundaries and interfaces
 

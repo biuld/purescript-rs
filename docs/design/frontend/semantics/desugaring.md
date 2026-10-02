@@ -45,12 +45,22 @@ sugar expanded. Pattern syntax may remain for P5 and P6.
 
 ## Design
 
-P4 applies resolved fixities to operator chains, then expands sections and
-other syntactic operators into applications of their resolved symbol. For
-unary minus, P3 has already resolved `negate` as either a local or global value;
-P4 emits an application of that reference to the operand. It lowers `do` to
-`bind`/`pure` applications and `ado` to its applicative form using the resolved
-library identities, never matching a name's spelling.
+P4 applies resolved fixities to expression, constructor-pattern, and type
+operator chains. It reassociates each chain by precedence and associativity,
+then lowers value operators to applications, constructor operators to patterns,
+and type operators to type applications. Type-operator references retain their
+`Builtin` or `Named` identity, including the built-in `Prim.Function` and
+`Prim.Int` constructors. Sections become lambdas whose bodies apply the
+resolved operator to the saved operand and the new parameter in source order.
+For unary minus, P3 has already resolved `negate` as either a local or global
+value; P4 emits an application of that reference to the operand. Other
+syntactic operators expand to applications of their resolved identity. P4
+lowers `do` to `bind`/`pure` applications and `ado` to its applicative form
+using the resolved library identities, never matching a name's spelling.
+If one unparenthesized chain uses operators of the same precedence with mixed
+associativity, or repeats non-associative operators at that precedence, P4
+reports the ambiguity at an operator span and requires parentheses. Parentheses
+form separate chains, so an inner group is validated independently.
 It converts multiple equations and guarded right-hand sides to ordered cases
 and conditions with explicit fallthrough, and makes `where` bindings explicit
 in their original lexical scope.
@@ -71,9 +81,11 @@ duplicating a scrutinee in each equation can duplicate effectful calls.
 desugar(program):
     verify_resolved_hir(program)
     for each declaration in source order:
-        resolve operator chain using its bound fixities
+        reject mixed associativity and repeated non-associative operators
+        reassociate expression, pattern, and type operator chains by fixity
+        expand sections using the resolved operator and retained operand side
         replace unary minus with an application of its resolved negate reference
-        expand sections and sequencing forms
+        expand sequencing forms
         compile equations/guards to ordered HIR cases
         turn where bindings into scoped lets
     verify_normalized_hir(program)
@@ -88,20 +100,24 @@ and the complete expression span on the application.
 
 ## Code map
 
-`crates/psrs-desugar/src/lib.rs` owns the verified surface rewrites, including
-replacing a resolved unary-minus node with an ordinary function application.
-`psrs-hir/src/verify.rs` exposes both the resolved and normalized profile
-checks. The desugar crate depends on HIR and source utilities, never THIR or
-backend types.
+The `psrs-desugar` organization separates fixity reassociation and type
+normalization from section, unary-minus, sequencing, equation, and `where`
+lowering around `desugar_module(module: hir::Module) -> Result<hir::Module,
+Vec<DesugarError>>`. The fixity logic handles value chains,
+constructor-pattern chains, and type chains; type normalization traverses
+signatures and declaration types. `psrs-hir::verify` exposes resolved and
+normalized profile checks. The desugar crate depends on HIR and source
+utilities, never THIR or backend types.
 
 ## Invariants and verification
 
 Existing IDs keep their meaning, new local IDs are unique and scoped, and
 source-origin ranges remain valid. Every output has the same observable
-evaluation order as its input; tests cover ordered guards and single
-evaluation of scrutinees. The normalized verifier rejects operator chains,
-sections, unary-minus nodes, `do`/`ado`, guarded equations, and `where` nodes
-after P4.
+evaluation order as its input; tests cover fixity reassociation, ambiguity
+diagnostics, sections, unary minus, ordered guards, and single evaluation of
+scrutinees. The normalized verifier rejects expression, pattern, and type
+operator chains, sections, unary-minus nodes, `do`/`ado`, guarded equations,
+and `where` nodes after P4.
 
 ## Worked example
 

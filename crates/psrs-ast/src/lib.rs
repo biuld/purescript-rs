@@ -5,6 +5,7 @@ use std::collections::HashSet;
 mod do_notation;
 mod export;
 mod expr;
+mod fixity;
 mod import;
 mod instance_decl;
 mod lower;
@@ -14,6 +15,7 @@ mod type_decl;
 
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind};
+pub use fixity::{Associativity, FixityDeclaration, FixityNamespace, Operator, SectionSide};
 pub use import::{Import, ImportList, ImportRef};
 pub use lower::lower_module;
 pub use role::{RoleAnnotation, RoleDeclaration, TypeRole};
@@ -36,6 +38,7 @@ pub struct Module {
     /// Source role annotations retained until name resolution attaches them to
     /// their local type declaration.
     pub role_declarations: Vec<RoleDeclaration>,
+    pub fixities: Vec<FixityDeclaration>,
     pub instances: Vec<InstanceDeclaration>,
     pub span: TextRange,
 }
@@ -214,10 +217,18 @@ fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             operator,
             left,
             right,
-        } => ExprKind::Operator {
+        } => return lower_operator_chain(operator, *left, *right, span),
+        CstExprKind::OperatorSection {
+            operator,
+            operand,
+            side,
+        } => ExprKind::OperatorSection {
             operator: lower_name(operator),
-            left: Box::new(lower_expr(*left)?),
-            right: Box::new(lower_expr(*right)?),
+            operand: Box::new(lower_expr(*operand)?),
+            side: match side {
+                cst::OperatorSectionSide::Left => SectionSide::Left,
+                cst::OperatorSectionSide::Right => SectionSide::Right,
+            },
         },
         CstExprKind::Negate {
             minus_span,
@@ -362,6 +373,55 @@ fn lower_lambda(binder: Binder, body: Expr) -> Expr {
             body: Box::new(body),
         },
         span,
+    }
+}
+
+fn lower_operator_chain(
+    operator: cst::CstName,
+    left: cst::Expr,
+    right: cst::Expr,
+    span: TextRange,
+) -> Result<Expr, LowerError> {
+    let mut operands = Vec::new();
+    let mut operators = Vec::new();
+    collect_operator_chain(left, &mut operands, &mut operators)?;
+    operators.push(Operator {
+        name: lower_name(operator.clone()),
+        span: operator.span,
+    });
+    collect_operator_chain(right, &mut operands, &mut operators)?;
+    Ok(Expr {
+        kind: ExprKind::OperatorChain {
+            operands,
+            operators,
+        },
+        span,
+    })
+}
+
+fn collect_operator_chain(
+    expression: cst::Expr,
+    operands: &mut Vec<Expr>,
+    operators: &mut Vec<Operator>,
+) -> Result<(), LowerError> {
+    let span = expression.span;
+    match expression.kind {
+        CstExprKind::Operator {
+            operator,
+            left,
+            right,
+        } => {
+            collect_operator_chain(*left, operands, operators)?;
+            operators.push(Operator {
+                name: lower_name(operator.clone()),
+                span: operator.span,
+            });
+            collect_operator_chain(*right, operands, operators)
+        }
+        kind => {
+            operands.push(lower_expr(cst::Expr { kind, span })?);
+            Ok(())
+        }
     }
 }
 

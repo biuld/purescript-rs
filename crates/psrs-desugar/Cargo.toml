@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 psrs-hir.workspace = true
+psrs-span.workspace = true
 
 [dev-dependencies]
 psrs-span.workspace = true

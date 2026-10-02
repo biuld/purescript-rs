@@ -2,13 +2,32 @@ use super::ResolveErrorKind;
 use super::names::Resolver;
 use psrs_ast as ast;
 use psrs_hir::{
-    self as hir, ExportedSymbol, ExportedType, ModuleId, SymbolId, TypeDeclarationKind, TypeId,
-    TypeReference,
+    self as hir, ExportedOperator, ExportedSymbol, ExportedType, ExportedTypeOperator, ModuleId,
+    SymbolId, TypeDeclarationKind, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod transitive;
+
+#[derive(Default)]
+struct ExportAccumulator {
+    values: Vec<ExportedSymbol>,
+    operators: Vec<ExportedOperator>,
+    types: Vec<ExportedType>,
+    type_operators: Vec<ExportedTypeOperator>,
+    value_sources: HashMap<String, ModuleId>,
+    type_sources: HashMap<String, TypeReference>,
+}
+
+struct TypeExportRequest {
+    reference: TypeReference,
+    name: String,
+    name_span: TextRange,
+    is_class: bool,
+    constructors: Option<Vec<SymbolId>>,
+    opaque: bool,
+}
 
 impl Resolver {
     /// Resolves an explicit export list into values, types, and classes, and
@@ -27,19 +46,35 @@ impl Resolver {
             .iter()
             .map(|declaration| (declaration.id, declaration))
             .collect();
-        let mut values = Vec::new();
-        let mut exported_types = Vec::new();
-        let mut value_sources: HashMap<String, ModuleId> = HashMap::new();
-        let mut type_sources: HashMap<String, TypeReference> = HashMap::new();
+        let mut exports = ExportAccumulator::default();
         for item in items.items {
             match item {
-                ast::ExportRef::Value(name) | ast::ExportRef::Operator(name) => {
+                ast::ExportRef::Value(name) => {
                     if let Some(symbol) = self.lookup_export(&name.text) {
                         self.add_value(
-                            &mut values,
-                            &mut value_sources,
+                            &mut exports.values,
+                            &mut exports.value_sources,
                             symbol,
                             name.text,
+                            name.span,
+                        );
+                    } else {
+                        self.report(ResolveErrorKind::UnknownExport, name.text, name.span);
+                    }
+                }
+                ast::ExportRef::Operator(name) => {
+                    if let Some(symbol) = self.lookup_export(&name.text) {
+                        let target_name = self
+                            .fixities
+                            .get(&name.text)
+                            .map(|fixity| fixity.target_name.clone())
+                            .unwrap_or_else(|| name.text.clone());
+                        self.add_operator(
+                            &mut exports.operators,
+                            &mut exports.value_sources,
+                            symbol,
+                            name.text,
+                            target_name,
                             name.span,
                         );
                     } else {
@@ -49,51 +84,123 @@ impl Resolver {
                 ast::ExportRef::Type { name, members } => {
                     match self.lookup_export_type(&name.text) {
                         Some(reference) => {
-                            let declaration = match reference {
+                            let declaration_id = match reference {
+                                TypeReference::Named(id) => Some(id),
                                 TypeReference::Builtin(_) => None,
-                                TypeReference::Named(id) => own.get(&id).copied(),
                             };
+                            let declaration = declaration_id.and_then(|id| own.get(&id).copied());
                             let constructors =
                                 self.export_members(declaration, members.as_ref(), &name);
                             let opaque = declaration.is_some_and(|declaration| {
                                 declaration.kind == TypeDeclarationKind::Foreign
-                            }) || match reference {
-                                TypeReference::Builtin(_) => false,
-                                TypeReference::Named(id) => self.imported_opaque(id),
-                            };
+                            }) || declaration_id
+                                .is_some_and(|id| self.imported_opaque(id));
                             self.add_type(
-                                &mut exported_types,
-                                &mut type_sources,
-                                reference,
-                                name.text,
-                                name.span,
-                                declaration.is_some_and(|declaration| {
-                                    declaration.kind == TypeDeclarationKind::Class
-                                }),
-                                constructors,
-                                opaque,
+                                &mut exports,
+                                TypeExportRequest {
+                                    reference,
+                                    name: name.text,
+                                    name_span: name.span,
+                                    is_class: declaration.is_some_and(|declaration| {
+                                        declaration.kind == TypeDeclarationKind::Class
+                                    }),
+                                    constructors,
+                                    opaque,
+                                },
                             );
                         }
                         None => self.report(ResolveErrorKind::UnknownExport, name.text, name.span),
                     }
                 }
+                ast::ExportRef::TypeOperator(name) => {
+                    if let Some(fixity) = self.type_fixities.get(&name.text).cloned() {
+                        let hir::FixityTarget::Type(reference) = fixity.target else {
+                            unreachable!("type fixities always target type declarations")
+                        };
+                        self.add_type_operator(
+                            &mut exports.type_operators,
+                            &mut exports.type_sources,
+                            reference,
+                            name.text,
+                            fixity.target_name,
+                            name.span,
+                        );
+                    } else {
+                        self.report(ResolveErrorKind::UnknownExport, name.text, name.span);
+                    }
+                }
                 ast::ExportRef::Module(name) => {
-                    self.reexport_module(
-                        &name,
-                        &mut values,
-                        &mut exported_types,
-                        &mut value_sources,
-                        &mut type_sources,
-                    );
+                    self.reexport_module(&name, &mut exports);
                 }
             }
         }
-        self.check_transitive_exports(types, declarations, &exported_types, &values);
+        self.check_transitive_exports(
+            types,
+            declarations,
+            &exports.types,
+            &exports.values,
+            &exports.operators,
+            &exports.type_operators,
+        );
         Some(hir::ExportList {
-            values,
-            types: exported_types,
+            values: exports.values,
+            operators: exports.operators,
+            types: exports.types,
+            type_operators: exports.type_operators,
             span: items.span,
         })
+    }
+
+    fn add_operator(
+        &mut self,
+        operators: &mut Vec<ExportedOperator>,
+        sources: &mut HashMap<String, ModuleId>,
+        symbol: SymbolId,
+        name: String,
+        target_name: String,
+        span: TextRange,
+    ) {
+        match sources.get(&name) {
+            Some(existing) if *existing != symbol.module => {
+                self.report(ResolveErrorKind::ExportConflict, name, span);
+            }
+            Some(_) => {}
+            None => {
+                sources.insert(name.clone(), symbol.module);
+                operators.push(ExportedOperator {
+                    symbol,
+                    name,
+                    target_name,
+                    span,
+                });
+            }
+        }
+    }
+
+    fn add_type_operator(
+        &mut self,
+        operators: &mut Vec<ExportedTypeOperator>,
+        sources: &mut HashMap<String, TypeReference>,
+        reference: TypeReference,
+        name: String,
+        target_name: String,
+        span: TextRange,
+    ) {
+        match sources.get(&name) {
+            Some(existing) if *existing != reference => {
+                self.report(ResolveErrorKind::ExportConflict, name, span);
+            }
+            Some(_) => {}
+            None => {
+                sources.insert(name.clone(), reference);
+                operators.push(ExportedTypeOperator {
+                    reference,
+                    name,
+                    target_name,
+                    span,
+                });
+            }
+        }
     }
 
     fn add_value(
@@ -116,32 +223,27 @@ impl Resolver {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn add_type(
-        &mut self,
-        exported_types: &mut Vec<ExportedType>,
-        sources: &mut HashMap<String, TypeReference>,
-        reference: TypeReference,
-        name: String,
-        name_span: TextRange,
-        is_class: bool,
-        constructors: Option<Vec<SymbolId>>,
-        opaque: bool,
-    ) {
-        match sources.get(&name) {
-            Some(existing) if *existing != reference => {
-                self.report(ResolveErrorKind::ExportConflict, name, name_span);
+    fn add_type(&mut self, exports: &mut ExportAccumulator, request: TypeExportRequest) {
+        match exports.type_sources.get(&request.name) {
+            Some(existing) if *existing != request.reference => {
+                self.report(
+                    ResolveErrorKind::ExportConflict,
+                    request.name,
+                    request.name_span,
+                );
             }
             Some(_) => {}
             None => {
-                sources.insert(name.clone(), reference);
-                exported_types.push(ExportedType {
-                    reference,
-                    name,
-                    name_span,
-                    constructors,
-                    is_class,
-                    opaque,
+                exports
+                    .type_sources
+                    .insert(request.name.clone(), request.reference);
+                exports.types.push(ExportedType {
+                    reference: request.reference,
+                    name: request.name,
+                    name_span: request.name_span,
+                    constructors: request.constructors,
+                    is_class: request.is_class,
+                    opaque: request.opaque,
                 });
             }
         }
@@ -150,14 +252,7 @@ impl Resolver {
     /// Re-exports every name an imported module provides, matching `module X`
     /// in an export list. The qualified name is the import's alias, or the
     /// module name when the import has no alias.
-    fn reexport_module(
-        &mut self,
-        name: &ast::Name,
-        values: &mut Vec<ExportedSymbol>,
-        exported_types: &mut Vec<ExportedType>,
-        value_sources: &mut HashMap<String, ModuleId>,
-        type_sources: &mut HashMap<String, TypeReference>,
-    ) {
+    fn reexport_module(&mut self, name: &ast::Name, exports: &mut ExportAccumulator) {
         let matches: Vec<hir::Import> = self
             .imports
             .iter()
@@ -182,6 +277,12 @@ impl Resolver {
         };
         let pseudo = import.alias.is_some();
         for symbol in &import.symbols {
+            if import.fixities.iter().any(|fixity| {
+                fixity.namespace == hir::FixityNamespace::Value
+                    && fixity.operator == symbol.external_name
+            }) {
+                continue;
+            }
             // A real (unaliased) import re-exports names from unqualified
             // scope, so an ambiguous name is a scope conflict.
             if !pseudo
@@ -194,23 +295,49 @@ impl Resolver {
                 continue;
             }
             self.add_value(
-                values,
-                value_sources,
+                &mut exports.values,
+                &mut exports.value_sources,
                 symbol.symbol,
                 symbol.external_name.clone(),
                 name.span,
             );
         }
+        for fixity in &import.fixities {
+            match fixity.target {
+                hir::FixityTarget::Value(symbol) => self.add_operator(
+                    &mut exports.operators,
+                    &mut exports.value_sources,
+                    symbol,
+                    fixity.operator.clone(),
+                    fixity.target_name.clone(),
+                    name.span,
+                ),
+                hir::FixityTarget::Type(reference) => self.add_type_operator(
+                    &mut exports.type_operators,
+                    &mut exports.type_sources,
+                    reference,
+                    fixity.operator.clone(),
+                    fixity.target_name.clone(),
+                    name.span,
+                ),
+            }
+        }
         for imported in &import.types {
+            if import.fixities.iter().any(|fixity| {
+                fixity.namespace == hir::FixityNamespace::Type && fixity.operator == imported.name
+            }) {
+                continue;
+            }
             self.add_type(
-                exported_types,
-                type_sources,
-                imported.reference,
-                imported.name.clone(),
-                name.span,
-                false,
-                None,
-                imported.opaque,
+                exports,
+                TypeExportRequest {
+                    reference: imported.reference,
+                    name: imported.name.clone(),
+                    name_span: name.span,
+                    is_class: false,
+                    constructors: None,
+                    opaque: imported.opaque,
+                },
             );
         }
     }
@@ -289,6 +416,6 @@ impl Resolver {
         }
         self.imported_types
             .get(name)
-            .and_then(|ids| ids.first().copied())
+            .and_then(|references| references.first().copied())
     }
 }

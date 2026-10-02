@@ -13,6 +13,7 @@ pub struct ExportList {
 pub enum ExportRef {
     Value(CstName),
     Operator(CstName),
+    TypeOperator(CstName),
     Type {
         name: CstName,
         members: Option<TypeMembers>,
@@ -23,7 +24,10 @@ pub enum ExportRef {
 impl ExportRef {
     pub fn span(&self) -> TextRange {
         match self {
-            Self::Value(name) | Self::Operator(name) | Self::Module(name) => name.span,
+            Self::Value(name)
+            | Self::Operator(name)
+            | Self::TypeOperator(name)
+            | Self::Module(name) => name.span,
             Self::Type { name, members } => match members {
                 Some(members) => TextRange::new(name.span.start, members.span.end),
                 None => name.span,
@@ -54,6 +58,7 @@ pub struct ImportList {
 pub enum ImportRef {
     Value(CstName),
     Operator(CstName),
+    TypeOperator(CstName),
     Type {
         name: CstName,
         members: Option<TypeMembers>,
@@ -65,9 +70,11 @@ pub enum ImportRef {
 impl ImportRef {
     pub fn span(&self) -> TextRange {
         match self {
-            Self::Value(name) | Self::Operator(name) | Self::Module(name) | Self::Class(name) => {
-                name.span
-            }
+            Self::Value(name)
+            | Self::Operator(name)
+            | Self::TypeOperator(name)
+            | Self::Module(name)
+            | Self::Class(name) => name.span,
             Self::Type { name, members } => match members {
                 Some(members) => TextRange::new(name.span.start, members.span.end),
                 None => name.span,

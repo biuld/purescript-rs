@@ -43,6 +43,7 @@ fn module(imports: Vec<ast::Import>) -> ast::Module {
         foreign_imports: Vec::new(),
         type_declarations: Vec::new(),
         role_declarations: Vec::new(),
+        fixities: Vec::new(),
         instances: Vec::new(),
         span: TextRange::new(0, 200),
     }

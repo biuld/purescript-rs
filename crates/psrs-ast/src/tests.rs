@@ -92,11 +92,17 @@ fn function_parameters_become_nested_lambdas_and_names_stay_unresolved() {
         panic!("expected the second normalized lambda");
     };
     assert_eq!(binder.name, "y");
-    let ExprKind::Operator { left, right, .. } = &body.kind else {
-        panic!("expected the source operator to remain unresolved");
+    let ExprKind::OperatorChain {
+        operands,
+        operators,
+    } = &body.kind
+    else {
+        panic!("expected the source operator chain to remain unresolved");
     };
-    assert!(matches!(&left.kind, ExprKind::Name(name) if name.text == "x"));
-    assert!(matches!(&right.kind, ExprKind::Name(name) if name.text == "y"));
+    assert_eq!(operators.len(), 1);
+    assert_eq!(operators[0].name.text, "+");
+    assert!(matches!(&operands[0].kind, ExprKind::Name(name) if name.text == "x"));
+    assert!(matches!(&operands[1].kind, ExprKind::Name(name) if name.text == "y"));
 }
 
 #[test]

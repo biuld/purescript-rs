@@ -415,6 +415,11 @@ fn collect_variables(ty: &hir::Type, out: &mut Vec<String>) {
             collect_variables(function, out);
             collect_variables(argument, out);
         }
+        hir::TypeKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_variables(operand, out);
+            }
+        }
         hir::TypeKind::Function { parameter, result } => {
             collect_variables(parameter, out);
             collect_variables(result, out);

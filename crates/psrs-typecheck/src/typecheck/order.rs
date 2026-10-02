@@ -69,6 +69,21 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             collect_globals(function_expr, out);
             collect_globals(expression, out);
         }
+        hir::ExprKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            out.extend(operators.iter().map(|operator| operator.symbol));
+            for operand in operands {
+                collect_globals(operand, out);
+            }
+        }
+        hir::ExprKind::OperatorSection {
+            operator, operand, ..
+        } => {
+            out.push(operator.symbol);
+            collect_globals(operand, out);
+        }
         hir::ExprKind::Application(function, argument) => {
             collect_globals(function, out);
             collect_globals(argument, out);
