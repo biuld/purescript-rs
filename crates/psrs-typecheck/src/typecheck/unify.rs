@@ -84,6 +84,12 @@ impl Checker {
                 self.unify(*left_body, *right_body, span);
             }
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            // Two decided literals unify when their scalar sequences or values
+            // are equal. A literal is never bound to anything: the arms above
+            // already solve an unknown variable *to* the literal, so this only
+            // decides the case where both sides are literals.
+            (InferType::TypeLevelString(a), InferType::TypeLevelString(b)) if a == b => {}
+            (InferType::TypeLevelInt(a), InferType::TypeLevelInt(b)) if a == b => {}
             (InferType::Application(f1, a1), InferType::Application(f2, a2))
                 if matches!(*f1, InferType::Constructor(TypeConstructor::Record))
                     && matches!(*f2, InferType::Constructor(TypeConstructor::Record)) =>
@@ -145,6 +151,7 @@ impl Checker {
             InferType::Constructor(constructor) => match constructor {
                 TypeConstructor::Function => "Function".into(),
                 TypeConstructor::Record => "Record".into(),
+                TypeConstructor::Row => "Row".into(),
                 TypeConstructor::Array => "Array".into(),
                 TypeConstructor::Int => "Int".into(),
                 TypeConstructor::Number => "Number".into(),
@@ -199,23 +206,48 @@ impl Checker {
             ),
             InferType::RowEmpty => "{ }".into(),
             row @ InferType::RowExtend { .. } => self.display_record(&row),
+            InferType::TypeLevelString(value) => format!("\"{value}\""),
+            InferType::TypeLevelInt(value) => value.to_string(),
         }
     }
 
-    fn display_record(&self, row: &InferType) -> String {
-        let FlatRow { fields, tail } = self.flatten_row(row.clone());
-        let rendered = fields
+    /// Renders the labelled entries of a row, in the order given.
+    pub(super) fn display_row_fields(&self, fields: &[(String, InferType)]) -> String {
+        fields
             .iter()
             .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
             .collect::<Vec<_>>()
-            .join(", ");
-        match tail {
-            RowTail::Closed => format!("{{{rendered}}}"),
-            RowTail::Open(variable) => {
-                if rendered.is_empty() {
-                    format!("{{ | _T{variable} }}")
+            .join(", ")
+    }
+
+    /// Renders a row type for a diagnostic. A value that reached this path
+    /// without being a row is rendered between angle brackets, so the rendering
+    /// shows the shape instead of silently claiming a closed row.
+    fn display_record(&self, row: &InferType) -> String {
+        // A rendering has no expression of its own to name, so an invalid shape
+        // is reported at an empty range; the containing diagnostic carries the
+        // span that matters.
+        match self.normalize_row(row.clone(), TextRange::new(0, 0)) {
+            Err(error) => {
+                let fields = self.display_row_fields(&error.fields);
+                let found = self.display_type(&error.found);
+                if fields.is_empty() {
+                    format!("<{found}>")
                 } else {
-                    format!("{{{rendered} | _T{variable}}}")
+                    format!("{{{fields} | <{found}>}}")
+                }
+            }
+            Ok(FlatRow { fields, tail }) => {
+                let rendered = self.display_row_fields(&fields);
+                match tail {
+                    RowTail::Closed => format!("{{{rendered}}}"),
+                    RowTail::Open(variable) => {
+                        if rendered.is_empty() {
+                            format!("{{ | _T{variable} }}")
+                        } else {
+                            format!("{{{rendered} | _T{variable}}}")
+                        }
+                    }
                 }
             }
         }
@@ -272,7 +304,11 @@ impl Checker {
                     *level = max_level;
                 }
             }
-            InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+            InferType::Variable(_)
+            | InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => {}
             InferType::Application(function, argument) => {
                 self.adjust_levels_excluding(function, max_level, bound);
                 self.adjust_levels_excluding(argument, max_level, bound);
@@ -321,6 +357,7 @@ impl Checker {
                 Some(interner.intern(Type::Constructor(match constructor {
                     TypeConstructor::Function => thir::TypeConstructor::Function,
                     TypeConstructor::Record => thir::TypeConstructor::Record,
+                    TypeConstructor::Row => thir::TypeConstructor::Row,
                     TypeConstructor::Array => thir::TypeConstructor::Array,
                     TypeConstructor::Int => thir::TypeConstructor::Int,
                     TypeConstructor::Number => thir::TypeConstructor::Number,
@@ -364,6 +401,10 @@ impl Checker {
             }
             InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
             row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
+            InferType::TypeLevelString(value) => {
+                Some(interner.intern(Type::TypeLevelString(value)))
+            }
+            InferType::TypeLevelInt(value) => Some(interner.intern(Type::TypeLevelInt(value))),
         }
     }
 }

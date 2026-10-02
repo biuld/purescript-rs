@@ -21,6 +21,11 @@ pub struct TypeId(pub u32);
 pub enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor of kind `Type -> Type`, declared with a
+    /// phantom role. Its application is a nominal type, not a row: a row value
+    /// is [`Type::RowEmpty`], [`Type::RowExtend`], or a row-polymorphic
+    /// [`Type::Variable`].
+    Row,
     Array,
     Int,
     Number,
@@ -64,6 +69,13 @@ pub enum Type {
         ty: TypeId,
         tail: TypeId,
     },
+    /// A type-level string literal, of kind `Symbol`. The payload is a sequence
+    /// of Unicode scalar values (DEC-16), so it never holds an unpaired
+    /// surrogate. Two literals are equal when their scalar sequences are equal.
+    TypeLevelString(String),
+    /// A type-level integer literal, of kind `Int`. Two literals are equal when
+    /// their values are equal.
+    TypeLevelInt(i64),
 }
 
 /// A row flattened into its fields and its tail. The tail is `None` for a

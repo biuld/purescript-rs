@@ -47,7 +47,11 @@ impl Checker {
                     .or_else(|| visit(checker, body, variable_level, bound)),
                 InferType::RowExtend { ty, tail, .. } => visit(checker, ty, variable_level, bound)
                     .or_else(|| visit(checker, tail, variable_level, bound)),
-                InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => None,
+                InferType::Variable(_)
+                | InferType::Constructor(_)
+                | InferType::RowEmpty
+                | InferType::TypeLevelString(_)
+                | InferType::TypeLevelInt(_) => None,
             }
         }
         let Some(skolem) = visit(self, ty, variable_level, &mut HashSet::new()) else {

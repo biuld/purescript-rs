@@ -154,6 +154,94 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
     );
 }
 
+/// A module carrying `Proxy 1` and `Proxy 2` and one global reference at each.
+/// A literal is decided, so the verifier compares the two by value instead of
+/// treating both as applications of the same nominal head.
+fn literal_reference_module(reference_type: TypeId) -> Module {
+    let span = TextRange::new(0, 16);
+    let proxy = psrs_hir::TypeId::new(ModuleId(0), 0);
+    let reference = SymbolId::new(ModuleId(0), 0);
+    Module {
+        type_names: Vec::new(),
+        id: ModuleId(0),
+        name: "Main".into(),
+        externals: Vec::new(),
+        types: vec![
+            Type::Constructor(TypeConstructor::User(proxy)),
+            Type::TypeLevelString("a".into()),
+            Type::TypeLevelInt(1),
+            Type::TypeLevelInt(2),
+            Type::Application(TypeId(0), TypeId(2)),
+            Type::Application(TypeId(0), TypeId(3)),
+            Type::Application(TypeId(0), TypeId(1)),
+        ],
+        newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
+        constructors: Vec::new(),
+        declarations: vec![
+            // `pick :: Proxy 1`, whose value is another reference at the same
+            // literal type, so the module needs no value-level constructor.
+            Declaration {
+                symbol: reference,
+                name: "pick".into(),
+                name_span: span,
+                quantified: Vec::new(),
+                ty: TypeId(4),
+                value: Expr {
+                    kind: ExprKind::Global(SymbolId::new(ModuleId(0), 1)),
+                    ty: TypeId(4),
+                    span,
+                },
+                span,
+            },
+            Declaration {
+                symbol: SymbolId::new(ModuleId(0), 1),
+                name: "main".into(),
+                name_span: span,
+                quantified: Vec::new(),
+                ty: TypeId(4),
+                value: Expr {
+                    kind: ExprKind::Global(reference),
+                    ty: TypeId(4),
+                    span,
+                },
+                span,
+            },
+            Declaration {
+                symbol: SymbolId::new(ModuleId(0), 2),
+                name: "other".into(),
+                name_span: span,
+                quantified: Vec::new(),
+                ty: reference_type,
+                value: Expr {
+                    kind: ExprKind::Global(reference),
+                    ty: TypeId(4),
+                    span,
+                },
+                span,
+            },
+        ],
+        span,
+    }
+}
+
+#[test]
+fn verifier_compares_type_level_literals_by_value() {
+    let errors = literal_reference_module(TypeId(5)).verify().unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message == "THIR expression type is inconsistent with its context"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn verifier_accepts_a_reference_at_its_own_type_level_literal() {
+    literal_reference_module(TypeId(4)).verify().unwrap();
+}
+
 #[test]
 fn verifier_rejects_coercion_evidence_for_a_different_boundary() {
     let span = TextRange::new(0, 12);

@@ -25,6 +25,9 @@ pub struct TypeId(pub u32);
 pub enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor, declared with a phantom role. Its
+    /// application is a nominal type, not a row value.
+    Row,
     Array,
     Int,
     Number,
@@ -73,6 +76,13 @@ pub enum Type {
         ty: TypeId,
         tail: TypeId,
     },
+    /// A type-level string literal, of kind `Symbol`. The payload is a sequence
+    /// of Unicode scalar values (DEC-16), so it never holds an unpaired
+    /// surrogate. Two literals are equal when their sequences are equal.
+    TypeLevelString(String),
+    /// A type-level integer literal, of kind `Int`. Two are equal when their
+    /// values are equal.
+    TypeLevelInt(i64),
 }
 
 /// The parameter and result of an arrow type `a -> b`, spelled as the
@@ -460,8 +470,7 @@ impl Module {
     }
 
     /// Decomposes an applied type into its head constructor and the arguments
-    /// applied to it, in order. A non-applied constructor yields an empty
-    /// argument list; a non-constructor head yields `None`.
+    /// applied to it, in order. A non-constructor head yields `None`.
     pub fn applied_constructor(&self, mut id: TypeId) -> Option<(TypeConstructor, Vec<TypeId>)> {
         let mut arguments = Vec::new();
         while let Some(Type::Application(function, argument)) = self.types.get(id.0 as usize) {
@@ -469,14 +478,14 @@ impl Module {
             id = *function;
         }
         arguments.reverse();
-        match self.types.get(id.0 as usize) {
-            Some(Type::Constructor(constructor)) => Some((*constructor, arguments)),
-            _ => None,
-        }
+        let Some(Type::Constructor(constructor)) = self.types.get(id.0 as usize) else {
+            return None;
+        };
+        Some((*constructor, arguments))
     }
 
-    /// The name and arguments of a callable type-constructor application, when
-    /// its head constructor has a registered closure representation.
+    /// The name and arguments of a callable type-constructor application, when its
+    /// head constructor has a registered closure representation.
     pub fn callable_application(&self, id: TypeId) -> Option<(HirTypeId, Vec<TypeId>)> {
         let (constructor, arguments) = self.applied_constructor(id)?;
         let TypeConstructor::User(type_id) = constructor else {

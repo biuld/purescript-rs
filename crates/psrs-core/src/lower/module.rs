@@ -5,6 +5,7 @@ fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::Typ
     match constructor {
         psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
         psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
+        psrs_thir::TypeConstructor::Row => crate::TypeConstructor::Row,
         psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
         psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
         psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
@@ -58,6 +59,8 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
                 ty: TypeId(ty.0),
                 tail: TypeId(tail.0),
             },
+            psrs_thir::Type::TypeLevelString(value) => Type::TypeLevelString(value),
+            psrs_thir::Type::TypeLevelInt(value) => Type::TypeLevelInt(value),
         })
         .collect();
     let mut declarations = Vec::with_capacity(module.declarations.len());
