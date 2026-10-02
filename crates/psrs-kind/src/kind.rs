@@ -153,6 +153,15 @@ pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
             collect_type_ids(function, out);
             collect_type_ids(argument, out);
         }
+        TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => {
+            out.extend(operators.iter().map(|operator| operator.type_id));
+            for operand in operands {
+                collect_type_ids(operand, out);
+            }
+        }
         TypeKind::Function { parameter, result } => {
             collect_type_ids(parameter, out);
             collect_type_ids(result, out);

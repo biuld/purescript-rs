@@ -43,6 +43,11 @@ fn collect_signature_variables(
             collect_signature_variables(function, bound, out)?;
             collect_signature_variables(argument, bound, out)?;
         }
+        hir::TypeKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_signature_variables(operand, bound, out)?;
+            }
+        }
         hir::TypeKind::Function { parameter, result } => {
             collect_signature_variables(parameter, bound, out)?;
             collect_signature_variables(result, bound, out)?;

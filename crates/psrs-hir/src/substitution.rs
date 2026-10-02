@@ -27,6 +27,16 @@ fn substitute(ty: &Type, substitutions: &HashMap<String, Type>, next_fresh: &mut
             Box::new(substitute(function, substitutions, next_fresh)),
             Box::new(substitute(argument, substitutions, next_fresh)),
         ),
+        TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => TypeKind::OperatorChain {
+            operands: operands
+                .iter()
+                .map(|operand| substitute(operand, substitutions, next_fresh))
+                .collect(),
+            operators: operators.clone(),
+        },
         TypeKind::Function { parameter, result } => TypeKind::Function {
             parameter: Box::new(substitute(parameter, substitutions, next_fresh)),
             result: Box::new(substitute(result, substitutions, next_fresh)),
@@ -123,6 +133,16 @@ fn rename_bound(ty: &Type, old: &str, new: &str) -> Type {
             Box::new(rename_bound(function, old, new)),
             Box::new(rename_bound(argument, old, new)),
         ),
+        TypeKind::OperatorChain {
+            operands,
+            operators,
+        } => TypeKind::OperatorChain {
+            operands: operands
+                .iter()
+                .map(|operand| rename_bound(operand, old, new))
+                .collect(),
+            operators: operators.clone(),
+        },
         TypeKind::Function { parameter, result } => TypeKind::Function {
             parameter: Box::new(rename_bound(parameter, old, new)),
             result: Box::new(rename_bound(result, old, new)),
@@ -206,6 +226,11 @@ fn collect_free_variables(ty: &Type, bound: &mut HashSet<String>, free: &mut Has
             collect_free_variables(function, bound, free);
             collect_free_variables(argument, bound, free);
         }
+        TypeKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_free_variables(operand, bound, free);
+            }
+        }
         TypeKind::Function { parameter, result } => {
             collect_free_variables(parameter, bound, free);
             collect_free_variables(result, bound, free);
@@ -277,6 +302,11 @@ fn collect_variable_names(ty: &Type, names: &mut HashSet<String>) {
         TypeKind::Application(function, argument) => {
             collect_variable_names(function, names);
             collect_variable_names(argument, names);
+        }
+        TypeKind::OperatorChain { operands, .. } => {
+            for operand in operands {
+                collect_variable_names(operand, names);
+            }
         }
         TypeKind::Function { parameter, result } => {
             collect_variable_names(parameter, names);

@@ -6,7 +6,9 @@ use super::super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
-        let mut pattern = self.parse_pattern_prefix()?;
+        let first = self.parse_pattern_prefix()?;
+        let mut operands = vec![first];
+        let mut operators = Vec::new();
         loop {
             let operator = match &self.current().kind {
                 LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) if operator != "@" => {
@@ -16,16 +18,24 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
             let operator_span = self.bump().span;
-            let right = self.parse_pattern_prefix()?;
-            let span = TextRange::new(pattern.span.start, right.span.end);
-            pattern = Pattern {
-                kind: PatternKind::Constructor {
-                    name: CstName::new(operator, operator_span),
-                    arguments: vec![pattern, right],
+            operators.push(CstName::new(operator, operator_span));
+            operands.push(self.parse_pattern_prefix()?);
+        }
+        let pattern = if operators.is_empty() {
+            operands.pop().expect("a pattern has a first operand")
+        } else {
+            let span = TextRange::new(
+                operands.first().expect("a chain has operands").span.start,
+                operands.last().expect("a chain has operands").span.end,
+            );
+            Pattern {
+                kind: PatternKind::OperatorChain {
+                    operands,
+                    operators,
                 },
                 span,
-            };
-        }
+            }
+        };
         if let PatternKind::Var(name) = &pattern.kind
             && self.at_operator_text("@")
         {
