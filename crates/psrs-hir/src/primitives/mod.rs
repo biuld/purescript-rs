@@ -9,6 +9,9 @@ mod numbers;
 mod rows;
 mod type_error;
 
+#[cfg(test)]
+mod tests;
+
 /// HIR declarations for official primitive names with stable identities on the
 /// shared type spine. Each declaration is owned by its virtual interface.
 pub fn primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)> {
