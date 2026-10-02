@@ -169,15 +169,54 @@ pub(crate) fn resolve_ast_module(
             resolver.resolve_type_declaration(plan, declaration, role)
         })
         .collect();
-    let exports = resolver.build_exports(&types, &declarations);
+    let mut instance_names = HashSet::new();
+    for instance in &module.instances {
+        if instance.name.text.is_empty() {
+            continue;
+        }
+        if !instance_names.insert(instance.name.text.clone()) {
+            resolver.errors.push(ResolveError::named(
+                ResolveErrorKind::DuplicateInstance,
+                instance.name.text.clone(),
+                instance.name.span,
+            ));
+        } else if resolver.globals.contains_key(&instance.name.text) {
+            resolver.errors.push(ResolveError::named(
+                ResolveErrorKind::RedefinedIdentifier,
+                instance.name.text.clone(),
+                instance.name.span,
+            ));
+        }
+    }
+    let mut reserved_instance_names = instance_names.clone();
+    let mut generated_instance_index = 0u32;
     let instances: Vec<hir::InstanceDeclaration> = module
         .instances
         .into_iter()
-        .enumerate()
-        .filter_map(|(index, instance)| {
-            instances::resolve_instance(&mut resolver, module_id, index, instance, &mut next_symbol)
+        .filter_map(|instance| {
+            let generated_name = if instance.name.text.is_empty() {
+                loop {
+                    let candidate = format!("$instance${generated_instance_index}");
+                    generated_instance_index += 1;
+                    if !resolver.globals.contains_key(&candidate)
+                        && reserved_instance_names.insert(candidate.clone())
+                    {
+                        break candidate;
+                    }
+                }
+            } else {
+                instance.name.text.clone()
+            };
+            instances::resolve_instance(
+                &mut resolver,
+                module_id,
+                instance,
+                &mut next_symbol,
+                &generated_name,
+            )
         })
         .collect();
+    let exports = resolver.build_exports(module_id, &types, &declarations, &instances);
 
     if resolver.errors.is_empty() {
         let resolved = hir::Module {

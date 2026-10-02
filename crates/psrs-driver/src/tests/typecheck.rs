@@ -447,6 +447,22 @@ fn rejects_an_ascription_whose_type_does_not_match() {
 }
 
 #[test]
+fn an_ascription_constrains_a_flexible_expected_type_variable() {
+    let source = "module Main where\n\
+        same :: forall a. a -> a -> Boolean\n\
+        same _ _ = true\n\
+        main = same ((\\x -> x) :: Number -> Number) true\n";
+    let errors = check_program_types_lenient(&[("Main.purs", source)])
+        .expect_err("the annotation must constrain the shared type variable");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("TypesDoNotUnify")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn an_ascription_with_an_explicit_forall_keeps_that_type() {
     // The written `forall` is checked with skolems and is the result type, so
     // the value is usable at that polymorphic type.

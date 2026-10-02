@@ -332,6 +332,7 @@ impl Checker {
             .iter()
             .map(|argument| self.elaborate_type(argument, &mut variables))
             .collect::<Vec<_>>();
+        let head_variable_types = variables.clone();
         let mut context = Vec::with_capacity(instance.context.len());
         let mut context_parameters = Vec::with_capacity(instance.context.len());
         let mut valid = true;
@@ -378,6 +379,7 @@ impl Checker {
             chain_id: instance.chain_id,
             chain_position: instance.chain_position,
             head_arguments,
+            head_variables: head_variable_types,
             context,
             context_parameters,
         });

@@ -2,13 +2,15 @@ use super::ResolveErrorKind;
 use super::names::Resolver;
 use psrs_ast as ast;
 use psrs_hir::{
-    self as hir, ExportedOperator, ExportedSymbol, ExportedType, ExportedTypeOperator, ModuleId,
-    SymbolId, TypeDeclarationKind, TypeId, TypeReference,
+    self as hir, ExportedInstance, ExportedOperator, ExportedSymbol, ExportedType,
+    ExportedTypeOperator, ModuleId, SymbolId, TypeDeclarationKind, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+mod instance_visibility;
 mod transitive;
+use instance_visibility::instance_is_public;
 
 #[derive(Default)]
 struct ExportAccumulator {
@@ -38,8 +40,10 @@ impl Resolver {
     /// declaration to another declaration that is not exported.
     pub(super) fn build_exports(
         &mut self,
+        module_id: ModuleId,
         types: &[hir::TypeDeclaration],
         declarations: &[hir::Declaration],
+        instances: &[hir::InstanceDeclaration],
     ) -> Option<hir::ExportList> {
         let items = self.export_items.take()?;
         let own: HashMap<TypeId, &hir::TypeDeclaration> = types
@@ -142,11 +146,29 @@ impl Resolver {
             &exports.operators,
             &exports.type_operators,
         );
+        let exported_type_ids: HashSet<TypeId> = exports
+            .types
+            .iter()
+            .filter_map(|exported| match exported.reference {
+                TypeReference::Named(id) => Some(id),
+                TypeReference::Builtin(_) => None,
+            })
+            .collect();
+        let exported_instances = instances
+            .iter()
+            .filter(|instance| instance_is_public(instance, module_id, &exported_type_ids))
+            .map(|instance| ExportedInstance {
+                symbol: instance.symbol,
+                name: instance.name.clone(),
+                name_span: instance.name_span,
+            })
+            .collect();
         Some(hir::ExportList {
             values: exports.values,
             operators: exports.operators,
             types: exports.types,
             type_operators: exports.type_operators,
+            instances: exported_instances,
             span: items.span,
         })
     }

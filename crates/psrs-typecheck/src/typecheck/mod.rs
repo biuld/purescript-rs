@@ -108,6 +108,7 @@ struct InstanceInfo {
     chain_id: u32,
     chain_position: u32,
     head_arguments: Vec<InferType>,
+    head_variables: HashMap<String, InferType>,
     context: Vec<ClassConstraint>,
     context_parameters: Vec<(LocalId, InferType)>,
 }

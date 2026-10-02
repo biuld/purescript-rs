@@ -298,6 +298,18 @@ fn typecheck_program(
         .iter()
         .map(|module| module.instances.clone())
         .collect::<Vec<_>>();
+    let exported_instances = modules
+        .iter()
+        .map(|module| {
+            module.exports.as_ref().map(|exports| {
+                exports
+                    .instances
+                    .iter()
+                    .map(|instance| instance.symbol)
+                    .collect()
+            })
+        })
+        .collect::<Vec<_>>();
     let dependencies = module_dependencies(&modules);
     // A re-exported symbol is declared in the module that owns it, so the
     // signature table is global: a module that imports an exported symbol finds
@@ -345,8 +357,12 @@ fn typecheck_program(
             continue;
         }
         let imported = imported_signatures(&module, &signatures);
-        let imported_instances =
-            imported_instance_declarations(&dependencies, index, &instance_sets);
+        let imported_instances = imported_instance_declarations(
+            &dependencies,
+            index,
+            &instance_sets,
+            &exported_instances,
+        );
         let trusted_effect_representation = index < trusted_prefix
             && matches!(
                 module.name.as_str(),
