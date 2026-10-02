@@ -1,14 +1,21 @@
 use super::*;
 use crate::kind::CheckedKindEnv;
+use psrs_hir::ModuleId;
 
 mod synonyms;
 
 /// Infers representation roles for every data, newtype, and foreign-data type in a
 /// resolved program. Explicit annotations constrain the published roles and
 /// are checked against the fixed point.
+///
+/// Compiler-provided declarations enter through the same registry the kind pass
+/// builds its schemes from, so a `Prim` member is role-bearing exactly as a
+/// source declaration is and carries its official role signature into the
+/// checked environment.
 pub fn check_roles(
     modules: &[hir::Module],
 ) -> (CheckedKindEnv, Vec<(psrs_hir::ModuleId, KindDiagnostic)>) {
+    let primitives = psrs_hir::primitive_type_declarations();
     let declarations = modules
         .iter()
         .flat_map(|module| {
@@ -18,6 +25,12 @@ pub fn check_roles(
                 .filter(move |declaration| role_bearing(declaration.kind))
                 .map(move |declaration| (module.id, declaration))
         })
+        .chain(
+            primitives
+                .iter()
+                .filter(|(_, declaration)| role_bearing(declaration.kind))
+                .map(|(_, declaration)| (ModuleId::INTRINSICS, declaration)),
+        )
         .collect::<Vec<_>>();
     let synonyms = synonyms::collect(modules);
     let mut roles = declarations

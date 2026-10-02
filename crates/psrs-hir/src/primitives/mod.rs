@@ -1,6 +1,6 @@
 use crate::{
-    BuiltinType, FunctionalDependency, Type, TypeDeclaration, TypeDeclarationKind, TypeId,
-    TypeKind, TypeParameter,
+    BuiltinType, FunctionalDependency, Role, RoleDeclaration, Type, TypeDeclaration,
+    TypeDeclarationKind, TypeId, TypeKind, TypeParameter,
 };
 use psrs_span::TextRange;
 
@@ -57,7 +57,7 @@ fn class(
     }
 }
 
-fn foreign_type(id: TypeId, name: &str, declared_kind: Type) -> TypeDeclaration {
+fn foreign_type(id: TypeId, name: &str, declared_kind: Type, roles: &[Role]) -> TypeDeclaration {
     TypeDeclaration {
         id,
         name: name.to_owned(),
@@ -70,7 +70,21 @@ fn foreign_type(id: TypeId, name: &str, declared_kind: Type) -> TypeDeclaration 
         superclasses: Vec::new(),
         fundeps: Vec::new(),
         declared_kind: Some(declared_kind),
-        declared_roles: None,
+        declared_roles: Some(role_declaration(roles)),
+        span: empty_span(),
+    }
+}
+
+/// A foreign type's trusted role signature. The shared role check compares it
+/// against the arity its declared kind implies, so an omitted or extra role is
+/// a diagnostic rather than a silently different coercion. Every registry
+/// foreign type therefore states its roles, including an empty vector.
+fn role_declaration(roles: &[Role]) -> RoleDeclaration {
+    RoleDeclaration {
+        roles: roles
+            .iter()
+            .map(|role| (*role, empty_span()))
+            .collect::<Vec<_>>(),
         span: empty_span(),
     }
 }
