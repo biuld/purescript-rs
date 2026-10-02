@@ -41,6 +41,13 @@ pub enum ExprKind {
         field: String,
     },
     Application(Box<Expr>, Box<Expr>),
+    /// A type ascription `e :: T`. The written type is a type-directed check at
+    /// a known expression, so it is elaborated by the checker and the
+    /// expression is kept with its checked type; nothing is wrapped at runtime.
+    Typed {
+        expression: Box<Expr>,
+        ty: Type,
+    },
     Operator {
         operator: Name,
         left: Box<Expr>,

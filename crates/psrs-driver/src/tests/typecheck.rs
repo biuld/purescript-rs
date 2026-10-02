@@ -346,3 +346,68 @@ fn a_lenient_type_check_attributes_a_diagnostic_to_the_user_source_not_the_libra
         "the trusted prefix must not shift a user's diagnostic: {errors:?}"
     );
 }
+
+#[test]
+fn checks_an_ascription_against_its_written_type() {
+    let source = "module Main where\n\
+        g :: Int -> Int\n\
+        g _ = 1\n\
+        f = g :: Int -> Int\n\
+        main :: Int\n\
+        main = f 0\n";
+    check_program(&[("Main.purs", source)]).expect("a valid ascription should be accepted");
+}
+
+#[test]
+fn rejects_an_ascription_whose_type_does_not_match() {
+    let source = "module Main where\n\
+        g :: Int\n\
+        g = 1\n\
+        f = g :: String\n\
+        main :: Int\n\
+        main = 0\n";
+    let errors = check_program(&[("Main.purs", source)]).expect_err("the ascription should fail");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.diagnostic.code == Some("TypesDoNotUnify")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn an_ascription_with_an_explicit_forall_keeps_that_type() {
+    // The written `forall` is checked with skolems and is the result type, so
+    // the value is usable at that polymorphic type.
+    let source = "module Main where\n\
+        f = (\\_ -> 0) :: forall b. b -> Int\n\
+        main :: Int\n\
+        main = f 1\n";
+    check_program(&[("Main.purs", source)]).expect("a polymorphic ascription should be accepted");
+}
+
+#[test]
+fn an_ascription_whose_written_type_is_quantified_keeps_that_type() {
+    // The quantifier is the result type, so the value is usable at that
+    // polymorphic type and the declaration needs no signature.
+    let source = "module Main where\n\
+        f = (\\_ -> 0) :: forall b. b -> Int\n\
+        main :: Int\n\
+        main = f 1\n";
+    check_program(&[("Main.purs", source)]).expect("a polymorphic ascription should be accepted");
+}
+
+#[test]
+fn an_ascription_does_not_leak_a_node_into_typed_core() {
+    // The ascription is a type-directed check at a known expression: the
+    // expression is kept with its checked type, so Core has no wrapper.
+    let source = "module Main where\n\
+        g :: Int -> Int\n\
+        g _ = 1\n\
+        f = g :: Int -> Int\n\
+        main :: Int\n\
+        main = f 0\n";
+    let typed =
+        typecheck_program_sources(&[("Main.purs", source)]).expect("the program should type check");
+    assert_eq!(typed.len(), 1);
+}

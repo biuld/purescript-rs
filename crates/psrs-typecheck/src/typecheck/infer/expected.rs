@@ -196,3 +196,31 @@ impl Checker {
         Some(inferred)
     }
 }
+
+impl Checker {
+    /// Checks `e :: T`: the written type is elaborated with rigid variables,
+    /// exactly as a signature is, and the expression is checked against it.
+    ///
+    /// The ascription produces no node of its own. It is a type-directed check
+    /// at a known expression, so the result is the expression carrying the
+    /// ascription's type. A leading `forall` is handled by
+    /// [`Self::infer_expr_with_expected`], which checks the body against skolems
+    /// and returns the quantifier, so `((\_ -> 0) :: forall b. b -> Int)` is
+    /// checked at that polymorphic type and keeps it.
+    pub(in crate::typecheck) fn infer_ascription(
+        &mut self,
+        expression: &hir::Expr,
+        ty: &hir::Type,
+        span: TextRange,
+    ) -> Option<InferredExpr> {
+        let mut variables = HashMap::new();
+        let expected = self.elaborate_type(ty, &mut variables);
+        let mut checked = self.infer_expr_with_expected(expression, Some(expected.clone()))?;
+        checked.ty = expected;
+        Some(InferredExpr {
+            kind: checked.kind,
+            ty: checked.ty,
+            span,
+        })
+    }
+}
