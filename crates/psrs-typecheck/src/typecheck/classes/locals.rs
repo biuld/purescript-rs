@@ -102,12 +102,36 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
                 scan_expr(&branch.value, max);
             }
         }
+        hir::ExprKind::Guarded(clauses) => {
+            for clause in clauses {
+                for binding in &clause.where_bindings {
+                    note_local(binding.binder.id, max);
+                    scan_expr(&binding.value, max);
+                }
+                for guard in &clause.guards {
+                    match guard {
+                        hir::Guard::Boolean(value) => scan_expr(value, max),
+                        hir::Guard::Pattern { pattern, value } => {
+                            scan_pattern(pattern, max);
+                            scan_expr(value, max);
+                        }
+                        hir::Guard::Let { bindings, .. } => {
+                            for binding in bindings {
+                                note_local(binding.binder.id, max);
+                                scan_expr(&binding.value, max);
+                            }
+                        }
+                    }
+                }
+                scan_expr(&clause.value, max);
+            }
+        }
     }
 }
 
 fn scan_pattern(pattern: &hir::Pattern, max: &mut Option<u32>) {
     match &pattern.kind {
-        hir::PatternKind::Wildcard => {}
+        hir::PatternKind::Wildcard | hir::PatternKind::Boolean(_) => {}
         hir::PatternKind::Var(binder) => note_local(binder.id, max),
         hir::PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {

@@ -7,11 +7,13 @@
 **Prerequisites:** [modules and resolution](modules-and-resolution.md),
 [frontend boundaries](../00-ir-boundaries.md), and source evaluation order.
 
-**Summary:** P4 rewrites surface constructs into a smaller resolved HIR without
-changing semantic identities. It owns fixity application, sections, unary
-minus, `do` and `ado`, guards, multiple equations, and `where` scope. P3
-resolves unary minus through the ordinary in-scope `negate` name; P4 preserves
-source order and source origins for P5 diagnostics.
+**Summary:** P2 retains equation and guard forms while normalizing case arity:
+multiple scrutinees become one closed record product with `_1`, `_2`, and
+subsequent fields, and `_` scrutinees become generated function inputs. P3
+assigns those names stable IDs and resolves unary minus through the ordinary
+in-scope `negate` name. P4 rewrites surface constructs into a smaller resolved
+HIR, applying fixities, lowering unary minus, guards, equations, `do`/`ado`,
+and `where` scope while preserving source order and origins for P5 diagnostics.
 
 ## Scope
 
@@ -23,7 +25,10 @@ remaining high-level forms on the way to Core.
 ## Background
 
 Surface notation can describe the same operation in many forms. Fixity is
-known only after P3 resolves operators. Unary minus is syntax for applying the
+known only after P3 resolves operators. P2 converts case arity to a record
+product without introducing a library tuple dependency; each source scrutinee
+is a field expression in its original order. P2 retains guards and equation
+alternatives for name resolution. Unary minus is syntax for applying the
 ordinary `negate` value, so P3 resolves that name with the same local and import
 rules as any other value. `do` describes ordered binds, and guarded equations
 describe ordered alternatives. Lowering these before type inference gives the
@@ -38,19 +43,25 @@ Origin = { source: SourceId, range: TextRange, generated_from: NodeId }
 ```
 
 The output uses the same HIR IDs and type-expression forms. Generated local
-binders receive fresh IDs in the proper scope and an origin range. The
-normalized subset contains applications, lambdas, `let`, conditionals, cases,
-records, and primitive declarations, with operator, unary-minus, and sequencing
-sugar expanded. Pattern syntax may remain for P5 and P6.
+binders receive fresh IDs in the proper scope and an origin range. P4 consumes
+resolved value, constructor-pattern, and type operator chains, applying their
+associated fixities before lowering them. Resolved type-operator heads preserve
+their `Builtin`, `Named`, or `Opaque` identity, including imported foreign type
+identity and built-in `Prim.Function` and `Prim.Int`. The normalized subset
+contains applications, lambdas, `let`,
+conditionals, cases, records, and primitive declarations, with operator,
+unary-minus, and sequencing sugar expanded. Pattern syntax may remain for P5
+and P6.
 
 ## Design
 
 P4 applies resolved fixities to expression, constructor-pattern, and type
 operator chains. It reassociates each chain by precedence and associativity,
 then lowers value operators to applications, constructor operators to patterns,
-and type operators to type applications. Type-operator references retain their
-`Builtin` or `Named` identity, including the built-in `Prim.Function` and
-`Prim.Int` constructors. Sections become lambdas whose bodies apply the
+and type operators to type applications. Resolved type-operator heads retain
+their `Builtin`, `Named`, or `Opaque` identity, including imported foreign type
+identity and the built-in `Prim.Function` and `Prim.Int` constructors. Sections
+become lambdas whose bodies apply the
 resolved operator to the saved operand and the new parameter in source order.
 For unary minus, P3 has already resolved `negate` as either a local or global
 value; P4 emits an application of that reference to the operand. Other
@@ -64,6 +75,23 @@ form separate chains, so an inner group is validated independently.
 It converts multiple equations and guarded right-hand sides to ordered cases
 and conditions with explicit fallthrough, and makes `where` bindings explicit
 in their original lexical scope.
+
+Boolean `true` guards are unconditional only when their resolved symbol is a
+compiler Boolean-true intrinsic or a whole-program declaration proven to be a
+transparent alias of that intrinsic. The driver computes this proof from the
+complete resolved module set before running P4; the proof follows resolved
+symbol identity through typed expressions and local aliases, never an import
+path or the spelling `otherwise`.
+
+Boolean guards contain ordinary expressions, so `let ... in ...` is valid
+inside a condition and its names remain local to that expression. The
+additional bare `let` guard qualifier, such as `| let next = e, next > 0 =
+result`, scopes `next` over the remaining guards and result; this is an
+issue-requested project extension. PureScript 0.15.16 supports expression and
+`<-` pattern guards, but not that bare cross-guard binding form. P2 lowers
+integer literal patterns to generated binders and a compiler-owned integer
+equality node, which P3 resolves to `Intrinsic::I32Eq`. Local `let` and guarded
+`where` declaration annotations remain as resolved `Typed` expressions for P5.
 
 Every rewrite evaluates source operands in the order defined by the language.
 A failed guard proceeds to the next guard without evaluating that guard's body.
@@ -92,7 +120,8 @@ desugar(program):
     return program
 ```
 
-Fresh IDs are allocated monotonically per declaration. The verifier checks
+Fresh IDs are allocated monotonically per module so duplicated continuations
+cannot reuse any declaration's local IDs. The verifier checks
 generated references and that no eliminated surface form remains. A rewrite
 that would need unavailable library evidence is diagnosed at its source span.
 Unary minus preserves the minus-token span on the generated function reference
@@ -105,9 +134,13 @@ normalization from section, unary-minus, sequencing, equation, and `where`
 lowering around `desugar_module(module: hir::Module) -> Result<hir::Module,
 Vec<DesugarError>>`. The fixity logic handles value chains,
 constructor-pattern chains, and type chains; type normalization traverses
-signatures and declaration types. `psrs-hir::verify` exposes resolved and
-normalized profile checks. The desugar crate depends on HIR and source
-utilities, never THIR or backend types.
+signatures and declaration types. P2 case-arity and literal-pattern
+normalization, P3 local-ID assignment, and P4 guard/equation lowering keep
+their own stage boundaries. The P4 guard paths preserve coverage provenance
+and bind multi-scrutinee records once before pattern tests; a whole-program
+proof recognizes transparent aliases of Boolean `true`. `psrs-hir::verify`
+exposes resolved and normalized profile checks. The desugar crate depends on
+HIR and source utilities, never THIR or backend types.
 
 ## Invariants and verification
 
@@ -117,7 +150,9 @@ evaluation order as its input; tests cover fixity reassociation, ambiguity
 diagnostics, sections, unary minus, ordered guards, and single evaluation of
 scrutinees. The normalized verifier rejects expression, pattern, and type
 operator chains, sections, unary-minus nodes, `do`/`ado`, guarded equations,
-and `where` nodes after P4.
+and `where` nodes after P4. Generated continuation branches use fresh local
+IDs and retain source/generated coverage provenance; the verifier rejects any
+Boolean pattern nested inside a remaining case after P4.
 
 ## Worked example
 
@@ -126,9 +161,12 @@ f x | x > 0 = x
     | otherwise = 0
 ```
 
-P4 resolves `>` and `otherwise`, then produces an ordered conditional in a
-single equation body. `x` keeps its `LocalId`; the comparison and each guard
-keep source origins. The second body runs only if the first guard fails.
+P4 resolves `>` and the symbol named `otherwise`, and treats the final branch
+as unconditional only if whole-program analysis proves that resolved symbol
+is a transparent alias of Boolean `true`. It then produces an ordered
+conditional in a single equation body. `x` keeps its `LocalId`; the comparison
+and each guard keep source origins. The second body runs only if the first
+guard fails.
 
 For `value = -x`, P3 resolves the generated `negate` reference to the ordinary
 local or imported value in scope. P4 turns the resolved unary-minus node into

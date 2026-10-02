@@ -1,5 +1,6 @@
-use psrs_hir::{self as hir, Expr, ExprKind};
+use psrs_hir::{self as hir, Expr, ExprKind, Guard};
 use psrs_span::TextRange;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesugarError {
@@ -16,11 +17,33 @@ impl From<hir::VerifyError> for DesugarError {
     }
 }
 
+mod alpha;
+mod boolean_case;
+mod boolean_product_case;
+mod case_helpers;
+mod constant_truth;
+mod expr;
 mod fixity;
+mod free_vars;
+mod guards;
 mod types;
 
-/// Lowers resolved operator nodes to ordinary symbol applications in HIR.
+/// Lowers resolved operators, equations, and guards to ordinary HIR.
 pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<DesugarError>> {
+    let true_symbols = true_symbols(std::slice::from_ref(&module));
+    desugar_module_with_true_symbols(module, &true_symbols)
+}
+
+/// Finds declarations proven to be transparent aliases of Boolean `true`.
+pub fn true_symbols(modules: &[hir::Module]) -> HashSet<hir::SymbolId> {
+    constant_truth::true_symbols(modules)
+}
+
+/// Lowers one module using proofs computed from the complete resolved program.
+pub fn desugar_module_with_true_symbols(
+    module: hir::Module,
+    true_symbols: &HashSet<hir::SymbolId>,
+) -> Result<hir::Module, Vec<DesugarError>> {
     module.verify().map_err(|errors| {
         errors
             .into_iter()
@@ -31,42 +54,62 @@ pub fn desugar_module(module: hir::Module) -> Result<hir::Module, Vec<DesugarErr
     if !fixity_errors.is_empty() {
         return Err(fixity_errors);
     }
-    let declarations = module
-        .declarations
-        .into_iter()
-        .map(|mut declaration| {
-            declaration.value = desugar_expr(declaration.value);
-            declaration
-        })
-        .collect();
-    let instances = module
-        .instances
-        .into_iter()
-        .map(|instance| hir::InstanceDeclaration {
-            members: instance
-                .members
-                .into_iter()
-                .map(|member| hir::InstanceMember {
-                    value: desugar_expr(member.value),
-                    ..member
-                })
-                .collect(),
-            ..instance
-        })
-        .collect();
-    let mut lowered = hir::Module {
-        declarations,
-        instances,
+    let mut module = hir::Module {
+        declarations: module
+            .declarations
+            .into_iter()
+            .map(|mut declaration| {
+                declaration.value = desugar_expr(declaration.value);
+                declaration
+            })
+            .collect(),
+        instances: module
+            .instances
+            .into_iter()
+            .map(|instance| hir::InstanceDeclaration {
+                members: instance
+                    .members
+                    .into_iter()
+                    .map(|member| hir::InstanceMember {
+                        value: desugar_expr(member.value),
+                        ..member
+                    })
+                    .collect(),
+                ..instance
+            })
+            .collect(),
         ..module
     };
-    types::desugar_module_types(&mut lowered);
-    lowered.verify().map_err(|errors| {
+    types::desugar_module_types(&mut module);
+    module.verify().map_err(|errors| {
         errors
             .into_iter()
             .map(DesugarError::from)
             .collect::<Vec<_>>()
     })?;
-    Ok(lowered)
+    let mut desugarer = expr::Desugarer::new(&module, true_symbols);
+    for declaration in &mut module.declarations {
+        declaration.value = desugarer.lower(declaration.value.clone());
+    }
+    for instance in &mut module.instances {
+        for member in &mut instance.members {
+            member.value = desugarer.lower(member.value.clone());
+        }
+    }
+    if !desugarer.errors.is_empty() {
+        return Err(desugarer
+            .errors
+            .into_iter()
+            .map(DesugarError::from)
+            .collect());
+    }
+    module.verify_normalized().map_err(|errors| {
+        errors
+            .into_iter()
+            .map(DesugarError::from)
+            .collect::<Vec<_>>()
+    })?;
+    Ok(module)
 }
 
 fn desugar_expr(expression: Expr) -> Expr {
@@ -141,6 +184,9 @@ fn desugar_expr(expression: Expr) -> Expr {
             Box::new(desugar_expr(*function)),
             Box::new(desugar_expr(*argument)),
         ),
+        ExprKind::Array(elements) => {
+            ExprKind::Array(elements.into_iter().map(desugar_expr).collect())
+        }
         ExprKind::Record(fields) => ExprKind::Record(
             fields
                 .into_iter()
@@ -157,6 +203,10 @@ fn desugar_expr(expression: Expr) -> Expr {
         ExprKind::FieldAccess { expression, field } => ExprKind::FieldAccess {
             expression: Box::new(desugar_expr(*expression)),
             field,
+        },
+        ExprKind::Typed { expression, ty } => ExprKind::Typed {
+            expression: Box::new(desugar_expr(*expression)),
+            ty,
         },
         ExprKind::Lambda { binder, body } => ExprKind::Lambda {
             binder,
@@ -191,10 +241,48 @@ fn desugar_expr(expression: Expr) -> Expr {
                 .map(|branch| hir::CaseBranch {
                     pattern: desugar_pattern(branch.pattern),
                     value: desugar_expr(branch.value),
-                    span: branch.span,
+                    ..branch
                 })
                 .collect(),
         },
+        ExprKind::Guarded(clauses) => ExprKind::Guarded(
+            clauses
+                .into_iter()
+                .map(|mut clause| {
+                    clause.where_bindings = clause
+                        .where_bindings
+                        .into_iter()
+                        .map(|binding| hir::LocalBinding {
+                            value: desugar_expr(binding.value),
+                            ..binding
+                        })
+                        .collect();
+                    clause.guards = clause
+                        .guards
+                        .into_iter()
+                        .map(|guard| match guard {
+                            Guard::Boolean(expression) => Guard::Boolean(desugar_expr(expression)),
+                            Guard::Pattern { pattern, value } => Guard::Pattern {
+                                pattern: desugar_pattern(pattern),
+                                value: desugar_expr(value),
+                            },
+                            Guard::Let { bindings, span } => Guard::Let {
+                                bindings: bindings
+                                    .into_iter()
+                                    .map(|binding| hir::LocalBinding {
+                                        value: desugar_expr(binding.value),
+                                        ..binding
+                                    })
+                                    .collect(),
+                                span,
+                            },
+                        })
+                        .collect();
+                    clause.value = desugar_expr(clause.value);
+                    clause
+                })
+                .collect(),
+        ),
         leaf => leaf,
     };
     Expr { kind, span }
@@ -234,129 +322,4 @@ fn desugar_pattern(pattern: hir::Pattern) -> hir::Pattern {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use psrs_hir::{Declaration, ExternalKind, Intrinsic, ModuleId, SymbolId};
-    use psrs_span::TextRange;
-
-    #[test]
-    fn lowers_operator_to_applications_and_preserves_source_ranges() {
-        let module_id = ModuleId(0);
-        let operator_id = Intrinsic::I32Add.symbol();
-        let module = hir::Module {
-            id: module_id,
-            name: "Main".into(),
-            externals: vec![hir::ExternalSymbol {
-                symbol: operator_id,
-                name: "+".into(),
-                kind: ExternalKind::Intrinsic(Intrinsic::I32Add),
-                signature: None,
-            }],
-            imports: Vec::new(),
-            exports: None,
-            types: Vec::new(),
-            instances: Vec::new(),
-            fixities: Vec::new(),
-            declarations: vec![Declaration {
-                symbol: SymbolId::new(module_id, 0),
-                name: "main".into(),
-                name_span: TextRange::new(0, 4),
-                value: Expr {
-                    kind: ExprKind::Operator {
-                        operator: operator_id,
-                        operator_span: TextRange::new(12, 13),
-                        left: Box::new(Expr {
-                            kind: ExprKind::Integer("40".into()),
-                            span: TextRange::new(10, 12),
-                        }),
-                        right: Box::new(Expr {
-                            kind: ExprKind::Integer("2".into()),
-                            span: TextRange::new(14, 15),
-                        }),
-                    },
-                    span: TextRange::new(10, 15),
-                },
-                signature: None,
-                span: TextRange::new(0, 15),
-            }],
-            span: TextRange::new(0, 15),
-        };
-
-        let lowered = desugar_module(module).unwrap();
-        let ExprKind::Application(partial, right) = &lowered.declarations[0].value.kind else {
-            panic!("expected nested applications");
-        };
-        let ExprKind::Application(function, left) = &partial.kind else {
-            panic!("expected operator application");
-        };
-        assert!(matches!(function.kind, ExprKind::Global(id) if id == operator_id));
-        assert_eq!(function.span, TextRange::new(12, 13));
-        assert_eq!(left.span, TextRange::new(10, 12));
-        assert_eq!(right.span, TextRange::new(14, 15));
-        assert_eq!(lowered.declarations[0].value.span, TextRange::new(10, 15));
-        lowered.verify().unwrap();
-    }
-
-    #[test]
-    fn lowers_resolved_unary_minus_to_an_ordinary_function_application() {
-        let module_id = ModuleId(0);
-        let negate = SymbolId::new(module_id, 0);
-        let main = SymbolId::new(module_id, 1);
-        let module = hir::Module {
-            id: module_id,
-            name: "Main".into(),
-            externals: Vec::new(),
-            imports: Vec::new(),
-            exports: None,
-            types: Vec::new(),
-            instances: Vec::new(),
-            fixities: Vec::new(),
-            declarations: vec![
-                Declaration {
-                    symbol: negate,
-                    name: "negate".into(),
-                    name_span: TextRange::new(0, 6),
-                    value: Expr {
-                        kind: ExprKind::Integer("0".into()),
-                        span: TextRange::new(12, 13),
-                    },
-                    signature: None,
-                    span: TextRange::new(0, 13),
-                },
-                Declaration {
-                    symbol: main,
-                    name: "value".into(),
-                    name_span: TextRange::new(14, 19),
-                    value: Expr {
-                        kind: ExprKind::Negate {
-                            function: Box::new(Expr {
-                                kind: ExprKind::Global(negate),
-                                span: TextRange::new(22, 23),
-                            }),
-                            minus_span: TextRange::new(22, 23),
-                            expression: Box::new(Expr {
-                                kind: ExprKind::Integer("1".into()),
-                                span: TextRange::new(23, 24),
-                            }),
-                        },
-                        span: TextRange::new(22, 24),
-                    },
-                    signature: None,
-                    span: TextRange::new(14, 24),
-                },
-            ],
-            span: TextRange::new(0, 24),
-        };
-
-        let lowered = desugar_module(module).unwrap();
-        let value = &lowered.declarations[1].value;
-        let ExprKind::Application(function, argument) = &value.kind else {
-            panic!("expected a normal function application");
-        };
-        assert!(matches!(function.kind, ExprKind::Global(symbol) if symbol == negate));
-        assert_eq!(function.span, TextRange::new(22, 23));
-        assert_eq!(argument.span, TextRange::new(23, 24));
-        assert_eq!(value.span, TextRange::new(22, 24));
-        lowered.verify().unwrap();
-    }
-}
+mod tests;

@@ -61,6 +61,7 @@ fn parameterized_array_field_projection_uses_its_stored_canonical_array() {
         span: TextRange::new(1, 14),
     };
     let branches = vec![CaseBranch {
+        coverage: psrs_hir::CaseBranchCoverage::Source,
         pattern,
         value: Expr {
             kind: ExprKind::Local(local),
@@ -230,6 +231,7 @@ fn nested_parameterized_projection_keeps_each_canonical_field() {
         span: TextRange::new(1, 22),
     };
     let branches = vec![CaseBranch {
+        coverage: psrs_hir::CaseBranchCoverage::Source,
         pattern,
         value: Expr {
             kind: ExprKind::Local(local),
@@ -357,6 +359,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
         span: TextRange::new(1, 19),
     };
     let branches = vec![CaseBranch {
+        coverage: psrs_hir::CaseBranchCoverage::Source,
         pattern,
         value: Expr {
             kind: ExprKind::Local(local),

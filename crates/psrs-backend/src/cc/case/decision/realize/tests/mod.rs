@@ -67,6 +67,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
     };
     let branches = vec![
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern,
             value: Expr {
                 kind: ExprKind::Integer(7),
@@ -76,6 +77,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
             span: TextRange::new(1, 7),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: Pattern {
                 kind: PatternKind::Constructor {
                     symbol: true_symbol,
@@ -92,6 +94,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
             span: TextRange::new(8, 14),
         },
         CaseBranch {
+            coverage: psrs_hir::CaseBranchCoverage::Source,
             pattern: Pattern {
                 kind: PatternKind::Constructor {
                     symbol: false_symbol,
