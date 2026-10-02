@@ -24,12 +24,26 @@ pub(super) enum InferType {
         ty: Box<InferType>,
         tail: Box<InferType>,
     },
+    /// A type-level string literal, of kind `Symbol`. The payload is a sequence
+    /// of Unicode scalar values (DEC-16), so an unpaired surrogate cannot be
+    /// represented and never reaches the solver. Two literals are equal when
+    /// their scalar sequences are equal.
+    TypeLevelString(String),
+    /// A type-level integer literal, of kind `Int`. Two literals are equal when
+    /// their values are equal. A literal is decided: it never solves for a
+    /// variable, it is what a variable is solved to.
+    TypeLevelInt(i64),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum TypeConstructor {
     Function,
     Record,
+    /// The `Prim.Row` type constructor of kind `Type -> Type`. Official PureScript
+    /// declares it with a phantom role, so it is a nominal head whose
+    /// application is not itself a row: a row value is [`InferType::RowEmpty`],
+    /// [`InferType::RowExtend`], or a variable whose recorded kind is `Row k`.
+    Row,
     Array,
     Int,
     Number,

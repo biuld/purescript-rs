@@ -9,6 +9,10 @@ pub(super) enum TypeKey {
     Constructor(TypeConstructor),
     Application(Box<TypeKey>, Box<TypeKey>),
     Record(Vec<(String, TypeKey)>),
+    /// A type-level literal is a concrete key: two literals are the same
+    /// specialization target only when their values agree.
+    TypeLevelString(String),
+    TypeLevelInt(i64),
 }
 
 pub(super) fn concrete_type_key(module: &Module, id: TypeId) -> Option<TypeKey> {
@@ -68,6 +72,9 @@ fn type_key(module: &Module, id: TypeId, active: &mut HashSet<TypeId>) -> Option
             | Type::RowEmpty
             | Type::RowExtend { .. }
             | Type::Closure { .. } => None,
+            // A literal is decided, so it is a concrete key of its own value.
+            Type::TypeLevelString(value) => Some(TypeKey::TypeLevelString(value.clone())),
+            Type::TypeLevelInt(value) => Some(TypeKey::TypeLevelInt(*value)),
         }
     };
     active.remove(&id);

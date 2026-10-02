@@ -304,7 +304,10 @@ fn occurs_in(variable: u32, ty: &InferType) -> bool {
                 .any(|argument| occurs_in(variable, argument))
                 || occurs_in(variable, body)
         }
-        InferType::Constructor(_) | InferType::RowEmpty => false,
+        InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => false,
     }
 }
 
@@ -403,8 +406,10 @@ fn rewrite_type_by_role(
                 changed || body_changed,
             )
         }
-        InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {
-            (ty.clone(), false)
-        }
+        InferType::Variable(_)
+        | InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => (ty.clone(), false),
     }
 }

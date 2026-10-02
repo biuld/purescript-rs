@@ -76,7 +76,11 @@ impl Checker {
                 self.collect_generalizable_scoped(ty, outer_level, out, bound);
                 self.collect_generalizable_scoped(tail, outer_level, out, bound);
             }
-            InferType::RowEmpty | InferType::Constructor(_) => {}
+            // A type-level literal is decided, so there is nothing to generalize in one.
+            InferType::RowEmpty
+            | InferType::Constructor(_)
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => {}
         }
     }
 }

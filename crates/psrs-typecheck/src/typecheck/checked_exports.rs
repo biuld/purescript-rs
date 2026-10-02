@@ -108,6 +108,10 @@ fn collect_type_ids(ty: &InferType, out: &mut HashSet<hir::TypeId>) {
             collect_type_ids(ty, out);
             collect_type_ids(tail, out);
         }
-        InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+        InferType::Variable(_)
+        | InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => {}
     }
 }

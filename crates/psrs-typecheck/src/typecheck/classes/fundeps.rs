@@ -182,7 +182,10 @@ impl Checker {
                     .any(|argument| self.has_flexible_variable(argument))
                     || self.has_flexible_variable(&body)
             }
-            InferType::Constructor(_) | InferType::RowEmpty => false,
+            InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => false,
         }
     }
 
@@ -342,6 +345,9 @@ pub(in crate::typecheck) fn collect_infer_variables(ty: &InferType, out: &mut Ha
             }
             collect_infer_variables(body, out);
         }
-        InferType::Constructor(_) | InferType::RowEmpty => {}
+        InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => {}
     }
 }

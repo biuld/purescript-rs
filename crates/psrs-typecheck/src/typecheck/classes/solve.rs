@@ -421,6 +421,10 @@ fn collect_user_type_modules(ty: &InferType, out: &mut HashSet<hir::ModuleId>) {
             }
             collect_user_type_modules(body, out);
         }
-        InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+        InferType::Variable(_)
+        | InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => {}
     }
 }

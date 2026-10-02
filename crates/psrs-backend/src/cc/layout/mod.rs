@@ -30,6 +30,7 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
         TypeConstructor::Boolean => ValueShape::Boolean,
         TypeConstructor::Function
         | TypeConstructor::Record
+        | TypeConstructor::Row
         | TypeConstructor::Array
         | TypeConstructor::User(_) => {
             return None;
@@ -129,6 +130,8 @@ fn layoutable_field_type_inner(
         | Some(Type::Closure { .. })
         | Some(Type::Constructor(_))
         | Some(Type::RowEmpty)
+        | Some(Type::TypeLevelString(_))
+        | Some(Type::TypeLevelInt(_))
         | Some(Type::RowExtend { .. })
         | None => false,
         Some(Type::Application(_, _)) => {

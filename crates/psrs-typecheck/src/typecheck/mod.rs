@@ -391,6 +391,9 @@ fn occurs(variable: u32, ty: &InferType) -> bool {
         }
         InferType::RowEmpty => false,
         InferType::Constructor(_) => false,
+        // A type-level literal contains no variable, so it can never be the
+        // type a variable is solved to recursively.
+        InferType::TypeLevelString(_) | InferType::TypeLevelInt(_) => false,
     }
 }
 
