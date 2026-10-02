@@ -18,7 +18,7 @@ pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
     let (_, role_errors) = psrs_kind::check_roles(&resolved);
     for (module, error) in role_errors {
         errors.push(ProgramDiagnostic {
-            source: module.0 as usize,
+            source: DiagnosticOrigin::Source(module.0 as usize),
             diagnostic: coded_diagnostic(
                 "P5 kind check",
                 error.span,
@@ -27,10 +27,10 @@ pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             ),
         });
     }
-    for (source, module) in resolved.iter().enumerate() {
+    for module in &resolved {
         for error in psrs_kind::check_module(module) {
             errors.push(ProgramDiagnostic {
-                source,
+                source: DiagnosticOrigin::Source(module.id.0 as usize),
                 diagnostic: coded_diagnostic(
                     "P5 kind check",
                     error.span,
@@ -63,7 +63,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
     let (checked_kinds, role_errors) = psrs_kind::check_roles(&resolved);
     for (module, error) in role_errors {
         errors.push(ProgramDiagnostic {
-            source: module.0 as usize,
+            source: DiagnosticOrigin::Source(module.0 as usize),
             diagnostic: coded_diagnostic(
                 "P5 kind check",
                 error.span,
@@ -82,17 +82,20 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             .into_iter()
             .map(|(_, declaration)| declaration),
     );
-    let instance_sets = resolved
-        .iter()
-        .map(|module| module.instances.clone())
-        .collect::<Vec<_>>();
+    // Every per-module table below is indexed by the module's own `ModuleId`,
+    // which is its position in `sources`. `resolved` holds only the sources that
+    // reached resolution, so enumerating it would both attribute a diagnostic to
+    // whichever module took that slot and answer a dependency lookup with
+    // another module's declarations.
+    let instance_sets = module_table(&resolved, Vec::new(), |module| module.instances.clone());
     let dependencies = module_dependencies(&resolved);
     let module_names = resolved
         .iter()
         .map(|module| (module.id, module.name.clone()))
         .collect::<HashMap<_, _>>();
 
-    for (source, module) in resolved.into_iter().enumerate() {
+    for module in resolved {
+        let source = module.id.0 as usize;
         if !psrs_kind::check_module(&module).is_empty() {
             continue;
         }
@@ -114,7 +117,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         if let Err(module_errors) = check {
             for error in module_errors {
                 errors.push(ProgramDiagnostic {
-                    source,
+                    source: DiagnosticOrigin::Source(source),
                     diagnostic: coded_diagnostic(
                         "P5 typecheck",
                         error.span,
@@ -145,7 +148,7 @@ fn desugar_resolved(
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
-                        source,
+                        source: DiagnosticOrigin::Source(source),
                         diagnostic: super::desugar_diagnostic(error),
                     });
                 }
@@ -177,7 +180,7 @@ fn resolve_partial(
         psrs_resolve::resolve_program_partial(std::mem::take(&mut modules), options);
     for error in program_errors {
         errors.push(ProgramDiagnostic {
-            source: error.module,
+            source: DiagnosticOrigin::Source(error.module),
             diagnostic: coded_diagnostic(
                 "P3 resolve",
                 error.error.span,
@@ -201,7 +204,7 @@ fn resolve_program_lenient(
         Err(program_errors) => Err(program_errors
             .into_iter()
             .map(|error| ProgramDiagnostic {
-                source: error.module,
+                source: DiagnosticOrigin::Source(error.module),
                 diagnostic: coded_diagnostic(
                     "P3 resolve",
                     error.error.span,
@@ -224,7 +227,7 @@ fn lower_program_to_ast(
             Err(diagnostics) => {
                 for diagnostic in diagnostics {
                     errors.push(ProgramDiagnostic {
-                        source: index,
+                        source: DiagnosticOrigin::Source(index),
                         diagnostic,
                     });
                 }
