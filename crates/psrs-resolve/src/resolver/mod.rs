@@ -32,6 +32,7 @@ pub enum ResolveErrorKind {
     UnknownName,
     UnknownTypeName,
     DuplicateModule,
+    CannotDefinePrimModules,
     ModuleNotFound,
     CycleInModules,
     UnknownImport,
@@ -55,6 +56,7 @@ impl ResolveErrorKind {
             Self::DuplicateLocalBinding => "OverlappingNamesInLet",
             Self::UnknownName | Self::UnknownTypeName => "UnknownName",
             Self::DuplicateModule => "DuplicateModule",
+            Self::CannotDefinePrimModules => "CannotDefinePrimModules",
             Self::ModuleNotFound => "ModuleNotFound",
             Self::CycleInModules => "CycleInModules",
             Self::UnknownImport => "UnknownImport",
@@ -91,6 +93,9 @@ impl ResolveError {
                 format!("duplicate external symbol `{name}`")
             }
             ResolveErrorKind::DuplicateModule => format!("duplicate module `{name}`"),
+            ResolveErrorKind::CannotDefinePrimModules => {
+                format!("module `{name}` is in the reserved Prim namespace")
+            }
             ResolveErrorKind::ModuleNotFound => format!("module `{name}` was not found"),
             ResolveErrorKind::CycleInModules => {
                 format!("a module cycle was detected involving `{name}`")

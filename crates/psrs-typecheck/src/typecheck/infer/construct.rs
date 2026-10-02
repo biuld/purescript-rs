@@ -25,7 +25,10 @@ impl Checker {
                 let constructor = declaration.constructors.first()?;
                 let visible_locally = declaration.id.module == module.id;
                 let visible_through_import = module.imports.iter().any(|import| {
-                    import.types.iter().any(|ty| ty.id == declaration.id)
+                    import
+                        .types
+                        .iter()
+                        .any(|ty| ty.reference == hir::TypeReference::Named(declaration.id))
                         && import
                             .symbols
                             .iter()
@@ -49,9 +52,11 @@ impl Checker {
         }
         for import in &module.imports {
             for ty in &import.types {
-                type_modules
-                    .entry(ty.id)
-                    .or_insert_with(|| import.module_name.clone());
+                if let hir::TypeReference::Named(id) = ty.reference {
+                    type_modules
+                        .entry(id)
+                        .or_insert_with(|| import.module_name.clone());
+                }
             }
         }
         let mut checker = Self {

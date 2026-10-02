@@ -6,6 +6,7 @@ use psrs_span::TextRange;
 use psrs_thir::{self as thir, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
+mod checked_exports;
 mod error;
 pub use error::{TypeCheckError, TypeCheckErrorKind};
 

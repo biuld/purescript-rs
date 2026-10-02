@@ -259,6 +259,14 @@ impl Checker {
                 ));
                 return None;
             }
+            hir::ExprKind::Negate { .. } => {
+                self.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnloweredOperator,
+                    span,
+                    "unary minus syntax must be lowered before type checking",
+                ));
+                return None;
+            }
             hir::ExprKind::Lambda { binder, body } => {
                 let binder_ty = self.fresh();
                 self.locals

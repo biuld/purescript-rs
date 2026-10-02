@@ -3,14 +3,12 @@ use super::names::Resolver;
 use psrs_ast as ast;
 use psrs_hir::{
     self as hir, ExportedOperator, ExportedSymbol, ExportedType, ExportedTypeOperator, ModuleId,
-    SymbolId, TypeDeclarationKind, TypeId,
+    SymbolId, TypeDeclarationKind, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::HashMap;
 
 mod transitive;
-
-use transitive::check_transitive_exports;
 
 #[derive(Default)]
 struct ExportAccumulator {
@@ -19,11 +17,11 @@ struct ExportAccumulator {
     types: Vec<ExportedType>,
     type_operators: Vec<ExportedTypeOperator>,
     value_sources: HashMap<String, ModuleId>,
-    type_sources: HashMap<String, ModuleId>,
+    type_sources: HashMap<String, TypeReference>,
 }
 
 struct TypeExportRequest {
-    id: TypeId,
+    reference: TypeReference,
     name: String,
     name_span: TextRange,
     is_class: bool,
@@ -41,6 +39,7 @@ impl Resolver {
     pub(super) fn build_exports(
         &mut self,
         types: &[hir::TypeDeclaration],
+        declarations: &[hir::Declaration],
     ) -> Option<hir::ExportList> {
         let items = self.export_items.take()?;
         let own: HashMap<TypeId, &hir::TypeDeclaration> = types
@@ -84,17 +83,22 @@ impl Resolver {
                 }
                 ast::ExportRef::Type { name, members } => {
                     match self.lookup_export_type(&name.text) {
-                        Some(id) => {
-                            let declaration = own.get(&id).copied();
+                        Some(reference) => {
+                            let declaration_id = match reference {
+                                TypeReference::Named(id) => Some(id),
+                                TypeReference::Builtin(_) => None,
+                            };
+                            let declaration = declaration_id.and_then(|id| own.get(&id).copied());
                             let constructors =
                                 self.export_members(declaration, members.as_ref(), &name);
                             let opaque = declaration.is_some_and(|declaration| {
                                 declaration.kind == TypeDeclarationKind::Foreign
-                            }) || self.imported_opaque(id);
+                            }) || declaration_id
+                                .is_some_and(|id| self.imported_opaque(id));
                             self.add_type(
                                 &mut exports,
                                 TypeExportRequest {
-                                    id,
+                                    reference,
                                     name: name.text,
                                     name_span: name.span,
                                     is_class: declaration.is_some_and(|declaration| {
@@ -110,13 +114,13 @@ impl Resolver {
                 }
                 ast::ExportRef::TypeOperator(name) => {
                     if let Some(fixity) = self.type_fixities.get(&name.text).cloned() {
-                        let hir::FixityTarget::Type(id) = fixity.target else {
+                        let hir::FixityTarget::Type(reference) = fixity.target else {
                             unreachable!("type fixities always target type declarations")
                         };
                         self.add_type_operator(
                             &mut exports.type_operators,
                             &mut exports.type_sources,
-                            id,
+                            reference,
                             name.text,
                             fixity.target_name,
                             name.span,
@@ -130,9 +134,9 @@ impl Resolver {
                 }
             }
         }
-        check_transitive_exports(
-            self,
+        self.check_transitive_exports(
             types,
+            declarations,
             &exports.types,
             &exports.values,
             &exports.operators,
@@ -176,21 +180,21 @@ impl Resolver {
     fn add_type_operator(
         &mut self,
         operators: &mut Vec<ExportedTypeOperator>,
-        sources: &mut HashMap<String, ModuleId>,
-        id: TypeId,
+        sources: &mut HashMap<String, TypeReference>,
+        reference: TypeReference,
         name: String,
         target_name: String,
         span: TextRange,
     ) {
         match sources.get(&name) {
-            Some(existing) if *existing != id.module => {
+            Some(existing) if *existing != reference => {
                 self.report(ResolveErrorKind::ExportConflict, name, span);
             }
             Some(_) => {}
             None => {
-                sources.insert(name.clone(), id.module);
+                sources.insert(name.clone(), reference);
                 operators.push(ExportedTypeOperator {
-                    id,
+                    reference,
                     name,
                     target_name,
                     span,
@@ -221,7 +225,7 @@ impl Resolver {
 
     fn add_type(&mut self, exports: &mut ExportAccumulator, request: TypeExportRequest) {
         match exports.type_sources.get(&request.name) {
-            Some(existing) if *existing != request.id.module => {
+            Some(existing) if *existing != request.reference => {
                 self.report(
                     ResolveErrorKind::ExportConflict,
                     request.name,
@@ -232,9 +236,9 @@ impl Resolver {
             None => {
                 exports
                     .type_sources
-                    .insert(request.name.clone(), request.id.module);
+                    .insert(request.name.clone(), request.reference);
                 exports.types.push(ExportedType {
-                    id: request.id,
+                    reference: request.reference,
                     name: request.name,
                     name_span: request.name_span,
                     constructors: request.constructors,
@@ -308,10 +312,10 @@ impl Resolver {
                     fixity.target_name.clone(),
                     name.span,
                 ),
-                hir::FixityTarget::Type(id) => self.add_type_operator(
+                hir::FixityTarget::Type(reference) => self.add_type_operator(
                     &mut exports.type_operators,
                     &mut exports.type_sources,
-                    id,
+                    reference,
                     fixity.operator.clone(),
                     fixity.target_name.clone(),
                     name.span,
@@ -327,7 +331,7 @@ impl Resolver {
             self.add_type(
                 exports,
                 TypeExportRequest {
-                    id: imported.id,
+                    reference: imported.reference,
                     name: imported.name.clone(),
                     name_span: name.span,
                     is_class: false,
@@ -390,7 +394,7 @@ impl Resolver {
             import
                 .types
                 .iter()
-                .any(|imported| imported.id == id && imported.opaque)
+                .any(|imported| imported.reference == TypeReference::Named(id) && imported.opaque)
         })
     }
 
@@ -406,12 +410,12 @@ impl Resolver {
             .and_then(|symbols| symbols.first().copied())
     }
 
-    fn lookup_export_type(&self, name: &str) -> Option<TypeId> {
+    fn lookup_export_type(&self, name: &str) -> Option<TypeReference> {
         if let Some(id) = self.type_names.get(name) {
-            return Some(*id);
+            return Some(TypeReference::Named(*id));
         }
         self.imported_types
             .get(name)
-            .and_then(|ids| ids.first().copied())
+            .and_then(|references| references.first().copied())
     }
 }

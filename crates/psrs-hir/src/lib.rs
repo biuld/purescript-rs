@@ -4,6 +4,7 @@ use verify::verify_expr;
 
 mod expr;
 mod module;
+mod primitives;
 mod substitution;
 mod ty;
 mod types;
@@ -17,8 +18,12 @@ pub use module::{
     ExportedTypeOperator, Fixity, FixityNamespace, FixityTarget, Import, ImportedSymbol,
     ImportedType,
 };
+pub use primitives::primitive_type_declarations;
 pub use substitution::substitute_type_variables;
-pub use ty::{BuiltinType, ResolvedTypeOperator, Type, TypeField, TypeKind, TypeParameter};
+pub use ty::{
+    BuiltinType, ResolvedTypeHead, ResolvedTypeOperator, Type, TypeField, TypeKind, TypeParameter,
+    TypeReference,
+};
 pub use types::{
     ClassMember, Constructor, DerivationStrategy, FunctionalDependency, InstanceDeclaration,
     InstanceMember, Role, RoleDeclaration, TypeDeclaration, TypeDeclarationKind,
@@ -62,6 +67,39 @@ impl TypeId {
 
     /// Stable identity of the compiler-owned `Prim.Coerce.Coercible` class.
     pub const COERCIBLE: Self = Self::new(ModuleId::INTRINSICS, 0);
+    /// Stable identities for declarations in the virtual official `Prim.*`
+    /// modules. They share the compiler-owned module namespace and are declared
+    /// once by `primitive_type_declarations`.
+    pub const PRIM_ORDERING: Self = Self::new(ModuleId::INTRINSICS, 1);
+    pub const PRIM_ORDERING_LT: Self = Self::new(ModuleId::INTRINSICS, 2);
+    pub const PRIM_ORDERING_EQ: Self = Self::new(ModuleId::INTRINSICS, 3);
+    pub const PRIM_ORDERING_GT: Self = Self::new(ModuleId::INTRINSICS, 4);
+    pub const PRIM_ROW_CONS: Self = Self::new(ModuleId::INTRINSICS, 5);
+    pub const PRIM_ROW_LACKS: Self = Self::new(ModuleId::INTRINSICS, 6);
+    pub const PRIM_ROW_NUB: Self = Self::new(ModuleId::INTRINSICS, 7);
+    pub const PRIM_ROW_UNION: Self = Self::new(ModuleId::INTRINSICS, 8);
+    pub const PRIM_SYMBOL_APPEND: Self = Self::new(ModuleId::INTRINSICS, 9);
+    pub const PRIM_SYMBOL_COMPARE: Self = Self::new(ModuleId::INTRINSICS, 10);
+    pub const PRIM_SYMBOL_CONS: Self = Self::new(ModuleId::INTRINSICS, 11);
+    pub const PRIM_PARTIAL: Self = Self::new(ModuleId::INTRINSICS, 12);
+    pub const PRIM_BOOLEAN_FALSE: Self = Self::new(ModuleId::INTRINSICS, 13);
+    pub const PRIM_BOOLEAN_TRUE: Self = Self::new(ModuleId::INTRINSICS, 14);
+    pub const PRIM_INT_ADD: Self = Self::new(ModuleId::INTRINSICS, 15);
+    pub const PRIM_INT_COMPARE: Self = Self::new(ModuleId::INTRINSICS, 16);
+    pub const PRIM_INT_MUL: Self = Self::new(ModuleId::INTRINSICS, 17);
+    pub const PRIM_INT_TO_STRING: Self = Self::new(ModuleId::INTRINSICS, 18);
+    pub const PRIM_ROW_LIST: Self = Self::new(ModuleId::INTRINSICS, 19);
+    pub const PRIM_ROW_LIST_CONS: Self = Self::new(ModuleId::INTRINSICS, 20);
+    pub const PRIM_ROW_LIST_NIL: Self = Self::new(ModuleId::INTRINSICS, 21);
+    pub const PRIM_ROW_TO_LIST: Self = Self::new(ModuleId::INTRINSICS, 22);
+    pub const PRIM_TYPE_ERROR_DOC: Self = Self::new(ModuleId::INTRINSICS, 23);
+    pub const PRIM_TYPE_ERROR_FAIL: Self = Self::new(ModuleId::INTRINSICS, 24);
+    pub const PRIM_TYPE_ERROR_WARN: Self = Self::new(ModuleId::INTRINSICS, 25);
+    pub const PRIM_TYPE_ERROR_TEXT: Self = Self::new(ModuleId::INTRINSICS, 26);
+    pub const PRIM_TYPE_ERROR_QUOTE: Self = Self::new(ModuleId::INTRINSICS, 27);
+    pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
+    pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
+    pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -244,7 +282,7 @@ impl Module {
                 globals.insert(symbol.symbol);
             }
             for imported in &import.types {
-                if imported.id.module == self.id {
+                if matches!(imported.reference, TypeReference::Named(id) if id.module == self.id) {
                     errors.push(VerifyError {
                         span: imported.span,
                         message: "imported type is declared in this module",
@@ -297,10 +335,10 @@ impl Module {
             }
         }
 
-        let mut imported_type_ids = HashSet::new();
+        let mut imported_type_references = HashSet::new();
         for import in &self.imports {
             for imported in &import.types {
-                imported_type_ids.insert(imported.id);
+                imported_type_references.insert(imported.reference);
             }
         }
         if let Some(exports) = &self.exports {
@@ -313,7 +351,14 @@ impl Module {
                 }
             }
             for exported in &exports.types {
-                if !type_ids.contains(&exported.id) && !imported_type_ids.contains(&exported.id) {
+                let declared = match exported.reference {
+                    TypeReference::Builtin(_) => true,
+                    TypeReference::Named(id) => {
+                        type_ids.contains(&id)
+                            || imported_type_references.contains(&exported.reference)
+                    }
+                };
+                if !declared {
                     errors.push(VerifyError {
                         span: exported.name_span,
                         message: "exported type is not declared or imported",
@@ -396,7 +441,7 @@ impl Module {
                         message: "instance class is not declared in this module",
                     });
                 }
-            } else if !imported_type_ids.contains(&instance.class_id) {
+            } else if !imported_type_references.contains(&TypeReference::Named(instance.class_id)) {
                 errors.push(VerifyError {
                     span: instance.name_span,
                     message: "instance class is not declared or imported",

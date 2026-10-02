@@ -119,6 +119,10 @@ grow as PureScript-facing WASI libraries: console, clock, and random are
 implemented, and arguments, environment, and files follow as their WIT forms are
 supported.
 
+Unary minus applies the ordinary in-scope `negate` function to its operand, so
+local bindings and imports follow the same name resolution rules as other
+function calls.
+
 ## Acceptance criteria
 
 - A supported source program produces a validated core Wasm module at the

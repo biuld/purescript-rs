@@ -53,6 +53,10 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Negate {
+        minus_span: TextRange,
+        expression: Box<Expr>,
+    },
     OperatorChain {
         operands: Vec<Expr>,
         operators: Vec<super::Operator>,

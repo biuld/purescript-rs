@@ -157,7 +157,12 @@ pub fn collect_type_ids(ty: &psrs_hir::Type, out: &mut Vec<TypeId>) {
             operands,
             operators,
         } => {
-            out.extend(operators.iter().map(|operator| operator.type_id));
+            out.extend(operators.iter().filter_map(|operator| match operator.head {
+                psrs_hir::ResolvedTypeHead::Builtin(_) => None,
+                psrs_hir::ResolvedTypeHead::Named(id) | psrs_hir::ResolvedTypeHead::Opaque(id) => {
+                    Some(id)
+                }
+            }));
             for operand in operands {
                 collect_type_ids(operand, out);
             }

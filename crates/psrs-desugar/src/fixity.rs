@@ -1,7 +1,7 @@
 use crate::DesugarError;
 use psrs_hir::{
-    Associativity, Expr, ExprKind, Pattern, PatternKind, ResolvedOperator, ResolvedTypeOperator,
-    Type, TypeKind,
+    Associativity, Expr, ExprKind, Pattern, PatternKind, ResolvedOperator, ResolvedTypeHead,
+    ResolvedTypeOperator, Type, TypeKind,
 };
 use psrs_span::TextRange;
 
@@ -103,6 +103,14 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
             }
         }
         ExprKind::OperatorSection { operand, .. } => validate_expr(operand, errors),
+        ExprKind::Negate {
+            function,
+            expression,
+            ..
+        } => {
+            validate_expr(function, errors);
+            validate_expr(expression, errors);
+        }
         ExprKind::Lambda { body, .. } => validate_expr(body, errors),
         ExprKind::Let { bindings, body } => {
             for binding in bindings {
@@ -405,8 +413,13 @@ fn reduce_type(values: &mut Vec<Type>, operators: &mut Vec<ResolvedTypeOperator>
     let right = values.pop().expect("operator has a right type");
     let left = values.pop().expect("operator has a left type");
     let span = TextRange::new(left.span.start, right.span.end);
+    let kind = match operator.head {
+        ResolvedTypeHead::Builtin(builtin) => TypeKind::Constructor(builtin),
+        ResolvedTypeHead::Named(id) => TypeKind::Named(id),
+        ResolvedTypeHead::Opaque(id) => TypeKind::Opaque(id),
+    };
     let constructor = Type {
-        kind: TypeKind::Named(operator.type_id),
+        kind,
         span: operator.operator_span,
     };
     let applied = Type {

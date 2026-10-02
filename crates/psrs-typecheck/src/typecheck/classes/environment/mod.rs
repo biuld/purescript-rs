@@ -17,10 +17,9 @@ impl Checker {
         if module.imports.iter().any(|import| {
             import.module_name == "Prim.Coerce"
                 || import.module_name == "Safe.Coerce"
-                || import
-                    .types
-                    .iter()
-                    .any(|imported| imported.id == hir::TypeId::COERCIBLE)
+                || import.types.iter().any(|imported| {
+                    imported.reference == hir::TypeReference::Named(hir::TypeId::COERCIBLE)
+                })
         }) {
             self.type_names
                 .insert(hir::TypeId::COERCIBLE, "Coercible".to_owned());

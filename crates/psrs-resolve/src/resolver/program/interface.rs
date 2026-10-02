@@ -1,11 +1,12 @@
-use psrs_hir::{self as hir, Intrinsic, SymbolId, TypeId};
+use super::super::names::PRIM_TYPES;
+use psrs_hir::{self as hir, Intrinsic, SymbolId, TypeId, TypeReference};
 use std::collections::{HashMap, HashSet};
 
 /// The namespaces a resolved module exposes to its importers.
 #[derive(Clone)]
 pub(super) struct Interface {
     pub(super) values: HashMap<String, SymbolId>,
-    pub(super) types: HashMap<String, TypeId>,
+    pub(super) types: HashMap<String, TypeReference>,
     pub(super) value_fixities: HashMap<String, hir::Fixity>,
     pub(super) type_fixities: HashMap<String, hir::Fixity>,
     /// Exported data constructors per type name.
@@ -28,20 +29,49 @@ impl Interface {
             opaque: HashSet::new(),
         };
         match name {
-            "Prim.Coerce" => {
-                interface
-                    .types
-                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+            "Prim" => {
+                for &(member, builtin) in &PRIM_TYPES {
+                    interface
+                        .types
+                        .insert(member.to_owned(), TypeReference::Builtin(builtin));
+                }
             }
             "Safe.Coerce" => {
                 interface
                     .values
                     .insert("coerce".to_owned(), Intrinsic::Coerce.symbol());
-                interface
-                    .types
-                    .insert("Coercible".to_owned(), TypeId::COERCIBLE);
+                interface.types.insert(
+                    "Coercible".to_owned(),
+                    TypeReference::Named(TypeId::COERCIBLE),
+                );
             }
-            _ => return None,
+            _ if name != "Prim.Coerce"
+                && !hir::primitive_type_declarations()
+                    .iter()
+                    .any(|(owner, _)| *owner == name) =>
+            {
+                return None;
+            }
+            _ => {}
+        }
+        if name == "Prim.Coerce" {
+            interface.types.insert(
+                "Coercible".to_owned(),
+                TypeReference::Named(TypeId::COERCIBLE),
+            );
+        }
+        for (owner, declaration) in hir::primitive_type_declarations() {
+            if owner == name {
+                interface.types.insert(
+                    declaration.name.clone(),
+                    TypeReference::Named(declaration.id),
+                );
+                if declaration.kind == hir::TypeDeclarationKind::Class {
+                    interface
+                        .class_members
+                        .insert(declaration.name.clone(), Vec::new());
+                }
+            }
         }
         Some(interface)
     }
@@ -71,11 +101,14 @@ impl Interface {
                     .map(|declaration| (declaration.id, declaration))
                     .collect::<HashMap<_, _>>();
                 for exported in &exports.types {
-                    types.insert(exported.name.clone(), exported.id);
+                    types.insert(exported.name.clone(), exported.reference);
+                    let TypeReference::Named(id) = exported.reference else {
+                        continue;
+                    };
                     if exported.opaque {
-                        opaque.insert(exported.id);
+                        opaque.insert(id);
                     }
-                    let Some(declaration) = declarations.get(&exported.id).copied() else {
+                    let Some(declaration) = declarations.get(&id).copied() else {
                         continue;
                     };
                     if let Some(symbols) = &exported.constructors {
@@ -105,7 +138,7 @@ impl Interface {
                     }
                 }
                 for operator in &exports.type_operators {
-                    types.insert(operator.name.clone(), operator.id);
+                    types.insert(operator.name.clone(), operator.reference);
                     if let Some(fixity) = find_fixity(module, &operator.name) {
                         type_fixities.insert(operator.name.clone(), fixity);
                     }
@@ -121,7 +154,10 @@ impl Interface {
                     }
                 }
                 for declaration in &module.types {
-                    types.insert(declaration.name.clone(), declaration.id);
+                    types.insert(
+                        declaration.name.clone(),
+                        TypeReference::Named(declaration.id),
+                    );
                     if declaration.kind == hir::TypeDeclarationKind::Foreign {
                         opaque.insert(declaration.id);
                     }
@@ -149,8 +185,8 @@ impl Interface {
                             }
                         }
                         hir::FixityNamespace::Type => {
-                            if let hir::FixityTarget::Type(id) = fixity.target {
-                                types.insert(fixity.operator.clone(), id);
+                            if let hir::FixityTarget::Type(reference) = fixity.target {
+                                types.insert(fixity.operator.clone(), reference);
                                 type_fixities.insert(fixity.operator.clone(), fixity.clone());
                             }
                         }

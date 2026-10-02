@@ -2,7 +2,7 @@ use super::{ResolveError, ResolveErrorKind};
 use psrs_ast::{self as ast, ExprKind as AstExprKind};
 use psrs_hir::{
     self as hir, Expr, ExprKind, ExternalSymbol, LocalBinder, LocalBinding, LocalId, ModuleId,
-    SymbolId, TypeId,
+    SymbolId, TypeId, TypeReference,
 };
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -16,7 +16,7 @@ struct QualifiedImport {
 
 pub(super) struct QualifiedTypeImport {
     pub(super) module: ModuleId,
-    pub(super) types: HashMap<String, TypeId>,
+    pub(super) types: HashMap<String, TypeReference>,
 }
 
 pub(super) struct Resolver {
@@ -26,7 +26,7 @@ pub(super) struct Resolver {
     /// Type IDs introduced by `foreign import data`, including imports. A
     /// reference to one of these is nominal and opaque.
     pub(super) opaque_types: HashSet<TypeId>,
-    pub(super) imported_types: HashMap<String, Vec<TypeId>>,
+    pub(super) imported_types: HashMap<String, Vec<TypeReference>>,
     pub(super) qualified_types: HashMap<String, Vec<QualifiedTypeImport>>,
     pub(super) externals: Vec<ExternalSymbol>,
     pub(super) imports: Vec<hir::Import>,
@@ -55,7 +55,7 @@ impl Resolver {
     ) -> Self {
         let mut unqualified: HashMap<String, Vec<SymbolId>> = HashMap::new();
         let mut qualified: HashMap<String, Vec<QualifiedImport>> = HashMap::new();
-        let mut imported_types: HashMap<String, Vec<TypeId>> = HashMap::new();
+        let mut imported_types: HashMap<String, Vec<TypeReference>> = HashMap::new();
         let mut qualified_types: HashMap<String, Vec<QualifiedTypeImport>> = HashMap::new();
         for import in &imports {
             // An import with an `as` alias is qualified-only; without one it
@@ -71,7 +71,7 @@ impl Resolver {
                     imported_types
                         .entry(imported.name.clone())
                         .or_default()
-                        .push(imported.id);
+                        .push(imported.reference);
                 }
             }
             let qualifier = import
@@ -93,7 +93,7 @@ impl Resolver {
             let types = import
                 .types
                 .iter()
-                .map(|imported| (imported.name.clone(), imported.id))
+                .map(|imported| (imported.name.clone(), imported.reference))
                 .collect();
             qualified_types
                 .entry(qualifier)
@@ -102,6 +102,14 @@ impl Resolver {
                     module: import.module,
                     types,
                 });
+        }
+        if !imports.iter().any(|import| import.module_name == "Prim") {
+            for &(name, builtin) in &util::PRIM_TYPES {
+                imported_types
+                    .entry(name.to_owned())
+                    .or_default()
+                    .push(TypeReference::Builtin(builtin));
+            }
         }
         let (fixities, type_fixities) = super::operators::merge_fixities(fixities, &imports);
         Self {
@@ -206,6 +214,10 @@ impl Resolver {
                     right: Box::new(right?),
                 }
             }
+            AstExprKind::Negate {
+                minus_span,
+                expression,
+            } => self.resolve_negate(minus_span, *expression)?,
             AstExprKind::OperatorChain {
                 operands,
                 operators,
@@ -424,6 +436,7 @@ impl Resolver {
     }
 }
 
+mod negate;
 mod util;
 
-pub(super) use util::{builtin_type, is_uppercase, split_qualified};
+pub(super) use util::{PRIM_TYPES, builtin_type, is_uppercase, prim_type, split_qualified};

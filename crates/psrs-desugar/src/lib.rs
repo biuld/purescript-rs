@@ -90,6 +90,14 @@ fn desugar_expr(expression: Expr) -> Expr {
             };
             ExprKind::Application(Box::new(partial_application), Box::new(right))
         }
+        ExprKind::Negate {
+            function,
+            expression,
+            ..
+        } => ExprKind::Application(
+            Box::new(desugar_expr(*function)),
+            Box::new(desugar_expr(*expression)),
+        ),
         ExprKind::OperatorChain {
             operands,
             operators,
@@ -286,6 +294,69 @@ mod tests {
         assert_eq!(left.span, TextRange::new(10, 12));
         assert_eq!(right.span, TextRange::new(14, 15));
         assert_eq!(lowered.declarations[0].value.span, TextRange::new(10, 15));
+        lowered.verify().unwrap();
+    }
+
+    #[test]
+    fn lowers_resolved_unary_minus_to_an_ordinary_function_application() {
+        let module_id = ModuleId(0);
+        let negate = SymbolId::new(module_id, 0);
+        let main = SymbolId::new(module_id, 1);
+        let module = hir::Module {
+            id: module_id,
+            name: "Main".into(),
+            externals: Vec::new(),
+            imports: Vec::new(),
+            exports: None,
+            types: Vec::new(),
+            instances: Vec::new(),
+            fixities: Vec::new(),
+            declarations: vec![
+                Declaration {
+                    symbol: negate,
+                    name: "negate".into(),
+                    name_span: TextRange::new(0, 6),
+                    value: Expr {
+                        kind: ExprKind::Integer("0".into()),
+                        span: TextRange::new(12, 13),
+                    },
+                    signature: None,
+                    span: TextRange::new(0, 13),
+                },
+                Declaration {
+                    symbol: main,
+                    name: "value".into(),
+                    name_span: TextRange::new(14, 19),
+                    value: Expr {
+                        kind: ExprKind::Negate {
+                            function: Box::new(Expr {
+                                kind: ExprKind::Global(negate),
+                                span: TextRange::new(22, 23),
+                            }),
+                            minus_span: TextRange::new(22, 23),
+                            expression: Box::new(Expr {
+                                kind: ExprKind::Integer("1".into()),
+                                span: TextRange::new(23, 24),
+                            }),
+                        },
+                        span: TextRange::new(22, 24),
+                    },
+                    signature: None,
+                    span: TextRange::new(14, 24),
+                },
+            ],
+            span: TextRange::new(0, 24),
+        };
+
+        let lowered = desugar_module(module).unwrap();
+        let value = &lowered.declarations[1].value;
+        let ExprKind::Application(function, argument) = &value.kind else {
+            panic!("expected a normal function application");
+        };
+        assert!(matches!(function.kind, ExprKind::Global(symbol) if symbol == negate));
+        assert_eq!(function.span, TextRange::new(22, 23));
+        assert_eq!(argument.span, TextRange::new(23, 24));
+        assert_eq!(value.span, TextRange::new(22, 24));
         lowered.verify().unwrap();
     }
 }

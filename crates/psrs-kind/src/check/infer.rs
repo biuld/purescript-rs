@@ -118,7 +118,13 @@ impl Checker<'_> {
     }
 
     pub(super) fn build_schemes(&mut self) {
-        for declaration in &self.module.types {
+        let primitives = psrs_hir::primitive_type_declarations();
+        for declaration in self
+            .module
+            .types
+            .iter()
+            .chain(primitives.iter().map(|(_, declaration)| declaration))
+        {
             let scheme = match &declaration.declared_kind {
                 Some(signature) => {
                     let (variables, kind) = self.parse_declared_kind(signature);
