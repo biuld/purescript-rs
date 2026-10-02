@@ -158,6 +158,27 @@ fn every_foreign_role_annotation_carries_its_own_range() {
 }
 
 #[test]
+fn partial_is_a_parameterless_constraint_kinded_class() {
+    // The official environment registers `Partial` both as a type of kind
+    // `Constraint` and as a parameterless class. Both entries carry the kind
+    // `Constraint` and the name `Partial`, so the registry's single
+    // declaration carries both readings: a class in the class namespace, and a
+    // constraint-kinded type that `Interface::primitive_module` exports in the
+    // type namespace.
+    let declaration = declared("Prim", "Partial");
+    assert_eq!(declaration.kind, TypeDeclarationKind::Class);
+    assert!(declaration.parameters.is_empty());
+    assert!(declaration.members.is_empty());
+    assert!(declaration.superclasses.is_empty());
+    assert!(declaration.fundeps.is_empty());
+    assert_eq!(
+        declaration.declared_kind.as_ref().map(|kind| &kind.kind),
+        Some(&TypeKind::Constructor(BuiltinType::Constraint)),
+        "`Partial` must be declared at kind `Constraint`"
+    );
+}
+
+#[test]
 fn row_list_nil_takes_its_kind_variable_as_an_argument() {
     // The official kind is `forall k. RowList k`, not an arrow chain, so `Nil`
     // takes no parameter at all.
