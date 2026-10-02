@@ -81,6 +81,16 @@ impl FunctionLowerer<'_> {
                     )?;
                 }
                 AssignmentKind::Primitive { op, left, right } => {
+                    if *op == cc::BinaryOp::StringEq {
+                        current = self.lower_string_eq(
+                            current,
+                            assignment.destination,
+                            *left,
+                            *right,
+                            assignment.span,
+                        )?;
+                        continue;
+                    }
                     let instruction = self.scalar_helpers.binary_instruction(
                         *op,
                         assignment.destination,

@@ -131,7 +131,7 @@ impl Checker {
         self.bind_variable(variable, row_from_fields(fields, tail.to_type()), span);
     }
 
-    fn fresh_row(&mut self) -> u32 {
+    pub(super) fn fresh_row(&mut self) -> u32 {
         match self.fresh() {
             InferType::Variable(variable) => variable,
             _ => unreachable!("fresh inference types are variables"),

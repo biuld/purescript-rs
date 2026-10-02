@@ -437,7 +437,8 @@ fn collect_variables(ty: &hir::Type, out: &mut Vec<String>) {
             collect_variables(constraint, out);
             collect_variables(body, out);
         }
-        hir::TypeKind::Constructor(_)
+        hir::TypeKind::Wildcard
+        | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)
         | hir::TypeKind::Integer(_)

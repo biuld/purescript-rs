@@ -19,6 +19,8 @@ pub struct TypeField {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
+    /// An anonymous type variable inferred from this source annotation.
+    Wildcard,
     Name(Name),
     Application(Box<Type>, Box<Type>),
     OperatorChain {
@@ -141,9 +143,8 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
                 .collect::<Result<_, _>>()?,
             tail: None,
         },
-        CstTypeExprKind::Wildcard(_)
-        | CstTypeExprKind::Hole(_)
-        | CstTypeExprKind::PrefixOperator { .. } => {
+        CstTypeExprKind::Wildcard(_) => TypeKind::Wildcard,
+        CstTypeExprKind::Hole(_) | CstTypeExprKind::PrefixOperator { .. } => {
             return Err(LowerError::new(
                 span,
                 "this type syntax is not supported yet",

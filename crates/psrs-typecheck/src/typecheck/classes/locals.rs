@@ -131,8 +131,23 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
 
 fn scan_pattern(pattern: &hir::Pattern, max: &mut Option<u32>) {
     match &pattern.kind {
-        hir::PatternKind::Wildcard | hir::PatternKind::Boolean(_) => {}
+        hir::PatternKind::Wildcard
+        | hir::PatternKind::Boolean(_)
+        | hir::PatternKind::Integer(_)
+        | hir::PatternKind::Number(_)
+        | hir::PatternKind::String(_)
+        | hir::PatternKind::Char(_) => {}
         hir::PatternKind::Var(binder) => note_local(binder.id, max),
+        hir::PatternKind::Named { binder, pattern } => {
+            note_local(binder.id, max);
+            scan_pattern(pattern, max);
+        }
+        hir::PatternKind::Array(elements) => {
+            for element in elements {
+                scan_pattern(element, max);
+            }
+        }
+        hir::PatternKind::Typed { pattern, .. } => scan_pattern(pattern, max),
         hir::PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 scan_pattern(argument, max);
@@ -143,7 +158,7 @@ fn scan_pattern(pattern: &hir::Pattern, max: &mut Option<u32>) {
                 scan_pattern(operand, max);
             }
         }
-        hir::PatternKind::Record { fields } => {
+        hir::PatternKind::Record { fields, .. } => {
             for (_, field) in fields {
                 scan_pattern(field, max);
             }

@@ -143,10 +143,6 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
 
 fn check_normalized_pattern(pattern: &Pattern, errors: &mut Vec<VerifyError>) {
     match &pattern.kind {
-        PatternKind::Boolean(_) => errors.push(VerifyError {
-            span: pattern.span,
-            message: "boolean literal pattern survived P4 desugaring",
-        }),
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 check_normalized_pattern(argument, errors);
@@ -161,11 +157,25 @@ fn check_normalized_pattern(pattern: &Pattern, errors: &mut Vec<VerifyError>) {
                 check_normalized_pattern(operand, errors);
             }
         }
-        PatternKind::Record { fields } => {
+        PatternKind::Record { fields, .. } => {
             for (_, pattern) in fields {
                 check_normalized_pattern(pattern, errors);
             }
         }
-        PatternKind::Wildcard | PatternKind::Var(_) => {}
+        PatternKind::Array(elements) => {
+            for element in elements {
+                check_normalized_pattern(element, errors);
+            }
+        }
+        PatternKind::Named { pattern, .. } | PatternKind::Typed { pattern, .. } => {
+            check_normalized_pattern(pattern, errors);
+        }
+        PatternKind::Wildcard
+        | PatternKind::Boolean(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_)
+        | PatternKind::Var(_) => {}
     }
 }

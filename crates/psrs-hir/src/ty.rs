@@ -48,6 +48,8 @@ pub enum ResolvedTypeHead {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeKind {
+    /// An unresolved anonymous type variable whose type is inferred in P5.
+    Wildcard,
     Variable(String),
     Constructor(BuiltinType),
     /// A user-defined type constructor, synonym, or class identified by ID.

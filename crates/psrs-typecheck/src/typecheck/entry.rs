@@ -125,14 +125,16 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
         .collect::<Vec<Option<InferredDeclaration>>>();
+    let mut annotation_scopes = vec![HashMap::new(); module.declarations.len()];
 
     for component in &components {
         for &index in component {
             let declaration = &module.declarations[index];
             let (scheme, parameters) = match &declaration.signature {
                 Some(signature) => {
-                    let (constraints, parameters, body) =
+                    let (constraints, parameters, body, variables) =
                         checker.elaborate_declaration_signature(signature);
+                    annotation_scopes[index] = variables;
                     (
                         Scheme {
                             variables: Vec::new(),
@@ -157,6 +159,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
                 .get(&declaration.symbol)
                 .cloned()
                 .unwrap_or_default();
+            let previous_annotation_variables = std::mem::replace(
+                &mut checker.annotation_variables,
+                annotation_scopes[index].clone(),
+            );
             checker.begin_givens(&scheme.constraints, &parameters);
             let wanted_start = checker.wanted.len();
             let expected = declaration
@@ -165,6 +171,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
                 .map(|_| checker.globals[&declaration.symbol].ty.clone());
             let Some(value) = checker.infer_expr_with_expected(&declaration.value, expected) else {
                 checker.end_givens();
+                checker.annotation_variables = previous_annotation_variables;
                 continue;
             };
             let span = declaration
@@ -178,6 +185,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             let result = declaration.signature.is_none().then(|| value.ty.clone());
             checker.solve_wanted_constraints(result.as_ref(), wanted_start);
             checker.end_givens();
+            checker.annotation_variables = previous_annotation_variables;
             let value = checker.wrap_dictionary_lambdas(value, &parameters);
             inferred[index] = Some(InferredDeclaration {
                 symbol: declaration.symbol,

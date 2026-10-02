@@ -187,6 +187,23 @@ fn clone_pattern(
 ) -> Option<Pattern> {
     let kind = match &pattern.kind {
         PatternKind::Wildcard => PatternKind::Wildcard,
+        PatternKind::Literal { value } => PatternKind::Literal {
+            value: value.clone(),
+        },
+        PatternKind::Array { elements } => PatternKind::Array {
+            elements: elements
+                .iter()
+                .map(|element| clone_pattern(element, fresh, locals, previous))
+                .collect::<Option<Vec<_>>>()?,
+        },
+        PatternKind::Named { id, pattern } => {
+            let renamed = fresh.fresh()?;
+            previous.push((*id, locals.insert(*id, renamed)));
+            PatternKind::Named {
+                id: renamed,
+                pattern: Box::new(clone_pattern(pattern, fresh, locals, previous)?),
+            }
+        }
         PatternKind::Var { id, ty } => {
             let renamed = fresh.fresh()?;
             previous.push((*id, locals.insert(*id, renamed)));

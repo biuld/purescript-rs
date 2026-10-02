@@ -4,10 +4,11 @@
 
 **Design:** [Pattern matching](../../design/backend/fp/pattern-matching.md)
 
-**Progress:** PM-01..PM-13 Verified after a full design audit and the addition of
-a first-match oracle, negative CC/MIR fixtures, and mandatory Wasmtime execution
-evidence. PM-14 is in progress while the frontend guard corpus is blocked on
-missing standard library modules.
+**Progress:** PM-01..PM-13 and PM-15 are Verified after a full design audit,
+first-match oracle, malformed CC/MIR fixtures, and mandatory Wasmtime execution
+evidence. PM-14 remains in progress: guard coverage provenance still needs its
+source-level warning and exhaustiveness checks. Missing standard library modules
+continue to block the broader official guard corpus.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-05 and BE-06, with BE-08 and BE-09 for generic fields.
 
@@ -20,10 +21,12 @@ syntax belong to the frontend; [data representation](data-representation.md)
 owns constructor layouts; [generic aggregate erasure](generic-aggregate-erasure.md)
 owns recovery of dependent aggregate fields; [control flow and tail calls](control-flow-and-tail-calls.md)
 owns MIR/Wasm switch structuring. Track source and backend fixture evidence
-separately. FE-06 currently lowers guarded source rows and the supported Boolean
-and integer literal patterns before Typed Core; this record does not treat that
-frontend lowering as backend literal-pattern support. View, tuple, array, as,
-and or patterns remain outside the verified Core input contract.
+separately. PM-15 extends the verified Core input contract to scalar literals,
+exact-length arrays, and named alias patterns, with backend primitive equality
+and guarded array projections. Whether each source form reaches that contract
+is tracked by frontend acceptance; backend fixtures do not establish source
+parsing or typechecking. View, tuple, and or patterns remain outside this
+acceptance slice.
 
 ## Acceptance matrix
 
@@ -46,6 +49,7 @@ Verified row needs exact implementation, test and execution evidence.
 | PM-12 | Internal decision-DAG and realizer invariant violations are classified `InvalidCompilerIr`, not `UnsupportedSource`; genuine coverage failures stay source-associated. | Negative fixtures assert the `BackendErrorKind` of an unbound decision column and of structural DAG failures. | Verified |
 | PM-13 | MIR verification rejects a variant projection read outside the dominance scope of its tag test. | A malformed MIR fixture reads a value defined in a sibling switch arm and must fail dominance. | Verified |
 | PM-14 | Coverage provenance survives guard lowering: only unconditional source rows contribute to exhaustiveness; guarded rows can be redundant relative to earlier unconditional rows; generated fallthrough rows are omitted from source diagnostics. | Core coverage tests assert each provenance rule. Driver tests reject partial guarded equations and Boolean cases whose only route is a failing guard, accept an unconditional `true` guard, and execute pattern-guard fallthrough. The source-level guard corpus is recorded separately in [frontend guard acceptance](../frontend/guards-and-multi-scrutinee-cases.md). | In progress |
+| PM-15 | Core verifies scalar literal payload types, finite Number values, array element types, and named-binder scope. Coverage and first-match compilation share canonical literal/array heads. Scalar tests use primitive equality; arrays branch on exact length and only project in-bounds elements under that branch; named aliases bind the current column before nested tests. | Malformed Core fixtures reject wrong literal and element types, non-finite Number text, and alias scope/ID collisions. Coverage/compiler tests cover Boolean signatures, numeric equality and duplicate rows, open scalar complements, exact lengths, left-to-right projections, and alias binding. DAG verifier fixtures reject absent/insufficient length guards and stale fact remaps. Seven required Wasmtime source executions assert Pair first-field selection (41), nested alias field values (84), short/failing array fallback (8), canonical UTF-8 String equality (45), Number `+0`/`-0` and astral Char equality (62), upstream-shaped multi-field `Person name true` selection (85), and upstream-shaped nested named record under `Cons` (84). | Verified |
 
 PM-12 and PM-13 were discovered during the audit. The design's present-tense
 contract (`Model`, `Design`, `Algorithms`, `Invariants and verification`, and
@@ -351,6 +355,49 @@ PM-14:
     conditionals; see FE-06's frontend acceptance record.
 ```
 
+```text
+PM-15:
+  Implementation: psrs-core::PatternKind and `Module::verify` cover typed
+    scalar literals, exact-length arrays, and named aliases; the shared
+    `SurfacePattern` matrix normalizes Number keys and feeds both compilation
+    and coverage. `compile_literals`/`compile_arrays` in
+    cc/case/decision/compile/scalar_array.rs emit primitive tests, exact length
+    edges, ordered `ArrayGet` actions, and a default for other lengths.
+    cc/case/decision/verify.rs proves each array projection is dominated by an
+    adequate length fact and checks remapped facts against the realizer's
+    snapshot model. `BinaryOp::StringEq` lowers canonical UTF-8 equality to a
+    length check and byte loop in MIR.
+  Tests: `core_pattern_verifier_rejects_literal_and_array_element_type_mismatches`,
+    `core_pattern_aliases_are_bound_only_in_their_own_branch_scope`,
+    `core_pattern_verifier_rejects_alias_and_nested_binder_id_collisions`, and
+    `core_pattern_verifier_rejects_non_finite_number_text`; coverage scalar and
+    array cases; scalar/array compilation and named binding; verifier cases
+    `array_projection_requires_matching_length_guard`,
+    `array_projection_index_must_fit_exact_length_guard`,
+    `fallback_maps_preserve_inherited_array_length_facts`, and
+    `remapping_an_unknown_array_clears_a_stale_length_fact`; CC's
+    `string_equality_requires_two_strings_and_returns_boolean` checks the new
+    primitive operation's verifier shapes.
+  Commands:
+    `cargo test -p psrs-core core_pattern --lib` (4 passed)
+    `cargo test -p psrs-backend cc::case::coverage::tests::scalar_array --lib` (4 passed)
+    `cargo test -p psrs-backend cc::case::decision::verify --lib` (4 passed)
+    `cargo test -p psrs-backend cc::case::decision::compile::tests::scalar_array --lib` (3 passed)
+    `cargo test -p psrs-backend` (386 passed)
+  Runtime input boundary: source through optimized CC and Wasm, mandatory
+    Wasmtime. The seven source cases execute: duplicate Pair guard binding
+    returns the first `Int` field (`41`); nested record plus named alias returns
+    `84`; short-array and failed-element fallback returns `8`; canonical UTF-8
+    String cases return `45`; Number signed-zero plus astral Char returns `62`;
+    the `passing/1185.purs` shape selects its constructor name and returns `85`;
+    the `passing/2049.purs` shape evaluates `x + r.y` through a `Cons` and
+    returns `84`.
+  Runtime command: `PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test pattern_matrix_execution -- --nocapture` (7 passed, 0 failed).
+  Full validation: `cargo fmt --all --check`, `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `PURESCRIPT_REPO=/Users/biu/Projects/purescript cargo test -p psrs-driver --test upstream`, and `PSRS_ORACLE=annotations PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --test suite -- --ignored --nocapture` all pass. The scoreboards report L1 904/908, L0 15/15, L2 70/72, L3 29/48, L4 16/40, L5 45/89, and L6 0/413; 34 issue-85 pattern blockers and 22 additional P2 blockers moved past P2, leaving five P2 blockers in other syntax/type forms.
+  Result: PM-15 passes malformed-Core, decision-matrix, verifier, source-runtime, full-workspace, lint, official differential, and suite-scoreboard gates. PM-14 remains an independent open requirement.
+  Gaps: PM-14 guard-coverage provenance and broader official M7 acceptance remain open; do not count them as part of PM-15.
+```
+
 ## Discovered obligations and remaining work
 
 - **PM-12 (typed internal failures).** The audit found that decision-DAG and
@@ -367,9 +414,10 @@ PM-14:
   Opening the oracle to newtypes and multi-column records is straightforward
   future work; current source-level newtype and record cases execute instead.
 - Tuple patterns are source sugar for closed-record patterns `{ _1, _2, ... }`
-  and are not a separate Core pattern. FE-06 lowers guards and the supported
-  Boolean and integer literal subset before Typed Core; the backend does not
-  implement literal or guard pattern nodes. Views, arrays, as/or patterns, and
-  open-row patterns remain outside the accepted input contract.
+  and are not a separate Core pattern. PM-15 adds scalar literal, array, and
+  named patterns to the Core/backend input contract. Guards are represented by
+  frontend coverage provenance and fallthrough structure; source behavior is
+  tracked separately. Views and or-patterns remain outside this acceptance
+  slice.
 - Frontend pattern syntax and official-suite landing remain independently
   tracked (FE-06/FE-12, M8-W).

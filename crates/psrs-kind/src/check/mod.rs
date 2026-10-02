@@ -211,7 +211,8 @@ impl<'a> Checker<'a> {
                     self.check_references(tail, bound);
                 }
             }
-            TypeKind::Constructor(_)
+            TypeKind::Wildcard
+            | TypeKind::Constructor(_)
             | TypeKind::Named(_)
             | TypeKind::Opaque(_)
             | TypeKind::Integer(_)

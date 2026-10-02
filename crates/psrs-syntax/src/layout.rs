@@ -63,7 +63,7 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
     let mut pending: Option<BlockKind> = None;
     let mut crossed_newline = false;
 
-    for token in tokens {
+    for (index, token) in tokens.iter().enumerate() {
         if token.kind == RawTokenKind::Newline {
             crossed_newline = true;
             continue;
@@ -89,6 +89,12 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
                 | RawTokenKind::Then
                 | RawTokenKind::Else
                 | RawTokenKind::Pipe
+        ) && !starts_case_alternative_minus(
+            &frames,
+            &token.kind,
+            tokens.get(index + 1).map(|next| &next.kind),
+            crossed_newline,
+            indent,
         );
 
         if crossed_newline
@@ -341,6 +347,22 @@ pub fn add_layout(source: &SourceFile, tokens: &[RawToken]) -> Vec<LayoutToken> 
         };
     }
     result
+}
+
+fn starts_case_alternative_minus(
+    frames: &[Frame],
+    token: &RawTokenKind,
+    next_token: Option<&RawTokenKind>,
+    crossed_newline: bool,
+    indent: usize,
+) -> bool {
+    crossed_newline
+        && matches!(token, RawTokenKind::Operator(operator) if operator == "-")
+        && next_token
+            .is_some_and(|kind| matches!(kind, RawTokenKind::Integer(_) | RawTokenKind::Number(_)))
+        && frames.last().is_some_and(|frame| {
+            frame.kind == FrameKind::Block(BlockKind::Of) && frame.indent == indent
+        })
 }
 
 fn close_indented(

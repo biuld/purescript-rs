@@ -113,6 +113,15 @@ fn collect_pattern_locals(pattern: &PatternKind, bound: &mut HashSet<LocalId>) {
         PatternKind::Var { id, .. } => {
             bound.insert(*id);
         }
+        PatternKind::Named { id, pattern } => {
+            bound.insert(*id);
+            collect_pattern_locals(&pattern.kind, bound);
+        }
+        PatternKind::Array { elements } => {
+            for element in elements {
+                collect_pattern_locals(&element.kind, bound);
+            }
+        }
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 collect_pattern_locals(&argument.kind, bound);
@@ -123,6 +132,6 @@ fn collect_pattern_locals(pattern: &PatternKind, bound: &mut HashSet<LocalId>) {
                 collect_pattern_locals(&field.kind, bound);
             }
         }
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard | PatternKind::Literal { .. } => {}
     }
 }

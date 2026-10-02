@@ -34,7 +34,8 @@ pub(super) fn contains_parameter(ty: &hir::Type, parameter: &str) -> bool {
         hir::TypeKind::Constrained { constraint, body } => {
             contains_parameter(constraint, parameter) || contains_parameter(body, parameter)
         }
-        hir::TypeKind::Constructor(_)
+        hir::TypeKind::Wildcard
+        | hir::TypeKind::Constructor(_)
         | hir::TypeKind::Named(_)
         | hir::TypeKind::Opaque(_)
         | hir::TypeKind::Integer(_)

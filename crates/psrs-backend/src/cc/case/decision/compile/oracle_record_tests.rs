@@ -271,8 +271,9 @@ fn eval(dag: &DecisionDag, node: NodeId, env: &HashMap<ColumnKey, Value>) -> Opt
             }
             let value = env.get(column).expect("switch column is bound").clone();
             for edge in edges {
-                let selected = match edge.test {
-                    Test::Constructor { symbol, .. } => value.symbol == symbol,
+                let selected = match &edge.test {
+                    Test::Constructor { symbol, .. } => value.symbol == *symbol,
+                    Test::Literal { .. } | Test::ArrayLength { .. } => false,
                     Test::Irrefutable => true,
                 };
                 if selected {
@@ -308,6 +309,18 @@ fn apply_actions(actions: &[Action], env: &HashMap<ColumnKey, Value>) -> HashMap
             } => {
                 if let Some(value) = env.get(source)
                     && let Some(child) = value.children.get(*field as usize)
+                {
+                    projected.insert(target.clone(), child.clone());
+                }
+            }
+            Action::ArrayGet {
+                source,
+                target,
+                index,
+                ..
+            } => {
+                if let Some(value) = env.get(source)
+                    && let Some(child) = value.children.get(*index as usize)
                 {
                     projected.insert(target.clone(), child.clone());
                 }

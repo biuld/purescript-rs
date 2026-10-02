@@ -181,6 +181,17 @@ fn shift_expr(expression: Expr, offset: u32, variable_offset: u32) -> Expr {
 fn shift_pattern(pattern: crate::Pattern, offset: u32) -> crate::Pattern {
     let kind = match pattern.kind {
         PatternKind::Wildcard => PatternKind::Wildcard,
+        PatternKind::Literal { value } => PatternKind::Literal { value },
+        PatternKind::Array { elements } => PatternKind::Array {
+            elements: elements
+                .into_iter()
+                .map(|element| shift_pattern(element, offset))
+                .collect(),
+        },
+        PatternKind::Named { id, pattern } => PatternKind::Named {
+            id,
+            pattern: Box::new(shift_pattern(*pattern, offset)),
+        },
         PatternKind::Var { id, ty } => PatternKind::Var {
             id,
             ty: shift_id(ty, offset),
@@ -374,6 +385,12 @@ fn collect_pattern(pattern: &crate::Pattern, out: &mut Vec<SymbolId>) {
                 collect_pattern(field, out);
             }
         }
+        PatternKind::Array { elements } => {
+            for element in elements {
+                collect_pattern(element, out);
+            }
+        }
+        PatternKind::Named { pattern, .. } => collect_pattern(pattern, out),
         _ => {}
     }
 }

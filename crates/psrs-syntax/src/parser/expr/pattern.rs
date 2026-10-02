@@ -170,17 +170,18 @@ impl<'a> Parser<'a> {
             {
                 let minus_span = self.bump().span;
                 let value_token = self.current().clone();
-                let value = match value_token.kind {
-                    LayoutTokenKind::Raw(RawTokenKind::Integer(value))
-                    | LayoutTokenKind::Raw(RawTokenKind::Number(value)) => value,
+                let kind = match value_token.kind {
+                    LayoutTokenKind::Raw(RawTokenKind::Integer(value)) => {
+                        PatternKind::Integer(format!("-{value}"))
+                    }
+                    LayoutTokenKind::Raw(RawTokenKind::Number(value)) => {
+                        PatternKind::Number(format!("-{value}"))
+                    }
                     _ => unreachable!("checked for a numeric token"),
                 };
                 self.bump();
                 let span = TextRange::new(minus_span.start, value_token.span.end);
-                Ok(Pattern {
-                    kind: PatternKind::Number(format!("-{value}")),
-                    span,
-                })
+                Ok(Pattern { kind, span })
             }
             LayoutTokenKind::Raw(RawTokenKind::UpperIdent(_)) => {
                 let name = self.parse_qualified_pattern_name()?;

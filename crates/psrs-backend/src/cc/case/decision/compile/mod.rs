@@ -1,5 +1,5 @@
 use super::*;
-use psrs_core::{CaseBranch, Module};
+use psrs_core::{CaseBranch, Module, Type, TypeConstructor};
 use psrs_hir::TypeId as HirTypeId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -10,9 +10,11 @@ mod matrix;
 mod oracle_record_tests;
 #[cfg(test)]
 mod oracle_tests;
+mod scalar_array;
 #[cfg(test)]
 mod tests;
-use matrix::{available_inputs, canonicalize, choose_column, map_actions, surface_pattern};
+use matrix::{available_inputs, canonicalize, choose_column, map_actions};
+pub(in crate::cc::case) use matrix::{canonical_literal, surface_pattern};
 
 struct Compiler<'a> {
     module: &'a Module,
@@ -52,10 +54,12 @@ pub fn compile_dag(
         ty: scrutinee_type,
     }];
     let root = compiler.compile_matrix(columns, rows, span)?;
-    Ok(DecisionDag {
+    let dag = DecisionDag {
         root,
         nodes: compiler.nodes,
-    })
+    };
+    super::verify::array_projection_guards(&dag)?;
+    Ok(dag)
 }
 
 impl Compiler<'_> {
@@ -86,6 +90,7 @@ impl Compiler<'_> {
         if rows.is_empty() {
             return Ok(self.push(Decision::Fail { span }));
         }
+        peel_named_patterns(&columns, &mut rows);
         if columns.is_empty() {
             return Ok(self.leaf(&rows[0]));
         }
@@ -128,6 +133,15 @@ impl Compiler<'_> {
 
         let column = choose_column(&rows, columns.len());
         let ty = columns[column].ty;
+        if is_array_type(self.module, ty) {
+            return self.compile_arrays(columns, rows, column, span);
+        }
+        if rows
+            .iter()
+            .any(|row| matches!(row.patterns[column], SurfacePattern::Literal { .. }))
+        {
+            return self.compile_literals(columns, rows, column, span);
+        }
         if let Some((field_type, symbol)) = self.newtype_field(ty) {
             let case = CaseSignature {
                 symbol,
@@ -175,4 +189,26 @@ impl Compiler<'_> {
         self.nodes.push(node);
         id
     }
+}
+
+fn peel_named_patterns(columns: &[Column], rows: &mut [Row]) {
+    for row in rows {
+        for (index, column) in columns.iter().enumerate() {
+            while let SurfacePattern::Named { id, pattern, .. } = row.patterns[index].clone() {
+                row.bindings.push((id, column.key.clone()));
+                row.patterns[index] = *pattern;
+            }
+        }
+    }
+}
+
+fn is_array_type(module: &Module, mut ty: TypeId) -> bool {
+    ty = crate::cc::layout::unquantified_type(module, ty);
+    let Some(Type::Application(function, _)) = module.types.get(ty.0 as usize) else {
+        return false;
+    };
+    matches!(
+        module.types.get(function.0 as usize),
+        Some(Type::Constructor(TypeConstructor::Array))
+    )
 }

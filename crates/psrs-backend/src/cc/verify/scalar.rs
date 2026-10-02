@@ -25,6 +25,7 @@ pub(super) fn verify_binary_operation(
         BooleanAnd | BooleanOr | BooleanEq | BooleanNe => {
             (ValueShape::Boolean, ValueShape::Boolean)
         }
+        StringEq => (ValueShape::String, ValueShape::Boolean),
     };
     require_value_shape(declared, left, operand, assignment)?;
     require_value_shape(declared, right, operand, assignment)?;

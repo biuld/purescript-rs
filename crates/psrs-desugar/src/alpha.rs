@@ -184,12 +184,22 @@ fn collect_pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
         PatternKind::Var(binder) => {
             ids.insert(binder.id);
         }
+        PatternKind::Named { binder, pattern } => {
+            ids.insert(binder.id);
+            collect_pattern_ids(pattern, ids);
+        }
+        PatternKind::Array(elements) => {
+            for element in elements {
+                collect_pattern_ids(element, ids);
+            }
+        }
+        PatternKind::Typed { pattern, .. } => collect_pattern_ids(pattern, ids),
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 collect_pattern_ids(argument, ids);
             }
         }
-        PatternKind::Record { fields } => {
+        PatternKind::Record { fields, .. } => {
             for (_, field) in fields {
                 collect_pattern_ids(field, ids);
             }
@@ -199,7 +209,12 @@ fn collect_pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
                 collect_pattern_ids(operand, ids);
             }
         }
-        PatternKind::Wildcard | PatternKind::Boolean(_) => {}
+        PatternKind::Wildcard
+        | PatternKind::Boolean(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_) => {}
     }
 }
 
@@ -377,7 +392,25 @@ fn rename_pattern(pattern: Pattern, mapping: &HashMap<LocalId, LocalId>) -> Patt
     let kind = match pattern.kind {
         PatternKind::Wildcard => PatternKind::Wildcard,
         PatternKind::Boolean(value) => PatternKind::Boolean(value),
+        PatternKind::Integer(value) => PatternKind::Integer(value),
+        PatternKind::Number(value) => PatternKind::Number(value),
+        PatternKind::String(value) => PatternKind::String(value),
+        PatternKind::Char(value) => PatternKind::Char(value),
+        PatternKind::Array(elements) => PatternKind::Array(
+            elements
+                .into_iter()
+                .map(|element| rename_pattern(element, mapping))
+                .collect(),
+        ),
         PatternKind::Var(binder) => PatternKind::Var(rename_binder(binder, mapping)),
+        PatternKind::Named { binder, pattern } => PatternKind::Named {
+            binder: rename_binder(binder, mapping),
+            pattern: Box::new(rename_pattern(*pattern, mapping)),
+        },
+        PatternKind::Typed { pattern, ty } => PatternKind::Typed {
+            pattern: Box::new(rename_pattern(*pattern, mapping)),
+            ty,
+        },
         PatternKind::Constructor {
             symbol,
             name_span,
@@ -390,11 +423,12 @@ fn rename_pattern(pattern: Pattern, mapping: &HashMap<LocalId, LocalId>) -> Patt
                 .map(|argument| rename_pattern(argument, mapping))
                 .collect(),
         },
-        PatternKind::Record { fields } => PatternKind::Record {
+        PatternKind::Record { fields, mode } => PatternKind::Record {
             fields: fields
                 .into_iter()
                 .map(|(label, field)| (label, rename_pattern(field, mapping)))
                 .collect(),
+            mode,
         },
         PatternKind::OperatorChain {
             operands,

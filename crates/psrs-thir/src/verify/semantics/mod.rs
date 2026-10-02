@@ -247,6 +247,45 @@ impl Context<'_> {
         self.compatible(pattern.ty, expected, pattern.span);
         match &pattern.kind {
             PatternKind::Wildcard => {}
+            PatternKind::Literal { literal } => {
+                let constructor = match literal {
+                    crate::PatternLiteral::Integer(_) => TypeConstructor::Int,
+                    crate::PatternLiteral::Number(_) => TypeConstructor::Number,
+                    crate::PatternLiteral::String(_) => TypeConstructor::String,
+                    crate::PatternLiteral::Char(_) => TypeConstructor::Char,
+                    crate::PatternLiteral::Boolean(_) => TypeConstructor::Boolean,
+                };
+                if let Some(expected) = primitive_type(self.module, constructor) {
+                    self.compatible(pattern.ty, expected, pattern.span);
+                } else {
+                    self.error(
+                        pattern.span,
+                        "primitive type is missing from the THIR type table",
+                    );
+                }
+            }
+            PatternKind::Array { elements } => {
+                if let Some(element) = array_element(self.module, pattern.ty) {
+                    for item in elements {
+                        self.pattern(item, element);
+                    }
+                } else {
+                    self.error(pattern.span, "array pattern does not have an Array type");
+                }
+            }
+            PatternKind::Named {
+                id,
+                pattern: nested,
+            } => {
+                self.locals.insert(
+                    *id,
+                    Scheme {
+                        ty: pattern.ty,
+                        quantified: Vec::new(),
+                    },
+                );
+                self.pattern(nested, pattern.ty);
+            }
             PatternKind::Var { id, ty } => {
                 self.compatible(*ty, pattern.ty, pattern.span);
                 self.locals.insert(

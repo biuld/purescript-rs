@@ -1,6 +1,6 @@
 use super::effects;
 use super::util::{FreshLocals, substitute_locals, with_span};
-use crate::{Binding, Expr, ExprKind, Module, Pattern, PatternKind, Primitive};
+use crate::{Binding, Expr, ExprKind, Literal, Module, Pattern, PatternKind, Primitive};
 use psrs_hir::LocalId;
 use std::collections::HashMap;
 
@@ -381,6 +381,29 @@ fn match_pattern(
             substitutions.insert(*id, value.clone());
             true
         }
+        (PatternKind::Literal { value: literal }, kind) => match (literal, kind) {
+            (Literal::Integer(pattern), ExprKind::Integer(value)) => pattern == value,
+            (Literal::Number(pattern), ExprKind::Number(value)) => pattern
+                .parse::<f64>()
+                .ok()
+                .zip(value.parse::<f64>().ok())
+                .is_some_and(|(pattern, value)| pattern == value),
+            (Literal::String(pattern), ExprKind::String(value)) => pattern == value,
+            (Literal::Char(pattern), ExprKind::Char(value)) => pattern == value,
+            (Literal::Boolean(pattern), ExprKind::Boolean(value)) => pattern == value,
+            _ => false,
+        },
+        (PatternKind::Array { elements: patterns }, ExprKind::Array { elements: values }) => {
+            patterns.len() == values.len()
+                && patterns
+                    .iter()
+                    .zip(values)
+                    .all(|(pattern, value)| match_pattern(pattern, value, substitutions))
+        }
+        (PatternKind::Named { id, pattern }, _) => {
+            substitutions.insert(*id, value.clone());
+            match_pattern(pattern, value, substitutions)
+        }
         (
             PatternKind::Constructor {
                 symbol: pattern_symbol,
@@ -457,13 +480,19 @@ fn substitute_case_bindings(
 
 fn is_shallow_pattern(pattern: &Pattern) -> bool {
     fn irrefutable(pattern: &Pattern) -> bool {
-        matches!(
-            &pattern.kind,
-            PatternKind::Wildcard | PatternKind::Var { .. }
-        )
+        match &pattern.kind {
+            PatternKind::Wildcard | PatternKind::Var { .. } => true,
+            PatternKind::Named { pattern, .. } => irrefutable(pattern),
+            PatternKind::Literal { .. }
+            | PatternKind::Array { .. }
+            | PatternKind::Constructor { .. }
+            | PatternKind::Record { .. } => false,
+        }
     }
     match &pattern.kind {
         PatternKind::Wildcard | PatternKind::Var { .. } => true,
+        PatternKind::Literal { .. } | PatternKind::Array { .. } => false,
+        PatternKind::Named { pattern, .. } => irrefutable(pattern),
         PatternKind::Constructor { arguments, .. } => arguments.iter().all(irrefutable),
         PatternKind::Record { fields } => fields.iter().all(|(_, field)| irrefutable(field)),
     }

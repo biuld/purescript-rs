@@ -30,14 +30,9 @@ impl FunctionLowerer<'_> {
         }
         let coverage = coverage::analyze(self.module, scrutinee_type, branches);
         let is_record = self.module.is_record_type(scrutinee_type);
-        let type_id = if is_record {
-            None
-        } else {
-            Some(
-                user_type_id(self.module, scrutinee_type)
-                    .ok_or_else(|| ir_error(span, "case scrutinee is not a data type"))?,
-            )
-        };
+        let type_id = (!is_record)
+            .then(|| user_type_id(self.module, scrutinee_type))
+            .flatten();
         require_exhaustive(span, branches, &coverage)?;
         self.report_redundant_branches(branches, &coverage);
         if type_id.is_some_and(|type_id| {

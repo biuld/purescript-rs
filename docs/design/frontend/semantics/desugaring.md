@@ -15,6 +15,12 @@ in-scope `negate` name. P4 rewrites surface constructs into a smaller resolved
 HIR, applying fixities, lowering unary minus, guards, equations, `do`/`ado`,
 and `where` scope while preserving source order and origins for P5 diagnostics.
 
+The generated case and equation products use exact record patterns, so P5
+infers a closed row for the helper product. A source record pattern such as
+`{ field }` remains partial and may leave the row tail open. This distinction
+keeps compiler-created products concrete without changing source record
+matching.
+
 ## Scope
 
 This document owns same-representation, pre-typecheck term normalization. It
@@ -88,10 +94,13 @@ inside a condition and its names remain local to that expression. The
 additional bare `let` guard qualifier, such as `| let next = e, next > 0 =
 result`, scopes `next` over the remaining guards and result; this is an
 issue-requested project extension. PureScript 0.15.16 supports expression and
-`<-` pattern guards, but not that bare cross-guard binding form. P2 lowers
-integer literal patterns to generated binders and a compiler-owned integer
-equality node, which P3 resolves to `Intrinsic::I32Eq`. Local `let` and guarded
-`where` declaration annotations remain as resolved `Typed` expressions for P5.
+`<-` pattern guards, but not that bare cross-guard binding form. Literal,
+array, named, and typed patterns remain structural through P4; P5 checks their
+types and lowers them to checked THIR patterns. P6 preserves literals, arrays,
+and aliases in Typed Core so the shared pattern matrix owns matching,
+exhaustiveness, redundancy, and source coverage. No pattern lowers through a
+source `Eq` lookup. Local `let` and guarded `where` declaration annotations
+remain as resolved `Typed` expressions for P5.
 
 Every rewrite evaluates source operands in the order defined by the language.
 A failed guard proceeds to the next guard without evaluating that guard's body.
@@ -134,8 +143,9 @@ normalization from section, unary-minus, sequencing, equation, and `where`
 lowering around `desugar_module(module: hir::Module) -> Result<hir::Module,
 Vec<DesugarError>>`. The fixity logic handles value chains,
 constructor-pattern chains, and type chains; type normalization traverses
-signatures and declaration types. P2 case-arity and literal-pattern
-normalization, P3 local-ID assignment, and P4 guard/equation lowering keep
+signatures, declaration types, and typed-pattern annotations. P2 case-arity
+normalization and rich pattern retention, P3 local-ID assignment, and P4
+guard/equation lowering keep
 their own stage boundaries. The P4 guard paths preserve coverage provenance
 and bind multi-scrutinee records once before pattern tests; a whole-program
 proof recognizes transparent aliases of Boolean `true`. `psrs-hir::verify`
@@ -151,8 +161,9 @@ diagnostics, sections, unary minus, ordered guards, and single evaluation of
 scrutinees. The normalized verifier rejects expression, pattern, and type
 operator chains, sections, unary-minus nodes, `do`/`ado`, guarded equations,
 and `where` nodes after P4. Generated continuation branches use fresh local
-IDs and retain source/generated coverage provenance; the verifier rejects any
-Boolean pattern nested inside a remaining case after P4.
+IDs and retain source/generated coverage provenance. Literal, array, named,
+and typed patterns remain available for P5 and P6; the verifier rejects only
+surface forms that P4 owns, such as unresolved operator chains.
 
 ## Worked example
 

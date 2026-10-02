@@ -336,12 +336,22 @@ fn pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
         PatternKind::Var(binder) => {
             ids.insert(binder.id);
         }
+        PatternKind::Named { binder, pattern } => {
+            ids.insert(binder.id);
+            pattern_ids(pattern, ids);
+        }
+        PatternKind::Array(elements) => {
+            for element in elements {
+                pattern_ids(element, ids);
+            }
+        }
+        PatternKind::Typed { pattern, .. } => pattern_ids(pattern, ids),
         PatternKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 pattern_ids(argument, ids);
             }
         }
-        PatternKind::Record { fields } => {
+        PatternKind::Record { fields, .. } => {
             for (_, field) in fields {
                 pattern_ids(field, ids);
             }
@@ -351,6 +361,11 @@ fn pattern_ids(pattern: &Pattern, ids: &mut HashSet<LocalId>) {
                 pattern_ids(operand, ids);
             }
         }
-        PatternKind::Wildcard | PatternKind::Boolean(_) => {}
+        PatternKind::Wildcard
+        | PatternKind::Boolean(_)
+        | PatternKind::Integer(_)
+        | PatternKind::Number(_)
+        | PatternKind::String(_)
+        | PatternKind::Char(_) => {}
     }
 }

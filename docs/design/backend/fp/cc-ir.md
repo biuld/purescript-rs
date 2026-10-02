@@ -181,7 +181,9 @@ CC operations are semantic operations over `ReprId`s, spelled by
 
 - scalar constants and conversions: `Constant`, `NumberConstant`,
   `StringConstant`, `Primitive`, `Unary` (operators in `cc/scalar.rs`,
-  semantics in [scalars and primitives](scalars-and-primitives.md));
+  semantics in [scalars and primitives](scalars-and-primitives.md)); `StringEq`
+  is a typed primitive operation whose MIR lowering compares canonical UTF-8
+  byte length and contents rather than reference identity;
 - calls: `DirectCall` by stable `SymbolId`, `IndirectCall` through a closure
   value with a `SignatureId`, and `FunctionRef` creating a function value with
   an explicit capture list;
@@ -409,17 +411,13 @@ calls the concrete closure, and boxes/unboxes the result
 
 ### Pattern decision and case lowering
 
-`lower_case` first selects the decision compiler
-(`cc/case/decision.rs`), then lowers each selected alternative. The current
-construction compiles ordered alternatives into conditional `If` chains: for
-each constructor branch it compares the scrutinee tag with the case tag and
-nests the next branch in the `else`. Newtypes are erased to their field;
-aggregate cases use `VariantTag`/`VariantGet`; records use `ProductGet`; nested
-constructor and record patterns test a projected sub-value. The scrutinee is
-evaluated once. The complete target — a decision DAG with multi-way `Switch` on
-tags and matrix-based exhaustiveness and redundancy — is
-[pattern matching](pattern-matching.md); the abstract case operations it emits
-are already in place.
+`lower_case` compiles ordered alternatives through the matrix decision compiler
+(`cc/case/decision/`), then realizes the decision with ordinary CC operations.
+Newtypes are erased to their field; aggregate cases use `VariantTag` and
+`VariantGet`; records use `ProductGet`; scalar literals use typed primitive
+equality; and array patterns check exact length before any indexed projection.
+The scrutinee is evaluated once. The matrix, coverage, and realization contract
+is specified in [pattern matching](pattern-matching.md).
 
 ### Verification
 

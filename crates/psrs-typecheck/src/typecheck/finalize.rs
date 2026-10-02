@@ -226,6 +226,17 @@ impl Checker {
         let ty = self.finalize_type(&pattern.ty, pattern.span, interner, generics)?;
         let kind = match pattern.kind {
             InferredPatternKind::Wildcard => thir::PatternKind::Wildcard,
+            InferredPatternKind::Literal { literal } => thir::PatternKind::Literal { literal },
+            InferredPatternKind::Array { elements } => thir::PatternKind::Array {
+                elements: elements
+                    .into_iter()
+                    .map(|element| self.finalize_pattern(element, interner, generics))
+                    .collect::<Option<Vec<_>>>()?,
+            },
+            InferredPatternKind::Named { binder, pattern } => thir::PatternKind::Named {
+                id: binder.id,
+                pattern: Box::new(self.finalize_pattern(*pattern, interner, generics)?),
+            },
             InferredPatternKind::Var { binder, ty } => {
                 let ty = self.finalize_type(&ty, binder.span, interner, generics)?;
                 thir::PatternKind::Var { id: binder.id, ty }

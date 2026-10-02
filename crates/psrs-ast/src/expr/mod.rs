@@ -6,8 +6,7 @@ use std::collections::HashSet;
 mod guards;
 pub use guards::{Guard, GuardedExpr};
 pub(super) use guards::{
-    equality_guard, lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs,
-    prepend_guards,
+    lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, prepend_guards,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,12 +53,6 @@ pub enum ExprKind {
     Typed {
         expression: Box<Expr>,
         ty: Type,
-    },
-    /// Compiler-owned equality used by integer pattern lowering. This must not
-    /// resolve through a source-level equality binding.
-    IntegerEqual {
-        left: Box<Expr>,
-        right: Box<Expr>,
     },
     Operator {
         operator: Name,
@@ -114,10 +107,25 @@ pub struct Pattern {
     pub span: TextRange,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordPatternMode {
+    /// A source record pattern selects named fields and accepts additional fields.
+    Partial,
+    /// A tuple or compiler product matches the complete closed record shape.
+    Exact,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternKind {
     Wildcard,
     Boolean(bool),
+    Integer(String),
+    Number(String),
+    String(String),
+    Char(char),
+    Array {
+        elements: Vec<Pattern>,
+    },
     Var(Binder),
     /// A data constructor pattern; the name is resolved in the value namespace.
     Constructor {
@@ -130,6 +138,15 @@ pub enum PatternKind {
     },
     Record {
         fields: Vec<(String, Pattern)>,
+        mode: RecordPatternMode,
+    },
+    Named {
+        binder: Binder,
+        pattern: Box<Pattern>,
+    },
+    Typed {
+        pattern: Box<Pattern>,
+        ty: crate::Type,
     },
 }
 
@@ -169,6 +186,9 @@ pub(super) fn lower_pattern_lambda(
     pattern: psrs_cst::Pattern,
     body: Expr,
 ) -> Result<Expr, LowerError> {
+    if let Some(error) = crate::check_argument_names(std::slice::from_ref(&pattern)) {
+        return Err(error);
+    }
     if let psrs_cst::PatternKind::Var(name) = &pattern.kind {
         return Ok(super::lower_lambda(
             Binder {
@@ -184,11 +204,11 @@ pub(super) fn lower_pattern_lambda(
     // token-taking continuation in an effect `bind`.
     if let psrs_cst::PatternKind::Wildcard(_) = &pattern.kind {
         let span = pattern.span;
-        let name = format!("__psrs_wildcard_{}", span.start);
+        let name = format!("$psrs_wildcard_{}", span.start);
         return Ok(super::lower_lambda(Binder { name, span }, body));
     }
     let span = pattern.span;
-    let name = format!("__psrs_pattern_{}", span.start);
+    let name = format!("$psrs_pattern_{}", span.start);
     let binder = Binder {
         name: name.clone(),
         span,
@@ -220,7 +240,7 @@ pub(super) fn check_pattern_names(
         cst::PatternKind::Var(name) => {
             if !seen.insert(name.text.clone()) {
                 return Some(LowerError::coded(
-                    pattern.span,
+                    name.span,
                     "OverlappingArgNames",
                     "two arguments share the same name",
                 ));
@@ -236,6 +256,13 @@ pub(super) fn check_pattern_names(
         cst::PatternKind::OperatorChain { operands, .. } => {
             for operand in operands {
                 if let Some(error) = check_pattern_names(operand, seen) {
+                    return Some(error);
+                }
+            }
+        }
+        cst::PatternKind::Array { elements, .. } => {
+            for element in elements {
+                if let Some(error) = check_pattern_names(element, seen) {
                     return Some(error);
                 }
             }
@@ -298,6 +325,16 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
     let kind = match pattern.kind {
         cst::PatternKind::Wildcard(_) => PatternKind::Wildcard,
         cst::PatternKind::Boolean(value) => PatternKind::Boolean(value),
+        cst::PatternKind::Integer(value) => PatternKind::Integer(value),
+        cst::PatternKind::Number(value) => PatternKind::Number(value),
+        cst::PatternKind::String(value) => PatternKind::String(value),
+        cst::PatternKind::Char(value) => PatternKind::Char(value),
+        cst::PatternKind::Array { elements, .. } => PatternKind::Array {
+            elements: elements
+                .into_iter()
+                .map(lower_pattern)
+                .collect::<Result<_, _>>()?,
+        },
         cst::PatternKind::Var(name) => PatternKind::Var(Binder {
             name: name.text,
             span: name.span,
@@ -351,6 +388,7 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
                         Ok((field.label.text, pattern))
                     })
                     .collect::<Result<_, LowerError>>()?,
+                mode: RecordPatternMode::Partial,
             }
         }
         cst::PatternKind::Tuple { elements, .. } => PatternKind::Record {
@@ -359,18 +397,26 @@ pub(super) fn lower_pattern(pattern: cst::Pattern) -> Result<Pattern, LowerError
                 .enumerate()
                 .map(|(index, element)| Ok((super::tuple_label(index), lower_pattern(element)?)))
                 .collect::<Result<_, _>>()?,
+            mode: RecordPatternMode::Exact,
         },
         cst::PatternKind::Parens { pattern, .. } => {
             let mut lowered = lower_pattern(*pattern)?;
             lowered.span = span;
             return Ok(lowered);
         }
-        _ => {
-            return Err(LowerError::new(
-                span,
-                "this pattern syntax is not supported yet",
-            ));
-        }
+        cst::PatternKind::Named { name, pattern, .. } => PatternKind::Named {
+            binder: Binder {
+                name: name.text,
+                span: name.span,
+            },
+            pattern: Box::new(lower_pattern(*pattern)?),
+        },
+        cst::PatternKind::Typed {
+            pattern, type_expr, ..
+        } => PatternKind::Typed {
+            pattern: Box::new(lower_pattern(*pattern)?),
+            ty: super::lower_type(type_expr)?,
+        },
     };
     Ok(Pattern { kind, span })
 }

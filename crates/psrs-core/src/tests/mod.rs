@@ -3,6 +3,7 @@ use psrs_hir::{LocalId, ModuleId, SymbolId};
 
 mod effects;
 mod link;
+mod patterns;
 mod rank_n;
 mod rows;
 

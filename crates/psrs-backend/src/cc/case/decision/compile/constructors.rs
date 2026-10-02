@@ -117,7 +117,11 @@ impl Compiler<'_> {
                             )
                     })
                     .collect(),
-                SurfacePattern::Constructor { .. } | SurfacePattern::Record { .. } => {
+                SurfacePattern::Constructor { .. }
+                | SurfacePattern::Record { .. }
+                | SurfacePattern::Literal { .. }
+                | SurfacePattern::Array { .. }
+                | SurfacePattern::Named { .. } => {
                     return Err("pattern does not match its scrutinee type");
                 }
             };
@@ -198,6 +202,11 @@ impl Compiler<'_> {
                 SurfacePattern::Record { .. } => {
                     return Err("record pattern does not match a data type");
                 }
+                SurfacePattern::Literal { .. }
+                | SurfacePattern::Array { .. }
+                | SurfacePattern::Named { .. } => {
+                    return Err("pattern does not match its scrutinee type");
+                }
             }
         }
         let mut edges = Vec::with_capacity(used.len());
@@ -238,6 +247,11 @@ impl Compiler<'_> {
                     SurfacePattern::Constructor { .. } => continue,
                     SurfacePattern::Record { .. } => {
                         return Err("record pattern does not match a data type");
+                    }
+                    SurfacePattern::Literal { .. }
+                    | SurfacePattern::Array { .. }
+                    | SurfacePattern::Named { .. } => {
+                        return Err("pattern does not match its scrutinee type");
                     }
                 };
                 row.patterns.splice(column..column, args);
@@ -299,7 +313,11 @@ impl Compiler<'_> {
                 match row.patterns.remove(column) {
                     SurfacePattern::Any { .. } => {}
                     SurfacePattern::Var { id, .. } => row.bindings.push((id, parent.key.clone())),
-                    SurfacePattern::Constructor { .. } | SurfacePattern::Record { .. } => continue,
+                    SurfacePattern::Constructor { .. }
+                    | SurfacePattern::Record { .. }
+                    | SurfacePattern::Literal { .. }
+                    | SurfacePattern::Array { .. }
+                    | SurfacePattern::Named { .. } => continue,
                 }
                 defaults.push(row);
             }
