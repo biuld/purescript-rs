@@ -124,8 +124,9 @@ wrapper owns the corpus-facing name.
 
 | Module | Corpus name | Over | Owner |
 | --- | --- | --- | --- |
-| `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap`, and the re-exported `const`, `flip`, `$`, `#` | the `psrs:effect` interface the compiler synthesizes bodies for, and `Data.Function` | FE-02, FE-05, FE-09, BE-02, BE-21 |
+| `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap`, and the re-exported `class Semigroup`, `append`, `<>`, `const`, `flip`, `$`, `#` | the `psrs:effect` interface the compiler synthesizes bodies for, and `Data.Function` / `Data.Semigroup` | FE-02, FE-05, FE-09, FE-14, BE-02, BE-21 |
 | `Data.Function` | `apply`, `applyFlipped`, `const`, `flip`, `on`, `$`, `#` | nothing: it is the definition site, and `$`/`#` are its fixity aliases | FE-05 |
+| `Data.Semigroup` | `class Semigroup`, `append`, `<>` | nothing: it is the definition site for the class, and `append` for `String` is built from the compiler's `stringToBytes` / `arrayAppend` / `bytesToString`; `append` for `Array a` is `arrayAppend` | FE-14, BE-10 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
 | `Effect.Console` | `log`, `warn`, `error` | `WASI.Console` | BE-21 |
 | `Test.Assert` | `assert`, `assert'`, `assertTrue`, `assertFalse` | `Effect.Console.error` and `Prelude.trap` | BE-21, BE-27 |
@@ -220,12 +221,15 @@ constant, which exists to give the entry its declared `i32` result
 
 The platform library is source code under `stdlib/lib`, read from disk and
 resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
-the trusted prefix order (`Prelude`, `Data.Function`, `Effect`,
-`Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `WASI.Resource`,
-`WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`,
-`WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function` declares the
-application operators and their fixities; `Prelude` re-exports `$`, `#`, `const`,
-and `flip` from it, which is the official `Prelude`'s own re-export list. `Data.Maybe` and `Data.Either` are ordinary library
+the trusted prefix order (`Prelude`, `Data.Function`, `Data.Semigroup`,
+`Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`,
+`WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`,
+`WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
+declares the application operators and their fixities; `Data.Semigroup`
+declares the `Semigroup` class, its method, and the `<>` alias; `Prelude`
+re-exports `$`, `#`, `const`, `flip`, and `Data.Semigroup`'s
+`class Semigroup`, `append`, and `<>`, which is the official `Prelude`'s own
+re-export list. `Data.Maybe` and `Data.Either` are ordinary library
 types; they are not part of the trusted `Effect` representation. `Effect` and
 `Effect.Console` are the corpus-facing names for the effect interface and the
 console; `Test.Assert` is the corpus's assertion surface and reports a failure
@@ -431,10 +435,10 @@ with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
 `stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
-`Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`,
-`WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`,
-`WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in trusted-prefix
-order). The driver discovers user modules from the entry files'
+`Data.Semigroup`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`,
+`Data.Either`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`,
+`WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
+trusted-prefix order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the
 on-disk library provides. Resolution, duplicate-module, and cycle checks remain

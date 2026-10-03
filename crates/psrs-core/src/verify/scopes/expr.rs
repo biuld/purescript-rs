@@ -80,6 +80,10 @@ pub(super) fn scoped_expr(
             scoped_expr(array, module, scope, errors);
             scoped_expr(index, module, scope, errors);
         }
+        ExprKind::ArrayAppend { left, right } => {
+            scoped_expr(left, module, scope, errors);
+            scoped_expr(right, module, scope, errors);
+        }
         ExprKind::ArrayUpdate {
             array,
             index,

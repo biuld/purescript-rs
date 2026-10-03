@@ -238,6 +238,7 @@ impl Primitive {
             | Intrinsic::BytesToString
             | Intrinsic::Coerce
             | Intrinsic::Unit
+            | Intrinsic::ArrayAppend
             | Intrinsic::Undefined => return None,
         })
     }
@@ -290,6 +291,13 @@ pub enum ExprKind {
         target_type: TypeId,
     },
     ArrayLength(Box<Expr>),
+    /// `Array.append`: a fresh array holding `left`'s elements followed by
+    /// `right`'s. Both operands have the same `Array a` type, and the result is
+    /// a new array rather than a mutation of either operand.
+    ArrayAppend {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
     /// string is a sequence of Unicode scalar values, so the conversion is
     /// lossless ([DEC-16](../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).

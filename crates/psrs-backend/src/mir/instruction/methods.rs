@@ -28,6 +28,7 @@ impl Instruction {
             | Self::StructGet { destination, .. }
             | Self::ArrayNew { destination, .. }
             | Self::ArrayNewDefault { destination, .. }
+            | Self::ArrayNewSized { destination, .. }
             | Self::ArrayGet { destination, .. }
             | Self::ArrayGetU { destination, .. }
             | Self::ArrayClone { destination, .. }
@@ -107,6 +108,7 @@ impl Instruction {
                 ..
             } => arguments.clone(),
             Self::ArrayNewDefault { length, source, .. } => vec![*length, *source],
+            Self::ArrayNewSized { length, .. } => vec![*length],
             Self::StructSet {
                 value, new_value, ..
             } => vec![*value, *new_value],
@@ -180,6 +182,7 @@ impl Instruction {
             | Self::StructSet { span, .. }
             | Self::ArrayNew { span, .. }
             | Self::ArrayNewDefault { span, .. }
+            | Self::ArrayNewSized { span, .. }
             | Self::ArrayGet { span, .. }
             | Self::ArrayGetU { span, .. }
             | Self::ArrayClone { span, .. }

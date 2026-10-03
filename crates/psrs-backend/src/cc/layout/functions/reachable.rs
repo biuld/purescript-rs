@@ -78,6 +78,10 @@ fn record_expr(
             left: function,
             right: argument,
             ..
+        }
+        | ExprKind::ArrayAppend {
+            left: function,
+            right: argument,
         } => {
             record_expr(module, function, visiting, referenced);
             record_expr(module, argument, visiting, referenced);

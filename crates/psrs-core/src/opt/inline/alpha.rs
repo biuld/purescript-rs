@@ -70,6 +70,10 @@ fn clone_expr(
         ExprKind::ArrayLength(array) => {
             ExprKind::ArrayLength(Box::new(clone_expr(array, fresh, locals)?))
         }
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(clone_expr(left, fresh, locals)?),
+            right: Box::new(clone_expr(right, fresh, locals)?),
+        },
         ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
             array: Box::new(clone_expr(array, fresh, locals)?),
             index: Box::new(clone_expr(index, fresh, locals)?),
