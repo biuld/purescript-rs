@@ -82,6 +82,64 @@ impl Checker {
         ));
     }
 
+    /// Whether a resolved inference type is a row, which is what decides whether
+    /// two types are compared through the normalizer rather than structurally.
+    ///
+    /// An unknown counts as a row only when its recorded kind is `Row k`, read
+    /// through the one kind substitution. That is what keeps the answer honest
+    /// for a variable whose kind is not settled yet: a plain `Type` unknown is
+    /// bound to a `RowEmpty` by ordinary equality, a row unknown is extended by
+    /// the normalizer, and the two must not be confused.
+    pub(super) fn is_row(&self, ty: &InferType) -> bool {
+        match ty {
+            InferType::RowEmpty | InferType::RowExtend { .. } => true,
+            InferType::Variable(variable) => self
+                .recorded_kind(*variable)
+                .map(|kind| self.state.kinds.resolve(kind))
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        Kind::App(head, _)
+                            if matches!(*head, Kind::Builtin(hir::BuiltinType::Row))
+                    )
+                }),
+            _ => false,
+        }
+    }
+
+    /// Renders a row type for a diagnostic. A value that reached this path
+    /// without being a row is rendered between angle brackets, so the rendering
+    /// shows the shape instead of silently claiming a closed row.
+    pub(super) fn display_record(&self, row: &InferType) -> String {
+        // A rendering has no expression of its own to name, so an invalid shape
+        // is reported at an empty range; the containing diagnostic carries the
+        // span that matters.
+        match self.normalize_row(row.clone(), TextRange::new(0, 0)) {
+            Err(error) => {
+                let fields = self.display_row_fields(&error.fields);
+                let found = self.display_type(&error.found);
+                if fields.is_empty() {
+                    format!("<{found}>")
+                } else {
+                    format!("{{{fields} | <{found}>}}")
+                }
+            }
+            Ok(FlatRow { fields, tail }) => {
+                let rendered = self.display_row_fields(&fields);
+                match tail {
+                    RowTail::Closed => format!("{{{rendered}}}"),
+                    RowTail::Open(variable) => {
+                        if rendered.is_empty() {
+                            format!("{{ | _T{variable} }}")
+                        } else {
+                            format!("{{{rendered} | _T{variable}}}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) fn unify_rows(&mut self, left: InferType, right: InferType, span: TextRange) {
         let left = match self.normalize_row(left, span) {
             Ok(row) => row,
