@@ -28,7 +28,7 @@ impl Checker {
     /// determined positions of every givens or instance head that agrees on
     /// those determining positions. Returns whether any type was assigned.
     fn improve_constraint(&mut self, constraint: &mut WantedConstraint) -> bool {
-        let Some(class) = self.classes.get(&constraint.class_id).cloned() else {
+        let Some(class) = self.env.classes.get(&constraint.class_id).cloned() else {
             return false;
         };
         if class.fundeps.is_empty() {
@@ -106,7 +106,7 @@ impl Checker {
         determining.iter().all(|&index| {
             !matches!(
                 self.resolve_type(arguments[index].clone()),
-                InferType::Variable(variable) if !self.rigid.contains(&variable)
+                InferType::Variable(variable) if !self.state.rigid.contains(&variable)
             )
         })
     }
@@ -127,10 +127,10 @@ impl Checker {
         }
         match (&wanted, &source) {
             (InferType::Variable(variable), _) => {
-                if self.rigid.contains(variable) {
+                if self.state.rigid.contains(variable) {
                     return false;
                 }
-                self.bind_variable(*variable, source, span)
+                self.bind_type_variable(*variable, source, span)
             }
             (InferType::Application(wf, wa), InferType::Application(sf, sa)) => {
                 let mut changed = self.assign_determined(wf, sf, span);
@@ -167,7 +167,7 @@ impl Checker {
 
     fn has_flexible_variable(&self, ty: &InferType) -> bool {
         match self.resolve_type(ty.clone()) {
-            InferType::Variable(variable) => !self.rigid.contains(&variable),
+            InferType::Variable(variable) => !self.state.rigid.contains(&variable),
             InferType::Application(function, argument) => {
                 self.has_flexible_variable(&function) || self.has_flexible_variable(&argument)
             }
@@ -196,10 +196,11 @@ impl Checker {
             "functional dependency conflict: {wanted_display} is also determined to be {source_display}"
         );
         if self
+            .state
             .reported_fundep_conflicts
             .insert((span, message.clone()))
         {
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::FundepConflict,
                 span,
                 message,
@@ -212,16 +213,16 @@ impl Checker {
     /// Only constraints introduced by the current declaration (`start` onward)
     /// are considered; earlier entries were checked with their own result type.
     pub(super) fn check_ambiguity(&mut self, result: &InferType, start: usize) {
-        let start = start.min(self.wanted.len());
-        if start == self.wanted.len() {
+        let start = start.min(self.state.wanted.len());
+        if start == self.state.wanted.len() {
             return;
         }
         let mut determined = HashSet::new();
         collect_infer_variables(&self.resolve_type(result.clone()), &mut determined);
         loop {
             let mut changed = false;
-            for constraint in &self.wanted[start..] {
-                let Some(class) = self.classes.get(&constraint.class_id) else {
+            for constraint in &self.state.wanted[start..] {
+                let Some(class) = self.env.classes.get(&constraint.class_id) else {
                     continue;
                 };
                 if class.fundeps.is_empty() {
@@ -261,7 +262,7 @@ impl Checker {
                 break;
             }
         }
-        for constraint in &self.wanted[start..] {
+        for constraint in &self.state.wanted[start..] {
             if constraint.solution.is_none() {
                 continue;
             }
@@ -292,7 +293,7 @@ impl Checker {
                 continue;
             }
             let rendered = self.display_constraint(constraint.class_id, &constraint.arguments);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::AmbiguousConstraint,
                 constraint.span,
                 format!(

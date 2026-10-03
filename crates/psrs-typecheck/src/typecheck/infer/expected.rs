@@ -19,112 +19,63 @@ impl Checker {
             ty,
         } = &expression.kind
         {
-            let saved_substitutions = self.substitutions.clone();
-            let saved_levels = self.levels.clone();
-            let saved_generics = self.generic_variables.clone();
-            let saved_rigid = self.rigid.clone();
-            let saved_locals = self.locals.clone();
-            let saved_givens = self.givens.clone();
-            let saved_given_rigid = self.given_rigid.clone();
-            let saved_wanted = self.wanted.clone();
-            let saved_reported_fundeps = self.reported_fundep_conflicts.clone();
-            let saved_annotation_variables = self.annotation_variables.clone();
-            let saved_type_variable_names = self.type_variable_names.clone();
-            let saved_infer_variable_kinds = self.infer_variable_kinds.clone();
-            let saved_level = self.level;
-            let errors_before = self.errors.len();
-
-            let mut annotation_variables = self.annotation_variables.clone();
-            let annotation = self.elaborate_type(ty, &mut annotation_variables);
-            let checked = self.infer_expr_with_expected(inner, Some(annotation));
-            let valid = checked.is_some() && self.errors.len() == errors_before;
-
-            self.substitutions = saved_substitutions;
-            self.levels = saved_levels;
-            self.generic_variables = saved_generics;
-            self.rigid = saved_rigid;
-            self.locals = saved_locals;
-            self.givens = saved_givens;
-            self.given_rigid = saved_given_rigid;
-            self.wanted = saved_wanted;
-            self.reported_fundep_conflicts = saved_reported_fundeps;
-            self.annotation_variables = saved_annotation_variables;
-            self.type_variable_names = saved_type_variable_names;
-            self.infer_variable_kinds = saved_infer_variable_kinds;
-            self.level = saved_level;
-
-            if !valid {
-                return None;
-            }
-
-            let errors_before = self.errors.len();
-            let mut annotation_variables = self.annotation_variables.clone();
-            let annotation = self.elaborate_type(ty, &mut annotation_variables);
-            self.subsume(annotation, expected.clone(), expression.span);
-            if self.errors.len() != errors_before {
-                return None;
-            }
+            // The written annotation is a candidate type. Check the expression
+            // against it, check that the annotation itself satisfies what the
+            // caller expected, and only then check for real at the caller's type.
+            // A candidate that fails either check leaves no substitution, level,
+            // kind, evidence, or wanted constraint behind; its diagnostics are
+            // re-emitted, because an ill-typed ascription is what the caller
+            // needs to report.
+            self.speculate_reporting(|checker| {
+                let errors_before = checker.state.errors.len();
+                let mut annotation_variables = checker.scope.annotation_variables.clone();
+                let annotation = checker.elaborate_type(ty, &mut annotation_variables);
+                checker.infer_expr_with_expected(inner, Some(annotation))?;
+                let mut annotation_variables = checker.scope.annotation_variables.clone();
+                let annotation = checker.elaborate_type(ty, &mut annotation_variables);
+                checker.subsume(annotation, expected.clone(), expression.span);
+                (checker.state.errors.len() == errors_before).then_some(())
+            })?;
             return self.infer_expr_with_expected(inner, Some(self.resolve_type(expected)));
         }
 
         if let InferType::ForAll { variables, body } = expected.clone() {
-            let outer_level = self.level;
-            let skolem_level = outer_level + 1;
-            self.level = skolem_level;
-            let previous_annotation_variables = self.annotation_variables.clone();
-            for variable in &variables {
-                if let Some(name) = self.type_variable_names.get(variable) {
-                    self.annotation_variables
-                        .insert(name.clone(), InferType::Variable(*variable));
+            let checked = self.with_scope(|checker| {
+                for variable in &variables {
+                    if let Some(name) = checker.scope.type_variable_names.get(variable) {
+                        checker
+                            .scope
+                            .annotation_variables
+                            .insert(name.clone(), InferType::Variable(*variable));
+                    }
                 }
-            }
-            let previous_levels = variables
-                .iter()
-                .map(|variable| {
-                    let previous = self.levels.insert(*variable, skolem_level);
-                    self.rigid.insert(*variable);
-                    (*variable, previous)
+                checker.with_skolem_scope(&variables, |checker| {
+                    checker.infer_expr_with_expected(expression, Some(*body.clone()))
                 })
-                .collect::<Vec<_>>();
-            let checked = self.infer_expr_with_expected(expression, Some(*body));
-            self.level = outer_level;
-            self.annotation_variables = previous_annotation_variables;
-            for (variable, previous) in previous_levels {
-                if let Some(previous) = previous {
-                    self.levels.insert(variable, previous);
-                }
-            }
+            });
             let mut checked = checked?;
             checked.ty = expected;
             return Some(checked);
         }
 
         if let InferType::Constrained { constraints, body } = expected.clone() {
-            let previous_givens = self.givens.clone();
-            let previous_rigid = self.rigid.clone();
-            let previous_given_rigid = self.given_rigid.clone();
+            // Each constraint becomes a given, and its argument variables are
+            // rigid for as long as the given is in scope.
             let mut binders = Vec::with_capacity(constraints.len());
             for constraint in &constraints {
                 let dictionary_type = self.dictionary_type(constraint);
-                let id = LocalId(self.next_dictionary_local);
-                self.next_dictionary_local += 1;
-                for argument in &constraint.arguments {
-                    let mut variables = HashSet::new();
-                    super::super::classes::collect_infer_variables(argument, &mut variables);
-                    for variable in variables {
-                        if self.rigid.insert(variable) {
-                            self.given_rigid.push(variable);
-                        }
-                    }
-                }
-                self.givens
-                    .push((constraint.clone(), WantedSolution::Given(id)));
+                let id = LocalId(self.state.next_dictionary_local);
+                self.state.next_dictionary_local += 1;
                 binders.push((id, dictionary_type));
             }
-            let checked = self.infer_expr_with_expected(expression, Some(*body.clone()));
-            self.givens = previous_givens;
-            self.rigid = previous_rigid;
-            self.given_rigid = previous_given_rigid;
+            let givens = constraints
+                .iter()
+                .cloned()
+                .zip(binders.iter().map(|(id, _)| WantedSolution::Given(*id)))
+                .collect();
+            let checked = self.with_givens(givens, |checker| {
+                checker.infer_expr_with_expected(expression, Some(*body.clone()))
+            });
             let mut checked = checked?;
             for (index, (id, dictionary_type)) in binders.into_iter().enumerate().rev() {
                 let ty = InferType::Constrained {
@@ -155,10 +106,11 @@ impl Checker {
             && let InferType::Application(inner, result) = &expected
             && let Some((parameter, _)) = infer_arrow_parts(inner, result)
         {
-            self.locals
+            self.scope
+                .locals
                 .insert(binder.id, Scheme::monomorphic(parameter.clone()));
             let body = self.infer_expr_with_expected(body, Some((**result).clone()));
-            self.locals.remove(&binder.id);
+            self.scope.locals.remove(&binder.id);
             let body = body?;
             let actual = arrow(parameter.clone(), body.ty.clone());
             self.subsume(actual, expected.clone(), expression.span);
@@ -274,7 +226,7 @@ impl Checker {
         ty: &hir::Type,
         span: TextRange,
     ) -> Option<InferredExpr> {
-        let mut variables = self.annotation_variables.clone();
+        let mut variables = self.scope.annotation_variables.clone();
         let expected = self.elaborate_type(ty, &mut variables);
         let mut checked = self.infer_expr_with_expected(expression, Some(expected.clone()))?;
         checked.ty = expected;

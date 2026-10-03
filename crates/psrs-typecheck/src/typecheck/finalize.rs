@@ -84,8 +84,8 @@ impl Checker {
                 let target_type =
                     self.finalize_type(&target, expression.span, interner, generics)?;
                 let evidence = self.wanted_evidence(wanted, interner, generics)?;
-                let local = LocalId(self.next_dictionary_local);
-                self.next_dictionary_local += 1;
+                let local = LocalId(self.state.next_dictionary_local);
+                self.state.next_dictionary_local += 1;
                 let binder = thir::Binder {
                     id: local,
                     name: "__coerce_value".to_owned(),

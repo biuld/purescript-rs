@@ -222,9 +222,35 @@ Generalization currently keeps only a signature's constraints. A signatureless
 declaration starts as a monomorphic scheme with no constraints and every wanted
 constraint is solved before generalization, so an unsolvable one becomes
 `NoInstance` and no residual-constraint abstraction exists. A scheme records only
-its quantified type variables, not their kinds. Kind checking during inference is
-the coercion module's private denotation and unifier, and ordinary bindings do not
-check kinds. Two paths save and restore different subsets of solver state by hand.
+its quantified type variables, not their kinds.
+
+`bind_type_variable` is the inference-side rule `kinds.md` states. It runs the
+occurs check, the skolem-escape check, the level adjustment, and then the kind
+compatibility check, in that order, through the one kind solver in
+`typecheck/kind.rs`. A variable's kind is recorded when the variable is created,
+and `record_variable_kind` is the only writer of that table, so a fresh unknown, a
+`forall` binder, a constructor parameter, and a quantified variable's fresh
+instance all establish a kind the same way. A binding refused for a kind reason
+records nothing and returns `false`, which is the same answer a refused occurs
+check gives, so a fixed-point caller reads it correctly. A type whose kind the
+checked environment does not supply is left alone, because the missing scheme is
+the kind pass's diagnostic and inference must not reject the same module twice.
+
+The three state owners are declared in `typecheck/state.rs`: `SemanticEnv`,
+`InferState`, and `Scope`, with `Checker` owning all three. `InferState::snapshot`
+and `restore` are the only way solver state is saved, and the operations that use
+them are named for what they do rather than for their caller:
+`speculate` discards a failed candidate's diagnostics, `speculate_reporting`
+re-emits them, and `without_diagnostics` keeps everything a re-elaboration solved
+while dropping only what it reported — the three the earlier code had written out
+by hand and had made disagree. `with_scope`, `with_givens`, `with_given_chain`,
+`with_skolem_scope`, and `in_nested_level` are the only ways a scope is entered
+and left; a given's argument variables are rigid only inside their given, while a
+skolem stays rigid after its scope, so those two are separate operations rather
+than one scope that restores everything. `rigid` lives in `InferState` rather than
+in `Scope` because it is keyed by an identity the solver allocates, so a rollback
+that recycles a variable has to recycle its rigidity with it.
+
 `normalize_row` reports an invalid row shape instead of reading it as a closed
 row, and it carries the range of the operation that reached the shape because
 `InferType` holds no ranges of its own. Finalization discharges `Constrained` into

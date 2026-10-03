@@ -19,7 +19,7 @@ impl Checker {
         variables.sort_unstable();
         variables.dedup();
         for variable in &variables {
-            self.generic_variables.insert(*variable);
+            self.state.generic_variables.insert(*variable);
         }
         Scheme {
             variables,
@@ -42,7 +42,13 @@ impl Checker {
         match ty {
             InferType::Variable(variable) => {
                 if !bound.contains(variable)
-                    && self.levels.get(variable).copied().unwrap_or(TOP_LEVEL) > outer_level
+                    && self
+                        .state
+                        .levels
+                        .get(variable)
+                        .copied()
+                        .unwrap_or(TOP_LEVEL)
+                        > outer_level
                 {
                     out.push(*variable);
                 }

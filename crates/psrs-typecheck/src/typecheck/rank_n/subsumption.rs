@@ -15,24 +15,7 @@ impl Checker {
         let expected = self.resolve_type(expected);
         match (actual, expected) {
             (actual, InferType::ForAll { variables, body }) => {
-                let outer_level = self.level;
-                let skolem_level = outer_level + 1;
-                self.level = skolem_level;
-                let previous_levels = variables
-                    .iter()
-                    .map(|variable| {
-                        let previous = self.levels.insert(*variable, skolem_level);
-                        self.rigid.insert(*variable);
-                        (*variable, previous)
-                    })
-                    .collect::<Vec<_>>();
-                self.subsume(actual, *body, span);
-                self.level = outer_level;
-                for (variable, previous) in previous_levels {
-                    if let Some(previous) = previous {
-                        self.levels.insert(variable, previous);
-                    }
-                }
+                self.with_skolem_scope(&variables, |checker| checker.subsume(actual, *body, span));
             }
             (InferType::ForAll { variables, body }, expected) => {
                 let mapping = self.instantiate_type_variables(variables);
