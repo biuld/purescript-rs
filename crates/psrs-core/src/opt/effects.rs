@@ -65,6 +65,7 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
             ..summarize(record)
         },
         ExprKind::UnaryPrimitive { value, .. } => summarize(value),
+        ExprKind::ArrayAppend { left, right } => summarize(left).combine(summarize(right)),
         ExprKind::ArrayIndex { array, index } => Effects {
             may_trap: true,
             ..summarize(array).combine(summarize(index))

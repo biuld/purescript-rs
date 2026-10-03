@@ -146,6 +146,7 @@ ExprKind  = Local(LocalId)
           | RecordUpdate { record: Expr, fields: [(String, Expr)] }
           | FieldAccess { record: Expr, field: String }
           | ArrayLength(Expr)
+          | ArrayAppend { left: Expr, right: Expr }
           | ArrayIndex { array: Expr, index: Expr }
           | ArrayUpdate { array: Expr, index: Expr, value: Expr }
           | Primitive { op: Primitive, left: Expr, right: Expr }
@@ -231,6 +232,8 @@ checked `Pattern.ty` and the scrutinee type carry that record shape.
   Core `case` is produced and again by the decision compiler at the boundary.
 - **`arrayUpdate` is pure.** It returns an updated array without mutating the
   input or any alias; repeated updates from the same input are independent.
+- **`arrayAppend` is pure.** It returns a fresh array holding `left`'s elements
+  followed by `right`'s, and mutates neither operand.
 
 ## Design
 

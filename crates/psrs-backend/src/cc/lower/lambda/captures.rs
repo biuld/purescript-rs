@@ -84,7 +84,9 @@ pub(in crate::cc::lower) fn collect_captures(
             collect_captures(index, bound, captures);
             collect_captures(value, bound, captures);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             collect_captures(left, bound, captures);
             collect_captures(right, bound, captures);
         }

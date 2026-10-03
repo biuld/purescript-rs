@@ -216,6 +216,14 @@ pub(crate) fn remap_instruction(
             replace(length);
             replace(source);
         }
+        I::ArrayNewSized {
+            destination,
+            length,
+            ..
+        } => {
+            replace(destination);
+            replace(length);
+        }
         I::CallRef {
             destination,
             function,

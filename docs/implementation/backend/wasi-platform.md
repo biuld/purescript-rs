@@ -217,7 +217,7 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: stdlib/lib/{Prelude.purs,Data/Function.purs,Effect.purs,Effect/Console.purs,Test/Assert.purs,Data/Maybe.purs,Data/Either.purs,WASI/Resource.purs,WASI/IO.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Console.purs,WASI/Process.purs,WASI/FileSystem.purs,WASI/Network.purs,WASI.purs}
+  Implementation: stdlib/lib/{Prelude.purs,Data/Function.purs,Data/Semigroup.purs,Effect.purs,Effect/Console.purs,Test/Assert.purs,Data/Maybe.purs,Data/Either.purs,WASI/Resource.purs,WASI/IO.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Console.purs,WASI/Process.purs,WASI/FileSystem.purs,WASI/Network.purs,WASI.purs}
     read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
     lists those modules in trusted-prefix order. User discovery in
     crates/psrs-driver/src/loader.rs still skips those module names.
@@ -230,6 +230,10 @@ WASI-10:
     transitive_effect_types_keep_their_closure_representation};
     tests::data_function::{the_application_operators_resolve_through_the_library_re_export,
     dollar_is_right_associative_and_lowest_precedence};
+    tests::semigroup::{array_append_is_a_core_expression,
+    the_semigroup_operator_concatenates_strings_and_arrays,
+    the_semigroup_operator_is_right_associative,
+    a_type_without_an_instance_is_rejected};
     tests::assertions::{the_unit_value_is_a_core_expression_rather_than_an_integer_literal,
     the_unit_value_executes_when_wasmtime_is_available,
     a_held_assertion_lets_the_program_finish_when_wasmtime_is_available,
@@ -248,15 +252,17 @@ WASI-10:
     compile/WAT only.
   Commands: cargo test -p psrs-driver --lib standard_library;
     cargo test -p psrs-driver --lib tests::effects;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::semigroup;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::assertions;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
-  Gaps: none. The loaded set is Prelude, Data.Function, Effect, Effect.Console,
-    Test.Assert, Data.Maybe, Data.Either, WASI.Resource, WASI.IO, WASI.Clock,
-    WASI.Random, WASI.Console, WASI.Process, WASI.FileSystem, WASI.Network, and
-    the WASI umbrella. Data.Maybe and Data.Either are ordinary algebraic types and are
-    not in the trusted Effect name list. The service modules use Effect from
+  Gaps: none. The loaded set is Prelude, Data.Function, Data.Semigroup, Effect,
+    Effect.Console, Test.Assert, Data.Maybe, Data.Either, WASI.Resource, WASI.IO,
+    WASI.Clock, WASI.Random, WASI.Console, WASI.Process, WASI.FileSystem,
+    WASI.Network, and the WASI umbrella. Data.Maybe, Data.Either, and
+    Data.Semigroup are ordinary library declarations and are not in the trusted
+    Effect name list. The service modules use Effect from
     Prelude. Their wrappers are effect lambdas, so they are part of the trusted
     Effect representation. The exit evidence does not execute `exitWithCode`.
     `Test.Assert` exports only the four checks that need no class surface; its

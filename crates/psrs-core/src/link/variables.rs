@@ -74,7 +74,9 @@ fn expression_span(expression: &Expr, maximum: &mut Option<TypeVariableId>) {
             expression_span(index, maximum);
             expression_span(value, maximum);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             expression_span(left, maximum);
             expression_span(right, maximum);
         }

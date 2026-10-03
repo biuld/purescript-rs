@@ -98,7 +98,9 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
                 || expr_introduces_type_binders(index, types)
                 || expr_introduces_type_binders(value, types)
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             expr_introduces_type_binders(left, types) || expr_introduces_type_binders(right, types)
         }
         ExprKind::If {
@@ -193,9 +195,9 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
             index,
             value,
         } => contains_case(array) || contains_case(index) || contains_case(value),
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
-            contains_case(left) || contains_case(right)
-        }
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => contains_case(left) || contains_case(right),
         ExprKind::Lambda { body, .. } => contains_case(body),
         ExprKind::Let { bindings, body } => {
             bindings.iter().any(|binding| contains_case(&binding.value)) || contains_case(body)
@@ -258,7 +260,9 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
             collect_globals(index, out);
             collect_globals(value, out);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             collect_globals(left, out);
             collect_globals(right, out);
         }

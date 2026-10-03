@@ -49,7 +49,9 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
         ExprKind::Constructor { arguments, .. } => arguments
             .iter()
             .any(|argument| expression_has_integer_capture(argument, module)),
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             expression_has_integer_capture(left, module)
                 || expression_has_integer_capture(right, module)
         }
@@ -155,7 +157,9 @@ fn free_integer_local(
         ExprKind::Constructor { arguments, .. } => arguments
             .iter()
             .any(|argument| free_integer_local(argument, module, bound)),
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             free_integer_local(left, module, bound) || free_integer_local(right, module, bound)
         }
         ExprKind::UnaryPrimitive { value, .. } => free_integer_local(value, module, bound),

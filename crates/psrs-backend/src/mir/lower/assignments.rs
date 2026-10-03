@@ -185,108 +185,16 @@ impl FunctionLowerer<'_> {
                 | AssignmentKind::VariantGet { .. } => {
                     self.lower_variant(assignment, current)?;
                 }
-                AssignmentKind::ArrayNew {
-                    destination,
-                    representation,
-                    elements,
-                } => self.append_instruction(
-                    current,
-                    Instruction::ArrayNew {
-                        destination: *destination,
-                        type_index: self
-                            .layout
-                            .repr_index(*representation)
-                            .map_err(|error| layout_error(assignment.span, error))?,
-                        elements: elements.clone(),
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
-                AssignmentKind::ArrayLen { destination, value } => self.append_instruction(
-                    current,
-                    Instruction::ArrayLen {
-                        destination: *destination,
-                        value: *value,
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
-                AssignmentKind::StringToBytes {
-                    destination,
-                    representation,
-                    value,
-                } => {
-                    current = self.lower_string_to_bytes(
-                        current,
-                        *destination,
-                        *representation,
-                        *value,
-                        assignment.span,
-                    )?;
+                AssignmentKind::ArrayNew { .. }
+                | AssignmentKind::ArrayLen { .. }
+                | AssignmentKind::ArrayAppend { .. }
+                | AssignmentKind::StringToBytes { .. }
+                | AssignmentKind::BytesToString { .. }
+                | AssignmentKind::ArrayGet { .. }
+                | AssignmentKind::ArrayClone { .. }
+                | AssignmentKind::ArraySet { .. } => {
+                    current = self.lower_array_assignment(current, assignment)?;
                 }
-                AssignmentKind::BytesToString {
-                    destination,
-                    representation,
-                    value,
-                } => {
-                    current = self.lower_bytes_to_string(
-                        current,
-                        *destination,
-                        *representation,
-                        *value,
-                        assignment.span,
-                    )?;
-                }
-                AssignmentKind::ArrayGet {
-                    destination,
-                    representation,
-                    value,
-                    index,
-                } => self.lower_array_get(
-                    current,
-                    *destination,
-                    *representation,
-                    *value,
-                    *index,
-                    assignment.span,
-                )?,
-                AssignmentKind::ArrayClone {
-                    destination,
-                    representation,
-                    value,
-                } => self.append_instruction(
-                    current,
-                    Instruction::ArrayClone {
-                        destination: *destination,
-                        type_index: self
-                            .layout
-                            .repr_index(*representation)
-                            .map_err(|error| layout_error(assignment.span, error))?,
-                        value: *value,
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
-                AssignmentKind::ArraySet {
-                    representation,
-                    value,
-                    index,
-                    new_value,
-                    ..
-                } => self.append_instruction(
-                    current,
-                    Instruction::ArraySet {
-                        type_index: self
-                            .layout
-                            .repr_index(*representation)
-                            .map_err(|error| layout_error(assignment.span, error))?,
-                        value: *value,
-                        index: *index,
-                        new_value: *new_value,
-                        span: assignment.span,
-                    },
-                    assignment.span,
-                )?,
                 AssignmentKind::DirectCall {
                     function,
                     arguments,

@@ -339,7 +339,9 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
             collect_references(index, out);
             collect_references(value, out);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             collect_references(left, out);
             collect_references(right, out);
         }

@@ -37,9 +37,11 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
         }
         ExprKind::UnaryPrimitive { value, .. } => clear_array_literals(value),
         ExprKind::RepresentationCast { value, .. } => clear_array_literals(value),
-        ExprKind::Application(function, argument) => {
-            clear_array_literals(function) || clear_array_literals(argument)
-        }
+        ExprKind::Application(function, argument)
+        | ExprKind::ArrayAppend {
+            left: function,
+            right: argument,
+        } => clear_array_literals(function) || clear_array_literals(argument),
         ExprKind::Lambda { body, .. } => clear_array_literals(body),
         ExprKind::Let { bindings, body } => {
             bindings
