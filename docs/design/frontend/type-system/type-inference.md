@@ -39,7 +39,7 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
 
-Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Explicit term type applications and typed holes follow the official source rules. Source syntax has no explicit kind-application form; the kind solver instantiates kind variables implicitly. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
+Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Visible term type applications and typed holes follow the official source rules. A quantified kind argument is instantiated implicitly, because no source form applies one to a type constructor. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
 A declaration's scheme carries the constraints that were inferred for it, whether or not the source declared them. Generalization is therefore one sequence and not two:
 
@@ -214,12 +214,16 @@ Signature elaboration accepts the `Record` and `Row` primitive heads, the genera
 is an ordinary type; `Type`, `Constraint`, and `Symbol` are also accepted as
 ordinary type constructors with the kinds their primitive declarations give
 them. Naming one of these constructors does not require a kind application.
-There is no `KindApplication` node in the source type spine. PureScript's kind
-checker inserts internal `KindApp` nodes when ordinary type application
-implicitly instantiates a polymorphic kind; this compiler performs that
-instantiation in the kind solver. Source syntax cannot supply explicit kind
-arguments, so retaining the internal node is not a source-compatibility
-requirement. Record syntax and an equivalent `Record`
+There is no `KindApplication` node in the source type spine. PureScript's CST
+has no kind-application node either: its kind checker synthesizes `KindApp` when
+ordinary type application instantiates a polymorphic kind, and this compiler
+performs that instantiation in the kind solver. No source form applies a kind
+argument to a type constructor, so retaining the internal node is not a
+source-compatibility requirement. `forall @a b .`, `t :: k`, and the visible
+type application `e @T` are the forms that name a kind or type explicitly, and
+each is a separate CST node rather than an application of a kind argument; the
+CST already parses the latter two, and lowering them is FE-17 coverage. Record
+syntax and an equivalent `Record`
 application reach one construction: `elaborate_record` builds the same
 `Application(Constructor(Record), row)` the explicit application does. The
 primitive classes are declared with their kinds and functional dependencies;
