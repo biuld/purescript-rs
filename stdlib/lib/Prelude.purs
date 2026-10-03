@@ -50,6 +50,8 @@ module Prelude
   , mul
   , (+)
   , (*)
+  , class Show
+  , show
   , const
   , flip
   , ($)
@@ -61,6 +63,7 @@ import Data.Semigroup (class Semigroup, append, (<>))
 import Data.Eq (class Eq, eq, notEq, (==), (/=))
 import Data.Ord (class Ord, lessThan, lessThanOrEq, greaterThan, greaterThanOrEq, (<), (<=), (>), (>=))
 import Data.Semiring (class Semiring, add, mul, (+), (*))
+import Data.Show (class Show, show)
 
 foreign import data Effect :: Type -> Type
 
