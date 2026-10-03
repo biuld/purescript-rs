@@ -224,8 +224,8 @@ constraint is solved before generalization, so an unsolvable one becomes
 `NoInstance` and no residual-constraint abstraction exists. A scheme records only
 its quantified type variables, not their kinds.
 
-`bind_variable` is the inference-side rule `kinds.md` states. It runs the occurs
-check, the skolem-escape check, the level adjustment, and then the kind
+`bind_type_variable` is the inference-side rule `kinds.md` states. It runs the
+occurs check, the skolem-escape check, the level adjustment, and then the kind
 compatibility check, in that order, through the one kind solver in
 `typecheck/kind.rs`. A variable's kind is recorded when the variable is created,
 and `record_variable_kind` is the only writer of that table, so a fresh unknown, a
