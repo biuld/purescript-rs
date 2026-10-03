@@ -221,7 +221,8 @@ CC-07:
     cc/lower/global.rs;
     cc/lower/call/application.rs (`lower_partial_global_application`,
     `lower_indirect_application`, over-application fallback);
-    cc/lower/call/partial.rs (shared `GeneratedSymbolAllocator`); cc/lower/letrec.
+    cc/lower/call/partial.rs (shared `GeneratedSymbolAllocator`, and the
+    remaining-parameter conversion below); cc/lower/letrec.
   Tests: cc_ir_audit::partial_application_value_executes (underapplication),
     ::over_application_of_a_global_value_executes (over-application),
     ::global_value_with_partial_lambda_prefix_executes (a declaration returning
@@ -229,6 +230,12 @@ CC-07:
     ::partial_applications_in_linked_modules_get_distinct_symbols (cross-module
     stable symbols), ::nested_lambda_arities_execute (multi-argument and
     closure-returning nested lambdas), all executed under Wasmtime;
+    psrs-driver tests/partial_application.rs
+    ::a_partial_application_of_an_imported_polymorphic_function_converts_its_remaining_parameters
+    (an imported polymorphic `flip` applied to one of its three parameters and
+    held as a value; the adapter converts each remaining parameter to the
+    declaration's erased shape before the call) and
+    ::a_fully_applied_imported_polymorphic_function_still_reaches_the_same_result;
     psrs-driver tests/functions.rs::runs_a_top_level_function_value_through_call_ref,
     ::runs_a_non_capturing_local_lambda_through_call_ref,
     ::invokes_a_polymorphic_global_function_value_at_a_concrete_type;
@@ -241,7 +248,12 @@ CC-07:
     span-derived symbol that made equal-layout partial applications in two
     linked modules collide; the over-application fallback and eta-expanded
     wrapper make valid curried value uses compile instead of failing arity
-    checking.
+    checking. The remaining-parameter conversion fixes a polymorphic import: the
+    generated adapter passed each remaining parameter at the callable type's
+    concrete shape where the declaration stores a polymorphic parameter erased,
+    so CC verification rejected the call with "call arguments do not match its
+    signature". A saturated call already converted its arguments; the adapter
+    now does the same, with an identity conversion when the shapes agree.
   Gaps: none.
 ```
 

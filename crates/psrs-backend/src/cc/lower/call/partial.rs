@@ -116,10 +116,12 @@ impl FunctionLowerer<'_> {
         let mut nested_assignments = Vec::with_capacity(captured.len() + 1);
         let mut call_arguments = Vec::with_capacity(source_signature.parameters.len());
         let mut remaining_parameters = Vec::with_capacity(target_signature.parameters.len());
+        let mut remaining_shapes = Vec::with_capacity(target_signature.parameters.len());
         for expected in target_signature.parameters {
             let parameter = nested.fresh(expected);
             parameters.push(parameter);
             remaining_parameters.push(parameter);
+            remaining_shapes.push(expected);
         }
         for (index, value) in captured.iter().enumerate() {
             let Some(capture_type) = self
@@ -145,7 +147,32 @@ impl FunctionLowerer<'_> {
             });
             call_arguments.push(destination);
         }
-        call_arguments.extend(remaining_parameters);
+        // A remaining parameter carries the callable type's concrete shape here,
+        // but the callee's declaration may store a polymorphic parameter erased.
+        // Convert it the way a saturated call does; an identity conversion when
+        // the shapes already agree keeps the monomorphic case unchanged.
+        for (index, parameter) in remaining_parameters.into_iter().enumerate() {
+            let position = captured.len() + index;
+            let source_type = declared_parameters[position];
+            let source_shape = remaining_shapes[index];
+            let expected = source_signature.parameters[position];
+            let conversion = nested.typed_conversion(
+                source_type,
+                source_type,
+                source_shape,
+                expected,
+                expression.span,
+            )?;
+            let converted = nested.emit_conversion(
+                parameter,
+                source_shape,
+                expected,
+                conversion,
+                expression.span,
+                &mut nested_assignments,
+            );
+            call_arguments.push(converted);
+        }
         let result = nested.fresh(source_signature.result);
         nested_assignments.push(Assignment {
             destination: result,

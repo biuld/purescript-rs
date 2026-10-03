@@ -6,11 +6,13 @@ static WASM_ARTIFACT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 mod assertions;
 mod coercion;
+mod data_function;
 mod deriving;
 mod effect_arity;
 mod effects;
 mod guard_coverage;
 mod operators;
+mod partial_application;
 mod scalars;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
