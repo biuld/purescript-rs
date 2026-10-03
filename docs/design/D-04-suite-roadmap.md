@@ -308,7 +308,22 @@ cases agree, per code: `TypesDoNotUnify` 28/40, `IntOutOfRange` 1/1,
 `InfiniteType` 2/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, and
 `AmbiguousTypeVariables` 0/1. `HoleInferredType` and
 `CannotApplyExpressionOfTypeOnType` have no mapped kind and contribute no
-case. The aggregate counts distinct cases, while per-code totals count expected
+case.
+
+**Agreement here is by `errorCode`, not by reasoning, and one group of cases is
+counted as agreement for the wrong reason.** `CompareInt1.purs` through
+`CompareInt12.purs` reach the type checker rather than stopping before it, and we
+report `TypesDoNotUnify` for each, which is the code the corpus annotates. Our
+*reason* is different: `purs` reports `Could not match type EQ with type GT` while
+solving `Prim.Int.Compare`, while we report a record mismatch from unifying
+`Proxy ( left :: l, right :: r )` inside a type synonym. One of our diagnostics
+also renders its expected and found types identically — `expected {left: _T8,
+right: _T9}, found {left: _T8, right: _T9}` — which predates this milestone and is
+unexplained. Read `30/47` as "the codes match", not "the reasoning matches";
+diagnosing why row unification inside a type synonym fails belongs to the row work
+in [#87](https://github.com/biuld/purescript-rs/issues/87).
+
+The aggregate counts distinct cases, while per-code totals count expected
 annotations: `failing/MultipleErrors.purs` declares `TypesDoNotUnify` twice, so
 the per-code totals sum to 48 annotations across 47 cases.
 
@@ -322,9 +337,9 @@ verification instead of being rejected as an unsupported form.
 each previously stopped at `P5 typecheck [None]: this type is not supported yet`.
 Six more are no longer blocked but now mismatch for a reason of their own rather
 than for want of a type form: `2567.purs`, `CompareInt11.purs`, and
-`CompareInt12.purs` expect `NoInstanceFound` and receive `TypesDoNotUnify` because
-`Prim.TypeError.Fail` and `Prim.Int.Compare` have no rules; `4158.purs` and
-`LacksWithSubGoal.purs` no longer report at all.
+`CompareInt12.purs` expect `NoInstanceFound` and receive `TypesDoNotUnify`;
+`4158.purs` and `LacksWithSubGoal.purs` no longer report at all.
+`Prim.Int.Compare` now has a rule and is no longer part of that list.
 
 `IntToString1.purs` and `IntToString3.purs` now agree, and they are the first two
 cases in the suite closed by a compiler-owned rule rather than by a shared
@@ -389,11 +404,13 @@ reach the solver and mismatch on their own terms, and `failing/LacksWithSubGoal.
 and `failing/Superclasses5.purs` no longer report at all;
 `failing/RowLacks.purs` still imports `Type.Proxy`, which this library does not
 provide, so it remains an earlier-stage case rather than class-rule evidence.
-`failing/CompareInt11.purs` and `failing/CompareInt12.purs` are the first cases
-that need `Prim.Int.Compare` and `Prim.TypeError.Fail` rules rather than a kind, a
-type form, or a diagnostic code. The 45 remaining mismatches are accounted for by
-those per-code results; they include incomplete instance, deriving, and pattern
-support. The scoreboard output names each case.
+`failing/CompareInt11.purs` and `failing/CompareInt12.purs` were the first cases
+that needed a `Prim.Int.Compare` or `Prim.TypeError.Fail` rule rather than a kind,
+a type form, or a diagnostic code. `Prim.Int.Compare` now has a rule; they still
+mismatch, because what they need from it is `NoInstanceFound` and the rule decides
+the ordering instead. `Prim.TypeError.Fail` still has none. The 45 remaining
+mismatches are accounted for by those per-code results; they include incomplete
+instance, deriving, and pattern support. The scoreboard output names each case.
 `DerivingFunctor.purs`, `DerivingFoldable.purs`, and
 `DerivingTraversable.purs` show that `passing` cases also reach the solver.
 
