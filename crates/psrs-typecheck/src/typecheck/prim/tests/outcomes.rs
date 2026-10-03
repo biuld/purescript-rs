@@ -120,11 +120,20 @@ fn a_failure_under_a_code_with_no_official_error_code_is_refused() {
     assert!(checker.state.errors.is_empty());
 }
 
+/// A rule that decides nothing is downgraded, and leaves nothing behind.
+///
+/// This is the other half of the contract the framework's check has to preserve:
+/// a relation's decided arguments are unified against the goal's first, and when
+/// that unification proves nothing — because the decision only repeats what the
+/// goal already said — "nothing became more determined" still means the rule
+/// decided nothing, so the answer is read as the deferral it should have been and
+/// nothing survives it.
 #[test]
 fn a_solution_that_determined_nothing_is_read_as_the_deferral_it_should_be() {
     let mut checker = checker();
     let unknown = checker.fresh();
     let constraint = obligation(&mut checker, SOLVING_WITHOUT_PROGRESS, vec![int(), unknown]);
+    let before = SolverFingerprint::of(&checker);
 
     let PrimitiveDispatch::Deferred { evidence } = dispatch(&mut checker, &constraint) else {
         panic!("a rule that decided nothing has deferred");
@@ -138,7 +147,11 @@ fn a_solution_that_determined_nothing_is_read_as_the_deferral_it_should_be() {
         1,
         "its obligations are re-queued"
     );
-    assert!(checker.state.errors.is_empty());
+    assert_eq!(
+        SolverFingerprint::of(&checker),
+        before,
+        "an unproved decision leaves no substitution, level, kind, or diagnostic behind"
+    );
 }
 
 #[test]
@@ -187,6 +200,108 @@ fn a_deferral_that_returns_the_obligation_it_was_asked_about_is_reported() {
     );
 }
 
+/// The framework binds what a rule decided, rather than believing that it did.
+///
+/// This is official `Entailment.hs:301`: the dictionary carries the type the rule
+/// decided, the framework unifies it against the goal's argument, and that
+/// unification is the binding. A rule that assigned its decision to the wanted
+/// argument would make that step untestable, because there would be nothing left
+/// for it to check.
+#[test]
+fn a_stated_decision_is_bound_by_the_framework() {
+    let mut checker = checker();
+    let open = checker.fresh();
+    let constraint = obligation(&mut checker, DECIDING, vec![open.clone(), int()]);
+
+    let PrimitiveDispatch::Solved(WantedSolution::Primitive { arguments }) =
+        dispatch(&mut checker, &constraint)
+    else {
+        panic!("a stated decision for an open argument discharges the obligation");
+    };
+    assert_eq!(
+        checker.resolve_type(open),
+        boolean(),
+        "the binding came from unifying the decided argument against the goal's"
+    );
+    assert_eq!(
+        arguments,
+        vec![boolean(), int()],
+        "the evidence records the arguments the constraint now has"
+    );
+    assert!(checker.state.errors.is_empty());
+}
+
+/// A decision that contradicts an argument the obligation already fixed is
+/// reported, and the solver is *not* restored.
+///
+/// This is the case the two refusals cannot see: the rule bound nothing, so
+/// "nothing became more determined" reads as "the rule decided nothing", and the
+/// contradiction is dropped with the snapshot — which is how a decided value that
+/// is wrong became `no instance for constraint`. The framework's own unification
+/// finds it instead, keeps its diagnostic, and refuses the obligation. It is the
+/// mirror of the decline case above, which must still leave nothing behind.
+#[test]
+fn a_decision_that_contradicts_a_known_argument_is_reported_and_kept() {
+    let mut checker = checker();
+    let constraint = obligation(&mut checker, CONTRADICTING, vec![int(), int()]);
+    let next_variable = checker.state.next_variable;
+
+    assert!(
+        matches!(
+            dispatch(&mut checker, &constraint),
+            PrimitiveDispatch::Reported
+        ),
+        "a contradiction is a report, not a decline: the obligation cannot hold"
+    );
+    assert_eq!(
+        checker.state.next_variable,
+        next_variable + 1,
+        "the snapshot was not restored, so the rule's allocation stands behind \
+         the diagnostic rather than being discarded with it"
+    );
+    assert_eq!(checker.state.errors.len(), 1);
+    let error = &checker.state.errors[0];
+    assert_eq!(
+        error.kind,
+        TypeCheckErrorKind::TypeMismatch,
+        "the diagnostic is the shared unifier's, not a rule's restatement"
+    );
+    assert_eq!(error.error_code(), Some("TypesDoNotUnify"));
+    assert_eq!(
+        error.span, constraint.span,
+        "the diagnostic keeps the obligation's own range"
+    );
+}
+
+/// The unifier's binding is rolled back when the check finds a contradiction, so a
+/// rule's speculative work does not survive describing an obligation that cannot
+/// hold. What survives is the diagnostic, deliberately.
+#[test]
+fn a_contradiction_keeps_the_diagnostic_and_drops_the_partial_binding() {
+    let mut checker = checker();
+    let open = checker.fresh();
+    // The first argument is open, so the check binds it before it reaches the
+    // second, which the goal already fixed to something the decision contradicts.
+    let constraint = obligation(&mut checker, CONTRADICTING, vec![open.clone(), int()]);
+    let substitutions = checker.state.substitutions.clone();
+
+    assert!(matches!(
+        dispatch(&mut checker, &constraint),
+        PrimitiveDispatch::Reported
+    ));
+    assert_eq!(
+        checker.resolve_type(open.clone()),
+        open,
+        "the check that failed leaves no binding behind"
+    );
+    assert_eq!(checker.state.substitutions, substitutions);
+    assert_eq!(checker.state.errors.len(), 1);
+    assert_eq!(
+        checker.state.errors[0].kind,
+        TypeCheckErrorKind::TypeMismatch
+    );
+}
+
 #[test]
 fn a_wanted_constraint_that_is_not_the_member_s_own_is_not_this_rule_s_obligation() {
     let mut checker = checker();
@@ -221,7 +336,7 @@ fn a_proof_member_is_dispatched_before_the_givens_and_a_relation_after_them() {
 fn every_outcome_is_reachable_and_only_official_codes_are_reportable() {
     // The four outcomes are the contract, so the cases above are what keeps each
     // one of them a live answer rather than a variant no rule can return.
-    assert_eq!(SYNTHETIC.len(), 8);
+    assert_eq!(SYNTHETIC.len(), 10);
     assert!(EvidenceClass::RuntimeDictionary.accepts_a_given());
     assert!(EvidenceClass::ReportOnly.accepts_a_given());
     assert!(!EvidenceClass::CompileTimeProof.accepts_a_given());

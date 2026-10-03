@@ -213,7 +213,9 @@ fn append_does_not_fall_through_to_the_next_reading() {
 
 /// An `Append` whose decided symbol does not unify with the one it is wanted at
 /// is rejected on the decision itself, under the code `purs` raises for the same
-/// case: the symbol the rule decided does not unify with the wanted one.
+/// case. The reason is the shared unifier's: the rule states the concatenation and
+/// the framework unifies it against the goal, which is the step official solving
+/// takes on every dictionary it produces.
 #[test]
 fn append_rejects_a_decided_symbol_that_does_not_unify() {
     let source = format!(
@@ -229,7 +231,7 @@ fn append_rejects_a_decided_symbol_that_does_not_unify() {
     );
     assert_eq!(
         rejection_message("append-mismatch.purs", &source),
-        "Append \"a\" \"b\" \"ba\" does not hold: the appended is \"ab\""
+        "type mismatch: expected \"ab\", found \"ba\""
     );
 }
 
@@ -254,7 +256,7 @@ fn cons_rejects_a_split_that_contradicts_a_known_half() {
     );
     assert_eq!(
         rejection_message("cons-head-mismatch.purs", &wide),
-        "Cons \"ab\" \"c\" \"abc\" does not hold: the head is \"a\""
+        "type mismatch: expected \"a\", found \"ab\""
     );
 
     let short = source("a", "bc", "a");
@@ -264,7 +266,7 @@ fn cons_rejects_a_split_that_contradicts_a_known_half() {
     );
     assert_eq!(
         rejection_message("cons-tail-mismatch.purs", &short),
-        "Cons \"a\" \"bc\" \"a\" does not hold: the tail is \"\""
+        "type mismatch: expected \"\", found \"bc\""
     );
 
     assert_eq!(

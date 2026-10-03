@@ -1,14 +1,16 @@
 //! `Prim.Symbol.Compare` and `Prim.Int.Compare`: the two relations that decide
 //! an `Ordering`.
 //!
-//! Both have the same shape — two operands and an `Ordering` — and both bind the
-//! ordering they decide through the shared [`Checker::unify`], so a goal whose
-//! ordering disagrees with the one the rule decided is rejected by ordinary type
-//! equality under `TypesDoNotUnify`. That is official behaviour rather than a
-//! choice: `TypeChecker.Entailment` unifies a rule's decided arguments against
-//! the goal's arguments for every dictionary it builds. Neither rule returns
-//! `Failed`, for the same reason the `Prim.Int` rules do not: official has no
-//! failure answer for these members.
+//! Both have the same shape — two operands and an `Ordering` — and both *state*
+//! the ordering they decide in the relation's dictionary rather than assigning it
+//! to the wanted argument; the framework unifies a dictionary's own arguments
+//! against the goal's, so a goal whose ordering disagrees with the one the rule
+//! decided is rejected by ordinary type equality under `TypesDoNotUnify`. That is
+//! official behaviour rather than a choice: `TypeChecker.Entailment` unifies a
+//! rule's decided arguments against the goal's arguments for every dictionary it
+//! builds. Neither rule returns `Failed`, for the same reason the `Prim.Int` rules
+//! do not: an answer that contradicts the goal is the framework's to find, not
+//! the rule's to report.
 //!
 //! What differs is how much each relation decides.
 //!
@@ -158,7 +160,7 @@ fn solve_symbol_compare(checker: &mut Checker, args: &PrimitiveArgs) -> Primitiv
     let (Some(left), Some(right)) = (known_symbol(left), known_symbol(right)) else {
         return PrimitiveOutcome::Undecided;
     };
-    decided(checker, args, Ordering::of_symbols(left, right))
+    decided(&arguments, Ordering::of_symbols(left, right))
 }
 
 /// Decides `Compare left right ordering` over two type-level integers.
@@ -180,38 +182,34 @@ fn solve_int_compare(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOu
         return PrimitiveOutcome::Undecided;
     };
     if let (Some(left), Some(right)) = (literal_int(left), literal_int(right)) {
-        return decided(checker, args, Ordering::of_integers(left, right));
+        return decided(&arguments, Ordering::of_integers(left, right));
     }
     match close_relation(checker, &arguments) {
-        Some(ordering) => decided(checker, args, ordering),
+        Some(ordering) => decided(&arguments, ordering),
         None => PrimitiveOutcome::Undecided,
     }
 }
 
-/// Binds the ordering argument to the decision through the shared substitution
-/// and returns the relation's evidence.
+/// Puts the ordering the two rules decided at the position they decide, and
+/// returns the relation's evidence.
 ///
-/// The binding goes through [`Checker::unify`] rather than through a direct
-/// assignment so that the decision is one the rest of inference can see, and so
-/// that an ordering which disagrees with the decision is reported by ordinary
-/// type equality: that is how `Prim.Int.Compare 1 2 LT` becomes a
-/// `TypesDoNotUnify` on two `Ordering`s, and it is what the two relations share
-/// with `Int.Add`'s sum and `Symbol.Cons`'s head.
-///
-/// The evidence records the arguments the obligation *then* has rather than the
-/// ones the rule intended, so the recorded decision and the constraint cannot
-/// drift apart.
-fn decided(checker: &mut Checker, args: &PrimitiveArgs, ordering: Ordering) -> PrimitiveOutcome {
-    let span = args.span();
-    let arguments = args.resolved(checker);
-    let Some(wanted) = arguments.get(ORDERING).cloned() else {
+/// The decision is *stated*, not applied. This is official's dictionary, whose
+/// `tcdInstanceTypes` carry the decided `Ordering` at the position the rule
+/// decides and the goal's own arguments everywhere else, and the framework
+/// unifies those against the goal's through [`Checker::unify`]. That is what binds
+/// the ordering argument when it is still unknown, so the evidence records the
+/// arguments the obligation *then* has rather than the ones the rule intended, and
+/// what rejects an ordering that disagrees with the decision under
+/// `TypesDoNotUnify` — the shared step `Int.Add`'s sum and `Symbol.Cons`'s head
+/// reach through the same way.
+fn decided(arguments: &[InferType], ordering: Ordering) -> PrimitiveOutcome {
+    if ORDERING >= arguments.len() {
         return PrimitiveOutcome::Undecided;
-    };
-    checker.unify(ordering.as_type(), wanted, span);
+    }
+    let mut decided = arguments.to_vec();
+    decided[ORDERING] = ordering.as_type();
     PrimitiveOutcome::Solved {
-        evidence: PrimitiveEvidence::Dictionary {
-            arguments: args.resolved(checker),
-        },
+        evidence: PrimitiveEvidence::Dictionary { arguments: decided },
         deferred: Vec::new(),
     }
 }
@@ -317,7 +315,9 @@ mod rule_tests {
 
     /// An ordering that disagrees with the decision is rejected by ordinary type
     /// equality, under `TypesDoNotUnify`, which is the code official solving
-    /// raises for its own decided argument. Neither rule returns `Failed` for it.
+    /// raises for its own decided argument. The framework's own check is what
+    /// finds it: neither rule inspects the wanted ordering, and neither returns
+    /// `Failed`.
     #[test]
     fn a_wanted_ordering_that_disagrees_is_rejected_by_ordinary_equality() {
         for (class_id, arguments) in [
@@ -335,7 +335,7 @@ mod rule_tests {
 
             assert!(matches!(
                 checker.solve_primitive(&goal, SolveDepth::new()),
-                PrimitiveDispatch::Solved(WantedSolution::Primitive { .. })
+                PrimitiveDispatch::Reported
             ));
             let errors = &checker.state.errors;
             assert!(
@@ -344,6 +344,7 @@ mod rule_tests {
                     .any(|error| error.kind == TypeCheckErrorKind::TypeMismatch),
                 "{class_id:?} must report the disagreement by ordinary equality: {errors:?}"
             );
+            assert!(errors.iter().all(|error| error.span == goal.span));
         }
     }
 }
