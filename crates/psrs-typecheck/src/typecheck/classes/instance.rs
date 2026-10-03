@@ -78,24 +78,13 @@ impl Checker {
         }
 
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
-        for superclass in &class.superclasses {
-            let mut arguments = Vec::with_capacity(superclass.arguments.len());
-            for name in &superclass.arguments {
-                let index = class
-                    .parameters
-                    .iter()
-                    .position(|parameter| parameter == name)?;
-                arguments.push(head_arguments[index].clone());
-            }
-            let super_constraint = ClassConstraint {
-                class_id: superclass.class_id,
-                arguments,
-                span: superclass.span,
-            };
+        for (field, super_constraint) in
+            self.superclass_constraints(instance.class_id, &head_arguments)
+        {
             let super_dictionary = self.dictionary_type(&super_constraint);
             let wanted = self.push_wanted(super_constraint, super_dictionary.clone());
             fields.push((
-                superclass.field.clone(),
+                field,
                 InferredExpr {
                     kind: InferredExprKind::Evidence(wanted),
                     ty: super_dictionary,
