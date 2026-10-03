@@ -111,6 +111,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "Test.Assert",
             "Data.Maybe",
             "Data.Either",
+            "Data.Tuple",
             "WASI.Resource",
             "WASI.IO",
             "WASI.Clock",
@@ -136,6 +137,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
                 || path.ends_with("lib/Test/Assert.purs")
                 || path.ends_with("lib/Data/Maybe.purs")
                 || path.ends_with("lib/Data/Either.purs")
+                || path.ends_with("lib/Data/Tuple.purs")
                 || path.ends_with("lib/WASI/Resource.purs")
                 || path.ends_with("lib/WASI/IO.purs")
                 || path.ends_with("lib/WASI/Clock.purs")

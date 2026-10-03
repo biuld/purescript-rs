@@ -11,6 +11,7 @@ Effect.Console
 Test.Assert
 Data.Maybe
 Data.Either
+Data.Tuple
 WASI.Resource
 WASI.IO
 WASI.Clock
