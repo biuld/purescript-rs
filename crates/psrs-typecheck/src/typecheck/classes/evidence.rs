@@ -62,6 +62,10 @@ impl Checker {
             variables.insert(parameter.clone(), argument.clone());
         }
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
+        // Each method's field type is generalized against the level the
+        // dictionary is built at, not against the nested level its signature is
+        // elaborated in.
+        let outer_level = self.state.level;
         for superclass in &class.superclasses {
             let mut arguments = Vec::with_capacity(superclass.arguments.len());
             for name in &superclass.arguments {
@@ -79,11 +83,9 @@ impl Checker {
         }
         for method in &class.methods {
             let mut method_variables = variables.clone();
-            let outer_level = self.state.level;
-            self.state.level = outer_level + 1;
-            let field_ty =
-                self.elaborate_type_mode(&method.signature, &mut method_variables, false);
-            self.state.level = outer_level;
+            let field_ty = self.in_nested_level(|checker| {
+                checker.elaborate_type_mode(&method.signature, &mut method_variables, false)
+            });
             let field_ty = self.generalize(&field_ty, &[], outer_level).ty;
             fields.push((method.name.clone(), field_ty));
         }
