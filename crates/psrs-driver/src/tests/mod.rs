@@ -7,6 +7,7 @@ static WASM_ARTIFACT_COUNTER: AtomicU32 = AtomicU32::new(0);
 mod assertions;
 mod coercion;
 mod data_function;
+mod foldable;
 mod deriving;
 mod effect_arity;
 mod effects;
