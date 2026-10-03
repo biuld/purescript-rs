@@ -20,6 +20,7 @@ mod graph;
 mod lenient;
 mod library;
 mod reports;
+mod signatures;
 
 pub(crate) use reports::typecheck_warnings;
 pub use reports::{
@@ -354,7 +355,7 @@ pub(super) fn typecheck_program_with_warnings(
     // its declared type even when it imported it through an umbrella module.
     // Foreign imports contribute the same way; their type lives on the
     // external rather than on a value declaration.
-    let signatures = declared_signatures(&modules);
+    let signatures = signatures::declared_signatures(&modules);
     let order = typecheck_order(&dependencies);
     let module_names = modules
         .iter()
@@ -369,7 +370,7 @@ pub(super) fn typecheck_program_with_warnings(
         if failed_kind_modules.contains(&module.id) {
             continue;
         }
-        let imported = imported_signatures(&module, &signatures);
+        let imported = signatures::imported_signatures(&module, &signatures);
         let imported_instances = imported_instance_declarations(
             &dependencies,
             index,
@@ -450,48 +451,4 @@ pub(super) fn typecheck_program_with_warnings(
 /// stops the declaration rather than the use that exposed it.
 fn kind_failure_modules(diagnostics: &[psrs_kind::KindDiagnostic]) -> HashSet<psrs_hir::ModuleId> {
     diagnostics.iter().map(|error| error.origin).collect()
-}
-
-/// The declared type of every value and external in the program, keyed by the
-/// symbol that declares it. A re-exported symbol keeps the signature of the
-/// declaration that owns it, so the table is global rather than per module.
-fn declared_signatures(
-    modules: &[psrs_hir::Module],
-) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
-    modules
-        .iter()
-        .flat_map(|module| {
-            let declarations = module.declarations.iter().filter_map(|declaration| {
-                declaration
-                    .signature
-                    .clone()
-                    .map(|signature| (declaration.symbol, signature))
-            });
-            let externals = module.externals.iter().filter_map(|external| {
-                external
-                    .signature
-                    .clone()
-                    .map(|signature| (external.symbol, signature))
-            });
-            declarations.chain(externals)
-        })
-        .collect()
-}
-
-/// Resolves a module's imported symbols to their declared type from the global
-/// declaration table. A symbol re-exported by an umbrella module keeps the
-/// signature of the declaration that owns it.
-fn imported_signatures(
-    module: &psrs_hir::Module,
-    signatures: &HashMap<psrs_hir::SymbolId, psrs_hir::Type>,
-) -> HashMap<psrs_hir::SymbolId, psrs_hir::Type> {
-    let mut imported = HashMap::new();
-    for import in &module.imports {
-        for symbol in &import.symbols {
-            if let Some(ty) = signatures.get(&symbol.symbol) {
-                imported.insert(symbol.symbol, ty.clone());
-            }
-        }
-    }
-    imported
 }
