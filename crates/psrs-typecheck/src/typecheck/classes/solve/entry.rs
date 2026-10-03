@@ -116,10 +116,17 @@ impl Checker {
                 constraint.solution = found;
                 let reported_resolution_error =
                     self.state.errors[errors_before..].iter().any(|error| {
+                        // Any of these says this obligation has already been
+                        // reported, so reporting it a second time as a missing
+                        // instance would be the same rejection twice. A rule that
+                        // reports under `TypesDoNotUnify` — because its own decided
+                        // argument does not unify — is the case that needs the
+                        // third kind here.
                         matches!(
                             error.kind,
                             TypeCheckErrorKind::OverlappingInstances
                                 | TypeCheckErrorKind::NoInstance
+                                | TypeCheckErrorKind::TypeMismatch
                         )
                     });
                 if constraint.solution.is_none() && !reported_resolution_error {

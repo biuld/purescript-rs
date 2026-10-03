@@ -286,13 +286,15 @@ the nominal default at every use. The effect on `Coercible` is not yet visible
 from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
 type-level `Symbol` literals, which the shared type spine does not carry yet.
 
-`Coercible` and the three `Prim.Int` relations have rules, and each reaches one shared
-dispatch site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table:
-`mod.rs` for the dispatch and the outcome types, `requeue.rs` for the deferral bound,
-`coercible/mod.rs` for the one proof rule, with the given-composition helpers
-it shares in `coercible/givens.rs`, and `int.rs` for `Prim.Int.Add`, `Prim.Int.Mul`,
-and `Prim.Int.ToString`. The private kind table and private unifier the
-previous revision named are gone; the rule reads roles through the checked kind
+`Coercible` and five relations have rules, and each reaches one shared dispatch
+site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/`
+holds the rule table: `mod.rs` for the dispatch and the outcome types, `requeue.rs`
+for the deferral bound, `coercible/mod.rs` for the one proof rule with the
+given-composition helpers it shares in `coercible/givens.rs`, `symbol.rs` for
+`Prim.Symbol.Append` and `Prim.Symbol.Cons`, and `int.rs` for `Prim.Int.Add`,
+`Prim.Int.Mul`, and `Prim.Int.ToString`. The private kind table and private
+unifier the previous revision named are gone; the `Coercible` rule reads roles
+through the checked kind
 environment and kinds through the one kind solver, and it keeps only the
 recursion-bounded role walk, which is the mechanism every role-aware relation will
 share. The old `classes/coercion/` path is gone with them.
@@ -385,12 +387,40 @@ from the wanted list or from an instance context. Improvement still assigns only
 variables and still draws only on givens and on instance heads that are fully mapped, so
 it never assigns a rigid variable and never falls back to a later candidate.
 
-The other nine relations have no rule and no dispatch entry: `Prim.Row.Cons`,
-`Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Cons`,
-`Compare`, and `Prim.Int.Compare`. A wanted `Prim.Row.Lacks`,
-`Prim.Row.Union`, `Prim.Row.Nub`, `Prim.Row.Cons`,
-`Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Prim.Symbol.Cons`,
-`Prim.Symbol.Compare`, or `Prim.Int.Compare` therefore reaches ordinary instance
+`Prim.Symbol.Append` and `Prim.Symbol.Cons` have rules in
+`crates/psrs-typecheck/src/typecheck/prim/symbol.rs`, and they follow official
+`appendSymbols` and `consSymbol` arm for arm — including the order, which is part
+of what each relation decides. `Append` reads two known symbols as a
+concatenation, a known left symbol and a known appended symbol as a prefix, and a
+known right symbol and a known appended symbol as a suffix; it strips a prefix
+only when the left symbol is a genuine prefix, so `Append "b" s "abc"` declines
+rather than answering `"a"` from the suffix reading, exactly as official solving
+does. `Cons` reads a known symbol by splitting it into its first scalar and the
+rest, and joins a head and a tail only when the head is one scalar; an empty
+symbol has no first scalar and decides nothing. Both bind what they decide
+through the shared substitution and record the decided arguments as the relation's
+dictionary evidence. A decided symbol that does not unify with an argument already
+known is reported under `TypesDoNotUnify`, which is the code official solving
+raises for its own decided argument, and a head that is not one scalar is reported
+under `NoInstanceFound` — a report the framework refuses while the symbol argument
+is still unknown, because an obligation with an unknown argument is undecided
+rather than impossible. `crates/psrs-driver/tests/prim_symbol.rs` pins every
+reading, decline, and rejection against `purs` 0.15.16.
+
+The three `Prim.Int` relations run forwards and backwards over their arguments.
+`Add 2 7 9` decides the third argument and `Add l 5 9` the second, `Mul` decides
+its product, and `ToString` decides the string from a known integer — so
+`ToString 1 "a"` is rejected by ordinary equality between the decided `"1"` and the
+wanted `"a"`, which is why the diagnostic comes from unifying a decided argument
+rather than from a rule inspecting what was wanted. Each declines when no direction
+applies, and an `i64` overflow declines rather than wrapping: `IntOutOfRange` is
+official's code for a *source* literal, not for computed type-level arithmetic.
+Type-level integers are `i64` here while official solves over `Integer`, so wide
+arithmetic declines where official would decide.
+
+The other seven relations have no rule and no dispatch entry: `Prim.Row.Cons`,
+`Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Compare`, and
+`Prim.Int.Compare`. A wanted one of those therefore reaches ordinary instance
 search and is reported as a missing instance, which is the correct outcome for an
 unimplemented relation but not for a supported one. `Warn` and `Fail` and
 `Partial` have no diagnostic
