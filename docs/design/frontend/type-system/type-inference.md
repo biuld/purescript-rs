@@ -211,14 +211,16 @@ Track official behavior for partial signatures, visible type applications, and a
 `InferType` has no `KindApplication` and no explicit row-constructor node.
 Signature elaboration accepts the `Record` and `Row` primitive heads, the general
 `Row` form, type-level `String` and `Integer` literals, and a record row tail that
-is an ordinary type; `Type`, `Constraint`, and `Symbol` are still rejected,
-because naming a kind in a type position needs `KindApplication` and rejecting
-them is more honest than giving them a fresh unknown kind. Record syntax and an
-equivalent `Record` application reach one construction: `elaborate_record` builds
-the same `Application(Constructor(Record), row)` the explicit application does.
-The `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError`
-classes are declared with their kinds and functional dependencies but have no
-rule; see [primitives](prim.md).
+is an ordinary type; `Type`, `Constraint`, and `Symbol` are also accepted as
+ordinary type constructors with the kinds their primitive declarations give
+them. Naming one of these constructors does not require a kind application.
+`KindApplication` remains absent from the type spine, so explicit kind
+application is still unsupported. Record syntax and an equivalent `Record`
+application reach one construction: `elaborate_record` builds the same
+`Application(Constructor(Record), row)` the explicit application does. The
+primitive classes are declared with their kinds and functional dependencies;
+their rule and report coverage is owned by [primitives](prim.md) and measured in
+[D-04](../../D-04-suite-roadmap.md).
 
 Generalization retains the wanted constraints a signatureless declaration could
 not discharge. `solve_wanted_constraints` takes the policy for a constraint it
@@ -228,7 +230,10 @@ and retaining is one decision rather than two. A declared signature keeps the
 evidence it has. A declaration without one retains an obligation only when some
 argument is still a flexible unknown, which is official's `canBeGeneralized`: `C
 ?a` is deferred to generalization, `C Int` and a rigid `C a` are missing
-instances. `order.rs` reports whether a group is recursive, and that decides
+instances. Nullary constraints can be generalized on their own. Report-only
+`Fail` and `Partial` follow this shared retention policy: `Fail (Quote ?a)` can
+remain residual while `Fail (Text "message")` reports immediately, and nullary
+`Partial` can remain residual until a context requires it to be solved. `order.rs` reports whether a group is recursive, and that decides
 whether a retained obligation is generalized or reported as
 `CannotGeneralizeRecursiveFunction`. `check_residual_ambiguity` measures a
 retained obligation's variables against the result type and the one functional
@@ -260,7 +265,8 @@ The three state owners are declared in `typecheck/state.rs`: `SemanticEnv`,
 and `restore` are the only way solver state is saved, and the operations that use
 them are named for what they do rather than for their caller:
 `speculate` discards a failed candidate's diagnostics, `speculate_reporting`
-re-emits them, and `without_diagnostics` keeps everything a re-elaboration solved
+re-emits them, `probe_reporting` restores all effects even on success and retains
+failed annotation diagnostics, and `without_diagnostics` keeps everything a re-elaboration solved
 while dropping only what it reported — the three the earlier code had written out
 by hand and had made disagree. `with_scope`, `with_givens`, `with_given_chain`,
 `with_skolem_scope`, and `in_nested_level` are the only ways a scope is entered
@@ -274,3 +280,11 @@ that recycles a variable has to recycle its rigidity with it.
 row, and it carries the range of the operation that reached the shape because
 `InferType` holds no ranges of its own. Finalization discharges `Constrained` into
 dictionary arrows, which matches the boundary stated above.
+
+Constrained forall expression annotations use that complete rollback probe to
+check the written scheme, then recheck the body at the expected use type.
+Monomorphic uses instantiate the scheme and apply its actual dictionary
+obligations; rank-N uses preserve the expected polymorphism. Both paths share
+ordinary constraint application rather than replacing only the expression root
+type. Empty rows have kind `Row k` with a fresh element kind constrained by the
+surrounding row or application; they do not force `k` to `Type`.

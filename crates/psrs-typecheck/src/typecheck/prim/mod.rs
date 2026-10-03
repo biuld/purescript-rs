@@ -1,23 +1,19 @@
 //! The primitive rule table: dispatch from a class identity to the rule that
 //! decides it, and the contract a rule's result must satisfy.
 //!
-//! Dispatch is a table lookup keyed by [`hir::TypeId`], consulted once per
-//! wanted constraint in a fixed position: a `Proof` member's rule before the
-//! lexical givens, and every other member's rule after the givens and
-//! superclass paths and before instance search. The position is not chosen per
-//! rule: it follows from the member's [`EvidenceClass`], because a
-//! compile-time proof is a checked boundary rather than a dictionary and so
-//! nothing in scope discharges it, while a relation's dictionary and a report's
-//! diagnostic are what an ordinary given or instance supplies.
+//! Dispatch is a table lookup keyed by [`hir::TypeId`]. Proof boundaries and
+//! type-level relation rules precede lexical givens; report rules run after
+//! givens so warnings and failures can propagate to an enclosing boundary. The
+//! position follows from [`EvidenceClass`]: a proof is not a dictionary, a
+//! relation decides its type-level facts, and reports can prefer a dictionary in
+//! scope.
 //!
 //! A rule receives ordinary [`InferType`] arguments through [`PrimitiveArgs`]
-//! and returns one [`PrimitiveOutcome`]. The framework does not take the
-//! outcome on trust: accepting it is a transaction, so a rule that declines
-//! leaves no substitution, level, kind, or diagnostic behind, while a rule whose
-//! decision contradicts the obligation keeps the diagnostic the shared unifier
-//! produced for it. The framework — not the rule — decides both, and it decides
-//! the second by unifying the rule's decided arguments against the goal's, which
-//! is the step official solving takes on every dictionary it produces. See
+//! and returns one [`PrimitiveOutcome`]. The framework verifies any produced
+//! dictionary through the shared unifier: a rule that declines leaves no
+//! substitution, level, kind, or diagnostic behind, while a contradictory
+//! decision keeps the unifier's diagnostic. Applicability belongs to the rule;
+//! the framework does not infer it by counting unknowns. See
 //! `dispatch` for the acceptance path, `verify` for that step, and
 //! `requeue` for the bound on a deferral.
 
@@ -27,7 +23,8 @@ mod coercible;
 mod compare;
 mod dispatch;
 mod int;
-mod requeue;
+mod reports;
+pub(in crate::typecheck) mod requeue;
 mod row;
 mod symbol;
 mod verify;
@@ -39,19 +36,6 @@ mod tests;
 /// contract: it fixes where the rule is consulted and what a solved obligation
 /// lowers to, and no downstream stage re-derives a member's meaning from its
 /// name.
-// Only `CompileTimeProof` has a rule today, so the other two classifications
-// are recorded by the contract rather than constructed. They are part of the
-// result contract a rule for a `Relation` or a report declares, and this
-// expectation is what asks the next rule to remove it.
-// The test build constructs every variant, so the expectation is only for the
-// build that does not.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only the one Proof member has a rule; the other classifications belong to the rules that do not exist yet"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::typecheck) enum EvidenceClass {
     /// No runtime value: the evidence is a checked boundary that Core lowers to
@@ -60,20 +44,38 @@ pub(in crate::typecheck) enum EvidenceClass {
     CompileTimeProof,
     /// A value that erases, or that a dictionary projection reads.
     RuntimeDictionary,
+    /// A dictionary that also emits a report. `Warn` prefers a dictionary in
+    /// scope so its warning can be propagated outward before this rule runs.
+    ReportingDictionary,
     /// No evidence: a diagnostic is the result.
     ReportOnly,
 }
 
 impl EvidenceClass {
-    /// Whether this class's evidence is a dictionary a given or an instance
-    /// could supply instead of the rule.
+    /// Whether the primitive rule is tried before a lexical given.
     ///
-    /// Only a compile-time proof answers `false`, and it does so because its
-    /// evidence is a boundary rather than a dictionary: THIR rejects a
-    /// coercion whose evidence is not an explicit proof boundary, so a given
-    /// for a `Proof` member would produce evidence the program cannot verify.
+    /// Relations must decide their type-level facts before a caller's
+    /// dictionary can mask them. A report runs after givens so `Warn`, `Fail`,
+    /// and `Partial` can propagate through an enclosing constraint. A proof
+    /// runs first because a dictionary is not the proof boundary Core expects.
+    fn precedes_givens(self) -> bool {
+        matches!(
+            self,
+            EvidenceClass::CompileTimeProof | EvidenceClass::RuntimeDictionary
+        )
+    }
+
+    /// Whether a direct lexical given can supply this evidence.
+    ///
+    /// `Coercible` is a checked proof boundary, so a given dictionary cannot
+    /// discharge it. Its rule reads and composes proof givens itself.
     fn accepts_a_given(self) -> bool {
-        !matches!(self, EvidenceClass::CompileTimeProof)
+        matches!(
+            self,
+            EvidenceClass::RuntimeDictionary
+                | EvidenceClass::ReportingDictionary
+                | EvidenceClass::ReportOnly
+        )
     }
 }
 
@@ -107,6 +109,8 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
         .chain(compare::RULES.iter())
         .chain(int::RULES.iter())
         .chain(row::RULES.iter())
+        .chain(row::deferred::RULES.iter())
+        .chain(reports::RULES.iter())
 }
 
 /// The test build adds the framework cases' synthetic rules. They are keyed by
@@ -119,6 +123,8 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
         .chain(compare::RULES.iter())
         .chain(int::RULES.iter())
         .chain(row::RULES.iter())
+        .chain(row::deferred::RULES.iter())
+        .chain(reports::RULES.iter())
         .chain(tests::SYNTHETIC.iter())
 }
 
@@ -129,21 +135,17 @@ pub(in crate::typecheck) fn primitive_rule(
     rules().find(|rule| rule.class_id == class_id)
 }
 
+/// Whether an unresolved primitive class reports a diagnostic rather than
+/// producing a user-supplied dictionary. The report table owns this fact.
+pub(in crate::typecheck) fn is_report_only(class_id: hir::TypeId) -> bool {
+    reports::is_report_only(class_id)
+}
+
 /// The evidence a rule produces.
 ///
 /// The shape is the member's strategy: a `Proof` member's evidence is the
 /// boundary it checked, a `Relation` member's is an ordinary dictionary that
 /// erases and records the arguments the rule decided, and a report has none.
-// `Proof` is the only evidence a rule produces today. The other two are the
-// contract for the members whose rules do not exist yet, and the tests exercise
-// all three through the dispatch.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "a report's absence belongs to the three report members whose rules do not exist yet; a relation's dictionary is already produced by the symbol rules"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(in crate::typecheck) enum PrimitiveEvidence {
     /// A checked boundary with no runtime value, recording the types it
@@ -188,25 +190,11 @@ impl PrimitiveEvidence {
 
 /// One rule's answer.
 ///
-/// `Undecided` and `Failed` are separate answers on purpose. Official solving
-/// returns `Maybe [TypeClassDict]` and never inspects the goal, so it cannot tell
-/// "no rule applies" from "the rule applies and the obligation cannot hold" — it
-/// reports the second by failing the unification of its own decided arguments
-/// against the goal's. Splitting them here is what lets a `Prim` obligation that
-/// is still unknown reach instance search instead of being reported as impossible,
-/// and the second case is reached the way official reaches it: the framework runs
-/// that unification itself, so no rule answers it and no rule can get it wrong.
-// `Solved`, `Undecided`, and `Failed` are the three answers the rules that exist
-// return. `Deferred` belongs to the relations and reports whose rules do not
-// exist yet; the framework handles it and the tests reach it, so a rule can
-// return it without the framework changing.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no rule defers yet; a deferral belongs to the relations and reports not yet implemented"
-    )
-)]
+/// `Undecided` and `Failed` are separate answers: applicability belongs to the
+/// rule and may follow from a decisive known part even while another argument is
+/// flexible. The framework does not infer silence or failure by counting
+/// unknowns. It verifies produced dictionary arguments through the shared
+/// unifier, and `Failed` reports an impossibility established by the rule.
 pub(in crate::typecheck) enum PrimitiveOutcome {
     /// The rule decides the relation and the evidence is explicit. Any
     /// obligation in `deferred` still has to be discharged.
@@ -219,9 +207,8 @@ pub(in crate::typecheck) enum PrimitiveOutcome {
         evidence: PrimitiveEvidence,
         deferred: Vec<WantedConstraint>,
     },
-    /// The rule makes progress on the known part without the full answer, which
-    /// is how it defers. `evidence` is what it could already decide, and
-    /// `deferred` is what it could not.
+    /// The rule decides a known portion but leaves a residual obligation.
+    /// `evidence` records the decision already made; `deferred` carries the rest.
     Deferred {
         evidence: Option<PrimitiveEvidence>,
         deferred: Vec<WantedConstraint>,
@@ -229,9 +216,9 @@ pub(in crate::typecheck) enum PrimitiveOutcome {
     /// The rule does not apply. The obligation continues into the ordinary
     /// paths.
     Undecided,
-    /// The rule applies and the obligation cannot hold, for a reason no unification
-    /// finds: the arguments do not permit *any* answer, as `Cons "ab" "c" s`
-    /// does not. `code` is an existing diagnostic kind, so the reported
+    /// The rule applies and its semantics establish that the obligation cannot
+    /// hold, even if another argument remains flexible. `code` is an existing
+    /// diagnostic kind, so the reported
     /// `errorCode` is one `purs` itself raises for an obligation; the framework
     /// refuses a kind that maps to no official code rather than inventing one.
     ///
@@ -257,10 +244,16 @@ pub(in crate::typecheck) struct PrimitiveArgs<'a> {
 }
 
 impl<'a> PrimitiveArgs<'a> {
-    /// The range of the obligation, which every diagnostic a rule reports and
-    /// every piece of evidence it produces carries.
+    /// The source range of the obligation, used for type errors and evidence.
     pub(in crate::typecheck) fn span(&self) -> TextRange {
         self.constraint.span
+    }
+
+    /// The owner location for reports such as `Warn`, captured when the wanted
+    /// was created. It is separate from the constraint span because `purs`
+    /// locates such warnings at the enclosing declaration.
+    pub(in crate::typecheck) fn report_span(&self) -> TextRange {
+        self.constraint.report_span
     }
 
     /// The arguments in declaration order, each read through the shared
@@ -271,33 +264,6 @@ impl<'a> PrimitiveArgs<'a> {
             .iter()
             .map(|argument| checker.resolve_type(argument.clone()))
             .collect()
-    }
-
-    /// The unsolved, flexible inference variables any argument still mentions.
-    /// A rigid variable is not one: a signature's variable is as determined as
-    /// a literal, and a rule may decide on it.
-    pub(in crate::typecheck) fn unknowns(&self, checker: &Checker) -> HashSet<u32> {
-        let mut unknowns = HashSet::new();
-        for argument in &self.constraint.arguments {
-            let mut variables = HashSet::new();
-            classes::collect_infer_variables(
-                &checker.resolve_type(argument.clone()),
-                &mut variables,
-            );
-            unknowns.extend(
-                variables
-                    .into_iter()
-                    .filter(|variable| !checker.state.rigid.contains(variable)),
-            );
-        }
-        unknowns
-    }
-
-    /// Whether every argument is determined. This is the framework's own
-    /// reading, not the rule's: it is what decides whether a `Failed` outcome
-    /// may be honoured.
-    pub(in crate::typecheck) fn all_determined(&self, checker: &Checker) -> bool {
-        self.unknowns(checker).is_empty()
     }
 }
 
@@ -319,9 +285,16 @@ pub(in crate::typecheck) enum PrimitiveDispatch {
 
 /// Whether `class_id`'s rule is consulted before the lexical givens.
 ///
-/// This is the one place the dispatch order is decided, and it is decided by the
-/// member's evidence class rather than by its identity, so a rule cannot be
-/// consulted in one position and discharged in another.
+/// The evidence classification owns this position: type-level relations and
+/// proof boundaries precede givens; reports run after givens so they can
+/// propagate or emit their diagnostic at the unresolved boundary.
 pub(in crate::typecheck) fn primitive_rule_precedes_givens(class_id: hir::TypeId) -> bool {
+    primitive_rule(class_id).is_some_and(|rule| rule.evidence.precedes_givens())
+}
+
+/// Whether a direct lexical given is forbidden from supplying this member's
+/// evidence. `Coercible` is the only such member: its proof rule can consume
+/// givens but must produce a verified proof boundary.
+pub(in crate::typecheck) fn primitive_rule_skips_given_lookup(class_id: hir::TypeId) -> bool {
     primitive_rule(class_id).is_some_and(|rule| !rule.evidence.accepts_a_given())
 }

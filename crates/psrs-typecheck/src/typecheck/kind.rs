@@ -13,7 +13,7 @@
 //! the bindings that produced them.
 
 use super::*;
-use psrs_kind::{KindScheme, KindScope, type_kind};
+use psrs_kind::{KindScheme, KindScope};
 
 impl Checker {
     /// Allocates a fresh kind variable from the one kind solver.
@@ -156,7 +156,10 @@ impl Checker {
             InferType::ForAll { body, .. } | InferType::Constrained { body, .. } => {
                 self.kind_of_type(&body, span)?
             }
-            InferType::RowEmpty => Kind::row(type_kind()),
+            // The empty row is polymorphic in its element kind. The enclosing
+            // row extension, record constructor, or class argument constrains
+            // this fresh kind through the same kind unifier as any other row.
+            InferType::RowEmpty => Kind::row(self.fresh_kind()),
             // A row's entries have the kind its tail admits, so the entry's kind
             // is unified with the row's element kind and the row itself has kind
             // `Row k`.

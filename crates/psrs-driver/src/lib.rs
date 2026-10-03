@@ -8,8 +8,9 @@ pub use loader::load_program_files;
 pub use program::{
     check_program, check_program_kinds_lenient, check_program_kinds_lenient_with_prelude,
     check_program_lenient, check_program_lenient_with_prelude, check_program_types_lenient,
-    check_program_types_lenient_with_prelude, compile_program_sources,
+    check_program_types_lenient_with_prelude, check_program_with_warnings, compile_program_sources,
     compile_program_sources_with_prelude, resolve_program_sources, typecheck_program_sources,
+    typecheck_program_sources_with_warnings,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +78,13 @@ pub struct ProgramDiagnostic {
     pub diagnostic: Diagnostic,
 }
 
+/// A warning attributed to one module in a multi-module program.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramWarning {
+    pub source: DiagnosticOrigin,
+    pub diagnostic: Diagnostic,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IrDumps {
     pub core: String,
@@ -102,9 +110,10 @@ pub struct Compilation {
 }
 
 pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, Vec<Diagnostic>> {
-    let (core, trusted_prefix) = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let (core, trusted_prefix, mut warnings) =
+        lower_source_with_prelude_to_core(source_name, source_text)?;
     let output = psrs_backend::compile(core).map_err(backend_diagnostics)?;
-    let warnings = backend_warnings(output.warnings, trusted_prefix);
+    warnings.extend(backend_warnings(output.warnings, trusted_prefix));
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
@@ -117,11 +126,16 @@ pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, 
 fn lower_source_with_prelude_to_core(
     source_name: &str,
     source_text: &str,
-) -> Result<(psrs_core::Module, usize), Vec<Diagnostic>> {
+) -> Result<(psrs_core::Module, usize, Vec<Warning>), Vec<Diagnostic>> {
     let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
-    let module = program::lower_program_to_core_with_trusted_prefix(&sources, trusted_prefix)
-        .map_err(program_diagnostics_from_hidden_prelude)?;
-    Ok((module, trusted_prefix))
+    let (module, warnings) =
+        program::lower_program_to_core_with_trusted_prefix_and_warnings(&sources, trusted_prefix)
+            .map_err(program_diagnostics_from_hidden_prelude)?;
+    Ok((
+        module,
+        trusted_prefix,
+        program::typecheck_warnings(warnings, trusted_prefix),
+    ))
 }
 
 fn prepend_stdlib<'a>(
@@ -151,16 +165,17 @@ pub(crate) fn lower_source_to_core(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_core::Module, Vec<Diagnostic>> {
-    lower_source_with_prelude_to_core(source_name, source_text).map(|(module, _)| module)
+    lower_source_with_prelude_to_core(source_name, source_text).map(|(module, _, _)| module)
 }
 
 pub fn compile_source_with_dumps(
     source_name: &str,
     source_text: &str,
 ) -> Result<Compilation, Vec<Diagnostic>> {
-    let (core, trusted_prefix) = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let (core, trusted_prefix, mut warnings) =
+        lower_source_with_prelude_to_core(source_name, source_text)?;
     let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
-    let warnings = backend_warnings(stages.artifact.warnings, trusted_prefix);
+    warnings.extend(backend_warnings(stages.artifact.warnings, trusted_prefix));
     Ok(Compilation {
         artifact: Artifact {
             wasm: stages.artifact.wasm,
@@ -218,9 +233,19 @@ pub(crate) fn lower_source_to_ast(
 /// Runs the source stages P0 through P5 and reports diagnostics without
 /// lowering to Core or the backend. Useful for checking source acceptance.
 pub fn check_source(source_name: &str, source_text: &str) -> Result<(), Vec<Diagnostic>> {
+    check_source_with_warnings(source_name, source_text).map(|_| ())
+}
+
+/// Checks a source and returns warnings emitted by successful type checking.
+pub fn check_source_with_warnings(
+    source_name: &str,
+    source_text: &str,
+) -> Result<Vec<Warning>, Vec<Diagnostic>> {
     let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
-    program::check_program_with_trusted_prefix(&sources, trusted_prefix)
-        .map_err(program_diagnostics_from_hidden_prelude)
+    let warnings =
+        program::check_program_with_trusted_prefix_and_warnings(&sources, trusted_prefix)
+            .map_err(program_diagnostics_from_hidden_prelude)?;
+    Ok(program::typecheck_warnings(warnings, trusted_prefix))
 }
 
 /// Runs lexing, layout, and parsing only (P0–P2). Reports diagnostics and

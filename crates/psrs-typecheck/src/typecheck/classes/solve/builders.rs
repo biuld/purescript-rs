@@ -2,6 +2,14 @@
 
 use crate::typecheck::*;
 impl Checker {
+    /// Allocates an identity used by solved nested dictionaries to find their
+    /// current wanted entry after generalization updates its solution.
+    pub(in crate::typecheck) fn fresh_wanted_id(&mut self) -> u32 {
+        let id = self.state.next_wanted_id;
+        self.state.next_wanted_id += 1;
+        id
+    }
+
     /// Builds a solved constraint node for evidence elaboration.
     pub(in crate::typecheck) fn build_solution_constraint(
         &mut self,
@@ -16,10 +24,12 @@ impl Checker {
             span,
         });
         WantedConstraint {
+            id: self.fresh_wanted_id(),
             class_id,
             arguments,
             dictionary_type,
             span,
+            report_span: self.scope.report_origin.unwrap_or(span),
             givens: self.scope.givens.clone(),
             solution: Some(solution),
         }
@@ -37,10 +47,12 @@ impl Checker {
             span,
         });
         WantedConstraint {
+            id: self.fresh_wanted_id(),
             class_id,
             arguments,
             dictionary_type,
             span,
+            report_span: self.scope.report_origin.unwrap_or(span),
             givens: self.scope.givens.clone(),
             solution: None,
         }

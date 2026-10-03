@@ -11,6 +11,15 @@ impl Checker {
         &mut self,
         instance: &hir::InstanceDeclaration,
     ) -> Option<InferredDeclaration> {
+        self.with_report_origin(instance.span, |checker| {
+            checker.infer_instance_declaration_with_report_origin(instance)
+        })
+    }
+
+    fn infer_instance_declaration_with_report_origin(
+        &mut self,
+        instance: &hir::InstanceDeclaration,
+    ) -> Option<InferredDeclaration> {
         let class = self.env.classes.get(&instance.class_id).cloned()?;
         let (head_arguments, head_variables, context, context_parameters) = {
             let info = self

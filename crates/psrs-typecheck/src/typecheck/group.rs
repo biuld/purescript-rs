@@ -163,31 +163,39 @@ impl Checker {
         } else {
             UnsolvedPolicy::Retain
         };
-        let body = self.with_scope(|checker| {
-            checker.begin_givens(&scheme.constraints, &parameters);
-            let wanted_start = checker.state.wanted.len();
-            let expected = declaration
-                .signature
-                .as_ref()
-                .map(|_| checker.scope.globals[&declaration.symbol].ty.clone());
-            let value = checker.infer_expr_with_expected(&declaration.value, expected);
-            let Some(value) = value else {
+        let report_origin = declaration
+            .signature
+            .as_ref()
+            .map_or(declaration.span, |signature| {
+                TextRange::new(declaration.span.start, signature.span.end)
+            });
+        let body = self.with_report_origin(report_origin, |checker| {
+            checker.with_scope(|checker| {
+                checker.begin_givens(&scheme.constraints, &parameters);
+                let wanted_start = checker.state.wanted.len();
+                let expected = declaration
+                    .signature
+                    .as_ref()
+                    .map(|_| checker.scope.globals[&declaration.symbol].ty.clone());
+                let value = checker.infer_expr_with_expected(&declaration.value, expected);
+                let Some(value) = value else {
+                    checker.end_givens();
+                    return None;
+                };
+                let span = declaration
+                    .signature
+                    .as_ref()
+                    .map_or(declaration.name_span, |signature| signature.span);
+                checker.unify(scheme.ty.clone(), value.ty.clone(), span);
+                // A declared signature may name ambiguous variables for the caller to
+                // instantiate, so only an inferred binding is measured against its
+                // own result type.
+                let result = (!declared).then(|| value.ty.clone());
+                member.residual =
+                    checker.solve_wanted_constraints(result.as_ref(), wanted_start, unsolved);
                 checker.end_givens();
-                return None;
-            };
-            let span = declaration
-                .signature
-                .as_ref()
-                .map_or(declaration.name_span, |signature| signature.span);
-            checker.unify(scheme.ty.clone(), value.ty.clone(), span);
-            // A declared signature may name ambiguous variables for the caller to
-            // instantiate, so only an inferred binding is measured against its
-            // own result type.
-            let result = (!declared).then(|| value.ty.clone());
-            member.residual =
-                checker.solve_wanted_constraints(result.as_ref(), wanted_start, unsolved);
-            checker.end_givens();
-            Some(value)
+                Some(value)
+            })
         });
         let Some(value) = body else {
             return;

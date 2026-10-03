@@ -106,6 +106,26 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
     effect_runtime_representation: bool,
     context: TypecheckContext<'_>,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        context,
+    )
+    .map(|output| output.module)
+}
+
+/// Type checks a module and returns warnings separately from errors. The
+/// caller owns their source attribution because it knows the module's position
+/// in the containing program.
+pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    context: TypecheckContext<'_>,
+) -> Result<TypeCheckOutput, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -251,7 +271,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
         span: module.span,
     };
     match typed.verify() {
-        Ok(()) => Ok(typed),
+        Ok(()) => Ok(TypeCheckOutput {
+            module: typed,
+            warnings: checker.state.warnings,
+        }),
         Err(errors) => Err(errors
             .into_iter()
             .map(|error| {

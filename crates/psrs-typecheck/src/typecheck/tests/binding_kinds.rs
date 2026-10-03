@@ -76,6 +76,10 @@ fn row_kind() -> Kind {
     Kind::row(psrs_kind::type_kind())
 }
 
+fn symbol_row_kind() -> Kind {
+    Kind::row(Kind::Builtin(psrs_hir::BuiltinType::Symbol))
+}
+
 fn int() -> super::super::InferType {
     InferType::Constructor(TypeConstructor::Int)
 }
@@ -108,9 +112,9 @@ fn refuses_a_row_valued_binding_at_the_kind_of_a_plain_type() {
     );
 }
 
-/// The same variable bound to the empty row, which does have kind `Row Type`.
+/// The empty row is polymorphic and can inhabit any row element kind.
 #[test]
-fn accepts_a_row_valued_binding_at_the_kind_its_row_admits() {
+fn accepts_an_empty_row_at_the_type_element_kind() {
     let mut checker = checker();
     let InferType::Variable(variable) = checker.fresh() else {
         unreachable!("a fresh unknown is a variable")
@@ -124,6 +128,38 @@ fn accepts_a_row_valued_binding_at_the_kind_its_row_admits() {
         "{:?}",
         checker.state.errors
     );
+}
+
+#[test]
+fn accepts_an_empty_row_at_the_symbol_element_kind() {
+    let mut checker = checker();
+    let InferType::Variable(variable) = checker.fresh() else {
+        unreachable!("a fresh unknown is a variable")
+    };
+    checker.record_variable_kind(variable, symbol_row_kind());
+
+    let span = psrs_span::TextRange::new(3, 6);
+    assert!(checker.bind_type_variable(variable, InferType::RowEmpty, span));
+    assert!(
+        checker.state.errors.is_empty(),
+        "{:?}",
+        checker.state.errors
+    );
+}
+
+#[test]
+fn speculative_empty_row_kind_allocation_rolls_back() {
+    let mut checker = checker();
+    let expected_next = checker.state.kinds.clone().fresh();
+    let span = psrs_span::TextRange::new(3, 6);
+
+    let result = checker.speculate(|checker| {
+        checker.kind_of_type(&InferType::RowEmpty, span)?;
+        None::<()>
+    });
+
+    assert!(result.is_none());
+    assert_eq!(checker.fresh_kind(), expected_next);
 }
 
 /// A binding that leaves the kind unconstrained is recorded, and its kind

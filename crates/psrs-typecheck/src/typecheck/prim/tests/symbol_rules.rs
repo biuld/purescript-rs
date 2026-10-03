@@ -96,7 +96,6 @@ const CONS: hir::TypeId = hir::TypeId::PRIM_SYMBOL_CONS;
 /// produce one. Both codes come from the framework here: the mismatch from the
 /// shared unifier, the missing instance from instance search.
 const MISMATCH: &str = "TypesDoNotUnify";
-const NO_INSTANCE: &str = "NoInstanceFound";
 
 #[test]
 fn both_symbol_relations_are_dispatched_as_relations_with_three_arguments() {
@@ -104,8 +103,8 @@ fn both_symbol_relations_are_dispatched_as_relations_with_three_arguments() {
     assert_eq!(primitive_rule(CONS).map(|rule| rule.arity), Some(3));
     for class_id in [APPEND, CONS] {
         assert!(
-            !primitive_rule_precedes_givens(class_id),
-            "a relation's dictionary is what a given supplies, so its rule is consulted after them"
+            primitive_rule_precedes_givens(class_id),
+            "a relation decides its type-level fact before a dictionary can mask it"
         );
     }
 }
@@ -334,11 +333,9 @@ fn cons_declines_on_an_empty_symbol() {
     assert!(checker.state.errors.is_empty());
 }
 
-/// A head that is not one scalar cannot be joined. The rule says so, and the
-/// framework refuses the report while the symbol is still unknown, because an
-/// obligation with an unknown argument is undecided rather than impossible. So
-/// the obligation reaches instance search, which is where `purs`'s own decline
-/// lands: `NoInstanceFound` for `Cons "ab" "c" s` and for `Cons "" "bc" s`.
+/// A head that is not one scalar cannot produce a result, but the result is
+/// still flexible and can be generalized with the residual relation. The rule
+/// declines both cases, leaving retention to the ordinary wanted solver.
 #[test]
 fn a_head_that_is_not_one_scalar_is_refused_while_the_symbol_is_unknown() {
     let mut checker = new_checker();
@@ -361,22 +358,17 @@ fn a_head_that_is_not_one_scalar_is_refused_while_the_symbol_is_unknown() {
     assert!(checker.state.errors.is_empty());
 }
 
-/// The same head is reported once every argument is determined. A rigid variable
-/// counts as determined — a signature's variable is as determined as a literal —
-/// so the framework honours the failure here.
+/// A rigid result is not evidence that the relation fails. The rule declines;
+/// the required-solved boundary is responsible for reporting a missing instance.
 #[test]
-fn a_head_that_is_not_one_scalar_is_reported_once_every_argument_is_determined() {
+fn an_invalid_head_with_a_rigid_result_is_left_to_required_solved_search() {
     let mut checker = new_checker();
     let whole = rigid(&mut checker);
-    assert_eq!(
-        reason(
-            &mut checker,
-            CONS,
-            NO_INSTANCE,
-            vec![symbol("ab"), symbol("c"), whole]
-        ),
-        "? \"ab\" \"c\" _T0 does not hold: the head \"ab\" is not exactly one character"
-    );
+    assert!(matches!(
+        dispatch(&mut checker, CONS, vec![symbol("ab"), symbol("c"), whole]),
+        PrimitiveDispatch::None
+    ));
+    assert!(checker.state.errors.is_empty());
 }
 
 /// A symbol is a sequence of scalar values, not bytes, so both directions treat

@@ -124,5 +124,11 @@ literals no longer have a dedicated checking path: record syntax and an explicit
 reach this normalizer with the same kinds. A row equation solves its tails through
 `bind_variable`, which now checks the kind as well, so a tail keeps the kind its
 row admits and a tail that would acquire another kind is a kind diagnostic at the
-binding. There is no per-member
-`Prim.Row` rule; see [primitives](prim.md).
+binding. The primitive table also owns the per-member `Prim.Row` rules. `Lacks`
+and `Union` may solve a known row prefix and re-enter solving on a residual
+obligation for an open tail; a known present label makes `Lacks` fail even while
+that tail remains open. This uses the same normalizer and kind solver as row
+unification. Rigid-tail row unification still has known implementation bugs;
+the complete rigid-tail behavior above remains the contract, not a claim of full
+coverage. See [primitives](prim.md) for per-relation outcomes and [D-04](../../../decision/DEC-04-official-test-suite-roadmap.md)
+for measured coverage.

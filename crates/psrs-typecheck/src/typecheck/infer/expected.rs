@@ -19,24 +19,56 @@ impl Checker {
             ty,
         } = &expression.kind
         {
-            // The written annotation is a candidate type. Check the expression
-            // against it, check that the annotation itself satisfies what the
-            // caller expected, and only then check for real at the caller's type.
-            // A candidate that fails either check leaves no substitution, level,
-            // kind, evidence, or wanted constraint behind; its diagnostics are
-            // re-emitted, because an ill-typed ascription is what the caller
-            // needs to report.
-            self.speculate_reporting(|checker| {
+            let mut checked = self.speculate_reporting(|checker| {
                 let errors_before = checker.state.errors.len();
                 let mut annotation_variables = checker.scope.annotation_variables.clone();
                 let annotation = checker.elaborate_type(ty, &mut annotation_variables);
-                checker.infer_expr_with_expected(inner, Some(annotation))?;
-                let mut annotation_variables = checker.scope.annotation_variables.clone();
-                let annotation = checker.elaborate_type(ty, &mut annotation_variables);
-                checker.subsume(annotation, expected.clone(), expression.span);
-                (checker.state.errors.len() == errors_before).then_some(())
+                checker.probe_reporting(|trial| {
+                    let errors_before = trial.state.errors.len();
+                    trial.infer_expr_with_expected(inner, Some(annotation.clone()))?;
+                    (trial.state.errors.len() == errors_before).then_some(())
+                })?;
+
+                let polymorphic_expected = matches!(&expected, InferType::ForAll { .. });
+                let used = if polymorphic_expected {
+                    checker.subsume(annotation.clone(), expected.clone(), expression.span);
+                    checker.infer_expr_with_expected(inner, Some(expected.clone()))?
+                } else {
+                    let (constraints, body) =
+                        checker.instantiate_use(&Scheme::monomorphic(annotation));
+                    checker.subsume(body.clone(), expected.clone(), expression.span);
+                    let constraints = constraints
+                        .into_iter()
+                        .map(|mut constraint| {
+                            constraint.arguments = constraint
+                                .arguments
+                                .iter()
+                                .map(|argument| checker.resolve_type(argument.clone()))
+                                .collect();
+                            constraint
+                        })
+                        .collect::<Vec<_>>();
+                    let body = checker.resolve_type(body);
+                    let use_type = if constraints.is_empty() {
+                        body.clone()
+                    } else {
+                        InferType::Constrained {
+                            constraints: constraints.clone(),
+                            body: Box::new(body.clone()),
+                        }
+                    };
+                    let inferred = checker.infer_expr_with_expected(inner, Some(use_type))?;
+                    let base = InferredExpr {
+                        kind: inferred.kind,
+                        ty: body,
+                        span: expression.span,
+                    };
+                    checker.apply_constraints(base, constraints, expression.span)
+                };
+                (checker.state.errors.len() == errors_before).then_some(used)
             })?;
-            return self.infer_expr_with_expected(inner, Some(self.resolve_type(expected)));
+            checked.ty = self.resolve_type(expected);
+            return Some(checked);
         }
 
         if let InferType::ForAll { variables, body } = expected.clone() {

@@ -49,6 +49,22 @@ pub struct TypeCheckError {
     message: String,
 }
 
+/// A warning produced while checking a module. Warnings are kept separate from
+/// errors so a successful typecheck can return both its checked module and the
+/// reports that callers must surface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeCheckWarning {
+    pub span: TextRange,
+    pub message: String,
+}
+
+impl TypeCheckWarning {
+    /// The official PureScript `errorCode` for a user-defined warning.
+    pub fn error_code(&self) -> &'static str {
+        "UserDefinedWarning"
+    }
+}
+
 impl TypeCheckError {
     pub(super) fn new(
         kind: TypeCheckErrorKind,
@@ -74,6 +90,18 @@ impl TypeCheckError {
 }
 
 impl TypeCheckErrorKind {
+    /// Whether this error already reports why one wanted constraint failed to
+    /// resolve. Callers must not add a second `NoInstanceFound` at an enclosing
+    /// instance or deferral boundary.
+    pub(in crate::typecheck) fn reports_constraint_failure(self) -> bool {
+        matches!(
+            self,
+            TypeCheckErrorKind::NoInstance
+                | TypeCheckErrorKind::OverlappingInstances
+                | TypeCheckErrorKind::TypeMismatch
+        )
+    }
+
     /// The official PureScript `errorCode` this kind raises, when it maps to one.
     ///
     /// The mappings follow `purs`' `ErrorCode` in

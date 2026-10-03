@@ -7,6 +7,8 @@ use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::prim::PrimitiveDispatch;
 use psrs_span::SourceFile;
 
+mod deferred;
+
 /// A checker over an empty module, so a rule can be consulted directly on a
 /// goal built by hand rather than through inference.
 fn checker() -> Checker {
@@ -48,10 +50,12 @@ fn goal(
     };
     let dictionary_type = checker.dictionary_type(&constraint);
     WantedConstraint {
+        id: checker.fresh_wanted_id(),
         class_id,
         arguments: constraint.arguments,
         dictionary_type,
         span: constraint.span,
+        report_span: constraint.span,
         givens: Vec::new(),
         solution: None,
     }

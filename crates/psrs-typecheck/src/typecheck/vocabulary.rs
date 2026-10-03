@@ -119,7 +119,7 @@ pub(super) enum WantedSolution {
     Instance {
         constructor: SymbolId,
         constructor_type: InferType,
-        context: Vec<WantedConstraint>,
+        context: Vec<u32>,
     },
     Superclass {
         parent: Box<WantedConstraint>,
@@ -146,10 +146,16 @@ pub(super) enum WantedSolution {
 /// `solve_wanted_constraints` before finalization.
 #[derive(Clone, Debug)]
 pub(super) struct WantedConstraint {
+    /// Stable identity, so a nested instance context can refer to this wanted
+    /// after the root worklist has moved and generalized it.
+    pub(super) id: u32,
     pub(super) class_id: hir::TypeId,
     pub(super) arguments: Vec<InferType>,
     pub(super) dictionary_type: InferType,
     pub(super) span: TextRange,
+    /// The enclosing value or instance declaration where a report belongs.
+    /// This remains distinct from `span`, the actual constraint's source range.
+    pub(super) report_span: TextRange,
     pub(super) givens: Vec<(ClassConstraint, WantedSolution)>,
     pub(super) solution: Option<WantedSolution>,
 }

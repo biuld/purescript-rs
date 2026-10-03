@@ -136,9 +136,10 @@ fn solve_append(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome
 ///   when the head is exactly one scalar, because `Cons` is a cons cell.
 ///
 /// An empty symbol has no first scalar, so the splitting reading decides nothing
-/// and the rule declines. A head that is empty or longer than one scalar is a
-/// definite failure rather than a guess: no reading of the arguments can join it,
-/// and an answer that picked one anyway would be inventing a symbol.
+/// and the rule declines. A head that is empty or longer than one scalar also
+/// declines when the result is open: official solving can generalize that result
+/// together with the residual relation, and this rule has no dictionary to
+/// produce until a reading decides the result.
 fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     let arguments = args.resolved(checker);
     let [head, tail, whole] = arguments.as_slice() else {
@@ -166,15 +167,7 @@ fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
                 position: CONS_SYMBOL,
                 symbol: String::from(head) + tail,
             }],
-            (Some(head), Some(_)) => {
-                return PrimitiveOutcome::Failed {
-                    code: TypeCheckErrorKind::NoInstance,
-                    detail: format!(
-                        "{} does not hold: the head {head:?} is not exactly one character",
-                        checker.display_constraint(hir::TypeId::PRIM_SYMBOL_CONS, &arguments)
-                    ),
-                };
-            }
+            (Some(_), Some(_)) => return PrimitiveOutcome::Undecided,
             _ => return PrimitiveOutcome::Undecided,
         },
     };

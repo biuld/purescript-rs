@@ -2,6 +2,7 @@
 //! decisive.
 
 use super::*;
+use crate::typecheck::TypeInterner;
 
 fn dispatch(checker: &mut Checker, constraint: &WantedConstraint) -> PrimitiveDispatch {
     checker.solve_primitive(constraint, SolveDepth::new())
@@ -89,18 +90,19 @@ fn a_failed_outcome_is_reported_under_the_rule_s_own_code_and_the_obligation_ran
 }
 
 #[test]
-fn a_failure_with_an_unknown_argument_is_not_reported_as_impossible() {
+fn a_rule_owned_failure_is_reported_even_when_an_unrelated_argument_is_unknown() {
     let mut checker = checker();
     let unknown = checker.fresh();
     let constraint = obligation(&mut checker, FAILING, vec![int(), unknown]);
 
-    assert!(
-        matches!(dispatch(&mut checker, &constraint), PrimitiveDispatch::None),
-        "an obligation with an unknown argument is undecided, not impossible"
-    );
-    assert!(
-        checker.state.errors.is_empty(),
-        "the obligation must reach instance search instead of a diagnostic"
+    assert!(matches!(
+        dispatch(&mut checker, &constraint),
+        PrimitiveDispatch::Reported
+    ));
+    assert_eq!(checker.state.errors.len(), 1);
+    assert_eq!(
+        checker.state.errors[0].error_code(),
+        Some("NoInstanceFound")
     );
 }
 
@@ -129,29 +131,27 @@ fn a_failure_under_a_code_with_no_official_error_code_is_refused() {
 /// decided nothing, so the answer is read as the deferral it should have been and
 /// nothing survives it.
 #[test]
-fn a_solution_that_determined_nothing_is_read_as_the_deferral_it_should_be() {
+fn an_explicit_solution_is_not_reinterpreted_as_a_deferral_from_progress() {
     let mut checker = checker();
     let unknown = checker.fresh();
-    let constraint = obligation(&mut checker, SOLVING_WITHOUT_PROGRESS, vec![int(), unknown]);
-    let before = SolverFingerprint::of(&checker);
-
-    let PrimitiveDispatch::Deferred { evidence } = dispatch(&mut checker, &constraint) else {
-        panic!("a rule that decided nothing has deferred");
-    };
-    assert!(
-        evidence.is_none(),
-        "there is no decision to record as evidence"
+    let constraint = obligation(
+        &mut checker,
+        SOLVING_WITHOUT_PROGRESS,
+        vec![int(), unknown.clone()],
     );
+    let PrimitiveDispatch::Solved(WantedSolution::Primitive { arguments }) =
+        dispatch(&mut checker, &constraint)
+    else {
+        panic!("the rule explicitly decided the relation");
+    };
+    assert_eq!(arguments, vec![int(), unknown]);
     assert_eq!(
         checker.state.wanted.len(),
         1,
-        "its obligations are re-queued"
+        "the rule's explicit residual obligation is re-queued"
     );
-    assert_eq!(
-        SolverFingerprint::of(&checker),
-        before,
-        "an unproved decision leaves no substitution, level, kind, or diagnostic behind"
-    );
+    assert!(checker.state.wanted[0].solution.is_some());
+    assert!(checker.state.errors.is_empty());
 }
 
 #[test]
@@ -197,6 +197,91 @@ fn a_deferral_that_returns_the_obligation_it_was_asked_about_is_reported() {
             .contains("deferred without determining an argument"),
         "{}",
         error.message()
+    );
+}
+
+#[test]
+fn equal_sibling_residuals_are_each_solved_once() {
+    let mut checker = checker();
+    let constraint = obligation(&mut checker, DEFERRING_TO_SIBLINGS, vec![int(), int()]);
+
+    assert!(matches!(
+        dispatch(&mut checker, &constraint),
+        PrimitiveDispatch::Deferred { evidence: None }
+    ));
+    assert_eq!(checker.state.wanted.len(), 2);
+    assert!(
+        checker
+            .state
+            .wanted
+            .iter()
+            .all(|wanted| wanted.solution.is_some())
+    );
+    assert!(checker.state.errors.is_empty());
+}
+
+#[test]
+fn the_requeued_width_budget_is_shared_across_a_branching_tree() {
+    let mut checker = checker();
+    let constraint = obligation(&mut checker, GROWING_DEFERRAL, vec![int(), int()]);
+
+    assert!(matches!(
+        dispatch(&mut checker, &constraint),
+        PrimitiveDispatch::Deferred { evidence: None }
+    ));
+    assert_eq!(
+        checker.state.next_variable, 66,
+        "the root and exactly 32 re-entered rule calls each allocate two fresh residual variables"
+    );
+    assert!(!checker.state.errors.is_empty());
+    assert!(checker.state.wanted.is_empty());
+}
+
+#[test]
+fn a_root_worklist_does_not_restart_a_reported_self_deferral() {
+    let mut checker = checker();
+    let unknown = checker.fresh();
+    let constraint = obligation(&mut checker, DEFERRING_TO_ITSELF, vec![int(), unknown]);
+    checker.state.wanted.push(constraint);
+
+    let retained = checker.solve_wanted_constraints(
+        None,
+        0,
+        crate::typecheck::classes::UnsolvedPolicy::Retain,
+    );
+
+    assert!(retained.is_empty());
+    assert_eq!(checker.state.wanted.len(), 1);
+    assert_eq!(checker.state.errors.len(), 1);
+    assert_eq!(
+        checker.state.errors[0].error_code(),
+        Some("NoInstanceFound")
+    );
+}
+
+#[test]
+fn a_missing_nested_wanted_reference_is_an_explicit_evidence_error() {
+    let mut checker = checker();
+    let mut constraint = obligation(&mut checker, SOLVING, vec![int(), int()]);
+    constraint.solution = Some(WantedSolution::Instance {
+        constructor: psrs_hir::SymbolId::new(psrs_hir::ModuleId(0), 0),
+        constructor_type: InferType::RowEmpty,
+        context: vec![u32::MAX],
+    });
+    checker.state.wanted.push(constraint);
+    let mut interner = TypeInterner::default();
+
+    assert!(
+        checker
+            .wanted_evidence(0, &mut interner, &HashSet::new())
+            .is_none()
+    );
+    assert_eq!(checker.state.errors.len(), 1);
+    assert_eq!(checker.state.errors[0].kind, TypeCheckErrorKind::InvalidHir);
+    assert!(
+        checker.state.errors[0]
+            .message()
+            .contains("missing wanted constraint")
     );
 }
 
@@ -315,20 +400,20 @@ fn a_wanted_constraint_that_is_not_the_member_s_own_is_not_this_rule_s_obligatio
 }
 
 #[test]
-fn a_proof_member_is_dispatched_before_the_givens_and_a_relation_after_them() {
+fn proof_and_relation_rules_precede_dictionary_givens() {
     assert!(
         primitive_rule_precedes_givens(hir::TypeId::COERCIBLE),
         "a Proof member's evidence is a boundary, not a dictionary"
     );
     for rule in SYNTHETIC {
         assert!(
-            !primitive_rule_precedes_givens(rule.class_id),
-            "a relation's dictionary is what a given supplies"
+            primitive_rule_precedes_givens(rule.class_id),
+            "relations decide their type-level facts before a given dictionary can mask them"
         );
     }
     assert!(
-        !primitive_rule_precedes_givens(hir::TypeId::PRIM_ROW_LACKS),
-        "a member with no rule is not dispatched at all"
+        primitive_rule_precedes_givens(hir::TypeId::PRIM_ROW_LACKS),
+        "the row relation rule is registered and precedes a given"
     );
 }
 
@@ -336,8 +421,10 @@ fn a_proof_member_is_dispatched_before_the_givens_and_a_relation_after_them() {
 fn every_outcome_is_reachable_and_only_official_codes_are_reportable() {
     // The four outcomes are the contract, so the cases above are what keeps each
     // one of them a live answer rather than a variant no rule can return.
-    assert_eq!(SYNTHETIC.len(), 10);
+    assert_eq!(SYNTHETIC.len(), 12);
     assert!(EvidenceClass::RuntimeDictionary.accepts_a_given());
+    assert!(EvidenceClass::ReportingDictionary.accepts_a_given());
+    assert!(!EvidenceClass::ReportingDictionary.precedes_givens());
     assert!(EvidenceClass::ReportOnly.accepts_a_given());
     assert!(!EvidenceClass::CompileTimeProof.accepts_a_given());
     assert_eq!(

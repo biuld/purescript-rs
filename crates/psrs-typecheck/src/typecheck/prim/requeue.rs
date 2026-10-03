@@ -16,7 +16,7 @@
 //! reported under the official code for an obligation nothing can decide rather
 //! than retried.
 
-use crate::typecheck::classes::SolveDepth;
+use crate::typecheck::classes::{SolveDepth, UnsolvedPolicy};
 use crate::typecheck::*;
 
 /// The maximum number of obligations one primitive obligation's deferral chain
@@ -39,7 +39,8 @@ const MAX_REQUEUE_STEPS: usize = 32;
 /// it cannot finish.
 #[derive(Default)]
 pub(in crate::typecheck) struct RequeueChain {
-    visited: Vec<(hir::TypeId, Vec<InferType>)>,
+    active: Vec<(hir::TypeId, Vec<InferType>)>,
+    steps: usize,
 }
 
 impl RequeueChain {
@@ -47,29 +48,43 @@ impl RequeueChain {
     /// obligation the rule was asked about.
     pub(in crate::typecheck) fn seeded(checker: &Checker, constraint: &WantedConstraint) -> Self {
         let mut chain = Self::default();
-        chain.visit(checker, constraint);
+        let arguments = constraint
+            .arguments
+            .iter()
+            .map(|argument| checker.resolve_type(argument.clone()))
+            .collect();
+        chain.active.push((constraint.class_id, arguments));
         chain
     }
 
-    /// Whether `constraint` is one this chain has already re-entered, or the
-    /// chain is out of room.
-    fn exhausted(&self, checker: &Checker, constraint: &WantedConstraint) -> bool {
-        if self.visited.len() >= MAX_REQUEUE_STEPS {
-            return true;
+    /// Enters one requeued obligation unless this path repeats it or the whole
+    /// deferral tree has used its bounded re-entry budget.
+    fn enter(&mut self, checker: &Checker, constraint: &WantedConstraint) -> bool {
+        if self.steps >= MAX_REQUEUE_STEPS {
+            return false;
         }
-        self.visited.iter().any(|(class_id, arguments)| {
+        let arguments = constraint
+            .arguments
+            .iter()
+            .map(|argument| checker.resolve_type(argument.clone()))
+            .collect::<Vec<_>>();
+        if self.active.iter().any(|(class_id, active_arguments)| {
             *class_id == constraint.class_id
-                && arguments.len() == constraint.arguments.len()
-                && arguments
+                && active_arguments.len() == arguments.len()
+                && active_arguments
                     .iter()
-                    .zip(&constraint.arguments)
+                    .zip(&arguments)
                     .all(|(left, right)| checker.infer_types_equal(left, right))
-        })
+        }) {
+            return false;
+        }
+        self.steps += 1;
+        self.active.push((constraint.class_id, arguments));
+        true
     }
 
-    fn visit(&mut self, _checker: &Checker, constraint: &WantedConstraint) {
-        self.visited
-            .push((constraint.class_id, constraint.arguments.clone()));
+    fn leave(&mut self) {
+        self.active.pop();
     }
 }
 
@@ -80,10 +95,11 @@ impl Checker {
         &mut self,
         deferred: Vec<WantedConstraint>,
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
         chain: &mut RequeueChain,
     ) {
         for constraint in deferred {
-            self.requeue(constraint, depth, chain);
+            self.requeue(constraint, depth, policy, chain);
         }
     }
 
@@ -96,6 +112,7 @@ impl Checker {
         &mut self,
         mut constraint: WantedConstraint,
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
         chain: &mut RequeueChain,
     ) {
         // Improvement runs again here, before the rule gets another chance, so
@@ -106,29 +123,30 @@ impl Checker {
             .iter()
             .map(|argument| self.resolve_type(argument.clone()))
             .collect();
-        if !chain.exhausted(self, &constraint) {
-            chain.visit(self, &constraint);
+        if chain.enter(self, &constraint) {
             let errors_before = self.state.errors.len();
-            if let Some(solution) = self.solve_constraint(&constraint, depth.deeper()) {
+            let solution =
+                self.solve_constraint_with_chain(&constraint, depth.deeper(), policy, chain);
+            chain.leave();
+            if let Some(solution) = solution {
                 constraint.solution = Some(solution);
                 self.state.wanted.push(constraint);
                 return;
             }
-            // The re-entry reports its own failure when a failure is the answer,
-            // so a stalled re-entry is retained unsolved rather than reported
-            // twice for the same obligation.
-            if self.state.errors[errors_before..].iter().any(|error| {
-                matches!(
-                    error.kind,
-                    TypeCheckErrorKind::NoInstance | TypeCheckErrorKind::OverlappingInstances
-                )
-            }) {
+            // The re-entry reports its own failure when a failure is the answer;
+            // a reported obligation is not retained or retried.
+            if self.state.errors[errors_before..]
+                .iter()
+                .any(|error| error.kind.reports_constraint_failure())
+            {
+                return;
+            }
+            if policy == UnsolvedPolicy::Retain && self.can_generalize_constraint(&constraint) {
                 self.state.wanted.push(constraint);
                 return;
             }
         }
         self.report_stalled_deferral(&constraint);
-        self.state.wanted.push(constraint);
     }
 
     /// Reports a deferral that returned an obligation its chain had already

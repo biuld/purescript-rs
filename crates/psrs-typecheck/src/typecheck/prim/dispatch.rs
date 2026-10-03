@@ -1,6 +1,5 @@
-//! Dispatch from a class identity to its rule, and what the framework does with
-//! the answer: the transaction a rule's speculative work runs under, and the two
-//! refusals that keep an unknown argument from being decisive.
+//! Dispatch from a class identity to its rule, verify any produced dictionary
+//! through the shared unifier, and process the rule's residual obligations.
 //!
 //! `Checker::solve_primitive` is the only entry into the table. It is where
 //! official solving's structure lives, and the order is that structure: improve,
@@ -9,7 +8,7 @@
 
 use super::requeue::RequeueChain;
 use super::*;
-use crate::typecheck::classes::SolveDepth;
+use crate::typecheck::classes::{SolveDepth, UnsolvedPolicy};
 
 impl Checker {
     /// Consults the rule table for `constraint`, after improvement has run
@@ -27,10 +26,23 @@ impl Checker {
     /// never rolls the failure back into a search that would report something
     /// else. So the framework runs that same check itself, through the shared
     /// unifier, and a contradiction keeps its diagnostic.
+    #[cfg(test)]
     pub(in crate::typecheck) fn solve_primitive(
         &mut self,
         constraint: &WantedConstraint,
         depth: SolveDepth,
+    ) -> PrimitiveDispatch {
+        let mut chain = RequeueChain::seeded(self, constraint);
+        self.solve_primitive_with_chain(constraint, depth, UnsolvedPolicy::Retain, &mut chain)
+    }
+
+    /// Runs a primitive rule as part of the current bounded deferral tree.
+    pub(in crate::typecheck) fn solve_primitive_with_chain(
+        &mut self,
+        constraint: &WantedConstraint,
+        depth: SolveDepth,
+        policy: UnsolvedPolicy,
+        chain: &mut RequeueChain,
     ) -> PrimitiveDispatch {
         let Some(rule) = primitive_rule(constraint.class_id) else {
             return PrimitiveDispatch::None;
@@ -48,10 +60,6 @@ impl Checker {
         // list or from an instance context.
         let mut improved = constraint.clone();
         self.improve_one(&mut improved);
-        let unknowns_before = PrimitiveArgs {
-            constraint: &improved,
-        }
-        .unknowns(self);
         let snapshot = self.state.snapshot();
         let outcome = self.call_rule(
             rule,
@@ -59,18 +67,8 @@ impl Checker {
                 constraint: &improved,
             },
         );
-        // The chain starts at the obligation being decided, so a rule that defers
-        // to the very obligation it was asked about is recognised as making no
-        // progress rather than retried.
-        let mut chain = RequeueChain::seeded(self, &improved);
-        let dispatch = self.accept_primitive_outcome(
-            constraint,
-            &improved,
-            &outcome,
-            &unknowns_before,
-            depth,
-            &mut chain,
-        );
+        let dispatch =
+            self.accept_primitive_outcome(constraint, &improved, &outcome, depth, policy, chain);
         if matches!(dispatch, PrimitiveDispatch::None) {
             self.state.restore(snapshot);
         }
@@ -84,45 +82,21 @@ impl Checker {
     /// Turns a rule's answer into what constraint solving does next, and refuses
     /// the answers the rule's own arguments contradict.
     ///
-    /// The acceptance order is what official solving's is: produce, then check,
-    /// and report when the check fails.
-    ///
-    /// 1. A relation's decided arguments are unified against the goal's through
-    ///    the shared unifier, which is `Entailment.hs:301`. A disagreement is
-    ///    reported and kept, so a rule that decided a value contradicting an
-    ///    argument the obligation already fixed is refused here — whether or not
-    ///    it bound anything, which is the case neither gate below can see.
-    /// 2. The two refusals are the framework's structural form of "an unsolved
-    ///    inference variable in any argument is never enough for `Solved` or
-    ///    `Failed`":
-    ///
-    ///    - `Failed` is honoured only when every argument is determined. An
-    ///      obligation whose argument is still unknown is not impossible, it is
-    ///      undecided, and reporting it is exactly the failure this separation
-    ///      exists to prevent.
-    ///    - `Solved` is honoured only when the rule determined an argument that
-    ///      was unknown, or when every argument is now determined. A rule that
-    ///      decides on a known part and leaves the rest unknown does so by
-    ///      binding the rest through the shared substitution, so "nothing became
-    ///      more determined" means the rule decided on nothing at all. Such an
-    ///      answer is read as the deferral it should have been.
-    ///
-    /// Step 1 comes first precisely because step 2 cannot distinguish "the rule
-    /// decided nothing" from "the rule proved the obligation cannot hold": both
-    /// bind nothing, and only the unifier knows which of the two happened. A
-    /// rule that guesses from a partly-unknown argument is therefore still
-    /// downgraded, because the check above found no contradiction and bound
-    /// nothing either.
-    ///
-    /// A `Failed` code with no official `errorCode` is refused the same way,
-    /// so a rule cannot invent a diagnostic the suite has never seen.
+    /// Applicability belongs to the rule: known facts may decide or reject a
+    /// relation even while unrelated arguments remain flexible. The framework
+    /// checks the rule's declared arity, verifies every produced dictionary's
+    /// arguments through the shared unifier (`Entailment.hs:301`), and owns the
+    /// transaction and deferral bounds. It does not reconstruct applicability
+    /// from a count of unknowns or from whether unification changed anything.
+    /// A `Failed` code without an official `errorCode` is refused so a rule
+    /// cannot invent a diagnostic the suite has never seen.
     fn accept_primitive_outcome(
         &mut self,
         constraint: &WantedConstraint,
         improved: &WantedConstraint,
         outcome: &PrimitiveOutcome,
-        unknowns_before: &HashSet<u32>,
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
         chain: &mut RequeueChain,
     ) -> PrimitiveDispatch {
         let args = PrimitiveArgs {
@@ -134,32 +108,37 @@ impl Checker {
                 if !self.decided_arguments_unify(&args, evidence) {
                     return PrimitiveDispatch::Reported;
                 }
-                let unknowns_after = args.unknowns(self);
-                let progressed =
-                    unknowns_after.len() < unknowns_before.len() || unknowns_after.is_empty();
-                if !progressed {
-                    return self.defer_without_evidence(deferred, depth, chain);
+                if matches!(evidence, PrimitiveEvidence::Report) {
+                    self.state
+                        .errors
+                        .push(super::reports::unresolved_report_error(
+                            self,
+                            constraint.class_id,
+                            &args.resolved(self),
+                            constraint.span,
+                        ));
+                    return PrimitiveDispatch::Reported;
                 }
                 let Some(solution) = evidence.clone().into_solution() else {
-                    return self.defer_without_evidence(deferred, depth, chain);
+                    return self.defer_without_evidence(deferred, depth, policy, chain);
                 };
-                self.requeue_all(deferred.clone(), depth, chain);
+                self.requeue_all(deferred.clone(), depth, policy, chain);
                 PrimitiveDispatch::Solved(solution)
             }
             PrimitiveOutcome::Deferred { evidence, deferred } => {
                 let Some(evidence) = evidence else {
-                    self.requeue_all(deferred.clone(), depth, chain);
+                    self.requeue_all(deferred.clone(), depth, policy, chain);
                     return PrimitiveDispatch::Deferred { evidence: None };
                 };
                 if !self.decided_arguments_unify(&args, evidence) {
                     return PrimitiveDispatch::Reported;
                 }
                 let solution = evidence.clone().into_solution();
-                self.requeue_all(deferred.clone(), depth, chain);
+                self.requeue_all(deferred.clone(), depth, policy, chain);
                 PrimitiveDispatch::Deferred { evidence: solution }
             }
             PrimitiveOutcome::Failed { code, detail } => {
-                if !args.all_determined(self) || code.error_code().is_none() {
+                if code.error_code().is_none() {
                     return PrimitiveDispatch::None;
                 }
                 self.state
@@ -177,9 +156,10 @@ impl Checker {
         &mut self,
         deferred: &[WantedConstraint],
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
         chain: &mut RequeueChain,
     ) -> PrimitiveDispatch {
-        self.requeue_all(deferred.to_vec(), depth, chain);
+        self.requeue_all(deferred.to_vec(), depth, policy, chain);
         PrimitiveDispatch::Deferred { evidence: None }
     }
 }

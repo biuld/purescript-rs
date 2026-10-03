@@ -20,7 +20,7 @@ Official PureScript embeds nine `Prim` modules in the compiler and refuses to le
 
 Two distinct mechanisms wear the `Prim` name, and conflating them is the most common way a `Prim` integration goes wrong. A **relation** is a class the compiler solves: `Prim.Int.Add 1 2 3` is a statement about types, discharged during type checking and erased afterwards. A **primitive value** is an operation the compiler implements directly: in official PureScript, value-level `+` on `Int` is a `foreign import add :: Int -> Int -> Int` in the Prelude and has nothing to do with `Prim.Int.Add`. The same split holds here, where `+` resolves to an `Intrinsic` through the compiler-known externals and `Prim.Int.Add` remains a type-level relation.
 
-Official solving has a shape worth preserving. A relation's rule is tried before instance search and may decline; it may also emit extra obligations rather than guessing, which official carries through a writer and re-solves later. `Prim.Row.Lacks "a" r` with an open tail and at least one known label is *solved* by moving the obligation to the tail; with no known labels it *declines*, because no progress is possible; with the label already present it *cannot hold*. A rule that cannot distinguish those three answers reports a `Prim` obligation it cannot decide as a missing instance, which is why the distinction is a contract here rather than an implementation detail.
+Official solving has a shape worth preserving. A relation's rule is tried before ordinary dictionary lookup and may decline; it may also emit extra obligations rather than guessing, which official carries through a writer and re-solves later. `Prim.Row.Lacks "a" r` with an open tail and at least one known label is *solved* by moving the obligation to the tail; with no known labels it *declines*, because no progress is possible. If the known prefix already contains the label, the relation cannot hold even when the tail is open. Official represents that case by falling through to its missing-dictionary diagnostic; this compiler's rule outcome can state the semantic failure directly while preserving the official diagnostic code.
 
 ## Model
 
@@ -30,7 +30,7 @@ PrimitiveDeclaration = { id: TypeId, module, name, kind: TypeExpr,
 Strategy = Interface            # a declaration only; inference uses it as a type
          | Relation             # the compiler solves it
          | Proof                # the compiler proves a type-level relation
-         | Diagnostic           # it is carried to a diagnostic, never solved
+         | Diagnostic           # it uses the report/diagnostic path
 
 PrimitiveRule = (class_id, arity) -> Rule
 Rule = (&PrimitiveArgs, &mut InferState) -> PrimitiveOutcome
@@ -43,6 +43,7 @@ PrimitiveOutcome = Solved { evidence: Evidence, deferred: [Constraint] }
 
 EvidenceClass = CompileTimeProof    # no runtime value; a checked boundary
               | RuntimeDictionary   # a value that erases or is projected
+              | ReportingDictionary # a dictionary that also emits a warning
               | ReportOnly          # no evidence; a diagnostic is the result
 ```
 
@@ -50,52 +51,53 @@ EvidenceClass = CompileTimeProof    # no runtime value; a checked boundary
 
 ### Member inventory
 
-Kinds are the official ones, since source compatibility requires them. "Declared" means the registry supplies a stable identity, kind, fundeps, and role for the member; "Solved" means a rule discharges the relation.
+Kinds are the official ones, since source compatibility requires them. "Provided" means the compiler exposes the member through its primitive interface. Type and class declarations come from the registry; intrinsic values use the compiler-owned value identity. "Current path" records whether the relation rule or diagnostic path is present; `partial` marks a path with a known semantic limitation.
 
-| Member | Kind | Strategy | Evidence | Declared | Solved |
+| Member | Kind | Strategy | Evidence | Provided | Current path |
 | --- | --- | --- | --- | --- | --- |
 | `Prim` builtins: `Type`, `Constraint`, `Symbol`, `Row`, `Function`, `Array`, `Record`, `String`, `Char`, `Number`, `Int`, `Boolean` | see [kinds](kinds.md) | Interface | — | yes | n/a |
-| `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | by design |
+| `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | partial |
 | `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes | n/a |
 | `Safe.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
 | `Prim.Ordering.LT`, `EQ`, `GT` | `Ordering` | Interface | — | yes | n/a |
 | `Prim.Row.Cons` | `forall k. Symbol -> k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
-| `Prim.Row.Lacks` | `forall k. Symbol -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.Row.Lacks` | `forall k. Symbol -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.Row.Nub` | `forall k. Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
-| `Prim.Row.Union` | `forall k. Row k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.Row.Union` | `forall k. Row k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.RowList` | `Type -> Type` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.RowList.Cons` | `forall k. Symbol -> k -> RowList k -> RowList k` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.RowList.Nil` | `forall k. RowList k` | Interface | — | yes | n/a |
 | `Prim.RowList.RowToList` | `forall k. Row k -> RowList k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
-| `Prim.Symbol.Append` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Symbol.Compare` | `Symbol -> Symbol -> Ordering -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Symbol.Cons` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Int.Add` | `Int -> Int -> Int -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Int.Mul` | `Int -> Int -> Int -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Int.Compare` | `Int -> Int -> Ordering -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Int.ToString` | `Int -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.Symbol.Append` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Symbol.Compare` | `Symbol -> Symbol -> Ordering -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Symbol.Cons` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Int.Add` | `Int -> Int -> Int -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Int.Mul` | `Int -> Int -> Int -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Int.Compare` | `Int -> Int -> Ordering -> Constraint` | Relation | RuntimeDictionary | yes | yes |
+| `Prim.Int.ToString` | `Int -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.TypeError.Doc` | `Type` | Interface | — | yes | n/a |
 | `Prim.TypeError.Text` | `Symbol -> Doc` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.TypeError.Quote` | `forall k. k -> Doc` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.TypeError.QuoteLabel` | `Symbol -> Doc` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.TypeError.Beside`, `Prim.TypeError.Above` | `Doc -> Doc -> Doc` (*phantom*) | Interface | — | yes | n/a |
-| `Prim.TypeError.Fail` | `Doc -> Constraint` | Diagnostic | ReportOnly | yes | by design |
-| `Prim.TypeError.Warn` | `Doc -> Constraint` | Diagnostic | RuntimeDictionary + report | yes | no |
+| `Prim.TypeError.Fail` | `Doc -> Constraint` | Diagnostic | ReportOnly | yes | yes |
+| `Prim.TypeError.Warn` | `Doc -> Constraint` | Diagnostic | ReportingDictionary | yes | yes |
 | `Prim.undefined` | `forall a. a` (value) | Interface | — | yes | n/a |
 
-The inventory is the design's completeness statement: a member is either an interface others may name, a relation the compiler must decide, a proof it must derive, or a report it must emit, and it is never a fourth thing.
+The inventory is the design's completeness statement: a member is either an interface others may name, a relation the compiler must decide, a proof it must derive, or a report it must emit, and it is never a fourth thing. The two compiler-provided values in the table are not registry declarations.
 
 ## Design
 
-**One registry, one identity, no per-member type form.** Every member above is a declaration in one registry that supplies its stable identity, kind, fundeps, and roles, and the resolver derives the virtual module interfaces from that registry. A member is named through its identity, so a qualified import, an alias, or a re-export reaches the same declaration and therefore the same rule. Because the identity is what selects behaviour, a user cannot obtain a different `Prim` semantics by importing a different spelling, and a downstream pass cannot obtain the right behaviour by matching a name. `Prim.Row.Cons` is a class constraint on the shared spine, not a node, a flag, or a field; `RowList`, `RowList.Cons`, `RowList.Nil`, `Doc`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are ordinary type constructors applied through ordinary application, and a type-level string or integer is an ordinary literal in the same spine. Giving a member its own type node is rejected, because the member is then only reachable through the path that knows that node, and every other path — instantiation, substitution, unification, generalization, scope checking — has to be taught about it again.
+**One registry for type and class declarations, one identity, no per-member type form.** Every primitive type or class member above is a declaration in one registry that supplies its stable identity, kind, fundeps, and roles, and the resolver derives the virtual module interfaces from that registry. Compiler-provided values such as `Prim.undefined` and `Safe.Coerce.coerce` use the compiler-owned value identity and interface path. A member is named through its identity, so a qualified import, an alias, or a re-export reaches the same declaration and therefore the same rule. Because the identity is what selects behaviour, a user cannot obtain a different `Prim` semantics by importing a different spelling, and a downstream pass cannot obtain the right behaviour by matching a name. `Prim.Row.Cons` is a class constraint on the shared spine, not a node, a flag, or a field; `RowList`, `RowList.Cons`, `RowList.Nil`, `Doc`, `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are ordinary type constructors applied through ordinary application, and a type-level string or integer is an ordinary literal in the same spine. Giving a member its own type node is rejected, because the member is then only reachable through the path that knows that node, and every other path — instantiation, substitution, unification, generalization, scope checking — has to be taught about it again.
 
 **Ownership by layer.** Each kind of content has exactly one owner, and the owner is the layer that already owns the mechanism rather than the layer that mentions the member.
 
 | Content | Owner |
 | --- | --- |
-| Module names, member names, stable identities, kinds, fundeps, roles | the primitive registry, whose interfaces [modules and resolution](../semantics/modules-and-resolution.md) exposes |
+| Type and class member names, identities, kinds, fundeps, roles | the primitive registry, whose interfaces [modules and resolution](../semantics/modules-and-resolution.md) exposes |
+| Compiler-provided value identities and types | the intrinsic environment and value interface, with term typing and lowering owned by the type checker and backend |
 | `RowList`, `RowList.Cons/Nil`, `Doc`, `Text`, `QuoteLabel`, `Beside`, `Above`, and every other member's *type structure* | the shared type spine and ordinary constructor application |
 | Type-level `Symbol` and `Int` literals | the shared type model: equality, substitution, kind checking, generalization |
 | Row structure, extension, absence, union, nub, and row-to-list conversion | the public row mechanism in [rows and records](rows-and-records.md) |
@@ -103,25 +105,25 @@ The inventory is the design's completeness statement: a member is either an inte
 | `Fail`, `Warn`, `Partial` | constraint solving and the diagnostic interface in this document |
 | Primitive values and intrinsics: arithmetic, comparison, array access, conversions, `coerce` | term typing in the type checker and the target lowering contract in the backend |
 
-**A rule consumes the shared mechanisms.** A relation's arguments are ordinary inference types, so a rule works on rows, symbols, and integers through the same normalizer, equality, and substitution that an instance head uses. A rule must not carry its own kind table, its own row representation, or a private reader for source literals; the reason is the failure the `Coercible` path already shows, where a private reading of `Row` and `Record` drifted from the kind checker's and the two no longer unify. A rule that needs a kind reads it through the shared solver, a row through the shared normalizer, and a literal through the shared type model. Consequently a `Prim` argument that arrives as an unsolved variable is treated as unknown by every rule in the same way, and no rule can succeed or fail on the strength of a shape it recognized differently.
+**A rule consumes the shared mechanisms.** A relation's arguments are ordinary inference types, so a rule works on rows, symbols, and integers through the same normalizer, equality, and substitution that an instance head uses. A rule must not carry its own kind table, its own row representation, or a private reader for source literals; the reason is the failure the `Coercible` path already shows, where a private reading of `Row` and `Record` drifted from the kind checker's and the two no longer unify. A rule that needs a kind reads it through the shared solver, a row through the shared normalizer, and a literal through the shared type model. Unknown parts remain unknown, while the rule may use a known row prefix or other known structure to decide whether to solve, defer a residual obligation, fail, or decline.
 
-**Dispatch by identity, once.** Constraint solving consults the primitive rule table *before* givens and instance search, and only then falls through to givens and ordinary search. The table is keyed by class identity, so a primitive relation never depends on an instance being visible and an alias or re-export does not create a second entry. A member with no rule and no visible instance is reported as a missing instance for that relation, which is the shape the official suite expects; a member whose rule declines continues into givens and instance search, so declining is not a failure.
+**Dispatch by identity, with evidence-defined ordering.** The table is keyed by class identity, so a primitive relation never depends on an instance being visible and an alias or re-export does not create a second entry. `Proof` and `Relation` rules run before direct given lookup and ordinary instance search, so a checked proof boundary or a type-level decision cannot be replaced by dictionary evidence. If such a rule declines, the solver continues to givens and ordinary search. Report rules run after direct given lookup: `Warn` can prefer an in-scope warning dictionary, and `Fail` or `Partial` can remain as constraints under the enclosing declaration's retention policy. A member with no applicable rule, report, given, or visible instance is diagnosed through the ordinary constraint path; declining is not itself a failure.
 
-The order follows from the evidence class rather than being arbitrary. A `Proof` member's evidence is a compile-time boundary, and the checked IR rejects a `Given` or `Superclass` node as that boundary, so a rule producing a proof must be consulted before a given can be taken as its evidence; the rule composes the assumed proofs itself. A `RuntimeDictionary` member may be discharged by a given, so `Warn` deliberately prefers a warning already in scope and thereby defers the report outward. Official PureScript orders it the same way: `forClassNameM` tries `solveCoercible` before falling back to `forClassName`, and `forClassName` tries each primitive rule before its final `findDicts` arm.
+The ordering follows from the evidence class rather than being arbitrary. A `Proof` member's evidence is a compile-time boundary, and the checked IR rejects a `Given` or `Superclass` node as that boundary, so its rule runs before direct given lookup and composes assumed proofs itself. A `Relation` produces a type-level dictionary, so its rule also runs before a caller's given can mask the relation's decision. `ReportingDictionary` and `ReportOnly` members run after givens: `Warn` deliberately prefers an in-scope warning so it can propagate outward, while `Fail` and `Partial` respect the enclosing constraint's retention policy. Official PureScript gives `Coercible` a first attempt in `forClassNameM`, handles `Warn` before its general primitive rules, and tries the relation rules before the final `findDicts` arm in `forClassName`.
 
-**Four outcomes, and unknowns are none of the decisive ones.** A rule distinguishes four results. `Solved` carries explicit evidence and may carry additional obligations. `Deferred` carries obligations without the full answer, which is how a rule makes progress without guessing. `Undecided` means the rule does not apply. `Failed` means the rule applies and the obligation cannot hold. An unsolved inference variable in any argument is never enough for `Solved` or `Failed`: a rule either makes progress on the known part and defers the rest, or declines. This is what keeps a `Prim` obligation from being reported as impossible while its argument is still unknown, and it is what lets `Lacks "a" ("a" :: Int | r)` be a definite failure while `Lacks "a" ("b" | r)` is a deferral and `Lacks "a" r` is undecided. `Failed` is reported under the official code for that obligation, with the relation's own reason as detail, so a diagnostic agrees with the suite instead of inventing a code.
+**Four outcomes, selected from the known semantic shape.** A rule distinguishes four results. `Solved` carries explicit evidence and may carry additional obligations. `Deferred` may carry partial evidence together with residual obligations, which is how a rule preserves known progress without guessing about an open tail. `Undecided` means the known arguments do not give the rule a decision. `Failed` means known facts establish that the obligation cannot hold. An unknown variable does not erase semantic evidence in the other arguments: an empty closed row satisfies `Lacks` for any label; `Lacks "a" ("a" :: Int | r)` fails because the known prefix contains the forbidden label even though `r` is open; `Lacks "a" ("b" | r)` returns evidence for the known prefix and a residual `Lacks "a" r`; and `Lacks "a" r` declines because no row field is known. `Failed` uses an existing official diagnostic code and preserves the relation's reason as detail, rather than inventing a new code.
 
-**The framework checks a decision; a rule only states one.** `Failed` is the answer for an obligation the *arguments* rule out — no reading of them can produce one, as `Cons "ab" "c" s` has. It is not the answer for a decision that turns out to be wrong, and no rule returns it for that. Official solving has no failure answer at all: a rule returns `Maybe [TypeClassDict]` and never inspects the goal, and the solver then unifies each produced dictionary's own arguments against the goal's, in order, for every dictionary it produces (`Entailment.hs:301`). A failed unification aborts that goal and reports the mismatch. So a rule's dictionary here carries the type it decided at the position it decides and the goal's own argument everywhere else — official's `tcdInstanceTypes` — and the framework runs that one unification through the shared unifier. It is what binds an argument the rule decided, and it is what rejects an argument the goal had already fixed; there is no per-rule copy of the check to omit, get wrong, or answer on a rule's own authority.
+**The framework checks a decision; a rule owns applicability.** A rule returns `Failed` when the known structure rules out every possible answer, as `Cons "ab" "c" s` does because a head must contain one scalar. It can do so even when another argument remains open, as `Lacks "a" ("a" :: Int | r)` demonstrates. A contradiction between a value the rule decided and an argument the goal already fixed is different: official solving has no explicit failure result, because a rule returns `Maybe [TypeClassDict]` without inspecting the goal, and the solver unifies each produced dictionary's own arguments against the goal's, in order, for every dictionary it produces (`Entailment.hs:301`). A failed unification aborts that goal and reports the mismatch. Here the rule's dictionary carries the type it decided at the position it decides and the goal's own argument everywhere else — official's `tcdInstanceTypes` — and the framework runs that check through the shared unifier. It binds a decided argument or reports a contradiction; applicability, deferral, and facts that no possible answer exists remain the rule's responsibility.
 
-That placement is load-bearing rather than tidier. A decision over two arguments that are *already known* binds nothing, so any test for "did the rule decide anything?" reads it as silence, and a contradiction is discarded with the speculative state that produced it — the obligation then falls through to instance search and the user is told no instance exists where official says the types do not match. Only the unifier can tell "decided nothing" apart from "proved impossible", so the unification decides it, before anything asks whether progress was made. The refusals below keep their purpose unchanged: a rule that guesses from a partly-unknown argument binds nothing and states nothing the unifier contradicts, so it is still downgraded to the deferral it should have been, and a rule still cannot declare an obligation impossible while an argument is unknown.
+That separation is load-bearing. The framework must not infer a rule's semantic answer from whether its work changed the inference-variable set: a rule may prove part of an open row and defer the rest, or reject an obligation from a known prefix while its tail stays unknown. The shared unifier remains the authority for installing returned decisions and detecting contradictions. Declined candidates and rejected speculative work roll back through the shared snapshot, while diagnostics that establish the result retain their origin.
 
-**Deferral is re-queued, not forgotten.** A deferred obligation re-enters wanted solving with its origin retained, after the improvement pass has run again on the improved arguments. Rules are bounded: a deferral that makes no progress toward a solved argument is reported rather than retried, and search depth and work remain bounded as for instance contexts. A rule's speculative work — reading a row, deciding a literal, solving a nested obligation — runs under the shared speculation operation, so a declined or refused candidate leaves no substitution, level, kind, or diagnostic behind. The one thing speculation does not swallow is the framework's own check: a decision that contradicts the obligation keeps its diagnostic, because the diagnostic is the answer rather than a side effect of a trial that did not apply.
+**Deferral is re-queued, not forgotten.** A deferred obligation re-enters wanted solving with its origin retained, after the improvement pass has run again on the improved arguments. The shared solver bounds search depth and limits a deferral tree to 32 re-entered obligations; an active-path cycle or exhausted budget is reported instead of retried. Whether unresolved residuals may be generalized belongs to the enclosing policy: `Retain` can carry a flexible residual into the inferred scheme, while `RequireSolved` reports it at the concrete obligation. A rule's speculative work — reading a row, deciding a literal, solving a nested obligation — runs under the shared speculation operation, so an undecided rule leaves no substitution, level, kind, or diagnostic behind. A decision that contradicts the obligation keeps the shared unifier's diagnostic, because that diagnostic is the result rather than a side effect of a trial that did not apply.
 
 **Functional dependencies are how a relation informs inference.** The fundeps in the inventory are the official ones and are improvement, not runtime fields. They are applied before a rule is consulted, so a rule usually receives determined arguments, and again after each deferral. Improvement never assigns a rigid variable and never uses a later fallback.
 
-**Members do not share one strategy.** The strategy column is normative: a `Prim` class is a relation, a proof, a report, or an interface, and the four behave differently on purpose. `Coercible` is a proof: it is discharged by the role analysis, its evidence is a compile-time boundary rather than a dictionary, and a user cannot supply it. `Fail`, `Warn`, and `Partial` are reports: `Fail` and `Partial` are never discharged by a rule and reach the diagnostic, where they carry their own meaning — a type-level string in `Fail`'s argument is the message, and `Partial` carries what an exhaustiveness check could not decide. `Warn` is the one member that both reports and discharges: it prefers a warning already in scope, so a warning can be deferred and propagated outward, and otherwise constructs a dictionary that erases and emits a warning at the obligation's span. The row and symbol and integer relations are ordinary relations whose dictionaries are empty and erase, but their rules decide real type-level facts and their evidence records the arguments they decided. Treating all `Prim` classes as one kind of obligation is rejected, because it produces a rule for `Fail` that silently accepts a program the official compiler rejects with a custom error.
+**Members do not share one strategy.** The strategy column is normative: a `Prim` class is a relation, a proof, a report, or an interface, and each has a different evidence contract. `Coercible` is a proof: role analysis derives a compile-time boundary rather than a dictionary, and a user cannot provide it. `Fail`, `Warn`, and `Partial` use report behavior. `Fail` and `Partial` do not produce dictionary evidence; their constraints remain residual when policy permits, then reach report handling at a concrete use. A valid `Fail Doc` supplies the custom error message. `Partial` is specified to report exhaustiveness information, but the current HIR has no producer for that metadata, so unresolved `Partial` still receives generic `NoInstanceFound` text. `Warn` prefers an in-scope warning dictionary; otherwise it emits a warning and returns an empty primitive dictionary that erases. The row, symbol, and integer relations also use empty dictionaries, but their rules decide type-level facts and record the decided arguments. Treating all `Prim` classes as one kind of obligation is rejected, because it would erase these distinct evidence and reporting behaviors.
 
-**Compile-time proof and runtime dictionary are different results.** A `Proof` member leaves no runtime value: its evidence is a checked boundary that Core lowers to a representation conversion, and it is never passed as an argument. A `Relation` member's evidence is an ordinary dictionary node in THIR that erases when the relation is only about types; if a relation ever needs a value, that is a lowering decision made where the value's representation is chosen, not by the rule. A `ReportOnly` member produces a diagnostic and no evidence at all. Downstream stages consume the classification recorded in the evidence node; they never re-derive a `Prim` member's meaning from its name, and a backend that sees a `RepresentationCast` does not need to know that `Coercible` produced it.
+**Compile-time proof and runtime dictionary are different results.** A `Proof` member leaves no runtime value: its evidence is a checked boundary that Core lowers to a representation conversion, and it is never passed as an argument. A `Relation` member's evidence is an ordinary dictionary node in THIR that erases when the relation is only about types; if a relation ever needs a value, that is a lowering decision made where the value's representation is chosen, not by the rule. `ReportOnly` members produce no dictionary evidence; `Warn` is a `ReportingDictionary` because it both records a warning and supplies an empty dictionary. Downstream stages consume the classification recorded in evidence; they never re-derive a `Prim` member's meaning from its name, and a backend that sees a `RepresentationCast` does not need to know that `Coercible` produced it.
 
 **Intrinsics are a separate contract with a separate identity.** Primitive *values* are compiler-known externals with a fixed type and a target lowering, selected by their own identity and never through a class constraint. They are not in the registry's declaration list, they are not solved by the rule table, and no `Prim` relation is implemented by one. The two are adjacent in exactly one place worth naming: `Safe.Coerce.coerce` is a value whose own type is constrained by `Prim.Coerce.Coercible`, so the source API is an intrinsic while the class it mentions is a compiler-owned relation, and the coercion the intrinsic elaborates to carries the proof the rule derived. The same shape is possible in a library — a Prelude defining addition from `Prim.Int.Add` at the type level and from an intrinsic at the value level — but the two obligations have separate evidence and separate lowering.
 
@@ -135,15 +137,14 @@ solve(wanted):
     if wanted.class_id has a primitive rule:
         match rule(arguments, state):
             Solved   { evidence, deferred } -> unify each decided argument with the
-                                              goal's at that position; report the
-                                              mismatch if any fails; then keep the
-                                              evidence when something became more
-                                              determined, else defer; re-queue deferred
+                                              goal's at that position; report a
+                                              mismatch if any fails; keep evidence;
+                                              re-queue deferred
             Deferred { evidence, deferred } -> the same check on the evidence, if any;
                                               keep it; re-queue deferred
             Undecided                      -> continue to givens and instance search
-            Failed { code, detail }        -> report code with detail, when every
-                                              argument is determined
+            Failed { code, detail }        -> report code with detail when the
+                                              rule's known-shape failure condition holds
     if a given unifies with wanted without assigning a rigid variable: Given
     if a superclass path from a given proves wanted: Superclass
     collect visible candidate instances and chains
@@ -158,16 +159,18 @@ solve_coercible(source, target, env, visibility):   # the Proof member
     return a compile-time proof, never a dictionary
 
 re-queue(constraint):
-    improve it again, re-enter solve with its original span,
-    and stop if the pass made no progress toward determined arguments
+    improve it again and re-enter solve with its original span;
+    bound repeated obligations by the shared solve-depth and work limits
 
 primitive rule, by member:
     Row.Cons      a known label builds the extension; an unknown label defers
     Row.Lacks     a known absent label is proved; the label present fails;
-                  an open tail with known labels defers to the tail;
+                  an open tail with a known prefix proves that prefix and
+                  defers the residual to the tail;
                   an open tail with no known label declines
     Row.Union     a closed side merges or splits; otherwise the known labels
-                  move to the result and the remainder defers with a fresh tail
+                  move to the result and a residual relation defers with a
+                  fresh tail
     Row.Nub       a closed row is canonicalized; an open row declines
     RowToList     a closed row becomes a RowList; otherwise declines
     Symbol.Append two known symbols concatenate; a known prefix or suffix splits
@@ -177,8 +180,10 @@ primitive rule, by member:
                  orderings and literals in scope decides by reachability
     Int.Add, Int.Mul, Int.ToString  known literals decide forwards and backwards
     Coercible     roles, equality, givens, and visible newtypes prove the relation
-    Warn          a warning in scope defers the report; otherwise report and discharge
-    Fail, Partial never discharge; they reach the diagnostic
+    Warn          prefer an in-scope warning dictionary; otherwise emit a warning
+                  and return the empty dictionary
+    Fail, Partial retain when policy permits and reach report handling at a
+                  concrete use; Partial metadata is not yet produced by HIR
 ```
 
 Every branch above reads its arguments through the shared row normalizer, the shared type model, and the shared kind solver, and every branch that unifies does so through the shared substitution under speculation.
@@ -190,13 +195,13 @@ The registry owns declarations and nothing else:
 - `crates/psrs-hir/src/primitives/` holds one module per family — `core.rs`, `rows.rs`, `numbers.rs`, `type_error.rs` — behind `primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)>`. Each entry carries its `TypeId`, name, declared kind, fundeps, and roles; `tests.rs` holds the fidelity tests against the official environment. The registry contains no rule, no solver, and no diagnostic text.
 - `Interface::primitive_module` in the resolver derives each virtual module's members from the registry, so a recognized module always advertises exactly what the registry declares. [Modules and resolution](../semantics/modules-and-resolution.md) owns that derivation.
 - `psrs_kind::check_roles` consumes the registry alongside the resolved modules, the same way the kind pass already consumed it when it built its schemes, so a member's declared roles reach the checked kind environment instead of the nominal default.
-- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for the outcome types and the table itself, `dispatch.rs` for the acceptance path, `verify.rs` for the check official runs on every produced dictionary, and one module per family — `row/`, `symbol.rs`, `int.rs`, `compare/`, `coercible/` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. The `coercible` rule uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
-- `crates/psrs-typecheck/src/typecheck/classes/solve.rs` owns the single dispatch site, so givens, primitive rules, and instance search are consulted in one place and in one order.
+- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table and its shared contract: the table and outcome types, transactional acceptance, verification of returned decisions, bounded re-queueing, and one rule module per family — rows, symbols, integers, comparisons, coercions, and diagnostics. Each rule reads the shared `InferType` and solver state. The coercion rule reads roles from the checked kind environment and kinds from the shared kind solver.
+- `crates/psrs-typecheck/src/typecheck/classes/solve/` owns the single constraint-search path: it orders givens, superclass projection, primitive rules, and instance search according to the evidence contract.
 - Intrinsic values stay where they are: `psrs_hir::Intrinsic` for identity, the type checker's intrinsic typing for term types, and the backend for lowering. `Prim.undefined` is one of them and reaches the root `Prim` interface the same way `Safe.Coerce.coerce` does. No `Prim` name appears in that path.
 
 ## Invariants and verification
 
-Every `Prim` member resolves to exactly one declaration identity, and that identity is unchanged by qualification, aliasing, and re-export. Every member's kind is checked by the program-level kind pass from the registry; no `Prim` member is checked against a fabricated kind and none is absent from the checked environment. Every `Prim` relation is dispatched by identity to at most one rule, and a member with no rule reaches instance search or a missing-instance diagnostic rather than an ad hoc path. No rule reports a definite outcome from an unsolved argument: an unknown argument yields progress with deferral, or a decline. A declined, deferred-then-abandoned, or failed rule leaves no substitution, level, kind, or diagnostic behind. A rule's decision is expressed through the shared substitution, so the arguments its evidence records are the arguments the constraint now has. A `Proof` member produces no runtime value, a `Relation` member's evidence is a dictionary node THIR verifies, and a `ReportOnly` member produces a diagnostic and no evidence. No downstream stage recovers a member's meaning from its name.
+Every `Prim` member resolves to exactly one declaration identity, and that identity is unchanged by qualification, aliasing, and re-export. Every type and class member's kind is checked by the program-level kind pass from the registry; no member is checked against a fabricated kind and none is absent from the checked environment. Every `Prim` relation is dispatched by identity to at most one rule, and a member with no rule reaches instance search or a missing-instance diagnostic rather than an ad hoc path. A rule bases `Solved`, `Deferred`, and `Failed` on the semantic facts it can read; an unrelated unknown argument does not erase a known prefix or impose a solver-wide applicability gate. The shared unifier verifies every decision carried by evidence. Rejected speculative work leaves no substitution, level, kind, or diagnostic behind; a diagnostic that is the result of a rejected relation decision is preserved with its source origin. A `Proof` member produces no runtime value, a `Relation` member's evidence is a dictionary node THIR verifies, and a `ReportOnly` member produces a diagnostic and no evidence. No downstream stage recovers a member's meaning from its name.
 
 Verification follows the whole chain rather than one stage: interface and identity, kind checking, inference with improvement, solving and evidence elaboration, THIR verification, and lowering where the member has a runtime effect. The chain is checked per member with its own case, so that a member which resolves but is not solved is evidenced as resolved-and-unsolved rather than as absent.
 
@@ -256,7 +261,7 @@ Type-level `Reflectable` and `IsSymbol` relations exist in later official versio
 and are not part of the inventory above; adding a member is a registry change
 with the same requirements as any other.
 
-Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
+Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md). A rule for a member whose shared foundations are incomplete is not a local shortcut: the argument types it needs must participate in ordinary instantiation, substitution, unification, generalization, and scope checking first, and a rule that cannot satisfy that reports the limitation rather than approximating the member with a private path.
 
 ## References
 
@@ -266,401 +271,69 @@ Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-te
 
 ## Implementation notes
 
-The registry declares every official member. Kinds, functional dependencies, and
-roles match the official environment member by member, including
-`Prim.Boolean.True` and `.False` at kind `Boolean` and `Prim.RowList.Nil` at
-`forall k. RowList k`.
+The primitive registry supplies every official type and class declaration with
+its stable identity, kind, functional dependencies, and roles. The compiler-known
+values `Prim.undefined` and `Safe.Coerce.coerce` use the intrinsic identity and
+interface path instead of registry declarations. `Prim.undefined` has type
+`forall a. a`, but Core lowering still rejects it because the backend has no
+runtime representation for an undefined value.
 
-`Prim.undefined` is a compiler-owned value rather than a registry declaration,
-because a registry declaration is a type-level entity and this member is a
-value. It follows the same identity contract as the other intrinsics: one
-`SymbolId` in the compiler-owned namespace, an interface export from the root
-`Prim` module, and no free spelling in the value namespace. Its type is
-`forall a. a`, so the use decides the type variable, and its runtime
-representation is the one thing still missing — Core lowering reports it rather
-than choosing one, because a partial value is a target decision the
-[backend dictionaries](../../backend/fp/type-classes-and-dictionaries.md) and
-[effects](../../backend/fp/effects.md) documents own.
+Type inference accepts `Type`, `Constraint`, and `Symbol` as ordinary primitive
+type constructors with their declared kinds. This does not add explicit kind
+application: `KindApplication` remains absent from the inference spine, and the
+official source parser has no source-level producer for it. Type-level integer
+values use `i64`, while official PureScript solves them as unbounded integers;
+computed arithmetic outside the local range declines instead of wrapping.
 
-`Prim.RowList.Nil` had been declared at `forall k. RowList k -> RowList k`,
-which is a different kind: it made the member look like it took one argument.
-It is the only official member whose kind is not an arrow chain, so the shared
-kind builder grew a `forall` form that takes the body outright rather than
-arrow parameters.
+The shared solver selects primitive behavior by resolved class identity. Proof
+and relation rules run before direct given lookup; report behavior runs after it,
+so a scoped warning dictionary can be used before a new warning is emitted. Each
+rule owns applicability and chooses among `Solved`, `Deferred`, `Undecided`, and
+`Failed` from the semantic structure it can read. The framework checks returned
+dictionary arguments through the shared unifier, keeps a contradiction's
+diagnostic, and rolls back a declined speculative rule. It does not impose a
+global all-arguments-determined or variable-progress gate. Deferred obligations
+are retried with their source origin, bounded by solve depth, active-path cycle
+detection, and a shared limit of 32 re-entered obligations. The caller's
+`Retain` or `RequireSolved` policy flows through selected instance contexts, so
+residual constraints can be generalized when the enclosing declaration permits
+it.
 
-Every registry foreign type now declares its official role signature rather
-than leaving `declared_roles` absent, which the role check reads as nominal. The
-role check itself consumes the registry alongside the resolved modules, the same
-way the kind pass already consumed it when it built its schemes, so a `Prim`
-member's roles reach the checked kind environment instead of falling back to
-the nominal default at every use. The effect on `Coercible` is not yet visible
-from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
-type-level `Symbol` literals, which the shared type spine does not carry yet.
+The row rules use the shared row normalizer and kind solver. `Cons` constructs
+an extension from a known label even when the tail is open. `Lacks` succeeds for
+any label on an empty closed row, fails when a known prefix contains the label,
+and succeeds on a closed row when the label is absent. With an open tail and a
+nonempty known prefix, it returns evidence for the prefix and a residual
+`Lacks` on the tail; an open row with no known fields declines. `Union` merges a
+closed left row into the right row; with a closed right row and closed output it
+partitions the output by the right row's label multiset; otherwise a nonempty
+known left prefix contributes to the output and leaves a residual `Union` on the
+open tail. An open left row with no known fields declines. `Nub` and
+`RowToList` still require closed rows. Rigid-tail row unification has known bugs;
+see [D-04](../../D-04-suite-roadmap.md).
 
-`Coercible` and eight relations have rules, and each reaches one shared dispatch
-site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/`
-holds the rule table: `mod.rs` for the table and the outcome types, `dispatch.rs` for
-the acceptance path, `verify.rs` for the check official runs on every produced
-dictionary, `requeue.rs` for the deferral bound, `coercible/mod.rs` for the one proof rule with the
-given-composition helpers it shares in `coercible/givens.rs`, `symbol.rs` for
-`Prim.Symbol.Append` and `Prim.Symbol.Cons`, `compare/` for `Prim.Symbol.Compare`
-and `Prim.Int.Compare` with the relation solver in `compare/relation.rs`, `int.rs`
-for `Prim.Int.Add`, `Prim.Int.Mul`, and `Prim.Int.ToString`, and `row/mod.rs` for
-`Prim.Row.Cons`, `Prim.Row.Nub`, and `Prim.RowList.RowToList`. The private kind
-table and private
-unifier the previous revision named are gone; the `Coercible` rule reads roles
-through the checked kind
-environment and kinds through the one kind solver, and it keeps only the
-recursion-bounded role walk, which is the mechanism every role-aware relation will
-share. The old `classes/coercion/` path is gone with them.
+The symbol rules compare Unicode scalar sequences, split `Cons` at one scalar,
+and apply the official ordered cases for `Append`. The integer rules implement
+`Add`, `Mul`, `Compare`, and `ToString`; overflow outside `i64` remains a
+limitation. `Int.Compare` also uses in-scope comparison evidence and literals to
+decide ordering by graph reachability, as specified by official entailment.
 
-### One qualification to the dispatch order, read from the evidence class
+`Warn` uses a matching scoped dictionary when an explicit signature provides
+one. Without such a given it emits `UserDefinedWarning` and supplies an empty
+dictionary that erases; a signatureless declaration therefore does not infer a
+residual `Warn` context. The warning belongs to the enclosing top-level value
+signature or declaration, or to the enclosing instance declaration. Wanted
+constraints retain that report origin separately from their obligation span,
+including across imported uses and deferred solving. `Fail` remains residual when
+generalization permits, then reports a valid `Doc` as `Custom error:`; malformed
+`Doc` falls back to ordinary `NoInstanceFound`. `Partial` also has report-only
+evidence, but HIR currently has no producer for its missing-case metadata, so an
+unresolved direct `Partial` still receives the generic no-instance diagnostic.
 
-The order stated above — givens, the rule table, instance search — is implemented, with
-one qualification the previous revision did not state and that the evidence contract
-forces: **a `Proof` member's rule is consulted before the givens, and the direct given
-lookup is skipped for it.** A `Proof` member's evidence is a checked boundary rather than
-a dictionary, so a matching given cannot supply it. `ExprKind::Coerce` in THIR verifies
-that its evidence is an explicit proof boundary and rejects the `Given` and `Superclass`
-kinds, so a `Coercible a b` given discharged through the ordinary given lookup would
-produce a module THIR refuses. A `Coercible` rule already reads the givens, composing
-the assumed proofs through the shared given solver, so skipping the lookup loses nothing;
-a superclass path is a different mechanism and is still consulted after the rule declines.
-Official solving does the same thing: `forClassNameM` tries `solveCoercible` before the
-`findDicts` fallback for `C.Coercible`.
-
-This is why the table records each member's `EvidenceClass`, and why
-`primitive_rule_precedes_givens` is a predicate over that classification rather than over
-identities: the position in the dispatch order *is* the evidence class's consequence. A
-rule cannot be consulted in one position and discharged in another, because the two are
-the same field.
-
-### The outcome contract is enforced by the framework, not promised by a rule
-
-`Checker::solve_primitive`, in `prim/dispatch.rs`, does not take a rule's `PrimitiveOutcome`
-on trust. It snapshots the solver, runs the rule, and acts on the answer in official
-solving's order — produce, check, report — restoring the snapshot only when the obligation
-continues into the ordinary paths. Four consequences, each of which is a case in
-`prim/tests/outcomes.rs`:
-
-- A relation's decided arguments are unified against the goal's arguments, position by
-  position, through the shared unifier, and a disagreement is reported and kept. This is
-  `Entailment.hs:301` verbatim in structure and `prim/verify.rs` in code. It runs first,
-  because it is the only step that can tell a rule that decided nothing apart from a rule
-  that proved the obligation cannot hold: both bind nothing. `a_decision_that_contradicts_a_known_argument_is_reported_and_kept`
-  is the case the two gates below could not see, and it is the mirror of the declined case
-  beside it — the diagnostic and the rule's allocation both survive.
-- `Failed` is honoured only when every argument is determined. An obligation with an
-  unsolved argument is not impossible, it is undecided, so a refused `Failed` falls
-  through to instance search instead of reporting it. This is the structural form of
-  "an unsolved inference variable in any argument is never enough for `Solved` or
-  `Failed`", for the reason the design gives when it separates the two answers.
-- `Solved` is honoured only when the rule determined an argument that was unknown, or
-  when every argument is determined. A rule that decides a known part does it by binding
-  the rest through the shared substitution, so "nothing became more determined" means the
-  rule decided on nothing, and the answer is read as the deferral it should have been.
-  Placing the check first has not cost this: a rule that guesses states nothing the
-  unifier contradicts and binds nothing either, so it is still downgraded.
-- A `Failed` whose `code` maps to no official `errorCode` is refused the same way, so a
-  rule cannot invent a diagnostic the suite has never seen.
-
-Because acceptance is transactional, a declined, refused, or downgraded rule leaves no
-substitution, level, kind, or diagnostic behind — which the cases prove by fingerprinting
-the solver around a rule that binds, allocates, reports, and then declines. The check above
-is the one thing that is not transactional: it runs as a reporting trial, so the bindings it
-made before it failed are rolled back while its diagnostic is deliberately re-emitted. A
-rule that contradicted its obligation therefore leaves a diagnostic describing it and no
-substitution pretending the decision was usable.
-
-### A relation's evidence is an ordinary THIR dictionary node
-
-`PrimitiveEvidence::Dictionary` records the dictionary's own arguments — the type the rule
-decided at each position it decides, and the goal's own argument where it did not — and THIR
-gained `EvidenceKind::Primitive { arguments }` for it: a dictionary node that erases rather than
-naming a constructor to apply, because a `Prim` relation declares no members. The verifier
-requires the empty class dictionary type, which is what distinguishes a relation's erased
-dictionary from a user class's, and Core lowering erases it to the same empty record a
-`Coercible` proof lowers to. Without that node a relation rule's `Solved` had no evidence
-to produce: `Global`, `Instance`, `Given`, and `Superclass` each need a symbol or a local
-the rule does not have.
-
-### Deferral is re-queued inside the declaration
-
-`prim/requeue.rs` re-enters wanted solving on a deferred obligation with its own origin
-retained, after `improve_one` has run again on its arguments, and retains the re-entered
-constraint in the wanted list so its solution becomes evidence. The work is bounded twice:
-each re-entry is one `SolveDepth` level deeper, so it shares the instance-context bound,
-and one obligation's chain re-enters at most 32 obligations, which bounds a width the
-depth bound does not. A deferral that returns an obligation its own chain has already
-tried made no progress toward determined arguments, and is reported under
-`NoInstanceFound` — the code official solving raises for a relation it cannot decide from
-the arguments it has — rather than retried.
-
-Retention does not depend on residual-constraint generalization: a re-entered obligation is
-decided by its own re-entry within the declaration's inference, and it is appended after
-the wanted list `solve_wanted_constraints` walked, so every retained constraint's evidence
-index and `wanted_start` are unchanged. The framework is therefore complete and useful on
-its own, and a later change to what survives generalization composes with it rather than
-replacing it.
-
-Every `Prim` member's kind is now checked by the single program-level kind pass from
-the registry, through `psrs_kind::check_program`, and each member is in the checked
-environment that pass returns. A `Prim` declaration therefore cannot reach the missing
-scheme diagnostic the pass reports for a declaration nothing in the program declared.
-
-Functional dependencies now reach the primitive path as well. `improve_one` is the same
-fixed point the wanted-list pass reaches, narrowed to one constraint, and the rule dispatch
-runs it before consulting the table. It is needed there because the wanted-list pass runs
-before solving starts and cannot reach a constraint that instance solving builds
-afterwards, so a rule now usually receives determined arguments whether it was reached
-from the wanted list or from an instance context. Improvement still assigns only flexible
-variables and still draws only on givens and on instance heads that are fully mapped, so
-it never assigns a rigid variable and never falls back to a later candidate.
-
-`Prim.Symbol.Append` and `Prim.Symbol.Cons` have rules in
-`crates/psrs-typecheck/src/typecheck/prim/symbol.rs`, and they follow official
-`appendSymbols` and `consSymbol` arm for arm — including the order, which is part
-of what each relation decides. `Append` reads two known symbols as a
-concatenation, a known left symbol and a known appended symbol as a prefix, and a
-known right symbol and a known appended symbol as a suffix; it strips a prefix
-only when the left symbol is a genuine prefix, so `Append "b" s "abc"` declines
-rather than answering `"a"` from the suffix reading, exactly as official solving
-does. `Cons` reads a known symbol by splitting it into its first scalar and the
-rest, and joins a head and a tail only when the head is one scalar; an empty
-symbol has no first scalar and decides nothing. Both state what they decide in the
-relation's dictionary and let the framework unify it against the goal, so a decided
-symbol that does not unify with an argument already known is rejected under
-`TypesDoNotUnify` — the code official solving raises for its own decided argument,
-and the same one it raises for `Cons "ab" t "a"` however open `t` is, which is why
-the split's two halves are decided together and reported by the framework rather
-than by the rule. A head that is not one scalar is a different fact and keeps its
-own `Failed` under `NoInstanceFound`, because no unification finds it: the
-arguments permit no answer at all. The framework refuses that report while the
-symbol argument is still unknown, because an obligation with an unknown argument is
-undecided rather than impossible. `crates/psrs-driver/tests/prim_symbol.rs` pins
-every reading, decline, and rejection against `purs` 0.15.16.
-
-The three `Prim.Int` relations run forwards and backwards over their arguments.
-`Add 2 7 9` decides the third argument and `Add l 5 9` the second, `Mul` decides
-its product, and `ToString` decides the string from a known integer — so
-`ToString 1 "a"` is rejected by ordinary equality between the decided `"1"` and the
-wanted `"a"`, which is why the diagnostic comes from unifying a decided argument
-rather than from a rule inspecting what was wanted. Each declines when no direction
-applies, and an `i64` overflow declines rather than wrapping: `IntOutOfRange` is
-official's code for a *source* literal, not for computed type-level arithmetic.
-Type-level integers are `i64` here while official solves over `Integer`, so wide
-arithmetic declines where official would decide.
-
-Ten of the twelve relations have rules: `Prim.Int.Add`, `Mul`, `ToString`,
-`Compare`, `Prim.Symbol.Append`, `Cons`, `Compare`, and `Prim.Row.Cons`, `Nub`,
-`Prim.RowList.RowToList`. The two that have none are `Prim.Row.Lacks` and
-`Prim.Row.Union`, and they are the two that need `Deferred` — over an open tail
-with known labels they make progress on the known part and move the obligation to
-the tail, which is the one answer none of the implemented rules returns. A wanted
-one of those two therefore reaches ordinary instance search and is reported as a
-missing instance, which is the correct outcome for an unimplemented relation but
-not for a supported one. `Warn` and `Fail` and
-`Partial` have no diagnostic
-interface: `Fail` and `Partial` reach the same missing-instance path as any other
-unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is
-recorded as a classification a rule declares, but the diagnostic interface for the three
-report members is still unbuilt, so `PrimitiveEvidence::Report` discharges nothing today
-and those members remain unimplemented.
-
-### The `Prim.Int` relations decide through the shared substitution
-
-`prim/int.rs` holds the three integer relations, and each one reads its arguments
-as `InferType` literals off the shared spine and binds what it decides through
-`Checker::unify`. Nothing here parses source syntax, keeps a kind table, or
-assigns an `InferType` to a wanted argument directly, so "the arguments its
-evidence records are the arguments the constraint now has" holds for them as it
-does for `Coercible`.
-
-`Add` is the only bidirectional one, and it is bidirectional in official
-`addInts`'s order: two known addends give the sum, a known left addend and a
-known sum give the right addend, and a known right addend and a known sum give
-the left addend. Two or fewer known arguments decide nothing and the rule
-declines. `Mul` decides forwards from the two factors and `ToString` forwards
-from one integer; neither reads its result backwards, because a product is not
-evidence of its factors and `Add`'s three fundeps have no `Mul` or `ToString`
-counterpart.
-
-Because the decision goes through the shared binder, a goal whose decided
-argument disagrees with the one the caller wrote is rejected by ordinary type
-equality under `TypesDoNotUnify`. That is official behaviour rather than a
-choice: `TypeChecker.Entailment` unifies a rule's decided arguments against the
-goal's arguments for every dictionary, and the two corpus cases
-`failing/IntToString1.purs` and `failing/IntToString3.purs` are exactly that
-rejection — the goal `Prim.Int.ToString 1 "a"` is decided as `[1, "1"]` and the
-decided string then fails to unify with the wanted one. It is also why none of
-these rules returns `Failed`: official has no failure answer for them, and a
-`NoInstanceFound` the suite does not expect would be a worse guess than
-declining. A rigid variable in the decided position is rejected by the same
-binder, as a signature mismatch, which is what official `unifyTypes` does to a
-skolem.
-
-One decision the shared model cannot make is the one that overflows. Official
-solves over `Integer` and has no bound, but a type-level `Int` here is an `i64`,
-so a sum, difference, or product that leaves the representable range declines
-rather than wrapping into a different and wrong answer. Declining is the honest
-answer rather than `Failed`: the relation is not impossible, it is one this
-model cannot state, and the obligation continues into the ordinary paths.
-
-The shared types those rules need are now reachable: `InferType` and THIR
-carry `TypeLevelString` and `TypeLevelInt`, a type-level literal is decided by
-its value and is what an unknown variable is solved to, and signature
-elaboration accepts a general `Row`, both literals, and the `Row` and `Record`
-primitive heads, so a rule receives its arguments as ordinary types. A row
-reaches one normalizer whether it was written with row syntax, record syntax,
-or a `Record` application, and `normalize_row` reports an invalid shape rather
-than reading it as a closed row. `Type`, `Constraint`, and `Symbol` are still
-rejected in a type position because that needs `KindApplication`, and
-`KindApplication` is still missing.
-
-### `Int.Compare` closes a relation; `Symbol.Compare` compares two strings
-
-`prim/compare/` holds the two members that decide an `Ordering`, and they bind
-what they decide through `Checker::unify` like every other relation, so a goal
-whose ordering disagrees with the decision is rejected by ordinary type equality
-under `TypesDoNotUnify`. Neither returns `Failed`, for the same reason the other
-`Prim.Int` rules do not. The decided `Ordering` is not a new type form:
-`LT`, `EQ`, and `GT` are the registry's ordinary nominal constructors, and a
-decision is an `InferType::Constructor` built from the shared `TypeId`s.
-
-`Prim.Symbol.Compare` is the simpler one and matches official
-`solveSymbolCompare` exactly: two known type-level symbols decide, and one known
-symbol with one unknown operand decides nothing. The order is scalar-value order
-rather than a locale collation, because DEC-16 makes a `Symbol` a sequence of
-Unicode scalar values and the payload is such a sequence.
-
-`Prim.Int.Compare` is not a comparison of two integers, and that is the whole
-of what distinguishes it. `TypeChecker/Entailment/IntCompare.hs` is a separate
-module from `Entailment.hs` for that reason: `solveIntCompare` reads two known
-integers first and, failing that, hands the goal to `solveRelation` together
-with the facts it collects. `prim/compare/relation.rs` is that module. The facts
-are the orderings the in-scope `Prim.Int.Compare` dictionaries carry and the
-type-level literals anywhere in scope; the answer is reachability over the graph
-those facts describe.
-
-Two properties of that solver are worth stating because a literal comparison
-would get them wrong, and the corpus exists to catch exactly that:
-
-- **The goal is not a fact about itself.** Official builds the relations from
-  `findDicts ctx C.IntCompare` alone, so an obligation never states its own
-  answer. A goal whose own ordering argument is already `LT` is decided the same
-  way as one whose third argument is unknown, and is rejected by ordinary
-  equality when the decision disagrees. The goal *does* contribute facts, which
-  is `mkFacts (args : (tcdInstanceTypes <$> compareDictsInScope))`.
-- **A literal in scope is evidence about its neighbours.** `mkFacts` sorts the
-  literals it finds and asserts that every earlier one is less than every later
-  one, so `Compare a 10 LT` in scope together with a goal of `Compare a 20 o`
-  has the path `a -> 10 -> 20`, while a goal of `Compare a 5 o` does not. That is
-  `passing/SolvingCompareInt.purs`'s `litTransLT` and `failing/CompareInt11.purs`
-  respectively, and the second is reported as a missing instance because no path
-  reaches `5`.
-
-The relations themselves are the three axiom-free ones official's graph
-supports: `lhs == rhs` is `EQ` before anything else, an `EQ` given contributes
-an edge in each direction, a `LT` one edge, and a `GT` the edge that reading it
-the other way round gives. So symmetry, transitivity, and reflexivity are not
-separately encoded — they are what reachability over that graph already is.
-`crates/psrs-driver/tests/prim_compare.rs` pins every reading, decline, and
-rejection against `purs` 0.15.16.
-
-One thing the shared model did not need changing: the dictionaries in scope are
-the `Scope`'s own record of a declaration's dictionary parameters, which is what
-official's `InstanceContext` is, so the rule reads exactly the set the given
-lookup reads. No new query, no solver snapshot, and no additional argument
-surface was needed to close the relation.
-
-### The three row relations read rows and bind them through the shared row unifier
-
-`prim/row/mod.rs` holds `Prim.Row.Cons`, `Prim.Row.Nub`, and
-`Prim.RowList.RowToList`. Each reads its rows through `normalize_row` and binds
-what it decides through `Checker::unify`, so a row a rule decides is compared
-with a wanted row by the one row unifier rather than structurally, and the
-arguments its evidence records are the arguments the constraint then has.
-
-`Cons` follows official `solveRowCons` exactly: the guard is on the label alone,
-so a known label decides the row as the extension of `tail` by that label and
-`value`, whatever the tail is — an open tail is decided, not declined — and an
-unknown label declines, because there is no reading of the arguments that names
-the extension. `Nub` and `RowToList` both guard on the row being closed, as
-official `nubRows` and `rowToRowList` do, and both canonicalize what they read:
-`Nub` rebuilds the row through `row_from_fields`, and `RowToList` folds the
-sorted labels into `RowList.Cons` over `RowList.Nil`. An open row declines in
-both, because the answer depends on the labels inside the tail and there is no
-partial answer that is not a guess.
-
-None of the three states its decision in the wanted argument. Each puts the row
-it decided at the position the relation determines and leaves the goal's own
-arguments everywhere else, which is official's `solveRowCons` dictionary:
-`[TypeLevelString sym, ty, r, srcRCons (Label sym) ty r]`. The framework unifies
-those against the goal's arguments through the shared row unifier, so a decided
-row that contradicts a row the obligation had already fixed is rejected by
-ordinary equality under `TypesDoNotUnify` — the code official raises at that same
-step — whether the wanted row is closed or the tail is still unknown. Nothing here
-decides whether its own answer is acceptable, and nothing truncates the unifier's
-diagnostic and restates it: `crates/psrs-driver/tests/prim_row.rs` pins each
-rejection to the code `purs` raises and to the shared unifier's own message.
-
-**This closed the largest remaining source of disagreement with `purs`, and it was
-not specific to the row relations.** A rule that decided a value contradicting an
-argument the goal already fixed — `Int.Compare` deciding `LT` where the goal wants
-`EQ`, or `Row.Cons` deciding an extension the wanted row excludes — was downgraded
-to a decline and reported as a missing instance, where official reports the type
-mismatch. Two gates produced that, and both exist to stop a rule declaring an
-obligation impossible while an argument is still unknown: `Failed` was honoured
-only when every argument is determined, and `Solved` only when the rule made
-something more determined. A rule that unified two *known* types and found them
-contradictory had decided the obligation cannot hold, but having bound nothing it
-counted as no progress, so the contradiction was discarded with the speculative
-state and the obligation was searched instead. Separating "decided nothing" from
-"proved impossible" is what this design still owed every rule, and it is what the
-framework's own unification now does: the step that binds a decided argument and
-the step that rejects it are one operation, so a rule cannot reach either without
-passing through it.
-
-What this changed on the board: nothing. The ten `CompareInt1` through
-`CompareInt10` cases already agreed on `TypesDoNotUnify` once bare rows began to
-unify — they were the cases whose agreement had been an artifact, and unifying
-bare rows is what made their reason correct rather than a spurious `expected
-{left: _T8, right: _T9}, found {left: _T8, right: _T9}`. Their decision already
-contradicted an argument the goal had fixed, and they were already reporting
-`type mismatch: expected EQ, found GT` rather than a missing instance, because
-`Prim.Int.Compare` binds its decision through `Checker::unify` and that binding is
-what the unifier reports. The corpus has no case that needs this for a decided
-value over an *open* row or tail, which is the shape `Prim.Row.Cons` reaches and
-`purs` reports as `TypesDoNotUnify`. So the evidence here is the differential
-against `purs` and not a gate number, and the change is worth having because it
-removes four copies of a rule deciding whether its own answer was acceptable.
-
-The rule that took the `Failed` path here — `decide`, which unified the decision
-itself, dropped the unifier's diagnostic, and restated the failure so that the
-relation would be named — is gone. Restating it was not merely redundant: the
-framework refuses a `Failed` while an argument is unsolved, so the case where a
-decided extension contradicts the wanted row while the *tail* is still unknown was
-the one place these three differed from `purs`. A decided extension over an open
-tail binds nothing, so the refusal was correct and the contradiction was still lost.
-`Prim.Row.Cons` with a known label and an unknown tail is now `TypesDoNotUnify`,
-as `purs` reports it.
-
-Two shapes the shared model does not spell out are recorded rather than worked
-around. A row label is a `TypeLevelString`, and the member's declared kind is
-what makes reading the label argument as a `Symbol` the right reading. The
-element kind of a `RowList` cell is carried by the member's declared kind
-(`forall k. Row k -> RowList k -> Constraint`) rather than by a spine node,
-because the shared type spine has no kind application, so a converted list is the
-same three-value-argument spine that source elaboration builds for
-`RowList.Cons`. `KindApplication` remains the missing piece, and a closed row
-has no source spelling outside a row literal's implicit tail: this compiler's
-`()` is the library type `Data.Unit.Unit`, which official also does not put in
-`Prim`.
-
-Bare rows are compared through the row unifier too. `Checker::unify` reaches
-`unify_rows` for a `Record`-to-`Record` pair and, now, for any pair where either
-side is a row, so a `Record` application and a bare `Row k` argument are one
-equality and the identity a row-polymorphic declaration's own use asks for no
-longer reports two identical rows as a mismatch.
-`crates/psrs-driver/tests/prim_row.rs` pins every reading, decline, and rejection
-against `purs` 0.15.16.
+`Coercible` consumes the shared kind and role environment and produces a checked
+proof boundary. Five Coercible board mismatches remain because this proof has no
+dictionary arguments for the shared relation-decision verification path; the
+proof needs a verified answer contract of its own. [Classes and evidence](classes-and-evidence.md)
+owns its search position and evidence use, while [D-04](../../D-04-suite-roadmap.md)
+records corpus coverage for these limitations and the other incomplete primitive
+cases.
