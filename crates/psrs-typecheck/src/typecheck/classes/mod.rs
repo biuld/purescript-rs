@@ -16,6 +16,7 @@ mod instance;
 mod locals;
 mod matching;
 mod solve;
+mod superclass;
 
 pub(in crate::typecheck) use fundeps::collect_infer_variables;
 pub(in crate::typecheck) use locals::next_local_id;

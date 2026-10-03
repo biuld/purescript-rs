@@ -163,26 +163,10 @@ impl Checker {
         if depth > MAX_SOLVE_DEPTH {
             return None;
         }
-        let class = self.env.classes.get(&base_class).cloned()?;
-        for superclass in &class.superclasses {
-            let mut arguments = Vec::with_capacity(superclass.arguments.len());
-            let mut valid = true;
-            for name in &superclass.arguments {
-                match class
-                    .parameters
-                    .iter()
-                    .position(|parameter| parameter == name)
-                {
-                    Some(index) => arguments.push(base_arguments[index].clone()),
-                    None => {
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-            if !valid {
-                continue;
-            }
+        if !self.env.classes.contains_key(&base_class) {
+            return None;
+        }
+        for (field, edge) in self.superclass_constraints(base_class, base_arguments) {
             let parent = self.build_solution_constraint(
                 base_class,
                 base_arguments.to_vec(),
@@ -191,11 +175,11 @@ impl Checker {
             );
             let solution = WantedSolution::Superclass {
                 parent: Box::new(parent),
-                field: superclass.field.clone(),
+                field,
             };
-            if superclass.class_id == wanted.class_id
+            if edge.class_id == wanted.class_id
                 && self.constraint_arguments_match_or_unify(
-                    &arguments,
+                    &edge.arguments,
                     &wanted.arguments,
                     wanted.span,
                 )
@@ -203,7 +187,7 @@ impl Checker {
                 return Some(solution);
             }
             if let Some(found) =
-                self.superclass_path(superclass.class_id, &arguments, solution, wanted, depth + 1)
+                self.superclass_path(edge.class_id, &edge.arguments, solution, wanted, depth + 1)
             {
                 return Some(found);
             }

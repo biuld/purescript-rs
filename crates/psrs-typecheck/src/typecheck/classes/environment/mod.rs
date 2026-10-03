@@ -1,4 +1,4 @@
-use super::super::signature::{flatten_spine, nominal_type_id};
+use super::super::signature::flatten_spine;
 use super::super::*;
 use super::deriving::contains_wildcard;
 mod method;
@@ -114,85 +114,6 @@ impl Checker {
             }
         }
         self.validate_superclass_cycles(module);
-    }
-
-    /// Elaborates one superclass edge `C τ...`. Every argument must be one of
-    /// the subclass's type parameters; the edge's field name follows the
-    /// official compiler's `ClassName<index>` scheme. `local` gates the
-    /// diagnostics because an imported class was already checked in its module.
-    fn build_superclass(
-        &mut self,
-        superclass: &hir::Type,
-        parameters: &[String],
-        index: usize,
-        local: bool,
-    ) -> Option<SuperclassInfo> {
-        let (head, arguments) = flatten_spine(superclass);
-        let Some(class_id) = nominal_type_id(head) else {
-            if local {
-                self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    superclass.span,
-                    "a superclass must name a class",
-                ));
-            }
-            return None;
-        };
-        let Some(arity) = self
-            .env
-            .classes
-            .get(&class_id)
-            .map(|class| class.parameters.len())
-        else {
-            if local {
-                self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    superclass.span,
-                    "a superclass names an unknown class",
-                ));
-            }
-            return None;
-        };
-        if arguments.len() != arity {
-            if local {
-                self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
-                    superclass.span,
-                    "a superclass constraint has the wrong number of type arguments",
-                ));
-            }
-            return None;
-        }
-        let mut names = Vec::with_capacity(arguments.len());
-        for argument in arguments {
-            match &argument.kind {
-                hir::TypeKind::Variable(name) if parameters.contains(name) => {
-                    names.push(name.clone());
-                }
-                _ => {
-                    if local {
-                        self.state.errors.push(TypeCheckError::new(
-                            TypeCheckErrorKind::UnsupportedClass,
-                            argument.span,
-                            "a superclass argument must be one of the class's type parameters",
-                        ));
-                    }
-                    return None;
-                }
-            }
-        }
-        let name = self
-            .env
-            .type_names
-            .get(&class_id)
-            .cloned()
-            .unwrap_or_else(|| format!("Class{}", class_id.index));
-        Some(SuperclassInfo {
-            class_id,
-            arguments: names,
-            field: format!("{name}{index}"),
-            span: superclass.span,
-        })
     }
 
     /// Resolves a class's functional dependencies to parameter positions. A

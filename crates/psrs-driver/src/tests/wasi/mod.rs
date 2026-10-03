@@ -8,6 +8,7 @@ use wat::*;
 
 mod classes;
 mod coercion;
+mod kind_heads;
 mod umbrella;
 mod wrappers;
 

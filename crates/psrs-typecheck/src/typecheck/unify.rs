@@ -196,6 +196,9 @@ impl Checker {
                 TypeConstructor::String => "String".into(),
                 TypeConstructor::Char => "Char".into(),
                 TypeConstructor::Unit => "Unit".into(),
+                TypeConstructor::Type => "Type".into(),
+                TypeConstructor::Constraint => "Constraint".into(),
+                TypeConstructor::Symbol => "Symbol".into(),
                 TypeConstructor::User(id) => self
                     .env
                     .type_names
@@ -404,6 +407,9 @@ impl Checker {
                     TypeConstructor::String => thir::TypeConstructor::String,
                     TypeConstructor::Char => thir::TypeConstructor::Char,
                     TypeConstructor::Unit => thir::TypeConstructor::Unit,
+                    TypeConstructor::Type => thir::TypeConstructor::Type,
+                    TypeConstructor::Constraint => thir::TypeConstructor::Constraint,
+                    TypeConstructor::Symbol => thir::TypeConstructor::Symbol,
                     TypeConstructor::User(id) => thir::TypeConstructor::User(id),
                 })))
             }

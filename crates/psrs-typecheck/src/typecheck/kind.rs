@@ -257,6 +257,11 @@ fn primitive_builtin(constructor: &TypeConstructor) -> hir::BuiltinType {
         TypeConstructor::String => hir::BuiltinType::String,
         TypeConstructor::Char => hir::BuiltinType::Char,
         TypeConstructor::Unit => hir::BuiltinType::Unit,
+        // `Type`, `Constraint`, and `Symbol` are the primitive kinds, and each
+        // has kind `Type`, so a type position naming one has an ordinary kind.
+        TypeConstructor::Type => hir::BuiltinType::Type,
+        TypeConstructor::Constraint => hir::BuiltinType::Constraint,
+        TypeConstructor::Symbol => hir::BuiltinType::Symbol,
         TypeConstructor::User(_) => {
             unreachable!("a user constructor's kind is its checked scheme")
         }

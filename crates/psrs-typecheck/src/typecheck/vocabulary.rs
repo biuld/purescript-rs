@@ -42,14 +42,27 @@ pub(super) struct MethodInfo {
     pub(super) signature: hir::Type,
 }
 
-/// One superclass edge of a class. Its arguments are the subclass parameter
-/// names that supply the superclass's arguments, in the superclass's parameter
-/// order. `field` is the dictionary record field that stores the superclass
-/// dictionary.
+/// A type written over an explicit binder scope. `binders` are the inference
+/// variables the body is written in, in binding order, and `body` is the
+/// template's spine. Instantiation substitutes a caller's arguments for the
+/// binders through the shared `substitute`, so a template and the constraint it
+/// denotes are one representation rather than two that can disagree.
+#[derive(Clone, Debug)]
+pub(super) struct TypeTemplate {
+    pub(super) binders: Vec<u32>,
+    pub(super) body: Vec<InferType>,
+}
+
+/// One superclass edge of a class. The edge's arguments are written over the
+/// subclass's own parameters and kept as a `TypeTemplate`; instantiating that
+/// template with a subclass's arguments yields the superclass constraint, which
+/// is the only way the edge's arguments are ever read. `field` is the dictionary
+/// record field that stores the superclass dictionary, chosen from the edge's
+/// position.
 #[derive(Clone, Debug)]
 pub(super) struct SuperclassInfo {
     pub(super) class_id: hir::TypeId,
-    pub(super) arguments: Vec<String>,
+    pub(super) template: TypeTemplate,
     pub(super) field: String,
     pub(super) span: TextRange,
 }
