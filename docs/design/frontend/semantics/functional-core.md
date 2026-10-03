@@ -492,11 +492,12 @@ conversion still rejects it when it cannot choose a field layout. `Constrained`
 is discharged into explicit dictionary arguments before THIR, which is why it is
 absent from this Model even though the frontend inference model includes it.
 The frontend spine's `TypeLevel*` and `Skolem` nodes remain part of the
-semantic design. PureScript source syntax has no explicit kind-application
-form, though its kind checker inserts internal `KindApp` nodes when ordinary
-type application implicitly instantiates a polymorphic kind. This compiler's
-kind solver performs that instantiation without retaining a
-`KindApplication` in the source type spine, so the omission is not a source
-compatibility gap. Current nested constraints elaborate to dictionary arrows
+semantic design. Official's CST has no kind-application node: its kind checker
+synthesizes `KindApp` when ordinary type application instantiates a polymorphic
+kind, and this compiler's kind solver performs the same instantiation without
+retaining a `KindApplication` in the source type spine. The source forms that
+do name a kind or type explicitly — `forall @a b .`, `t :: k`, and the visible
+type application `e @T` — are separate nodes and are not folded into kind
+application. Current nested constraints elaborate to dictionary arrows
 beneath `ForAll`, and solver skolems leave the frontend as scoped quantified
 variables.
