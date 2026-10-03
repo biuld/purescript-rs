@@ -61,14 +61,14 @@ Kinds are the official ones, since source compatibility requires them. "Declared
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
 | `Prim.Ordering.LT`, `EQ`, `GT` | `Ordering` | Interface | — | yes | n/a |
-| `Prim.Row.Cons` | `forall k. Symbol -> k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.Row.Cons` | `forall k. Symbol -> k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.Row.Lacks` | `forall k. Symbol -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
-| `Prim.Row.Nub` | `forall k. Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.Row.Nub` | `forall k. Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.Row.Union` | `forall k. Row k -> Row k -> Row k -> Constraint` | Relation | RuntimeDictionary | yes | no |
 | `Prim.RowList` | `Type -> Type` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.RowList.Cons` | `forall k. Symbol -> k -> RowList k -> RowList k` (*phantom*) | Interface | — | yes | n/a |
 | `Prim.RowList.Nil` | `forall k. RowList k` | Interface | — | yes | n/a |
-| `Prim.RowList.RowToList` | `forall k. Row k -> RowList k -> Constraint` | Relation | RuntimeDictionary | yes | no |
+| `Prim.RowList.RowToList` | `forall k. Row k -> RowList k -> Constraint` | Relation | RuntimeDictionary | yes | yes |
 | `Prim.Symbol.Append` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | no |
 | `Prim.Symbol.Compare` | `Symbol -> Symbol -> Ordering -> Constraint` | Relation | RuntimeDictionary | yes | no |
 | `Prim.Symbol.Cons` | `Symbol -> Symbol -> Symbol -> Constraint` | Relation | RuntimeDictionary | yes | no |
@@ -181,7 +181,7 @@ The registry owns declarations and nothing else:
 - `crates/psrs-hir/src/primitives/` holds one module per family — `core.rs`, `rows.rs`, `numbers.rs`, `type_error.rs` — behind `primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)>`. Each entry carries its `TypeId`, name, declared kind, fundeps, and roles; `tests.rs` holds the fidelity tests against the official environment. The registry contains no rule, no solver, and no diagnostic text.
 - `Interface::primitive_module` in the resolver derives each virtual module's members from the registry, so a recognized module always advertises exactly what the registry declares. [Modules and resolution](../semantics/modules-and-resolution.md) owns that derivation.
 - `psrs_kind::check_roles` consumes the registry alongside the resolved modules, the same way the kind pass already consumed it when it built its schemes, so a member's declared roles reach the checked kind environment instead of the nominal default.
-- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for dispatch and the outcome types, and one module per family — `row.rs`, `symbol.rs`, `int.rs`, `type_error.rs`, `coercible.rs` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. `coercible.rs` uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
+- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for dispatch and the outcome types, and one module per family — `row/`, `symbol.rs`, `int.rs`, `type_error.rs`, `coercible.rs` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. `coercible.rs` uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
 - `crates/psrs-typecheck/src/typecheck/classes/solve.rs` owns the single dispatch site, so givens, primitive rules, and instance search are consulted in one place and in one order.
 - Intrinsic values stay where they are: `psrs_hir::Intrinsic` for identity, the type checker's intrinsic typing for term types, and the backend for lowering. `Prim.undefined` is one of them and reaches the root `Prim` interface the same way `Safe.Coerce.coerce` does. No `Prim` name appears in that path.
 
@@ -288,15 +288,16 @@ the nominal default at every use. The effect on `Coercible` is not yet visible
 from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
 type-level `Symbol` literals, which the shared type spine does not carry yet.
 
-`Coercible` and five relations have rules, and each reaches one shared dispatch
+`Coercible` and eight relations have rules, and each reaches one shared dispatch
 site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/`
 holds the rule table: `mod.rs` for the dispatch and the outcome types, `requeue.rs`
 for the deferral bound, `coercible/mod.rs` for the one proof rule with the
 given-composition helpers it shares in `coercible/givens.rs`, `symbol.rs` for
 `Prim.Symbol.Append` and `Prim.Symbol.Cons`, `compare/` for `Prim.Symbol.Compare`
-and `Prim.Int.Compare` with the relation solver in `compare/relation.rs`, and
-`int.rs` for `Prim.Int.Add`,
-`Prim.Int.Mul`, and `Prim.Int.ToString`. The private kind table and private
+and `Prim.Int.Compare` with the relation solver in `compare/relation.rs`, `int.rs`
+for `Prim.Int.Add`, `Prim.Int.Mul`, and `Prim.Int.ToString`, and `row/mod.rs` for
+`Prim.Row.Cons`, `Prim.Row.Nub`, and `Prim.RowList.RowToList`. The private kind
+table and private
 unifier the previous revision named are gone; the `Coercible` rule reads roles
 through the checked kind
 environment and kinds through the one kind solver, and it keeps only the
@@ -422,11 +423,14 @@ official's code for a *source* literal, not for computed type-level arithmetic.
 Type-level integers are `i64` here while official solves over `Integer`, so wide
 arithmetic declines where official would decide.
 
-The other five relations have no rule and no dispatch entry: `Prim.Row.Cons`,
-`Lacks`, `Union`, `Nub`, and `Prim.RowList.RowToList`. A wanted one of those
-therefore reaches ordinary instance search and is reported as a missing instance,
-which is the correct outcome for an unimplemented relation but not for a supported
-one. `Warn` and `Fail` and
+The other four relations have no rule and no dispatch entry: `Prim.Row.Lacks`,
+`Prim.Row.Union`, `Prim.Symbol.Compare`, and `Prim.Int.Compare`. `Lacks` and
+`Union` are the two that need `Deferred` — over an open tail with known labels
+they make progress on the known part and move the obligation to the tail, which
+is the one answer none of the implemented rules returns. A wanted one of those
+four therefore reaches ordinary instance search and is reported as a missing
+instance, which is the correct outcome for an
+unimplemented relation but not for a supported one. `Warn` and `Fail` and
 `Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
 unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is
@@ -539,3 +543,69 @@ the `Scope`'s own record of a declaration's dictionary parameters, which is what
 official's `InstanceContext` is, so the rule reads exactly the set the given
 lookup reads. No new query, no solver snapshot, and no additional argument
 surface was needed to close the relation.
+
+### The three row relations read rows and bind them through the shared row unifier
+
+`prim/row/mod.rs` holds `Prim.Row.Cons`, `Prim.Row.Nub`, and
+`Prim.RowList.RowToList`. Each reads its rows through `normalize_row` and binds
+what it decides through `Checker::unify`, so a row a rule decides is compared
+with a wanted row by the one row unifier rather than structurally, and the
+arguments its evidence records are the arguments the constraint then has.
+
+`Cons` follows official `solveRowCons` exactly: the guard is on the label alone,
+so a known label decides the row as the extension of `tail` by that label and
+`value`, whatever the tail is — an open tail is decided, not declined — and an
+unknown label declines, because there is no reading of the arguments that names
+the extension. `Nub` and `RowToList` both guard on the row being closed, as
+official `nubRows` and `rowToRowList` do, and both canonicalize what they read:
+`Nub` rebuilds the row through `row_from_fields`, and `RowToList` folds the
+sorted labels into `RowList.Cons` over `RowList.Nil`. An open row declines in
+both, because the answer depends on the labels inside the tail and there is no
+partial answer that is not a guess.
+
+A decided value that contradicts a row already known to be something else is
+reported as `Failed` under `TypesDoNotUnify`, which is the code official raises
+when it unifies a rule's decided arguments against the goal's arguments. That
+answer is honoured only when every argument is determined, so a decided
+extension that contradicts the wanted row while the *tail* is still unknown
+reaches instance search and is reported as a missing instance. Official reports
+`TypesDoNotUnify` there. This is the framework's rule and not the rule's, and it
+is the one place these three differ from `purs`.
+
+**The same shape is the largest remaining source of disagreement, and it is not
+specific to the row relations.** A rule that decides a value contradicting an
+argument the goal already fixes — `Int.Compare` deciding `LT` where the goal wants
+`EQ`, or `Row.Cons` deciding an extension the wanted row excludes — is downgraded
+to a decline and reported as a missing instance, where official reports the type
+mismatch. Two gates produce that, and both exist to stop a rule declaring an
+obligation impossible while an argument is still unknown: `Failed` is honoured only
+when every argument is determined, and `Solved` only when the rule made something
+more determined. A rule that unified two *known* types and found them
+contradictory has decided the obligation cannot hold, but having bound nothing it
+counts as no progress, so the contradiction is discarded and the obligation is
+searched instead. Ten `TypesDoNotUnify` cases — `CompareInt1` through
+`CompareInt10` — mismatch for this reason, where before bare rows began to unify
+they agreed for the wrong reason: a spurious `expected {left: _T8, right: _T9},
+found {left: _T8, right: _T9}` carried the right code for an unrelated reason.
+Separating "decided nothing" from "proved impossible" is what this design still
+owes every rule.
+
+Two shapes the shared model does not spell out are recorded rather than worked
+around. A row label is a `TypeLevelString`, and the member's declared kind is
+what makes reading the label argument as a `Symbol` the right reading. The
+element kind of a `RowList` cell is carried by the member's declared kind
+(`forall k. Row k -> RowList k -> Constraint`) rather than by a spine node,
+because the shared type spine has no kind application, so a converted list is the
+same three-value-argument spine that source elaboration builds for
+`RowList.Cons`. `KindApplication` remains the missing piece, and a closed row
+has no source spelling outside a row literal's implicit tail: this compiler's
+`()` is the library type `Data.Unit.Unit`, which official also does not put in
+`Prim`.
+
+Bare rows are compared through the row unifier too. `Checker::unify` reaches
+`unify_rows` for a `Record`-to-`Record` pair and, now, for any pair where either
+side is a row, so a `Record` application and a bare `Row k` argument are one
+equality and the identity a row-polymorphic declaration's own use asks for no
+longer reports two identical rows as a mismatch.
+`crates/psrs-driver/tests/prim_row.rs` pins every reading, decline, and rejection
+against `purs` 0.15.16.
