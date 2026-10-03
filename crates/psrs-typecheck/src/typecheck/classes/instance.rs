@@ -187,7 +187,7 @@ impl Checker {
         // An instance head may contain type variables (for example a
         // `ToInt (Array a)` head); generalize the dictionary constructor over
         // them so the declaration is polymorphic in the head variables.
-        let scheme = self.generalize(&value.ty, &[], TOP_LEVEL);
+        let scheme = self.generalize(&[], &value.ty, &[], TOP_LEVEL);
         Some(InferredDeclaration {
             symbol: instance.symbol,
             name: instance.name.clone(),

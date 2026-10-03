@@ -132,17 +132,14 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             let declaration = &module.declarations[index];
             let (scheme, parameters) = match &declaration.signature {
                 Some(signature) => {
-                    let (constraints, parameters, body, variables) =
-                        checker.elaborate_declaration_signature(signature);
-                    annotation_scopes[index] = variables;
-                    (
-                        Scheme {
-                            variables: Vec::new(),
-                            constraints,
-                            ty: body,
-                        },
-                        parameters,
-                    )
+                    let signature = checker.elaborate_declaration_signature(signature);
+                    annotation_scopes[index] = signature.annotation_variables.clone();
+                    let scheme = checker.declared_scheme(
+                        &signature.quantified,
+                        signature.constraints,
+                        signature.ty,
+                    );
+                    (scheme, signature.parameters)
                 }
                 None => (Scheme::monomorphic(checker.fresh()), Vec::new()),
             };
@@ -211,7 +208,13 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             }) else {
                 continue;
             };
-            let scheme = checker.generalize(&monomorphic, &constraints, TOP_LEVEL);
+            let declared = checker
+                .scope
+                .globals
+                .get(&module.declarations[index].symbol)
+                .map(|scheme| scheme.variables.clone())
+                .unwrap_or_default();
+            let scheme = checker.generalize(&declared, &monomorphic, &constraints, TOP_LEVEL);
             if let Some(declaration) = inferred[index].as_mut() {
                 declaration.scheme = scheme.clone();
                 checker.scope.globals.insert(declaration.symbol, scheme);

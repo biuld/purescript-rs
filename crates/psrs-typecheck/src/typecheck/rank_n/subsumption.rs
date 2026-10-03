@@ -18,7 +18,7 @@ impl Checker {
                 self.with_skolem_scope(&variables, |checker| checker.subsume(actual, *body, span));
             }
             (InferType::ForAll { variables, body }, expected) => {
-                let mapping = self.instantiate_type_variables(variables);
+                let mapping = self.instantiate_type_variables(variables, &HashMap::new());
                 self.subsume(substitute(&body, &mapping), expected, span);
             }
             (actual, expected) => {

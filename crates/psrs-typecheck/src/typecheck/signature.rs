@@ -1,11 +1,24 @@
 use super::*;
 
-pub(super) type ElaboratedDeclarationSignature = (
-    Vec<ClassConstraint>,
-    Vec<(LocalId, InferType)>,
-    InferType,
-    HashMap<String, InferType>,
-);
+/// A declaration's elaborated signature.
+pub(super) struct ElaboratedSignature {
+    /// The signature's class constraints, in source order.
+    pub(super) constraints: Vec<ClassConstraint>,
+    /// One dictionary parameter per constraint, in the same order. The parameter
+    /// the body discharges a constraint with is the parameter at that
+    /// constraint's position.
+    pub(super) parameters: Vec<(LocalId, InferType)>,
+    /// The type the body is checked at, with the `forall`/`=>` spine flattened.
+    pub(super) ty: InferType,
+    /// The type variables the signature names, keyed by source name. A typed
+    /// pattern or an ascription inside the body reuses these exact variables
+    /// instead of elaborating a second rigid variable under the same name.
+    pub(super) annotation_variables: HashMap<String, InferType>,
+    /// The variables the signature's own `forall` binders introduced, in binding
+    /// order. These are the declaration's declared polymorphism, so its scheme
+    /// quantifies exactly them however the solver levelled them.
+    pub(super) quantified: Vec<u32>,
+}
 
 impl Checker {
     /// Elaborates a signature at a use site. Its universally quantified
@@ -29,9 +42,11 @@ impl Checker {
     pub(super) fn elaborate_declaration_signature(
         &mut self,
         ty: &hir::Type,
-    ) -> ElaboratedDeclarationSignature {
+    ) -> ElaboratedSignature {
         let mut variables = HashMap::new();
-        let (constraints, body) = self.elaborate_constraint_spine(ty, &mut variables, true);
+        let mut quantified = Vec::new();
+        let (constraints, body) =
+            self.elaborate_constraint_spine(ty, &mut variables, true, &mut quantified);
         let mut parameters = Vec::with_capacity(constraints.len());
         for constraint in &constraints {
             let dictionary_type = self.dictionary_type(constraint);
@@ -39,18 +54,26 @@ impl Checker {
             self.state.next_dictionary_local += 1;
             parameters.push((id, dictionary_type));
         }
-        (constraints, parameters, body, variables)
+        ElaboratedSignature {
+            constraints,
+            parameters,
+            ty: body,
+            annotation_variables: variables,
+            quantified,
+        }
     }
 
     /// Walks a signature's `forall`/`=>` spine, elaborating every constraint
-    /// before its body. Constraints appear in source order.
+    /// before its body. Constraints appear in source order, and the binders of
+    /// each `forall` are appended to `quantified` in binding order.
     pub(super) fn elaborate_constrained_signature(
         &mut self,
         ty: &hir::Type,
         rigid: bool,
     ) -> (Vec<ClassConstraint>, InferType) {
         let mut variables = HashMap::new();
-        self.elaborate_constraint_spine(ty, &mut variables, rigid)
+        let mut quantified = Vec::new();
+        self.elaborate_constraint_spine(ty, &mut variables, rigid, &mut quantified)
     }
 
     fn elaborate_constraint_spine(
@@ -58,6 +81,7 @@ impl Checker {
         ty: &hir::Type,
         variables: &mut HashMap<String, InferType>,
         rigid: bool,
+        quantified: &mut Vec<u32>,
     ) -> (Vec<ClassConstraint>, InferType) {
         match &ty.kind {
             hir::TypeKind::Forall {
@@ -65,14 +89,17 @@ impl Checker {
                 body,
             } => {
                 let mut scoped_variables = variables.clone();
-                self.bind_forall_variables(binders, &mut scoped_variables, rigid);
-                let result = self.elaborate_constraint_spine(body, &mut scoped_variables, rigid);
+                let introduced = self.bind_forall_variables(binders, &mut scoped_variables, rigid);
+                quantified.extend(introduced);
+                let result =
+                    self.elaborate_constraint_spine(body, &mut scoped_variables, rigid, quantified);
                 *variables = scoped_variables;
                 result
             }
             hir::TypeKind::Constrained { constraint, body } => {
                 let class = self.elaborate_constraint(constraint, variables, rigid);
-                let (rest, body_ty) = self.elaborate_constraint_spine(body, variables, rigid);
+                let (rest, body_ty) =
+                    self.elaborate_constraint_spine(body, variables, rigid, quantified);
                 let mut constraints = Vec::new();
                 if let Some(class) = class {
                     constraints.push(class);
