@@ -163,7 +163,9 @@ primitive rule, by member:
     RowToList     a closed row becomes a RowList; otherwise declines
     Symbol.Append two known symbols concatenate; a known prefix or suffix splits
     Symbol.Cons   a known symbol splits into head and tail; a one-scalar head joins
-    Symbol.Compare, Int.Compare  known operands decide the Ordering
+    Symbol.Compare two known symbols decide the Ordering
+    Int.Compare  two known literals decide; otherwise the relation over the
+                 orderings and literals in scope decides by reachability
     Int.Add, Int.Mul, Int.ToString  known literals decide forwards and backwards
     Coercible     roles, equality, givens, and visible newtypes prove the relation
     Warn          a warning in scope defers the report; otherwise report and discharge
@@ -291,7 +293,9 @@ site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/
 holds the rule table: `mod.rs` for the dispatch and the outcome types, `requeue.rs`
 for the deferral bound, `coercible/mod.rs` for the one proof rule with the
 given-composition helpers it shares in `coercible/givens.rs`, `symbol.rs` for
-`Prim.Symbol.Append` and `Prim.Symbol.Cons`, and `int.rs` for `Prim.Int.Add`,
+`Prim.Symbol.Append` and `Prim.Symbol.Cons`, `compare/` for `Prim.Symbol.Compare`
+and `Prim.Int.Compare` with the relation solver in `compare/relation.rs`, and
+`int.rs` for `Prim.Int.Add`,
 `Prim.Int.Mul`, and `Prim.Int.ToString`. The private kind table and private
 unifier the previous revision named are gone; the `Coercible` rule reads roles
 through the checked kind
@@ -418,11 +422,11 @@ official's code for a *source* literal, not for computed type-level arithmetic.
 Type-level integers are `i64` here while official solves over `Integer`, so wide
 arithmetic declines where official would decide.
 
-The other seven relations have no rule and no dispatch entry: `Prim.Row.Cons`,
-`Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Compare`, and
-`Prim.Int.Compare`. A wanted one of those therefore reaches ordinary instance
-search and is reported as a missing instance, which is the correct outcome for an
-unimplemented relation but not for a supported one. `Warn` and `Fail` and
+The other five relations have no rule and no dispatch entry: `Prim.Row.Cons`,
+`Lacks`, `Union`, `Nub`, and `Prim.RowList.RowToList`. A wanted one of those
+therefore reaches ordinary instance search and is reported as a missing instance,
+which is the correct outcome for an unimplemented relation but not for a supported
+one. `Warn` and `Fail` and
 `Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
 unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is
@@ -479,3 +483,59 @@ or a `Record` application, and `normalize_row` reports an invalid shape rather
 than reading it as a closed row. `Type`, `Constraint`, and `Symbol` are still
 rejected in a type position because that needs `KindApplication`, and
 `KindApplication` is still missing.
+
+### `Int.Compare` closes a relation; `Symbol.Compare` compares two strings
+
+`prim/compare/` holds the two members that decide an `Ordering`, and they bind
+what they decide through `Checker::unify` like every other relation, so a goal
+whose ordering disagrees with the decision is rejected by ordinary type equality
+under `TypesDoNotUnify`. Neither returns `Failed`, for the same reason the other
+`Prim.Int` rules do not. The decided `Ordering` is not a new type form:
+`LT`, `EQ`, and `GT` are the registry's ordinary nominal constructors, and a
+decision is an `InferType::Constructor` built from the shared `TypeId`s.
+
+`Prim.Symbol.Compare` is the simpler one and matches official
+`solveSymbolCompare` exactly: two known type-level symbols decide, and one known
+symbol with one unknown operand decides nothing. The order is scalar-value order
+rather than a locale collation, because DEC-16 makes a `Symbol` a sequence of
+Unicode scalar values and the payload is such a sequence.
+
+`Prim.Int.Compare` is not a comparison of two integers, and that is the whole
+of what distinguishes it. `TypeChecker/Entailment/IntCompare.hs` is a separate
+module from `Entailment.hs` for that reason: `solveIntCompare` reads two known
+integers first and, failing that, hands the goal to `solveRelation` together
+with the facts it collects. `prim/compare/relation.rs` is that module. The facts
+are the orderings the in-scope `Prim.Int.Compare` dictionaries carry and the
+type-level literals anywhere in scope; the answer is reachability over the graph
+those facts describe.
+
+Two properties of that solver are worth stating because a literal comparison
+would get them wrong, and the corpus exists to catch exactly that:
+
+- **The goal is not a fact about itself.** Official builds the relations from
+  `findDicts ctx C.IntCompare` alone, so an obligation never states its own
+  answer. A goal whose own ordering argument is already `LT` is decided the same
+  way as one whose third argument is unknown, and is rejected by ordinary
+  equality when the decision disagrees. The goal *does* contribute facts, which
+  is `mkFacts (args : (tcdInstanceTypes <$> compareDictsInScope))`.
+- **A literal in scope is evidence about its neighbours.** `mkFacts` sorts the
+  literals it finds and asserts that every earlier one is less than every later
+  one, so `Compare a 10 LT` in scope together with a goal of `Compare a 20 o`
+  has the path `a -> 10 -> 20`, while a goal of `Compare a 5 o` does not. That is
+  `passing/SolvingCompareInt.purs`'s `litTransLT` and `failing/CompareInt11.purs`
+  respectively, and the second is reported as a missing instance because no path
+  reaches `5`.
+
+The relations themselves are the three axiom-free ones official's graph
+supports: `lhs == rhs` is `EQ` before anything else, an `EQ` given contributes
+an edge in each direction, a `LT` one edge, and a `GT` the edge that reading it
+the other way round gives. So symmetry, transitivity, and reflexivity are not
+separately encoded — they are what reachability over that graph already is.
+`crates/psrs-driver/tests/prim_compare.rs` pins every reading, decline, and
+rejection against `purs` 0.15.16.
+
+One thing the shared model did not need changing: the dictionaries in scope are
+the `Scope`'s own record of a declaration's dictionary parameters, which is what
+official's `InstanceContext` is, so the rule reads exactly the set the given
+lookup reads. No new query, no solver snapshot, and no additional argument
+surface was needed to close the relation.

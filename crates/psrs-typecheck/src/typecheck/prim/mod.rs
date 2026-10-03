@@ -22,6 +22,7 @@ use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::*;
 
 mod coercible;
+mod compare;
 mod int;
 mod requeue;
 mod symbol;
@@ -99,6 +100,7 @@ pub(in crate::typecheck) struct PrimitiveRule {
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
     core::iter::once(&coercible::RULE)
         .chain(symbol::RULES.iter())
+        .chain(compare::RULES.iter())
         .chain(int::RULES.iter())
 }
 
@@ -109,6 +111,7 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
     core::iter::once(&coercible::RULE)
         .chain(symbol::RULES.iter())
+        .chain(compare::RULES.iter())
         .chain(int::RULES.iter())
         .chain(tests::SYNTHETIC.iter())
 }
