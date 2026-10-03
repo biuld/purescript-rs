@@ -283,23 +283,103 @@ the nominal default at every use. The effect on `Coercible` is not yet visible
 from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
 type-level `Symbol` literals, which the shared type spine does not carry yet.
 
-Only `Coercible` has a rule, and it is the one rule that does not yet use the shared
-foundations: its kind denotation, substitution, and unifier live in
-`crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs`, which still carries a
-private table and a private unifier. It now spells a primitive as
-`Kind::Builtin(...)` and `Row Type` as `App(Builtin(Row), Builtin(Type))`, so it agrees
-with the kind checker on the spine, but the duplication itself is unresolved: it also
-owns a recursion-bounded solver that no other relation shares. The rule is entered from
-`solve.rs` by comparing `class_id` against the `COERCIBLE` constant directly, so the
-dispatch is a special case at the call site rather than a table lookup, and the
-coercion helpers are reached from the given rewriting and the newtype deriving rule as
-well. `psrs-kind` exports `denote_kind`, `primitive_kind`, `unify_kind`,
-`bind_kind_variable`, and `KindState` for that move.
+Only `Coercible` has a rule, and it now reaches one shared dispatch site rather than a
+special case inside it. `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table:
+`mod.rs` for the dispatch and the outcome types, `requeue.rs` for the deferral bound,
+and `coercible/mod.rs` for the one rule that exists, with the given-composition helpers
+it shares in `coercible/givens.rs`. The private kind table and private unifier the
+previous revision named are gone; the rule reads roles through the checked kind
+environment and kinds through the one kind solver, and it keeps only the
+recursion-bounded role walk, which is the mechanism every role-aware relation will
+share. The old `classes/coercion/` path is gone with them.
+
+### One qualification to the dispatch order, read from the evidence class
+
+The order stated above — givens, the rule table, instance search — is implemented, with
+one qualification the previous revision did not state and that the evidence contract
+forces: **a `Proof` member's rule is consulted before the givens, and the direct given
+lookup is skipped for it.** A `Proof` member's evidence is a checked boundary rather than
+a dictionary, so a matching given cannot supply it. `ExprKind::Coerce` in THIR verifies
+that its evidence is an explicit proof boundary and rejects the `Given` and `Superclass`
+kinds, so a `Coercible a b` given discharged through the ordinary given lookup would
+produce a module THIR refuses. A `Coercible` rule already reads the givens, composing
+the assumed proofs through the shared given solver, so skipping the lookup loses nothing;
+a superclass path is a different mechanism and is still consulted after the rule declines.
+Official solving does the same thing: `forClassNameM` tries `solveCoercible` before the
+`findDicts` fallback for `C.Coercible`.
+
+This is why the table records each member's `EvidenceClass`, and why
+`primitive_rule_precedes_givens` is a predicate over that classification rather than over
+identities: the position in the dispatch order *is* the evidence class's consequence. A
+rule cannot be consulted in one position and discharged in another, because the two are
+the same field.
+
+### The outcome contract is enforced by the framework, not promised by a rule
+
+`Checker::solve_primitive` does not take a rule's `PrimitiveOutcome` on trust. It
+snapshots the solver, runs the rule, checks the outcome against the obligation's own
+arguments, and restores the snapshot unless the outcome is accepted. Three consequences,
+each of which is a case in `prim/tests/outcomes.rs`:
+
+- `Failed` is honoured only when every argument is determined. An obligation with an
+  unsolved argument is not impossible, it is undecided, so a refused `Failed` falls
+  through to instance search instead of reporting it. This is the structural form of
+  "an unsolved inference variable in any argument is never enough for `Solved` or
+  `Failed`", for the reason the design gives when it separates the two answers.
+- `Solved` is honoured only when the rule determined an argument that was unknown, or
+  when every argument is determined. A rule that decides a known part does it by binding
+  the rest through the shared substitution, so "nothing became more determined" means the
+  rule decided on nothing, and the answer is read as the deferral it should have been.
+- A `Failed` whose `code` maps to no official `errorCode` is refused the same way, so a
+  rule cannot invent a diagnostic the suite has never seen.
+
+Because acceptance is transactional, a declined, refused, or downgraded rule leaves no
+substitution, level, kind, or diagnostic behind — which the cases prove by fingerprinting
+the solver around a rule that binds, allocates, reports, and then declines.
+
+### A relation's evidence is an ordinary THIR dictionary node
+
+`PrimitiveEvidence::Dictionary` records the arguments the rule decided, and THIR gained
+`EvidenceKind::Primitive { arguments }` for it: a dictionary node that erases rather than
+naming a constructor to apply, because a `Prim` relation declares no members. The verifier
+requires the empty class dictionary type, which is what distinguishes a relation's erased
+dictionary from a user class's, and Core lowering erases it to the same empty record a
+`Coercible` proof lowers to. Without that node a relation rule's `Solved` had no evidence
+to produce: `Global`, `Instance`, `Given`, and `Superclass` each need a symbol or a local
+the rule does not have.
+
+### Deferral is re-queued inside the declaration
+
+`prim/requeue.rs` re-enters wanted solving on a deferred obligation with its own origin
+retained, after `improve_one` has run again on its arguments, and retains the re-entered
+constraint in the wanted list so its solution becomes evidence. The work is bounded twice:
+each re-entry is one `SolveDepth` level deeper, so it shares the instance-context bound,
+and one obligation's chain re-enters at most 32 obligations, which bounds a width the
+depth bound does not. A deferral that returns an obligation its own chain has already
+tried made no progress toward determined arguments, and is reported under
+`NoInstanceFound` — the code official solving raises for a relation it cannot decide from
+the arguments it has — rather than retried.
+
+Retention does not depend on residual-constraint generalization: a re-entered obligation is
+decided by its own re-entry within the declaration's inference, and it is appended after
+the wanted list `solve_wanted_constraints` walked, so every retained constraint's evidence
+index and `wanted_start` are unchanged. The framework is therefore complete and useful on
+its own, and a later change to what survives generalization composes with it rather than
+replacing it.
 
 Every `Prim` member's kind is now checked by the single program-level kind pass from
 the registry, through `psrs_kind::check_program`, and each member is in the checked
 environment that pass returns. A `Prim` declaration therefore cannot reach the missing
 scheme diagnostic the pass reports for a declaration nothing in the program declared.
+
+Functional dependencies now reach the primitive path as well. `improve_one` is the same
+fixed point the wanted-list pass reaches, narrowed to one constraint, and the rule dispatch
+runs it before consulting the table. It is needed there because the wanted-list pass runs
+before solving starts and cannot reach a constraint that instance solving builds
+afterwards, so a rule now usually receives determined arguments whether it was reached
+from the wanted list or from an instance context. Improvement still assigns only flexible
+variables and still draws only on givens and on instance heads that are fully mapped, so
+it never assigns a rigid variable and never falls back to a later candidate.
 
 The other twelve relations have no rule and no dispatch entry: `Prim.Row.Cons`,
 `Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Cons`,
@@ -311,7 +391,10 @@ The other twelve relations have no rule and no dispatch entry: `Prim.Row.Cons`,
 a missing instance, which is the correct outcome for an unimplemented relation but
 not for a supported one. `Warn` and `Fail` and `Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
-unsolved class, and `Warn` does not defer to an enclosing warning.
+unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is
+recorded as a classification a rule declares, but the diagnostic interface for the three
+report members is still unbuilt, so `PrimitiveEvidence::Report` discharges nothing today
+and those members remain unimplemented.
 
 The shared types those rules need are now reachable: `InferType` and THIR
 carry `TypeLevelString` and `TypeLevelInt`, a type-level literal is decided by

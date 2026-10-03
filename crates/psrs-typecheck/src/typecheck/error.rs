@@ -62,6 +62,13 @@ impl TypeCheckError {
 
     /// The official PureScript `errorCode` for this diagnostic, when it maps to
     /// one.
+    pub fn error_code(&self) -> Option<&'static str> {
+        self.kind.error_code()
+    }
+}
+
+impl TypeCheckErrorKind {
+    /// The official PureScript `errorCode` this kind raises, when it maps to one.
     ///
     /// The mappings follow `purs`' `ErrorCode` in
     /// `src/Language/PureScript/Errors.hs`. Three kinds deliberately have no
@@ -90,7 +97,7 @@ impl TypeCheckError {
     ///   right and the stage differs, so it is recorded here rather than left
     ///   unmapped.
     pub fn error_code(&self) -> Option<&'static str> {
-        Some(match self.kind {
+        Some(match self {
             TypeCheckErrorKind::TypeMismatch => "TypesDoNotUnify",
             TypeCheckErrorKind::KindsDoNotUnify => "KindsDoNotUnify",
             TypeCheckErrorKind::OccursCheck => "InfiniteType",
