@@ -17,10 +17,10 @@ impl Checker {
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
             return self.deriving_error(span, "Functor deriving requires a local type constructor");
         };
-        let Some(declaration) = self.type_declarations.get(type_id).cloned() else {
+        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the data declaration to derive Functor");
         };
-        if type_id.module != self.module_id
+        if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype

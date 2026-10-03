@@ -1,0 +1,142 @@
+//! The vocabulary shared by every part of inference: the scheme and constraint
+//! forms inference produces, and the environment entries the semantic table
+//! holds. Nothing here is mutable solver state; the fields live in
+//! [`SemanticEnv`](super::state::SemanticEnv), [`InferState`](super::state::InferState),
+//! and [`Scope`](super::state::Scope).
+
+use super::*;
+
+/// A type with a set of universally quantified variables and the class
+/// constraints those variables must satisfy.
+#[derive(Clone, Debug)]
+pub(super) struct Scheme {
+    pub(super) variables: Vec<u32>,
+    pub(super) constraints: Vec<ClassConstraint>,
+    pub(super) ty: InferType,
+}
+
+impl Scheme {
+    pub(super) fn monomorphic(ty: InferType) -> Self {
+        Self {
+            variables: Vec::new(),
+            constraints: Vec::new(),
+            ty,
+        }
+    }
+}
+
+/// A class constraint `C τ...` recorded during inference. Its `arguments` are
+/// the instantiated class type arguments in declaration order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ClassConstraint {
+    pub(super) class_id: hir::TypeId,
+    pub(super) arguments: Vec<InferType>,
+    pub(super) span: TextRange,
+}
+
+/// A class method declaration recorded in the class environment.
+#[derive(Clone, Debug)]
+pub(super) struct MethodInfo {
+    pub(super) symbol: SymbolId,
+    pub(super) name: String,
+    pub(super) signature: hir::Type,
+}
+
+/// One superclass edge of a class. Its arguments are the subclass parameter
+/// names that supply the superclass's arguments, in the superclass's parameter
+/// order. `field` is the dictionary record field that stores the superclass
+/// dictionary.
+#[derive(Clone, Debug)]
+pub(super) struct SuperclassInfo {
+    pub(super) class_id: hir::TypeId,
+    pub(super) arguments: Vec<String>,
+    pub(super) field: String,
+    pub(super) span: TextRange,
+}
+
+/// One functional dependency of a class, resolved to parameter positions. The
+/// `determining` parameters functionally determine the `determined` ones.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FundepInfo {
+    pub(super) determining: Vec<usize>,
+    pub(super) determined: Vec<usize>,
+}
+
+/// A class with its ordered type parameters, superclass edges, methods, and
+/// functional dependencies.
+#[derive(Clone, Debug)]
+pub(super) struct ClassInfo {
+    pub(super) parameters: Vec<String>,
+    pub(super) superclasses: Vec<SuperclassInfo>,
+    pub(super) fundeps: Vec<FundepInfo>,
+    pub(super) methods: Vec<MethodInfo>,
+}
+
+/// An instance's class, head arguments (which may contain instance variables),
+/// elaborated context constraints, and the synthesized dictionary parameters
+/// for that context.
+#[derive(Clone, Debug)]
+pub(super) struct InstanceInfo {
+    pub(super) symbol: SymbolId,
+    pub(super) class_id: hir::TypeId,
+    pub(super) chain_id: u32,
+    pub(super) chain_position: u32,
+    pub(super) head_arguments: Vec<InferType>,
+    pub(super) head_variables: HashMap<String, InferType>,
+    pub(super) context: Vec<ClassConstraint>,
+    pub(super) context_parameters: Vec<(LocalId, InferType)>,
+}
+
+/// The dictionary selected for a wanted constraint during solving. A
+/// superclass selection embeds the parent constraint's already-solved
+/// dictionary, and an instance selection embeds the solved context constraints
+/// whose dictionaries it applies the constructor to.
+#[derive(Clone, Debug)]
+pub(super) enum WantedSolution {
+    Given(LocalId),
+    Global(SymbolId),
+    Instance {
+        constructor: SymbolId,
+        constructor_type: InferType,
+        context: Vec<WantedConstraint>,
+    },
+    Superclass {
+        parent: Box<WantedConstraint>,
+        field: String,
+    },
+    Coercible {
+        source: InferType,
+        target: InferType,
+    },
+}
+
+/// A constraint that still needs a dictionary. Its solution is filled in by
+/// `solve_wanted_constraints` before finalization.
+#[derive(Clone, Debug)]
+pub(super) struct WantedConstraint {
+    pub(super) class_id: hir::TypeId,
+    pub(super) arguments: Vec<InferType>,
+    pub(super) dictionary_type: InferType,
+    pub(super) span: TextRange,
+    pub(super) givens: Vec<(ClassConstraint, WantedSolution)>,
+    pub(super) solution: Option<WantedSolution>,
+}
+
+/// A resolved type synonym, expanded during signature elaboration.
+#[derive(Clone, Debug)]
+pub(super) struct Synonym {
+    pub(super) parameters: Vec<String>,
+    pub(super) body: hir::Type,
+}
+
+/// A data or newtype constructor registered as a value, with its declared
+/// result type and field types.
+#[derive(Clone, Debug)]
+pub(super) struct ConstructorInfo {
+    pub(super) symbol: SymbolId,
+    pub(super) name: String,
+    pub(super) type_id: hir::TypeId,
+    pub(super) tag: u32,
+    pub(super) parameters: Vec<String>,
+    pub(super) fields: Vec<hir::Type>,
+}

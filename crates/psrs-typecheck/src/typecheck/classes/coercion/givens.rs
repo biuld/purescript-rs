@@ -8,7 +8,7 @@ impl Checker {
         let mut direct = Vec::new();
         let mut edges = Vec::new();
         let mut relations = Vec::new();
-        for (given, _) in &self.givens {
+        for (given, _) in &self.scope.givens {
             if given.class_id != hir::TypeId::COERCIBLE || given.arguments.len() != 2 {
                 continue;
             }
@@ -182,9 +182,13 @@ impl Checker {
                     return;
                 }
                 if let TypeConstructor::User(id) = left_constructor
-                    && self.type_declarations.get(id).is_some_and(|declaration| {
-                        declaration.kind == hir::TypeDeclarationKind::Newtype
-                    })
+                    && self
+                        .env
+                        .type_declarations
+                        .get(id)
+                        .is_some_and(|declaration| {
+                            declaration.kind == hir::TypeDeclarationKind::Newtype
+                        })
                 {
                     path.remove(&key);
                     return;
@@ -225,10 +229,10 @@ impl Checker {
             (InferType::Variable(left), InferType::Variable(right)) if left > right => {
                 self.canonical_given(&InferType::Variable(*right), &InferType::Variable(*left))
             }
-            (InferType::Variable(variable), _) if self.rigid.contains(variable) => {
+            (InferType::Variable(variable), _) if self.state.rigid.contains(variable) => {
                 (!occurs_in(*variable, &right)).then_some((left, right))
             }
-            (_, InferType::Variable(variable)) if self.rigid.contains(variable) => {
+            (_, InferType::Variable(variable)) if self.state.rigid.contains(variable) => {
                 (!occurs_in(*variable, &left)).then_some((right, left))
             }
             _ => None,

@@ -28,10 +28,10 @@ impl Checker {
                 "Ord deriving requires a local data or newtype constructor",
             );
         };
-        let Some(declaration) = self.type_declarations.get(type_id).cloned() else {
+        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the data declaration to derive Ord");
         };
-        if type_id.module != self.module_id
+        if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
@@ -49,7 +49,7 @@ impl Checker {
                 "Ord deriving requires a method returning the Ordering data type",
             );
         };
-        let Some(ordering) = self.type_declarations.get(&ordering_id) else {
+        let Some(ordering) = self.env.type_declarations.get(&ordering_id) else {
             return self.deriving_error(span, "cannot find the Ordering data declaration");
         };
         let Some(less) = nullary_constructor(ordering, "LT") else {

@@ -75,7 +75,7 @@ impl Checker {
             let fields = self.display_row_fields(&error.fields);
             format!("type mismatch: expected a row type, found {found} after {fields}")
         };
-        self.errors.push(TypeCheckError::new(
+        self.state.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::TypeMismatch,
             error.span,
             message,
@@ -154,19 +154,21 @@ impl Checker {
             right_rest.is_empty(),
             right_tail,
         ) {
-            (true, RowTail::Open(variable), _, tail) if !self.rigid.contains(&variable) => {
+            (true, RowTail::Open(variable), _, tail) if !self.state.rigid.contains(&variable) => {
                 if right_rest.is_empty() && tail == RowTail::Open(variable) {
                     return;
                 }
                 self.bind_row(variable, right_rest, tail, span);
             }
-            (_, tail, true, RowTail::Open(variable)) if !self.rigid.contains(&variable) => {
+            (_, tail, true, RowTail::Open(variable)) if !self.state.rigid.contains(&variable) => {
                 self.bind_row(variable, left_rest, tail, span);
             }
             (true, RowTail::Closed, true, RowTail::Closed) => {}
             (true, RowTail::Open(left), true, RowTail::Open(right)) if left == right => {}
             (false, RowTail::Open(left), false, RowTail::Open(right))
-                if left != right && !self.rigid.contains(&left) && !self.rigid.contains(&right) =>
+                if left != right
+                    && !self.state.rigid.contains(&left)
+                    && !self.state.rigid.contains(&right) =>
             {
                 if self.row_occurs(right, &left_rest, span)
                     || self.row_occurs(left, &right_rest, span)
@@ -188,7 +190,7 @@ impl Checker {
         tail: RowTail,
         span: TextRange,
     ) {
-        if self.rigid.contains(&variable) {
+        if self.state.rigid.contains(&variable) {
             self.row_mismatch(Vec::new(), RowTail::Open(variable), fields, tail, span);
             return;
         }
@@ -210,7 +212,7 @@ impl Checker {
     ) -> bool {
         if fields.iter().any(|(_, ty)| occurs(variable, ty)) {
             let displayed = self.display_row_fields(fields);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OccursCheck,
                 span,
                 format!("infinite type: _T{variable} occurs in {{{displayed}}}"),
@@ -229,9 +231,9 @@ impl Checker {
         right_tail: RowTail,
         span: TextRange,
     ) {
-        let missing = if tail_is_fixed(right_tail, &self.rigid) && !left_rest.is_empty() {
+        let missing = if tail_is_fixed(right_tail, &self.state.rigid) && !left_rest.is_empty() {
             left_rest.iter().map(|(label, _)| label.clone()).collect()
-        } else if tail_is_fixed(left_tail, &self.rigid) && !right_rest.is_empty() {
+        } else if tail_is_fixed(left_tail, &self.state.rigid) && !right_rest.is_empty() {
             right_rest.iter().map(|(label, _)| label.clone()).collect()
         } else {
             Vec::new()
@@ -239,7 +241,7 @@ impl Checker {
         if missing.is_empty() {
             let expected = self.display_type(&record_type(left_rest, left_tail.to_type()));
             let actual = self.display_type(&record_type(right_rest, right_tail.to_type()));
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::TypeMismatch,
                 span,
                 format!("type mismatch: expected {expected}, found {actual}"),
@@ -247,7 +249,7 @@ impl Checker {
             return;
         }
         for label in missing {
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::TypeMismatch,
                 span,
                 format!("record has no field `{label}`"),
@@ -281,7 +283,7 @@ impl Checker {
                 interner.intern(Type::Variable(TypeVariableId(variable)))
             }
             RowTail::Open(variable) => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnconstrainedType,
                     span,
                     format!("cannot infer a monomorphic type for _T{variable}"),

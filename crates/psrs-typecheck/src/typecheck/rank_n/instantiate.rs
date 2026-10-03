@@ -9,9 +9,9 @@ impl Checker {
                 let mut fresh_variables = Vec::with_capacity(variables.len());
                 for variable in variables {
                     if let Some(InferType::Variable(fresh)) = mapping.get(variable) {
-                        self.rigid.insert(*fresh);
-                        if let Some(name) = self.type_variable_names.get(variable).cloned() {
-                            self.type_variable_names.insert(*fresh, name);
+                        self.state.rigid.insert(*fresh);
+                        if let Some(name) = self.scope.type_variable_names.get(variable).cloned() {
+                            self.scope.type_variable_names.insert(*fresh, name);
                         }
                         fresh_variables.push(*fresh);
                     }
@@ -56,13 +56,13 @@ impl Checker {
         let mut type_mapping = HashMap::new();
         let mut kind_mapping = HashMap::new();
         for variable in variables {
-            let kind = self.infer_variable_kinds.get(&variable).cloned();
+            let kind = self.state.variable_kinds.get(&variable).cloned();
             let InferType::Variable(fresh) = self.fresh() else {
                 unreachable!("fresh inference types are variables")
             };
             if let Some(kind) = kind {
                 let kind = self.instantiate_kind(&kind, &mut kind_mapping);
-                self.infer_variable_kinds.insert(fresh, kind);
+                self.state.variable_kinds.insert(fresh, kind);
             }
             type_mapping.insert(variable, InferType::Variable(fresh));
         }

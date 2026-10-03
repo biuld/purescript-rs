@@ -126,6 +126,7 @@ impl Checker {
             }
             TypeConstructor::Function => vec![hir::Role::Representational; arity],
             TypeConstructor::User(id) => self
+                .env
                 .checked_kinds
                 .roles(id)
                 .map(<[hir::Role]>::to_vec)
@@ -146,10 +147,10 @@ impl Checker {
         let InferType::Constructor(TypeConstructor::User(id)) = head else {
             return None;
         };
-        if !self.visible_newtypes.contains(id) {
+        if !self.env.visible_newtypes.contains(id) {
             return None;
         }
-        let declaration = self.type_declarations.get(id)?.clone();
+        let declaration = self.env.type_declarations.get(id)?.clone();
         if declaration.kind != hir::TypeDeclarationKind::Newtype
             || arguments.len() != declaration.parameters.len()
         {

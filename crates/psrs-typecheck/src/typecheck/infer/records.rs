@@ -17,7 +17,7 @@ impl Checker {
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),
@@ -47,7 +47,7 @@ impl Checker {
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),
@@ -107,7 +107,7 @@ impl Checker {
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),

@@ -20,13 +20,13 @@ impl Checker {
                 "Contravariant deriving requires a local type constructor",
             );
         };
-        let Some(declaration) = self.type_declarations.get(type_id).cloned() else {
+        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(
                 span,
                 "cannot find the data declaration to derive Contravariant",
             );
         };
-        if type_id.module != self.module_id
+        if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
@@ -113,9 +113,10 @@ impl Checker {
     }
 
     fn profunctor_lcmap_symbol(&self) -> Option<SymbolId> {
-        self.classes.iter().find_map(|(class_id, class)| {
-            (self.type_names.get(class_id).map(String::as_str) == Some("Profunctor")
-                && self.type_modules.get(class_id).map(String::as_str) == Some("Data.Profunctor"))
+        self.env.classes.iter().find_map(|(class_id, class)| {
+            (self.env.type_names.get(class_id).map(String::as_str) == Some("Profunctor")
+                && self.env.type_modules.get(class_id).map(String::as_str)
+                    == Some("Data.Profunctor"))
             .then(|| {
                 class
                     .methods
