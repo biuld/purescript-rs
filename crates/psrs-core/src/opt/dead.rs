@@ -46,6 +46,13 @@ fn eliminate_expr(mut expression: Expr) -> Expr {
             source_type,
             target_type,
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments.into_iter().map(eliminate_expr).collect(),
+        },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(eliminate_expr(*array))),
         ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
             left: Box::new(eliminate_expr(*left)),
@@ -186,6 +193,7 @@ fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
             references.insert(*id);
         }
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {

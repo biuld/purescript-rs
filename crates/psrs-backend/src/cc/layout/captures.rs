@@ -46,9 +46,11 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
                 || expression_has_integer_capture(index, module)
                 || expression_has_integer_capture(value, module)
         }
-        ExprKind::Constructor { arguments, .. } => arguments
-            .iter()
-            .any(|argument| expression_has_integer_capture(argument, module)),
+        ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
+            arguments
+                .iter()
+                .any(|argument| expression_has_integer_capture(argument, module))
+        }
         ExprKind::Primitive { left, right, .. }
         | ExprKind::Application(left, right)
         | ExprKind::ArrayAppend { left, right } => {
@@ -154,9 +156,11 @@ fn free_integer_local(
                 || free_integer_local(index, module, bound)
                 || free_integer_local(value, module, bound)
         }
-        ExprKind::Constructor { arguments, .. } => arguments
-            .iter()
-            .any(|argument| free_integer_local(argument, module, bound)),
+        ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
+            arguments
+                .iter()
+                .any(|argument| free_integer_local(argument, module, bound))
+        }
         ExprKind::Primitive { left, right, .. }
         | ExprKind::Application(left, right)
         | ExprKind::ArrayAppend { left, right } => {

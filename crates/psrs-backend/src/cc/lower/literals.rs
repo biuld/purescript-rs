@@ -5,12 +5,19 @@
 //! type but never produces a value, so it becomes the assignment that ends the
 //! path instead of one that fills a destination.
 
-use super::super::{Assignment, AssignmentKind, ValueId, ValueShape};
+use super::super::{Assignment, AssignmentKind, ValueDecl, ValueId, ValueShape};
 use super::FunctionLowerer;
 use crate::BackendError;
 use psrs_span::TextRange;
 
 impl FunctionLowerer<'_> {
+    pub(in crate::cc) fn fresh(&mut self, ty: ValueShape) -> ValueId {
+        let id = ValueId(self.next_value);
+        self.next_value += 1;
+        self.values.push(ValueDecl { id, ty });
+        id
+    }
+
     /// Lowers one literal to a constant assignment of the shape its type fixes.
     ///
     /// The value arrives as the assignment kind so that deciding *which*

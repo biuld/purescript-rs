@@ -7,6 +7,7 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
             had_elements
         }
         ExprKind::Constructor { arguments, .. } => arguments.iter_mut().any(clear_array_literals),
+        ExprKind::IntrinsicCall { arguments, .. } => arguments.iter_mut().any(clear_array_literals),
         ExprKind::Record { fields } => fields
             .iter_mut()
             .any(|(_, value)| clear_array_literals(value)),

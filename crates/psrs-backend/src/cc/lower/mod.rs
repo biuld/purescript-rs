@@ -17,6 +17,7 @@ mod conversion;
 mod dictionary;
 mod erased;
 mod global;
+mod intrinsic;
 mod lambda;
 mod letrec;
 mod literals;
@@ -222,13 +223,6 @@ pub(super) struct FunctionLowerer<'a> {
 }
 
 impl FunctionLowerer<'_> {
-    pub(super) fn fresh(&mut self, ty: ValueShape) -> ValueId {
-        let id = ValueId(self.next_value);
-        self.next_value += 1;
-        self.values.push(ValueDecl { id, ty });
-        id
-    }
-
     pub(super) fn lower_value(
         &mut self,
         expression: &Expr,
@@ -494,6 +488,10 @@ impl FunctionLowerer<'_> {
                 )
             }
             ExprKind::Lambda { .. } => self.lower_lambda(expression, ty, assignments),
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            } => self.lower_intrinsic(expression, *intrinsic, arguments, ty, assignments),
         }
     }
 }

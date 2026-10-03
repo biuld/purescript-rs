@@ -49,6 +49,7 @@ pub(in crate::cc::lower) fn collect_captures(
             }
         }
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {

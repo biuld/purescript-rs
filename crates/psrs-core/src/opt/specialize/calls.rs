@@ -19,6 +19,16 @@ pub(super) fn rewrite(
                 .map(|argument| rewrite(argument, module, declarations, state, pending))
                 .collect(),
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| rewrite(argument, module, declarations, state, pending))
+                .collect(),
+        },
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()

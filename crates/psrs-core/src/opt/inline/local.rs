@@ -32,6 +32,16 @@ fn inline_expr(
                 .map(|argument| inline_expr(argument, fresh, sites_left, max_body_nodes))
                 .collect(),
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| inline_expr(argument, fresh, sites_left, max_body_nodes))
+                .collect(),
+        },
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()

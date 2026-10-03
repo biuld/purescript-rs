@@ -79,6 +79,26 @@ fn inline_expr(
                 })
                 .collect(),
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| {
+                    inline_expr(
+                        argument,
+                        fresh,
+                        sites_left,
+                        max_body_nodes,
+                        declarations,
+                        recursive,
+                        types,
+                    )
+                })
+                .collect(),
+        },
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()

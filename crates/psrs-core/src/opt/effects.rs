@@ -1,4 +1,5 @@
 use crate::{Expr, ExprKind, Primitive};
+use psrs_hir::Intrinsic;
 
 /// Conservative evaluation effects relevant to call-by-value rewrites.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -50,6 +51,18 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
         | ExprKind::Array {
             elements: arguments,
         } => combine_all(arguments.iter().map(summarize)),
+        // The operation itself can trap even when its arguments are inert, so
+        // the summary is not only the arguments' effects.
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => {
+            let arguments = combine_all(arguments.iter().map(summarize));
+            Effects {
+                may_trap: intrinsic_may_trap(*intrinsic) || arguments.may_trap,
+                ..arguments
+            }
+        }
         ExprKind::Record { fields } => {
             combine_all(fields.iter().map(|(_, value)| summarize(value)))
         }
@@ -125,4 +138,53 @@ fn combine_all(effects: impl IntoIterator<Item = Effects>) -> Effects {
     effects
         .into_iter()
         .fold(Effects::default(), Effects::combine)
+}
+
+/// Whether an intrinsic can trap. The byte conversions validate their input,
+/// the array operations can trap on a missing or out-of-range index, and the
+/// truncating and Euclidean division operations trap on a zero divisor.
+fn intrinsic_may_trap(intrinsic: Intrinsic) -> bool {
+    matches!(
+        intrinsic,
+        Intrinsic::ArrayIndex
+            | Intrinsic::ArrayUpdate
+            | Intrinsic::StringToBytes
+            | Intrinsic::BytesToString
+            | Intrinsic::I32DivS
+            | Intrinsic::I32RemS
+            | Intrinsic::IntDiv
+            | Intrinsic::IntMod
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TypeId;
+
+    fn intrinsic(intrinsic: Intrinsic, arguments: Vec<Expr>) -> Expr {
+        Expr {
+            kind: ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            },
+            ty: TypeId(0),
+            span: psrs_span::TextRange::default(),
+        }
+    }
+
+    #[test]
+    fn a_byte_conversion_chain_is_not_inert() {
+        let array = Expr {
+            kind: ExprKind::Array {
+                elements: Vec::new(),
+            },
+            ty: TypeId(0),
+            span: psrs_span::TextRange::default(),
+        };
+        let bytes = intrinsic(Intrinsic::BytesToString, vec![array]);
+        let string = intrinsic(Intrinsic::StringToBytes, vec![bytes]);
+        let length = intrinsic(Intrinsic::ArrayLength, vec![string]);
+        assert!(!summarize(&length).inert());
+    }
 }

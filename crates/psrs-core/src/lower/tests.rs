@@ -1,4 +1,4 @@
-use super::*;
+use crate::{Primitive, UnaryPrimitive};
 use psrs_hir::Intrinsic;
 
 #[test]

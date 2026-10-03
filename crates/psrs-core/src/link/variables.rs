@@ -37,6 +37,7 @@ fn include(variable: &TypeVariableId, maximum: &mut Option<TypeVariableId>) {
 fn expression_span(expression: &Expr, maximum: &mut Option<TypeVariableId>) {
     match &expression.kind {
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {
