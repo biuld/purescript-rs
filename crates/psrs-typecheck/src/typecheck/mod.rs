@@ -5,10 +5,11 @@
 //! [`InferState`](state::InferState), and the lexical
 //! [`Scope`](state::Scope) — and [`Checker`](state::Checker) owns all three.
 //! `state` declares them and the operations that enter, leave, or roll each
-//! one back; `unify` owns equality and the binding rule; `infer` owns synthesis
-//! and expected-type propagation; `rank_n` owns subsumption and quantified
-//! instantiation; `classes` owns the adjacent constraint solver; and `kind`
-//! reads the kind of an inference type through the one kind solver.
+//! one back; `unify` owns equality and the binding rule; `group` owns the
+//! per-binding-group sequence of solve, retain, check, and generalize; `infer`
+//! owns synthesis and expected-type propagation; `rank_n` owns subsumption and
+//! quantified instantiation; `classes` owns the adjacent constraint solver; and
+//! `kind` reads the kind of an inference type through the one kind solver.
 
 use psrs_hir::{
     self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, SymbolId, TypeVariableId,
@@ -93,6 +94,7 @@ mod tests;
 mod classes;
 mod finalize;
 mod generalize;
+mod group;
 mod infer;
 mod kind;
 mod order;

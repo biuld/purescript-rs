@@ -7,13 +7,39 @@ use super::fundeps::collect_infer_variables;
 /// and reports a bounded failure rather than looping.
 const MAX_SOLVE_DEPTH: usize = 64;
 
+/// What becomes of a wanted constraint that no given, a superclass path, an
+/// instance, or a primitive relation discharges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::typecheck) enum UnsolvedPolicy {
+    /// The obligation must be discharged, so an unsolvable constraint is a
+    /// `NoInstance` diagnostic. This is the rule for a declaration that carries
+    /// a signature, whose own dictionary parameters are the only evidence it has,
+    /// and for an instance declaration's members.
+    RequireSolved,
+    /// A constraint that still mentions a flexible unknown is retained: it
+    /// becomes one of the declaration's scheme constraints and one dictionary
+    /// parameter, which is what official PureScript's `Entailment.unique`
+    /// allows when `solverShouldGeneralize` holds and some argument can still be
+    /// generalized. A constraint whose arguments are all decided has nothing to
+    /// quantify, so it is still `NoInstance`: generalizing it would hide a
+    /// missing instance rather than defer it.
+    Retain,
+}
+
 impl Checker {
     /// Solves every unsolved wanted constraint against the current givens and
-    /// the declared instances, reporting each unresolved constraint. Functional
-    /// dependencies improve unknown types before the search (see `fundeps`).
+    /// the declared instances. Functional dependencies improve unknown types
+    /// before the search (see `fundeps`).
     ///
     /// `wanted_start` is the index at which this declaration's constraints
-    /// begin; earlier entries are already solved and retained for evidence.
+    /// begin. Entries before it were decided by an earlier declaration, which
+    /// has already generalized or reported them, so they are kept as they are:
+    /// solving one again here could bind a variable that declaration has since
+    /// quantified, and a second diagnostic for it would say nothing new.
+    ///
+    /// The returned indices are the constraints `unsolved` retained, in the order
+    /// they arose; each is the one obligation the declaration's scheme gains.
+    ///
     /// When `result` is supplied, the new constraints are also checked for
     /// ambiguity: every remaining type variable must be determined by the
     /// result type and the class functional dependencies.
@@ -21,7 +47,8 @@ impl Checker {
         &mut self,
         result: Option<&InferType>,
         wanted_start: usize,
-    ) {
+        unsolved: UnsolvedPolicy,
+    ) -> Vec<usize> {
         let mut wanted = std::mem::take(&mut self.state.wanted);
         let start = wanted_start.min(wanted.len());
         for constraint in &mut wanted[start..] {
@@ -33,7 +60,12 @@ impl Checker {
         }
         self.improve_wanted(&mut wanted[start..]);
         let mut solved = Vec::with_capacity(wanted.len());
-        for mut constraint in wanted {
+        let mut retained = Vec::new();
+        for (index, mut constraint) in wanted.into_iter().enumerate() {
+            if index < start {
+                solved.push(constraint);
+                continue;
+            }
             if constraint.solution.is_none() {
                 constraint.arguments = constraint
                     .arguments
@@ -54,13 +86,19 @@ impl Checker {
                         )
                     });
                 if constraint.solution.is_none() && !reported_resolution_error {
-                    let rendered =
-                        self.display_constraint(constraint.class_id, &constraint.arguments);
-                    self.state.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::NoInstance,
-                        constraint.span,
-                        format!("no instance for constraint {rendered}"),
-                    ));
+                    if unsolved == UnsolvedPolicy::Retain
+                        && self.can_generalize_constraint(&constraint)
+                    {
+                        retained.push(index);
+                    } else {
+                        let rendered =
+                            self.display_constraint(constraint.class_id, &constraint.arguments);
+                        self.state.errors.push(TypeCheckError::new(
+                            TypeCheckErrorKind::NoInstance,
+                            constraint.span,
+                            format!("no instance for constraint {rendered}"),
+                        ));
+                    }
                 }
             }
             solved.push(constraint);
@@ -69,6 +107,29 @@ impl Checker {
         if let Some(result) = result {
             self.check_ambiguity(result, start);
         }
+        retained
+    }
+
+    /// A constraint that still mentions something generalization
+    /// could quantify. A nullary class constraint is generalized on its own, and
+    /// any argument that is still a flexible inference variable makes the
+    /// constraint a pending one; an argument that is decided — a concrete type or
+    /// a rigid binder — has nothing left to defer.
+    ///
+    /// This is official PureScript's `canBeGeneralized`, read the same way: a
+    /// `C Int` obligation is a missing instance, and `C ?a` is a constraint the
+    /// declaration's type can still quantify.
+    fn can_generalize_constraint(&self, constraint: &WantedConstraint) -> bool {
+        if constraint.arguments.is_empty() {
+            return true;
+        }
+        constraint.arguments.iter().any(|argument| {
+            let mut variables = HashSet::new();
+            collect_infer_variables(&self.resolve_type(argument.clone()), &mut variables);
+            variables
+                .iter()
+                .any(|variable| !self.state.rigid.contains(variable))
+        })
     }
 
     /// Searches givens, then superclass projections, then instances for a

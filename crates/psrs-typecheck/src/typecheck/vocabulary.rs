@@ -125,6 +125,11 @@ pub(super) enum WantedSolution {
         parent: Box<WantedConstraint>,
         field: String,
     },
+    /// A dictionary parameter the declaration abstracts for a constraint it could
+    /// not discharge. The constraint stays in the declaration's scheme, and the
+    /// body's evidence is this parameter, so the body and the scheme name one
+    /// dictionary rather than two elaborations of the same class.
+    Abstracted(LocalId),
     Coercible {
         source: InferType,
         target: InferType,

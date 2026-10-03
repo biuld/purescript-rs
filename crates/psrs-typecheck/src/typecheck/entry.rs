@@ -121,106 +121,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
 
     let _ = (effect_type, effect_runtime_representation);
     let mut checker = Checker::new(&module, imported, context);
-    let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
         .collect::<Vec<Option<InferredDeclaration>>>();
-    let mut annotation_scopes = vec![HashMap::new(); module.declarations.len()];
-
-    for component in &components {
-        for &index in component {
-            let declaration = &module.declarations[index];
-            let (scheme, parameters) = match &declaration.signature {
-                Some(signature) => {
-                    let signature = checker.elaborate_declaration_signature(signature);
-                    annotation_scopes[index] = signature.annotation_variables.clone();
-                    let scheme = checker.declared_scheme(
-                        &signature.quantified,
-                        signature.constraints,
-                        signature.ty,
-                    );
-                    (scheme, signature.parameters)
-                }
-                None => (Scheme::monomorphic(checker.fresh()), Vec::new()),
-            };
-            checker
-                .state
-                .pending_signatures
-                .insert(declaration.symbol, parameters);
-            checker.scope.globals.insert(declaration.symbol, scheme);
-        }
-        for &index in component {
-            let declaration = &module.declarations[index];
-            let scheme = checker.scope.globals[&declaration.symbol].clone();
-            let parameters = checker
-                .state
-                .pending_signatures
-                .get(&declaration.symbol)
-                .cloned()
-                .unwrap_or_default();
-            checker.scope.annotation_variables = annotation_scopes[index].clone();
-            let checked = checker.with_scope(|checker| {
-                checker.begin_givens(&scheme.constraints, &parameters);
-                let wanted_start = checker.state.wanted.len();
-                let expected = declaration
-                    .signature
-                    .as_ref()
-                    .map(|_| checker.scope.globals[&declaration.symbol].ty.clone());
-                let value = checker.infer_expr_with_expected(&declaration.value, expected);
-                let Some(value) = value else {
-                    checker.end_givens();
-                    return None;
-                };
-                let span = declaration
-                    .signature
-                    .as_ref()
-                    .map_or(declaration.name_span, |signature| signature.span);
-                checker.unify(scheme.ty.clone(), value.ty.clone(), span);
-                // An inferred (signatureless) binding is generalized below, so
-                // its constraints must be determinate; a declared signature may
-                // name ambiguous variables for the caller to instantiate.
-                let result = declaration.signature.is_none().then(|| value.ty.clone());
-                checker.solve_wanted_constraints(result.as_ref(), wanted_start);
-                checker.end_givens();
-                Some(value)
-            });
-            let Some(value) = checked else {
-                continue;
-            };
-            let value = checker.wrap_dictionary_lambdas(value, &parameters);
-            inferred[index] = Some(InferredDeclaration {
-                symbol: declaration.symbol,
-                name: declaration.name.clone(),
-                name_span: declaration.name_span,
-                scheme,
-                value,
-                span: declaration.span,
-            });
-        }
-        // Generalize after the component is inferred so later components
-        // instantiate polymorphic definitions.
-        for &index in component {
-            let Some((monomorphic, constraints)) = inferred[index].as_ref().map(|declaration| {
-                (
-                    declaration.scheme.ty.clone(),
-                    declaration.scheme.constraints.clone(),
-                )
-            }) else {
-                continue;
-            };
-            let declared = checker
-                .scope
-                .globals
-                .get(&module.declarations[index].symbol)
-                .map(|scheme| scheme.variables.clone())
-                .unwrap_or_default();
-            let scheme = checker.generalize(&declared, &monomorphic, &constraints, TOP_LEVEL);
-            if let Some(declaration) = inferred[index].as_mut() {
-                declaration.scheme = scheme.clone();
-                checker.scope.globals.insert(declaration.symbol, scheme);
-            }
-        }
-    }
+    checker.infer_declarations(&module, &mut inferred);
 
     // Instance dictionaries are ordinary declarations emitted after the value
     // declarations they may reference.
