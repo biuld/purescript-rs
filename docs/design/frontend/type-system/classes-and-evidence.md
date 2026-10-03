@@ -229,13 +229,26 @@ Contravariant case still lacks Wasmtime evidence because of closure capture.
 Method-local constraints and the remaining upstream deriving classes keep
 FE-16 partial.
 
-Three parts of this design are not reached yet. A superclass edge is stored as the
-list of subclass parameter *names* it supplies, and building one requires every
-argument to be one of those names, so an edge over a constructed argument such as
-`C (Array a)` cannot be represented and dictionary construction and superclass
-search look arguments up by name. Constraint solving runs over every wanted
-constraint of a signatureless declaration and reports an unsolved one as
-`NoInstance`, so there is no residual-constraint abstraction and no inferred
-qualified scheme. No primitive relation is dispatched by class identity: the
-`Prim.Row*` and `Prim.RowList` classes are declared with kinds and fundeps but only
-ordinary instances and `Coercible` are solved.
+One part of this design is not reached yet: no `Prim` relation beyond `Coercible` has a
+rule. `Prim.Row.Cons`, `Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`,
+`Prim.Symbol.Append`, `Compare`, `Cons`, and `Prim.Int.Add`, `Mul`, `Compare`,
+`ToString` are declared with their kinds and fundeps, and the dispatch table and
+four-outcome contract they will use are in place, but a wanted one of those
+relations still reaches instance search and is reported as a missing instance.
+`Fail`, `Warn`, and `Partial` have no rule either, so `Fail` and `Partial` reach the
+same missing-instance path as any other unsolved class and `Warn` does not defer to
+an enclosing warning.
+
+The parts that *are* reached now include what the previous revision of this note
+listed as missing. A declaration's scheme carries the constraints inference
+retained, so a signatureless declaration infers a qualified type —
+`f x = method x` for `class C a where method :: a -> a` infers
+`forall a. C a => a -> a`, matching `purs`, and one dictionary parameter per
+retained constraint wraps the declaration. An unsolvable constraint is still
+`NoInstance`, and a residual constraint in a *recursive* binding group is reported
+rather than generalized, matching official's `CannotGeneralizeRecursiveFunction`.
+A superclass edge is a `TypeTemplate` over the subclass's parameters and is
+instantiated through the shared substitution, so `class Eq (Box a) <= Pretty a` —
+which `purs` compiles and this compiler previously rejected — is accepted.
+The coercion rule is dispatched through the shared primitive table by class
+identity rather than by a comparison at the call site.

@@ -1,8 +1,22 @@
 use super::*;
 
+/// One strongly connected component of the declaration graph: the declarations
+/// whose bodies may refer to one another, ordered dependencies first.
+#[derive(Clone, Debug)]
+pub(super) struct BindingGroup {
+    /// The declaration indices in the group, in Tarjan's order.
+    pub(super) members: Vec<usize>,
+    /// Whether the members refer to one another. Official PureScript draws its
+    /// line here: a non-recursive group generalizes over the constraints it could
+    /// not discharge, and a recursive one reports them, because generalizing
+    /// them would admit polymorphic recursion over a constraint the recursive
+    /// uses never proved.
+    pub(super) recursive: bool,
+}
+
 /// Orders declarations into strongly connected components, dependencies first,
 /// so each component can be generalized before the components that use it.
-pub(super) fn declaration_order(module: &hir::Module) -> Vec<Vec<usize>> {
+pub(super) fn declaration_order(module: &hir::Module) -> Vec<BindingGroup> {
     let mut index_of = HashMap::new();
     for (index, declaration) in module.declarations.iter().enumerate() {
         index_of.insert(declaration.symbol, index);
@@ -22,7 +36,16 @@ pub(super) fn declaration_order(module: &hir::Module) -> Vec<Vec<usize>> {
             edges
         })
         .collect::<Vec<_>>();
-    Tarjan::new(&edges).run()
+    Tarjan::new(&edges)
+        .run()
+        .into_iter()
+        .map(|members| {
+            // A component is a cycle when it holds more than one declaration, or
+            // when its single member refers to itself.
+            let recursive = members.len() > 1 || edges[members[0]].contains(&members[0]);
+            BindingGroup { members, recursive }
+        })
+        .collect()
 }
 
 fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {

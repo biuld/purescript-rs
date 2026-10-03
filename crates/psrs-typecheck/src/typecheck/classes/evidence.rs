@@ -77,7 +77,7 @@ impl Checker {
             let field_ty = self.in_nested_level(|checker| {
                 checker.elaborate_type_mode(&method.signature, &mut method_variables, false)
             });
-            let field_ty = self.generalize(&field_ty, &[], outer_level).ty;
+            let field_ty = self.generalize(&[], &field_ty, &[], outer_level).ty;
             fields.push((method.name.clone(), field_ty));
         }
         record_type(fields, InferType::RowEmpty)
@@ -168,7 +168,8 @@ impl Checker {
         &mut self,
         scheme: &Scheme,
     ) -> (Vec<ClassConstraint>, InferType) {
-        let mapping = self.instantiate_type_variables(scheme.variables.iter().copied());
+        let mapping = self
+            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
         let substituted = substitute(&scheme.ty, &mapping);
         let freshened = self.freshen_foralls(&substituted);
         let mut ty = self.resolve_type(freshened);
@@ -178,7 +179,7 @@ impl Checker {
         loop {
             match ty {
                 InferType::ForAll { variables, body } => {
-                    let quantified = self.instantiate_type_variables(variables);
+                    let quantified = self.instantiate_type_variables(variables, &HashMap::new());
                     ty = self.resolve_type(substitute(&body, &quantified));
                 }
                 InferType::Constrained { constraints, body } => {
@@ -310,6 +311,62 @@ impl Checker {
         }
     }
 
+    /// Abstracts one dictionary parameter per retained constraint, in the order
+    /// the obligations arose, and records each parameter as that constraint's
+    /// solution.
+    ///
+    /// The parameter's type is the wanted constraint's own dictionary type, so
+    /// the evidence the body uses and the parameter the scheme hands on are one
+    /// dictionary rather than two elaborations of the same class that could
+    /// differ in a fresh variable's identity.
+    pub(in crate::typecheck) fn abstract_dictionaries(
+        &mut self,
+        residual: &[usize],
+    ) -> Vec<(LocalId, InferType)> {
+        residual
+            .iter()
+            .map(|&index| {
+                let id = LocalId(self.state.next_dictionary_local);
+                self.state.next_dictionary_local += 1;
+                let Some(wanted) = self.state.wanted.get_mut(index) else {
+                    return (id, InferType::RowEmpty);
+                };
+                let dictionary_type = wanted.dictionary_type.clone();
+                wanted.solution = Some(WantedSolution::Abstracted(id));
+                (id, dictionary_type)
+            })
+            .collect()
+    }
+
+    /// The wanted constraints a retained index set names, in the order the indices
+    /// were given.
+    pub(in crate::typecheck) fn residual_wanted(
+        &self,
+        residual: &[usize],
+    ) -> Vec<WantedConstraint> {
+        residual
+            .iter()
+            .filter_map(|&index| self.state.wanted.get(index).cloned())
+            .collect()
+    }
+
+    /// The class constraints a retained wanted set denotes, in the order they
+    /// arose and with the origin each obligation keeps.
+    pub(in crate::typecheck) fn retained_constraints(
+        &self,
+        residual: &[usize],
+    ) -> Vec<ClassConstraint> {
+        residual
+            .iter()
+            .filter_map(|&index| self.state.wanted.get(index))
+            .map(|wanted| ClassConstraint {
+                class_id: wanted.class_id,
+                arguments: wanted.arguments.clone(),
+                span: wanted.span,
+            })
+            .collect()
+    }
+
     /// Wraps a constrained body in one lambda per synthesized dictionary
     /// parameter so the declaration receives its dictionaries explicitly.
     pub(in crate::typecheck) fn wrap_dictionary_lambdas(
@@ -381,7 +438,9 @@ impl Checker {
         generics: &HashSet<u32>,
     ) -> Option<thir::EvidenceKind> {
         Some(match solution {
-            WantedSolution::Given(id) => thir::EvidenceKind::Given(id),
+            WantedSolution::Given(id) | WantedSolution::Abstracted(id) => {
+                thir::EvidenceKind::Given(id)
+            }
             WantedSolution::Global(symbol) => thir::EvidenceKind::Global(symbol),
             WantedSolution::Instance {
                 constructor,

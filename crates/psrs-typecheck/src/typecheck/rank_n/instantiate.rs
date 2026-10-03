@@ -5,7 +5,8 @@ impl Checker {
     pub(in crate::typecheck) fn freshen_foralls(&mut self, ty: &InferType) -> InferType {
         match ty {
             InferType::ForAll { variables, body } => {
-                let mapping = self.instantiate_type_variables(variables.iter().copied());
+                let mapping =
+                    self.instantiate_type_variables(variables.iter().copied(), &HashMap::new());
                 let mut fresh_variables = Vec::with_capacity(variables.len());
                 for variable in variables {
                     if let Some(InferType::Variable(fresh)) = mapping.get(variable) {
@@ -52,11 +53,19 @@ impl Checker {
     pub(in crate::typecheck) fn instantiate_type_variables(
         &mut self,
         variables: impl IntoIterator<Item = u32>,
+        kinds: &HashMap<u32, Kind>,
     ) -> HashMap<u32, InferType> {
         let mut type_mapping = HashMap::new();
         let mut kind_mapping = HashMap::new();
         for variable in variables {
-            let kind = self.recorded_kind(variable);
+            // The scheme's own record of the variable's kind comes first, so a
+            // scheme carries its polymorphism; the solver table is the fallback
+            // for a variable that reached inference before schemes recorded
+            // kinds, such as one a structural `forall` binder introduced.
+            let kind = kinds
+                .get(&variable)
+                .cloned()
+                .or_else(|| self.recorded_kind(variable));
             let InferType::Variable(fresh) = self.fresh() else {
                 unreachable!("fresh inference types are variables")
             };
