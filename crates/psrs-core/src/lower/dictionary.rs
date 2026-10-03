@@ -8,7 +8,12 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
     let kind = match &evidence.kind {
         EvidenceKind::Given(id) => ExprKind::Local(*id),
         EvidenceKind::Global(symbol) => ExprKind::Global(*symbol),
-        EvidenceKind::Coercible { .. } => ExprKind::Record { fields: Vec::new() },
+        EvidenceKind::Coercible { .. } | EvidenceKind::Primitive { .. } => {
+            // A `Proof` member leaves no runtime value and a `Relation` member's
+            // dictionary is empty, so both erase to the same empty record at the
+            // dictionary type the evidence already carries.
+            ExprKind::Record { fields: Vec::new() }
+        }
         EvidenceKind::Superclass { parent, field } => ExprKind::FieldAccess {
             record: Box::new(lower_evidence(parent, types)?),
             field: field.clone(),

@@ -121,6 +121,12 @@ pub(super) enum WantedSolution {
         source: InferType,
         target: InferType,
     },
+    /// A `Prim` relation's dictionary: an ordinary dictionary that erases when
+    /// the relation is only about types, recording the arguments the rule
+    /// decided. The decision is the evidence; the runtime value is empty.
+    Primitive {
+        arguments: Vec<InferType>,
+    },
 }
 
 /// A constraint that still needs a dictionary. Its solution is filled in by

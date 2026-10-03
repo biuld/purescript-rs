@@ -23,6 +23,19 @@ impl Checker {
         }
     }
 
+    /// Applies class functional dependencies to one constraint until it produces
+    /// no further type information.
+    ///
+    /// This is the same fixed point [`Self::improve_wanted`] reaches, narrowed to
+    /// one constraint, so a caller that holds a single obligation — the primitive
+    /// rule table, and a deferral re-entry — improves a rule's arguments the same
+    /// way the wanted-list pass improves them. It is needed there because the
+    /// wanted-list pass runs before solving starts and cannot reach a constraint
+    /// that instance solving builds afterwards.
+    pub(in crate::typecheck) fn improve_one(&mut self, constraint: &mut WantedConstraint) {
+        while self.improve_constraint(constraint) {}
+    }
+
     /// Improves one constraint from the class's functional dependencies. Each
     /// dependency whose determining positions are all known contributes the
     /// determined positions of every givens or instance head that agrees on
@@ -313,7 +326,8 @@ fn solution_uses_lexical_given(solution: &WantedSolution) -> bool {
             .is_some_and(solution_uses_lexical_given),
         WantedSolution::Global(_)
         | WantedSolution::Instance { .. }
-        | WantedSolution::Coercible { .. } => false,
+        | WantedSolution::Coercible { .. }
+        | WantedSolution::Primitive { .. } => false,
     }
 }
 

@@ -1,5 +1,5 @@
-use super::super::super::*;
 use super::flatten_infer_spine;
+use crate::typecheck::*;
 
 impl Checker {
     pub(super) fn given_coercible(&self, source: &InferType, target: &InferType) -> bool {
