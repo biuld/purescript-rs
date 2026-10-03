@@ -12,6 +12,11 @@
 //! `lookup :: Cons sym v rx r => Proxy sym -> Proxy r -> Proxy v` shape the
 //! corpus's `PolykindRowCons.purs` has, and the open rows a `Nub` or a
 //! `RowToList` cannot decide.
+//!
+//! Every rejection here comes from the shared unifier rather than from a rule
+//! restating it: a rule states what it decided in the relation's dictionary, and
+//! the framework unifies that against the goal, which is the step official
+//! solving takes on every dictionary it produces.
 
 use psrs_driver::{Diagnostic, check_source};
 
@@ -114,7 +119,9 @@ fn cons_declines_an_unknown_label() {
 
 /// A decided extension that contradicts a row already known to be something else
 /// cannot hold, and the code is `purs`'s: the row the rule built does not unify
-/// with the wanted one.
+/// with the wanted one. The diagnostic is the shared row unifier's own — the
+/// framework runs that step, not the rule — so it names the label the wanted row
+/// lacks rather than restating the relation.
 #[test]
 fn cons_rejects_a_decided_extension_that_does_not_unify() {
     let source = format!(
@@ -127,19 +134,19 @@ fn cons_rejects_a_decided_extension_that_does_not_unify() {
     assert_eq!(rejection("cons-mismatch.purs", &source), "TypesDoNotUnify");
     assert_eq!(
         rejection_message("cons-mismatch.purs", &source),
-        "Cons \"a\" Number {b: Number} {a: Number} does not hold: the row is \
-         {a: Number, b: Number}"
+        "record has no field `b`"
     );
 }
 
 /// A decided extension that contradicts the wanted row while the tail is still
-/// unknown is undecided rather than impossible, so the framework refuses the
-/// rule's `Failed` and the obligation reaches instance search. `prim.md` records
-/// that the framework refuses a `Failed` while an argument is unsolved; `purs`
-/// reports `TypesDoNotUnify` here, and this is the one case where the two
-/// differ.
+/// unknown is a contradiction, not an undecided obligation: the label and the
+/// wanted row are both determined, so the shared unifier finds the disagreement
+/// and reports it. `purs` reports `TypesDoNotUnify` here too, and this case used
+/// to be the one place the two differed — the rule reported `Failed`, the
+/// framework refused it because the tail was still unknown, and the obligation
+/// reached instance search as a missing instance instead.
 #[test]
-fn cons_reaches_instance_search_when_the_tail_is_unknown() {
+fn cons_reports_a_contradiction_while_the_tail_is_unknown() {
     assert_eq!(
         rejection(
             "cons-unknown-tail-mismatch.purs",
@@ -151,7 +158,7 @@ fn cons_reaches_instance_search_when_the_tail_is_unknown() {
                  test = lookup (SProxy :: SProxy \"a\") (RProxy :: RProxy (b :: Boolean))\n"
             ),
         ),
-        "NoInstanceFound"
+        "TypesDoNotUnify"
     );
 }
 
@@ -194,7 +201,8 @@ fn nub_declines_an_open_row() {
 }
 
 /// A nubbed row that is not the row's own canonical form cannot hold, and the
-/// diagnostic names the canonical form the rule decided.
+/// diagnostic is the shared row unifier's: the canonical form the rule decided
+/// carries the label the wanted row lacks.
 #[test]
 fn nub_rejects_a_nubbed_row_that_is_not_the_canonical_form() {
     let source = format!(
@@ -207,7 +215,7 @@ fn nub_rejects_a_nubbed_row_that_is_not_the_canonical_form() {
     assert_eq!(rejection("nub-mismatch.purs", &source), "TypesDoNotUnify");
     assert_eq!(
         rejection_message("nub-mismatch.purs", &source),
-        "Nub {a: Number} {b: Boolean} does not hold: the nubbed is {a: Number}"
+        "record has no field `a`"
     );
 }
 
@@ -249,7 +257,8 @@ fn row_to_list_declines_an_open_row() {
 }
 
 /// A list that is not the row's own conversion cannot hold. `purs` rejects this
-/// while solving the relation, on the label the conversion decided.
+/// while solving the relation, on the label the conversion decided, and so does
+/// the shared unifier the framework runs that step through.
 #[test]
 fn row_to_list_rejects_a_list_that_is_not_the_conversion() {
     let source = "module Main where\n\nimport Prim\nimport Prim.RowList (class RowToList, RowList, Cons, Nil)\n\
@@ -265,7 +274,6 @@ fn row_to_list_rejects_a_list_that_is_not_the_conversion() {
     );
     assert_eq!(
         rejection_message("row-to-list-mismatch.purs", source),
-        "RowToList {a: Number, b: Boolean} (((Cons \"b\") Boolean) (((Cons \"a\") Number) Nil)) \
-         does not hold: the list is (((Cons \"a\") Number) (((Cons \"b\") Boolean) Nil))"
+        "type mismatch: expected \"a\", found \"b\""
     );
 }

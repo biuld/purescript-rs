@@ -34,6 +34,12 @@ const SOLVING_WITHOUT_PROGRESS: hir::TypeId = hir::TypeId::new(ModuleId(0), 906)
 /// The identity of the rule that decides the known part and leaves the rest to a
 /// deferred obligation, the shape `Row.Lacks` has over an open tail.
 const DECIDING_AND_DEFERRING: hir::TypeId = hir::TypeId::new(ModuleId(0), 907);
+/// The identity of the rule that states a decision for an argument the goal left
+/// open, binding nothing itself.
+const DECIDING: hir::TypeId = hir::TypeId::new(ModuleId(0), 908);
+/// The identity of the rule that decides a value contradicting an argument the
+/// goal already fixed, and binds nothing.
+const CONTRADICTING: hir::TypeId = hir::TypeId::new(ModuleId(0), 909);
 
 /// Decides the relation, recording the arguments it decided.
 fn solving(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
@@ -117,12 +123,12 @@ fn failing_with_an_invented_code(
     }
 }
 
-/// Claims a decision while binding nothing and leaving an argument unknown.
+/// Claims a relation's decision while binding nothing, leaving an argument
+/// unknown, and stating no decision the goal contradicts.
 fn solving_without_progress(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     PrimitiveOutcome::Solved {
-        evidence: PrimitiveEvidence::Proof {
-            source: int(),
-            target: int(),
+        evidence: PrimitiveEvidence::Dictionary {
+            arguments: args.resolved(checker),
         },
         deferred: vec![resolved_obligation(
             checker,
@@ -153,7 +159,44 @@ fn deciding_and_deferring(checker: &mut Checker, args: &PrimitiveArgs) -> Primit
     }
 }
 
-pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 8] = [
+/// States a decision for an argument the goal left open, and binds nothing
+/// itself.
+///
+/// This is the shape every landed relation has: the rule's dictionary carries the
+/// type it decided, and the framework's own unification against the goal's
+/// arguments is what binds the obligation. A rule that assigned its decision
+/// directly would be doing the framework's work, and the framework's check would
+/// have nothing to check.
+fn deciding(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
+    let arguments = args.resolved(checker);
+    PrimitiveOutcome::Solved {
+        evidence: PrimitiveEvidence::Dictionary {
+            arguments: vec![boolean(), arguments[1].clone()],
+        },
+        deferred: Vec::new(),
+    }
+}
+
+/// Decides `Boolean` for both arguments where the goal fixed them to `Int`,
+/// allocates a variable, and reports nothing about the disagreement.
+///
+/// This is the case neither of the two refusals can see: the rule bound nothing,
+/// so "did anything become more determined?" says it decided nothing, while the
+/// decision it states contradicts arguments that were already known. Only the
+/// unifier can tell those apart, which is why the framework runs it.
+fn contradicting(checker: &mut Checker, _args: &PrimitiveArgs) -> PrimitiveOutcome {
+    // An allocation the restore in `solve_primitive` would take back, so a case
+    // can see whether the snapshot survived.
+    checker.fresh();
+    PrimitiveOutcome::Solved {
+        evidence: PrimitiveEvidence::Dictionary {
+            arguments: vec![boolean(), boolean()],
+        },
+        deferred: Vec::new(),
+    }
+}
+
+pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 10] = [
     PrimitiveRule {
         class_id: SOLVING,
         evidence: EvidenceClass::RuntimeDictionary,
@@ -202,6 +245,18 @@ pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 8] = [
         arity: 3,
         solve: deciding_and_deferring,
     },
+    PrimitiveRule {
+        class_id: DECIDING,
+        evidence: EvidenceClass::RuntimeDictionary,
+        arity: 2,
+        solve: deciding,
+    },
+    PrimitiveRule {
+        class_id: CONTRADICTING,
+        evidence: EvidenceClass::RuntimeDictionary,
+        arity: 2,
+        solve: contradicting,
+    },
 ];
 
 /// The parts of solver state a declined or refused rule must leave untouched.
@@ -230,6 +285,10 @@ impl SolverFingerprint {
 
 fn int() -> InferType {
     InferType::Constructor(TypeConstructor::Int)
+}
+
+fn boolean() -> InferType {
+    InferType::Constructor(TypeConstructor::Boolean)
 }
 
 fn resolve_one(source: &str) -> hir::Module {

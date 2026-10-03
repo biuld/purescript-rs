@@ -1,5 +1,6 @@
 //! The three row relations at the level of the obligations a rule receives: the
-//! reading each one decides, the declines it makes, and the failure it reports.
+//! reading each one decides, the declines it makes, and the contradictions the
+//! framework reports for it.
 
 use super::*;
 use crate::typecheck::classes::SolveDepth;
@@ -272,8 +273,9 @@ fn a_closed_row_becomes_a_row_list() {
 }
 
 /// A decided row that contradicts a row already known to be something else cannot
-/// hold, and the diagnostic is `purs`'s: `TypesDoNotUnify` on the decision the
-/// rule made, with the relation named.
+/// hold, and the diagnostic is the shared unifier's rather than the rule's: it is
+/// `TypesDoNotUnify` between the row the rule decided and the row the obligation
+/// fixed, which is the code `purs` raises at the same step.
 #[test]
 fn a_decided_row_that_does_not_unify_is_reported() {
     let mut checker = checker();
@@ -291,20 +293,23 @@ fn a_decided_row_that_does_not_unify_is_reported() {
     let error = &checker.state.errors[0];
     assert_eq!(error.kind, TypeCheckErrorKind::TypeMismatch);
     assert_eq!(error.error_code(), Some("TypesDoNotUnify"));
+    assert_eq!(error.span, goal.span);
     assert!(
-        error.message().contains("the nubbed is {a: Int}"),
-        "{}",
+        !error.message().contains("does not hold"),
+        "the rule no longer restates the unifier's own diagnostic: {}",
         error.message()
     );
 }
 
 /// A decided extension that contradicts the wanted row while the tail is still
-/// unknown is undecided rather than impossible, so the framework refuses the
-/// rule's `Failed` and the obligation reaches instance search. `prim.md` records
-/// that the framework refuses a `Failed` while an argument is unsolved; official
-/// reports `TypesDoNotUnify` here, and this is where the two differ.
+/// unknown is still a contradiction: the wanted row and the label are both
+/// determined, so the shared unifier finds the disagreement and reports it. This
+/// is the case that used to be refused as a `Failed` — the rule bound nothing, so
+/// the framework read it as no progress and the obligation reached instance search,
+/// where it was reported as a missing instance instead. `purs` reports
+/// `TypesDoNotUnify` here.
 #[test]
-fn a_failure_with_an_unknown_argument_reaches_instance_search() {
+fn a_contradiction_is_reported_while_the_tail_is_unknown() {
     let mut checker = checker();
     let goal = goal(
         &mut checker,
@@ -314,10 +319,14 @@ fn a_failure_with_an_unknown_argument_reaches_instance_search() {
 
     assert!(matches!(
         checker.solve_primitive(&goal, SolveDepth::new()),
-        PrimitiveDispatch::None
+        PrimitiveDispatch::Reported
     ));
-    assert!(
-        checker.state.errors.is_empty(),
-        "the obligation must reach instance search instead of a diagnostic"
+    assert_eq!(checker.state.errors.len(), 1);
+    let error = &checker.state.errors[0];
+    assert_eq!(error.kind, TypeCheckErrorKind::TypeMismatch);
+    assert_eq!(error.error_code(), Some("TypesDoNotUnify"));
+    assert_eq!(
+        error.span, goal.span,
+        "the diagnostic keeps the obligation's own range"
     );
 }

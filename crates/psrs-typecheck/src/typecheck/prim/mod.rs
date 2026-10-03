@@ -12,23 +12,26 @@
 //!
 //! A rule receives ordinary [`InferType`] arguments through [`PrimitiveArgs`]
 //! and returns one [`PrimitiveOutcome`]. The framework does not take the
-//! outcome on trust: accepting it is a transaction, so a rule that declines or
-//! that claims a decisive outcome its own arguments contradict leaves no
-//! substitution, level, kind, or diagnostic behind. See
-//! [`Checker::solve_primitive`] for the acceptance rules and `requeue` for the
-//! bound on a deferral.
+//! outcome on trust: accepting it is a transaction, so a rule that declines
+//! leaves no substitution, level, kind, or diagnostic behind, while a rule whose
+//! decision contradicts the obligation keeps the diagnostic the shared unifier
+//! produced for it. The framework — not the rule — decides both, and it decides
+//! the second by unifying the rule's decided arguments against the goal's, which
+//! is the step official solving takes on every dictionary it produces. See
+//! `dispatch` for the acceptance path, `verify` for that step, and
+//! `requeue` for the bound on a deferral.
 
-use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::*;
 
 mod coercible;
 mod compare;
+mod dispatch;
 mod int;
 mod requeue;
 mod row;
 mod symbol;
+mod verify;
 
-use requeue::RequeueChain;
 #[cfg(test)]
 mod tests;
 
@@ -150,8 +153,18 @@ pub(in crate::typecheck) enum PrimitiveEvidence {
         target: InferType,
     },
     /// An ordinary dictionary for a relation, recording the arguments the rule
-    /// decided. The dictionary is empty and erases when the relation is only
-    /// about types, but the decision is what the evidence records.
+    /// decided.
+    ///
+    /// The arguments are the dictionary's own, position by position: the type the
+    /// rule decided where it decided one, and the goal's own argument where it did
+    /// not. This is official's `tcdInstanceTypes`, and the framework unifies each
+    /// of them against the goal's argument at the same position — see `verify` —
+    /// so a decision that contradicts the obligation is *found* there rather than
+    /// asserted here, and a rule cannot report its own contradiction.
+    ///
+    /// Because the framework has just unified them against the goal, they are also
+    /// the arguments the constraint now has, which is what the evidence records and
+    /// what a downstream stage reads.
     Dictionary { arguments: Vec<InferType> },
     /// No evidence: the member reports, and the diagnostic is its result.
     Report,
@@ -176,11 +189,13 @@ impl PrimitiveEvidence {
 /// One rule's answer.
 ///
 /// `Undecided` and `Failed` are separate answers on purpose. Official solving
-/// returns `Maybe [TypeClassDict]`, so it cannot tell "no rule applies" from
-/// "the rule applies and the obligation cannot hold", and it reports the
-/// second as a missing instance. Splitting them is what lets a `Prim`
-/// obligation that is still unknown reach instance search instead of being
-/// reported as impossible.
+/// returns `Maybe [TypeClassDict]` and never inspects the goal, so it cannot tell
+/// "no rule applies" from "the rule applies and the obligation cannot hold" — it
+/// reports the second by failing the unification of its own decided arguments
+/// against the goal's. Splitting them here is what lets a `Prim` obligation that
+/// is still unknown reach instance search instead of being reported as impossible,
+/// and the second case is reached the way official reaches it: the framework runs
+/// that unification itself, so no rule answers it and no rule can get it wrong.
 // `Solved`, `Undecided`, and `Failed` are the three answers the rules that exist
 // return. `Deferred` belongs to the relations and reports whose rules do not
 // exist yet; the framework handles it and the tests reach it, so a rule can
@@ -195,6 +210,11 @@ impl PrimitiveEvidence {
 pub(in crate::typecheck) enum PrimitiveOutcome {
     /// The rule decides the relation and the evidence is explicit. Any
     /// obligation in `deferred` still has to be discharged.
+    ///
+    /// A relation's evidence carries what the rule decided, and the framework
+    /// unifies it against the goal before believing it: a `Solved` whose decision
+    /// contradicts an argument the obligation already fixed is reported, not
+    /// searched.
     Solved {
         evidence: PrimitiveEvidence,
         deferred: Vec<WantedConstraint>,
@@ -209,10 +229,15 @@ pub(in crate::typecheck) enum PrimitiveOutcome {
     /// The rule does not apply. The obligation continues into the ordinary
     /// paths.
     Undecided,
-    /// The rule applies and the obligation cannot hold. `code` is an existing
-    /// diagnostic kind, so the reported `errorCode` is one `purs` itself
-    /// raises for an obligation; the framework refuses a kind that maps to no
-    /// official code rather than inventing one.
+    /// The rule applies and the obligation cannot hold, for a reason no unification
+    /// finds: the arguments do not permit *any* answer, as `Cons "ab" "c" s`
+    /// does not. `code` is an existing diagnostic kind, so the reported
+    /// `errorCode` is one `purs` itself raises for an obligation; the framework
+    /// refuses a kind that maps to no official code rather than inventing one.
+    ///
+    /// A contradiction between types the rule *did* decide is not this answer: it
+    /// is what the framework's own unification finds, so no rule needs to return
+    /// `Failed` for it.
     Failed {
         code: TypeCheckErrorKind,
         detail: String,
@@ -283,7 +308,9 @@ pub(in crate::typecheck) enum PrimitiveDispatch {
     None,
     /// The rule discharged the obligation with this evidence.
     Solved(WantedSolution),
-    /// The rule reported the obligation under an official code.
+    /// The obligation cannot hold and is reported: either the rule said so, or
+    /// the framework found its decision contradicting the goal. Either way the
+    /// diagnostic stands and the solver is not restored.
     Reported,
     /// The rule deferred. The obligation keeps whatever evidence the rule
     /// produced, and its residual obligations have been re-queued.
@@ -297,145 +324,4 @@ pub(in crate::typecheck) enum PrimitiveDispatch {
 /// consulted in one position and discharged in another.
 pub(in crate::typecheck) fn primitive_rule_precedes_givens(class_id: hir::TypeId) -> bool {
     primitive_rule(class_id).is_some_and(|rule| !rule.evidence.accepts_a_given())
-}
-
-impl Checker {
-    /// Consults the rule table for `constraint`, after improvement has run
-    /// again on its arguments, and acts on the outcome.
-    ///
-    /// The rule's work is speculative: the framework snapshots the solver,
-    /// runs the rule, and only keeps what it produced when it accepts the
-    /// outcome. A decline, a failed acceptance, or a rollback therefore leaves
-    /// no substitution, level, kind, or diagnostic behind, which is the same
-    /// contract an instance candidate has.
-    pub(in crate::typecheck) fn solve_primitive(
-        &mut self,
-        constraint: &WantedConstraint,
-        depth: SolveDepth,
-    ) -> PrimitiveDispatch {
-        let Some(rule) = primitive_rule(constraint.class_id) else {
-            return PrimitiveDispatch::None;
-        };
-        // A wanted constraint whose arguments are not the member's own is not
-        // this rule's obligation, and the rule declines it rather than guessing
-        // at positions that do not exist.
-        if constraint.arguments.len() != rule.arity {
-            return PrimitiveDispatch::None;
-        }
-        // Improvement runs again here, because the improvement pass over the
-        // wanted list runs before solving starts and cannot reach a constraint
-        // that instance solving builds afterwards. A rule therefore usually
-        // receives determined arguments whether it was reached from the wanted
-        // list or from an instance context.
-        let mut improved = constraint.clone();
-        self.improve_one(&mut improved);
-        let unknowns_before = PrimitiveArgs {
-            constraint: &improved,
-        }
-        .unknowns(self);
-        let snapshot = self.state.snapshot();
-        let outcome = self.call_rule(
-            rule,
-            &PrimitiveArgs {
-                constraint: &improved,
-            },
-        );
-        // The chain starts at the obligation being decided, so a rule that defers
-        // to the very obligation it was asked about is recognised as making no
-        // progress rather than retried.
-        let mut chain = RequeueChain::seeded(self, &improved);
-        let dispatch = self.accept_primitive_outcome(
-            constraint,
-            &improved,
-            &outcome,
-            &unknowns_before,
-            depth,
-            &mut chain,
-        );
-        if matches!(dispatch, PrimitiveDispatch::None) {
-            self.state.restore(snapshot);
-        }
-        dispatch
-    }
-
-    fn call_rule(&mut self, rule: &PrimitiveRule, args: &PrimitiveArgs) -> PrimitiveOutcome {
-        (rule.solve)(self, args)
-    }
-
-    /// Turns a rule's answer into what constraint solving does next, and refuses
-    /// the answers the rule's own arguments contradict.
-    ///
-    /// The two refusals are the framework's structural form of "an unsolved
-    /// inference variable in any argument is never enough for `Solved` or
-    /// `Failed`":
-    ///
-    /// - `Failed` is honoured only when every argument is determined. An
-    ///   obligation whose argument is still unknown is not impossible, it is
-    ///   undecided, and reporting it is exactly the failure this separation
-    ///   exists to prevent.
-    /// - `Solved` is honoured only when the rule determined an argument that
-    ///   was unknown, or when every argument is now determined. A rule that
-    ///   decides on a known part and leaves the rest unknown does so by
-    ///   binding the rest through the shared substitution, so "nothing became
-    ///   more determined" means the rule decided on nothing at all. Such an
-    ///   answer is read as the deferral it should have been.
-    ///
-    /// A `Failed` code with no official `errorCode` is refused the same way,
-    /// so a rule cannot invent a diagnostic the suite has never seen.
-    fn accept_primitive_outcome(
-        &mut self,
-        constraint: &WantedConstraint,
-        improved: &WantedConstraint,
-        outcome: &PrimitiveOutcome,
-        unknowns_before: &HashSet<u32>,
-        depth: SolveDepth,
-        chain: &mut RequeueChain,
-    ) -> PrimitiveDispatch {
-        let args = PrimitiveArgs {
-            constraint: improved,
-        };
-        match outcome {
-            PrimitiveOutcome::Undecided => PrimitiveDispatch::None,
-            PrimitiveOutcome::Solved { evidence, deferred } => {
-                let unknowns_after = args.unknowns(self);
-                let progressed =
-                    unknowns_after.len() < unknowns_before.len() || unknowns_after.is_empty();
-                if !progressed {
-                    return self.defer_without_evidence(deferred, depth, chain);
-                }
-                let Some(solution) = evidence.clone().into_solution() else {
-                    return self.defer_without_evidence(deferred, depth, chain);
-                };
-                self.requeue_all(deferred.clone(), depth, chain);
-                PrimitiveDispatch::Solved(solution)
-            }
-            PrimitiveOutcome::Deferred { evidence, deferred } => {
-                let solution = evidence.clone().and_then(PrimitiveEvidence::into_solution);
-                self.requeue_all(deferred.clone(), depth, chain);
-                PrimitiveDispatch::Deferred { evidence: solution }
-            }
-            PrimitiveOutcome::Failed { code, detail } => {
-                if !args.all_determined(self) || code.error_code().is_none() {
-                    return PrimitiveDispatch::None;
-                }
-                self.state
-                    .errors
-                    .push(TypeCheckError::new(*code, constraint.span, detail.clone()));
-                PrimitiveDispatch::Reported
-            }
-        }
-    }
-
-    /// Records the outcome a rule should have returned when it decided nothing:
-    /// its residual obligations are re-queued and the obligation itself keeps
-    /// no evidence, so instance search still sees it.
-    fn defer_without_evidence(
-        &mut self,
-        deferred: &[WantedConstraint],
-        depth: SolveDepth,
-        chain: &mut RequeueChain,
-    ) -> PrimitiveDispatch {
-        self.requeue_all(deferred.to_vec(), depth, chain);
-        PrimitiveDispatch::Deferred { evidence: None }
-    }
 }
