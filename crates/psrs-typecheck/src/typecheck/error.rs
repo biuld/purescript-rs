@@ -4,6 +4,9 @@ use psrs_span::TextRange;
 pub enum TypeCheckErrorKind {
     InvalidHir,
     TypeMismatch,
+    /// A binding would give a type a kind its recorded kind does not admit, so
+    /// the kind equation `bind_type_variable` solves has no solution.
+    KindsDoNotUnify,
     OccursCheck,
     SkolemEscape,
     UnconstrainedType,
@@ -89,6 +92,7 @@ impl TypeCheckError {
     pub fn error_code(&self) -> Option<&'static str> {
         Some(match self.kind {
             TypeCheckErrorKind::TypeMismatch => "TypesDoNotUnify",
+            TypeCheckErrorKind::KindsDoNotUnify => "KindsDoNotUnify",
             TypeCheckErrorKind::OccursCheck => "InfiniteType",
             TypeCheckErrorKind::SkolemEscape => "EscapedSkolem",
             TypeCheckErrorKind::IntegerOutOfRange => "IntOutOfRange",

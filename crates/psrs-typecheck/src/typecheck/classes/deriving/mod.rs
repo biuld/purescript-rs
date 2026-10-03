@@ -47,8 +47,8 @@ impl Checker {
         class_arguments: &[InferType],
         implementation: &hir::Expr,
     ) -> Option<InferredExpr> {
-        let class_id = self.class_methods.get(&method.symbol)?.0;
-        let class = self.classes.get(&class_id)?.clone();
+        let class_id = self.env.class_methods.get(&method.symbol)?.0;
+        let class = self.env.classes.get(&class_id)?.clone();
         let mut variables = HashMap::new();
         for (parameter, argument) in class.parameters.iter().zip(class_arguments) {
             variables.insert(parameter.clone(), argument.clone());
@@ -110,10 +110,10 @@ impl Checker {
                 "Eq deriving requires a local data or newtype constructor",
             );
         };
-        let Some(declaration) = self.type_declarations.get(type_id).cloned() else {
+        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the data declaration to derive Eq");
         };
-        if type_id.module != self.module_id
+        if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
@@ -266,8 +266,8 @@ impl Checker {
     }
 
     fn known_deriving_class(&self, class_id: hir::TypeId) -> Option<KnownDerivingClass> {
-        let module = self.type_modules.get(&class_id)?.as_str();
-        let name = self.type_names.get(&class_id)?.as_str();
+        let module = self.env.type_modules.get(&class_id)?.as_str();
+        let name = self.env.type_names.get(&class_id)?.as_str();
         [
             KnownDerivingClass::Eq,
             KnownDerivingClass::Ord,
@@ -314,8 +314,8 @@ impl Checker {
     }
 
     fn fresh_deriving_local(&mut self, prefix: &str, span: TextRange) -> hir::LocalBinder {
-        let id = LocalId(self.next_dictionary_local);
-        self.next_dictionary_local += 1;
+        let id = LocalId(self.state.next_dictionary_local);
+        self.state.next_dictionary_local += 1;
         hir::LocalBinder {
             id,
             name: format!("{prefix}_{}", id.0),
@@ -332,7 +332,7 @@ impl Checker {
         span: TextRange,
         message: &str,
     ) -> Option<T> {
-        self.errors.push(TypeCheckError::new(
+        self.state.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::UnsupportedClass,
             span,
             message,

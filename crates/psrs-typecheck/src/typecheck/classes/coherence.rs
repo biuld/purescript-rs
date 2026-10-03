@@ -5,7 +5,7 @@ impl Checker {
     /// that share one ordered chain identity. This prevents a later wanted
     /// constraint from turning ordinary declaration order into dispatch.
     pub(super) fn validate_instance_overlaps(&mut self, module: &hir::Module) {
-        let instances = self.instances.clone();
+        let instances = self.env.instances.clone();
         for (index, left) in instances.iter().enumerate() {
             for right in instances.iter().skip(index + 1) {
                 if left.class_id != right.class_id
@@ -14,7 +14,7 @@ impl Checker {
                 {
                     continue;
                 }
-                let class = &self.classes[&left.class_id];
+                let class = &self.env.classes[&left.class_id];
                 let covering_sets = covering_sets(class.parameters.len(), &class.fundeps);
                 if instances_are_apart(&covering_sets, &left.head_arguments, &right.head_arguments)
                 {
@@ -30,11 +30,12 @@ impl Checker {
                     continue;
                 }
                 let class_name = self
+                    .env
                     .type_names
                     .get(&left.class_id)
                     .cloned()
                     .unwrap_or_else(|| format!("Class{}", left.class_id.index));
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::OverlappingInstances,
                     module.span,
                     format!("overlapping instances of class `{class_name}` are visible here"),

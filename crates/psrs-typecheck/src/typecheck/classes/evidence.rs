@@ -13,15 +13,15 @@ impl Checker {
     ) -> Option<ClassConstraint> {
         let (head, arguments) = flatten_spine(ty);
         let Some(class_id) = nominal_type_id(head) else {
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::UnsupportedClass,
                 ty.span,
                 "a constraint must name a class",
             ));
             return None;
         };
-        let Some(class) = self.classes.get(&class_id).cloned() else {
-            self.errors.push(TypeCheckError::new(
+        let Some(class) = self.env.classes.get(&class_id).cloned() else {
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::UnsupportedClass,
                 ty.span,
                 "a constraint names an unknown class",
@@ -29,7 +29,7 @@ impl Checker {
             return None;
         };
         if arguments.len() != class.parameters.len() {
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::TypeMismatch,
                 ty.span,
                 "a class constraint has the wrong number of type arguments",
@@ -54,7 +54,7 @@ impl Checker {
         &mut self,
         constraint: &ClassConstraint,
     ) -> InferType {
-        let Some(class) = self.classes.get(&constraint.class_id).cloned() else {
+        let Some(class) = self.env.classes.get(&constraint.class_id).cloned() else {
             return record_type(Vec::new(), InferType::RowEmpty);
         };
         let mut variables = HashMap::new();
@@ -62,6 +62,10 @@ impl Checker {
             variables.insert(parameter.clone(), argument.clone());
         }
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
+        // Each method's field type is generalized against the level the
+        // dictionary is built at, not against the nested level its signature is
+        // elaborated in.
+        let outer_level = self.state.level;
         for superclass in &class.superclasses {
             let mut arguments = Vec::with_capacity(superclass.arguments.len());
             for name in &superclass.arguments {
@@ -79,11 +83,9 @@ impl Checker {
         }
         for method in &class.methods {
             let mut method_variables = variables.clone();
-            let outer_level = self.level;
-            self.level = outer_level + 1;
-            let field_ty =
-                self.elaborate_type_mode(&method.signature, &mut method_variables, false);
-            self.level = outer_level;
+            let field_ty = self.in_nested_level(|checker| {
+                checker.elaborate_type_mode(&method.signature, &mut method_variables, false)
+            });
             let field_ty = self.generalize(&field_ty, &[], outer_level).ty;
             fields.push((method.name.clone(), field_ty));
         }
@@ -98,7 +100,7 @@ impl Checker {
         method: MethodInfo,
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
-        let class = self.classes.get(&class_id).cloned()?;
+        let class = self.env.classes.get(&class_id).cloned()?;
         let mut variables = HashMap::new();
         let mut arguments = Vec::with_capacity(class.parameters.len());
         for parameter in &class.parameters {
@@ -217,13 +219,13 @@ impl Checker {
         constraint: ClassConstraint,
         dictionary_type: InferType,
     ) -> usize {
-        let index = self.wanted.len();
-        self.wanted.push(WantedConstraint {
+        let index = self.state.wanted.len();
+        self.state.wanted.push(WantedConstraint {
             class_id: constraint.class_id,
             arguments: constraint.arguments,
             dictionary_type,
             span: constraint.span,
-            givens: self.givens.clone(),
+            givens: self.scope.givens.clone(),
             solution: None,
         });
         index
@@ -236,27 +238,28 @@ impl Checker {
         constraints: &[ClassConstraint],
         parameters: &[(LocalId, InferType)],
     ) {
-        self.givens.clear();
-        self.given_rigid.clear();
+        self.scope.givens.clear();
+        self.scope.given_rigid.clear();
         for (constraint, (id, _)) in constraints.iter().zip(parameters) {
             for argument in &constraint.arguments {
                 let mut variables = HashSet::new();
                 super::fundeps::collect_infer_variables(argument, &mut variables);
                 for variable in variables {
-                    if self.rigid.insert(variable) {
-                        self.given_rigid.push(variable);
+                    if self.state.rigid.insert(variable) {
+                        self.scope.given_rigid.push(variable);
                     }
                 }
             }
-            self.givens
+            self.scope
+                .givens
                 .push((constraint.clone(), WantedSolution::Given(*id)));
         }
     }
 
     pub(in crate::typecheck) fn end_givens(&mut self) {
-        self.givens.clear();
-        for variable in self.given_rigid.drain(..) {
-            self.rigid.remove(&variable);
+        self.scope.givens.clear();
+        for variable in self.scope.given_rigid.drain(..) {
+            self.state.rigid.remove(&variable);
         }
     }
 
@@ -299,6 +302,7 @@ impl Checker {
         arguments: &[InferType],
     ) -> String {
         let name = self
+            .env
             .type_names
             .get(&class_id)
             .cloned()
@@ -353,7 +357,7 @@ impl Checker {
         interner: &mut TypeInterner,
         generics: &HashSet<u32>,
     ) -> Option<thir::Evidence> {
-        let wanted = self.wanted.get(index)?.clone();
+        let wanted = self.state.wanted.get(index)?.clone();
         self.constraint_evidence(&wanted, interner, generics)
     }
 

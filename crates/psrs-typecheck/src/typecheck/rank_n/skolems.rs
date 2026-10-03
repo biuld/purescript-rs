@@ -7,7 +7,12 @@ impl Checker {
         ty: &InferType,
         span: TextRange,
     ) -> bool {
-        let variable_level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
+        let variable_level = self
+            .state
+            .levels
+            .get(&variable)
+            .copied()
+            .unwrap_or(TOP_LEVEL);
         fn visit(
             checker: &Checker,
             ty: &InferType,
@@ -16,9 +21,9 @@ impl Checker {
         ) -> Option<u32> {
             match ty {
                 InferType::Variable(id)
-                    if checker.rigid.contains(id)
+                    if checker.state.rigid.contains(id)
                         && !bound.contains(id)
-                        && checker.levels.get(id).copied().unwrap_or(TOP_LEVEL)
+                        && checker.state.levels.get(id).copied().unwrap_or(TOP_LEVEL)
                             > variable_level =>
                 {
                     Some(*id)
@@ -57,7 +62,7 @@ impl Checker {
         let Some(skolem) = visit(self, ty, variable_level, &mut HashSet::new()) else {
             return false;
         };
-        self.errors.push(TypeCheckError::new(
+        self.state.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::SkolemEscape,
             span,
             format!("rigid type variable _T{skolem} escapes its scope"),
