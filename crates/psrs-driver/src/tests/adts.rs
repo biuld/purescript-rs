@@ -196,6 +196,7 @@ fn keeps_a_constructor_before_an_earlier_matching_wildcard() {
 fn compiles_a_non_parameterized_field_constructor_case() {
     let source = "\
 module Main where
+import Prelude
 data Pair = Pair Int Int | Empty
 sum p = case p of
   Pair x y -> x + y
@@ -215,6 +216,7 @@ main = sum (Pair 20 22)
 fn runs_the_nullary_fallback_of_a_gc_constructor_case() {
     let source = "\
 module Main where
+import Prelude
 data Pair = Pair Int Int | Empty
 sum p = case p of
   Pair x y -> x + y
@@ -267,6 +269,7 @@ main = unwrap (Outer (Inner 42))
 fn selects_between_nested_constructor_patterns() {
     let source = r#"
 module Main where
+import Prelude
 data Inner = Left Int | Right Int
 data Outer = Outer Inner
 unwrap value = case value of
@@ -285,6 +288,7 @@ main = unwrap (Outer (Right 41))
 fn selects_the_first_nested_constructor_pattern() {
     let source = r#"
 module Main where
+import Prelude
 data Inner = Left Int | Right Int
 data Outer = Outer Inner
 unwrap value = case value of
@@ -341,6 +345,7 @@ main = unAge (Age 42)
 fn selects_nested_patterns_through_an_erased_newtype() {
     let source = r#"
 module Main where
+import Prelude
 data Inner = Left Int | Right Int
 newtype Box = Box Inner
 unwrap value = case value of
@@ -359,6 +364,7 @@ main = unwrap (Box (Right 41))
 fn runs_a_constructor_pattern_in_a_function_argument() {
     let source = "\
 module Main where
+import Prelude
 data Pair = Pair Int Int
 sum (Pair left right) = left + right
 main = sum (Pair 20 22)

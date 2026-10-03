@@ -49,6 +49,7 @@ pub(in crate::cc::lower) fn collect_captures(
             }
         }
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {
@@ -67,30 +68,11 @@ pub(in crate::cc::lower) fn collect_captures(
                 collect_captures(value, bound, captures);
             }
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => collect_captures(record, bound, captures),
-        ExprKind::ArrayIndex { array, index } => {
-            collect_captures(array, bound, captures);
-            collect_captures(index, bound, captures);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            collect_captures(array, bound, captures);
-            collect_captures(index, bound, captures);
-            collect_captures(value, bound, captures);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::FieldAccess { record, .. } => collect_captures(record, bound, captures),
+        ExprKind::Application(left, right) => {
             collect_captures(left, bound, captures);
             collect_captures(right, bound, captures);
         }
-        ExprKind::UnaryPrimitive { value, .. } => collect_captures(value, bound, captures),
         ExprKind::RepresentationCast { value, .. } => collect_captures(value, bound, captures),
         ExprKind::If {
             condition,

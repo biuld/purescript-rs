@@ -121,7 +121,7 @@ class Eq a where
   eq :: a -> a -> Boolean
 
 instance eqInt :: Eq Int where
-  eq left right = left == right
+  eq left right = intEq left right
 "#;
     let main = r#"module Main where
 

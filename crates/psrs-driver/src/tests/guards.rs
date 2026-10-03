@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn comma_guards_short_circuit_then_use_the_next_guarded_clause() {
-    let source = "module Main where\nclassify n\n  | n > 0, n < 10 = 11\n  | true = 22\nmain = classify 12\n";
+    let source = "module Main where\nimport Prelude\nclassify n\n  | n > 0, n < 10 = 11\n  | true = 22\nmain = classify 12\n";
     let artifact = compile_source("Main.purs", source).expect("guarded equations compile");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -14,7 +14,7 @@ fn comma_guards_short_circuit_then_use_the_next_guarded_clause() {
 
 #[test]
 fn failed_pattern_guard_falls_through_to_the_next_function_equation() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nread (Just n)\n  | n > 0 = n\nread _ = 41\nmain = read (Just (0 - 1))\n";
+    let source = "module Main where\nimport Prelude\ndata Maybe a = Nothing | Just a\nread (Just n)\n  | n > 0 = n\nread _ = 41\nmain = read (Just (0 - 1))\n";
     let artifact = compile_source("Main.purs", source).expect("pattern guards compile");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -26,7 +26,7 @@ fn failed_pattern_guard_falls_through_to_the_next_function_equation() {
 
 #[test]
 fn case_alternative_pattern_guard_scopes_binders_and_falls_through() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nread value = case value of\n  candidate\n    | Just inner <- candidate, inner > 0 -> inner\n  _ -> 43\nmain = read (Just (0 - 1))\n";
+    let source = "module Main where\nimport Prelude\ndata Maybe a = Nothing | Just a\nread value = case value of\n  candidate\n    | Just inner <- candidate, inner > 0 -> inner\n  _ -> 43\nmain = read (Just (0 - 1))\n";
     let artifact = compile_source("Main.purs", source).expect("case pattern guards compile");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -38,7 +38,7 @@ fn case_alternative_pattern_guard_scopes_binders_and_falls_through() {
 
 #[test]
 fn guarded_helper_cases_do_not_emit_source_coverage_diagnostics() {
-    let source = "module Main where\ndata Maybe a = Nothing | Just a\nchoose value = case value of\n  Just n | n > 0 -> n\n  _ -> 42\nmain = choose (Just (0 - 1))\n";
+    let source = "module Main where\nimport Prelude\ndata Maybe a = Nothing | Just a\nchoose value = case value of\n  Just n | n > 0 -> n\n  _ -> 42\nmain = choose (Just (0 - 1))\n";
     let artifact = compile_source("Main.purs", source).expect("guard helper case compiles");
     assert!(
         artifact.warnings.iter().all(|warning| {
@@ -107,7 +107,7 @@ fn anonymous_case_inputs_become_function_parameters_in_source_order() {
 
 #[test]
 fn boolean_case_guards_preserve_alternative_fallthrough() {
-    let source = "module Main where\nchoose input = case false of\n  true | input > 0 -> 11\n  _ -> 22\nmain = choose 0\n";
+    let source = "module Main where\nimport Prelude\nchoose input = case false of\n  true | input > 0 -> 11\n  _ -> 22\nmain = choose 0\n";
     let artifact = compile_source("Main.purs", source).expect("guarded Boolean cases compile");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -164,7 +164,7 @@ fn nested_boolean_constructor_pattern_selects_the_matching_row() {
 
 #[test]
 fn integer_literal_function_equations_preserve_clause_order() {
-    let source = "module Main where\nchoose 0 = 11\nchoose n\n  | n > 0 = 22\nchoose _ = 33\nmain = choose 0\n";
+    let source = "module Main where\nimport Prelude\nchoose 0 = 11\nchoose n\n  | n > 0 = 22\nchoose _ = 33\nmain = choose 0\n";
     let artifact = compile_source("Main.purs", source).expect("integer equations compile");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {
@@ -303,7 +303,7 @@ fn later_guard_clause_binders_are_renamed_in_each_fallthrough_copy() {
 
 #[test]
 fn guarded_rows_do_not_claim_unconditional_coverage() {
-    let source = "module Main where\nread n\n  | n > 0 = n\nmain = read 1\n";
+    let source = "module Main where\nimport Prelude\nread n\n  | n > 0 = n\nmain = read 1\n";
     let errors = compile_source("Main.purs", source)
         .expect_err("a partial guarded equation is not exhaustive");
     assert_eq!(

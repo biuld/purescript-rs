@@ -32,6 +32,7 @@ fn converts_a_parameterized_newtype_to_its_scalar_payload_when_wasmtime_is_avail
 #[test]
 fn converts_a_parameterized_newtype_to_its_function_payload_when_wasmtime_is_available() {
     let source = r#"module Main where
+import Prelude
 import Safe.Coerce (coerce)
 newtype Endo a = Endo (a -> a)
 coerceEndo :: Endo Int -> Int -> Int
@@ -163,7 +164,7 @@ fn uses_a_generic_coercion_function_from_an_imported_module_when_wasmtime_is_ava
         age :: Age\n\
         age = Age 71\n\
         main :: Int\n\
-        main = convert age + arrayIndex (convertArray [age]) 0\n";
+        main = intAdd (convert age) (arrayIndex (convertArray [age]) 0)\n";
     let Some(output) =
         run_program_with_wasmtime(&[("CoerceLib.purs", library), ("Main.purs", main)])
     else {

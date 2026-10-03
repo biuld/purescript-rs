@@ -40,6 +40,7 @@ fn applies_a_visible_argument_to_a_global_and_erases() {
     accepts(
         "vta-global.purs",
         r#"module Main where
+import Prelude
 
 identity2 :: forall @a. a -> a
 identity2 x = x
@@ -225,6 +226,7 @@ main = case identity2 @Int 1 of _ -> 0
 #[test]
 fn a_visible_application_still_produces_a_component_artifact() {
     let source = r#"module Main where
+import Prelude
 
 identity2 :: forall @a. a -> a
 identity2 x = x

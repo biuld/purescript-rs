@@ -96,13 +96,13 @@ fn resolves_forward_globals_and_lambda_locals_to_stable_ids() {
 }
 
 #[test]
-fn resolves_bootstrap_integer_operator_to_intrinsic_id() {
+fn resolves_bootstrap_integer_add_to_intrinsic_id() {
     let module = module(vec![declaration(
         "main",
         19,
         expression(
             AstExprKind::Operator {
-                operator: name("+", 29),
+                operator: name("intAdd", 29),
                 left: Box::new(expression(AstExprKind::Integer("40".into()), 27, 29)),
                 right: Box::new(expression(AstExprKind::Integer("2".into()), 32, 33)),
             },

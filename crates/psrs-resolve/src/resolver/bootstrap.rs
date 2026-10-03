@@ -1,75 +1,22 @@
 use psrs_hir::{ExternalKind, ExternalSymbol, Intrinsic};
 
 /// The compiler-known externals available to every bootstrap module.
+///
+/// The name, arity, category, and type of each intrinsic come from its
+/// descriptor in `psrs-hir`, so this table is not a second source of truth.
+/// `Intrinsic::ALL` is kept exact by a compile-time assertion, so every variant
+/// is bootstrapped.
 pub fn bootstrap_externals() -> Vec<ExternalSymbol> {
-    let intrinsics = [
-        ("true", Intrinsic::BoolTrue),
-        ("false", Intrinsic::BoolFalse),
-        ("+", Intrinsic::I32Add),
-        ("-", Intrinsic::I32Sub),
-        ("*", Intrinsic::I32Mul),
-        ("/", Intrinsic::I32DivS),
-        ("%", Intrinsic::I32RemS),
-        ("==", Intrinsic::I32Eq),
-        ("/=", Intrinsic::I32Ne),
-        ("<", Intrinsic::I32LtS),
-        ("<=", Intrinsic::I32LeS),
-        (">", Intrinsic::I32GtS),
-        (">=", Intrinsic::I32GeS),
-        ("arrayLength", Intrinsic::ArrayLength),
-        ("arrayIndex", Intrinsic::ArrayIndex),
-        ("arrayUpdate", Intrinsic::ArrayUpdate),
-        ("intNeg", Intrinsic::IntNeg),
-        ("intComplement", Intrinsic::IntComplement),
-        ("numberNeg", Intrinsic::NumberNeg),
-        ("booleanNot", Intrinsic::BooleanNot),
-        ("intToNumber", Intrinsic::IntToNumber),
-        ("numberToInt", Intrinsic::NumberToInt),
-        ("booleanToInt", Intrinsic::BooleanToInt),
-        ("intToBoolean", Intrinsic::IntToBoolean),
-        ("charToInt", Intrinsic::CharToInt),
-        ("intToChar", Intrinsic::IntToChar),
-        ("intDiv", Intrinsic::IntDiv),
-        ("intMod", Intrinsic::IntMod),
-        ("intAnd", Intrinsic::IntAnd),
-        ("intOr", Intrinsic::IntOr),
-        ("intXor", Intrinsic::IntXor),
-        ("intShl", Intrinsic::IntShl),
-        ("intShr", Intrinsic::IntShr),
-        ("intZshr", Intrinsic::IntZshr),
-        ("numberAdd", Intrinsic::NumberAdd),
-        ("numberSub", Intrinsic::NumberSub),
-        ("numberMul", Intrinsic::NumberMul),
-        ("numberDiv", Intrinsic::NumberDiv),
-        ("numberEq", Intrinsic::NumberEq),
-        ("numberNe", Intrinsic::NumberNe),
-        ("numberLt", Intrinsic::NumberLt),
-        ("numberLe", Intrinsic::NumberLe),
-        ("numberGt", Intrinsic::NumberGt),
-        ("numberGe", Intrinsic::NumberGe),
-        ("booleanAnd", Intrinsic::BooleanAnd),
-        ("booleanOr", Intrinsic::BooleanOr),
-        ("booleanEq", Intrinsic::BooleanEq),
-        ("booleanNe", Intrinsic::BooleanNe),
-        ("charEq", Intrinsic::CharEq),
-        ("charNe", Intrinsic::CharNe),
-        ("charLt", Intrinsic::CharLt),
-        ("charLe", Intrinsic::CharLe),
-        ("charGt", Intrinsic::CharGt),
-        ("charGe", Intrinsic::CharGe),
-        ("stringToBytes", Intrinsic::StringToBytes),
-        ("bytesToString", Intrinsic::BytesToString),
-        ("__psrs_coerce", Intrinsic::Coerce),
-        ("__psrs_undefined", Intrinsic::Undefined),
-        ("unit", Intrinsic::Unit),
-        ("arrayAppend", Intrinsic::ArrayAppend),
-    ]
-    .into_iter()
-    .map(|(name, intrinsic)| ExternalSymbol {
-        symbol: intrinsic.symbol(),
-        name: name.into(),
-        kind: ExternalKind::Intrinsic(intrinsic),
-        signature: None,
-    });
-    intrinsics.collect()
+    Intrinsic::ALL
+        .into_iter()
+        .map(|intrinsic| {
+            let descriptor = intrinsic.descriptor();
+            ExternalSymbol {
+                symbol: intrinsic.symbol(),
+                name: descriptor.name.to_owned(),
+                kind: ExternalKind::Intrinsic(intrinsic),
+                signature: Some((descriptor.scheme)()),
+            }
+        })
+        .collect()
 }

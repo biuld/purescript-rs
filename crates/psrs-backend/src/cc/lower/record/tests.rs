@@ -1,7 +1,7 @@
 use crate::cc::{AssignmentKind, RefShape, Reference, Representation, ValueShape};
 use psrs_core::TypeId;
 use psrs_core::{Binder, Declaration, Expr, ExprKind, Module, Type};
-use psrs_hir::{LocalId, ModuleId, SymbolId, TypeVariableId};
+use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
 fn push_arrow(types: &mut Vec<Type>, parameter: TypeId, result: TypeId) -> TypeId {
@@ -314,7 +314,10 @@ fn read_declaration(
         span: access_span,
     };
     let body = Expr {
-        kind: ExprKind::ArrayLength(Box::new(access)),
+        kind: ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::ArrayLength,
+            arguments: vec![access],
+        },
         ty: integer,
         span: TextRange::new(12, 40),
     };

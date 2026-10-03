@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn runs_a_top_level_function_value_through_call_ref() {
     let source = r#"module Main where
+import Data.Semiring ((+))
 apply :: (Int -> Int) -> Int -> Int
 apply f x = f x
 inc :: Int -> Int
@@ -22,6 +23,7 @@ main = apply inc 41
 #[test]
 fn runs_a_non_capturing_local_lambda_through_call_ref() {
     let source = r#"module Main where
+import Prelude
 main = let f = \x -> x + 1 in f 41
 "#;
     let artifact = compile_source("Main.purs", source).expect("lowering a local lambda");
@@ -37,6 +39,7 @@ main = let f = \x -> x + 1 in f 41
 #[test]
 fn runs_a_capturing_lambda_through_a_closure() {
     let source = r#"module Main where
+import Data.Semiring ((+))
 apply :: (Int -> Int) -> Int -> Int
 apply f x = f x
 main = let x = 40 in apply (\y -> x + y) 2
@@ -54,6 +57,7 @@ main = let x = 40 in apply (\y -> x + y) 2
 #[test]
 fn preserves_full_width_ints_in_capturing_lambdas() {
     let source = r#"module Main where
+import Data.Eq ((==))
 apply :: (Int -> Int) -> Int -> Int
 apply f x = f x
 main = let captured = 1073741824
@@ -71,6 +75,7 @@ main = let captured = 1073741824
 #[test]
 fn runs_a_record_capturing_lambda_through_a_closure() {
     let source = r#"module Main where
+import Data.Semiring ((+))
 apply :: (Int -> Int) -> Int -> Int
 apply f x = f x
 main = let r = { answer: 40 } in apply (\ignored -> case r of { answer: value } -> value + 2) 0
@@ -191,6 +196,7 @@ fn runs_a_recursive_polymorphic_reference_identity() {
     // unreachable while it still names the entry block's array value. The
     // optimizer must prune that dead arm before verifying.
     let source = r#"module Main where
+import Data.Eq ((==))
 lastArr :: forall a. Int -> Array a -> Array a
 lastArr n x = if n == 0 then x else lastArr (n - 1) x
 main = arrayIndex (lastArr 3 [40, 42]) 1
@@ -207,6 +213,7 @@ main = arrayIndex (lastArr 3 [40, 42]) 1
 #[test]
 fn runs_a_recursive_polymorphic_identity_at_integer_types() {
     let source = r#"module Main where
+import Prelude
 f :: forall a. Int -> a -> a
 f n x = if n == 0 then x else f (n - 1) x
 main = f 1 42 + f 2 0
@@ -225,6 +232,7 @@ fn runs_a_branch_with_equal_reference_arms() {
     // materialize the merge parameter. The one-value merge contract must be
     // preserved.
     let source = r#"module Main where
+import Prelude
 g :: forall a. Int -> a -> a
 g n x = if n == 0 then x else x
 main = g 1 42

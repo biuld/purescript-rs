@@ -32,6 +32,16 @@ fn inline_expr(
                 .map(|argument| inline_expr(argument, fresh, sites_left, max_body_nodes))
                 .collect(),
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| inline_expr(argument, fresh, sites_left, max_body_nodes))
+                .collect(),
+        },
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .into_iter()
@@ -67,50 +77,6 @@ fn inline_expr(
             value: Box::new(inline_expr(*value, fresh, sites_left, max_body_nodes)),
             source_type,
             target_type,
-        },
-        ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(inline_expr(
-            *value,
-            fresh,
-            sites_left,
-            max_body_nodes,
-        ))),
-        ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(inline_expr(
-            *value,
-            fresh,
-            sites_left,
-            max_body_nodes,
-        ))),
-        ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(inline_expr(
-            *array,
-            fresh,
-            sites_left,
-            max_body_nodes,
-        ))),
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(inline_expr(*left, fresh, sites_left, max_body_nodes)),
-            right: Box::new(inline_expr(*right, fresh, sites_left, max_body_nodes)),
-        },
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op,
-            value: Box::new(inline_expr(*value, fresh, sites_left, max_body_nodes)),
-        },
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(inline_expr(*array, fresh, sites_left, max_body_nodes)),
-            index: Box::new(inline_expr(*index, fresh, sites_left, max_body_nodes)),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(inline_expr(*array, fresh, sites_left, max_body_nodes)),
-            index: Box::new(inline_expr(*index, fresh, sites_left, max_body_nodes)),
-            value: Box::new(inline_expr(*value, fresh, sites_left, max_body_nodes)),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op,
-            left: Box::new(inline_expr(*left, fresh, sites_left, max_body_nodes)),
-            right: Box::new(inline_expr(*right, fresh, sites_left, max_body_nodes)),
         },
         ExprKind::Application(function, argument) => {
             let function = inline_expr(*function, fresh, sites_left, max_body_nodes);

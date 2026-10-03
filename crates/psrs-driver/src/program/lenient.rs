@@ -63,7 +63,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
             ),
         });
     }
-    let signatures = declared_signatures(&resolved);
+    let signatures = super::signatures::declared_signatures(&resolved);
     let mut known_types = resolved
         .iter()
         .flat_map(|module| module.types.iter().cloned())
@@ -99,7 +99,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
         if failed_kind_modules.contains(&module.id) {
             continue;
         }
-        let imported = imported_signatures(&module, &signatures);
+        let imported = super::signatures::imported_signatures(&module, &signatures);
         let imported_instances = imported_instance_declarations(
             &dependencies,
             source,

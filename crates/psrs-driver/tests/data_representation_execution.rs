@@ -58,7 +58,7 @@ fn executes_representative_reachable_layouts() {
 
     // Products and closed records plan as immutable structs.
     assert_runs(
-        "module Main where\nmain = case { x: 40, y: 2 } of { x: a, y: b } -> a + b\n",
+        "module Main where\nimport Prelude\nmain = case { x: 40, y: 2 } of { x: a, y: b } -> a + b\n",
         42,
     );
     // Field-bearing sums plan as a tag-carrying supertype with final cases.
@@ -75,7 +75,7 @@ fn executes_representative_reachable_layouts() {
     assert_runs("module Main where\nmain = arrayIndex [40, 42] 1\n", 42);
     // Closures plan as a code reference plus a nullable eqref capture array.
     assert_runs(
-        "module Main where\nmain = let captured = 40 in let f = \\y -> captured + y in f 2\n",
+        "module Main where\nimport Prelude\nmain = let captured = 40 in let f = \\y -> captured + y in f 2\n",
         42,
     );
     // Erased parameterized fields box and recover exactly.
@@ -85,7 +85,7 @@ fn executes_representative_reachable_layouts() {
     );
     // Generic-to-concrete aggregate conversion reconstructs the array.
     assert_runs(
-        "module Main where\nlastArr :: forall a. Int -> Array a -> Array a\nlastArr n x = if n == 0 then x else lastArr (n - 1) x\nmain = arrayIndex (lastArr 3 [40, 42]) 1\n",
+        "module Main where\nimport Prelude\nlastArr :: forall a. Int -> Array a -> Array a\nlastArr n x = if n == 0 then x else lastArr (n - 1) x\nmain = arrayIndex (lastArr 3 [40, 42]) 1\n",
         42,
     );
 }

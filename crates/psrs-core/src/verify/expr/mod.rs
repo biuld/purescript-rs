@@ -1,6 +1,6 @@
 use super::{
-    Locals, SchemeType, array_element, compatible, error, primitive_type_id, primitive_types,
-    record_field, restore_local, unary_primitive_types, verify_pattern, verify_type,
+    Locals, SchemeType, array_element, compatible, error, primitive_type_id, record_field,
+    restore_local, verify_pattern, verify_type,
 };
 use crate::{Expr, ExprKind, Module, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
@@ -9,6 +9,7 @@ use std::collections::HashMap;
 mod arrays;
 mod entry;
 mod helpers;
+mod intrinsic;
 mod shapes;
 mod string_bytes;
 pub(super) use entry::verify_expr;
@@ -95,6 +96,10 @@ impl Context<'_> {
             // A trap produces no value, so its type is only the one its context
             // wants; the surrounding context check already established that.
             ExprKind::Trap => {}
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            } => self.verify_intrinsic(expression, *intrinsic, arguments),
             ExprKind::Array { elements } => {
                 let Some(element_type) = array_element(expression.ty, self.module) else {
                     self.errors.push(error(
@@ -173,20 +178,6 @@ impl Context<'_> {
                     ));
                 }
             }
-            ExprKind::StringToBytes(value) => self.verify_string_to_bytes(expression, value),
-            ExprKind::BytesToString(value) => self.verify_bytes_to_string(expression, value),
-            ExprKind::ArrayLength(array) => self.verify_array_length(expression, array),
-            ExprKind::ArrayAppend { left, right } => {
-                self.verify_array_append(expression, left, right)
-            }
-            ExprKind::ArrayIndex { array, index } => {
-                self.verify_array_index(expression, array, index)
-            }
-            ExprKind::ArrayUpdate {
-                array,
-                index,
-                value,
-            } => self.verify_array_update(expression, array, index, value),
             ExprKind::Constructor { symbol, arguments } => {
                 let Some(constructor) = self
                     .module
@@ -247,31 +238,6 @@ impl Context<'_> {
                 for argument in arguments {
                     self.expr(argument, Some(argument.ty));
                 }
-            }
-            ExprKind::Primitive { op, left, right } => {
-                let (operand, result) = primitive_types(*op, self.module);
-                self.expr(left, Some(operand));
-                self.expr(right, Some(operand));
-                compatible(
-                    result,
-                    expression.ty,
-                    self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                );
-            }
-            ExprKind::UnaryPrimitive { op, value } => {
-                let (operand, result) = unary_primitive_types(*op, self.module);
-                self.expr(value, Some(operand));
-                compatible(
-                    result,
-                    expression.ty,
-                    self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                );
             }
             ExprKind::Application(function, argument) => {
                 self.expr(function, None);

@@ -320,6 +320,7 @@ fn type_application_head(ty: &psrs_hir::Type) -> Option<psrs_hir::TypeId> {
 #[test]
 fn reassociates_custom_fixities_and_expands_both_operator_sections_at_runtime() {
     let source = "module Main where\n\
+        import Prelude\n\
         infixr 4 subtract as <+>\n\
         infixl 6 multiply as %%\n\
         subtract x y = x - y\n\

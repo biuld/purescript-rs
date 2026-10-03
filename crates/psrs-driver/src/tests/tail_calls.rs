@@ -70,7 +70,7 @@ fn has_return_call_ref(mir: &psrs_backend::mir::Module) -> bool {
 fn self_tail_recursion_runs_in_constant_stack() {
     // 100000 frames would exhaust the default Wasmtime stack; loopification
     // must make this a `loop` on the tail-call-disabled stable profile.
-    let source = "module Main where\ncount :: Int -> Int\ncount n = if n == 0 then 42 else count (n - 1)\nmain = count 100000\n";
+    let source = "module Main where\nimport Prelude\ncount :: Int -> Int\ncount n = if n == 0 then 42 else count (n - 1)\nmain = count 100000\n";
     let stages = compile_with(source, TargetCapabilities::default());
     assert!(
         !has_tail_call(&stages.mir),
@@ -85,7 +85,7 @@ fn self_tail_recursion_runs_in_constant_stack() {
 
 #[test]
 fn non_self_tail_calls_use_return_call_when_enabled() {
-    let source = "module Main where\neven :: Int -> Int\neven n = if n == 0 then 42 else odd (n - 1)\nodd :: Int -> Int\nodd n = if n == 0 then 7 else even (n - 1)\nmain = even 100000\n";
+    let source = "module Main where\nimport Prelude\neven :: Int -> Int\neven n = if n == 0 then 42 else odd (n - 1)\nodd :: Int -> Int\nodd n = if n == 0 then 7 else even (n - 1)\nmain = even 100000\n";
     let target = TargetCapabilities {
         tail_call: true,
         ..TargetCapabilities::default()
@@ -111,7 +111,7 @@ fn indirect_tail_recursion_uses_return_call_ref() {
     // `run` tail-calls its function argument; `tick` tail-calls `run` directly.
     // With 100000 iterations this only succeeds if the reference tail call
     // reuses the frame.
-    let source = "module Main where\nrun :: (Int -> Int) -> Int -> Int\nrun step n = if n == 0 then 42 else step (n - 1)\ntick :: Int -> Int\ntick n = run tick n\nmain = tick 100000\n";
+    let source = "module Main where\nimport Prelude\nrun :: (Int -> Int) -> Int -> Int\nrun step n = if n == 0 then 42 else step (n - 1)\ntick :: Int -> Int\ntick n = run tick n\nmain = tick 100000\n";
     let target = TargetCapabilities {
         tail_call: true,
         ..TargetCapabilities::default()
@@ -134,7 +134,7 @@ fn indirect_tail_recursion_uses_return_call_ref() {
 
 #[test]
 fn disabled_profile_keeps_an_ordinary_call() {
-    let source = "module Main where\nf :: Int -> Int\nf x = g x\ng :: Int -> Int\ng x = x + 1\nmain = f 41\n";
+    let source = "module Main where\nimport Prelude\nf :: Int -> Int\nf x = g x\ng :: Int -> Int\ng x = x + 1\nmain = f 41\n";
     let stages = compile_with(source, TargetCapabilities::default());
     assert!(
         !has_tail_call(&stages.mir),

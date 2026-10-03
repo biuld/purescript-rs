@@ -1,14 +1,10 @@
-use crate::{
-    Binder, Binding, Expr, ExprKind, LowerError, Module, Primitive, TypeId, UnaryPrimitive,
-};
+use crate::{Binder, Binding, Expr, ExprKind, LowerError, Module, TypeId};
 use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
-mod array_append;
 mod dictionary;
 mod module;
-mod string_bytes;
 
 /// Lowers a module and verifies the result. A module with unresolved
 /// cross-module global references cannot be verified on its own; use
@@ -171,90 +167,17 @@ fn lower_expr(
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors, source_types)?;
             let argument = lower_expr(*argument, externals, constructors, source_types)?;
+            // A saturated intrinsic application becomes one IntrinsicCall. The
+            // registry's arity decides saturation, and the per-intrinsic
+            // handling lives in the intrinsic module rather than here.
             if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && args.len() == 2
-                && matches!(
-                    externals.get(&symbol),
-                    Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::ArrayIndex))
-                )
+                && let Some(ExternalKind::Intrinsic(intrinsic)) = externals.get(&symbol)
+                && args.len() == intrinsic.descriptor().arity as usize
             {
                 return Ok(Expr {
-                    kind: ExprKind::ArrayIndex {
-                        array: Box::new(args[0].clone()),
-                        index: Box::new(args[1].clone()),
-                    },
-                    ty,
-                    span,
-                });
-            }
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && args.len() == 3
-                && matches!(
-                    externals.get(&symbol),
-                    Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::ArrayUpdate))
-                )
-            {
-                return Ok(Expr {
-                    kind: ExprKind::ArrayUpdate {
-                        array: Box::new(args[0].clone()),
-                        index: Box::new(args[1].clone()),
-                        value: Box::new(args[2].clone()),
-                    },
-                    ty,
-                    span,
-                });
-            }
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && args.len() == 1
-                && matches!(
-                    externals.get(&symbol),
-                    Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::ArrayLength))
-                )
-            {
-                return Ok(Expr {
-                    kind: ExprKind::ArrayLength(Box::new(args[0].clone())),
-                    ty,
-                    span,
-                });
-            }
-            if let Some(append) =
-                array_append::lower_append(&function, &argument, externals, ty, span)
-            {
-                return Ok(append);
-            }
-            if let Some(conversion) =
-                string_bytes::lower_conversion(&function, &argument, externals, ty, span)
-            {
-                return Ok(conversion);
-            }
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && args.len() == 1
-                && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
-                    ExternalKind::Intrinsic(intrinsic) => UnaryPrimitive::from_intrinsic(intrinsic),
-                    ExternalKind::Wit { .. } => None,
-                })
-            {
-                return Ok(Expr {
-                    kind: ExprKind::UnaryPrimitive {
-                        op,
-                        value: Box::new(args[0].clone()),
-                    },
-                    ty,
-                    span,
-                });
-            }
-            if let Some((symbol, args)) = flatten_intrinsic(&function, argument.clone(), externals)
-                && args.len() == 2
-                && let Some(op) = externals.get(&symbol).cloned().and_then(|kind| match kind {
-                    ExternalKind::Intrinsic(intrinsic) => Primitive::from_intrinsic(intrinsic),
-                    ExternalKind::Wit { .. } => None,
-                })
-            {
-                return Ok(Expr {
-                    kind: ExprKind::Primitive {
-                        op,
-                        left: Box::new(args[0].clone()),
-                        right: Box::new(args[1].clone()),
+                    kind: ExprKind::IntrinsicCall {
+                        intrinsic: *intrinsic,
+                        arguments: args,
                     },
                     ty,
                     span,
@@ -430,6 +353,3 @@ fn flatten_intrinsic(
     arguments.reverse();
     Some((symbol, arguments))
 }
-
-#[cfg(test)]
-mod tests;
