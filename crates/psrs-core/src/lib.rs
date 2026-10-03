@@ -117,7 +117,7 @@ pub enum UnaryPrimitive {
 }
 
 impl UnaryPrimitive {
-    fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
+    pub fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
         Some(match intrinsic {
             Intrinsic::IntNeg => Self::IntNeg,
             Intrinsic::IntComplement => Self::IntComplement,
@@ -178,7 +178,7 @@ pub enum Primitive {
 }
 
 impl Primitive {
-    fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
+    pub fn from_intrinsic(intrinsic: Intrinsic) -> Option<Self> {
         Some(match intrinsic {
             Intrinsic::I32Add => Self::IntAdd,
             Intrinsic::I32Sub => Self::IntSub,
@@ -289,6 +289,13 @@ pub enum ExprKind {
         value: Box<Expr>,
         source_type: TypeId,
         target_type: TypeId,
+    },
+    /// A call to a compiler intrinsic, saturated to its descriptor's arity. The
+    /// per-intrinsic handling lives in the Core intrinsic module, so Core's
+    /// traversals match this one node rather than one variant per operation.
+    IntrinsicCall {
+        intrinsic: Intrinsic,
+        arguments: Vec<Expr>,
     },
     ArrayLength(Box<Expr>),
     /// `Array.append`: a fresh array holding `left`'s elements followed by

@@ -36,6 +36,7 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
         | ExprKind::Char(_) => 0,
         ExprKind::Unit | ExprKind::Trap => 0,
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => arguments.iter().map(count_nodes).sum(),
@@ -120,6 +121,16 @@ fn substitute_inner(
         ExprKind::Global(symbol) => ExprKind::Global(*symbol),
         ExprKind::Constructor { symbol, arguments } => ExprKind::Constructor {
             symbol: *symbol,
+            arguments: arguments
+                .iter()
+                .map(|argument| substitute_inner(argument, substitutions, shadowed))
+                .collect(),
+        },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic: *intrinsic,
             arguments: arguments
                 .iter()
                 .map(|argument| substitute_inner(argument, substitutions, shadowed))
@@ -352,6 +363,7 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
             }
         }
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {

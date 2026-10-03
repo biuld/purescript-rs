@@ -144,6 +144,61 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
                 right: Box::new(right),
             }
         }
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => {
+            let arguments = arguments
+                .into_iter()
+                .map(|argument| simplify_expr(argument, fresh))
+                .collect::<Vec<_>>();
+            if let Some(op) = Primitive::from_intrinsic(intrinsic)
+                && let [left, right] = arguments.as_slice()
+            {
+                if let Some(replacement) =
+                    fold_primitive(op, left, right, expression.ty, expression.span)
+                {
+                    return replacement;
+                }
+                if let Some(replacement) = primitive_identity(op, left, right, expression.span) {
+                    return replacement;
+                }
+            }
+            if intrinsic == psrs_hir::Intrinsic::ArrayLength
+                && let [array] = arguments.as_slice()
+                && let ExprKind::Array { elements } = &array.kind
+                && let Ok(length) = i32::try_from(elements.len())
+                && let Some(replacement) = sequence_constant(
+                    elements.clone(),
+                    length,
+                    expression.ty,
+                    expression.span,
+                    fresh,
+                )
+            {
+                return replacement;
+            }
+            if intrinsic == psrs_hir::Intrinsic::ArrayIndex
+                && let [array, index] = arguments.as_slice()
+                && let ExprKind::Array { elements } = &array.kind
+                && let ExprKind::Integer(index_value) = &index.kind
+                && let Ok(index_value) = usize::try_from(*index_value)
+                && index_value < elements.len()
+                && let Some(replacement) = sequence_values(
+                    elements.clone(),
+                    index_value,
+                    expression.ty,
+                    expression.span,
+                    fresh,
+                )
+            {
+                return replacement;
+            }
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            }
+        }
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(simplify_expr(*function, fresh)),
             Box::new(simplify_expr(*argument, fresh)),

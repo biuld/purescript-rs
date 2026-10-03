@@ -33,6 +33,11 @@ pub(super) fn scoped_expr(
                 scoped_expr(argument, module, scope, errors);
             }
         }
+        ExprKind::IntrinsicCall { arguments, .. } => {
+            for argument in arguments {
+                scoped_expr(argument, module, scope, errors);
+            }
+        }
         ExprKind::Array { elements } => {
             for element in elements {
                 scoped_expr(element, module, scope, errors);

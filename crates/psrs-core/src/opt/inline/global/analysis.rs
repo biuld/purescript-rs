@@ -56,6 +56,7 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
             }) || expr_introduces_type_binders(body, types)
         }
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => arguments
@@ -176,6 +177,7 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
     match &expression.kind {
         ExprKind::Case { .. } => true,
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => arguments.iter().any(contains_case),
@@ -223,6 +225,7 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         ExprKind::Global(symbol) => out.push(*symbol),
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => {

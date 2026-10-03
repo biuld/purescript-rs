@@ -9,6 +9,7 @@ use std::collections::HashMap;
 mod arrays;
 mod entry;
 mod helpers;
+mod intrinsic;
 mod shapes;
 mod string_bytes;
 pub(super) use entry::verify_expr;
@@ -95,6 +96,10 @@ impl Context<'_> {
             // A trap produces no value, so its type is only the one its context
             // wants; the surrounding context check already established that.
             ExprKind::Trap => {}
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            } => self.verify_intrinsic(expression, *intrinsic, arguments),
             ExprKind::Array { elements } => {
                 let Some(element_type) = array_element(expression.ty, self.module) else {
                     self.errors.push(error(

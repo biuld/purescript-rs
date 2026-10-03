@@ -53,6 +53,7 @@ fn max_local(expression: &Expr) -> u32 {
             .max(max_local(then_branch))
             .max(max_local(else_branch)),
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => arguments.iter().map(max_local).max().unwrap_or(0),

@@ -48,6 +48,16 @@ pub(super) fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> E
             record: Box::new(super::shift_expr(*record, offset, variable_offset)),
             field,
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| super::shift_expr(argument, offset, variable_offset))
+                .collect(),
+        },
         ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
             left: Box::new(super::shift_expr(*left, offset, variable_offset)),
             right: Box::new(super::shift_expr(*right, offset, variable_offset)),

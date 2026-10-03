@@ -68,7 +68,7 @@ fn record_expr(
             record_expr(module, index, visiting, referenced);
             record_expr(module, value, visiting, referenced);
         }
-        ExprKind::Constructor { arguments, .. } => {
+        ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
             for argument in arguments {
                 record_expr(module, argument, visiting, referenced);
             }

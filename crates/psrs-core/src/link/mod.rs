@@ -322,6 +322,11 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
         }
         ExprKind::FieldAccess { record, .. } => collect_references(record, out),
         ExprKind::RepresentationCast { value, .. } => collect_references(value, out),
+        ExprKind::IntrinsicCall { arguments, .. } => {
+            for argument in arguments {
+                collect_references(argument, out);
+            }
+        }
         ExprKind::ArrayLength(value) => collect_references(value, out),
         ExprKind::StringToBytes(value) | ExprKind::BytesToString(value) => {
             collect_references(value, out)

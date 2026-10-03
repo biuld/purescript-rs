@@ -170,6 +170,16 @@ impl TypeSubstitution<'_> {
                     .map(|argument| self.expression(argument))
                     .collect::<Option<Vec<_>>>()?,
             },
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            } => ExprKind::IntrinsicCall {
+                intrinsic: *intrinsic,
+                arguments: arguments
+                    .iter()
+                    .map(|argument| self.expression(argument))
+                    .collect::<Option<Vec<_>>>()?,
+            },
             ExprKind::Integer(value) => ExprKind::Integer(*value),
             ExprKind::Number(value) => ExprKind::Number(value.clone()),
             ExprKind::Boolean(value) => ExprKind::Boolean(*value),

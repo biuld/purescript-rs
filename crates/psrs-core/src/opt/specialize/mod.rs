@@ -163,6 +163,7 @@ fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
     match &expression.kind {
         crate::ExprKind::Global(symbol) => out.push(*symbol),
         crate::ExprKind::Constructor { arguments, .. }
+        | crate::ExprKind::IntrinsicCall { arguments, .. }
         | crate::ExprKind::Array {
             elements: arguments,
         } => {

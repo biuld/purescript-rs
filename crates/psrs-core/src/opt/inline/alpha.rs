@@ -22,6 +22,16 @@ fn clone_expr(
                 .map(|argument| clone_expr(argument, fresh, locals))
                 .collect::<Option<Vec<_>>>()?,
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic: *intrinsic,
+            arguments: arguments
+                .iter()
+                .map(|argument| clone_expr(argument, fresh, locals))
+                .collect::<Option<Vec<_>>>()?,
+        },
         ExprKind::Integer(value) => ExprKind::Integer(*value),
         ExprKind::Number(value) => ExprKind::Number(value.clone()),
         ExprKind::Boolean(value) => ExprKind::Boolean(*value),
