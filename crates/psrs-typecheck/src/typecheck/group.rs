@@ -39,11 +39,11 @@ struct GroupMember {
     /// The indices of the wanteds this declaration could not discharge. They
     /// become the declaration's scheme constraints.
     residual: Vec<usize>,
-    /// Whether `self::residual_wanted` was called for this declaration, which
-    /// re-solves the group's other retained obligations before taking them. It is
-    /// what lets one member of a group determine an obligation another member
-    /// raised, and it must happen at most once per declaration.
-    residual_resolved: bool,
+    /// Whether the group's retained obligations have already had their last
+    /// solving attempt. One member of a group can determine an obligation
+    /// another member raised, so the attempt happens once for the group rather
+    /// than once per declaration.
+    group_obligations_resolved: bool,
 }
 
 impl Checker {
@@ -126,7 +126,7 @@ impl Checker {
             parameters,
             value: None,
             residual: Vec::new(),
-            residual_resolved: false,
+            group_obligations_resolved: false,
         }
     }
 
@@ -245,10 +245,12 @@ impl Checker {
             self.scope.globals[&member.symbol].constraints.clone()
         } else {
             // One member of the group may determine an obligation another member
-            // raised, so the group's retained obligations get one more attempt
-            // before anything is measured against them.
-            if !member.residual_resolved && !member.residual.is_empty() {
-                member.residual_resolved = true;
+            // raised, so the group's retained obligations get one last attempt
+            // before anything is measured against them. The attempt is a trial:
+            // an obligation that still cannot be discharged leaves no
+            // substitution behind.
+            if !member.group_obligations_resolved && !member.residual.is_empty() {
+                member.group_obligations_resolved = true;
                 self.speculate(|checker| {
                     checker.solve_wanted_constraints(
                         None,
@@ -259,8 +261,8 @@ impl Checker {
                 });
             }
             // One dictionary parameter per retained constraint, in source order.
-            // The wanteds keep their own indices, so the evidence the body already
-            // refers to now names these parameters.
+            // The wanteds keep their own indices, so the evidence the body
+            // already refers to now names these parameters.
             member.parameters = self.abstract_dictionaries(&member.residual);
             self.check_residual_ambiguity(
                 &self.residual_wanted(&member.residual),

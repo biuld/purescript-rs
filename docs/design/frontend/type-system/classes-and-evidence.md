@@ -229,13 +229,10 @@ Contravariant case still lacks Wasmtime evidence because of closure capture.
 Method-local constraints and the remaining upstream deriving classes keep
 FE-16 partial.
 
-Three parts of this design are not reached yet. A superclass edge is stored as the
+Two parts of this design are not reached yet. A superclass edge is stored as the
 list of subclass parameter *names* it supplies, and building one requires every
 argument to be one of those names, so an edge over a constructed argument such as
 `C (Array a)` cannot be represented and dictionary construction and superclass
-search look arguments up by name. Constraint solving runs over every wanted
-constraint of a signatureless declaration and reports an unsolved one as
-`NoInstance`, so there is no residual-constraint abstraction and no inferred
-qualified scheme. No primitive relation is dispatched by class identity: the
+search look arguments up by name. No primitive relation is dispatched by class identity: the
 `Prim.Row*` and `Prim.RowList` classes are declared with kinds and fundeps but only
 ordinary instances and `Coercible` are solved.

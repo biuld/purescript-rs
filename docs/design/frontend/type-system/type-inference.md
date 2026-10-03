@@ -148,7 +148,9 @@ escape into a higher-rank signature.
 
 `crates/psrs-typecheck/src/typecheck/` owns `infer/` for synthesis and expected
 type propagation, `signature.rs` for scoped signature elaboration, `unify.rs` for
-equality, `generalize.rs` for residual-constraint generalization, `rows.rs` for the
+equality, `order.rs` for the binding-group order and whether a group is recursive,
+`group.rs` for the per-group solve, retain, ambiguity, generalize, and abstract
+sequence, `generalize.rs` for residual-constraint generalization, `rows.rs` for the
 shared row normalizer, and focused `rank_n/` and `kind/` modules for subsumption,
 quantified instantiation, skolem scopes, and the shared kind solver. `classes/`
 provides the adjacent constraint solver. The semantic entry consumes HIR and the
@@ -218,11 +220,28 @@ The `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError`
 classes are declared with their kinds and functional dependencies but have no
 rule; see [primitives](prim.md).
 
-Generalization currently keeps only a signature's constraints. A signatureless
-declaration starts as a monomorphic scheme with no constraints and every wanted
-constraint is solved before generalization, so an unsolvable one becomes
-`NoInstance` and no residual-constraint abstraction exists. A scheme records only
-its quantified type variables, not their kinds.
+Generalization retains the wanted constraints a signatureless declaration could
+not discharge. `solve_wanted_constraints` takes the policy for a constraint it
+cannot discharge and returns the ones it retained, so the line between solving
+and retaining is one decision rather than two. A declared signature keeps the
+`RequireSolved` policy, because its own dictionary parameters are the only
+evidence it has. A declaration without one retains an obligation only when some
+argument is still a flexible unknown, which is official's `canBeGeneralized`: `C
+?a` is deferred to generalization, `C Int` and a rigid `C a` are missing
+instances. `order.rs` reports whether a group is recursive, and that decides
+whether a retained obligation is generalized or reported as
+`CannotGeneralizeRecursiveFunction`. `check_residual_ambiguity` measures a
+retained obligation's variables against the result type and the one functional
+dependency closure, which `check_ambiguity` also uses, and
+`abstract_dictionaries` gives each retained constraint one parameter whose type is
+that constraint's own dictionary type, recorded as `WantedSolution::Abstracted`
+so the body's evidence and the parameter the scheme hands on are one dictionary.
+`group.rs` runs the sequence and `entry.rs` hands it the module. A wanted from an
+earlier declaration is not re-solved: that declaration has already generalized or
+reported it, so a second attempt could bind a variable it has since quantified.
+The scheme records the kind of each quantified variable, read through the kind
+owner, so an instantiation carries the declaration's own polymorphism rather than
+reading it back from the solver table.
 
 `bind_type_variable` is the inference-side rule `kinds.md` states. It runs the
 occurs check, the skolem-escape check, the level adjustment, and then the kind
