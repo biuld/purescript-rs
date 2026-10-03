@@ -78,6 +78,17 @@ fn import_value(text: &str) -> ast::ImportRef {
     ast::ImportRef::Value(name(text))
 }
 
+fn fixity(target: &str, operator: &str) -> ast::FixityDeclaration {
+    ast::FixityDeclaration {
+        namespace: ast::FixityNamespace::Value,
+        associativity: ast::Associativity::Right,
+        precedence: 0,
+        target: name(target),
+        operator: name(operator),
+        span: TextRange::new(0, 20),
+    }
+}
+
 fn export_values(names: &[&str]) -> ast::ExportList {
     ast::ExportList {
         items: names
@@ -347,4 +358,70 @@ fn a_module_can_reexport_an_imported_value() {
         ExprKind::Global(SymbolId::new(ModuleId(0), 0))
     );
     resolved[1].verify().unwrap();
+}
+
+#[test]
+fn a_module_can_reexport_an_imported_operator_alias_without_its_target() {
+    // The official `Prelude` re-exports `$` from `Data.Function` without
+    // re-exporting `apply`, the alias's target. That target is declared in the
+    // other module, so the check that an exported alias must export its target
+    // does not apply: `purs` only checks an alias whose target is also declared
+    // in the exporting module. `failing/OperatorAliasNoExport.purs` is the case
+    // where the target *is* local and must be exported.
+    let mut library = module(
+        "Library",
+        Vec::new(),
+        None,
+        vec![value("apply", integer("1"))],
+    );
+    library.fixities.push(fixity("apply", "$"));
+    let facade = module(
+        "Facade",
+        vec![import_list(
+            "Library",
+            vec![ast::ImportRef::Operator(name("$"))],
+            false,
+        )],
+        Some(ast::ExportList {
+            items: vec![ast::ExportRef::Operator(name("$"))],
+            span: TextRange::new(0, 20),
+        }),
+        Vec::new(),
+    );
+    let main = module(
+        "Main",
+        vec![import("Facade")],
+        None,
+        vec![value("main", integer("1"))],
+    );
+
+    let resolved = resolve_program(vec![library, facade, main]).unwrap();
+    let exports = resolved[1]
+        .exports
+        .as_ref()
+        .expect("Facade has an export list");
+    assert_eq!(
+        exports.operators[0].symbol,
+        SymbolId::new(ModuleId(0), 0),
+        "the re-exported alias must keep the target's identity"
+    );
+}
+
+#[test]
+fn an_exported_operator_alias_must_export_a_local_target() {
+    // The same shape, but the target is declared in the exporting module and is
+    // not exported, so the alias is a `TransitiveExportError`.
+    let mut main = module(
+        "Main",
+        Vec::new(),
+        Some(ast::ExportList {
+            items: vec![ast::ExportRef::Operator(name("$"))],
+            span: TextRange::new(0, 20),
+        }),
+        vec![value("apply", integer("1"))],
+    );
+    main.fixities.push(fixity("apply", "$"));
+
+    let errors = resolve_program(vec![main]).unwrap_err();
+    assert!(has_kind(&errors, ResolveErrorKind::TransitiveExportError));
 }

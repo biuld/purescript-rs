@@ -113,6 +113,16 @@ references, and qualified targets resolve through the named import and alias.
 Builtin `Prim.Function` and `Prim.Int` references stay builtins through the
 same interface path and are not assigned declaration `TypeId`s.
 
+An explicit export of a value operator alias requires the alias's target to be
+exported too, but only when that target is declared in the exporting module.
+`purs` checks exactly that (`Sugar/Operators.hs` `checkFixityExports` gathers an
+alias only when its target is also declared in the module), so a module may
+re-export an imported alias without the target's name: the official `Prelude`
+re-exports `$` from `Data.Function` and not `Data.Function.apply`. A local,
+unexported target is still a `TransitiveExportError`, which is what
+`failing/OperatorAliasNoExport.purs` requires. Type operator aliases follow the
+same distinction.
+
 Primitive class declarations make names, kinds, and fundeps available to
 resolution and kind checking. Import support does not imply entailment or
 runtime support for their rules: the `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
