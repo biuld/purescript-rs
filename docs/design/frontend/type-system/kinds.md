@@ -6,7 +6,7 @@
 
 **Prerequisites:** [modules and resolution](../semantics/modules-and-resolution.md), [frontend boundaries](../00-ir-boundaries.md), and PureScript kind polymorphism.
 
-**Summary:** P5 checks kind-correct type, class, data, newtype, and synonym declarations before term checking. Its checked constructor environment also carries representation roles used by the class solver for `Coercible`. The design follows PureScript's shared type-and-kind language, including polymorphic kinds, explicit kind application, type-level `Symbol` and `Int`, and rows. Because kinds are types, one denotation, one primitive kind table, and one kind solver own every kind in the compiler: declaration annotations, instance heads, expression-level type applications, and the kind of every type unknown all resolve through them. The checked environment those operations produce is program-level, and an imported declaration's kind is the one its declaring module checked.
+**Summary:** P5 checks kind-correct type, class, data, newtype, and synonym declarations before term checking. Its checked constructor environment also carries representation roles used by the class solver for `Coercible`. The design follows PureScript's shared type-and-kind language, including polymorphic kinds, type-level `Symbol` and `Int`, and rows. Because kinds are types, one denotation, one primitive kind table, and one kind solver own every kind in the compiler: declaration annotations, instance heads, expression-level type applications, and the kind of every type unknown all resolve through them. The checked environment those operations produce is program-level, and an imported declaration's kind is the one its declaring module checked.
 
 ## Scope
 
@@ -16,12 +16,12 @@ A feature module may not keep a private kind table, a private translation from t
 
 ## Background
 
-PureScript kinds are types: `Type`, `Constraint`, `Symbol`, `Row Type`, and higher-kinded arrows are written in the same type language. Primitive constructors include `Row`, `Record`, `Function`, and `Array`; the primitive modules also provide `RowList` and type-level `Int` operations. A polymorphic constructor may quantify a kind variable and accept an explicit kind application. `Symbol` is the kind of type-level strings, while type-level integer literals have kind `Int`. Kind inference therefore needs quantification and subsumption, beyond first-order HM kind unification.
+PureScript kinds are types: `Type`, `Constraint`, `Symbol`, `Row Type`, and higher-kinded arrows are written in the same type language. Primitive constructors include `Row`, `Record`, `Function`, and `Array`; the primitive modules also provide `RowList` and type-level `Int` operations. A polymorphic constructor may quantify a kind variable, which the compiler instantiates from its use; purs 0.15.16 has no source form for explicitly supplying a kind argument. `Symbol` is the kind of type-level strings, while type-level integer literals have kind `Int`. Kind inference therefore needs quantification and subsumption, beyond first-order HM kind unification.
 
 ## Model
 
 ```text
-TypeExpr = Constructor | Variable | Application | KindApplication
+TypeExpr = Constructor | Variable | Application
          | ForAll | Constrained | RowEmpty | RowExtend | TypeLevelString
          | TypeLevelInt | KindAnnotation | Skolem | Wildcard
 
@@ -53,7 +53,7 @@ Roles are ordered from most restrictive to most permissive: `Nominal < Represent
 
 ## Design
 
-Register primitive kinds and declaration heads before checking bodies. Resolve kind signatures, infer missing parameter kinds, instantiate polymorphic kinds at uses, and skolemize expected `forall` kinds when checking annotations. Explicit kind applications select quantified kind arguments; ordinary type application consumes an arrow kind. Check class heads against `Constraint`, value types against `Type`, row entries against their row parameter, and type-level literals against `Symbol` or `Int`.
+Register primitive kinds and declaration heads before checking bodies. Resolve kind signatures, infer missing parameter kinds, instantiate polymorphic kinds at uses, and skolemize expected `forall` kinds when checking annotations. Ordinary type application consumes an arrow kind, while quantified kind arguments are instantiated implicitly from use; the supported source language has no explicit kind-application form. Check class heads against `Constraint`, value types against `Type`, row entries against their row parameter, and type-level literals against `Symbol` or `Int`.
 
 A declaration's kind scheme quantifies the kind unknowns its own definition leaves undetermined and keeps the kinds that definition determines. `data Tree m = Tree (m Tree)` determines `m`'s kind through its own field, so generalizing `m` instead of inferring it loses the occurs check that rejects the declaration. Quantification must also be well scoped: an implicitly generalized kind variable that mentions a type variable requires that type variable to be quantified explicitly, which is the official `QuantificationCheckFailureInKind` case.
 
@@ -77,7 +77,7 @@ the kind check leaves it alone rather than reporting `KindsDoNotUnify` where
 
 Reject cyclic synonyms and unsaturated synonym use, including a partial synonym in a higher-kinded position. Ordinary data/newtype constructors may be partially applied when the expected kind allows it. Infer data/newtype roles from constructor fields to a fixed point across the resolved module graph, then check explicit annotations. Foreign data has no constructor fields from which to infer roles, so it is nominal by default; an explicit role annotation is its trusted interface contract. Keep source ranges on all kind uses and role annotations.
 
-A `Type | Row(Type) | Arrow` enum is rejected because it cannot express `Symbol`, polymorphic kinds, or explicit kind application. Eager synonym expansion before cycle checking is rejected because it may diverge. Two kind checkers, one per module, are rejected because a program-level conflict found by one run is not guaranteed to be found again by the other, so the diagnostic that matters depends on which entry point the driver chose.
+A `Type | Row(Type) | Arrow` enum is rejected because it cannot express `Symbol` or polymorphic kinds. Eager synonym expansion before cycle checking is rejected because it may diverge. Two kind checkers, one per module, are rejected because a program-level conflict found by one run is not guaranteed to be found again by the other, so the diagnostic that matters depends on which entry point the driver chose.
 
 ## Algorithms
 
@@ -122,7 +122,7 @@ bind_type_variable(variable, ty, span):          # the inference-side rule
     report KindsDoNotUnify at the offending application when they differ
 ```
 
-Inference traverses type and kind applications separately. Unification compares constructors by resolved identity and decomposes applications; `forall` comparison uses instantiation or skolemization according to direction. Before role walking, synonym applications are expanded with capture-avoiding substitution: aliases are transparent and cannot add nominality, including when an imported alias occurs inside a data or newtype field. Synonym cycles are rejected by kind checking; role analysis must also terminate conservatively if it is invoked while such an error is present. Role walking respects quantified binders, marks constraint arguments nominal, and consults the current fixed-point role map for known constructors. Missing role metadata on an unknown constructor is treated as nominal by the walker so an absent interface cannot make a coercion more permissive. Errors identify the smallest offending application, binder, or annotation.
+Kind inference traverses source type applications and constructs the separate `Kind::App` structure used inside kinds. It instantiates quantified kind variables implicitly rather than retaining `KindApplication` in the source type spine. Unification compares constructors by resolved identity and decomposes applications; `forall` comparison uses instantiation or skolemization according to direction. Before role walking, synonym applications are expanded with capture-avoiding substitution: aliases are transparent and cannot add nominality, including when an imported alias occurs inside a data or newtype field. Synonym cycles are rejected by kind checking; role analysis must also terminate conservatively if it is invoked while such an error is present. Role walking respects quantified binders, marks constraint arguments nominal, and consults the current fixed-point role map for known constructors. Missing role metadata on an unknown constructor is treated as nominal by the walker so an absent interface cannot make a coercion more permissive. Errors identify the smallest offending application, binder, or annotation.
 
 The same unifier serves annotations, instance heads, and inference bindings, so a kind that is accepted in one position cannot be rejected in another. `kind_of_type` reads the kind of a resolved inference type through that substitution; it never falls back to a per-module table. Where a primitive is concerned, the denotation and the primitive kind table are read from the same place, which is what keeps `Row`, `Record`, `Array`, and `Function` meaning one thing in an annotation, in a constraint argument, and in a coerced boundary.
 
@@ -159,7 +159,7 @@ P5 consumes normalized resolved HIR and emits a checked kind environment for ter
 
 ## Open questions and future work
 
-Expression-level kind checking and explicit kind application elaboration remain future work; they build on the shared denotation and solver above rather than on a separate kind path. The kind requirements of the `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError` members are specified in [primitives](prim.md) and are checked here from the registry. Where the current type language reaches a form the shared model already defines, the model stays as the target and the gap is recorded as implementation coverage. Role implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md); `Coercible` constraint solving and evidence are specified in [classes and evidence](classes-and-evidence.md).
+Expression-level kind checking remains future work; it builds on the shared denotation and solver above rather than on a separate kind path. PureScript source syntax has no explicit kind-application form, though its kind checker inserts internal `KindApp` nodes when ordinary type application implicitly instantiates a polymorphic kind. This compiler performs that instantiation in the kind solver without retaining `KindApplication` in the source type spine, so its omission is not a source-compatibility gap. The kind requirements of the `Prim.RowList`, `Prim.Symbol`, `Prim.Int`, and `Prim.TypeError` members are specified in [primitives](prim.md) and are checked here from the registry. Where the current type language reaches a form the shared model already defines, the model stays as the target and the gap is recorded as implementation coverage. Role implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md); `Coercible` constraint solving and evidence are specified in [classes and evidence](classes-and-evidence.md).
 
 ## References
 

@@ -279,11 +279,14 @@ interface path instead of registry declarations. `Prim.undefined` has type
 runtime representation for an undefined value.
 
 Type inference accepts `Type`, `Constraint`, and `Symbol` as ordinary primitive
-type constructors with their declared kinds. This does not add explicit kind
-application: `KindApplication` remains absent from the inference spine, and the
-official source parser has no source-level producer for it. Type-level integer
-values use `i64`, while official PureScript solves them as unbounded integers;
-computed arithmetic outside the local range declines instead of wrapping.
+type constructors with their declared kinds. PureScript source syntax has no
+explicit kind-application form, though its kind checker inserts internal
+`KindApp` nodes while implicitly instantiating polymorphic kinds. This compiler
+performs that instantiation in the kind solver without retaining
+`KindApplication` in the source type spine, so the omission is not a
+source-compatibility gap. Type-level integer values use `i64`, while official
+PureScript solves them as unbounded integers; computed arithmetic outside the
+local range declines instead of wrapping.
 
 The shared solver selects primitive behavior by resolved class identity. Proof
 and relation rules run before direct given lookup; report behavior runs after it,

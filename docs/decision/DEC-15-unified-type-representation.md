@@ -8,7 +8,7 @@
 The frontend type-system design fixes the checked-type spine:
 
 ```text
-InferType = Constructor | Variable | Application | KindApplication
+InferType = Constructor | Variable | Application
           | ForAll | Constrained | RowEmpty | RowExtend | TypeLevelString
           | TypeLevelInt | Skolem | Wildcard | Unknown
 ```
@@ -49,7 +49,6 @@ already specified for the frontend:
 Type = Variable
      | Constructor(TyCon)
      | Application(Type, Type)
-     | KindApplication
      | ForAll
      | Constrained
      | RowEmpty
@@ -61,6 +60,13 @@ Type = Variable
 
 Typed Core omits inference-only nodes such as `TUnknown` and wildcards; THIR may
 retain them only where P5 still needs them, never past the checked boundary.
+
+PureScript 0.15.16 has no explicit source syntax for supplying kind arguments.
+Its kind checker inserts internal `KindApp` nodes when an ordinary type
+application instantiates a polymorphic kind. This type spine omits
+`KindApplication`; the kind solver performs that instantiation implicitly, so
+the omission is not a source-compatibility gap. Revisit the node if a future
+source form needs kind arguments to remain explicit past kind checking.
 
 - `Constructor` covers `Function`, `Record`, `Array`, `Int`, `Number`,
   `Boolean`, `String`, `Char`, `Unit`, `Row`, and `User(HirTypeId)`.

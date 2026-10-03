@@ -12,9 +12,9 @@
 matches the upstream source rule. Known deriving rules are selected by the
 resolved class owner and name, so a re-export keeps its defining identity.
 Other upstream deriving classes remain incomplete. Rank-1 method `forall`
-signatures are checked and instantiated independently at use sites, including
-quantifiers that shadow class parameters;
-method-local class constraints remain unsupported.
+signatures and scoped method-local constraints are checked and instantiated
+independently at use sites, including quantifiers that shadow class parameters.
+The acceptance evidence and remaining runtime limits are recorded below.
 
 ## Scope
 
