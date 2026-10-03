@@ -30,6 +30,11 @@ impl Checker {
         if intrinsic == Intrinsic::Undefined {
             return Some(self.fresh());
         }
+        // `unit` is the one `Unit` value. Like the boolean literals it is a
+        // nullary primitive, so its type is the result type with no arrow.
+        if intrinsic == Intrinsic::Unit {
+            return Some(primitive(TypeConstructor::Unit));
+        }
         if intrinsic == Intrinsic::ArrayLength {
             let element = self.fresh();
             return Some(arrow(
@@ -156,6 +161,7 @@ impl Checker {
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
             | Intrinsic::Coerce
+            | Intrinsic::Unit
             | Intrinsic::Undefined => return None,
         };
         Some(curried(

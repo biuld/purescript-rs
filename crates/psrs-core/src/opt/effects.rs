@@ -28,6 +28,14 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => Effects::default(),
+        // The unit value has no payload and no failure mode.
+        ExprKind::Unit => Effects::default(),
+        // A trap is a failure by definition, so no rewrite may drop or move it
+        // as if it were an inert value.
+        ExprKind::Trap => Effects {
+            may_trap: true,
+            ..Effects::default()
+        },
         // A non-function global may lower to a direct zero-argument call,
         // including an imported value. Without consulting declaration types
         // here, keep every global read conservatively observable.

@@ -236,5 +236,6 @@ fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
         | crate::ExprKind::Boolean(_)
         | crate::ExprKind::String(_)
         | crate::ExprKind::Char(_) => {}
+        crate::ExprKind::Unit | crate::ExprKind::Trap => {}
     }
 }

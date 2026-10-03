@@ -66,6 +66,20 @@ fn lower_expr(
                     message: "`Prim.undefined` has no runtime representation",
                 });
             }
+            // `unit` is the one `Unit` value. `Unit` is a builtin type here, so
+            // there is no constructor application for it and the primitive is
+            // the value itself; Core verification checks the use still carries
+            // the `Unit` type the checker gave it.
+            if matches!(
+                externals.get(&id),
+                Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::Unit))
+            ) {
+                return Ok(Expr {
+                    kind: ExprKind::Unit,
+                    ty,
+                    span,
+                });
+            }
             if let Some(constructor) = constructors.get(&id) {
                 if constructor.field_count != 0 {
                     return Err(LowerError {

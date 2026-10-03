@@ -86,6 +86,7 @@ fn max_local(expression: &Expr) -> u32 {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => 0,
+        ExprKind::Unit | ExprKind::Trap => 0,
     }
 }
 

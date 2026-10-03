@@ -72,6 +72,7 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => false,
+        ExprKind::Unit | ExprKind::Trap => false,
     }
 }
 

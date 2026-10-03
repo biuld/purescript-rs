@@ -217,7 +217,7 @@ WASI-09:
 
 ```text
 WASI-10:
-  Implementation: stdlib/lib/{Prelude.purs,Data/Maybe.purs,Data/Either.purs,WASI/Resource.purs,WASI/IO.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Console.purs,WASI/Process.purs,WASI/FileSystem.purs,WASI/Network.purs,WASI.purs}
+  Implementation: stdlib/lib/{Prelude.purs,Effect.purs,Effect/Console.purs,Test/Assert.purs,Data/Maybe.purs,Data/Either.purs,WASI/Resource.purs,WASI/IO.purs,WASI/Clock.purs,WASI/Random.purs,WASI/Console.purs,WASI/Process.purs,WASI/FileSystem.purs,WASI/Network.purs,WASI.purs}
     read at runtime by crates/psrs-driver/src/prelude.rs. stdlib/lib/trusted
     lists those modules in trusted-prefix order. User discovery in
     crates/psrs-driver/src/loader.rs still skips those module names.
@@ -228,6 +228,13 @@ WASI-10:
     tests::effects::{run_effect_is_only_available_from_the_selected_entry,
     an_untrusted_prelude_effect_remains_an_ordinary_user_type,
     transitive_effect_types_keep_their_closure_representation};
+    tests::assertions::{the_unit_value_is_a_core_expression_rather_than_an_integer_literal,
+    the_unit_value_executes_when_wasmtime_is_available,
+    a_held_assertion_lets_the_program_finish_when_wasmtime_is_available,
+    a_failed_assertion_traps_with_its_message_when_wasmtime_is_available,
+    a_failed_assertion_writes_the_message_before_it_traps,
+    a_statement_after_a_failed_assertion_never_runs,
+    assert_true_and_assert_false_report_the_value_that_did_not_hold};
     tests::wasi::{prints_hello_world_when_wasmtime_is_available,
     reads_the_monotonic_clock_when_wasmtime_is_available,
     rejects_an_import_of_unexported_exit_with_code_raw,
@@ -235,20 +242,24 @@ WASI-10:
     lowers_the_environment_arguments_wrapper_to_an_array,
     reads_environment_arguments_when_wasmtime_is_available}.
   Input boundary: standard-library files on disk, plus user source; executed
-    component for the console and clock cases. The exit wrapper is compile/WAT
-    only.
+    component for the console, clock, and assertion cases. The exit wrapper is
+    compile/WAT only.
   Commands: cargo test -p psrs-driver --lib standard_library;
     cargo test -p psrs-driver --lib tests::effects;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::assertions;
     PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi;
     PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
   Result: pass.
-  Gaps: none. The loaded set is Prelude, Data.Maybe, Data.Either,
-    WASI.Resource, WASI.IO, WASI.Clock, WASI.Random, WASI.Console,
-    WASI.Process, WASI.FileSystem, WASI.Network, and the WASI umbrella.
-    Data.Maybe and Data.Either are ordinary algebraic types and are not in the
-    trusted Effect name list. The service modules use Effect from Prelude.
-    Their wrappers are effect lambdas, so they are part of the trusted Effect
-    representation. The exit evidence does not execute `exitWithCode`.
+  Gaps: none. The loaded set is Prelude, Effect, Effect.Console, Test.Assert,
+    Data.Maybe, Data.Either, WASI.Resource, WASI.IO, WASI.Clock, WASI.Random,
+    WASI.Console, WASI.Process, WASI.FileSystem, WASI.Network, and the WASI
+    umbrella. Data.Maybe and Data.Either are ordinary algebraic types and are
+    not in the trusted Effect name list. The service modules use Effect from
+    Prelude. Their wrappers are effect lambdas, so they are part of the trusted
+    Effect representation. The exit evidence does not execute `exitWithCode`.
+    `Test.Assert` exports only the four checks that need no class surface; its
+    `assertEqual` and `assertThrows` obligations are recorded under EF-12 and
+    D-04's M7 section.
 ```
 
 ## Remaining work and blockers

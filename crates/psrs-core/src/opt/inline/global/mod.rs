@@ -431,6 +431,8 @@ fn inline_expr(
         ExprKind::Boolean(value) => ExprKind::Boolean(value),
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
+        ExprKind::Unit => ExprKind::Unit,
+        ExprKind::Trap => ExprKind::Trap,
     };
     expression
 }
