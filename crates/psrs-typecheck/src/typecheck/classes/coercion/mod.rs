@@ -1,17 +1,22 @@
 use super::super::*;
 
 mod givens;
-mod kinds;
 
 impl Checker {
-    pub(super) fn proves_coercible(&mut self, source: &InferType, target: &InferType) -> bool {
-        self.proves_coercible_inner(source, target, 0, &mut HashSet::new())
+    pub(super) fn proves_coercible(
+        &mut self,
+        source: &InferType,
+        target: &InferType,
+        span: TextRange,
+    ) -> bool {
+        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new())
     }
 
     fn proves_coercible_inner(
         &mut self,
         source: &InferType,
         target: &InferType,
+        span: TextRange,
         depth: usize,
         path: &mut HashSet<(String, String)>,
     ) -> bool {
@@ -20,7 +25,7 @@ impl Checker {
         }
         let source = self.resolve_type(source.clone());
         let target = self.resolve_type(target.clone());
-        if !self.coercion_kinds_compatible(&source, &target) {
+        if !self.coercion_kinds_compatible(&source, &target, span) {
             return false;
         }
         if self.infer_types_equal(&source, &target) || self.given_coercible(&source, &target) {
@@ -45,11 +50,13 @@ impl Checker {
                 return self.proves_coercible_inner(
                     source_field,
                     target_field,
+                    span,
                     depth + 1,
                     &mut field_path,
                 ) && self.proves_coercible_inner(
                     source_tail,
                     target_tail,
+                    span,
                     depth + 1,
                     &mut tail_path,
                 );
@@ -67,13 +74,13 @@ impl Checker {
 
         if let Some(underlying) = self.unwrap_visible_newtype(&source) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&underlying, &target, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(&underlying, &target, span, depth + 1, &mut nested) {
                 return true;
             }
         }
         if let Some(underlying) = self.unwrap_visible_newtype(&target) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&source, &underlying, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(&source, &underlying, span, depth + 1, &mut nested) {
                 return true;
             }
         }
@@ -106,6 +113,7 @@ impl Checker {
                     self.proves_coercible_inner(
                         source_argument,
                         target_argument,
+                        span,
                         depth + 1,
                         &mut nested,
                     )

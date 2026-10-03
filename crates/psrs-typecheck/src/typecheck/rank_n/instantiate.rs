@@ -56,39 +56,51 @@ impl Checker {
         let mut type_mapping = HashMap::new();
         let mut kind_mapping = HashMap::new();
         for variable in variables {
-            let kind = self.state.variable_kinds.get(&variable).cloned();
+            let kind = self.recorded_kind(variable);
             let InferType::Variable(fresh) = self.fresh() else {
                 unreachable!("fresh inference types are variables")
             };
             if let Some(kind) = kind {
-                let kind = self.instantiate_kind(&kind, &mut kind_mapping);
-                self.state.variable_kinds.insert(fresh, kind);
+                let kind = self.instantiate_kind(kind, &mut kind_mapping);
+                self.record_variable_kind(fresh, kind);
             }
             type_mapping.insert(variable, InferType::Variable(fresh));
         }
         type_mapping
     }
 
-    fn instantiate_kind(
-        &mut self,
-        kind: &psrs_kind::Kind,
-        mapping: &mut HashMap<u32, psrs_kind::Kind>,
-    ) -> psrs_kind::Kind {
-        use psrs_kind::Kind;
-        match kind {
-            Kind::Variable(variable) => mapping
-                .entry(*variable)
-                .or_insert_with(|| self.fresh_kind())
-                .clone(),
-            Kind::App(function, argument) => Kind::App(
-                Box::new(self.instantiate_kind(function, mapping)),
-                Box::new(self.instantiate_kind(argument, mapping)),
-            ),
-            Kind::Function(parameter, result) => Kind::Function(
-                Box::new(self.instantiate_kind(parameter, mapping)),
-                Box::new(self.instantiate_kind(result, mapping)),
-            ),
-            other => other.clone(),
+    /// Replaces the kind variables of one instantiation with fresh ones. The
+    /// mapping is shared across every binder of the same instantiation, so a
+    /// kind variable occurring in two of them stays one variable, and the
+    /// replacement itself is `psrs-kind`'s substitution rather than a walk of
+    /// the kind language here.
+    fn instantiate_kind(&mut self, kind: Kind, mapping: &mut HashMap<u32, Kind>) -> Kind {
+        let mut quantified = Vec::new();
+        collect_kind_variables(&kind, &mut quantified);
+        for variable in quantified {
+            let fresh = self.fresh_kind();
+            mapping.insert(variable, fresh);
         }
+        psrs_kind::substitute(&kind, mapping)
+    }
+}
+
+/// Every kind variable occurring in `kind`, in the order it is met.
+fn collect_kind_variables(kind: &Kind, out: &mut Vec<u32>) {
+    match kind {
+        Kind::Variable(variable) => {
+            if !out.contains(variable) {
+                out.push(*variable);
+            }
+        }
+        Kind::App(function, argument) => {
+            collect_kind_variables(function, out);
+            collect_kind_variables(argument, out);
+        }
+        Kind::Function(parameter, result) => {
+            collect_kind_variables(parameter, out);
+            collect_kind_variables(result, out);
+        }
+        Kind::Builtin(_) | Kind::Named(_) => {}
     }
 }

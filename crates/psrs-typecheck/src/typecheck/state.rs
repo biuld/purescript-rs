@@ -58,10 +58,14 @@ pub(super) struct InferState {
     pub(super) rigid: HashSet<u32>,
     /// Every variable generalization has quantified, for finalization.
     pub(super) generic_variables: HashSet<u32>,
+    /// The one kind solver: the substitution over kind variables, the next kind
+    /// variable to allocate, and the rigid kind variables a `forall` binder
+    /// introduced. Every kind equation inference solves goes through it.
+    pub(super) kinds: psrs_kind::KindState,
     /// The kind recorded for each inference type variable. Every type unknown
-    /// carries a kind, and the one kind solver maintains it.
+    /// carries a kind, and a binding maintains it, so a type and its kind
+    /// cannot disagree afterwards.
     pub(super) variable_kinds: HashMap<u32, Kind>,
-    pub(super) next_kind_variable: u32,
     pub(super) wanted: Vec<WantedConstraint>,
     pub(super) errors: Vec<TypeCheckError>,
     /// Functional-dependency conflicts already reported, keyed by span and

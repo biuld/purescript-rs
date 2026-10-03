@@ -94,6 +94,7 @@ mod classes;
 mod finalize;
 mod generalize;
 mod infer;
+mod kind;
 mod order;
 mod rank_n;
 mod result;
