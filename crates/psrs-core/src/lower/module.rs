@@ -13,6 +13,9 @@ fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::Typ
         psrs_thir::TypeConstructor::String => crate::TypeConstructor::String,
         psrs_thir::TypeConstructor::Char => crate::TypeConstructor::Char,
         psrs_thir::TypeConstructor::Unit => crate::TypeConstructor::Unit,
+        psrs_thir::TypeConstructor::Type => crate::TypeConstructor::Type,
+        psrs_thir::TypeConstructor::Constraint => crate::TypeConstructor::Constraint,
+        psrs_thir::TypeConstructor::Symbol => crate::TypeConstructor::Symbol,
         psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
     }
 }

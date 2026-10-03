@@ -32,6 +32,12 @@ pub(super) fn primitive_value_shape(constructor: TypeConstructor) -> Option<Valu
         | TypeConstructor::Record
         | TypeConstructor::Row
         | TypeConstructor::Array
+        // A kind named in a type position is a nominal type of kind `Type`. It
+        // has no runtime values in a compiled program, so it has no primitive
+        // value shape.
+        | TypeConstructor::Type
+        | TypeConstructor::Constraint
+        | TypeConstructor::Symbol
         | TypeConstructor::User(_) => {
             return None;
         }

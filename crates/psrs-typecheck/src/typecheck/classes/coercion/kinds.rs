@@ -236,7 +236,10 @@ impl Checker {
             | TypeConstructor::Boolean
             | TypeConstructor::String
             | TypeConstructor::Char
-            | TypeConstructor::Unit => type_kind(),
+            | TypeConstructor::Unit
+            | TypeConstructor::Type
+            | TypeConstructor::Constraint
+            | TypeConstructor::Symbol => type_kind(),
             TypeConstructor::User(id) => {
                 let scheme = self.checked_kinds.kind(id)?.clone();
                 instantiate_kind_scheme(&scheme, state)
