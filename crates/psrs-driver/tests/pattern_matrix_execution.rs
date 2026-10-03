@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const PAIR_FIRST_WINS: &str = r#"module Main where
+import Prelude
 data Pair = Pair Int String
 select :: Pair -> Int
 select value | Pair x x <- value = x
@@ -37,6 +38,7 @@ main = f ({ x: 31, y: 53 } : Nil)
 "#;
 
 const NESTED_RECORD: &str = r#"module Main where
+import Prelude
 type Input = { outer :: { enabled :: Boolean, value :: Int }, items :: Array Int }
 choose :: Input -> Int
 choose input = case input of
@@ -50,6 +52,7 @@ main = choose (makeInput 1)
 "#;
 
 const ARRAY_FALLTHROUGH: &str = r#"module Main where
+import Prelude
 choose :: Array Int -> Int
 choose values = case values of
   [7, 9] -> 42
@@ -63,6 +66,7 @@ main = choose (makeShort 1) + choose (makeLong 1)
 "#;
 
 const UTF8_STRING: &str = r#"module Main where
+import Prelude
 choose :: String -> Int
 choose value = case value of
   "" -> 3
@@ -77,6 +81,7 @@ main = choose (makeText 1) + choose (makeEmpty 1)
 "#;
 
 const NUMBER_CHAR: &str = r#"module Main where
+import Prelude
 chooseNumber :: Number -> Int
 chooseNumber value = case value of
   0.0 -> 20

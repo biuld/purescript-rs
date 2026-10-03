@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
-    let source = "module Main where\nadd x y = x + y\nmain = add 40 2\n";
+    let source = "module Main where\nimport Prelude\nadd x y = x + y\nmain = add 40 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert_eq!(&artifact.wasm[..8], b"\0asm\x0d\0\x01\0");
     assert!(artifact.wat.contains("(component"));
@@ -11,7 +11,7 @@ fn compiles_a_direct_call_with_integer_arithmetic_to_valid_wasm_and_wat() {
 
 #[test]
 fn unary_minus_calls_the_in_scope_negate_function_at_runtime() {
-    let source = "module Main where\nnegate x = 0 - x\nmain = if -42 == negate 42 then 0 else 1\n";
+    let source = "module Main where\nimport Prelude\nnegate x = 0 - x\nmain = if -42 == negate 42 then 0 else 1\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("i32.sub"));
 
@@ -96,7 +96,7 @@ fn compiles_if_expression_through_cfg_to_structured_wasm() {
 
 #[test]
 fn folds_top_level_scalar_references_to_constants() {
-    let source = "module Main where\nanswer = 40\nmain = answer + 2\n";
+    let source = "module Main where\nimport Prelude\nanswer = 40\nmain = answer + 2\n";
     let artifact = compile_source("Main.purs", source).unwrap();
     assert!(artifact.wat.contains("i32.const 42"));
 }
@@ -118,7 +118,7 @@ fn exposes_readable_core_and_backend_ir_dumps() {
 
 #[test]
 fn backend_stages_expose_core_after_p7() {
-    let core = lower_source_to_core("Main.purs", "module Main where\nmain = 1 + 2\n").unwrap();
+    let core = lower_source_to_core("Main.purs", "module Main where\nmain = 3\n").unwrap();
     let stages = psrs_backend::compile_with_stages(core).unwrap();
     let main = stages
         .core
@@ -141,7 +141,10 @@ fn emits_a_wasi_command_component() {
 #[test]
 fn typechecks_a_value_imported_from_another_module() {
     let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
-    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let b = (
+        "B.purs",
+        "module B where\nimport A\nmain = intAdd answer 2\n",
+    );
     assert!(typecheck_program_sources(&[a, b]).is_ok());
 }
 
@@ -151,7 +154,10 @@ fn reports_a_cross_module_type_mismatch() {
         "A.purs",
         "module A where\nanswer :: String\nanswer = \"no\"\n",
     );
-    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let b = (
+        "B.purs",
+        "module B where\nimport A\nmain = intAdd answer 2\n",
+    );
     let errors = typecheck_program_sources(&[a, b]).unwrap_err();
     assert!(!errors.is_empty());
 }
@@ -159,7 +165,10 @@ fn reports_a_cross_module_type_mismatch() {
 #[test]
 fn compiles_a_value_imported_from_another_module() {
     let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
-    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let b = (
+        "B.purs",
+        "module B where\nimport A\nmain = intAdd answer 2\n",
+    );
     let artifact = compile_program_sources(&[a, b]).unwrap();
     assert!(artifact.wat.contains("i32.const 42"));
 }
@@ -177,7 +186,7 @@ fn gives_generated_functions_unique_symbols_across_linked_modules() {
     assert_eq!(a.1.find('\\'), b.1.find('\\'));
     let main = (
         "Main.purs",
-        "module Main where\nimport A\nimport B\nmain = makeA 11 + makeB 22\n",
+        "module Main where\nimport A\nimport B\nmain = intAdd (makeA 11) (makeB 22)\n",
     );
     let core = lower_program_to_core(&[a, b, main]).expect("linking generated functions");
     let stages = psrs_backend::compile_with_stages(core).expect("lowering generated functions");
@@ -239,7 +248,10 @@ fn attributes_backend_errors_to_their_declaring_module() {
 #[test]
 fn runs_a_linked_program_when_wasmtime_is_available() {
     let a = ("A.purs", "module A where\nanswer :: Int\nanswer = 40\n");
-    let b = ("B.purs", "module B where\nimport A\nmain = answer + 2\n");
+    let b = (
+        "B.purs",
+        "module B where\nimport A\nmain = intAdd answer 2\n",
+    );
     let Some(output) = run_program_with_wasmtime(&[a, b]) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

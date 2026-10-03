@@ -116,7 +116,7 @@ fn retained_generic_capture_executes_through_a_closure() {
     let concrete_array = generic_array
         .replace("forall a. Array a", "Array Int")
         .replace("(Int -> a)", "(Int -> Int)");
-    let generic_record = "module Main where\nmakeReader :: forall a. { value :: a, count :: Int } -> (Int -> a)\nmakeReader record = let a = record { count = record.count + 1 } in let b = a { count = a.count + 1 } in let c = b { count = b.count + 1 } in let d = c { count = c.count + 1 } in let e = d { count = d.count + 1 } in let f = e { count = e.count + 1 } in let g = f { count = f.count + 1 } in let h = g { count = g.count + 1 } in \\index -> h.value\nmain = let reader = makeReader { value: [40, 42], count: 0 } in arrayIndex (reader 0) 1\n";
+    let generic_record = "module Main where\nimport Prelude\nmakeReader :: forall a. { value :: a, count :: Int } -> (Int -> a)\nmakeReader record = let a = record { count = record.count + 1 } in let b = a { count = a.count + 1 } in let c = b { count = b.count + 1 } in let d = c { count = c.count + 1 } in let e = d { count = d.count + 1 } in let f = e { count = e.count + 1 } in let g = f { count = f.count + 1 } in let h = g { count = g.count + 1 } in \\index -> h.value\nmain = let reader = makeReader { value: [40, 42], count: 0 } in arrayIndex (reader 0) 1\n";
     for (name, source) in [
         ("generic_array_capture", generic_array),
         ("concrete_array_capture", concrete_array.as_str()),
@@ -151,7 +151,7 @@ fn assert_retained_capture(name: &str, source: &str) {
 
 #[test]
 fn p9_reuses_helpers_for_equal_complete_conversion_plans() {
-    let source = "module Main where\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayIndex (copy [1, 2]) 0 + arrayIndex (copy [3, 4]) 1\n";
+    let source = "module Main where\nimport Prelude\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayIndex (copy [1, 2]) 0 + arrayIndex (copy [3, 4]) 1\n";
     let core = lower_source_to_core("Main.purs", source).unwrap();
     let backend_input = psrs_backend::cc::lower_module(core).unwrap();
     let (mir, _) = psrs_backend::mir::lower_module_with_bindings(
@@ -257,13 +257,13 @@ fn audit_battery() {
         // GA-08 array literal/read/update, aliasing
         Case {
             name: "array_update_alias",
-            source: "module Main where\nmain = let original = [10, 20] in let alias = original in let updated = arrayUpdate original 0 99 in arrayIndex alias 0 + arrayIndex updated 0\n",
+            source: "module Main where\nimport Prelude\nmain = let original = [10, 20] in let alias = original in let updated = arrayUpdate original 0 99 in arrayIndex alias 0 + arrayIndex updated 0\n",
             exit: 109,
         },
         // GA-09 record construction/access/pattern/update, aliasing
         Case {
             name: "record_update_alias",
-            source: "module Main where\nmain = let original = { answer: 10 } in let alias = original in let updated = original { answer = 42 } in alias.answer + updated.answer\n",
+            source: "module Main where\nimport Prelude\nmain = let original = { answer: 10 } in let alias = original in let updated = original { answer = 42 } in alias.answer + updated.answer\n",
             exit: 52,
         },
         // GA-10 direct call args and returns at distinct concrete types
@@ -327,12 +327,12 @@ fn audit_battery() {
         },
         Case {
             name: "two_instantiations_share_body",
-            source: "module Main where\nsize :: forall a. Array a -> Int\nsize values = arrayLength values\nmain = size [1, 2, 3] + size [1.5, 2.5]\n",
+            source: "module Main where\nimport Prelude\nsize :: forall a. Array a -> Int\nsize values = arrayLength values\nmain = size [1, 2, 3] + size [1.5, 2.5]\n",
             exit: 5,
         },
         Case {
             name: "two_instantiations_roundtrip",
-            source: "module Main where\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = if numberEq (arrayIndex (copy [3.5, 4.5]) 0) 3.5 then arrayIndex (copy [1, 2]) 0 + 42 else 1\n",
+            source: "module Main where\nimport Prelude\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = if numberEq (arrayIndex (copy [3.5, 4.5]) 0) 3.5 then arrayIndex (copy [1, 2]) 0 + 42 else 1\n",
             exit: 43,
         },
         // Construction and pure updates inside a generic body
@@ -368,7 +368,7 @@ fn audit_battery() {
         },
         Case {
             name: "generic_record_two_instantiations",
-            source: "module Main where\nfirst :: forall a. { value :: a, count :: Int } -> a\nfirst record = record.value\nlengthOf :: Array Number -> Int\nlengthOf values = arrayLength values\nmain = arrayIndex (first { value: [40, 42], count: 1 }) 1 + lengthOf (first { value: [3.5, 4.5, 5.5], count: 2 })\n",
+            source: "module Main where\nimport Prelude\nfirst :: forall a. { value :: a, count :: Int } -> a\nfirst record = record.value\nlengthOf :: Array Number -> Int\nlengthOf values = arrayLength values\nmain = arrayIndex (first { value: [40, 42], count: 1 }) 1 + lengthOf (first { value: [3.5, 4.5, 5.5], count: 2 })\n",
             exit: 45,
         },
     ];

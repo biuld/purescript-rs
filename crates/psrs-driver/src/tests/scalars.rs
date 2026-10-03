@@ -2,6 +2,7 @@ use super::*;
 
 const SCALAR_SOURCE: &str = r#"
 module Main where
+import Prelude
 
 equalInt left right = left == right
 subtractInt left right = left - right
@@ -161,6 +162,7 @@ fn generates_floor_helpers_for_division_nested_in_case_branches() {
 
 const SHIFT_SOURCE: &str = "\
 module Main where
+import Prelude
 
 checkShift = booleanAnd ((intShl 1 32) == 1) (booleanAnd ((intShl 1 33) == 2) (booleanAnd ((intZshr (intNeg 1) 1) == 2147483647) (booleanAnd ((intShr (intNeg 8) 33) == (intNeg 4)) ((intShl 3 31) == ((intNeg 2147483647) - 1)))))
 
@@ -182,6 +184,7 @@ fn shift_counts_are_taken_modulo_32() {
 
 const SATURATING_SOURCE: &str = "\
 module Main where
+import Prelude
 
 i32min = (intNeg 2147483647) - 1
 
@@ -213,6 +216,7 @@ main = if signedZero then 0 else 1
 
 const CHAR_BOUNDARY_SOURCE: &str = "\
 module Main where
+import Prelude
 
 checkCharBound = booleanAnd ((charToInt 'A') == 65) (booleanAnd ((charToInt 'é') == 233) ((charToInt '�') == 65533))
 
@@ -319,6 +323,7 @@ fn runs_division_and_modulo_inside_a_case_arm() {
     // primitive operations only appear inside the match arms, so helper
     // detection must walk the tag switch.
     let source = r#"module Main where
+import Prelude
 data Tag = A | B
 compute t = case t of
   A -> intDiv 7 3
@@ -337,6 +342,7 @@ main = compute A + compute B + 39
 }
 
 const STRING_BYTES_SOURCE: &str = r#"module Main where
+import Prelude
 
 -- `stringToBytes` is lossless: a source string is a sequence of Unicode scalar
 -- values, so every byte of its canonical UTF-8 encoding is one `Int` in
@@ -375,6 +381,7 @@ fn string_to_bytes_yields_the_canonical_utf8_encoding() {
 }
 
 const STRING_BYTES_ROUND_TRIP_SOURCE: &str = r#"module Main where
+import Prelude
 
 -- `bytesToString` is the checked direction: it reads the canonical UTF-8 of a
 -- scalar sequence back as a `String`, and that string re-encodes to exactly the
@@ -407,6 +414,7 @@ fn bytes_to_string_round_trips_canonical_utf8() {
 }
 
 const STRING_BYTES_REJECTED_SOURCE: &str = r#"module Main where
+import Prelude
 
 -- A truncated two-byte sequence is malformed, so `bytesToString` rejects it
 -- instead of producing replacement text.
@@ -416,6 +424,7 @@ main = arrayLength (stringToBytes (bytesToString [195])) * 0
 /// An element outside `0..255` is not a byte, so it must trap before the
 /// `i32.store8` that would otherwise truncate it.
 const STRING_BYTES_OUT_OF_RANGE_SOURCE: &str = r#"module Main where
+import Prelude
 
 main = arrayLength (stringToBytes (bytesToString [256])) * 0
 "#;

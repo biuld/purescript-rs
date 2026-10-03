@@ -84,17 +84,17 @@ macro_rules! descriptors {
 descriptors! {
     BoolTrue => "true", 0, Nullary, scheme::boolean;
     BoolFalse => "false", 0, Nullary, scheme::boolean;
-    I32Add => "+", 2, BinaryScalar, scheme::int_int_int;
+    I32Add => "intAdd", 2, BinaryScalar, scheme::int_int_int;
     I32Sub => "-", 2, BinaryScalar, scheme::int_int_int;
-    I32Mul => "*", 2, BinaryScalar, scheme::int_int_int;
+    I32Mul => "intMul", 2, BinaryScalar, scheme::int_int_int;
     I32DivS => "/", 2, BinaryScalar, scheme::int_int_int;
     I32RemS => "%", 2, BinaryScalar, scheme::int_int_int;
-    I32Eq => "==", 2, BinaryScalar, scheme::int_int_bool;
-    I32Ne => "/=", 2, BinaryScalar, scheme::int_int_bool;
-    I32LtS => "<", 2, BinaryScalar, scheme::int_int_bool;
-    I32LeS => "<=", 2, BinaryScalar, scheme::int_int_bool;
-    I32GtS => ">", 2, BinaryScalar, scheme::int_int_bool;
-    I32GeS => ">=", 2, BinaryScalar, scheme::int_int_bool;
+    I32Eq => "intEq", 2, BinaryScalar, scheme::int_int_bool;
+    I32Ne => "intNe", 2, BinaryScalar, scheme::int_int_bool;
+    I32LtS => "intLt", 2, BinaryScalar, scheme::int_int_bool;
+    I32LeS => "intLe", 2, BinaryScalar, scheme::int_int_bool;
+    I32GtS => "intGt", 2, BinaryScalar, scheme::int_int_bool;
+    I32GeS => "intGe", 2, BinaryScalar, scheme::int_int_bool;
     ArrayLength => "arrayLength", 1, ArrayLength, scheme::array_length;
     ArrayIndex => "arrayIndex", 2, ArrayIndex, scheme::array_index;
     ArrayUpdate => "arrayUpdate", 3, ArrayUpdate, scheme::array_update;

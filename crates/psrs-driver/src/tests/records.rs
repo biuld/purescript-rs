@@ -4,6 +4,7 @@ use super::*;
 fn runs_a_tuple_as_a_closed_record() {
     let source = "\
 module Main where
+import Prelude
 pair :: (Int, Int)
 pair = (40, 2)
 sum (x, y) = x + y
@@ -148,7 +149,7 @@ fn runs_a_record_pattern_in_a_case() {
 
 #[test]
 fn runs_a_record_pattern_in_a_function_parameter() {
-    let source = "module Main where\nanswer :: { ignored :: Int, answer :: Int } -> Int\nanswer { ignored: ignored, answer: value } = value + ignored\nmain = answer { ignored: 10, answer: 32 }\n";
+    let source = "module Main where\nimport Prelude\nanswer :: { ignored :: Int, answer :: Int } -> Int\nanswer { ignored: ignored, answer: value } = value + ignored\nmain = answer { ignored: 10, answer: 32 }\n";
     let artifact =
         compile_source("Main.purs", source).expect("lowering a record pattern function parameter");
     assert!(artifact.wat.contains("struct.get"));
@@ -161,7 +162,7 @@ fn runs_a_record_pattern_in_a_function_parameter() {
 
 #[test]
 fn runs_a_nested_constructor_pattern_in_a_record_field() {
-    let source = "module Main where\ndata Inner = First Int | Second Int\nunpack :: { payload :: Inner } -> Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 0\nmain = unpack { payload: First 42 }\n";
+    let source = "module Main where\nimport Prelude\ndata Inner = First Int | Second Int\nunpack :: { payload :: Inner } -> Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 0\nmain = unpack { payload: First 42 }\n";
     let artifact =
         compile_source("Main.purs", source).expect("lowering a nested constructor record pattern");
     assert!(artifact.wat.contains("struct.get"));
@@ -175,7 +176,7 @@ fn runs_a_nested_constructor_pattern_in_a_record_field() {
 
 #[test]
 fn falls_back_when_a_nested_record_pattern_constructor_does_not_match() {
-    let source = "module Main where\ndata Inner = First Int | Second Int\nunpack :: { payload :: Inner } -> Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 7\nmain = unpack { payload: Second 10 }\n";
+    let source = "module Main where\nimport Prelude\ndata Inner = First Int | Second Int\nunpack :: { payload :: Inner } -> Int\nunpack value = case value of\n  { payload: First number } -> number + 0\n  _ -> 7\nmain = unpack { payload: Second 10 }\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

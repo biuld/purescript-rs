@@ -35,6 +35,7 @@ fn lowers_string_log_to_wasi_stdout() {
 #[test]
 fn lowers_a_source_foreign_import_with_a_wit_binding() {
     let source = "module Main where\n\
+        import Prelude\n\
         foreign import \"wasi:clocks/monotonic-clock#now\" clock :: Int\n\
         main = clock * 0\n";
     let artifact = compile_source("Main.purs", source).unwrap();

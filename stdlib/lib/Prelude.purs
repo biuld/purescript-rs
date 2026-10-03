@@ -31,6 +31,25 @@ module Prelude
   , class Semigroup
   , append
   , (<>)
+  , class Eq
+  , eq
+  , notEq
+  , (==)
+  , (/=)
+  , class Ord
+  , lessThan
+  , lessThanOrEq
+  , greaterThan
+  , greaterThanOrEq
+  , (<)
+  , (<=)
+  , (>)
+  , (>=)
+  , class Semiring
+  , add
+  , mul
+  , (+)
+  , (*)
   , const
   , flip
   , ($)
@@ -39,6 +58,9 @@ module Prelude
 
 import Data.Function (const, flip, (#), ($))
 import Data.Semigroup (class Semigroup, append, (<>))
+import Data.Eq (class Eq, eq, notEq, (==), (/=))
+import Data.Ord (class Ord, lessThan, lessThanOrEq, greaterThan, greaterThanOrEq, (<), (<=), (>), (>=))
+import Data.Semiring (class Semiring, add, mul, (+), (*))
 
 foreign import data Effect :: Type -> Type
 
