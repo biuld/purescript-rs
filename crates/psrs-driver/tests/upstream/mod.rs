@@ -105,7 +105,7 @@ fn differential_against_purs_on_selected_cases() {
         }
     }
 
-    let accept_cases: [(&str, &str); 3] = [
+    let accept_cases: [(&str, &str); 4] = [
         (
             "identity.purs",
             "module Main where\nidentity :: forall a. a -> a\nidentity x = x\n",
@@ -120,6 +120,12 @@ fn differential_against_purs_on_selected_cases() {
             // instead of sharing one rigid variable across the group.
             "mutual-polymorphic-recursion.purs",
             "module Main where\nloopback :: forall a. a -> a\nloopback x = partner x\npartner :: forall a. a -> a\npartner y = loopback y\nmain :: Int\nmain = loopback 1\n",
+        ),
+        (
+            // A declaration with no signature generalizes over the constraint it
+            // could not discharge, so `useAt` serves two types.
+            "residual-constraint-inference.purs",
+            "module Main where\nclass C a where\n  method :: a -> a\ninstance cInt :: C Int where\n  method x = x\ninstance cString :: C String where\n  method x = x\nuseAt x = method x\natInt :: Int\natInt = useAt 1\natString :: String\natString = useAt \"hi\"\n",
         ),
     ];
     for (name, source) in accept_cases {
