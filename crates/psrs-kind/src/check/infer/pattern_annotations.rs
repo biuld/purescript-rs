@@ -21,7 +21,7 @@ impl Checker<'_> {
     fn check_expression_annotations(&mut self, expression: &psrs_hir::Expr) {
         use psrs_hir::ExprKind;
         match &expression.kind {
-            ExprKind::Typed { expression, ty } => {
+            ExprKind::Typed { expression, ty } | ExprKind::TypeApplication { expression, ty } => {
                 self.check_annotation(ty);
                 self.check_expression_annotations(expression);
             }

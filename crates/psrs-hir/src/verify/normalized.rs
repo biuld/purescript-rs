@@ -99,7 +99,9 @@ fn check_normalized_expr(expression: &Expr, errors: &mut Vec<VerifyError>) {
                 check_normalized_expr(value, errors);
             }
         }
-        ExprKind::FieldAccess { expression, .. } | ExprKind::Typed { expression, .. } => {
+        ExprKind::FieldAccess { expression, .. }
+        | ExprKind::Typed { expression, .. }
+        | ExprKind::TypeApplication { expression, .. } => {
             check_normalized_expr(expression, errors);
         }
         ExprKind::Application(function, argument) => {

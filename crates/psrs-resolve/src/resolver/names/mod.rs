@@ -198,6 +198,14 @@ impl Resolver {
                     ty: ty?,
                 }
             }
+            AstExprKind::TypeApplication { expression, ty } => {
+                let expression = self.resolve_expr(*expression);
+                let ty = self.resolve_type(ty);
+                ExprKind::TypeApplication {
+                    expression: Box::new(expression?),
+                    ty: ty?,
+                }
+            }
             AstExprKind::Operator {
                 operator,
                 left,

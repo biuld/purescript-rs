@@ -54,6 +54,15 @@ pub enum ExprKind {
         expression: Box<Expr>,
         ty: Type,
     },
+    /// A visible type application `e @T`. It selects a type argument that the
+    /// expression's own quantifiers would otherwise leave to inference, so the
+    /// checker instantiates that quantifier with the written type and keeps the
+    /// expression with the resulting type. Like [`ExprKind::Typed`], it is
+    /// erased at runtime: the value is the inner expression.
+    TypeApplication {
+        expression: Box<Expr>,
+        ty: Type,
+    },
     Operator {
         operator: Name,
         left: Box<Expr>,

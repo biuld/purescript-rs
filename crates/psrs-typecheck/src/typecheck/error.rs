@@ -40,6 +40,13 @@ pub enum TypeCheckErrorKind {
     InvalidInstanceHead,
     /// An inferred public value mentions a local type omitted from exports.
     TransitiveExport,
+    /// `e @T` where `e`'s type has no quantifier left to apply `T` to.
+    /// `purs` raises this in `TypeChecker.Types.infer'` for
+    /// `VisibleTypeApp`, where the operand's type is reported against the
+    /// written argument.
+    CannotApplyExpressionOfTypeOnType,
+    /// `e @_` where `e`'s type has no quantifier left to skip.
+    CannotSkipTypeApplication,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,6 +156,10 @@ impl TypeCheckErrorKind {
             }
             TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
+            TypeCheckErrorKind::CannotApplyExpressionOfTypeOnType => {
+                "CannotApplyExpressionOfTypeOnType"
+            }
+            TypeCheckErrorKind::CannotSkipTypeApplication => "CannotSkipTypeApplication",
             TypeCheckErrorKind::InvalidHir
             | TypeCheckErrorKind::UnconstrainedType
             | TypeCheckErrorKind::NumberOutOfRange

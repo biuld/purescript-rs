@@ -48,6 +48,10 @@ pub(super) fn rebind(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> E
             expression: Box::new(rebind(*expression, mapping)),
             ty,
         },
+        ExprKind::TypeApplication { expression, ty } => ExprKind::TypeApplication {
+            expression: Box::new(rebind(*expression, mapping)),
+            ty,
+        },
         ExprKind::Operator {
             operator,
             operator_span,
@@ -201,7 +205,9 @@ fn collect(expression: &Expr, bound: &mut HashSet<LocalId>, free: &mut HashSet<L
                 collect(value, bound, free);
             }
         }
-        ExprKind::FieldAccess { expression, .. } | ExprKind::Typed { expression, .. } => {
+        ExprKind::FieldAccess { expression, .. }
+        | ExprKind::Typed { expression, .. }
+        | ExprKind::TypeApplication { expression, .. } => {
             collect(expression, bound, free);
         }
         ExprKind::Application(function, argument) => {
