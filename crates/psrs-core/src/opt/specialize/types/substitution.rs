@@ -175,6 +175,8 @@ impl TypeSubstitution<'_> {
             ExprKind::Boolean(value) => ExprKind::Boolean(*value),
             ExprKind::String(value) => ExprKind::String(value.clone()),
             ExprKind::Char(value) => ExprKind::Char(*value),
+            ExprKind::Unit => ExprKind::Unit,
+            ExprKind::Trap => ExprKind::Trap,
             ExprKind::Array { elements } => ExprKind::Array {
                 elements: elements
                     .iter()

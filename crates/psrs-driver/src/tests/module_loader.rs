@@ -103,6 +103,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "Prelude",
             "Effect",
             "Effect.Console",
+            "Test.Assert",
             "Data.Maybe",
             "Data.Either",
             "WASI.Resource",
@@ -122,6 +123,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             path.ends_with("lib/Prelude.purs")
                 || path.ends_with("lib/Effect.purs")
                 || path.ends_with("lib/Effect/Console.purs")
+                || path.ends_with("lib/Test/Assert.purs")
                 || path.ends_with("lib/Data/Maybe.purs")
                 || path.ends_with("lib/Data/Either.purs")
                 || path.ends_with("lib/WASI/Resource.purs")

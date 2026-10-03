@@ -125,6 +125,9 @@ fn record_expr(
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+        // Both mention no subexpression, so the type recorded above is all
+        // their layout can refer to.
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

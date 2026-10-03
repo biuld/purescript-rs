@@ -237,6 +237,7 @@ impl Primitive {
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
             | Intrinsic::Coerce
+            | Intrinsic::Unit
             | Intrinsic::Undefined => return None,
         })
     }
@@ -256,6 +257,17 @@ pub enum ExprKind {
     Boolean(bool),
     String(String),
     Char(char),
+    /// The one `Unit` value. `Unit` is a builtin type with no constructor
+    /// table, so the value is a compiler primitive rather than a nullary
+    /// constructor application. Its canonical runtime value is the integer `0`
+    /// ([scalars and primitives](../../design/backend/fp/scalars-and-primitives.md)).
+    Unit,
+    /// An expression that never produces its value: the guest traps. Core
+    /// carries it so the effect interface can supply an `Effect Unit` that
+    /// escapes instead of returning, which is what an uncaught failure is on
+    /// this target. It is a target control-flow edge, not a value, so the
+    /// verifier checks its type is the one its context wants and nothing else.
+    Trap,
     Array {
         elements: Vec<Expr>,
     },

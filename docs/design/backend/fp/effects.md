@@ -63,11 +63,22 @@ foreign import data Effect :: Type -> Type
 pure :: forall a. a -> Effect a
 bind :: forall a b. Effect a -> (a -> Effect b) -> Effect b
 runEffect :: forall a. Effect a -> a
+trap :: Effect Unit
 ```
 
 `runEffect` is provided only to the selected command entry as specified by
 [F-02](../../../feature/F-02-portable-programs.md). It has an ordinary function
 type; entry authorization is a driver rule, not an inference rule.
+
+`trap` is the effect whose result never exists: an uncaught failure on this
+target is a guest trap, and this is the one operation that says so. It takes no
+argument because the failure has already been reported through an ordinary
+service such as `Effect.Console.error` before it is used; a library that has a
+message to carry writes it first and then escapes. It is
+`Effect Unit` rather than `forall a. Effect a`: the polymorphic form would need
+the backend to produce a value of a type that is only known at the use site,
+and no library caller needs it — the standard library's assertion surface is
+its only consumer.
 
 The equations below are the representation translation, not source equalities.
 `Token` does not occur in a source type, and `Effect a` does not unify with
@@ -78,6 +89,7 @@ The equations below are the representation translation, not source equalities.
 pure v      = RepClosure(token) { v }
 bind m k    = RepClosure(token) { call (call k (call m token)) token }
 runEffect m = call m runtimeToken
+trap        = RepClosure(token) { unreachable }
 ```
 
 - **Construction is inert.** Building an `Effect` value allocates a closure and
@@ -90,6 +102,10 @@ runEffect m = call m runtimeToken
   keep source order.
 - **The token is not a source value.** No source program names it, applies an
   effect to it, or passes an ordinary function where an effect is required.
+- **Escaping is not returning.** Applying `trap` to the token reaches an
+  unreachable path instead of producing a `Unit`, so everything sequenced after
+  it in the same effect runs not at all. That is what makes an assertion failure
+  observable to a runner that only sees the guest terminate.
 
 ### Two callable forms
 
@@ -132,7 +148,7 @@ effect flag, private constructor, or representation mode.
   THIR and Typed Core keep that type. Unification, subsumption, and arity
   flattening do not treat it as a function.
 - No stage stores an "effect" flag on an expression. Effects compose through
-  `pure`, `bind`, and `runEffect`.
+  `pure`, `bind`, `runEffect`, and `trap`.
 - Exactly one pass recognizes `effect_id`: the representation lowering below.
   After it, CC and MIR see ordinary closures and calls. They do not consult a
   callable-constructor table and they do not match `Effect`.
@@ -156,9 +172,12 @@ flattening. It is an ordinary pass: it consumes Core, where `Effect` is still
 abstract, and produces CC closures with explicit parameter lists.
 
 - A value of type `Effect τ` becomes `RepClosure([Token], ⟦τ⟧)`.
-- `pure`, `bind`, and `runEffect` are foreign imports of those abstract
+- `pure`, `bind`, `runEffect`, and `trap` are foreign imports of those abstract
   signatures. The pass replaces them with the closures in the model. It does
   not emit a host call for them.
+- `trap`'s closure body is an unreachable path, so applying it ends the guest.
+  It is a Core expression type, not a new CC or MIR instruction: the existing
+  trap assignment already ends a path for an unmatched pattern.
 - A foreign import whose source type is `Effect τ` becomes a closure that
   performs the host call when the token is supplied. In a strict language the
   call must not happen when the effect value is built. `pure foreignCall` would
@@ -225,7 +244,7 @@ token is never counted as a remaining parameter of `log`.
 
 ## Algorithms
 
-### Lowering `pure`, `bind`, and `runEffect`
+### Lowering `pure`, `bind`, `runEffect`, and `trap`
 
 The source declarations are abstract. Representation lowering replaces their
 bodies; the type checker does not see a token.
@@ -240,6 +259,7 @@ lower_bind = \first -> \next -> RepClosure(token) {
     call rest token
 }
 lower_run  = \action -> call action runtimeToken
+lower_trap = RepClosure(token) { unreachable }
 ```
 
 `call` of a `RepClosure` passes exactly that closure's parameter list. It does

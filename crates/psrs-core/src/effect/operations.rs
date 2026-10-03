@@ -2,8 +2,8 @@
 //!
 //! `lower_effects` replaces the library's opaque imports with the values the
 //! design specifies: `pure` returns a closure over the token, `bind` runs the
-//! first effect before the continuation, and `run` applies the closure to the
-//! integer `0`.
+//! first effect before the continuation, `run` applies the closure to the
+//! integer `0`, and `trap` is the effect that escapes instead of returning.
 
 use super::supplies::{LocalSupply, VariableSupply};
 use super::{EFFECT_INTERFACE, intern};
@@ -11,8 +11,8 @@ use crate::{Binder, Declaration, Expr, ExprKind, Module, Type, TypeConstructor, 
 use psrs_hir::{ExternalKind, LocalId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
-/// Synthesizes `pure`, `bind`, and `run`, dropping the abstract imports they
-/// replace. Returns the symbols that became ordinary declarations.
+/// Synthesizes `pure`, `bind`, `run`, and `trap`, dropping the abstract imports
+/// they replace. Returns the symbols that became ordinary declarations.
 pub(super) fn synthesize_operations(module: &mut Module, token: TypeId) -> Vec<SymbolId> {
     let operations = module
         .externals
@@ -70,6 +70,14 @@ pub(super) fn synthesize_operations(module: &mut Module, token: TypeId) -> Vec<S
                 token,
                 &mut locals,
                 &mut variables,
+            )),
+            "trap" => Some(trap_declaration(
+                module,
+                symbol,
+                &name,
+                span,
+                token,
+                &mut locals,
             )),
             _ => None,
         };
@@ -176,6 +184,29 @@ fn run_declaration(
     );
     let value = lambda(action, "action", action_ty, body, ty, span);
     declaration(symbol, name, vec![result_var], ty, value, span)
+}
+
+/// The `trap :: Effect Unit` operation: an effect over the runtime token whose
+/// body never returns, so running it escapes instead of producing `Unit`.
+///
+/// It is a closure rather than a bare trap so that referencing the value stays
+/// inert, exactly as `pure` is: an `Effect` only does something when the entry
+/// applies it to a token. `Effect` is abstract, so this is the only place that
+/// can state that an uncaught failure is a target trap.
+fn trap_declaration(
+    module: &mut Module,
+    symbol: SymbolId,
+    name: &str,
+    span: TextRange,
+    token: TypeId,
+    locals: &mut LocalSupply,
+) -> Declaration {
+    let unit = intern(module, Type::Constructor(TypeConstructor::Unit));
+    let action = closure_type(module, token, unit);
+    let token_local = locals.fresh();
+    let body = expr(ExprKind::Trap, unit, span);
+    let value = lambda(token_local, "token", token, body, action, span);
+    declaration(symbol, name, Vec::new(), action, value, span)
 }
 
 fn declaration(
