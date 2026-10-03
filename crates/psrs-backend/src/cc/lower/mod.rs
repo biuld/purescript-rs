@@ -17,6 +17,7 @@ mod conversion;
 mod dictionary;
 mod erased;
 mod global;
+mod intrinsic;
 mod lambda;
 mod letrec;
 mod literals;
@@ -29,7 +30,6 @@ pub(in crate::cc) use conversion::VariantFieldConversion;
 use global::GlobalLowering;
 use lambda::LambdaLowering;
 use letrec::LetLowering;
-use scalar::{lower_binary_op, lower_unary_op};
 pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
@@ -222,13 +222,6 @@ pub(super) struct FunctionLowerer<'a> {
 }
 
 impl FunctionLowerer<'_> {
-    pub(super) fn fresh(&mut self, ty: ValueShape) -> ValueId {
-        let id = ValueId(self.next_value);
-        self.next_value += 1;
-        self.values.push(ValueDecl { id, ty });
-        id
-    }
-
     pub(super) fn lower_value(
         &mut self,
         expression: &Expr,
@@ -363,53 +356,6 @@ impl FunctionLowerer<'_> {
                     assignments,
                 ))
             }
-            ExprKind::ArrayIndex { array, index } => {
-                let Some(representation) = self.array_types.get(&array.ty).copied() else {
-                    return Err(vec![BackendError::new(
-                        "P8 closure conversion",
-                        expression.span,
-                        "array expression has no representation requirement",
-                    )]);
-                };
-                let array = self.lower_value(array, assignments)?;
-                let index = self.lower_value(index, assignments)?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::ArrayGet {
-                        destination,
-                        representation,
-                        value: array,
-                        index,
-                    },
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::ArrayUpdate {
-                array,
-                index,
-                value,
-            } => self.lower_array_update(expression, array, index, value, assignments),
-            ExprKind::StringToBytes(value) => {
-                self.lower_string_to_bytes(expression, value, ty, assignments)
-            }
-            ExprKind::BytesToString(value) => {
-                self.lower_bytes_to_string(expression, value, ty, assignments)
-            }
-            ExprKind::ArrayLength(value) => {
-                let value = self.lower_value(value, assignments)?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::ArrayLen { destination, value },
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::ArrayAppend { left, right } => {
-                self.lower_array_append(expression, left, right, ty, assignments)
-            }
             ExprKind::Constructor { symbol, arguments } => {
                 self.lower_constructor(expression, *symbol, arguments, ty, assignments)
             }
@@ -418,34 +364,6 @@ impl FunctionLowerer<'_> {
                 assignments.push(Assignment {
                     destination,
                     kind: AssignmentKind::StringConstant(text.clone()),
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::Primitive { op, left, right } => {
-                let left = self.lower_value(left, assignments)?;
-                let right = self.lower_value(right, assignments)?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::Primitive {
-                        op: lower_binary_op(*op),
-                        left,
-                        right,
-                    },
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::UnaryPrimitive { op, value } => {
-                let value = self.lower_value(value, assignments)?;
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::Unary {
-                        op: lower_unary_op(*op),
-                        value,
-                    },
                     span: expression.span,
                 });
                 Ok(destination)
@@ -494,6 +412,10 @@ impl FunctionLowerer<'_> {
                 )
             }
             ExprKind::Lambda { .. } => self.lower_lambda(expression, ty, assignments),
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
+            } => self.lower_intrinsic(expression, *intrinsic, arguments, ty, assignments),
         }
     }
 }

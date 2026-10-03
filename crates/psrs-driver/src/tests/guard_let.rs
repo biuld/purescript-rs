@@ -35,7 +35,7 @@ fn ordinary_let_in_guard_binders_do_not_escape_the_expression() {
 fn issue_requested_naked_let_guard_binds_values_for_later_guards_and_the_body() {
     // This cross-guard binding qualifier is an issue-specific extension. Official PureScript
     // supports let-in expressions inside Boolean guards, not this naked qualifier form.
-    let source = "module Main where\npositive n\n  | let next = n + 1, next > 0 = next\n  | true = 0\nmain = positive 9\n";
+    let source = "module Main where\nimport Prelude\npositive n\n  | let next = n + 1, next > 0 = next\n  | true = 0\nmain = positive 9\n";
     let artifact = compile_source("Main.purs", source).expect("naked let guard extension compiles");
     assert!(!has_non_exhaustive_warning(&artifact));
     let Some(output) = run_with_wasmtime(source) else {

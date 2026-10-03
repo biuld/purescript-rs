@@ -29,33 +29,16 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
                     .iter()
                     .any(|(_, value)| expression_has_integer_capture(value, module))
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => expression_has_integer_capture(record, module),
-        ExprKind::ArrayIndex { array, index } => {
-            expression_has_integer_capture(array, module)
-                || expression_has_integer_capture(index, module)
+        ExprKind::FieldAccess { record, .. } => expression_has_integer_capture(record, module),
+        ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
+            arguments
+                .iter()
+                .any(|argument| expression_has_integer_capture(argument, module))
         }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            expression_has_integer_capture(array, module)
-                || expression_has_integer_capture(index, module)
-                || expression_has_integer_capture(value, module)
-        }
-        ExprKind::Constructor { arguments, .. } => arguments
-            .iter()
-            .any(|argument| expression_has_integer_capture(argument, module)),
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::Application(left, right) => {
             expression_has_integer_capture(left, module)
                 || expression_has_integer_capture(right, module)
         }
-        ExprKind::UnaryPrimitive { value, .. } => expression_has_integer_capture(value, module),
         ExprKind::RepresentationCast { value, .. } => expression_has_integer_capture(value, module),
         ExprKind::Let { bindings, body } => {
             bindings
@@ -138,31 +121,15 @@ fn free_integer_local(
                     .iter()
                     .any(|(_, value)| free_integer_local(value, module, bound))
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => free_integer_local(record, module, bound),
-        ExprKind::ArrayIndex { array, index } => {
-            free_integer_local(array, module, bound) || free_integer_local(index, module, bound)
+        ExprKind::FieldAccess { record, .. } => free_integer_local(record, module, bound),
+        ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
+            arguments
+                .iter()
+                .any(|argument| free_integer_local(argument, module, bound))
         }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            free_integer_local(array, module, bound)
-                || free_integer_local(index, module, bound)
-                || free_integer_local(value, module, bound)
-        }
-        ExprKind::Constructor { arguments, .. } => arguments
-            .iter()
-            .any(|argument| free_integer_local(argument, module, bound)),
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::Application(left, right) => {
             free_integer_local(left, module, bound) || free_integer_local(right, module, bound)
         }
-        ExprKind::UnaryPrimitive { value, .. } => free_integer_local(value, module, bound),
         ExprKind::RepresentationCast { value, .. } => free_integer_local(value, module, bound),
         ExprKind::If {
             condition,

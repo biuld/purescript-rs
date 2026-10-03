@@ -29,7 +29,7 @@ module Main where
 import Lib
 
 main :: Int
-main = toInt true + toInt 0
+main = intAdd (toInt true) (toInt 0)
 "#;
 
 #[test]

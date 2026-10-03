@@ -1,7 +1,8 @@
 use self::patterns::{is_shallow_pattern, match_pattern, substitute_case_bindings};
 use super::effects;
 use super::util::{FreshLocals, with_span};
-use crate::{Binding, Expr, ExprKind, Module, Primitive};
+use crate::{Binding, Expr, ExprKind, Module};
+use psrs_hir::Intrinsic;
 use std::collections::HashMap;
 
 mod patterns;
@@ -68,80 +69,59 @@ fn simplify_expr(mut expression: Expr, fresh: &mut FreshLocals) -> Expr {
             source_type,
             target_type,
         },
-        // The string/byte conversions never fold to a literal: their result is
-        // a heap value, and folding `bytesToString` would hide its validation.
-        ExprKind::StringToBytes(value) => {
-            ExprKind::StringToBytes(Box::new(simplify_expr(*value, fresh)))
-        }
-        ExprKind::BytesToString(value) => {
-            ExprKind::BytesToString(Box::new(simplify_expr(*value, fresh)))
-        }
-        ExprKind::ArrayLength(array) => {
-            let array = simplify_expr(*array, fresh);
-            if let ExprKind::Array { elements } = &array.kind
-                && let Ok(length) = i32::try_from(elements.len())
-            {
-                let values = elements.clone();
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => {
+            let arguments = arguments
+                .into_iter()
+                .map(|argument| simplify_expr(argument, fresh))
+                .collect::<Vec<_>>();
+            if let [left, right] = arguments.as_slice() {
                 if let Some(replacement) =
-                    sequence_constant(values, length, expression.ty, expression.span, fresh)
+                    fold_intrinsic(intrinsic, left, right, expression.ty, expression.span)
+                {
+                    return replacement;
+                }
+                if let Some(replacement) =
+                    intrinsic_identity(intrinsic, left, right, expression.span)
                 {
                     return replacement;
                 }
             }
-            ExprKind::ArrayLength(Box::new(array))
-        }
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(simplify_expr(*left, fresh)),
-            right: Box::new(simplify_expr(*right, fresh)),
-        },
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op,
-            value: Box::new(simplify_expr(*value, fresh)),
-        },
-        ExprKind::ArrayIndex { array, index } => {
-            let array = simplify_expr(*array, fresh);
-            let index = simplify_expr(*index, fresh);
-            if let ExprKind::Array { elements } = &array.kind
+            if intrinsic == psrs_hir::Intrinsic::ArrayLength
+                && let [array] = arguments.as_slice()
+                && let ExprKind::Array { elements } = &array.kind
+                && let Ok(length) = i32::try_from(elements.len())
+                && let Some(replacement) = sequence_constant(
+                    elements.clone(),
+                    length,
+                    expression.ty,
+                    expression.span,
+                    fresh,
+                )
+            {
+                return replacement;
+            }
+            if intrinsic == psrs_hir::Intrinsic::ArrayIndex
+                && let [array, index] = arguments.as_slice()
+                && let ExprKind::Array { elements } = &array.kind
                 && let ExprKind::Integer(index_value) = &index.kind
                 && let Ok(index_value) = usize::try_from(*index_value)
                 && index_value < elements.len()
-            {
-                let values = elements.clone();
-                if let Some(replacement) =
-                    sequence_values(values, index_value, expression.ty, expression.span, fresh)
-                {
-                    return replacement;
-                }
-            }
-            ExprKind::ArrayIndex {
-                array: Box::new(array),
-                index: Box::new(index),
-            }
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(simplify_expr(*array, fresh)),
-            index: Box::new(simplify_expr(*index, fresh)),
-            value: Box::new(simplify_expr(*value, fresh)),
-        },
-        ExprKind::Primitive { op, left, right } => {
-            let left = simplify_expr(*left, fresh);
-            let right = simplify_expr(*right, fresh);
-            if let Some(replacement) =
-                fold_primitive(op, &left, &right, expression.ty, expression.span)
+                && let Some(replacement) = sequence_values(
+                    elements.clone(),
+                    index_value,
+                    expression.ty,
+                    expression.span,
+                    fresh,
+                )
             {
                 return replacement;
             }
-            if let Some(replacement) = primitive_identity(op, &left, &right, expression.span) {
-                return replacement;
-            }
-            ExprKind::Primitive {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
+            ExprKind::IntrinsicCall {
+                intrinsic,
+                arguments,
             }
         }
         ExprKind::Application(function, argument) => ExprKind::Application(
@@ -317,8 +297,8 @@ fn sequence_constant(
     })
 }
 
-fn fold_primitive(
-    op: Primitive,
+fn fold_intrinsic(
+    intrinsic: Intrinsic,
     left: &Expr,
     right: &Expr,
     result_type: crate::TypeId,
@@ -327,20 +307,20 @@ fn fold_primitive(
     let (ExprKind::Integer(left), ExprKind::Integer(right)) = (&left.kind, &right.kind) else {
         return None;
     };
-    let folded = match op {
-        Primitive::IntAdd => ExprKind::Integer(left.wrapping_add(*right)),
-        Primitive::IntSub => ExprKind::Integer(left.wrapping_sub(*right)),
-        Primitive::IntMul => ExprKind::Integer(left.wrapping_mul(*right)),
+    let folded = match intrinsic {
+        Intrinsic::I32Add => ExprKind::Integer(left.wrapping_add(*right)),
+        Intrinsic::I32Sub => ExprKind::Integer(left.wrapping_sub(*right)),
+        Intrinsic::I32Mul => ExprKind::Integer(left.wrapping_mul(*right)),
         // checked_{div,rem} returns None for both trapping cases: zero divisor
         // and signed overflow. Leaving the operation intact preserves the trap.
-        Primitive::IntQuot => ExprKind::Integer(left.checked_div(*right)?),
-        Primitive::IntRem => ExprKind::Integer(left.checked_rem(*right)?),
-        Primitive::IntEq => ExprKind::Boolean(left == right),
-        Primitive::IntNe => ExprKind::Boolean(left != right),
-        Primitive::IntLt => ExprKind::Boolean(left < right),
-        Primitive::IntLe => ExprKind::Boolean(left <= right),
-        Primitive::IntGt => ExprKind::Boolean(left > right),
-        Primitive::IntGe => ExprKind::Boolean(left >= right),
+        Intrinsic::I32DivS => ExprKind::Integer(left.checked_div(*right)?),
+        Intrinsic::I32RemS => ExprKind::Integer(left.checked_rem(*right)?),
+        Intrinsic::I32Eq => ExprKind::Boolean(left == right),
+        Intrinsic::I32Ne => ExprKind::Boolean(left != right),
+        Intrinsic::I32LtS => ExprKind::Boolean(left < right),
+        Intrinsic::I32LeS => ExprKind::Boolean(left <= right),
+        Intrinsic::I32GtS => ExprKind::Boolean(left > right),
+        Intrinsic::I32GeS => ExprKind::Boolean(left >= right),
         _ => return None,
     };
     Some(Expr {
@@ -350,8 +330,8 @@ fn fold_primitive(
     })
 }
 
-fn primitive_identity(
-    op: Primitive,
+fn intrinsic_identity(
+    intrinsic: Intrinsic,
     left: &Expr,
     right: &Expr,
     span: psrs_span::TextRange,
@@ -361,16 +341,16 @@ fn primitive_identity(
         ty,
         span,
     };
-    match (op, &left.kind, &right.kind) {
-        (Primitive::IntAdd, _, ExprKind::Integer(0))
-        | (Primitive::IntSub, _, ExprKind::Integer(0))
-        | (Primitive::IntMul, _, ExprKind::Integer(1)) => Some(with_span(left.clone(), span)),
-        (Primitive::IntAdd, ExprKind::Integer(0), _)
-        | (Primitive::IntMul, ExprKind::Integer(1), _) => Some(with_span(right.clone(), span)),
-        (Primitive::IntMul, ExprKind::Integer(0), _) if effects::summarize(right).inert() => {
+    match (intrinsic, &left.kind, &right.kind) {
+        (Intrinsic::I32Add, _, ExprKind::Integer(0))
+        | (Intrinsic::I32Sub, _, ExprKind::Integer(0))
+        | (Intrinsic::I32Mul, _, ExprKind::Integer(1)) => Some(with_span(left.clone(), span)),
+        (Intrinsic::I32Add, ExprKind::Integer(0), _)
+        | (Intrinsic::I32Mul, ExprKind::Integer(1), _) => Some(with_span(right.clone(), span)),
+        (Intrinsic::I32Mul, ExprKind::Integer(0), _) if effects::summarize(right).inert() => {
             Some(zero(left.ty))
         }
-        (Primitive::IntMul, _, ExprKind::Integer(0)) if effects::summarize(left).inert() => {
+        (Intrinsic::I32Mul, _, ExprKind::Integer(0)) if effects::summarize(left).inert() => {
             Some(zero(right.ty))
         }
         _ => None,

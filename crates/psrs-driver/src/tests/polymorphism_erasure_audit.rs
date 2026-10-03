@@ -88,7 +88,7 @@ fn function_type_keys(types: &[RecGroup]) -> Vec<(Vec<ValueType>, Vec<ValueType>
 
 #[test]
 fn equal_normalized_function_signatures_allocate_one_mir_function_type() {
-    let source = "module Main where\nfInt :: Array Int -> Array Int\nfInt values = values\nfStr :: Array String -> Array String\nfStr values = values\nuseInt :: (Array Int -> Array Int) -> Int\nuseInt function = arrayLength (function [1, 2])\nuseStr :: (Array String -> Array String) -> Int\nuseStr function = arrayLength (function [\"a\", \"b\"])\nmain = useInt fInt + useStr fStr\n";
+    let source = "module Main where\nimport Prelude\nfInt :: Array Int -> Array Int\nfInt values = values\nfStr :: Array String -> Array String\nfStr values = values\nuseInt :: (Array Int -> Array Int) -> Int\nuseInt function = arrayLength (function [1, 2])\nuseStr :: (Array String -> Array String) -> Int\nuseStr function = arrayLength (function [\"a\", \"b\"])\nmain = useInt fInt + useStr fStr\n";
     let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
     let stages =
         psrs_backend::compile_with_stages(core).expect("the two function types should compile");
@@ -112,7 +112,7 @@ fn equal_normalized_function_signatures_allocate_one_mir_function_type() {
 
 #[test]
 fn erased_int_box_preserves_high_bit_values() {
-    let source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = if identity 2000000000 == 2000000000 then 42 else 1\n";
+    let source = "module Main where\nimport Prelude\nidentity :: forall a. a -> a\nidentity value = value\nmain = if identity 2000000000 == 2000000000 then 42 else 1\n";
     expect_exit("erased_int_high_bit", source, 42);
 }
 
@@ -160,7 +160,7 @@ fn erased_identity_boxes_char_and_unit() {
 
 #[test]
 fn boolean_capture_uses_i31_and_round_trips() {
-    let source = "module Main where\nmakeReader :: Boolean -> (Int -> Int)\nmakeReader flag = let captured = flag in \\index -> if captured then index else 0\nmain = let trueReader = makeReader true in let falseReader = makeReader false in trueReader 42 + falseReader 42\n";
+    let source = "module Main where\nimport Prelude\nmakeReader :: Boolean -> (Int -> Int)\nmakeReader flag = let captured = flag in \\index -> if captured then index else 0\nmain = let trueReader = makeReader true in let falseReader = makeReader false in trueReader 42 + falseReader 42\n";
     let mir = pre_optimization_mir(source);
     let mut capture_types = Vec::new();
     for function in &mir.functions {
@@ -186,7 +186,7 @@ fn boolean_capture_uses_i31_and_round_trips() {
 
 #[test]
 fn escaping_closures_capture_int_and_reference_values() {
-    let source = "module Main where\nmakeReader :: Int -> Array Int -> (Int -> Int)\nmakeReader base values = \\index -> base + arrayIndex values 0 + index\nmain = let reader = makeReader 40 [1, 2] in reader 2\n";
+    let source = "module Main where\nimport Prelude\nmakeReader :: Int -> Array Int -> (Int -> Int)\nmakeReader base values = \\index -> base + arrayIndex values 0 + index\nmain = let reader = makeReader 40 [1, 2] in reader 2\n";
     let mir = pre_optimization_mir(source);
     let mut capture_types = Vec::new();
     for function in &mir.functions {
@@ -232,7 +232,7 @@ fn escaping_closures_capture_a_string_value() {
 
 #[test]
 fn higher_order_adapters_are_value_sensitive_in_both_directions() {
-    let generic_to_concrete = "module Main where\napplyInt :: forall a. (a -> a) -> a -> a\napplyInt function value = function value\nconcreteInt :: Int -> Int\nconcreteInt value = value + 1\nmain = applyInt concreteInt 41\n";
+    let generic_to_concrete = "module Main where\nimport Prelude\napplyInt :: forall a. (a -> a) -> a -> a\napplyInt function value = function value\nconcreteInt :: Int -> Int\nconcreteInt value = value + 1\nmain = applyInt concreteInt 41\n";
     expect_exit("adapter_generic_to_concrete_int", generic_to_concrete, 42);
     let boolean_instance = "module Main where\napplyValue :: forall a. (a -> a) -> a -> a\napplyValue function value = function value\nflip :: Boolean -> Boolean\nflip value = if value then false else true\nmain = if applyValue flip true then 1 else 42\n";
     expect_exit("adapter_generic_to_concrete_boolean", boolean_instance, 42);
@@ -345,14 +345,15 @@ fn a_local_polymorphic_value_is_applied_after_a_function_type_instantiation() {
     // The same eta-expansion reached with a concrete function argument:
     // `id` is instantiated at `Int -> Int`, applied to `\y -> y + 1`, and the
     // recovered function is applied to `41`.
-    let source = "module Main where\nmain = let id = \\x -> x in (id (\\y -> y + 1)) 41\n";
+    let source =
+        "module Main where\nimport Prelude\nmain = let id = \\x -> x in (id (\\y -> y + 1)) 41\n";
     expect_exit("local_polymorphic_function_type_argument", source, 42);
 }
 
 #[test]
 fn a_global_polymorphic_value_instantiates_at_a_function_type() {
     // The top-level polymorphic declaration crossed at a function type.
-    let source = "module Main where\nidentity :: forall a. a -> a\nidentity value = value\nmain = (identity (\\y -> y + 1)) 41\n";
+    let source = "module Main where\nimport Prelude\nidentity :: forall a. a -> a\nidentity value = value\nmain = (identity (\\y -> y + 1)) 41\n";
     expect_exit("global_polymorphic_function_type", source, 42);
 }
 

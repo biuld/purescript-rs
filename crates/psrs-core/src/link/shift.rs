@@ -48,9 +48,15 @@ pub(super) fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> E
             record: Box::new(super::shift_expr(*record, offset, variable_offset)),
             field,
         },
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(super::shift_expr(*left, offset, variable_offset)),
-            right: Box::new(super::shift_expr(*right, offset, variable_offset)),
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments: arguments
+                .into_iter()
+                .map(|argument| super::shift_expr(argument, offset, variable_offset))
+                .collect(),
         },
         ExprKind::RepresentationCast {
             value,
@@ -60,37 +66,6 @@ pub(super) fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> E
             value: Box::new(super::shift_expr(*value, offset, variable_offset)),
             source_type: super::shift_id(source_type, offset),
             target_type: super::shift_id(target_type, offset),
-        },
-        ExprKind::StringToBytes(value) => {
-            ExprKind::StringToBytes(Box::new(super::shift_expr(*value, offset, variable_offset)))
-        }
-        ExprKind::BytesToString(value) => {
-            ExprKind::BytesToString(Box::new(super::shift_expr(*value, offset, variable_offset)))
-        }
-        ExprKind::ArrayLength(value) => {
-            ExprKind::ArrayLength(Box::new(super::shift_expr(*value, offset, variable_offset)))
-        }
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(super::shift_expr(*array, offset, variable_offset)),
-            index: Box::new(super::shift_expr(*index, offset, variable_offset)),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(super::shift_expr(*array, offset, variable_offset)),
-            index: Box::new(super::shift_expr(*index, offset, variable_offset)),
-            value: Box::new(super::shift_expr(*value, offset, variable_offset)),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op,
-            left: Box::new(super::shift_expr(*left, offset, variable_offset)),
-            right: Box::new(super::shift_expr(*right, offset, variable_offset)),
-        },
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op,
-            value: Box::new(super::shift_expr(*value, offset, variable_offset)),
         },
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(super::shift_expr(*function, offset, variable_offset)),

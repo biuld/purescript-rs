@@ -39,7 +39,7 @@ class Eq a where
   eq :: a -> a -> Boolean
 
 instance eqInt :: Eq Int where
-  eq left right = left == right
+  eq left right = intEq left right
 "#;
     let main = r#"module Main where
 
@@ -139,7 +139,7 @@ class Eq a where
   eq :: a -> a -> Boolean
 
 instance eqInt :: Eq Int where
-  eq left right = left == right
+  eq left right = intEq left right
 "#;
     let main = r#"module Main where
 
@@ -185,7 +185,7 @@ data Box a = Box (Wrapped a)
 derive instance functorBox :: Functor Box
 
 main :: Int
-main = case map (\value -> value + 1) (Box (Some 41)) of
+main = case map (\value -> intAdd value 1) (Box (Some 41)) of
   Box (Some value) -> value
   _ -> 0
 "#;
@@ -214,8 +214,8 @@ data Pair a b = Pair a b | Left a | Right b
 derive instance bifunctorPair :: Bifunctor Pair
 
 main :: Int
-main = case bimap (\value -> value + 1) (\value -> value + 1) (Pair 40 0) of
-  Pair left right -> left + right
+main = case bimap (\value -> intAdd value 1) (\value -> intAdd value 1) (Pair 40 0) of
+  Pair left right -> intAdd left right
   _ -> 0
 "#;
     let Some(output) =

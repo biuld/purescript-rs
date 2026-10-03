@@ -12,8 +12,7 @@ pub(crate) use types::equivalent_types;
 use expr::verify_expr;
 use patterns::verify_pattern;
 use types::{
-    array_element, compatible, error, primitive_type_id, primitive_types, record_field,
-    restore_local, unary_primitive_types, verify_type,
+    array_element, compatible, error, primitive_type_id, record_field, restore_local, verify_type,
 };
 
 #[derive(Clone)]

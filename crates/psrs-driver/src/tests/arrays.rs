@@ -4,6 +4,7 @@ use super::*;
 fn runs_an_empty_integer_array_literal() {
     let source = "\
 module Main where
+import Prelude
 values :: Array Int
 values = []
 main = 1 + arrayLength values
@@ -118,7 +119,7 @@ fn runs_number_array_update_through_the_gc_array() {
 
 #[test]
 fn preserves_the_original_gc_array_when_updating_a_copy() {
-    let source = "module Main where\nmain = let original = [10, 20] in let updated = arrayUpdate original 0 99 in arrayIndex original 0 + arrayIndex updated 0\n";
+    let source = "module Main where\nimport Prelude\nmain = let original = [10, 20] in let updated = arrayUpdate original 0 99 in arrayIndex original 0 + arrayIndex updated 0\n";
     let artifact = compile_source("Main.purs", source).expect("lowering a pure array update");
     assert!(artifact.wat.contains("array.copy"));
     let Some(output) = run_with_wasmtime(source) else {
@@ -130,7 +131,7 @@ fn preserves_the_original_gc_array_when_updating_a_copy() {
 
 #[test]
 fn preserves_aliases_when_updating_a_gc_array() {
-    let source = "module Main where\nmain = let original = [10, 20] in let alias = original in let updated = arrayUpdate original 0 99 in arrayIndex alias 0 + arrayIndex updated 0\n";
+    let source = "module Main where\nimport Prelude\nmain = let original = [10, 20] in let alias = original in let updated = arrayUpdate original 0 99 in arrayIndex alias 0 + arrayIndex updated 0\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;
@@ -140,7 +141,7 @@ fn preserves_aliases_when_updating_a_gc_array() {
 
 #[test]
 fn keeps_independent_gc_array_updates_independent() {
-    let source = "module Main where\nmain = let original = [10, 20] in let first = arrayUpdate original 0 99 in let second = arrayUpdate original 1 77 in arrayIndex first 0 + arrayIndex second 1\n";
+    let source = "module Main where\nimport Prelude\nmain = let original = [10, 20] in let first = arrayUpdate original 0 99 in let second = arrayUpdate original 1 77 in arrayIndex first 0 + arrayIndex second 1\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

@@ -322,30 +322,15 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
         }
         ExprKind::FieldAccess { record, .. } => collect_references(record, out),
         ExprKind::RepresentationCast { value, .. } => collect_references(value, out),
-        ExprKind::ArrayLength(value) => collect_references(value, out),
-        ExprKind::StringToBytes(value) | ExprKind::BytesToString(value) => {
-            collect_references(value, out)
+        ExprKind::IntrinsicCall { arguments, .. } => {
+            for argument in arguments {
+                collect_references(argument, out);
+            }
         }
-        ExprKind::ArrayIndex { array, index } => {
-            collect_references(array, out);
-            collect_references(index, out);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            collect_references(array, out);
-            collect_references(index, out);
-            collect_references(value, out);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::Application(left, right) => {
             collect_references(left, out);
             collect_references(right, out);
         }
-        ExprKind::UnaryPrimitive { value, .. } => collect_references(value, out),
         ExprKind::Lambda { body, .. } => collect_references(body, out),
         ExprKind::Let { bindings, body } => {
             for binding in bindings {

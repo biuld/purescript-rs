@@ -103,7 +103,7 @@ impl TypeId {
 }
 
 mod intrinsic;
-pub use intrinsic::Intrinsic;
+pub use intrinsic::{Intrinsic, IntrinsicCategory, IntrinsicDescriptor};
 
 /// Symbol index base for source-declared `foreign import`s, which live in the
 /// reserved intrinsic module but above the intrinsic and WASI import ranges.
@@ -126,8 +126,9 @@ pub struct ExternalSymbol {
     pub symbol: SymbolId,
     pub name: String,
     pub kind: ExternalKind,
-    /// The declared type of a source-declared external (a `foreign import`).
-    /// Compiler primitives and intrinsics have no declaration type here.
+    /// The declared type of an external value. A source-declared `foreign
+    /// import` carries its annotation; an intrinsic carries its descriptor's
+    /// scheme, so its signature is never `None`.
     pub signature: Option<Type>,
 }
 

@@ -22,6 +22,16 @@ fn clone_expr(
                 .map(|argument| clone_expr(argument, fresh, locals))
                 .collect::<Option<Vec<_>>>()?,
         },
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => ExprKind::IntrinsicCall {
+            intrinsic: *intrinsic,
+            arguments: arguments
+                .iter()
+                .map(|argument| clone_expr(argument, fresh, locals))
+                .collect::<Option<Vec<_>>>()?,
+        },
         ExprKind::Integer(value) => ExprKind::Integer(*value),
         ExprKind::Number(value) => ExprKind::Number(value.clone()),
         ExprKind::Boolean(value) => ExprKind::Boolean(*value),
@@ -60,41 +70,6 @@ fn clone_expr(
             value: Box::new(clone_expr(value, fresh, locals)?),
             source_type: *source_type,
             target_type: *target_type,
-        },
-        ExprKind::StringToBytes(value) => {
-            ExprKind::StringToBytes(Box::new(clone_expr(value, fresh, locals)?))
-        }
-        ExprKind::BytesToString(value) => {
-            ExprKind::BytesToString(Box::new(clone_expr(value, fresh, locals)?))
-        }
-        ExprKind::ArrayLength(array) => {
-            ExprKind::ArrayLength(Box::new(clone_expr(array, fresh, locals)?))
-        }
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(clone_expr(left, fresh, locals)?),
-            right: Box::new(clone_expr(right, fresh, locals)?),
-        },
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(clone_expr(array, fresh, locals)?),
-            index: Box::new(clone_expr(index, fresh, locals)?),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(clone_expr(array, fresh, locals)?),
-            index: Box::new(clone_expr(index, fresh, locals)?),
-            value: Box::new(clone_expr(value, fresh, locals)?),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op: *op,
-            left: Box::new(clone_expr(left, fresh, locals)?),
-            right: Box::new(clone_expr(right, fresh, locals)?),
-        },
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op: *op,
-            value: Box::new(clone_expr(value, fresh, locals)?),
         },
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(clone_expr(function, fresh, locals)?),

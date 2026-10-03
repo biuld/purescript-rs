@@ -7,6 +7,7 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
             had_elements
         }
         ExprKind::Constructor { arguments, .. } => arguments.iter_mut().any(clear_array_literals),
+        ExprKind::IntrinsicCall { arguments, .. } => arguments.iter_mut().any(clear_array_literals),
         ExprKind::Record { fields } => fields
             .iter_mut()
             .any(|(_, value)| clear_array_literals(value)),
@@ -16,32 +17,11 @@ pub(super) fn clear_array_literals(expression: &mut psrs_core::Expr) -> bool {
                     .iter_mut()
                     .any(|(_, value)| clear_array_literals(value))
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => clear_array_literals(record),
-        ExprKind::ArrayIndex { array, index } => {
-            clear_array_literals(array) || clear_array_literals(index)
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            clear_array_literals(array)
-                || clear_array_literals(index)
-                || clear_array_literals(value)
-        }
-        ExprKind::Primitive { left, right, .. } => {
-            clear_array_literals(left) || clear_array_literals(right)
-        }
-        ExprKind::UnaryPrimitive { value, .. } => clear_array_literals(value),
+        ExprKind::FieldAccess { record, .. } => clear_array_literals(record),
         ExprKind::RepresentationCast { value, .. } => clear_array_literals(value),
-        ExprKind::Application(function, argument)
-        | ExprKind::ArrayAppend {
-            left: function,
-            right: argument,
-        } => clear_array_literals(function) || clear_array_literals(argument),
+        ExprKind::Application(function, argument) => {
+            clear_array_literals(function) || clear_array_literals(argument)
+        }
         ExprKind::Lambda { body, .. } => clear_array_literals(body),
         ExprKind::Let { bindings, body } => {
             bindings

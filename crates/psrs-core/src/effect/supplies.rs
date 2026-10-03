@@ -53,6 +53,7 @@ fn max_local(expression: &Expr) -> u32 {
             .max(max_local(then_branch))
             .max(max_local(else_branch)),
         ExprKind::Constructor { arguments, .. }
+        | ExprKind::IntrinsicCall { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
         } => arguments.iter().map(max_local).max().unwrap_or(0),
@@ -68,19 +69,7 @@ fn max_local(expression: &Expr) -> u32 {
             .max()
             .unwrap_or(0),
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record)
-        | ExprKind::UnaryPrimitive { value: record, .. } => max_local(record),
-        ExprKind::ArrayIndex { array, index } => max_local(array).max(max_local(index)),
-        ExprKind::ArrayAppend { left, right } => max_local(left).max(max_local(right)),
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => max_local(array).max(max_local(index)).max(max_local(value)),
-        ExprKind::Primitive { left, right, .. } => max_local(left).max(max_local(right)),
+        | ExprKind::RepresentationCast { value: record, .. } => max_local(record),
         ExprKind::Global(_)
         | ExprKind::Integer(_)
         | ExprKind::Number(_)

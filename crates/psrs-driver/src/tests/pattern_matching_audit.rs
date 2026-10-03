@@ -187,7 +187,7 @@ fn product_pattern_projects_only_needed_fields() {
 /// two instantiations (an erased scalar and an erased aggregate).
 #[test]
 fn dependent_erased_fields_recover_at_two_instantiations() {
-    let source = "module Main where\ndata I = A | B\ndata Wrap a = Wrap a\nfromInt :: Wrap Int -> Int\nfromInt (Wrap n) = n\nfromAggregate :: Wrap I -> Int\nfromAggregate (Wrap i) = case i of\n  A -> 1\n  B -> 2\nmain = fromInt (Wrap 40) + fromAggregate (Wrap B)\n";
+    let source = "module Main where\nimport Prelude\ndata I = A | B\ndata Wrap a = Wrap a\nfromInt :: Wrap Int -> Int\nfromInt (Wrap n) = n\nfromAggregate :: Wrap I -> Int\nfromAggregate (Wrap i) = case i of\n  A -> 1\n  B -> 2\nmain = fromInt (Wrap 40) + fromAggregate (Wrap B)\n";
     let stages = stages(source);
     assert!(
         stages.artifact.wat.contains("ref.cast"),
@@ -204,7 +204,7 @@ fn dependent_erased_fields_recover_at_two_instantiations() {
 /// first-match semantics at depth.
 #[test]
 fn recursive_pattern_compilation_terminates_and_stays_first_match() {
-    let source = "module Main where\ndata Nat = Z | S Nat\nf n = case n of\n  S (S (S (S x))) -> 40\n  S (S (S Z)) -> 2\n  S (S Z) -> 2\n  S Z -> 1\n  Z -> 0\nmain = f (S (S (S (S Z)))) + f (S (S Z))\n";
+    let source = "module Main where\nimport Prelude\ndata Nat = Z | S Nat\nf n = case n of\n  S (S (S (S x))) -> 40\n  S (S (S Z)) -> 2\n  S (S Z) -> 2\n  S Z -> 1\n  Z -> 0\nmain = f (S (S (S (S Z)))) + f (S (S Z))\n";
     let Some(output) = run_with_wasmtime(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

@@ -11,7 +11,7 @@ fn builds_linked_sources_from_the_cli() {
         .expect("write helper source");
     std::fs::write(
         &main,
-        "module Main where\nimport Helper\nmain = answer + 2\n",
+        "module Main where\nimport Prelude\nimport Helper\nmain = answer + 2\n",
     )
     .expect("write main source");
 
