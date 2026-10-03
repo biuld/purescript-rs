@@ -13,7 +13,28 @@
 -- | constructor table, so the one `Unit` value is a compiler primitive
 -- | (`psrs_hir::Intrinsic::Unit`) rather than a library declaration, exactly as
 -- | `true` and `false` are.
-module Prelude where
+-- |
+-- | The re-export list is explicit because the module now re-exports the
+-- | `Data.Function` operators, and this resolver's `module Data.Function`
+-- | re-export form is not selective: it would pull in `Data.Function.apply`
+-- | beside the Effect `apply` this module declares. The named entries re-export
+-- | exactly the four names the official `Prelude` takes from `Data.Function`.
+module Prelude
+  ( Effect
+  , pure
+  , bind
+  , discard
+  , map
+  , apply
+  , runEffect
+  , trap
+  , const
+  , flip
+  , ($)
+  , (#)
+  ) where
+
+import Data.Function (const, flip, (#), ($))
 
 foreign import data Effect :: Type -> Type
 
