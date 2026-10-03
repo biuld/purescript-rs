@@ -22,6 +22,7 @@ use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::*;
 
 mod coercible;
+mod int;
 mod requeue;
 
 use requeue::RequeueChain;
@@ -95,7 +96,7 @@ pub(in crate::typecheck) struct PrimitiveRule {
 ///
 #[cfg(not(test))]
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
-    core::iter::once(&coercible::RULE)
+    core::iter::once(&coercible::RULE).chain(int::RULES.iter())
 }
 
 /// The test build adds the framework cases' synthetic rules. They are keyed by
@@ -103,7 +104,9 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
 /// contract rather than any `Prim` relation.
 #[cfg(test)]
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
-    core::iter::once(&coercible::RULE).chain(tests::SYNTHETIC.iter())
+    core::iter::once(&coercible::RULE)
+        .chain(int::RULES.iter())
+        .chain(tests::SYNTHETIC.iter())
 }
 
 /// The rule for `class_id`, if that member has one.
