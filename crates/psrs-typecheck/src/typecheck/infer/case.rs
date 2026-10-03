@@ -74,7 +74,8 @@ impl Checker {
             ));
             return None;
         };
-        let mapping = self.instantiate_type_variables(scheme.variables.iter().copied());
+        let mapping = self
+            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
         let ty = super::super::unify::substitute(&scheme.ty, &mapping);
         let ty = self.freshen_foralls(&ty);
         let ty = self.resolve_type(ty);

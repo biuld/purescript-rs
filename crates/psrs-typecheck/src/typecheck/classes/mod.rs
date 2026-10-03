@@ -21,4 +21,4 @@ mod superclass;
 
 pub(in crate::typecheck) use fundeps::collect_infer_variables;
 pub(in crate::typecheck) use locals::next_local_id;
-pub(in crate::typecheck) use solve::SolveDepth;
+pub(in crate::typecheck) use solve::{SolveDepth, UnsolvedPolicy};

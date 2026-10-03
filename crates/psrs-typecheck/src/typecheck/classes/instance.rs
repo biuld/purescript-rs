@@ -1,4 +1,5 @@
 use super::super::*;
+use super::UnsolvedPolicy;
 use super::evidence::record_field_type;
 
 impl Checker {
@@ -174,7 +175,11 @@ impl Checker {
             self.unify(dictionary_method_type, value.ty.clone(), instance.span);
             fields.push((method.name.clone(), value));
         }
-        self.solve_wanted_constraints(Some(&dictionary_type), wanted_start);
+        self.solve_wanted_constraints(
+            Some(&dictionary_type),
+            wanted_start,
+            UnsolvedPolicy::RequireSolved,
+        );
         self.end_givens();
         let value = self.wrap_dictionary_lambdas(
             InferredExpr {
@@ -187,7 +192,7 @@ impl Checker {
         // An instance head may contain type variables (for example a
         // `ToInt (Array a)` head); generalize the dictionary constructor over
         // them so the declaration is polymorphic in the head variables.
-        let scheme = self.generalize(&value.ty, &[], TOP_LEVEL);
+        let scheme = self.generalize(&[], &value.ty, &[], TOP_LEVEL);
         Some(InferredDeclaration {
             symbol: instance.symbol,
             name: instance.name.clone(),

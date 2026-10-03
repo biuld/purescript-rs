@@ -8,9 +8,16 @@ use super::*;
 
 /// A type with a set of universally quantified variables and the class
 /// constraints those variables must satisfy.
+///
+/// `variable_kinds` is the kind of each quantified variable, read from the kind
+/// layer at the place the variable was bound rather than re-derived here. An
+/// instantiation records it on the fresh variable it allocates, so the
+/// polymorphism a scheme carries is self-contained: it does not depend on the
+/// solver table that happened to allocate the original variables.
 #[derive(Clone, Debug)]
 pub(super) struct Scheme {
     pub(super) variables: Vec<u32>,
+    pub(super) variable_kinds: HashMap<u32, Kind>,
     pub(super) constraints: Vec<ClassConstraint>,
     pub(super) ty: InferType,
 }
@@ -19,6 +26,7 @@ impl Scheme {
     pub(super) fn monomorphic(ty: InferType) -> Self {
         Self {
             variables: Vec::new(),
+            variable_kinds: HashMap::new(),
             constraints: Vec::new(),
             ty,
         }
@@ -117,6 +125,11 @@ pub(super) enum WantedSolution {
         parent: Box<WantedConstraint>,
         field: String,
     },
+    /// A dictionary parameter the declaration abstracts for a constraint it could
+    /// not discharge. The constraint stays in the declaration's scheme, and the
+    /// body's evidence is this parameter, so the body and the scheme name one
+    /// dictionary rather than two elaborations of the same class.
+    Abstracted(LocalId),
     Coercible {
         source: InferType,
         target: InferType,

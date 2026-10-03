@@ -27,6 +27,12 @@ pub enum TypeCheckErrorKind {
     /// A constraint still mentions variables that neither the result type nor
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
+    /// A recursive declaration has constraints it cannot discharge, and
+    /// generalizing them would admit polymorphic recursion over a constraint the
+    /// recursive uses never proved. `purs` raises this in
+    /// `TypeChecker.Types.typesOf`, where it is the counterpart of retaining a
+    /// non-recursive group's residual constraints.
+    CannotGeneralizeRecursiveFunction,
     InvalidCoercibleInstanceDeclaration,
     /// An instance head the solver cannot match against, such as one that
     /// contains a type wildcard. `purs` raises this in
@@ -107,6 +113,9 @@ impl TypeCheckErrorKind {
             TypeCheckErrorKind::MissingInstanceMethod => "MissingClassMember",
             TypeCheckErrorKind::OverlappingInstances => "OverlappingInstances",
             TypeCheckErrorKind::AmbiguousConstraint => "AmbiguousTypeVariables",
+            TypeCheckErrorKind::CannotGeneralizeRecursiveFunction => {
+                "CannotGeneralizeRecursiveFunction"
+            }
             TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration => {
                 "InvalidCoercibleInstanceDeclaration"
             }

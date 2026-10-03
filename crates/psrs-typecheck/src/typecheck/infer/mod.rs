@@ -74,7 +74,7 @@ impl Checker {
                 let field = self.elaborate_type(field, &mut variables);
                 ty = arrow(field, ty);
             }
-            let scheme = self.generalize(&ty, &[], TOP_LEVEL);
+            let scheme = self.generalize(&[], &ty, &[], TOP_LEVEL);
             self.scope.globals.insert(constructor.symbol, scheme);
         }
     }
@@ -376,7 +376,7 @@ impl Checker {
                 }
             }
             for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-                let scheme = checker.generalize(&inferred.binder.scheme.ty, &[], outer_level);
+                let scheme = checker.generalize(&[], &inferred.binder.scheme.ty, &[], outer_level);
                 inferred.binder.scheme = scheme.clone();
                 checker.scope.locals.insert(binding.binder.id, scheme);
             }
