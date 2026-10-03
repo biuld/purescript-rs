@@ -1,11 +1,45 @@
+use super::super::prim::{PrimitiveDispatch, primitive_rule_precedes_givens};
 use super::super::unify::substitute;
 use super::super::*;
 use super::fundeps::collect_infer_variables;
 
 /// The maximum instance-context search depth. Recursive instances increase the
 /// structure of the wanted types, so a finite bound terminates every search
-/// and reports a bounded failure rather than looping.
+/// and reports a bounded failure rather than looping. A primitive rule's
+/// deferral re-entry shares this bound, because re-entering wanted solving is
+/// the same search.
 const MAX_SOLVE_DEPTH: usize = 64;
+
+/// How deep one search over wanted constraints is.
+///
+/// This is threaded rather than carried in solver state, so a retained
+/// constraint keeps no search history and one declaration's constraints do not
+/// see another's. A primitive deferral re-entry is one level deeper than the
+/// obligation that deferred it, which is what bounds a rule's chain.
+#[derive(Clone, Copy)]
+pub(in crate::typecheck) struct SolveDepth {
+    depth: usize,
+}
+
+impl SolveDepth {
+    /// The search one wanted constraint starts.
+    pub(in crate::typecheck) fn new() -> Self {
+        Self { depth: 0 }
+    }
+
+    /// The search one level deeper, for an instance context or a re-entered
+    /// obligation.
+    pub(in crate::typecheck) fn deeper(self) -> Self {
+        Self {
+            depth: self.depth + 1,
+        }
+    }
+
+    /// Whether this search is still within the bound.
+    fn within_bound(self) -> bool {
+        self.depth <= MAX_SOLVE_DEPTH
+    }
+}
 
 impl Checker {
     /// Solves every unsolved wanted constraint against the current givens and
@@ -42,8 +76,9 @@ impl Checker {
                     .collect::<Vec<_>>();
                 let errors_before = self.state.errors.len();
                 let givens = constraint.givens.clone();
-                let found = self
-                    .with_given_chain(givens, |checker| checker.solve_constraint(&constraint, 0));
+                let found = self.with_given_chain(givens, |checker| {
+                    checker.solve_constraint(&constraint, SolveDepth::new())
+                });
                 constraint.solution = found;
                 let reported_resolution_error =
                     self.state.errors[errors_before..].iter().any(|error| {
@@ -65,49 +100,70 @@ impl Checker {
             }
             solved.push(constraint);
         }
+        // A primitive rule's deferral is re-queued during solving, so it appended
+        // to the wanted list while the list above was being walked. Appending
+        // after it keeps the index every retained constraint's evidence refers to
+        // unchanged, and keeps `wanted_start` pointing at this declaration's own
+        // constraints.
+        let requeued = std::mem::take(&mut self.state.wanted);
         self.state.wanted = solved;
+        self.state.wanted.extend(requeued);
         if let Some(result) = result {
             self.check_ambiguity(result, start);
         }
     }
 
-    /// Searches givens, then superclass projections, then instances for a
-    /// dictionary proving `constraint`. An instance's context is solved
-    /// recursively before the instance is selected.
-    fn solve_constraint(
+    /// Solves one wanted constraint, consulting givens, the primitive rule
+    /// table, and instance search in that order.
+    ///
+    /// The order is the one the primitive design fixes, and the one place it
+    /// varies is where a `Proof` member's rule is consulted:
+    /// [`primitive_rule_precedes_givens`] is the predicate, and it is false for
+    /// every other member. A `Proof` member's evidence is a checked boundary
+    /// rather than a dictionary, so a matching given cannot supply it — THIR
+    /// rejects a coercion whose evidence is not an explicit proof boundary — and
+    /// the rule has to derive the proof before the givens are consulted, which is
+    /// also what official solving does.
+    ///
+    /// An instance's context is solved recursively before the instance is
+    /// selected.
+    pub(in crate::typecheck) fn solve_constraint(
         &mut self,
         constraint: &WantedConstraint,
-        depth: usize,
+        depth: SolveDepth,
     ) -> Option<WantedSolution> {
-        if depth > MAX_SOLVE_DEPTH {
+        if !depth.within_bound() {
             return None;
         }
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
-        if class_id == hir::TypeId::COERCIBLE {
-            if arguments.len() == 2
-                && (self.proves_coercible(&arguments[0], &arguments[1], constraint.span)
-                    || self.superclass_solution(constraint, depth).is_some())
-            {
-                return Some(WantedSolution::Coercible {
-                    source: arguments[0].clone(),
-                    target: arguments[1].clone(),
-                });
-            }
-            return None;
+        let solves_before_givens = primitive_rule_precedes_givens(class_id);
+        // The rule of a member that precedes the givens is also what reads them: a
+        // `Coercible` rule composes the assumed proofs itself through the shared
+        // given solver. Repeating the direct given lookup here would return the
+        // dictionary parameter, which is not the evidence a `Proof` member's
+        // boundary lowers to. A superclass path is a different mechanism, so it is
+        // still consulted, after the rule has declined.
+        if !solves_before_givens && let Some(solution) = self.given_solution(constraint, depth) {
+            return Some(solution);
         }
-        for (given, solution) in self.scope.givens.clone() {
-            if given.class_id == class_id
-                && self.constraint_arguments_match_or_unify(
-                    &given.arguments,
-                    &arguments,
-                    constraint.span,
-                )
-            {
-                return Some(solution);
-            }
+        match self.solve_primitive(constraint, depth) {
+            PrimitiveDispatch::None => {}
+            PrimitiveDispatch::Solved(solution) => return Some(solution),
+            // The rule reported the obligation itself, under an official code. A
+            // second diagnostic here would be the same rejection twice.
+            PrimitiveDispatch::Reported => return None,
+            // A deferral discharges the obligation only when the rule decided part
+            // of it and the re-queued obligations carry the rest. With no evidence
+            // there is nothing to keep, so the obligation continues into the
+            // ordinary paths and is reported there if nothing supplies it.
+            PrimitiveDispatch::Deferred {
+                evidence: Some(solution),
+            } => return Some(solution),
+            PrimitiveDispatch::Deferred { evidence: None } => {}
         }
-        if let Some(solution) = self.superclass_solution(constraint, depth) {
+        if solves_before_givens && let Some(solution) = self.superclass_solution(constraint, depth)
+        {
             return Some(solution);
         }
         let mut selected = self.select_instance_groups(class_id, &arguments);
@@ -135,12 +191,33 @@ impl Checker {
         self.solve_instance(&instance, &mapping, constraint, depth)
     }
 
+    /// The evidence a lexical given supplies for `constraint`, or the evidence a
+    /// superclass projection from one does.
+    fn given_solution(
+        &mut self,
+        constraint: &WantedConstraint,
+        depth: SolveDepth,
+    ) -> Option<WantedSolution> {
+        for (given, solution) in self.scope.givens.clone() {
+            if given.class_id == constraint.class_id
+                && self.constraint_arguments_match_or_unify(
+                    &given.arguments,
+                    &constraint.arguments,
+                    constraint.span,
+                )
+            {
+                return Some(solution);
+            }
+        }
+        self.superclass_solution(constraint, depth)
+    }
+
     /// Derives a wanted superclass constraint from a given subclass dictionary
     /// and its superclass closure.
     fn superclass_solution(
         &mut self,
         wanted: &WantedConstraint,
-        depth: usize,
+        depth: SolveDepth,
     ) -> Option<WantedSolution> {
         for (given, solution) in self.scope.givens.clone() {
             if let Some(found) =
@@ -158,9 +235,9 @@ impl Checker {
         base_arguments: &[InferType],
         base_solution: WantedSolution,
         wanted: &WantedConstraint,
-        depth: usize,
+        depth: SolveDepth,
     ) -> Option<WantedSolution> {
-        if depth > MAX_SOLVE_DEPTH {
+        if !depth.within_bound() {
             return None;
         }
         if !self.env.classes.contains_key(&base_class) {
@@ -186,9 +263,13 @@ impl Checker {
             {
                 return Some(solution);
             }
-            if let Some(found) =
-                self.superclass_path(edge.class_id, &edge.arguments, solution, wanted, depth + 1)
-            {
+            if let Some(found) = self.superclass_path(
+                edge.class_id,
+                &edge.arguments,
+                solution,
+                wanted,
+                depth.deeper(),
+            ) {
                 return Some(found);
             }
         }
@@ -227,7 +308,7 @@ impl Checker {
         instance: &InstanceInfo,
         mapping: &HashMap<u32, InferType>,
         constraint: &WantedConstraint,
-        depth: usize,
+        depth: SolveDepth,
     ) -> Option<WantedSolution> {
         let mut context = Vec::with_capacity(instance.context.len());
         for child in &instance.context {
@@ -238,7 +319,7 @@ impl Checker {
                 .collect::<Vec<_>>();
             let mut wanted = self.build_constraint(child.class_id, arguments, child.span);
             let errors_before = self.state.errors.len();
-            let Some(solution) = self.solve_constraint(&wanted, depth + 1) else {
+            let Some(solution) = self.solve_constraint(&wanted, depth.deeper()) else {
                 let has_nested_diagnostic =
                     self.state.errors[errors_before..].iter().any(|error| {
                         matches!(

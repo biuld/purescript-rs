@@ -42,6 +42,7 @@ struct Seen {
     superclass: bool,
     instance: bool,
     coercible: bool,
+    primitive: bool,
 }
 
 fn collect(module: &psrs_thir::Module) -> Seen {
@@ -135,6 +136,7 @@ fn walk_evidence(evidence: &psrs_thir::Evidence, seen: &mut Seen) {
             }
         }
         EvidenceKind::Coercible { .. } => seen.coercible = true,
+        EvidenceKind::Primitive { .. } => seen.primitive = true,
     }
 }
 

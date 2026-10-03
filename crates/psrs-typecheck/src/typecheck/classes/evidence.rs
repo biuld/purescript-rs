@@ -411,6 +411,15 @@ impl Checker {
                 source_type: self.finalize_type(&source, span, interner, generics)?,
                 target_type: self.finalize_type(&target, span, interner, generics)?,
             },
+            // A `Prim` relation's dictionary erases, so what the evidence carries
+            // is the decision: the arguments the rule fixed, finalized through the
+            // shared finalizer so they are the arguments the constraint now has.
+            WantedSolution::Primitive { arguments } => thir::EvidenceKind::Primitive {
+                arguments: arguments
+                    .iter()
+                    .map(|argument| self.finalize_type(argument, span, interner, generics))
+                    .collect::<Option<Vec<_>>>()?,
+            },
         })
     }
 }

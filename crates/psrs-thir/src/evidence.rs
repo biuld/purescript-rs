@@ -43,4 +43,9 @@ pub enum EvidenceKind {
         source_type: TypeId,
         target_type: TypeId,
     },
+    /// A `Prim` relation's dictionary: an ordinary dictionary node that erases,
+    /// carrying the arguments the rule decided rather than a constructor to
+    /// apply. A `Prim` relation has no members, so its dictionary is empty and
+    /// the decision it made is what the evidence records.
+    Primitive { arguments: Vec<TypeId> },
 }
