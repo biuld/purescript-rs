@@ -48,7 +48,8 @@ fn scan_expr(expression: &hir::Expr, max: &mut Option<u32>) {
             scan_expr(function, max);
             scan_expr(argument, max);
         }
-        hir::ExprKind::Typed { expression, .. } => scan_expr(expression, max),
+        hir::ExprKind::Typed { expression, .. }
+        | hir::ExprKind::TypeApplication { expression, .. } => scan_expr(expression, max),
         hir::ExprKind::Operator { left, right, .. } => {
             scan_expr(left, max);
             scan_expr(right, max);

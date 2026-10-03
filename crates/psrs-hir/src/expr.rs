@@ -57,6 +57,14 @@ pub enum ExprKind {
         expression: Box<Expr>,
         ty: Type,
     },
+    /// A visible type application `e @T`, with the written type already
+    /// resolved. The checker substitutes it for the quantifier the expression
+    /// binds at this position, so like `Typed` the node does not survive into
+    /// Typed Core.
+    TypeApplication {
+        expression: Box<Expr>,
+        ty: Type,
+    },
     Operator {
         operator: SymbolId,
         operator_span: TextRange,

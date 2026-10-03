@@ -37,6 +37,9 @@ pub(super) fn visit_expr_patterns<'a>(expression: &'a Expr, output: &mut Vec<&'a
         | ExprKind::Typed {
             expression: body, ..
         }
+        | ExprKind::TypeApplication {
+            expression: body, ..
+        }
         | ExprKind::Negate {
             expression: body, ..
         }
@@ -120,6 +123,9 @@ pub(super) fn visit_expr_guards<'a>(expression: &'a Expr, output: &mut Vec<&'a G
             expression: body, ..
         }
         | ExprKind::Typed {
+            expression: body, ..
+        }
+        | ExprKind::TypeApplication {
             expression: body, ..
         }
         | ExprKind::Negate {

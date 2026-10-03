@@ -144,7 +144,30 @@ pub(crate) fn lower_type(expression: cst::TypeExpr) -> Result<Type, LowerError> 
             tail: None,
         },
         CstTypeExprKind::Wildcard(_) => TypeKind::Wildcard,
-        CstTypeExprKind::Hole(_) | CstTypeExprKind::PrefixOperator { .. } => {
+        CstTypeExprKind::PrefixOperator { operator, operand } => {
+            // The grammar admits any operator token here, and the only prefix
+            // form the type language defines is negation of a type-level
+            // integer literal. `- 1` is therefore the negative literal `-1` on
+            // the shared spine, carried by the literal's own text exactly as
+            // `1` is; it is not a wrapper the later stages have to see
+            // through. Any other prefix operator has no meaning in the type
+            // language and is reported rather than approximated.
+            let operand = lower_type(*operand)?;
+            let TypeKind::Integer(literal) = operand.kind else {
+                return Err(LowerError::new(
+                    span,
+                    "a prefix operator in a type must negate a type-level integer",
+                ));
+            };
+            if operator.text != "-" {
+                return Err(LowerError::new(
+                    operator.span,
+                    "only unary minus is a prefix operator in the type language",
+                ));
+            }
+            TypeKind::Integer(format!("-{literal}"))
+        }
+        CstTypeExprKind::Hole(_) => {
             return Err(LowerError::new(
                 span,
                 "this type syntax is not supported yet",

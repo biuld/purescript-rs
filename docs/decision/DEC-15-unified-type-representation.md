@@ -61,12 +61,19 @@ Type = Variable
 Typed Core omits inference-only nodes such as `TUnknown` and wildcards; THIR may
 retain them only where P5 still needs them, never past the checked boundary.
 
-PureScript 0.15.16 has no explicit source syntax for supplying kind arguments.
-Its kind checker inserts internal `KindApp` nodes when an ordinary type
-application instantiates a polymorphic kind. This type spine omits
-`KindApplication`; the kind solver performs that instantiation implicitly, so
-the omission is not a source-compatibility gap. Revisit the node if a future
-source form needs kind arguments to remain explicit past kind checking.
+PureScript 0.15.16 has no kind-application node in its CST and no source form
+that applies a kind argument to a type constructor: its kind checker synthesizes
+`KindApp` when an ordinary type application instantiates a polymorphic kind.
+This type spine therefore omits `KindApplication`, and the kind solver performs
+that instantiation implicitly, which is what official does too.
+
+Three adjacent source forms *do* name kinds or types explicitly, and they are
+separate from kind application rather than instances of it. `forall @a b . t`
+binds `a` with an explicit kind, `t :: k` is a kind ascription, and `e @T` is a
+visible type application at an expression. Official keeps each of them
+distinct, and this spine keeps them distinct too: none is a `KindApplication`.
+Lowering them is frontend coverage tracked under FE-17, not a reason to add the
+node.
 
 - `Constructor` covers `Function`, `Record`, `Array`, `Int`, `Number`,
   `Boolean`, `String`, `Char`, `Unit`, `Row`, and `User(HirTypeId)`.
