@@ -1,10 +1,11 @@
 //! `Prim.Symbol.Append` and `Prim.Symbol.Cons` as the rule table dispatches
 //! them.
 //!
-//! The cases here are the readings each relation has, each decline, and each
-//! definite failure, driven through `solve_primitive` so that the framework's
-//! own refusals are part of what is under test: a decision made on an unknown
-//! argument is bound through the shared substitution, and an outcome the
+//! The cases here are the readings each relation has, each decline, each definite
+//! failure, and each contradiction, driven through `solve_primitive` so that the
+//! framework's own acceptance is part of what is under test: a decision stated for
+//! an unknown argument is bound by the framework's unification, a decision that
+//! contradicts the goal is rejected by that same unification, and an outcome the
 //! framework refuses is not the outcome the rule returned.
 //!
 //! Every case is pinned against `purs` 0.15.16. Both relations are declared by
@@ -39,13 +40,13 @@ fn solved(checker: &mut Checker, class_id: hir::TypeId, arguments: Vec<InferType
         .collect()
 }
 
-/// The relation's own reason for a rejection, checked under `code`.
+/// The shared unifier's reason for a rejection, checked under `code`.
 ///
-/// The reason names the relation through `display_constraint`, which renders the
-/// class from the module that declared it. The checker these cases run over is
-/// the empty module, so the class has no name there and the reason starts with
-/// `?`; `crates/psrs-driver/tests/prim_symbol.rs` pins the rendered diagnostic
-/// from a checked program.
+/// A relation's rule states what it decided and the framework unifies that against
+/// the goal, so the reason is the unifier's own `type mismatch: expected <decided>,
+/// found <wanted>` rather than a restatement naming the relation.
+/// `crates/psrs-driver/tests/prim_symbol.rs` pins the same reasons from a checked
+/// program.
 fn reason(
     checker: &mut Checker,
     class_id: hir::TypeId,
@@ -92,7 +93,8 @@ const CONS: hir::TypeId = hir::TypeId::PRIM_SYMBOL_CONS;
 
 /// `purs` raises the mismatch of its own decided argument when a decided symbol
 /// does not unify, and reports no instance when no reading of the arguments can
-/// produce one.
+/// produce one. Both codes come from the framework here: the mismatch from the
+/// shared unifier, the missing instance from instance search.
 const MISMATCH: &str = "TypesDoNotUnify";
 const NO_INSTANCE: &str = "NoInstanceFound";
 
@@ -132,7 +134,7 @@ fn append_concatenates_two_known_symbols() {
             MISMATCH,
             vec![symbol("a"), symbol("b"), symbol("ba")]
         ),
-        "? \"a\" \"b\" \"ba\" does not hold: the appended is \"ab\""
+        "type mismatch: expected \"ab\", found \"ba\""
     );
 }
 
@@ -260,7 +262,7 @@ fn cons_reports_a_split_that_contradicts_a_known_half() {
             MISMATCH,
             vec![symbol("ab"), symbol("c"), symbol("abc")]
         ),
-        "? \"ab\" \"c\" \"abc\" does not hold: the head is \"a\""
+        "type mismatch: expected \"a\", found \"ab\""
     );
 
     let mut checker = new_checker();
@@ -271,15 +273,14 @@ fn cons_reports_a_split_that_contradicts_a_known_half() {
             MISMATCH,
             vec![symbol("a"), symbol("bc"), symbol("a")]
         ),
-        "? \"a\" \"bc\" \"a\" does not hold: the tail is \"\""
+        "type mismatch: expected \"\", found \"bc\""
     );
 }
 
 /// A split that decides one half and contradicts the other still fails, and the
-/// binding is what lets the framework honour the report: it reads a `Failed` as
-/// impossible only once every argument is determined. `purs` unifies the halves
-/// it computed with the wanted ones in the same order, and rejects `Cons h "bc"
-/// "ab"` the same way.
+/// half it bound is what the framework got the first half of the check from.
+/// `purs` unifies the halves it computed with the wanted ones in the same order,
+/// and rejects `Cons h "bc" "ab"` the same way.
 #[test]
 fn cons_reports_a_split_that_binds_the_head_and_contradicts_the_tail() {
     let mut checker = checker();
@@ -291,7 +292,29 @@ fn cons_reports_a_split_that_binds_the_head_and_contradicts_the_tail() {
             MISMATCH,
             vec![head, symbol("bc"), symbol("ab")]
         ),
-        "? \"a\" \"bc\" \"ab\" does not hold: the tail is \"b\""
+        "type mismatch: expected \"b\", found \"bc\""
+    );
+}
+
+/// The same split, with the contradiction at the position the rule decided *first*
+/// and the other half still open. The two halves are decided together, so a rule
+/// that reported the failure itself had it refused as "not determined" — the
+/// framework reads a `Failed` as impossible only once every argument is — and the
+/// obligation reached instance search as a missing instance. `purs` unifies the
+/// computed halves against the wanted ones in order, so it rejects
+/// `Cons "ab" t "a"` at the head whatever `t` is.
+#[test]
+fn cons_reports_a_split_that_contradicts_the_head_while_the_tail_is_open() {
+    let mut checker = checker();
+    let tail = checker.fresh();
+    assert_eq!(
+        reason(
+            &mut checker,
+            CONS,
+            MISMATCH,
+            vec![symbol("ab"), tail, symbol("a")]
+        ),
+        "type mismatch: expected \"a\", found \"ab\""
     );
 }
 

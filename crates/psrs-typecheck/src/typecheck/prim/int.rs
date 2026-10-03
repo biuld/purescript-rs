@@ -13,17 +13,19 @@
 //!   known product.
 //! - `ToString` decides forwards only, from a known integer.
 //!
-//! A decided argument is bound through the shared `Checker::unify`, never by
-//! assigning the literal to the wanted argument directly, so the constraint's
-//! arguments become what the rule decided through the one substitution every
-//! other part of inference reads. That is also what makes the diagnostic for a
-//! disagreement the right one: official solving unifies a rule's decided
+//! A decided argument is *stated* in the relation's dictionary rather than
+//! assigned to the wanted argument, and the framework unifies a dictionary's own
+//! arguments against the goal's — one operation, through the one substitution
+//! every other part of inference reads. That is also what makes the diagnostic for
+//! a disagreement the right one: official solving unifies a rule's decided
 //! arguments against the arguments the goal wanted, so `IntToString1.purs` is
 //! rejected by ordinary type equality under `TypesDoNotUnify` rather than by a
-//! rule that inspected the wanted string. For the same reason none of these
-//! rules returns `Failed`: official has no failure answer for them, and a
-//! `NoInstanceFound` the suite does not expect would be a worse guess than
-//! declining.
+//! rule that inspected the wanted string, and a rigid argument in the decided
+//! position is rejected by the same binder as the signature mismatch official's
+//! `unifyTypes` makes of a skolem. For the same reason none of these rules
+//! returns `Failed`: an answer that contradicts the goal is not the rule's to
+//! notice, and a `NoInstanceFound` the suite does not expect would be a worse
+//! guess than declining.
 //!
 //! The arguments arrive as ordinary `InferType` values through `PrimitiveArgs`,
 //! so a type-level integer is read as [`InferType::TypeLevelInt`] off the shared
@@ -121,7 +123,7 @@ fn solve_add(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     let Some((position, value)) = add_decides(left, right, sum) else {
         return PrimitiveOutcome::Undecided;
     };
-    decide(checker, args, position, InferType::TypeLevelInt(value))
+    decide(&arguments, position, InferType::TypeLevelInt(value))
 }
 
 /// Decides `Mul left right product`.
@@ -141,7 +143,7 @@ fn solve_mul(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
     let Some(product) = left.checked_mul(right) else {
         return PrimitiveOutcome::Undecided;
     };
-    decide(checker, args, PRODUCT, InferType::TypeLevelInt(product))
+    decide(&arguments, PRODUCT, InferType::TypeLevelInt(product))
 }
 
 /// Decides `ToString int string`.
@@ -159,44 +161,31 @@ fn solve_to_string(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutc
         return PrimitiveOutcome::Undecided;
     };
     decide(
-        checker,
-        args,
+        &arguments,
         RIGHT,
         InferType::TypeLevelString(value.to_string()),
     )
 }
 
-/// Binds the argument at `position` to what a direction decided, through the
-/// shared substitution, and returns the relation's evidence.
+/// Puts the literal a direction decided at the position it determines, and
+/// returns the relation's evidence.
 ///
-/// The binding goes through [`Checker::unify`] rather than through a direct
-/// assignment so that the decision is one the rest of inference can see, and so
-/// that an argument which disagrees with the decision is reported by ordinary
-/// type equality: that is how `Prim.Int.ToString 1 "a"` becomes a
-/// `TypesDoNotUnify` on two type-level strings, and how a rigid argument in the
-/// decided position is rejected as a signature mismatch, which is what official
-/// solving's `unifyTypes` over a rule's decided arguments does.
-///
-/// The evidence records the arguments the obligation *then* has rather than the
-/// ones the rule intended, so the recorded decision and the constraint cannot
-/// drift apart. The framework reads the substitution again to decide whether the
-/// rule made progress, so the two cannot disagree about what was decided either.
-fn decide(
-    checker: &mut Checker,
-    args: &PrimitiveArgs,
-    position: usize,
-    value: InferType,
-) -> PrimitiveOutcome {
-    let span = args.span();
-    let arguments = args.resolved(checker);
-    let Some(wanted) = arguments.get(position).cloned() else {
+/// The decision is *stated*, not applied. This is official's dictionary, whose
+/// `tcdInstanceTypes` carry the decided literal at the position the rule decides
+/// and the goal's own argument everywhere else, and the framework unifies those
+/// against the goal's arguments through [`Checker::unify`]. That is what binds the
+/// obligation when the argument is still unknown, so the constraint's arguments
+/// become what the rule decided through the one substitution every other part of
+/// inference reads, and what reports an argument that disagrees with the decision
+/// under `TypesDoNotUnify`.
+fn decide(arguments: &[InferType], position: usize, value: InferType) -> PrimitiveOutcome {
+    if position >= arguments.len() {
         return PrimitiveOutcome::Undecided;
-    };
-    checker.unify(value, wanted, span);
+    }
+    let mut decided = arguments.to_vec();
+    decided[position] = value;
     PrimitiveOutcome::Solved {
-        evidence: PrimitiveEvidence::Dictionary {
-            arguments: args.resolved(checker),
-        },
+        evidence: PrimitiveEvidence::Dictionary { arguments: decided },
         deferred: Vec::new(),
     }
 }
