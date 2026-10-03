@@ -25,10 +25,10 @@ impl Checker {
                         span,
                     ),
                     (true, false) => {
-                        self.bind_variable(b, InferType::Variable(a), span);
+                        self.bind_type_variable(b, InferType::Variable(a), span);
                     }
                     (false, _) => {
-                        self.bind_variable(a, InferType::Variable(b), span);
+                        self.bind_type_variable(a, InferType::Variable(b), span);
                     }
                 }
             }
@@ -39,7 +39,7 @@ impl Checker {
                 self.signature_mismatch(ty, InferType::Variable(variable), span);
             }
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
-                self.bind_variable(variable, ty, span);
+                self.bind_type_variable(variable, ty, span);
             }
             (
                 InferType::ForAll {
@@ -120,7 +120,12 @@ impl Checker {
     /// detect progress. The kind check is part of the same operation as the
     /// occurs, escape, and level rules: whether an operation is kind-corrected
     /// must not depend on which module reached it.
-    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
+    pub(super) fn bind_type_variable(
+        &mut self,
+        variable: u32,
+        ty: InferType,
+        span: TextRange,
+    ) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
             self.state.errors.push(TypeCheckError::new(

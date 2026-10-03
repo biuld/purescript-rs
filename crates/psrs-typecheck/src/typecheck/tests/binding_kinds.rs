@@ -93,7 +93,7 @@ fn refuses_a_row_valued_binding_at_the_kind_of_a_plain_type() {
 
     let span = psrs_span::TextRange::new(3, 6);
     assert!(
-        !checker.bind_variable(variable, int(), span),
+        !checker.bind_type_variable(variable, int(), span),
         "a row may not be bound to a plain type"
     );
     assert_eq!(checker.state.errors.len(), 1);
@@ -118,7 +118,7 @@ fn accepts_a_row_valued_binding_at_the_kind_its_row_admits() {
     checker.record_variable_kind(variable, row_kind());
 
     let span = psrs_span::TextRange::new(3, 6);
-    assert!(checker.bind_variable(variable, InferType::RowEmpty, span));
+    assert!(checker.bind_type_variable(variable, InferType::RowEmpty, span));
     assert!(
         checker.state.errors.is_empty(),
         "{:?}",
@@ -137,7 +137,7 @@ fn records_a_binding_whose_kind_stays_a_fresh_unknown() {
     };
 
     let span = psrs_span::TextRange::new(3, 6);
-    assert!(checker.bind_variable(variable, int(), span));
+    assert!(checker.bind_type_variable(variable, int(), span));
     assert!(
         checker.state.errors.is_empty(),
         "{:?}",
@@ -161,7 +161,7 @@ fn leaves_a_binding_alone_when_the_environment_supplied_no_kind() {
     let unchecked = InferType::Constructor(TypeConstructor::User(TypeId::new(ModuleId(0), 7)));
 
     let span = psrs_span::TextRange::new(3, 6);
-    assert!(checker.bind_variable(variable, unchecked, span));
+    assert!(checker.bind_type_variable(variable, unchecked, span));
     assert!(
         checker.state.errors.is_empty(),
         "{:?}",
