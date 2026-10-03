@@ -10,12 +10,10 @@
 -- |
 -- | **Deliberately absent**, with the reason recorded rather than approximated:
 -- |
--- | - `assertEqual` and `assertEqual'` compare with `Eq` and print with `Show`,
--- |   and no module in this library declares either class yet. Providing them
--- |   would mean inventing a second notion of equality or of stringification,
--- |   or special-casing the types the corpus happens to compare. Both classes
--- |   land with the `Prelude` class surface (#94); the derived `Eq` rule also
--- |   requires the class to be declared in `Data.Eq`, which is #124.
+-- | - `assertEqual` and `assertEqual'` compare with `Eq` and print with `Show`.
+-- |   Both classes are declared (`Data.Eq`, `Data.Show`); the functions stay
+-- |   with #95, which owns the rest of this module. Providing them here would
+-- |   take that slice's exports. `assertThrows` is a separate gap, below.
 -- | - `assertThrows` and `assertThrows'` need to observe that evaluating an
 -- |   argument failed. A trap is not observable from inside the guest without
 -- |   the Wasm exceptions proposal, which is outside the target profile
