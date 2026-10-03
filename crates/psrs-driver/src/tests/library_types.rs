@@ -4,6 +4,7 @@ use super::*;
 fn runs_library_maybe_and_either_by_casing_on_just_and_left() {
     let source = "\
 module Main where
+import Prelude
 import Data.Maybe
 import Data.Either
 

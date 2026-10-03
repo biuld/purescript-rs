@@ -86,11 +86,11 @@ g m = case m of
         "{errors:?}"
     );
 }
-
 #[test]
 fn compiles_a_non_parameterized_field_constructor_case() {
     let source = "\
 module Main where
+import Prelude
 data Pair = Pair Int Int | Empty
 sum p = case p of
   Pair x y -> x + y
@@ -246,11 +246,11 @@ value = result where
 ";
     assert!(check_source("Main.purs", source).is_ok());
 }
-
 #[test]
 fn typechecks_a_recursive_where_binding() {
     let source = "\
 module Main where
+import Prelude
 count :: Int
 count = go 3 0 where
   go n acc = if n == 0 then acc else go (n - 1) (acc + 1)

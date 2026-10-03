@@ -3,6 +3,9 @@
 Prelude
 Data.Function
 Data.Semigroup
+Data.Eq
+Data.Ord
+Data.Semiring
 Effect
 Effect.Console
 Test.Assert

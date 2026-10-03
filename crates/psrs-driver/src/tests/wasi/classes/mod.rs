@@ -24,6 +24,7 @@ main = convert 42
 
 const DIRECT_METHOD_SOURCE: &str = r#"
 module Main where
+import Prelude
 
 class ToInt a where
   toInt :: a -> Int
@@ -308,6 +309,7 @@ main = 0
 /// name to find it.
 const SUPERCLASS_CONSTRUCTED_ARGUMENT_SOURCE: &str = r#"
 module Main where
+import Prelude
 
 class Gamma a where
   gamma :: a -> Int

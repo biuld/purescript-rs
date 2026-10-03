@@ -381,10 +381,14 @@ its schemes, and each representation's intrinsic module owns the per-operation
 verification, folding, and lowering. Core has no per-operation expression node and
 no scalar `Primitive`/`UnaryPrimitive` enum.
 
-One shortcut still stands in for the target boundary. The bootstrap binds the
-surface operators `+`, `==`, and `<` directly to the `Int` intrinsics, so the
-operator spelling is compiler-owned; the design moves those to library classes
-(`Semiring`, `Eq`, `Ord`) over internal primitives, which is the remaining
+The surface operators `+`, `*`, `==`, `/=`, `<`, `<=`, `>`, and `>=` are now
+library classes — `Data.Semiring`, `Data.Eq`, `Data.Ord` — over internal
+primitives, and `Prelude` re-exports them, matching official PureScript. A source
+that uses them imports `Prelude`. Each instance eta-expands its intrinsic
+(`eq x y = intEq x y`) because a first-class intrinsic reference is not lowerable.
+
+The remaining surface operators `-`, `/`, and `%` are still bound to the `Int`
+intrinsics directly. `Data.Ring` and the Euclidean division class are the
 follow-up.
 
 ## References
