@@ -50,6 +50,7 @@ impl Checker {
     ) -> Vec<SelectedInstance> {
         let visible = self.instance_candidate_modules(class_id, arguments);
         let mut instances = self
+            .env
             .instances
             .iter()
             .filter(|instance| {
@@ -66,6 +67,7 @@ impl Checker {
         });
 
         let fundeps = self
+            .env
             .classes
             .get(&class_id)
             .map(|class| class.fundeps.as_slice())

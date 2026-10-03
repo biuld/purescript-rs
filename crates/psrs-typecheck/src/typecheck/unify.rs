@@ -2,12 +2,13 @@ use super::*;
 
 impl Checker {
     pub(super) fn fresh(&mut self) -> InferType {
-        let id = self.next_variable;
-        self.next_variable += 1;
-        self.levels.insert(id, self.level);
-        let kind = self.next_kind_variable;
-        self.next_kind_variable += 1;
-        self.infer_variable_kinds
+        let id = self.state.next_variable;
+        self.state.next_variable += 1;
+        self.state.levels.insert(id, self.state.level);
+        let kind = self.state.next_kind_variable;
+        self.state.next_kind_variable += 1;
+        self.state
+            .variable_kinds
             .insert(id, psrs_kind::Kind::Variable(kind));
         InferType::Variable(id)
     }
@@ -18,7 +19,7 @@ impl Checker {
         match (left, right) {
             (InferType::Variable(a), InferType::Variable(b)) if a == b => {}
             (InferType::Variable(a), InferType::Variable(b)) => {
-                match (self.rigid.contains(&a), self.rigid.contains(&b)) {
+                match (self.state.rigid.contains(&a), self.state.rigid.contains(&b)) {
                     (true, true) => self.signature_mismatch(
                         InferType::Variable(a),
                         InferType::Variable(b),
@@ -32,10 +33,10 @@ impl Checker {
                     }
                 }
             }
-            (InferType::Variable(variable), ty) if self.rigid.contains(&variable) => {
+            (InferType::Variable(variable), ty) if self.state.rigid.contains(&variable) => {
                 self.signature_mismatch(InferType::Variable(variable), ty, span);
             }
-            (ty, InferType::Variable(variable)) if self.rigid.contains(&variable) => {
+            (ty, InferType::Variable(variable)) if self.state.rigid.contains(&variable) => {
                 self.signature_mismatch(ty, InferType::Variable(variable), span);
             }
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
@@ -103,7 +104,7 @@ impl Checker {
             (expected, actual) => {
                 let expected = self.display_type(&expected);
                 let actual = self.display_type(&actual);
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("type mismatch: expected {expected}, found {actual}"),
@@ -118,7 +119,7 @@ impl Checker {
     pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OccursCheck,
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
@@ -127,9 +128,14 @@ impl Checker {
         } else if self.reject_skolem_escape(variable, &ty, span) {
             false
         } else {
-            let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
+            let level = self
+                .state
+                .levels
+                .get(&variable)
+                .copied()
+                .unwrap_or(TOP_LEVEL);
             self.adjust_levels(&ty, level);
-            self.substitutions.insert(variable, ty);
+            self.state.substitutions.insert(variable, ty);
             true
         }
     }
@@ -137,7 +143,7 @@ impl Checker {
     fn signature_mismatch(&mut self, expected: InferType, found: InferType, span: TextRange) {
         let expected_display = self.display_type(&expected);
         let found_display = self.display_type(&found);
-        self.errors.push(TypeCheckError::new(
+        self.state.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::TypeMismatch,
             span,
             format!("signature mismatch: expected {expected_display}, found {found_display}"),
@@ -160,6 +166,7 @@ impl Checker {
                 TypeConstructor::Char => "Char".into(),
                 TypeConstructor::Unit => "Unit".into(),
                 TypeConstructor::User(id) => self
+                    .env
                     .type_names
                     .get(&id)
                     .cloned()
@@ -256,6 +263,7 @@ impl Checker {
     pub(super) fn resolve_type(&self, ty: InferType) -> InferType {
         match ty {
             InferType::Variable(variable) => self
+                .state
                 .substitutions
                 .get(&variable)
                 .map(|ty| self.resolve_type(ty.clone()))
@@ -298,7 +306,7 @@ impl Checker {
     fn adjust_levels_excluding(&mut self, ty: &InferType, max_level: u32, bound: &HashSet<u32>) {
         match ty {
             InferType::Variable(variable) if !bound.contains(variable) => {
-                if let Some(level) = self.levels.get_mut(variable)
+                if let Some(level) = self.state.levels.get_mut(variable)
                     && *level > max_level
                 {
                     *level = max_level;
@@ -346,7 +354,7 @@ impl Checker {
                 Some(interner.intern(Type::Variable(TypeVariableId(variable))))
             }
             InferType::Variable(variable) => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnconstrainedType,
                     span,
                     format!("cannot infer a monomorphic type for _T{variable}"),

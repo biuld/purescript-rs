@@ -13,7 +13,8 @@ impl Checker {
     /// program. Constructors this module already declared keep their entry.
     fn import_known_types(&mut self, known_types: &[hir::TypeDeclaration]) {
         for declaration in known_types {
-            self.type_names
+            self.env
+                .type_names
                 .entry(declaration.id)
                 .or_insert_with(|| declaration.name.clone());
             if !matches!(
@@ -28,7 +29,8 @@ impl Checker {
                 .map(|parameter| parameter.name.clone())
                 .collect::<Vec<_>>();
             for (tag, constructor) in declaration.constructors.iter().enumerate() {
-                self.constructor_info
+                self.env
+                    .constructor_info
                     .entry(constructor.symbol)
                     .or_insert_with(|| ConstructorInfo {
                         symbol: constructor.symbol,
@@ -45,7 +47,8 @@ impl Checker {
     /// Registers each data and newtype constructor as a polymorphic value whose
     /// type is its fields followed by the declared result type.
     fn register_constructors(&mut self) {
-        let constructors: Vec<ConstructorInfo> = self.constructor_info.values().cloned().collect();
+        let constructors: Vec<ConstructorInfo> =
+            self.env.constructor_info.values().cloned().collect();
         for constructor in constructors {
             let mut variables = HashMap::new();
             let mut arguments = Vec::new();
@@ -54,9 +57,9 @@ impl Checker {
             for (index, parameter) in constructor.parameters.iter().enumerate() {
                 let variable = self.fresh();
                 if let InferType::Variable(id) = variable {
-                    self.rigid.insert(id);
+                    self.state.rigid.insert(id);
                     if let Some(kind) = parameter_kinds.get(index) {
-                        self.infer_variable_kinds.insert(id, kind.clone());
+                        self.state.variable_kinds.insert(id, kind.clone());
                     }
                 }
                 variables.insert(parameter.clone(), variable.clone());
@@ -72,14 +75,14 @@ impl Checker {
                 ty = arrow(field, ty);
             }
             let scheme = self.generalize(&ty, &[], TOP_LEVEL);
-            self.globals.insert(constructor.symbol, scheme);
+            self.scope.globals.insert(constructor.symbol, scheme);
         }
     }
 
     pub(super) fn infer_expr(&mut self, expression: &hir::Expr) -> Option<InferredExpr> {
         let span = expression.span;
         let (kind, ty) = match &expression.kind {
-            hir::ExprKind::Local(id) => match self.locals.get(id).cloned() {
+            hir::ExprKind::Local(id) => match self.scope.locals.get(id).cloned() {
                 Some(scheme) => {
                     let (constraints, ty) = self.instantiate_use(&scheme);
                     let base = InferredExpr {
@@ -91,7 +94,7 @@ impl Checker {
                     (applied.kind, applied.ty)
                 }
                 None => {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::InvalidHir,
                         span,
                         "local has no type environment entry",
@@ -100,12 +103,12 @@ impl Checker {
                 }
             },
             hir::ExprKind::Global(symbol) => {
-                if let Some((class_id, method)) = self.class_methods.get(symbol).cloned() {
+                if let Some((class_id, method)) = self.env.class_methods.get(symbol).cloned() {
                     return self
                         .infer_method_use(class_id, method, span)
                         .map(|(kind, ty)| InferredExpr { kind, ty, span });
                 }
-                if let Some(scheme) = self.globals.get(symbol).cloned() {
+                if let Some(scheme) = self.scope.globals.get(symbol).cloned() {
                     let (constraints, ty) = self.instantiate_use(&scheme);
                     let base = InferredExpr {
                         kind: InferredExprKind::Global(*symbol),
@@ -114,7 +117,7 @@ impl Checker {
                     };
                     let applied = self.apply_constraints(base, constraints, span);
                     (applied.kind, applied.ty)
-                } else if let Some(signature) = self.imported.get(symbol).cloned() {
+                } else if let Some(signature) = self.env.imported.get(symbol).cloned() {
                     let (constraints, ty) = self.elaborate_imported_constraints(&signature);
                     let base = InferredExpr {
                         kind: InferredExprKind::Global(*symbol),
@@ -124,7 +127,7 @@ impl Checker {
                     let applied = self.apply_constraints(base, constraints, span);
                     (applied.kind, applied.ty)
                 } else {
-                    let external = self.external_kinds.get(symbol).cloned();
+                    let external = self.env.external_kinds.get(symbol).cloned();
                     match external {
                         Some(ExternalKind::Intrinsic(Intrinsic::BoolTrue)) => (
                             InferredExprKind::Boolean(true),
@@ -142,9 +145,9 @@ impl Checker {
                             self.intrinsic_type(intrinsic)?,
                         ),
                         Some(ExternalKind::Wit { .. }) => {
-                            let Some(signature) = self.external_signatures.get(symbol).cloned()
+                            let Some(signature) = self.env.external_signatures.get(symbol).cloned()
                             else {
-                                self.errors.push(TypeCheckError::new(
+                                self.state.errors.push(TypeCheckError::new(
                                     TypeCheckErrorKind::InvalidHir,
                                     span,
                                     "WIT import has no declared type",
@@ -155,7 +158,7 @@ impl Checker {
                             (InferredExprKind::Global(*symbol), ty)
                         }
                         None => {
-                            self.errors.push(TypeCheckError::new(
+                            self.state.errors.push(TypeCheckError::new(
                                 TypeCheckErrorKind::InvalidHir,
                                 span,
                                 "global has no type or intrinsic declaration",
@@ -171,7 +174,7 @@ impl Checker {
                     InferType::Constructor(TypeConstructor::Int),
                 ),
                 Err(_) => {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
                         span,
                         format!("integer literal `{text}` is outside the signed 32-bit range"),
@@ -185,7 +188,7 @@ impl Checker {
                     InferType::Constructor(TypeConstructor::Number),
                 ),
                 Ok(_) | Err(_) => {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NumberOutOfRange,
                         span,
                         "number literal is not a valid Number",
@@ -252,7 +255,7 @@ impl Checker {
             hir::ExprKind::Operator { .. }
             | hir::ExprKind::OperatorChain { .. }
             | hir::ExprKind::OperatorSection { .. } => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnloweredOperator,
                     span,
                     "operator syntax must be lowered before type checking",
@@ -260,7 +263,7 @@ impl Checker {
                 return None;
             }
             hir::ExprKind::Negate { .. } => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnloweredOperator,
                     span,
                     "unary minus syntax must be lowered before type checking",
@@ -269,10 +272,11 @@ impl Checker {
             }
             hir::ExprKind::Lambda { binder, body } => {
                 let binder_ty = self.fresh();
-                self.locals
+                self.scope
+                    .locals
                     .insert(binder.id, Scheme::monomorphic(binder_ty.clone()));
                 let body = self.infer_expr(body);
-                self.locals.remove(&binder.id);
+                self.scope.locals.remove(&binder.id);
                 let body = body?;
                 let ty = arrow(binder_ty.clone(), body.ty.clone());
                 (
@@ -327,7 +331,7 @@ impl Checker {
                 branches,
             } => return self.infer_case(scrutinee, branches, span),
             hir::ExprKind::Guarded(_) => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::InvalidHir,
                     span,
                     "guarded expression survived P4 desugaring",
@@ -344,39 +348,45 @@ impl Checker {
         body: &hir::Expr,
         expected: Option<InferType>,
     ) -> Option<(InferredExprKind, InferType)> {
-        let outer_level = self.level;
-        self.level += 1;
-        let mut binders = Vec::with_capacity(bindings.len());
-        for binding in bindings {
-            let ty = self.fresh();
-            self.locals
-                .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
-            binders.push(InferredBinder {
-                binder: binding.binder.clone(),
-                scheme: Scheme::monomorphic(ty),
-            });
-        }
-        let mut inferred_bindings = Vec::with_capacity(bindings.len());
-        for (binding, binder) in bindings.iter().zip(binders) {
-            if let Some(value) = self.infer_expr(&binding.value) {
-                self.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
-                inferred_bindings.push(InferredBinding {
-                    binder,
-                    value,
-                    span: binding.span,
+        // The binding bodies are inferred one level deeper, so their unknowns are
+        // generalized against this level; the body is checked back at it.
+        let outer_level = self.state.level;
+        let (inferred_bindings, body) = self.in_nested_level(|checker| {
+            let mut binders = Vec::with_capacity(bindings.len());
+            for binding in bindings {
+                let ty = checker.fresh();
+                checker
+                    .scope
+                    .locals
+                    .insert(binding.binder.id, Scheme::monomorphic(ty.clone()));
+                binders.push(InferredBinder {
+                    binder: binding.binder.clone(),
+                    scheme: Scheme::monomorphic(ty),
                 });
             }
-        }
-        for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
-            let scheme = self.generalize(&inferred.binder.scheme.ty, &[], outer_level);
-            inferred.binder.scheme = scheme.clone();
-            self.locals.insert(binding.binder.id, scheme);
-        }
-        self.level = outer_level;
-        let body = self.infer_expr_with_expected(body, expected);
-        for binding in bindings {
-            self.locals.remove(&binding.binder.id);
-        }
+            let mut inferred_bindings = Vec::with_capacity(bindings.len());
+            for (binding, binder) in bindings.iter().zip(binders) {
+                if let Some(value) = checker.infer_expr(&binding.value) {
+                    checker.unify(binder.scheme.ty.clone(), value.ty.clone(), binding.span);
+                    inferred_bindings.push(InferredBinding {
+                        binder,
+                        value,
+                        span: binding.span,
+                    });
+                }
+            }
+            for (binding, inferred) in bindings.iter().zip(inferred_bindings.iter_mut()) {
+                let scheme = checker.generalize(&inferred.binder.scheme.ty, &[], outer_level);
+                inferred.binder.scheme = scheme.clone();
+                checker.scope.locals.insert(binding.binder.id, scheme);
+            }
+            checker.state.level = outer_level;
+            let body = checker.infer_expr_with_expected(body, expected);
+            for binding in bindings {
+                checker.scope.locals.remove(&binding.binder.id);
+            }
+            (inferred_bindings, body)
+        });
         let body = body?;
         let ty = body.ty.clone();
         Some((

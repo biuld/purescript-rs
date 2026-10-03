@@ -71,8 +71,8 @@ impl KindState {
 
 impl Checker {
     pub(in crate::typecheck) fn fresh_kind(&mut self) -> Kind {
-        let variable = self.next_kind_variable;
-        self.next_kind_variable += 1;
+        let variable = self.state.next_kind_variable;
+        self.state.next_kind_variable += 1;
         Kind::Variable(variable)
     }
 
@@ -94,11 +94,13 @@ impl Checker {
                 Box::new(self.kind_from_hir(argument, scope)),
             ),
             hir::TypeKind::OperatorChain { .. } => {
-                self.errors.push(crate::typecheck::TypeCheckError::new(
-                    crate::typecheck::TypeCheckErrorKind::UnsupportedType,
-                    ty.span,
-                    "type operator chain reached type checking before P4",
-                ));
+                self.state
+                    .errors
+                    .push(crate::typecheck::TypeCheckError::new(
+                        crate::typecheck::TypeCheckErrorKind::UnsupportedType,
+                        ty.span,
+                        "type operator chain reached type checking before P4",
+                    ));
                 self.fresh_kind()
             }
             hir::TypeKind::Function { parameter, result } => Kind::Function(
@@ -130,15 +132,15 @@ impl Checker {
         id: hir::TypeId,
         arity: usize,
     ) -> Vec<Kind> {
-        let Some(scheme) = self.checked_kinds.kind(id).cloned() else {
+        let Some(scheme) = self.env.checked_kinds.kind(id).cloned() else {
             return (0..arity).map(|_| self.fresh_kind()).collect();
         };
         let mut state = KindState {
             substitutions: HashMap::new(),
-            next_variable: self.next_kind_variable,
+            next_variable: self.state.next_kind_variable,
         };
         let kind = instantiate_kind_scheme(&scheme, &mut state);
-        self.next_kind_variable = state.next_variable;
+        self.state.next_kind_variable = state.next_variable;
         let mut arguments = Vec::new();
         let mut current = kind;
         while let Kind::Function(argument, result) = current {
@@ -159,7 +161,7 @@ impl Checker {
     ) -> bool {
         let mut state = KindState {
             substitutions: HashMap::new(),
-            next_variable: self.next_kind_variable,
+            next_variable: self.state.next_kind_variable,
         };
         let Some(source_kind) = self.infer_kind(source, &mut state) else {
             return false;
@@ -168,9 +170,9 @@ impl Checker {
             return false;
         };
         let compatible = state.unify(source_kind, target_kind);
-        self.next_kind_variable = state.next_variable;
+        self.state.next_kind_variable = state.next_variable;
         if compatible {
-            for kind in self.infer_variable_kinds.values_mut() {
+            for kind in self.state.variable_kinds.values_mut() {
                 *kind = state.resolve(kind.clone());
             }
         }
@@ -181,12 +183,13 @@ impl Checker {
         let ty = self.resolve_type(ty.clone());
         match ty {
             InferType::Variable(variable) => Some(
-                self.infer_variable_kinds
+                self.state
+                    .variable_kinds
                     .get(&variable)
                     .cloned()
                     .unwrap_or_else(|| {
                         let kind = state.fresh();
-                        self.infer_variable_kinds.insert(variable, kind.clone());
+                        self.state.variable_kinds.insert(variable, kind.clone());
                         kind
                     }),
             ),
@@ -238,7 +241,7 @@ impl Checker {
             | TypeConstructor::Char
             | TypeConstructor::Unit => type_kind(),
             TypeConstructor::User(id) => {
-                let scheme = self.checked_kinds.kind(id)?.clone();
+                let scheme = self.env.checked_kinds.kind(id)?.clone();
                 instantiate_kind_scheme(&scheme, state)
             }
         })

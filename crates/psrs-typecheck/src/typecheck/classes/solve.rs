@@ -22,7 +22,7 @@ impl Checker {
         result: Option<&InferType>,
         wanted_start: usize,
     ) {
-        let mut wanted = std::mem::take(&mut self.wanted);
+        let mut wanted = std::mem::take(&mut self.state.wanted);
         let start = wanted_start.min(wanted.len());
         for constraint in &mut wanted[start..] {
             constraint.arguments = constraint
@@ -40,21 +40,23 @@ impl Checker {
                     .iter()
                     .map(|argument| self.resolve_type(argument.clone()))
                     .collect::<Vec<_>>();
-                let errors_before = self.errors.len();
-                let outer_givens = std::mem::replace(&mut self.givens, constraint.givens.clone());
-                let found = self.solve_constraint(&constraint, 0);
-                self.givens = outer_givens;
+                let errors_before = self.state.errors.len();
+                let givens = constraint.givens.clone();
+                let found = self
+                    .with_given_chain(givens, |checker| checker.solve_constraint(&constraint, 0));
                 constraint.solution = found;
-                let reported_resolution_error = self.errors[errors_before..].iter().any(|error| {
-                    matches!(
-                        error.kind,
-                        TypeCheckErrorKind::OverlappingInstances | TypeCheckErrorKind::NoInstance
-                    )
-                });
+                let reported_resolution_error =
+                    self.state.errors[errors_before..].iter().any(|error| {
+                        matches!(
+                            error.kind,
+                            TypeCheckErrorKind::OverlappingInstances
+                                | TypeCheckErrorKind::NoInstance
+                        )
+                    });
                 if constraint.solution.is_none() && !reported_resolution_error {
                     let rendered =
                         self.display_constraint(constraint.class_id, &constraint.arguments);
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NoInstance,
                         constraint.span,
                         format!("no instance for constraint {rendered}"),
@@ -63,7 +65,7 @@ impl Checker {
             }
             solved.push(constraint);
         }
-        self.wanted = solved;
+        self.state.wanted = solved;
         if let Some(result) = result {
             self.check_ambiguity(result, start);
         }
@@ -94,7 +96,7 @@ impl Checker {
             }
             return None;
         }
-        for (given, solution) in self.givens.clone() {
+        for (given, solution) in self.scope.givens.clone() {
             if given.class_id == class_id
                 && self.constraint_arguments_match_or_unify(
                     &given.arguments,
@@ -112,7 +114,7 @@ impl Checker {
 
         if selected.len() > 1 {
             let rendered = self.display_constraint(class_id, &arguments);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OverlappingInstances,
                 constraint.span,
                 format!("overlapping instances for constraint {rendered}"),
@@ -120,9 +122,9 @@ impl Checker {
             return None;
         }
         let (instance, mapping) = selected.pop()?;
-        let errors_before = self.errors.len();
+        let errors_before = self.state.errors.len();
         let mapping = self.instantiate_selected_instance(&instance, &mapping, constraint);
-        if self.errors.len() != errors_before {
+        if self.state.errors.len() != errors_before {
             return None;
         }
         // Selection commits to the first matching head before solving its
@@ -140,7 +142,7 @@ impl Checker {
         wanted: &WantedConstraint,
         depth: usize,
     ) -> Option<WantedSolution> {
-        for (given, solution) in self.givens.clone() {
+        for (given, solution) in self.scope.givens.clone() {
             if let Some(found) =
                 self.superclass_path(given.class_id, &given.arguments, solution, wanted, depth)
             {
@@ -161,7 +163,7 @@ impl Checker {
         if depth > MAX_SOLVE_DEPTH {
             return None;
         }
-        let class = self.classes.get(&base_class).cloned()?;
+        let class = self.env.classes.get(&base_class).cloned()?;
         for superclass in &class.superclasses {
             let mut arguments = Vec::with_capacity(superclass.arguments.len());
             let mut valid = true;
@@ -211,7 +213,9 @@ impl Checker {
 
     /// Matches a wanted constraint against a given or projected superclass.
     /// Wanted type variables can be refined to the known argument types, but a
-    /// failed candidate must leave no substitutions or diagnostics behind.
+    /// failed candidate must leave no substitution, level, kind, or evidence
+    /// behind. Its diagnostic is discarded, because a candidate that does not
+    /// match is not itself an error.
     fn constraint_arguments_match_or_unify(
         &mut self,
         expected: &[InferType],
@@ -221,20 +225,14 @@ impl Checker {
         if expected.len() != actual.len() {
             return false;
         }
-        let substitutions = self.substitutions.clone();
-        let levels = self.levels.clone();
-        let errors_len = self.errors.len();
-        for (expected, actual) in expected.iter().zip(actual) {
-            self.unify(actual.clone(), expected.clone(), span);
-        }
-        if self.errors.len() == errors_len {
-            true
-        } else {
-            self.substitutions = substitutions;
-            self.levels = levels;
-            self.errors.truncate(errors_len);
-            false
-        }
+        self.speculate(|checker| {
+            let errors_before = checker.state.errors.len();
+            for (expected, actual) in expected.iter().zip(actual) {
+                checker.unify(actual.clone(), expected.clone(), span);
+            }
+            (checker.state.errors.len() == errors_before).then_some(())
+        })
+        .is_some()
     }
 
     /// Solves one instance's context and, on success, returns the instance
@@ -255,17 +253,19 @@ impl Checker {
                 .map(|argument| self.resolve_type(substitute(argument, mapping)))
                 .collect::<Vec<_>>();
             let mut wanted = self.build_constraint(child.class_id, arguments, child.span);
-            let errors_before = self.errors.len();
+            let errors_before = self.state.errors.len();
             let Some(solution) = self.solve_constraint(&wanted, depth + 1) else {
-                let has_nested_diagnostic = self.errors[errors_before..].iter().any(|error| {
-                    matches!(
-                        error.kind,
-                        TypeCheckErrorKind::NoInstance | TypeCheckErrorKind::OverlappingInstances
-                    )
-                });
+                let has_nested_diagnostic =
+                    self.state.errors[errors_before..].iter().any(|error| {
+                        matches!(
+                            error.kind,
+                            TypeCheckErrorKind::NoInstance
+                                | TypeCheckErrorKind::OverlappingInstances
+                        )
+                    });
                 if !has_nested_diagnostic {
                     let rendered = self.display_constraint(child.class_id, &wanted.arguments);
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NoInstance,
                         wanted.span,
                         format!("no instance for constraint {rendered}"),
@@ -346,7 +346,7 @@ impl Checker {
             arguments,
             dictionary_type,
             span,
-            givens: self.givens.clone(),
+            givens: self.scope.givens.clone(),
             solution: Some(solution),
         }
     }
@@ -367,7 +367,7 @@ impl Checker {
             arguments,
             dictionary_type,
             span,
-            givens: self.givens.clone(),
+            givens: self.scope.givens.clone(),
             solution: None,
         }
     }
@@ -385,7 +385,7 @@ impl Checker {
         arguments: &[InferType],
     ) -> HashSet<hir::ModuleId> {
         let mut modules = HashSet::new();
-        modules.insert(self.module_id);
+        modules.insert(self.env.module_id);
         modules.insert(class_id.module);
         for argument in arguments {
             collect_user_type_modules(argument, &mut modules);
