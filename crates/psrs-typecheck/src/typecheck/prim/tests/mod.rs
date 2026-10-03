@@ -1,15 +1,17 @@
-//! The framework's contract, exercised through synthetic rules.
+//! The rule table's contract, exercised through synthetic rules and through the
+//! `Prim.Symbol` relations.
 //!
-//! No `Prim` relation is implemented here. The rules below stand in for one —
-//! they are keyed by identities the registry does not declare — so the cases in
-//! `outcomes` reach each of the four outcomes, prove that a declined or refused
-//! rule leaves no state behind, and prove the two refusals that keep an unsolved
-//! argument from ever being decisive. They are the framework's contract; a real
-//! rule is written against the same contract.
+//! The synthetic rules stand in for a relation — they are keyed by identities the
+//! registry does not declare — so the cases in `outcomes` reach each of the four
+//! outcomes, prove that a declined or refused rule leaves no state behind, and
+//! prove the two refusals that keep an unsolved argument from ever being decisive.
+//! They are the framework's contract; a real rule is written against the same
+//! contract, and `symbol_rules` is a real one.
 
 use super::*;
 
 mod outcomes;
+mod symbol_rules;
 use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::{ClassConstraint, TypeConstructor, TypecheckContext};
 use psrs_hir::ModuleId;
