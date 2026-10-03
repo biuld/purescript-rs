@@ -105,7 +105,7 @@ fn differential_against_purs_on_selected_cases() {
         }
     }
 
-    let accept_cases: [(&str, &str); 2] = [
+    let accept_cases: [(&str, &str); 3] = [
         (
             "identity.purs",
             "module Main where\nidentity :: forall a. a -> a\nidentity x = x\n",
@@ -113,6 +113,13 @@ fn differential_against_purs_on_selected_cases() {
         (
             "const.purs",
             "module Main where\nconst :: forall a b. a -> b -> a\nconst x y = x\n",
+        ),
+        (
+            // A signature's own `forall` binders are quantified per use, so a
+            // mutually recursive group instantiates each declaration's scheme
+            // instead of sharing one rigid variable across the group.
+            "mutual-polymorphic-recursion.purs",
+            "module Main where\nloopback :: forall a. a -> a\nloopback x = partner x\npartner :: forall a. a -> a\npartner y = loopback y\nmain :: Int\nmain = loopback 1\n",
         ),
     ];
     for (name, source) in accept_cases {

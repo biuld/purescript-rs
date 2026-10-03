@@ -77,7 +77,7 @@ impl Checker {
             let field_ty = self.in_nested_level(|checker| {
                 checker.elaborate_type_mode(&method.signature, &mut method_variables, false)
             });
-            let field_ty = self.generalize(&field_ty, &[], outer_level).ty;
+            let field_ty = self.generalize(&[], &field_ty, &[], outer_level).ty;
             fields.push((method.name.clone(), field_ty));
         }
         record_type(fields, InferType::RowEmpty)
@@ -168,7 +168,8 @@ impl Checker {
         &mut self,
         scheme: &Scheme,
     ) -> (Vec<ClassConstraint>, InferType) {
-        let mapping = self.instantiate_type_variables(scheme.variables.iter().copied());
+        let mapping = self
+            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
         let substituted = substitute(&scheme.ty, &mapping);
         let freshened = self.freshen_foralls(&substituted);
         let mut ty = self.resolve_type(freshened);
@@ -178,7 +179,7 @@ impl Checker {
         loop {
             match ty {
                 InferType::ForAll { variables, body } => {
-                    let quantified = self.instantiate_type_variables(variables);
+                    let quantified = self.instantiate_type_variables(variables, &HashMap::new());
                     ty = self.resolve_type(substitute(&body, &quantified));
                 }
                 InferType::Constrained { constraints, body } => {
