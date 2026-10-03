@@ -451,14 +451,15 @@ official's code for a *source* literal, not for computed type-level arithmetic.
 Type-level integers are `i64` here while official solves over `Integer`, so wide
 arithmetic declines where official would decide.
 
-The other four relations have no rule and no dispatch entry: `Prim.Row.Lacks`,
-`Prim.Row.Union`, `Prim.Symbol.Compare`, and `Prim.Int.Compare`. `Lacks` and
-`Union` are the two that need `Deferred` — over an open tail with known labels
-they make progress on the known part and move the obligation to the tail, which
-is the one answer none of the implemented rules returns. A wanted one of those
-four therefore reaches ordinary instance search and is reported as a missing
-instance, which is the correct outcome for an
-unimplemented relation but not for a supported one. `Warn` and `Fail` and
+Ten of the twelve relations have rules: `Prim.Int.Add`, `Mul`, `ToString`,
+`Compare`, `Prim.Symbol.Append`, `Cons`, `Compare`, and `Prim.Row.Cons`, `Nub`,
+`Prim.RowList.RowToList`. The two that have none are `Prim.Row.Lacks` and
+`Prim.Row.Union`, and they are the two that need `Deferred` — over an open tail
+with known labels they make progress on the known part and move the obligation to
+the tail, which is the one answer none of the implemented rules returns. A wanted
+one of those two therefore reaches ordinary instance search and is reported as a
+missing instance, which is the correct outcome for an unimplemented relation but
+not for a supported one. `Warn` and `Fail` and
 `Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
 unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is

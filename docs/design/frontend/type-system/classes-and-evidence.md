@@ -229,15 +229,14 @@ Contravariant case still lacks Wasmtime evidence because of closure capture.
 Method-local constraints and the remaining upstream deriving classes keep
 FE-16 partial.
 
-One part of this design is not reached yet: no `Prim` relation beyond `Coercible` has a
-rule. `Prim.Row.Cons`, `Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`,
-`Prim.Symbol.Append`, `Compare`, `Cons`, and `Prim.Int.Add`, `Mul`, `Compare`,
-`ToString` are declared with their kinds and fundeps, and the dispatch table and
-four-outcome contract they will use are in place, but a wanted one of those
-relations still reaches instance search and is reported as a missing instance.
-`Fail`, `Warn`, and `Partial` have no rule either, so `Fail` and `Partial` reach the
-same missing-instance path as any other unsolved class and `Warn` does not defer to
-an enclosing warning.
+One part of this design is not reached yet: `Prim.Row.Lacks` and `Prim.Row.Union`
+have no rule, and they are the only two of the twelve relations that do not — the
+other ten have rules in `typecheck/prim/` and reach one dispatch site by class
+identity. `Lacks` and `Union` are also the only ones that need the `Deferred`
+outcome, so a wanted one of them still reaches instance search and is reported as a
+missing instance. `Fail`, `Warn`, and `Partial` have no rule either, so `Fail` and
+`Partial` reach the same missing-instance path as any other unsolved class and
+`Warn` does not defer to an enclosing warning.
 
 The parts that *are* reached now include what the previous revision of this note
 listed as missing. A declaration's scheme carries the constraints inference
