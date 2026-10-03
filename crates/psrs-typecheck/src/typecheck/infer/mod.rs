@@ -84,13 +84,12 @@ impl Checker {
         let (kind, ty) = match &expression.kind {
             hir::ExprKind::Local(id) => match self.scope.locals.get(id).cloned() {
                 Some(scheme) => {
-                    let (constraints, ty) = self.instantiate_use(&scheme);
                     let base = InferredExpr {
                         kind: InferredExprKind::Local(*id),
-                        ty: ty.clone(),
+                        ty: scheme.ty.clone(),
                         span,
                     };
-                    let applied = self.apply_constraints(base, constraints, span);
+                    let applied = self.instantiate_expression_use(base, &scheme, span);
                     (applied.kind, applied.ty)
                 }
                 None => {
@@ -109,13 +108,12 @@ impl Checker {
                         .map(|(kind, ty)| InferredExpr { kind, ty, span });
                 }
                 if let Some(scheme) = self.scope.globals.get(symbol).cloned() {
-                    let (constraints, ty) = self.instantiate_use(&scheme);
                     let base = InferredExpr {
                         kind: InferredExprKind::Global(*symbol),
-                        ty: ty.clone(),
+                        ty: scheme.ty.clone(),
                         span,
                     };
-                    let applied = self.apply_constraints(base, constraints, span);
+                    let applied = self.instantiate_expression_use(base, &scheme, span);
                     (applied.kind, applied.ty)
                 } else if let Some(signature) = self.env.imported.get(symbol).cloned() {
                     let (constraints, ty) = self.elaborate_imported_constraints(&signature);

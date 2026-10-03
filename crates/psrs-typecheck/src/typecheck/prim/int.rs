@@ -238,10 +238,12 @@ mod tests {
         };
         let dictionary_type = checker.dictionary_type(&constraint);
         WantedConstraint {
+            id: checker.fresh_wanted_id(),
             class_id,
             arguments: constraint.arguments,
             dictionary_type,
             span: constraint.span,
+            report_span: constraint.span,
             givens: Vec::new(),
             solution: None,
         }

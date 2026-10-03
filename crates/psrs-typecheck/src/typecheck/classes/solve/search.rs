@@ -1,10 +1,14 @@
 //! The search over givens, superclass paths, and instances, and the primitive
 //! rule's entry into it.
 
-use super::super::super::prim::{PrimitiveDispatch, primitive_rule_precedes_givens};
+use super::super::super::prim::requeue::RequeueChain;
+use super::super::super::prim::{
+    PrimitiveDispatch, is_report_only, primitive_rule_precedes_givens,
+    primitive_rule_skips_given_lookup,
+};
 use super::super::super::unify::substitute;
 use super::super::fundeps::collect_infer_variables;
-use super::entry::SolveDepth;
+use super::entry::{SolveDepth, UnsolvedPolicy};
 use crate::typecheck::*;
 impl Checker {
     /// Solves one wanted constraint, consulting givens, the primitive rule
@@ -25,6 +29,20 @@ impl Checker {
         &mut self,
         constraint: &WantedConstraint,
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
+    ) -> Option<WantedSolution> {
+        let mut chain = RequeueChain::seeded(self, constraint);
+        self.solve_constraint_with_chain(constraint, depth, policy, &mut chain)
+    }
+
+    /// Solves an obligation inside the same bounded deferral tree as the rule
+    /// that re-entered it.
+    pub(in crate::typecheck) fn solve_constraint_with_chain(
+        &mut self,
+        constraint: &WantedConstraint,
+        depth: SolveDepth,
+        policy: UnsolvedPolicy,
+        chain: &mut RequeueChain,
     ) -> Option<WantedSolution> {
         if !depth.within_bound() {
             return None;
@@ -32,34 +50,60 @@ impl Checker {
         let class_id = constraint.class_id;
         let arguments = constraint.arguments.clone();
         let solves_before_givens = primitive_rule_precedes_givens(class_id);
-        // The rule of a member that precedes the givens is also what reads them: a
-        // `Coercible` rule composes the assumed proofs itself through the shared
-        // given solver. Repeating the direct given lookup here would return the
-        // dictionary parameter, which is not the evidence a `Proof` member's
-        // boundary lowers to. A superclass path is a different mechanism, so it is
-        // still consulted, after the rule has declined.
-        if !solves_before_givens && let Some(solution) = self.given_solution(constraint, depth) {
-            return Some(solution);
+        let skips_given_lookup = primitive_rule_skips_given_lookup(class_id);
+
+        // Relation rules precede ordinary dictionary lookup, as in
+        // Entailment.hs:204-223. A checked proof also precedes givens, but its
+        // rule composes proof givens itself and a direct dictionary is never its
+        // evidence. Reports prefer a matching given so the warning or failure
+        // propagates at the enclosing boundary.
+        if solves_before_givens {
+            match self.solve_primitive_with_chain(constraint, depth, policy, chain) {
+                PrimitiveDispatch::Solved(solution)
+                | PrimitiveDispatch::Deferred {
+                    evidence: Some(solution),
+                } => return Some(solution),
+                PrimitiveDispatch::Reported => return None,
+                PrimitiveDispatch::None | PrimitiveDispatch::Deferred { evidence: None } => {}
+            }
+            if !skips_given_lookup && let Some(solution) = self.given_solution(constraint, depth) {
+                return Some(solution);
+            }
+        } else {
+            if let Some(solution) = self.given_solution(constraint, depth) {
+                return Some(solution);
+            }
+            if policy == UnsolvedPolicy::Retain
+                && is_report_only(class_id)
+                && self.can_generalize_constraint(constraint)
+            {
+                return None;
+            }
         }
-        match self.solve_primitive(constraint, depth) {
-            PrimitiveDispatch::None => {}
-            PrimitiveDispatch::Solved(solution) => return Some(solution),
-            // The obligation cannot hold: the rule said so under an official
-            // code, or the framework unified the rule's decided arguments against
-            // the goal's and they disagree, which is the step official solving
-            // takes on every dictionary it produces. A second diagnostic here
-            // would be the same rejection twice.
-            PrimitiveDispatch::Reported => return None,
-            // A deferral discharges the obligation only when the rule decided part
-            // of it and the re-queued obligations carry the rest. With no evidence
-            // there is nothing to keep, so the obligation continues into the
-            // ordinary paths and is reported there if nothing supplies it.
-            PrimitiveDispatch::Deferred {
-                evidence: Some(solution),
-            } => return Some(solution),
-            PrimitiveDispatch::Deferred { evidence: None } => {}
+
+        if !solves_before_givens {
+            match self.solve_primitive_with_chain(constraint, depth, policy, chain) {
+                PrimitiveDispatch::None => {}
+                PrimitiveDispatch::Solved(solution) => return Some(solution),
+                // The obligation cannot hold: the rule said so under an official
+                // code, or the framework unified the rule's decided arguments against
+                // the goal's and they disagree, which is the step official solving
+                // takes on every dictionary it produces. A second diagnostic here
+                // would be the same rejection twice.
+                PrimitiveDispatch::Reported => return None,
+                // A deferral discharges the obligation only when the rule decided part
+                // of it and the re-queued obligations carry the rest. With no evidence
+                // there is nothing to keep, so the obligation continues into the
+                // ordinary paths and is reported there if nothing supplies it.
+                PrimitiveDispatch::Deferred {
+                    evidence: Some(solution),
+                } => return Some(solution),
+                PrimitiveDispatch::Deferred { evidence: None } => {}
+            }
         }
-        if solves_before_givens && let Some(solution) = self.superclass_solution(constraint, depth)
+        if solves_before_givens
+            && skips_given_lookup
+            && let Some(solution) = self.superclass_solution(constraint, depth)
         {
             return Some(solution);
         }
@@ -85,7 +129,7 @@ impl Checker {
         if instance.context.is_empty() {
             return Some(WantedSolution::Global(instance.symbol));
         }
-        self.solve_instance(&instance, &mapping, constraint, depth)
+        self.solve_instance(&instance, &mapping, constraint, depth, policy, chain)
     }
 
     /// The evidence a lexical given supplies for `constraint`, or the evidence a
@@ -206,8 +250,11 @@ impl Checker {
         mapping: &HashMap<u32, InferType>,
         constraint: &WantedConstraint,
         depth: SolveDepth,
+        policy: UnsolvedPolicy,
+        chain: &mut RequeueChain,
     ) -> Option<WantedSolution> {
         let mut context = Vec::with_capacity(instance.context.len());
+        let mut context_dictionary_types = Vec::with_capacity(instance.context.len());
         for child in &instance.context {
             let arguments = child
                 .arguments
@@ -216,15 +263,27 @@ impl Checker {
                 .collect::<Vec<_>>();
             let mut wanted = self.build_constraint(child.class_id, arguments, child.span);
             let errors_before = self.state.errors.len();
-            let Some(solution) = self.solve_constraint(&wanted, depth.deeper()) else {
-                let has_nested_diagnostic =
-                    self.state.errors[errors_before..].iter().any(|error| {
-                        matches!(
-                            error.kind,
-                            TypeCheckErrorKind::NoInstance
-                                | TypeCheckErrorKind::OverlappingInstances
-                        )
-                    });
+            let solution = self.solve_constraint_with_chain(&wanted, depth.deeper(), policy, chain);
+            if let Some(solution) = solution {
+                wanted.solution = Some(solution);
+            } else {
+                let has_nested_diagnostic = self.state.errors[errors_before..]
+                    .iter()
+                    .any(|error| error.kind.reports_constraint_failure());
+                if !has_nested_diagnostic
+                    && policy == UnsolvedPolicy::Retain
+                    && self.can_generalize_constraint(&wanted)
+                {
+                    // The selected instance's dictionary needs this context
+                    // dictionary; the declaration can supply it as a generalized
+                    // parameter. The stable id lets evidence elaboration read the
+                    // Abstracted solution after the root worklist processes it.
+                    let id = wanted.id;
+                    context.push(id);
+                    context_dictionary_types.push(wanted.dictionary_type.clone());
+                    self.state.wanted.push(wanted);
+                    continue;
+                }
                 if !has_nested_diagnostic {
                     let rendered = self.display_constraint(child.class_id, &wanted.arguments);
                     self.state.errors.push(TypeCheckError::new(
@@ -234,9 +293,11 @@ impl Checker {
                     ));
                 }
                 return None;
-            };
-            wanted.solution = Some(solution);
-            context.push(wanted);
+            }
+            let id = wanted.id;
+            context.push(id);
+            context_dictionary_types.push(wanted.dictionary_type.clone());
+            self.state.wanted.push(wanted);
         }
         let result = self.dictionary_type(&ClassConstraint {
             class_id: constraint.class_id,
@@ -244,8 +305,8 @@ impl Checker {
             span: constraint.span,
         });
         let mut constructor_type = result;
-        for child in context.iter().rev() {
-            constructor_type = arrow(child.dictionary_type.clone(), constructor_type);
+        for child_dictionary_type in context_dictionary_types.iter().rev() {
+            constructor_type = arrow(child_dictionary_type.clone(), constructor_type);
         }
         Some(WantedSolution::Instance {
             constructor: instance.symbol,

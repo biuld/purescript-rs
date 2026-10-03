@@ -67,7 +67,13 @@ pub(super) struct InferState {
     /// cannot disagree afterwards.
     pub(super) variable_kinds: HashMap<u32, Kind>,
     pub(super) wanted: Vec<WantedConstraint>,
+    /// Stable identity for wanted constraints, including nested instance
+    /// contexts that later join the declaration's root worklist.
+    pub(super) next_wanted_id: u32,
     pub(super) errors: Vec<TypeCheckError>,
+    /// Reports emitted by accepted primitive rules. They participate in the
+    /// same snapshot contract as substitutions and errors.
+    pub(super) warnings: Vec<TypeCheckWarning>,
     /// Functional-dependency conflicts already reported, keyed by span and
     /// message, so the fixed-point improvement pass does not duplicate them.
     pub(super) reported_fundep_conflicts: HashSet<(TextRange, String)>,
@@ -99,6 +105,9 @@ pub(super) struct Scope {
     /// Source names attached to quantified variables so entering a nested
     /// forall can extend the annotation scope at the matching expression.
     pub(super) type_variable_names: HashMap<u32, String>,
+    /// Nearest top-level value or instance declaration that owns diagnostics
+    /// emitted while this scope's wanteds are solved.
+    pub(super) report_origin: Option<TextRange>,
 }
 
 /// Inference state, with each owner named. The three have distinct lifetimes,
@@ -149,6 +158,34 @@ impl Checker {
         self.speculate_impl(true, f)
     }
 
+    /// Checks a candidate and always restores its solver and lexical effects.
+    ///
+    /// A successful probe contributes no substitutions, evidence, warnings, or
+    /// diagnostics to the caller. A failed probe keeps its diagnostics, because
+    /// the caller is checking an annotation whose failure is itself reportable.
+    pub(super) fn probe_reporting(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Option<()>,
+    ) -> Option<()> {
+        let state = self.state.snapshot();
+        let scope = self.scope.clone();
+        let errors_before = self.state.errors.len();
+        let warnings_before = self.state.warnings.len();
+        let result = f(self);
+        let errors = self.state.errors.split_off(errors_before);
+        let warnings = self.state.warnings.split_off(warnings_before);
+        self.state.restore(state);
+        self.scope = scope;
+        match result {
+            Some(value) if errors.is_empty() => Some(value),
+            _ => {
+                self.state.errors.extend(errors);
+                self.state.warnings.extend(warnings);
+                None
+            }
+        }
+    }
+
     fn speculate_impl<T>(
         &mut self,
         keep_diagnostics: bool,
@@ -156,13 +193,16 @@ impl Checker {
     ) -> Option<T> {
         let snapshot = self.state.snapshot();
         let errors_before = self.state.errors.len();
+        let warnings_before = self.state.warnings.len();
         match f(self) {
             Some(value) => Some(value),
             None => {
                 let kept = self.state.errors.split_off(errors_before);
+                let kept_warnings = self.state.warnings.split_off(warnings_before);
                 self.state.restore(snapshot);
                 if keep_diagnostics {
                     self.state.errors.extend(kept);
+                    self.state.warnings.extend(kept_warnings);
                 }
                 None
             }
@@ -270,6 +310,21 @@ impl Checker {
         result
     }
 
+    /// Runs inference with an owning declaration location for report diagnostics.
+    /// Wanted constraints capture this range when they are created, so solving a
+    /// retained context later cannot accidentally inherit another declaration's
+    /// location.
+    pub(super) fn with_report_origin<T>(
+        &mut self,
+        origin: TextRange,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.scope.report_origin.replace(origin);
+        let result = f(self);
+        self.scope.report_origin = previous;
+        result
+    }
+
     /// Runs `f` one level deeper than the caller, so the unknowns it allocates
     /// belong to a nested scope and generalization measures them against this
     /// level. The level is restored on the way out.
@@ -290,8 +345,10 @@ impl Checker {
     /// would recycle an identity the environment still refers to.
     pub(super) fn without_diagnostics<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let errors_before = self.state.errors.len();
+        let warnings_before = self.state.warnings.len();
         let result = f(self);
         self.state.errors.truncate(errors_before);
+        self.state.warnings.truncate(warnings_before);
         result
     }
 }

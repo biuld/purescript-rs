@@ -4,6 +4,8 @@ use std::process::Command;
 mod coercion;
 mod deriving;
 mod rank_n;
+mod reports;
+mod rows;
 
 type SourceFile = (&'static str, &'static str);
 type SourceSet<'a> = &'a [SourceFile];

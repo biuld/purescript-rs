@@ -2,8 +2,8 @@
 //! checking against imported signatures, Core lowering, and linking.
 
 use super::{
-    Artifact, DiagnosticOrigin, ProgramDiagnostic, backend_warnings, coded_diagnostic, diagnostic,
-    lower_source_to_ast,
+    Artifact, DiagnosticOrigin, ProgramDiagnostic, ProgramWarning, Warning, backend_warnings,
+    coded_diagnostic, diagnostic, lower_source_to_ast,
 };
 
 pub use lenient::{
@@ -19,6 +19,13 @@ mod effects;
 mod graph;
 mod lenient;
 mod library;
+mod reports;
+
+pub(crate) use reports::typecheck_warnings;
+pub use reports::{
+    check_program, check_program_with_warnings, typecheck_program_sources,
+    typecheck_program_sources_with_warnings,
+};
 
 fn desugar_diagnostic(error: psrs_desugar::DesugarError) -> super::Diagnostic {
     let kind = (error.message == "boolean literal pattern survived P4 desugaring")
@@ -47,7 +54,8 @@ fn compile_program_sources_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let core = lower_program_to_core_with_trusted_prefix(sources, trusted_prefix)?;
+    let (core, source_warnings) =
+        lower_program_to_core_with_trusted_prefix_and_warnings(sources, trusted_prefix)?;
     let output = psrs_backend::compile(core).map_err(|errors| {
         errors
             .into_iter()
@@ -59,7 +67,8 @@ fn compile_program_sources_with_trusted_prefix(
             })
             .collect::<Vec<_>>()
     })?;
-    let warnings = backend_warnings(output.warnings, trusted_prefix);
+    let mut warnings = typecheck_warnings(source_warnings, trusted_prefix);
+    warnings.extend(backend_warnings(output.warnings, trusted_prefix));
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
@@ -74,11 +83,21 @@ pub(crate) fn lower_program_to_core(
     lower_program_to_core_with_trusted_prefix(sources, 0)
 }
 
+#[cfg(test)]
 pub(crate) fn lower_program_to_core_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<psrs_core::Module, Vec<ProgramDiagnostic>> {
-    let typed = typecheck_program_sources_with_trusted_prefix(sources, trusted_prefix)?;
+    lower_program_to_core_with_trusted_prefix_and_warnings(sources, trusted_prefix)
+        .map(|(core, _warnings)| core)
+}
+
+pub(crate) fn lower_program_to_core_with_trusted_prefix_and_warnings(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<(psrs_core::Module, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
+    let (typed, warnings) =
+        typecheck_program_sources_with_trusted_prefix_and_warnings(sources, trusted_prefix)?;
     let entry = select_entry(&typed)?;
     let mut modules = Vec::with_capacity(typed.len());
     for (index, module) in typed.into_iter().enumerate() {
@@ -109,7 +128,7 @@ pub(crate) fn lower_program_to_core_with_trusted_prefix(
             })
             .collect());
     }
-    Ok(linked)
+    Ok((linked, warnings))
 }
 
 /// Selects one deterministic program entry before linking. A command program
@@ -215,43 +234,39 @@ pub fn resolve_program_sources(
     }
 }
 
-/// Resolves and type checks a program and reports every diagnostic. Modules are
-/// type checked in dependency order against the declared types of the values
-/// they import, so a module can use a value another module defines.
-pub fn check_program(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
-    typecheck_program_sources(sources).map(|_| ())
-}
-
-pub(crate) fn check_program_with_trusted_prefix(
+pub(crate) fn check_program_with_trusted_prefix_and_warnings(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
-) -> Result<(), Vec<ProgramDiagnostic>> {
-    typecheck_program_sources_with_trusted_prefix(sources, trusted_prefix).map(|_| ())
+) -> Result<Vec<ProgramWarning>, Vec<ProgramDiagnostic>> {
+    typecheck_program_sources_with_trusted_prefix_and_warnings(sources, trusted_prefix)
+        .map(|(_modules, warnings)| warnings)
 }
 
-/// Resolves a program and type checks every module in dependency order,
-/// returning the typed modules in input order.
-pub fn typecheck_program_sources(
-    sources: &[(&str, &str)],
-) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
-    typecheck_program_sources_with_trusted_prefix(sources, 0)
-}
-
+#[cfg(test)]
 pub(crate) fn typecheck_program_sources_with_trusted_prefix(
     sources: &[(&str, &str)],
     trusted_prefix: usize,
 ) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
     let modules = resolve_program_sources(sources)?;
-    typecheck_program(modules, trusted_prefix)
+    typecheck_program_with_warnings(modules, trusted_prefix).map(|(modules, _warnings)| modules)
 }
 
-fn typecheck_program(
+fn typecheck_program_sources_with_trusted_prefix_and_warnings(
+    sources: &[(&str, &str)],
+    trusted_prefix: usize,
+) -> Result<(Vec<psrs_thir::Module>, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
+    let modules = resolve_program_sources(sources)?;
+    typecheck_program_with_warnings(modules, trusted_prefix)
+}
+
+pub(super) fn typecheck_program_with_warnings(
     modules: Vec<psrs_hir::Module>,
     trusted_prefix: usize,
-) -> Result<Vec<psrs_thir::Module>, Vec<ProgramDiagnostic>> {
+) -> Result<(Vec<psrs_thir::Module>, Vec<ProgramWarning>), Vec<ProgramDiagnostic>> {
     let true_symbols = psrs_desugar::true_symbols(&modules);
     let mut desugared = Vec::with_capacity(modules.len());
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     for (source, module) in modules.into_iter().enumerate() {
         match psrs_desugar::desugar_module_with_true_symbols(module, &true_symbols) {
             Ok(module) => desugared.push(module),
@@ -375,20 +390,32 @@ fn typecheck_program(
                     | "WASI.Network"
                     | "WASI"
             );
-        let check = psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names(
-            module,
-            &imported,
-            effect_type,
-            trusted_effect_representation,
-            psrs_typecheck::TypecheckContext {
-                known_types: &known_types,
-                imported_instances: &imported_instances,
-                module_names: &module_names,
-                checked_kinds: &checked_kinds,
-            },
-        );
+        let check =
+            psrs_typecheck::typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+                module,
+                &imported,
+                effect_type,
+                trusted_effect_representation,
+                psrs_typecheck::TypecheckContext {
+                    known_types: &known_types,
+                    imported_instances: &imported_instances,
+                    module_names: &module_names,
+                    checked_kinds: &checked_kinds,
+                },
+            );
         match check {
-            Ok(module) => typed[index] = Some(module),
+            Ok(output) => {
+                typed[index] = Some(output.module);
+                warnings.extend(output.warnings.into_iter().map(|warning| ProgramWarning {
+                    source: DiagnosticOrigin::Source(index),
+                    diagnostic: coded_diagnostic(
+                        "P5 typecheck",
+                        warning.span,
+                        Some(warning.error_code()),
+                        warning.message,
+                    ),
+                }));
+            }
             Err(module_errors) => {
                 for error in module_errors {
                     errors.push(ProgramDiagnostic {
@@ -405,7 +432,7 @@ fn typecheck_program(
         }
     }
     if errors.is_empty() {
-        Ok(typed.into_iter().flatten().collect())
+        Ok((typed.into_iter().flatten().collect(), warnings))
     } else {
         Err(errors)
     }

@@ -11,6 +11,7 @@
 use super::*;
 
 mod outcomes;
+mod probe;
 mod symbol_rules;
 use crate::typecheck::classes::SolveDepth;
 use crate::typecheck::{ClassConstraint, TypeConstructor, TypecheckContext};
@@ -40,6 +41,11 @@ const DECIDING: hir::TypeId = hir::TypeId::new(ModuleId(0), 908);
 /// The identity of the rule that decides a value contradicting an argument the
 /// goal already fixed, and binds nothing.
 const CONTRADICTING: hir::TypeId = hir::TypeId::new(ModuleId(0), 909);
+/// The identity of a rule that returns the same solved child twice.
+const DEFERRING_TO_SIBLINGS: hir::TypeId = hir::TypeId::new(ModuleId(0), 910);
+/// The identity of a rule that branches to fresh residuals until the shared
+/// deferral-tree width bound stops it.
+const GROWING_DEFERRAL: hir::TypeId = hir::TypeId::new(ModuleId(0), 911);
 
 /// Decides the relation, recording the arguments it decided.
 fn solving(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
@@ -64,6 +70,7 @@ fn declining(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
         );
     }
     checker.fresh();
+    checker.build_constraint(DECLINING, arguments, args.span());
     checker.state.errors.push(TypeCheckError::new(
         TypeCheckErrorKind::TypeMismatch,
         args.span(),
@@ -196,7 +203,32 @@ fn contradicting(checker: &mut Checker, _args: &PrimitiveArgs) -> PrimitiveOutco
     }
 }
 
-pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 10] = [
+/// Returns two equal residual goals, which are separate valid obligations rather
+/// than a cycle: the first one must leave the active path before the second runs.
+fn deferring_to_siblings(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
+    let child = resolved_obligation(checker, SOLVING, vec![int(), int()], args.span());
+    PrimitiveOutcome::Deferred {
+        evidence: None,
+        deferred: vec![child.clone(), child],
+    }
+}
+
+/// Branches to two fresh residual obligations on every call. Their changing
+/// arguments avoid cycle detection, so only the shared total-width bound stops
+/// the tree.
+fn growing_deferral(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
+    let left = checker.fresh();
+    let right = checker.fresh();
+    PrimitiveOutcome::Deferred {
+        evidence: None,
+        deferred: vec![
+            resolved_obligation(checker, GROWING_DEFERRAL, vec![left, int()], args.span()),
+            resolved_obligation(checker, GROWING_DEFERRAL, vec![right, int()], args.span()),
+        ],
+    }
+}
+
+pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 12] = [
     PrimitiveRule {
         class_id: SOLVING,
         evidence: EvidenceClass::RuntimeDictionary,
@@ -257,6 +289,18 @@ pub(in crate::typecheck) const SYNTHETIC: [PrimitiveRule; 10] = [
         arity: 2,
         solve: contradicting,
     },
+    PrimitiveRule {
+        class_id: DEFERRING_TO_SIBLINGS,
+        evidence: EvidenceClass::RuntimeDictionary,
+        arity: 2,
+        solve: deferring_to_siblings,
+    },
+    PrimitiveRule {
+        class_id: GROWING_DEFERRAL,
+        evidence: EvidenceClass::RuntimeDictionary,
+        arity: 2,
+        solve: growing_deferral,
+    },
 ];
 
 /// The parts of solver state a declined or refused rule must leave untouched.
@@ -266,6 +310,7 @@ struct SolverFingerprint {
     variable_kinds: HashMap<u32, Kind>,
     rigid: HashSet<u32>,
     next_variable: u32,
+    next_wanted_id: u32,
     level: u32,
     errors: usize,
 }
@@ -277,6 +322,7 @@ impl SolverFingerprint {
             variable_kinds: checker.state.variable_kinds.clone(),
             rigid: checker.state.rigid.clone(),
             next_variable: checker.state.next_variable,
+            next_wanted_id: checker.state.next_wanted_id,
             level: checker.state.level,
             errors: checker.state.errors.len(),
         }
@@ -335,10 +381,12 @@ fn obligation(
     };
     let dictionary_type = checker.dictionary_type(&constraint);
     WantedConstraint {
+        id: checker.fresh_wanted_id(),
         class_id,
         arguments: constraint.arguments,
         dictionary_type,
         span: constraint.span,
+        report_span: constraint.span,
         givens: Vec::new(),
         solution: None,
     }
@@ -354,6 +402,7 @@ fn resolved_obligation(
 ) -> WantedConstraint {
     let mut constraint = obligation(checker, class_id, arguments);
     constraint.span = span;
+    constraint.report_span = span;
     constraint.arguments = constraint
         .arguments
         .iter()

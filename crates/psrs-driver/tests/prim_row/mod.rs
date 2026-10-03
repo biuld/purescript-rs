@@ -20,6 +20,8 @@
 
 use psrs_driver::{Diagnostic, check_source};
 
+mod deferred_execution;
+
 fn accepts(source_name: &str, source: &str) {
     if let Err(errors) = check_source(source_name, source) {
         panic!("{source_name} was rejected: {errors:#?}");

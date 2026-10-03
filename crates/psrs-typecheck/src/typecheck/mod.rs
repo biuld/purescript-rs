@@ -22,7 +22,15 @@ use std::collections::{HashMap, HashSet};
 
 mod checked_exports;
 mod error;
-pub use error::{TypeCheckError, TypeCheckErrorKind};
+pub use error::{TypeCheckError, TypeCheckErrorKind, TypeCheckWarning};
+
+/// A successfully checked module and the warnings emitted while solving its
+/// constraints.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeCheckOutput {
+    pub module: thir::Module,
+    pub warnings: Vec<TypeCheckWarning>,
+}
 
 /// Program-wide semantic inputs needed when checking a module.
 #[derive(Clone, Copy)]
@@ -37,8 +45,9 @@ mod entry;
 
 pub use entry::{
     typecheck_module, typecheck_module_with_checked_kinds,
-    typecheck_module_with_checked_kinds_and_module_names, typecheck_module_with_imports,
-    typecheck_module_with_imports_and_effect_context,
+    typecheck_module_with_checked_kinds_and_module_names,
+    typecheck_module_with_checked_kinds_and_module_names_and_warnings,
+    typecheck_module_with_imports, typecheck_module_with_imports_and_effect_context,
     typecheck_module_with_imports_and_effect_representation,
 };
 

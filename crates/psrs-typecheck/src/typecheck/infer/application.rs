@@ -7,11 +7,9 @@ impl Checker {
         argument: &hir::Expr,
         span: TextRange,
     ) -> Option<(InferredExprKind, InferType)> {
-        let mut function = self.infer_expr(function)?;
-        let (constraints, instantiated) =
-            self.instantiate_use(&Scheme::monomorphic(function.ty.clone()));
-        function.ty = instantiated;
-        function = self.apply_constraints(function, constraints, span);
+        let function = self.infer_expr(function)?;
+        let scheme = Scheme::monomorphic(function.ty.clone());
+        let function = self.instantiate_expression_use(function, &scheme, span);
         let function_type = self.resolve_type(function.ty.clone());
         let (parameter, result) = if let InferType::Application(inner, result) =
             function_type.clone()

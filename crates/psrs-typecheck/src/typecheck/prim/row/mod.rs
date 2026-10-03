@@ -1,6 +1,6 @@
-//! `Prim.Row.Cons`, `Prim.Row.Nub`, and `Prim.RowList.RowToList`: the three
-//! relations whose arguments are rows, and the three that build or canonicalise
-//! one from the other.
+//! `Prim.Row.Cons`, `Lacks`, `Union`, `Nub`, and `Prim.RowList.RowToList`: the
+//! relations whose arguments are rows and the rules that decide or transform
+//! them.
 //!
 //! All three are relations whose dictionaries are empty and erase, so what a
 //! rule produces is a decision about rows rather than a value. They read their
@@ -47,11 +47,10 @@
 use super::{EvidenceClass, PrimitiveArgs, PrimitiveEvidence, PrimitiveOutcome, PrimitiveRule};
 use crate::typecheck::*;
 
-/// The `Prim.Row` and `Prim.RowList` relations this module decides, as the rule
-/// table records them. `Lacks` and `Union` are not here: over an open tail both
-/// have to defer the remainder to that tail, which is the one answer none of
-/// these three returns.
+/// The three `Prim.Row` and `Prim.RowList` rules that decide closed row shapes.
 pub(in crate::typecheck) const RULES: [PrimitiveRule; 3] = [CONS, NUB, ROW_TO_LIST];
+
+pub(in crate::typecheck) mod deferred;
 
 /// `Cons`'s entry in the rule table. Its arity is the member's four declared
 /// arguments, `label`, `value`, `tail`, and `row`.

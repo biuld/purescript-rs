@@ -97,9 +97,12 @@ impl Checker {
         self.improve_wanted(&mut wanted[start..]);
         let mut solved = Vec::with_capacity(wanted.len());
         let mut retained = Vec::new();
-        for (index, mut constraint) in wanted.into_iter().enumerate() {
+        let mut index = 0;
+        while index < wanted.len() {
+            let mut constraint = wanted[index].clone();
             if index < start {
                 solved.push(constraint);
+                index += 1;
                 continue;
             }
             if constraint.solution.is_none() {
@@ -111,24 +114,12 @@ impl Checker {
                 let errors_before = self.state.errors.len();
                 let givens = constraint.givens.clone();
                 let found = self.with_given_chain(givens, |checker| {
-                    checker.solve_constraint(&constraint, SolveDepth::new())
+                    checker.solve_constraint(&constraint, SolveDepth::new(), unsolved)
                 });
                 constraint.solution = found;
-                let reported_resolution_error =
-                    self.state.errors[errors_before..].iter().any(|error| {
-                        // Any of these says this obligation has already been
-                        // reported, so reporting it a second time as a missing
-                        // instance would be the same rejection twice. A rule that
-                        // reports under `TypesDoNotUnify` — because its own decided
-                        // argument does not unify — is the case that needs the
-                        // third kind here.
-                        matches!(
-                            error.kind,
-                            TypeCheckErrorKind::OverlappingInstances
-                                | TypeCheckErrorKind::NoInstance
-                                | TypeCheckErrorKind::TypeMismatch
-                        )
-                    });
+                let reported_resolution_error = self.state.errors[errors_before..]
+                    .iter()
+                    .any(|error| error.kind.reports_constraint_failure());
                 if constraint.solution.is_none() && !reported_resolution_error {
                     if unsolved == UnsolvedPolicy::Retain
                         && self.can_generalize_constraint(&constraint)
@@ -146,15 +137,14 @@ impl Checker {
                 }
             }
             solved.push(constraint);
+            // Requeued residuals join this declaration's worklist. Processing
+            // them under the same policy is what lets an inferred relation
+            // generalize the final open-tail obligation instead of reporting it
+            // immediately at the point where it was deferred.
+            wanted.extend(std::mem::take(&mut self.state.wanted));
+            index += 1;
         }
-        // A primitive rule's deferral is re-queued during solving, so it appended
-        // to the wanted list while the list above was being walked. Appending
-        // after it keeps the index every retained constraint's evidence refers to
-        // unchanged, and keeps `wanted_start` pointing at this declaration's own
-        // constraints.
-        let requeued = std::mem::take(&mut self.state.wanted);
         self.state.wanted = solved;
-        self.state.wanted.extend(requeued);
         if let Some(result) = result {
             self.check_ambiguity(result, start);
         }
@@ -170,7 +160,10 @@ impl Checker {
     /// This is official PureScript's `canBeGeneralized`, read the same way: a
     /// `C Int` obligation is a missing instance, and `C ?a` is a constraint the
     /// declaration's type can still quantify.
-    fn can_generalize_constraint(&self, constraint: &WantedConstraint) -> bool {
+    pub(in crate::typecheck) fn can_generalize_constraint(
+        &self,
+        constraint: &WantedConstraint,
+    ) -> bool {
         if constraint.arguments.is_empty() {
             return true;
         }

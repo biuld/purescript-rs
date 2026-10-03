@@ -8,6 +8,10 @@ license.workspace = true
 name = "upstream"
 path = "tests/upstream/mod.rs"
 
+[[test]]
+name = "prim_row"
+path = "tests/prim_row/mod.rs"
+
 [dependencies]
 psrs-ast.workspace = true
 psrs-backend.workspace = true
