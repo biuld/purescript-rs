@@ -106,13 +106,28 @@ must not be exported.
 | --- | --- | --- |
 | Resource handles | every resource interface | `WASI.Resource.Resource a`, a newtype over `Int` |
 | Streams, poll, error | `wasi:io/streams`, `wasi:io/poll`, `wasi:io/error`, `wasi:cli/{stdin,stdout,stderr}` | `WASI.IO`: `getStdin`/`getStdout`/`getStderr`, `read`/`blockingRead`/`skip`/`blockingSkip`, `write`/`blockingWriteAndFlush`/`flush`, `subscribeInput`/`subscribeOutput`, `poll`/`ready`/`block`, `toDebugString`, and the `drop*` helpers |
-| Console output | `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:io/streams` | `WASI.Console.log`, `WASI.Console.error :: String -> Effect Unit` |
+| Console output | `wasi:cli/stdout`, `wasi:cli/stderr`, `wasi:io/streams` | `WASI.Console.log`, `WASI.Console.warn`, `WASI.Console.error :: String -> Effect Unit` |
 | Filesystem | `wasi:filesystem/types`, `wasi:filesystem/preopens` | `WASI.FileSystem`: `preopens`, `openRead`/`openWrite`/`openAppend`, `readFile`/`writeFile`/`readString`/`writeString`, `stat`/`statAt`/`getType`, `readDirectory`, `setTimes`, `withDescriptor` |
 | Network | `wasi:sockets/network`, `wasi:sockets/{instance-network,tcp,udp,tcp-create-socket,udp-create-socket}` | `WASI.Network`: `instanceNetwork`, `createTcpSocket`/`createUdpSocket`, the `tcp*`/`udp*` operations, and the `drop*` helpers |
 | Monotonic and wall clock | `wasi:clocks/monotonic-clock`, `wasi:clocks/wall-clock` | `WASI.Clock`: `now`, `wallNow`, `wallResolution`, `subscribeInstant`, `subscribeDuration` |
 | Random bytes | `wasi:random/random`, `wasi:random/insecure`, `wasi:random/insecure-seed` | `WASI.Random`: `randomBytes`, `randomU64`, `insecureBytes`, `insecureU64`, `insecureSeed` |
 | Process exit, arguments, environment | `wasi:cli/exit`, `wasi:cli/environment` | `WASI.Process`: `exitWithCode :: Int -> Effect Unit`, `arguments :: Effect (Array String)`, `environment :: Effect (Array { _1 :: String, _2 :: String })`. `main`'s integer code is still the synthesized `run` entry's call to `exit-with-code`, not this wrapper |
 | Umbrella | all of the above | `WASI` re-exports the curated API |
+
+### Corpus-facing wrappers
+
+The `passing` suite imports names the WASI layer does not use. These modules are
+thin wrappers over the platform layer, per
+[DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md): the raw
+import stays in `WASI.*` or in the compiler-owned `Prelude` externals, and the
+wrapper owns the corpus-facing name.
+
+| Module | Corpus name | Over | Owner |
+| --- | --- | --- | --- |
+| `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap` | the `psrs:effect` interface the compiler synthesizes bodies for | FE-09, BE-02, BE-21 |
+| `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
+| `Effect.Console` | `log`, `warn`, `error` | `WASI.Console` | BE-21 |
+| `Test.Assert` | `assert`, `assert'`, `assertTrue`, `assertFalse` | `Effect.Console.error` and `Prelude.trap` | BE-21, BE-27 |
 
 ### Capability matrix
 
@@ -128,7 +143,7 @@ consolidated capability layout: `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 | On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
 | Exported wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Every service wrapper, plus the `WASI` umbrella. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
-| `Effect` as `foreign import data` | [Effects](../fp/effects.md) | `Prelude` declares `foreign import data Effect`. `lower_effects` turns that opaque application into a one-parameter closure after Typed Core. |
+| `Effect` as `foreign import data` | [Effects](../fp/effects.md) | `Prelude` declares `foreign import data Effect` and the `psrs:effect` externals `pure`, `bind`, `run`, and `trap`. `lower_effects` turns the opaque application into a one-parameter closure after Typed Core and supplies those four bodies. |
 | `Maybe`, `Either`, records, and data types as wrappers | [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) | Library types, not compiler types; every `result` is an `Either E O` with the error on `Left`. |
 | **WASI-07 Arguments, environment, and filesystem** | #59 | Verified. `WASI.Process.arguments`/`environment` and `WASI.FileSystem` wrap `wasi:cli/environment` and `wasi:filesystem`; a file round-trip, a directory walk, and an environment read execute under Wasmtime. |
 | **WASI-08 Sockets** | #59 | In progress. `WASI.Network` wraps the socket services and the wrapper surface lowers; no socket execution test yet. HTTP/TLS are excluded. |
@@ -204,13 +219,17 @@ constant, which exists to give the entry its declared `i32` result
 
 The platform library is source code under `stdlib/lib`, read from disk and
 resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
-the trusted prefix order (`Prelude`, `Data.Maybe`, `Data.Either`,
-`WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`,
-`WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Maybe` and
-`Data.Either` are ordinary library types; they are not part of the trusted
-`Effect` representation. `WASI.Resource` defines the `Resource a` newtype and
+the trusted prefix order (`Prelude`, `Effect`, `Effect.Console`, `Test.Assert`,
+`Data.Maybe`, `Data.Either`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`,
+`WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`,
+`WASI.Network`, `WASI`). `Data.Maybe` and `Data.Either` are ordinary library
+types; they are not part of the trusted `Effect` representation. `Effect` and
+`Effect.Console` are the corpus-facing names for the effect interface and the
+console; `Test.Assert` is the corpus's assertion surface and reports a failure
+by writing a message and escaping through `Prelude.trap`. `WASI.Resource`
+defines the `Resource a` newtype and
 its bracket; `WASI.IO` defines the streams, poll, and error resource;
-`WASI.Console` defines `log` and `error`; `WASI.Process` defines
+`WASI.Console` defines `log`, `warn`, and `error`; `WASI.Process` defines
 `exitWithCode`, `arguments`, and `environment`; `WASI.Clock`, `WASI.Random`,
 `WASI.FileSystem`, and `WASI.Network` define their service wrappers; and `WASI`
 re-exports the curated API. Each WIT import is declared with a binding string
@@ -408,10 +427,10 @@ wrapped. `WASI.Process.arguments` and `WASI.Process.environment` wrap
 with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
-`stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Data.Maybe`,
-`Data.Either`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`,
-`WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
-trusted-prefix
+`stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Effect`,
+`Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `WASI.Resource`,
+`WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`,
+`WASI.FileSystem`, `WASI.Network`, and `WASI` in trusted-prefix
 order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the

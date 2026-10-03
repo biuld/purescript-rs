@@ -105,6 +105,8 @@ pub(in crate::cc::lower) fn collect_captures(
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+        // Neither a literal unit nor a trap reads a local.
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

@@ -3,6 +3,7 @@
 Prelude
 Effect
 Effect.Console
+Test.Assert
 Data.Maybe
 Data.Either
 WASI.Resource

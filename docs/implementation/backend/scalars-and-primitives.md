@@ -111,13 +111,20 @@ SP-01:
     mir/verify/tests/scalar.rs::rejects_a_boolean_constant_that_is_not_canonical;
     driver polymorphism_erasure_audit::erased_identity_boxes_char_and_unit
     boxes and unboxes a `Unit` value through the shared erased i32 box,
-    executing its canonical `0` representation.
+    executing its canonical `0` representation;
+    driver tests/assertions.rs::the_unit_value_is_a_core_expression_rather_than_an_integer_literal
+    shows Core carries the source `unit` value as its own expression rather than
+    an integer literal, and ...::the_unit_value_executes_when_wasmtime_is_available
+    passes it to a function and reads back the branch it selected.
   Input boundary: source, CC fixtures, malformed MIR
   Commands: common commands above
   Result: pass; executed under Wasmtime
   Revision: f2c43af + this worktree
   Gaps: no source primitive observes a `Unit` value's bits directly; the
-    erased box test exercises its representation. Astral Unicode code points
+    erased box test exercises its representation, and `unit` gives source a
+    value of the type without exposing its bits. A `()` pattern is not
+    implemented: the surface has the value in both spellings, but matching on
+    it is a separate pattern form. Astral Unicode code points
     (`U+10000..=U+10FFFF`) are rejected by the frontend lexer, which is outside
     this topic's ownership.
 ```

@@ -86,6 +86,7 @@ fn expression_has_integer_capture(expression: &Expr, module: &CoreModule) -> boo
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => false,
+        ExprKind::Unit | ExprKind::Trap => false,
     }
 }
 
@@ -187,6 +188,7 @@ fn free_integer_local(
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => false,
+        ExprKind::Unit | ExprKind::Trap => false,
     }
 }
 

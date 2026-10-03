@@ -19,6 +19,7 @@ mod erased;
 mod global;
 mod lambda;
 mod letrec;
+mod literals;
 mod record;
 mod scalar;
 mod string_bytes;
@@ -282,42 +283,44 @@ impl FunctionLowerer<'_> {
                 )
             }
             ExprKind::Global(function) => self.lower_global(expression, *function, ty, assignments),
-            ExprKind::Integer(value) => {
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::Constant(*value),
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::Number(value) => {
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::NumberConstant(value.clone()),
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::Boolean(value) => {
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::Constant(i32::from(*value)),
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
-            ExprKind::Char(value) => {
-                let destination = self.fresh(ty);
-                assignments.push(Assignment {
-                    destination,
-                    kind: AssignmentKind::Constant(*value as i32),
-                    span: expression.span,
-                });
-                Ok(destination)
-            }
+            // A literal carries its value outright. `Unit` is the one value of a
+            // type with no constructor table, and its canonical representation
+            // is the integer `0`
+            // (`docs/design/backend/fp/scalars-and-primitives.md`); Core keeps it
+            // a distinct expression so no later stage can read it as an `Int`.
+            ExprKind::Integer(value) => Ok(self.lower_literal(
+                AssignmentKind::Constant(*value),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            ExprKind::Number(value) => Ok(self.lower_literal(
+                AssignmentKind::NumberConstant(value.clone()),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            ExprKind::Boolean(value) => Ok(self.lower_literal(
+                AssignmentKind::Constant(i32::from(*value)),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            ExprKind::Char(value) => Ok(self.lower_literal(
+                AssignmentKind::Constant(*value as i32),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            ExprKind::Unit => Ok(self.lower_literal(
+                AssignmentKind::Constant(0),
+                expression.span,
+                ty,
+                assignments,
+            )),
+            // A trap has a type but no value: it is the one expression that
+            // ends the path instead of filling a destination.
+            ExprKind::Trap => self.lower_trap(expression.span, ty, assignments),
             ExprKind::Array { elements } => self.lower_array(expression, elements, ty, assignments),
             ExprKind::Record { .. } => Err(vec![BackendError::new(
                 "P8 closure conversion",
