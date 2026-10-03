@@ -11,6 +11,7 @@ mod effect_arity;
 mod effects;
 mod guard_coverage;
 mod operators;
+mod partial_application;
 mod scalars;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
