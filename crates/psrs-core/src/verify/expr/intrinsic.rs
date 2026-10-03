@@ -7,8 +7,8 @@
 
 use super::super::types::{primitive_types, unary_primitive_types};
 use super::{Context, compatible};
-use crate::{Expr, Primitive, UnaryPrimitive};
-use psrs_hir::Intrinsic;
+use crate::Expr;
+use psrs_hir::{Intrinsic, IntrinsicCategory};
 
 impl Context<'_> {
     pub(super) fn verify_intrinsic(
@@ -30,9 +30,9 @@ impl Context<'_> {
             }
             Intrinsic::StringToBytes => self.verify_string_to_bytes(expression, &arguments[0]),
             Intrinsic::BytesToString => self.verify_bytes_to_string(expression, &arguments[0]),
-            _ => {
-                if let Some(op) = Primitive::from_intrinsic(intrinsic) {
-                    let (operand, result) = primitive_types(op, self.module);
+            _ => match intrinsic.descriptor().category {
+                IntrinsicCategory::BinaryScalar => {
+                    let (operand, result) = primitive_types(intrinsic, self.module);
                     self.expr(&arguments[0], Some(operand));
                     self.expr(&arguments[1], Some(operand));
                     compatible(
@@ -43,8 +43,9 @@ impl Context<'_> {
                         expression.span,
                         self.errors,
                     );
-                } else if let Some(op) = UnaryPrimitive::from_intrinsic(intrinsic) {
-                    let (operand, result) = unary_primitive_types(op, self.module);
+                }
+                IntrinsicCategory::UnaryScalar => {
+                    let (operand, result) = unary_primitive_types(intrinsic, self.module);
                     self.expr(&arguments[0], Some(operand));
                     compatible(
                         result,
@@ -54,12 +55,13 @@ impl Context<'_> {
                         expression.span,
                         self.errors,
                     );
-                } else {
+                }
+                _ => {
                     for argument in arguments {
                         self.expr(argument, None);
                     }
                 }
-            }
+            },
         }
     }
 }

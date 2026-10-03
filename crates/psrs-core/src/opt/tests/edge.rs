@@ -79,16 +79,19 @@ fn out_of_range_array_index_remains_a_trapping_operation() {
     let int_type = TypeId(0);
     let array_type = TypeId(2);
     let value = expression(
-        ExprKind::ArrayIndex {
-            array: Box::new(expression(
-                ExprKind::Array {
-                    elements: vec![expression(ExprKind::Integer(1), 0, 5, 6)],
-                },
-                array_type.0,
-                4,
-                7,
-            )),
-            index: Box::new(expression(ExprKind::Integer(1), 0, 10, 11)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::ArrayIndex,
+            arguments: vec![
+                expression(
+                    ExprKind::Array {
+                        elements: vec![expression(ExprKind::Integer(1), 0, 5, 6)],
+                    },
+                    array_type.0,
+                    4,
+                    7,
+                ),
+                expression(ExprKind::Integer(1), 0, 10, 11),
+            ],
         },
         int_type.0,
         4,
@@ -109,6 +112,9 @@ fn out_of_range_array_index_remains_a_trapping_operation() {
     .unwrap();
     assert!(matches!(
         result.declarations[0].value.kind,
-        ExprKind::ArrayIndex { .. }
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::ArrayIndex,
+            ..
+        }
     ));
 }

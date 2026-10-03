@@ -57,27 +57,8 @@ fn expression_span(expression: &Expr, maximum: &mut Option<TypeVariableId>) {
             }
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record)
-        | ExprKind::UnaryPrimitive { value: record, .. }
         | ExprKind::RepresentationCast { value: record, .. } => expression_span(record, maximum),
-        ExprKind::ArrayIndex { array, index } => {
-            expression_span(array, maximum);
-            expression_span(index, maximum);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            expression_span(array, maximum);
-            expression_span(index, maximum);
-            expression_span(value, maximum);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::Application(left, right) => {
             expression_span(left, maximum);
             expression_span(right, maximum);
         }

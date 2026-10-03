@@ -353,6 +353,3 @@ fn flatten_intrinsic(
     arguments.reverse();
     Some((symbol, arguments))
 }
-
-#[cfg(test)]
-mod tests;

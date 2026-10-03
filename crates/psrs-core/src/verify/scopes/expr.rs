@@ -54,10 +54,7 @@ pub(super) fn scoped_expr(
                 scoped_expr(value, module, scope, errors);
             }
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => scoped_expr(record, module, scope, errors),
+        ExprKind::FieldAccess { record, .. } => scoped_expr(record, module, scope, errors),
         ExprKind::RepresentationCast {
             value,
             source_type,
@@ -81,28 +78,6 @@ pub(super) fn scoped_expr(
                 errors,
             );
         }
-        ExprKind::ArrayIndex { array, index } => {
-            scoped_expr(array, module, scope, errors);
-            scoped_expr(index, module, scope, errors);
-        }
-        ExprKind::ArrayAppend { left, right } => {
-            scoped_expr(left, module, scope, errors);
-            scoped_expr(right, module, scope, errors);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            scoped_expr(array, module, scope, errors);
-            scoped_expr(index, module, scope, errors);
-            scoped_expr(value, module, scope, errors);
-        }
-        ExprKind::Primitive { left, right, .. } => {
-            scoped_expr(left, module, scope, errors);
-            scoped_expr(right, module, scope, errors);
-        }
-        ExprKind::UnaryPrimitive { value, .. } => scoped_expr(value, module, scope, errors),
         ExprKind::Application(function, argument) => {
             let binders = leading_foralls(module, expression.ty);
             let mut function_scope = scope.clone();

@@ -219,41 +219,6 @@ impl TypeSubstitution<'_> {
                 source_type: self.type_id(*source_type)?,
                 target_type: self.type_id(*target_type)?,
             },
-            ExprKind::StringToBytes(value) => {
-                ExprKind::StringToBytes(Box::new(self.expression(value)?))
-            }
-            ExprKind::BytesToString(value) => {
-                ExprKind::BytesToString(Box::new(self.expression(value)?))
-            }
-            ExprKind::ArrayLength(array) => {
-                ExprKind::ArrayLength(Box::new(self.expression(array)?))
-            }
-            ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-                left: Box::new(self.expression(left)?),
-                right: Box::new(self.expression(right)?),
-            },
-            ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-                array: Box::new(self.expression(array)?),
-                index: Box::new(self.expression(index)?),
-            },
-            ExprKind::ArrayUpdate {
-                array,
-                index,
-                value,
-            } => ExprKind::ArrayUpdate {
-                array: Box::new(self.expression(array)?),
-                index: Box::new(self.expression(index)?),
-                value: Box::new(self.expression(value)?),
-            },
-            ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-                op: *op,
-                left: Box::new(self.expression(left)?),
-                right: Box::new(self.expression(right)?),
-            },
-            ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-                op: *op,
-                value: Box::new(self.expression(value)?),
-            },
             ExprKind::Application(function, argument) => ExprKind::Application(
                 Box::new(self.expression(function)?),
                 Box::new(self.expression(argument)?),
