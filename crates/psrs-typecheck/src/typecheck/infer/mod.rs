@@ -141,7 +141,7 @@ impl Checker {
                         }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
-                            self.intrinsic_type(intrinsic)?,
+                            self.intrinsic_type(intrinsic),
                         ),
                         Some(ExternalKind::Wit { .. }) => {
                             let Some(signature) = self.env.external_signatures.get(symbol).cloned()
