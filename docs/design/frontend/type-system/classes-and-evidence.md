@@ -226,8 +226,8 @@ still lack a runtime layout. Structural `Eq`/`Ord`, nested `Functor.map`,
 method signatures. Function-result mapping and `Contravariant` through a
 profunctor dictionary match the upstream source rules; the function-based
 Contravariant case still lacks Wasmtime evidence because of closure capture.
-Method-local constraints and the remaining upstream deriving classes keep
-FE-16 partial.
+Class-method local constraints and quantified parameters are covered under
+FE-18; the remaining upstream deriving classes keep FE-16 partial.
 
 The primitive rule table now covers all twelve row, row-list, symbol, and integer
 relations as well as the `Coercible` proof. `Prim.TypeError.Warn` reports through
@@ -252,8 +252,12 @@ retained constraint wraps the declaration. An unsolvable constraint is still
 `NoInstance`, and a residual constraint in a *recursive* binding group is reported
 rather than generalized, matching official's `CannotGeneralizeRecursiveFunction`.
 A superclass edge is a `TypeTemplate` over the subclass's parameters and is
-instantiated through the shared substitution, so `class Eq (Box a) <= Pretty a` —
-which `purs` compiles and this compiler previously rejected — is accepted.
+instantiated through the shared substitution. The source and Wasmtime regression
+`a_superclass_edge_over_a_constructed_argument_runs_when_wasmtime_is_available`
+checks `class (Gamma (Array a)) <= Epsilon a`: an `Epsilon Int` dictionary
+contains `Gamma (Array Int)`, and `use` obtains that superclass dictionary from
+the edge. This is a constructed argument that parameter-name matching could not
+represent.
 The coercion rule is dispatched through the shared primitive table by class
 identity rather than by a comparison at the call site.
 
