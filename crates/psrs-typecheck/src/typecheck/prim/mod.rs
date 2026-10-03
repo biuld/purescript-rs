@@ -24,6 +24,7 @@ use crate::typecheck::*;
 mod coercible;
 mod int;
 mod requeue;
+mod row;
 mod symbol;
 
 use requeue::RequeueChain;
@@ -100,6 +101,7 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
     core::iter::once(&coercible::RULE)
         .chain(symbol::RULES.iter())
         .chain(int::RULES.iter())
+        .chain(row::RULES.iter())
 }
 
 /// The test build adds the framework cases' synthetic rules. They are keyed by
@@ -110,6 +112,7 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
     core::iter::once(&coercible::RULE)
         .chain(symbol::RULES.iter())
         .chain(int::RULES.iter())
+        .chain(row::RULES.iter())
         .chain(tests::SYNTHETIC.iter())
 }
 
