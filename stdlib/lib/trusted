@@ -1,6 +1,7 @@
 # Trusted standard-library modules, in prefix order.
 # Dots are directory separators under this directory.
 Prelude
+Data.Function
 Effect
 Effect.Console
 Test.Assert

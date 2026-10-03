@@ -25,6 +25,10 @@ impl Resolver {
             .map(|exported| exported.reference)
             .collect();
         let exported_symbols: HashSet<SymbolId> = values.iter().map(|value| value.symbol).collect();
+        let own_value_symbols: HashSet<SymbolId> = declarations
+            .iter()
+            .map(|declaration| declaration.symbol)
+            .collect();
 
         // An exported constructor alias must expose its complete parent type.
         for operator in operators {
@@ -51,6 +55,7 @@ impl Resolver {
                     );
                 }
             } else if operator.target_name != operator.name
+                && own_value_symbols.contains(&operator.symbol)
                 && !values.iter().any(|value| {
                     value.symbol == operator.symbol && value.name == operator.target_name
                 })
@@ -63,8 +68,11 @@ impl Resolver {
             }
         }
         for operator in type_operators {
+            let TypeReference::Named(id) = operator.reference else {
+                continue;
+            };
             if operator.target_name != operator.name
-                && matches!(operator.reference, TypeReference::Named(_))
+                && own.contains_key(&id)
                 && !exported_types.iter().any(|exported| {
                     exported.reference == operator.reference
                         && exported.name == operator.target_name

@@ -343,6 +343,7 @@ application world, and embedding stay in
 ```text
 stdlib/lib/
   Prelude.purs                 the Effect interface: pure, bind, runEffect, trap
+  Data/Function.purs           const, flip, apply, applyFlipped, on, $, #
   Effect.purs                  the corpus-facing name for that interface
   Effect/Console.purs          log, warn, error over WASI.Console
   Test/Assert.purs             assert, assert', assertTrue, assertFalse
