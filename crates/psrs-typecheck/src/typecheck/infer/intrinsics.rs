@@ -66,6 +66,14 @@ impl Checker {
                 arrow(primitive(TypeConstructor::Int), arrow(element, array)),
             ));
         }
+        if intrinsic == Intrinsic::ArrayAppend {
+            let element = self.fresh();
+            let array = InferType::Application(
+                Box::new(InferType::Constructor(TypeConstructor::Array)),
+                Box::new(element),
+            );
+            return Some(arrow(array.clone(), arrow(array.clone(), array)));
+        }
         if intrinsic == Intrinsic::StringToBytes {
             return Some(arrow(
                 primitive(TypeConstructor::String),
@@ -148,6 +156,7 @@ impl Checker {
             | Intrinsic::ArrayLength
             | Intrinsic::ArrayIndex
             | Intrinsic::ArrayUpdate
+            | Intrinsic::ArrayAppend
             | Intrinsic::IntNeg
             | Intrinsic::IntComplement
             | Intrinsic::NumberNeg

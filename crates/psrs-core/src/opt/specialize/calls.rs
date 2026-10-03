@@ -72,6 +72,10 @@ pub(super) fn rewrite(
             state,
             pending,
         ))),
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(rewrite(*left, module, declarations, state, pending)),
+            right: Box::new(rewrite(*right, module, declarations, state, pending)),
+        },
         ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
             array: Box::new(rewrite(*array, module, declarations, state, pending)),
             index: Box::new(rewrite(*index, module, declarations, state, pending)),

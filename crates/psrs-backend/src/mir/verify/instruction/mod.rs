@@ -372,6 +372,9 @@ pub(super) fn verify_instruction(
         Instruction::ArrayNewDefault { .. } => {
             arrays::verify_array_new_default(function, instruction, definitions, defined)?;
         }
+        Instruction::ArrayNewSized { .. } => {
+            arrays::verify_array_new_sized(function, instruction, definitions, defined)?;
+        }
         Instruction::ArrayGet { .. } => {
             arrays::verify_array_get(function, instruction, false, definitions, defined)?
         }

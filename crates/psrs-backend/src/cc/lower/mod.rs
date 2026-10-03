@@ -407,6 +407,9 @@ impl FunctionLowerer<'_> {
                 });
                 Ok(destination)
             }
+            ExprKind::ArrayAppend { left, right } => {
+                self.lower_array_append(expression, left, right, ty, assignments)
+            }
             ExprKind::Constructor { symbol, arguments } => {
                 self.lower_constructor(expression, *symbol, arguments, ty, assignments)
             }

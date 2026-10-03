@@ -344,6 +344,7 @@ application world, and embedding stay in
 stdlib/lib/
   Prelude.purs                 the Effect interface: pure, bind, runEffect, trap
   Data/Function.purs           const, flip, apply, applyFlipped, on, $, #
+  Data/Semigroup.purs          class Semigroup, append, <>
   Effect.purs                  the corpus-facing name for that interface
   Effect/Console.purs          log, warn, error over WASI.Console
   Test/Assert.purs             assert, assert', assertTrue, assertFalse
@@ -553,10 +554,13 @@ on a success string it never receives. The function stays unexposed.
 
 ## Implementation notes
 
-The on-disk library is `WASI.Resource`, `WASI.IO`, `WASI.Console`,
+The on-disk library is `Data.Function`, `Data.Semigroup`, `Data.Maybe`,
+`Data.Either`, `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 `WASI.FileSystem`, `WASI.Network`, `WASI.Clock`, `WASI.Random`, and
 `WASI.Process`, with a `WASI` umbrella re-exporting the curated API.
-`WASI.Console` exports `log` and `error`. `WASI.Clock` exports `now`, `wallNow`,
+`Data.Semigroup` declares the `Semigroup` class, its `append` method, and the
+`<>` alias, and `Prelude` re-exports all three. `WASI.Console` exports `log`
+and `error`. `WASI.Clock` exports `now`, `wallNow`,
 and `wallResolution`. `WASI.Random` exports `randomBytes` and `randomU64`.
 `WASI.Process` exports `exitWithCode`, `arguments`, and `environment`. Raw
 imports stay in their modules and are not exported. `wasi:cli/exit.exit` is not

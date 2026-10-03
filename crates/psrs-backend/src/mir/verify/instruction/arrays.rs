@@ -86,6 +86,52 @@ pub(super) fn verify_array_new_default(
     Ok(())
 }
 
+/// `array.new_default` as a plain sized allocation, without the array-conversion
+/// invariants `ArrayNewDefault` carries.
+pub(super) fn verify_array_new_sized(
+    function: &Function,
+    instruction: &Instruction,
+    definitions: &HashMap<ValueId, ValueType>,
+    defined: &[&DefinedType],
+) -> Result<(), Vec<BackendError>> {
+    let Instruction::ArrayNewSized {
+        destination,
+        type_index,
+        length,
+        span,
+    } = instruction
+    else {
+        unreachable!("sized array allocation verifier received another instruction")
+    };
+    let Some(CompositeType::Array(element)) = composite_at(defined, *type_index) else {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_default type is not an array",
+        ));
+    };
+    if !is_defaultable_storage(&element.storage) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_default element storage is not defaultable",
+        ));
+    }
+    if require_value(definitions, *length, *span)? != ValueType::I32 {
+        return Err(mir_error(*span, "MIR array.new_default length must be i32"));
+    }
+    if !is_array_reference(
+        value_type(function, *destination)
+            .ok_or_else(|| mir_error(*span, "MIR array.new_default result has no value type"))?,
+        *type_index,
+        defined,
+    ) {
+        return Err(mir_error(
+            *span,
+            "MIR array.new_default result must match its array type",
+        ));
+    }
+    Ok(())
+}
+
 /// `array.new_data` materializes static literal bytes into a fresh packed
 /// array. Only the GC string's packed `i8` element type is admitted.
 pub(super) fn verify_array_new_data(

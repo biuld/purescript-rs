@@ -74,6 +74,7 @@ fn max_local(expression: &Expr) -> u32 {
         | ExprKind::BytesToString(record)
         | ExprKind::UnaryPrimitive { value: record, .. } => max_local(record),
         ExprKind::ArrayIndex { array, index } => max_local(array).max(max_local(index)),
+        ExprKind::ArrayAppend { left, right } => max_local(left).max(max_local(right)),
         ExprKind::ArrayUpdate {
             array,
             index,

@@ -79,4 +79,35 @@ impl FunctionLowerer<'_> {
         });
         Ok(destination)
     }
+
+    pub(super) fn lower_array_append(
+        &mut self,
+        expression: &Expr,
+        left: &Expr,
+        right: &Expr,
+        ty: ValueShape,
+        assignments: &mut Vec<Assignment>,
+    ) -> Result<ValueId, Vec<BackendError>> {
+        let Some(representation) = self.array_types.get(&expression.ty).copied() else {
+            return Err(vec![BackendError::new(
+                "P8 closure conversion",
+                expression.span,
+                "array append has no representation requirement",
+            )]);
+        };
+        let left = self.lower_value(left, assignments)?;
+        let right = self.lower_value(right, assignments)?;
+        let destination = self.fresh(ty);
+        assignments.push(Assignment {
+            destination,
+            kind: AssignmentKind::ArrayAppend {
+                destination,
+                representation,
+                left,
+                right,
+            },
+            span: expression.span,
+        });
+        Ok(destination)
+    }
 }

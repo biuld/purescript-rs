@@ -47,6 +47,10 @@ fn eliminate_expr(mut expression: Expr) -> Expr {
             target_type,
         },
         ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(eliminate_expr(*array))),
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(eliminate_expr(*left)),
+            right: Box::new(eliminate_expr(*right)),
+        },
         ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(eliminate_expr(*value))),
         ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(eliminate_expr(*value))),
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
@@ -219,7 +223,9 @@ fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
             collect_refs(index, references);
             collect_refs(value, references);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             collect_refs(left, references);
             collect_refs(right, references);
         }

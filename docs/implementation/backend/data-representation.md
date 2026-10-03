@@ -40,7 +40,7 @@ evidence where behavior is observable.
 | DR-03 | Products and closed records are structs with canonical field order and correct mutability; pure update creates a new value. | Construct, project, pattern match, and update mixed fields; retain the old value and execute assertions on both. | Verified |
 | DR-04 | Field-bearing sums use an abstract tag-carrying supertype and final case subtypes; all-nullary sums use immediate `i32` tags. | Inspect type hierarchy and tag positions; execute nullary, single/multiple-field and nested ADT cases; reject wrong tag/field selection. | Verified |
 | DR-05 | Newtype representation erases the wrapper exactly where the design specifies. | Inspect CC/MIR for absence of wrapper allocation and execute construction/matching through nested uses. | Verified |
-| DR-06 | Arrays use mutable GC element storage but source `ArraySet` is a pure clone/update; canonical and concrete layouts remain distinct. | Execute empty, singleton, nested, and aliased update/read cases; inspect `array.new`, `get`, `set`, clone and type indices. | Verified |
+| DR-06 | Arrays use mutable GC element storage; source `ArraySet` is a pure clone/update and `arrayAppend` allocates a fresh array, so the canonical and concrete layouts stay distinct. | Execute empty, singleton, nested, aliased update/read, and append cases; inspect `array.new`, `get`, `set`, clone, and type indices. | Verified |
 | DR-07 | Closures use a code reference and uniform nullable `eqref` capture array; integer/Boolean captures box and a `String` capture is stored as its GC reference. | Inspect layout, capture ordering and code signature; execute escaping closures capturing each scalar class, GC references, and strings. | Verified |
 | DR-08 | Scalar boxes and erased/reference recovery obey exact nullability and nominal provenance rules; `String` erases and recovers as a reference, not an integer box. | Positive and negative `ref.test`/`ref.cast`, box/unbox, i31 Boolean capture, full-width integer, Number, and string reference paths; no nominal cast substitutes for aggregate reconstruction. | Verified |
 | DR-09 | Product, variant, array, closure, and conversion operations lower to exact typed MIR instructions. | Full-module verifier rejects wrong operand, field/index, mutability, arity, nullability, and layout; valid cases validate as Wasm. | Verified |
@@ -149,16 +149,23 @@ DR-05:
   Gaps: none
 DR-06:
   Implementation: mir/layout/mod.rs array_storage_type (mutable, nullable
-    reference storage); mir/lower/assignments.rs ArrayClone/ArraySet;
-    wasm/lower/structure/arrays.rs emit_array_clone; cc/lower/array.rs
-    lower_array_update (clone then set)
+    reference storage); mir/lower/array_assignments.rs ArrayClone/ArraySet/
+    ArrayAppend dispatch; mir/lower/assignment_array.rs lower_array_append
+    (ArrayNewSized plus two element-copy loops); wasm/lower/structure/arrays.rs
+    emit_array_clone and emit_array_new_default (ArrayNewSized); cc/lower/array.rs
+    lower_array_update (clone then set) and lower_array_append
   Tests: mir/gc_tests/array.rs::executes_a_pure_array_clone_and_update (updated
     clone element 42 + preserved source element 20 + length 2 = 64 under
     Wasmtime); mir/verify/tests/arrays.rs
     rejects_array_clone_with_non_defaultable_element_storage and
-    rejects_array_clone_of_an_immutable_array; driver arrays.rs alias cases
+    rejects_array_clone_of_an_immutable_array; driver arrays.rs alias cases;
+    tests::semigroup::array_append_is_a_core_expression,
+    the_semigroup_operator_concatenates_strings_and_arrays (mandatory Wasmtime:
+    "a"<>"b" arrays, and a non-ASCII string), and
+    the_semigroup_operator_is_right_associative (mandatory Wasmtime)
   Input boundary: CC and malformed MIR
-  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-backend;
+    PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::semigroup
   Result: pass, negative checks reject the previously accepted malformed clones
   Gaps: none
 DR-07:

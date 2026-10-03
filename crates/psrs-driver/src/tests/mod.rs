@@ -14,6 +14,7 @@ mod guard_coverage;
 mod operators;
 mod partial_application;
 mod scalars;
+mod semigroup;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
     let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");

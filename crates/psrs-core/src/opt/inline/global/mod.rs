@@ -198,6 +198,26 @@ fn inline_expr(
             recursive,
             types,
         ))),
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(inline_expr(
+                *left,
+                fresh,
+                sites_left,
+                max_body_nodes,
+                declarations,
+                recursive,
+                types,
+            )),
+            right: Box::new(inline_expr(
+                *right,
+                fresh,
+                sites_left,
+                max_body_nodes,
+                declarations,
+                recursive,
+                types,
+            )),
+        },
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
             op,
             value: Box::new(inline_expr(
