@@ -342,7 +342,10 @@ application world, and embedding stay in
 
 ```text
 stdlib/lib/
-  Prelude.purs                 ordinary library types (Effect)
+  Prelude.purs                 the Effect interface: pure, bind, runEffect, trap
+  Effect.purs                  the corpus-facing name for that interface
+  Effect/Console.purs          log, warn, error over WASI.Console
+  Test/Assert.purs             assert, assert', assertTrue, assertFalse
   Data/Maybe.purs              data Maybe a = Nothing | Just a, plus eliminators
   Data/Either.purs             data Either a b = Left a | Right b, plus eliminators
   WASI.purs                    umbrella re-exporting the curated API
@@ -362,11 +365,16 @@ crates/psrs-backend/src/
 ```
 
 - A platform module exports only user-facing functions. `WASI.Console` exports
-  `log :: String -> Effect Unit` and `error :: String -> Effect Unit`. It does
+  `log`, `warn`, and `error :: String -> Effect Unit`. It does
   not export its raw imports. `WASI.Clock` exports `now :: Effect Int` and does
   not export `monotonicNow`. `WASI.Process` exports
   `exitWithCode :: Int -> Effect Unit` and does not export `exitWithCodeRaw`.
   The `WASI` umbrella re-exports the curated API of every focused module.
+- The corpus-facing modules wrap that surface rather than adding imports:
+  `Effect.Console` re-exports `WASI.Console` under the names the suite imports,
+  and `Test.Assert` composes `Effect.Console.error` with `Prelude.trap`. A
+  failure is a guest trap because that is the only signal a compilable corpus
+  case can carry; `Prelude.trap` is a `psrs:effect` external, not a host call.
 - Each raw binding is an unexported `foreign import` whose parameters and
   single result are in the primitive set. The binding string is
   `<interface>#<function>`, as in the canonical ABI topic.

@@ -34,6 +34,7 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => 0,
+        ExprKind::Unit | ExprKind::Trap => 0,
         ExprKind::Constructor { arguments, .. }
         | ExprKind::Array {
             elements: arguments,
@@ -129,6 +130,8 @@ fn substitute_inner(
         ExprKind::Boolean(value) => ExprKind::Boolean(*value),
         ExprKind::String(value) => ExprKind::String(value.clone()),
         ExprKind::Char(value) => ExprKind::Char(*value),
+        ExprKind::Unit => ExprKind::Unit,
+        ExprKind::Trap => ExprKind::Trap,
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements
                 .iter()
@@ -401,6 +404,7 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+        ExprKind::Unit | ExprKind::Trap => {}
     }
 }
 

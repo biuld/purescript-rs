@@ -380,6 +380,9 @@ pub(super) fn typecheck_program_with_warnings(
             && matches!(
                 module.name.as_str(),
                 "Prelude"
+                    | "Effect"
+                    | "Effect.Console"
+                    | "Test.Assert"
                     | "WASI.Resource"
                     | "WASI.IO"
                     | "WASI.Clock"

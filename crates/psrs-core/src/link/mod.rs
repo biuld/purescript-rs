@@ -303,6 +303,7 @@ fn collect_references(expression: &Expr, out: &mut Vec<SymbolId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
+        ExprKind::Unit | ExprKind::Trap => {}
         ExprKind::Array { elements } => {
             for element in elements {
                 collect_references(element, out);

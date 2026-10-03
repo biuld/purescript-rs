@@ -45,6 +45,7 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 | EF-09 | Linked source modules forward Effect values without running them or granting untrusted modules runner privilege. | Producer/consumer modules with delayed execution, repeated forwarding, and unauthorized `runEffect` attempt. | Verified |
 | EF-10 | Wasm/component entry executes only the selected trusted action and preserves WASI call order, results, and failures. | Mandatory Wasmtime component execution with stdout/stderr or another observable import, call counts, exit behavior, and valid binary. | Verified |
 | EF-11 | A representation closure whose parameter list is not `[Token]`, or whose result is not the lowered effect result, fails verification before encoding. | Negative fixtures for the closure emitted by representation lowering, including an `Effect (a -> b)` closure that was flattened to arity two. | Verified |
+| EF-12 | `trap` is the `Effect Unit` whose application ends the guest instead of returning, and the effect chain sequenced after it does not run. | A failing library assertion writes its message and traps; a held one lets the program finish; a statement after the trap never writes. | Verified |
 
 ## Vertical execution order
 
@@ -261,6 +262,34 @@ EF-11:
     not re-checked. `Type::Closure` stays a general representation: only nodes
     the lowering wrote are constrained to `[Token]`. BE-21 remains the broader
     landing gate for this topic.
+EF-12:
+  Implementation: stdlib/lib/Prelude.purs (`psrs:effect#trap`,
+    `trap :: Effect Unit`), crates/psrs-core/src/effect/operations.rs
+    (`trap_declaration`, a one-token closure whose body is the Core trap),
+    crates/psrs-core/src/lib.rs (`ExprKind::Trap`),
+    crates/psrs-backend/src/cc/lower/literals.rs (`lower_trap`, an
+    `Unreachable` assignment), stdlib/lib/Test/Assert.purs (the first consumer)
+  Tests: psrs-driver tests/assertions.rs
+    a_failed_assertion_traps_with_its_message_when_wasmtime_is_available,
+    a_failed_assertion_writes_the_message_before_it_traps,
+    assert_true_and_assert_false_report_the_value_that_did_not_hold,
+    a_statement_after_a_failed_assertion_never_runs,
+    a_held_assertion_lets_the_program_finish_when_wasmtime_is_available
+  Input boundary: source (`Test.Assert` on the on-disk library); executed Wasm
+    component observed through the process exit status, stdout, and stderr
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib
+    tests::assertions
+  Result: pass under PSRS_REQUIRE_WASMTIME=1 on 2026-10-03. Each failure case
+    writes its message first and then traps (`wasm trap: wasm 'unreachable'
+    instruction executed`); the held cases exit 0 and the trap stops the chain,
+    so the statement after it never writes.
+  Revision: uncommitted on feat/ph3-unit-and-test-assert
+  Gaps: `trap` is `Effect Unit`, not `forall a. Effect a`: a polymorphic form
+    would need the backend to fill a use-site result type on a path that never
+    produces one, and no library caller needs it. `assertThrows` needs to
+    observe a trap from inside the guest, which the target profile does not
+    provide ([DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)), so the
+    standard library omits it rather than approximating it.
 ```
 
 ## Discovered obligations

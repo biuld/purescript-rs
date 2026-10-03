@@ -90,6 +90,10 @@ impl Context<'_> {
             ExprKind::Boolean(_) => self.shape(expression, TypeConstructor::Boolean),
             ExprKind::String(_) => self.shape(expression, TypeConstructor::String),
             ExprKind::Char(_) => self.shape(expression, TypeConstructor::Char),
+            ExprKind::Unit => self.shape(expression, TypeConstructor::Unit),
+            // A trap produces no value, so its type is only the one its context
+            // wants; the surrounding context check already established that.
+            ExprKind::Trap => {}
             ExprKind::Array { elements } => {
                 let Some(element_type) = array_element(expression.ty, self.module) else {
                     self.errors.push(error(

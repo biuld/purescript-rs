@@ -173,6 +173,9 @@ pub enum Intrinsic {
     /// `forall a. a`. It has no runtime representation yet, so the stages that
     /// would have to choose one report it instead of inventing it.
     Undefined,
+    /// The one `Unit` value, written `unit` or `()`. A compiler primitive rather
+    /// than a nullary constructor, because `Unit` is a builtin type here.
+    Unit,
 }
 
 impl Intrinsic {
