@@ -130,7 +130,7 @@ impl Checker {
                 if self.state.rigid.contains(variable) {
                     return false;
                 }
-                self.bind_variable(*variable, source, span)
+                self.bind_type_variable(*variable, source, span)
             }
             (InferType::Application(wf, wa), InferType::Application(sf, sa)) => {
                 let mut changed = self.assign_determined(wf, sf, span);
