@@ -92,6 +92,10 @@ impl Desugarer {
                 expression: Box::new(self.expr(*expression)),
                 ty,
             },
+            ExprKind::TypeApplication { expression, ty } => ExprKind::TypeApplication {
+                expression: Box::new(self.expr(*expression)),
+                ty,
+            },
             ExprKind::Lambda { binder, body } => ExprKind::Lambda {
                 binder,
                 body: Box::new(self.expr(*body)),

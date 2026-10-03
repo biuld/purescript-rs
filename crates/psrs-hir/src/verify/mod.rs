@@ -56,7 +56,7 @@ pub(crate) fn verify_expr(
             verify_expr(function, globals, visible_locals, declared_locals, errors);
             verify_expr(argument, globals, visible_locals, declared_locals, errors);
         }
-        ExprKind::Typed { expression, .. } => {
+        ExprKind::Typed { expression, .. } | ExprKind::TypeApplication { expression, .. } => {
             verify_expr(expression, globals, visible_locals, declared_locals, errors);
         }
         ExprKind::Operator {

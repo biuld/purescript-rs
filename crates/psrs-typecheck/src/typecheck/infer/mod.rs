@@ -7,6 +7,7 @@ mod expected;
 mod intrinsics;
 mod pattern;
 mod records;
+mod visible_type_application;
 
 impl Checker {
     /// Registers data and newtype constructors declared anywhere in the
@@ -249,6 +250,11 @@ impl Checker {
             }
             hir::ExprKind::Typed { expression, ty } => {
                 return self.infer_ascription(expression, ty, span);
+            }
+            hir::ExprKind::TypeApplication { expression, ty } => {
+                return visible_type_application::infer_type_application(
+                    self, expression, ty, span,
+                );
             }
             hir::ExprKind::Operator { .. }
             | hir::ExprKind::OperatorChain { .. }

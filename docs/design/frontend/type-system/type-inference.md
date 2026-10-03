@@ -39,7 +39,7 @@ Inference state has three owners with distinct lifetimes. The `SemanticEnv` is i
 
 Infer synthesizable expressions and check expressions with expected types. Instantiate `forall` and solve constrained uses through class entailment. When checking a signature or higher-rank argument, skolemize expected quantifiers, perform structural subsumption, and check that skolems do not escape. Function parameter comparison is contravariant and result comparison covariant; record subsumption compares common labels and checks closed-row extras and omissions. Evidence can be inserted at elaboration sites, while comparison under a type constructor cannot invent term-level dictionaries.
 
-Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Explicit term type applications and typed holes follow the official source rules. Source syntax has no explicit kind-application form; the kind solver instantiates kind variables implicitly. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
+Infer a recursive SCC with shared placeholders, respecting explicit signatures, then solve and generalize only variables permitted by the environment and remaining constraints. Use kind-correct constructor and pattern types; type-check case alternatives, literals, arrays, record operations, newtypes, and foreign imports. Visible type application `e @T` substitutes `T` for the operand's outermost quantifier after a kind check and is erased, and `e @_` consumes that quantifier without choosing a type. Typed holes follow the official source rules. A quantified kind argument is instantiated implicitly, because no source form applies one to a type constructor. Build THIR only after zonking, ambiguity checks, and evidence elaboration.
 
 A declaration's scheme carries the constraints that were inferred for it, whether or not the source declared them. Generalization is therefore one sequence and not two:
 
@@ -199,7 +199,9 @@ THIR is verified, and the verification has a stated boundary. `verify_module` ch
 
 ## Open questions and future work
 
-Track official behavior for partial signatures, visible type applications, and ambiguity/defaulting in executable compatibility cases. [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) records implementation coverage, not changes to this semantic target.
+Track official behavior for partial signatures, and ambiguity/defaulting in executable compatibility cases. [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) records implementation coverage, not changes to this semantic target.
+
+Visible type application has three recorded gaps, all in the permissive direction and none of them a mistyping. Official's `CST/Convert.hs` derives a binder's visibility from `forall @a.`: a plain `forall a.` binder becomes `TypeVarInvisible` and is instantiated before a visible application can select it, while `@a` stays visible. This compiler's `TypeVarBinder` carries only a name and an optional kind, so the `@` is parsed and discarded and both spellings are selectable; `failing/VisibleTypeApplications1.purs` is that divergence. Official also keeps the quantifiers an application did not name *rigid*, so `applySecond (f @Int)` against a monomorphic function type is rejected, whereas this implementation instantiates them. Finally official can step over an invisible binder, so `f @_ @Int` resolves; here the leftover quantifiers are scheme variables rather than a structural `forall`, so a chain is reported instead. Closing the first gap needs the scheme to record which variables a visible application has consumed and whether the source binder was visible; the second and third follow from it.
 
 ## References
 
@@ -214,12 +216,17 @@ Signature elaboration accepts the `Record` and `Row` primitive heads, the genera
 is an ordinary type; `Type`, `Constraint`, and `Symbol` are also accepted as
 ordinary type constructors with the kinds their primitive declarations give
 them. Naming one of these constructors does not require a kind application.
-There is no `KindApplication` node in the source type spine. PureScript's kind
-checker inserts internal `KindApp` nodes when ordinary type application
-implicitly instantiates a polymorphic kind; this compiler performs that
-instantiation in the kind solver. Source syntax cannot supply explicit kind
-arguments, so retaining the internal node is not a source-compatibility
-requirement. Record syntax and an equivalent `Record`
+There is no `KindApplication` node in the source type spine. PureScript's CST
+has no kind-application node either: its kind checker synthesizes `KindApp` when
+ordinary type application instantiates a polymorphic kind, and this compiler
+performs that instantiation in the kind solver. No source form applies a kind
+argument to a type constructor, so retaining the internal node is not a
+source-compatibility requirement. `forall @a b .`, `t :: k`, and the visible
+type application `e @T` are the forms that name a kind or type explicitly, and
+each is a separate CST node rather than an application of a kind argument. A
+negative type-level integer is likewise not a prefix-operator node: `- 1` is the
+literal `-1`, carried by the literal's own text as `1` is carried by `1`.
+Record syntax and an equivalent `Record`
 application reach one construction: `elaborate_record` builds the same
 `Application(Constructor(Record), row)` the explicit application does. The
 primitive classes are declared with their kinds and functional dependencies;
