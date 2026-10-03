@@ -162,6 +162,15 @@ pub enum AssignmentKind {
         destination: ValueId,
         value: ValueId,
     },
+    /// `Array.append`: a fresh array holding `left`'s elements followed by
+    /// `right`'s. Both operands and the result name the same array
+    /// representation, and neither operand is mutated.
+    ArrayAppend {
+        destination: ValueId,
+        representation: ReprId,
+        left: ValueId,
+        right: ValueId,
+    },
     /// A source `String`'s canonical UTF-8 bytes as an `Array Int`. A source
     /// string is a sequence of Unicode scalar values, so this is lossless.
     StringToBytes {

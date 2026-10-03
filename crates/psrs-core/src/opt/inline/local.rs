@@ -86,6 +86,10 @@ fn inline_expr(
             sites_left,
             max_body_nodes,
         ))),
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(inline_expr(*left, fresh, sites_left, max_body_nodes)),
+            right: Box::new(inline_expr(*right, fresh, sites_left, max_body_nodes)),
+        },
         ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
             op,
             value: Box::new(inline_expr(*value, fresh, sites_left, max_body_nodes)),

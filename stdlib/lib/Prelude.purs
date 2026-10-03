@@ -28,6 +28,9 @@ module Prelude
   , apply
   , runEffect
   , trap
+  , class Semigroup
+  , append
+  , (<>)
   , const
   , flip
   , ($)
@@ -35,6 +38,7 @@ module Prelude
   ) where
 
 import Data.Function (const, flip, (#), ($))
+import Data.Semigroup (class Semigroup, append, (<>))
 
 foreign import data Effect :: Type -> Type
 

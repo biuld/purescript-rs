@@ -218,6 +218,10 @@ impl TypeSubstitution<'_> {
             ExprKind::ArrayLength(array) => {
                 ExprKind::ArrayLength(Box::new(self.expression(array)?))
             }
+            ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+                left: Box::new(self.expression(left)?),
+                right: Box::new(self.expression(right)?),
+            },
             ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
                 array: Box::new(self.expression(array)?),
                 index: Box::new(self.expression(index)?),

@@ -6,6 +6,7 @@ use crate::{Expr, ExprKind, Module, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
+mod arrays;
 mod entry;
 mod helpers;
 mod shapes;
@@ -174,68 +175,18 @@ impl Context<'_> {
             }
             ExprKind::StringToBytes(value) => self.verify_string_to_bytes(expression, value),
             ExprKind::BytesToString(value) => self.verify_bytes_to_string(expression, value),
-            ExprKind::ArrayLength(array) => {
-                self.expr(array, None);
-                if array_element(array.ty, self.module).is_none() {
-                    self.errors.push(error(
-                        self.owner,
-                        array.span,
-                        "arrayLength expects an Array value",
-                    ));
-                }
-                self.shape(expression, TypeConstructor::Int);
+            ExprKind::ArrayLength(array) => self.verify_array_length(expression, array),
+            ExprKind::ArrayAppend { left, right } => {
+                self.verify_array_append(expression, left, right)
             }
             ExprKind::ArrayIndex { array, index } => {
-                let Some(element_type) = array_element(array.ty, self.module) else {
-                    self.errors.push(error(
-                        self.owner,
-                        array.span,
-                        "arrayIndex expects an Array value",
-                    ));
-                    return;
-                };
-                self.expr(array, None);
-                self.expr(
-                    index,
-                    Some(primitive_type_id(self.module, TypeConstructor::Int)),
-                );
-                compatible(
-                    element_type,
-                    expression.ty,
-                    self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                );
+                self.verify_array_index(expression, array, index)
             }
             ExprKind::ArrayUpdate {
                 array,
                 index,
                 value,
-            } => {
-                let Some(element_type) = array_element(array.ty, self.module) else {
-                    self.errors.push(error(
-                        self.owner,
-                        array.span,
-                        "arrayUpdate expects an Array value",
-                    ));
-                    return;
-                };
-                self.expr(array, None);
-                self.expr(
-                    index,
-                    Some(primitive_type_id(self.module, TypeConstructor::Int)),
-                );
-                self.expr(value, Some(element_type));
-                compatible(
-                    array.ty,
-                    expression.ty,
-                    self.module,
-                    self.owner,
-                    expression.span,
-                    self.errors,
-                );
-            }
+            } => self.verify_array_update(expression, array, index, value),
             ExprKind::Constructor { symbol, arguments } => {
                 let Some(constructor) = self
                     .module

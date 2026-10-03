@@ -179,6 +179,17 @@ pub enum Instruction {
         index: ValueId,
         span: TextRange,
     },
+    /// `array.new_default` as a plain allocation of `length` default elements.
+    ///
+    /// `ArrayNewDefault` is the array-conversion form and its verifier requires
+    /// the length to be `array.len` of its source; a caller that needs an array
+    /// of a computed length (for example `arrayAppend`) uses this instead.
+    ArrayNewSized {
+        destination: ValueId,
+        type_index: DefinedTypeId,
+        length: ValueId,
+        span: TextRange,
+    },
     ArrayGet {
         destination: ValueId,
         type_index: DefinedTypeId,

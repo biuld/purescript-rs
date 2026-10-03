@@ -58,9 +58,9 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
             index,
             value,
         } => count_nodes(array) + count_nodes(index) + count_nodes(value),
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
-            count_nodes(left) + count_nodes(right)
-        }
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => count_nodes(left) + count_nodes(right),
         ExprKind::Lambda { body, .. } => count_nodes(body),
         ExprKind::Let { bindings, body } => {
             bindings
@@ -177,6 +177,10 @@ fn substitute_inner(
         ExprKind::ArrayLength(array) => {
             ExprKind::ArrayLength(Box::new(substitute_inner(array, substitutions, shadowed)))
         }
+        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
+            left: Box::new(substitute_inner(left, substitutions, shadowed)),
+            right: Box::new(substitute_inner(right, substitutions, shadowed)),
+        },
         ExprKind::StringToBytes(value) => {
             ExprKind::StringToBytes(Box::new(substitute_inner(value, substitutions, shadowed)))
         }
@@ -385,7 +389,9 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
             collect_ids(index, ids);
             collect_ids(value, ids);
         }
-        ExprKind::Primitive { left, right, .. } | ExprKind::Application(left, right) => {
+        ExprKind::Primitive { left, right, .. }
+        | ExprKind::Application(left, right)
+        | ExprKind::ArrayAppend { left, right } => {
             collect_ids(left, ids);
             collect_ids(right, ids);
         }

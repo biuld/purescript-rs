@@ -112,6 +112,24 @@ pub(super) fn verify_array_assignment(
             require_value_shape(declared, *new_value, element, assignment)?;
             uses.extend([*value, *index, *new_value]);
         }
+        AssignmentKind::ArrayAppend {
+            destination,
+            representation,
+            left,
+            right,
+        } => {
+            verify_embedded_destination(assignment, *destination)?;
+            verify_array_representation(table, *representation, assignment)?;
+            verify_array_value(declared, *left, table, Some(*representation), assignment)?;
+            verify_array_value(declared, *right, table, Some(*representation), assignment)?;
+            require_destination(
+                declared,
+                assignment,
+                repr_shape(*representation),
+                "array append has an incompatible result shape",
+            )?;
+            uses.extend([*left, *right]);
+        }
         _ => unreachable!("array verifier received another assignment"),
     }
     Ok(())

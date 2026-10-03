@@ -2,6 +2,7 @@
 # Dots are directory separators under this directory.
 Prelude
 Data.Function
+Data.Semigroup
 Effect
 Effect.Console
 Test.Assert

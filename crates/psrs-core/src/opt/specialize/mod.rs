@@ -201,7 +201,8 @@ fn collect_references(expression: &crate::Expr, out: &mut Vec<SymbolId>) {
             collect_references(value, out);
         }
         crate::ExprKind::Primitive { left, right, .. }
-        | crate::ExprKind::Application(left, right) => {
+        | crate::ExprKind::Application(left, right)
+        | crate::ExprKind::ArrayAppend { left, right } => {
             collect_references(left, out);
             collect_references(right, out);
         }

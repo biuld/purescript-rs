@@ -289,6 +289,14 @@ impl Structurer<'_> {
                 } => {
                     self.emit_array_new_default(body, *destination, *type_index, *length, *span)?
                 }
+                MirInstruction::ArrayNewSized {
+                    destination,
+                    type_index,
+                    length,
+                    span,
+                } => {
+                    self.emit_array_new_default(body, *destination, *type_index, *length, *span)?
+                }
                 MirInstruction::ArrayGet {
                     destination,
                     type_index,

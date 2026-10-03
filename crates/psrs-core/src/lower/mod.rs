@@ -5,6 +5,7 @@ use psrs_hir::{ExternalKind, SymbolId};
 use psrs_thir::{Expr as TypedExpr, ExprKind as TypedExprKind};
 use std::collections::HashMap;
 
+mod array_append;
 mod dictionary;
 mod module;
 mod string_bytes;
@@ -215,6 +216,11 @@ fn lower_expr(
                     ty,
                     span,
                 });
+            }
+            if let Some(append) =
+                array_append::lower_append(&function, &argument, externals, ty, span)
+            {
+                return Ok(append);
             }
             if let Some(conversion) =
                 string_bytes::lower_conversion(&function, &argument, externals, ty, span)
