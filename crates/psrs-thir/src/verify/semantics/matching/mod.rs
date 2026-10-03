@@ -215,23 +215,14 @@ impl<'a> Matcher<'a> {
                     self.equal(actual, expected, &mut HashSet::new())
                 }
             }
-            (Type::RowEmpty, Type::RowEmpty) => true,
-            (
-                Type::RowExtend {
-                    label: left_label,
-                    ty: left_ty,
-                    tail: left_tail,
-                },
-                Type::RowExtend {
-                    label: right_label,
-                    ty: right_ty,
-                    tail: right_tail,
-                },
-            ) => {
-                left_label == right_label
-                    && self.subsumes(*left_ty, *right_ty)
-                    && self.equal(*left_tail, *right_tail, &mut HashSet::new())
+            (Type::RowEmpty | Type::RowExtend { .. }, Type::RowEmpty | Type::RowExtend { .. }) => {
+                self.relate_row_types(actual, expected)
             }
+            // Two decided literals are equal exactly when their scalar
+            // sequences, or their values, are equal. A literal is never
+            // flexible, so it cannot be solved to anything else here.
+            (Type::TypeLevelString(left), Type::TypeLevelString(right)) => left == right,
+            (Type::TypeLevelInt(left), Type::TypeLevelInt(right)) => left == right,
             _ => false,
         };
         self.active.remove(&(actual, expected));
@@ -335,33 +326,23 @@ impl<'a> Matcher<'a> {
                     body: right_body,
                 },
             ) if left_variables.len() == right_variables.len() => {
-                let mut alpha = self.alpha.clone();
+                let previous_alpha = self.alpha.clone();
                 for (left, right) in left_variables.iter().zip(right_variables) {
-                    alpha.insert(*left, *right);
+                    self.alpha.insert(*left, *right);
                 }
-                equal_types(*left_body, *right_body, self.module, &alpha, active)
+                let equal = self.equal(*left_body, *right_body, active);
+                self.alpha = previous_alpha;
+                equal
             }
             (Type::Constructor(left), Type::Constructor(right)) => left == right,
             (Type::Application(left_fn, left_arg), Type::Application(right_fn, right_arg)) => {
                 self.equal(*left_fn, *right_fn, active) && self.equal(*left_arg, *right_arg, active)
             }
-            (Type::RowEmpty, Type::RowEmpty) => true,
-            (
-                Type::RowExtend {
-                    label: left_label,
-                    ty: left_ty,
-                    tail: left_tail,
-                },
-                Type::RowExtend {
-                    label: right_label,
-                    ty: right_ty,
-                    tail: right_tail,
-                },
-            ) => {
-                left_label == right_label
-                    && self.equal(*left_ty, *right_ty, active)
-                    && self.equal(*left_tail, *right_tail, active)
+            (Type::RowEmpty | Type::RowExtend { .. }, Type::RowEmpty | Type::RowExtend { .. }) => {
+                self.relate_row_types(left_id, right_id)
             }
+            (Type::TypeLevelString(left), Type::TypeLevelString(right)) => left == right,
+            (Type::TypeLevelInt(left), Type::TypeLevelInt(right)) => left == right,
             _ => false,
         }
     }
@@ -379,67 +360,8 @@ impl<'a> Matcher<'a> {
     }
 }
 
-fn equal_types(
-    left: TypeId,
-    right: TypeId,
-    module: &Module,
-    alpha: &HashMap<TypeVariableId, TypeVariableId>,
-    active: &mut HashSet<(TypeId, TypeId)>,
-) -> bool {
-    if !active.insert((left, right)) {
-        return true;
-    }
-    let (Some(left_type), Some(right_type)) = (
-        module.types.get(left.0 as usize),
-        module.types.get(right.0 as usize),
-    ) else {
-        return false;
-    };
-    match (left_type, right_type) {
-        (Type::Variable(left), Type::Variable(right)) => {
-            alpha.get(left).copied().unwrap_or(*left) == *right
-        }
-        (Type::Constructor(left), Type::Constructor(right)) => left == right,
-        (Type::Application(lf, la), Type::Application(rf, ra)) => {
-            equal_types(*lf, *rf, module, alpha, active)
-                && equal_types(*la, *ra, module, alpha, active)
-        }
-        (
-            Type::ForAll {
-                variables: lv,
-                body: lb,
-            },
-            Type::ForAll {
-                variables: rv,
-                body: rb,
-            },
-        ) if lv.len() == rv.len() => {
-            let mut nested = alpha.clone();
-            for (left, right) in lv.iter().zip(rv) {
-                nested.insert(*left, *right);
-            }
-            equal_types(*lb, *rb, module, &nested, active)
-        }
-        (Type::RowEmpty, Type::RowEmpty) => true,
-        (
-            Type::RowExtend {
-                label: ll,
-                ty: lt,
-                tail: ltail,
-            },
-            Type::RowExtend {
-                label: rl,
-                ty: rt,
-                tail: rtail,
-            },
-        ) => {
-            ll == rl
-                && equal_types(*lt, *rt, module, alpha, active)
-                && equal_types(*ltail, *rtail, module, alpha, active)
-        }
-        _ => false,
-    }
-}
+#[cfg(test)]
+mod tests;
 
 fn collect_free(
     id: TypeId,

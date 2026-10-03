@@ -294,12 +294,48 @@ module Main where
 class Eq a where
   eq :: a -> a -> Boolean
 
-class Eq (Array a) <= Ord a where
-  compare :: a -> a -> Int
+class Eq a <= Ord b where
+  compare :: b -> Int
 
 main :: Int
 main = 0
 "#;
+
+/// A superclass edge is written over the subclass's own parameters, so
+/// `class Super (Array a) <= Sub a` elaborates and `use` finds `Super (Array
+/// Int)` through the edge. The edge's argument is a type, not a name, so
+/// nothing in dictionary construction or superclass search matches a parameter
+/// name to find it.
+const SUPERCLASS_CONSTRUCTED_ARGUMENT_SOURCE: &str = r#"
+module Main where
+
+class Gamma a where
+  gamma :: a -> Int
+
+class (Gamma (Array a)) <= Epsilon a where
+  size :: Array a -> Int
+
+instance gammaIntArray :: Gamma (Array Int) where
+  gamma _ = 7
+
+instance epsilonInt :: Epsilon Int where
+  size _ = 1
+
+use :: forall a. Epsilon a => Array a -> Int
+use xs = gamma xs + size xs
+
+main :: Int
+main = use [1, 2, 3]
+"#;
+
+#[test]
+fn a_superclass_edge_over_a_constructed_argument_runs_when_wasmtime_is_available() {
+    let Some(output) = run_with_wasmtime(SUPERCLASS_CONSTRUCTED_ARGUMENT_SOURCE) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(8));
+}
 
 const AMBIGUOUS_CONTEXT_SOURCE: &str = r#"
 module Main where
@@ -329,14 +365,19 @@ fn a_superclass_cycle_is_reported() {
     );
 }
 
+/// A superclass argument must be written over the class's own parameters. The
+/// kind layer owns name binding and reports the free `a` first; the type checker
+/// keeps the same rule for itself, as an `UnsupportedClass` diagnostic on the
+/// offending argument, so a superclass template can never mention a variable
+/// outside its binder scope.
 #[test]
-fn a_superclass_argument_outside_the_parameters_is_reported() {
+fn a_superclass_argument_outside_the_class_scope_is_reported() {
     let errors = compile_source("Main.purs", SUPERCLASS_ARGUMENT_SOURCE)
         .expect_err("a foreign superclass argument must be rejected");
     assert!(
-        errors.iter().any(|error| error
-            .message
-            .contains("a superclass argument must be one of the class's type parameters")),
+        errors
+            .iter()
+            .any(|error| error.message.contains("the type variable `a` is undefined")),
         "unexpected diagnostics: {errors:?}"
     );
 }

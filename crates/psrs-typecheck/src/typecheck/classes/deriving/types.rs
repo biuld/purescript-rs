@@ -2,7 +2,7 @@ use super::super::super::*;
 
 impl Checker {
     pub(super) fn normalize_deriving_type(&self, ty: &hir::Type) -> hir::Type {
-        normalize_type(ty, &self.synonyms, &mut HashSet::new())
+        normalize_type(ty, &self.env.synonyms, &mut HashSet::new())
     }
 }
 

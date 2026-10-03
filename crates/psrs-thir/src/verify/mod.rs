@@ -20,6 +20,10 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
                 verify_type_id(*ty, module.types.len(), module.span, &mut errors);
                 verify_type_id(*tail, module.types.len(), module.span, &mut errors);
             }
+            // A type-level literal indexes nothing and names no variable, so
+            // there is no reference to check. It is an ordinary checked type,
+            // not a trusted item: the semantic pass compares literals by value.
+            Type::TypeLevelString(_) | Type::TypeLevelInt(_) => {}
             _ => {}
         }
     }
@@ -228,6 +232,24 @@ fn verify_evidence(evidence: &Evidence, types: &[Type], errors: &mut Vec<VerifyE
                 errors.push(VerifyError {
                     span: evidence.span,
                     message: "instance evidence result has the wrong dictionary type",
+                });
+            }
+        }
+        EvidenceKind::Primitive { arguments } => {
+            for argument in arguments {
+                verify_type_id(*argument, types.len(), evidence.span, errors);
+            }
+            // A `Prim` relation declares no members, so its dictionary is the
+            // empty record. Checking that here is what distinguishes a relation's
+            // erased dictionary from a user class's, which would need a
+            // constructor to build it.
+            let empty_dictionary = crate::record_row(types, evidence.ty)
+                .and_then(|row| crate::row_fields(types, row))
+                .is_some_and(|(fields, tail)| fields.is_empty() && tail.is_none());
+            if !empty_dictionary {
+                errors.push(VerifyError {
+                    span: evidence.span,
+                    message: "primitive relation evidence must have the empty class dictionary type",
                 });
             }
         }

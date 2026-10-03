@@ -8,6 +8,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_TYPE_ERROR_DOC,
                 "Doc",
                 builtin(BuiltinType::Type),
+                &[],
             ),
         ),
         (
@@ -30,6 +31,9 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 Vec::new(),
             ),
         ),
+        // `Text`, `Quote`, `QuoteLabel`, `Beside`, and `Above` are phantom at
+        // every parameter: they only build a `Doc`, so `Coercible` accepts two
+        // arguments that differ solely in a phantom position.
         (
             "Prim.TypeError",
             foreign_type(
@@ -39,6 +43,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                     vec![builtin(BuiltinType::Symbol)],
                     named(TypeId::PRIM_TYPE_ERROR_DOC),
                 ),
+                &[Role::Phantom],
             ),
         ),
         (
@@ -47,6 +52,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                 TypeId::PRIM_TYPE_ERROR_QUOTE,
                 "Quote",
                 forall_kind_result("k", vec![variable("k")], named(TypeId::PRIM_TYPE_ERROR_DOC)),
+                &[Role::Phantom],
             ),
         ),
         (
@@ -58,6 +64,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                     vec![builtin(BuiltinType::Symbol)],
                     named(TypeId::PRIM_TYPE_ERROR_DOC),
                 ),
+                &[Role::Phantom],
             ),
         ),
         (
@@ -72,6 +79,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                     ],
                     named(TypeId::PRIM_TYPE_ERROR_DOC),
                 ),
+                &[Role::Phantom, Role::Phantom],
             ),
         ),
         (
@@ -86,6 +94,7 @@ pub(super) fn declarations() -> Vec<(&'static str, TypeDeclaration)> {
                     ],
                     named(TypeId::PRIM_TYPE_ERROR_DOC),
                 ),
+                &[Role::Phantom, Role::Phantom],
             ),
         ),
     ]

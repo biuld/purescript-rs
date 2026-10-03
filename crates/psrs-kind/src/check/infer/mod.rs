@@ -1,16 +1,25 @@
 use super::*;
-use crate::kind::{builtin_type_kind, flatten_spine, occurs, substitute};
-use psrs_hir::BuiltinType;
+use crate::kind::{flatten_spine, type_kind};
+use crate::solve::substitute;
 
 mod pattern_annotations;
 mod type_kind;
 
 impl Checker<'_> {
+    /// The zonked schemes of every declaration this run checked.
+    ///
+    /// A kind variable the declaration's own definition left undetermined is
+    /// quantified here: the scheme generalizes exactly the unknowns its
+    /// definition does not determine, and keeps the kinds it does. A parameter
+    /// its own fields determine — `f` in `data Apply f = Apply (f Int)` — carries
+    /// no variable left, so it is published as the kind the definition inferred
+    /// rather than as something to generalize. Generalizing it instead would lose
+    /// the occurs check, which is what rejects `data Branch m = Branch (m Branch)`.
     pub(super) fn checked_schemes(&self) -> HashMap<TypeId, KindScheme> {
         self.schemes
             .iter()
             .map(|(id, scheme)| {
-                let kind = self.resolve(scheme.kind.clone());
+                let kind = self.state.resolve(scheme.kind.clone());
                 let mut variables = scheme.variables.clone();
                 let mut free = Vec::new();
                 collect_kind_variables(&kind, &mut free);
@@ -26,80 +35,19 @@ impl Checker<'_> {
             .collect()
     }
 
-    // ----- Unification -------------------------------------------------
-
-    fn resolve(&self, kind: Kind) -> Kind {
-        match kind {
-            Kind::Variable(variable) => self
-                .substitutions
-                .get(&variable)
-                .cloned()
-                .map(|kind| self.resolve(kind))
-                .unwrap_or(Kind::Variable(variable)),
-            Kind::App(function, argument) => Kind::App(
-                Box::new(self.resolve(*function)),
-                Box::new(self.resolve(*argument)),
-            ),
-            Kind::Function(parameter, result) => Kind::Function(
-                Box::new(self.resolve(*parameter)),
-                Box::new(self.resolve(*result)),
-            ),
-            primitive => primitive,
-        }
-    }
-
-    fn unify(&mut self, left: Kind, right: Kind, span: TextRange) {
-        let left = self.resolve(left);
-        let right = self.resolve(right);
-        match (left, right) {
-            (Kind::Variable(a), Kind::Variable(b)) if a == b => {}
-            (Kind::Variable(a), Kind::Variable(b)) => {
-                match (self.rigid.contains(&a), self.rigid.contains(&b)) {
-                    (true, true) => self.kinds_do_not_unify(span),
-                    (true, false) => self.bind(b, Kind::Variable(a), span),
-                    (false, _) => self.bind(a, Kind::Variable(b), span),
-                }
-            }
-            (Kind::Variable(a), _) if self.rigid.contains(&a) => self.kinds_do_not_unify(span),
-            (_, Kind::Variable(b)) if self.rigid.contains(&b) => self.kinds_do_not_unify(span),
-            (Kind::Variable(a), other) | (other, Kind::Variable(a)) => self.bind(a, other, span),
-            (Kind::Type, Kind::Type)
-            | (Kind::Constraint, Kind::Constraint)
-            | (Kind::Symbol, Kind::Symbol)
-            | (Kind::Row, Kind::Row) => {}
-            (Kind::Builtin(a), Kind::Builtin(b)) if a == b => {}
-            (Kind::Named(a), Kind::Named(b)) if a == b => {}
-            (Kind::App(f1, a1), Kind::App(f2, a2)) => {
-                self.unify(*f1, *f2, span);
-                self.unify(*a1, *a2, span);
-            }
-            (Kind::Function(p1, r1), Kind::Function(p2, r2)) => {
-                self.unify(*p1, *p2, span);
-                self.unify(*r1, *r2, span);
-            }
-            _ => self.kinds_do_not_unify(span),
-        }
-    }
-
-    fn bind(&mut self, variable: u32, kind: Kind, span: TextRange) {
-        if occurs(variable, &kind) {
-            self.report(
-                INFINITE_KIND,
-                span,
-                "the kind of this declaration is infinite",
-            );
-        } else {
-            self.substitutions.insert(variable, kind);
-        }
-    }
-
-    fn kinds_do_not_unify(&mut self, span: TextRange) {
-        self.report(KINDS_DO_NOT_UNIFY, span, "kinds do not unify");
-    }
-
     // ----- Scheme construction ----------------------------------------
 
-    fn instantiate_named(&mut self, id: TypeId) -> Kind {
+    /// The kind of a referenced declaration at this use.
+    ///
+    /// A declaration with a checked scheme is instantiated, so a use of a
+    /// polymorphic declaration is independent of every other use. A declaration
+    /// with *no* checked scheme is the program not being closed over its type
+    /// declarations: that is reported, and official PureScript reports it the
+    /// same way, because `elaborateKind` raises `UnknownName` for a constructor
+    /// it cannot resolve instead of inventing a variable. The variable keeps
+    /// repeated uses of the same declaration in agreement for the rest of this
+    /// run so one missing interface produces one diagnostic.
+    fn instantiate_named(&mut self, id: TypeId, span: TextRange) -> Kind {
         match self.schemes.get(&id).cloned() {
             Some(scheme) if !scheme.variables.is_empty() => {
                 let mut mapping = HashMap::new();
@@ -110,8 +58,15 @@ impl Checker<'_> {
             }
             Some(scheme) => scheme.kind,
             None => {
-                // An imported type whose kind is not available. Give it one
-                // fresh variable so repeated uses agree with each other.
+                let name = self.names.get(&id).cloned().unwrap_or_default();
+                self.report_about(
+                    id,
+                    MISSING_KIND_METADATA,
+                    span,
+                    format!(
+                        "the kind of `{name}` is unknown: the program has no checked kind signature for it"
+                    ),
+                );
                 let kind = self.fresh();
                 self.schemes
                     .insert(id, KindScheme::monomorphic(kind.clone()));
@@ -120,14 +75,19 @@ impl Checker<'_> {
         }
     }
 
+    /// Registers every declaration head and kind signature this run knows.
+    ///
+    /// A declared signature is read as a kind; an absent one is inferred from
+    /// the declaration's parameters, with a kind variable for each parameter the
+    /// definition leaves undetermined.
     pub(super) fn build_schemes(&mut self) {
         let primitives = psrs_hir::primitive_type_declarations();
-        for declaration in self
-            .module
-            .types
+        let declarations = self
+            .modules
             .iter()
-            .chain(primitives.iter().map(|(_, declaration)| declaration))
-        {
+            .flat_map(|module| module.types.iter())
+            .chain(primitives.iter().map(|(_, declaration)| declaration));
+        for declaration in declarations {
             let scheme = match &declaration.declared_kind {
                 Some(signature) => {
                     let (variables, kind) = self.parse_declared_kind(signature);
@@ -138,19 +98,19 @@ impl Checker<'_> {
                     let mut parameters = Vec::new();
                     for parameter in &declaration.parameters {
                         let kind = match &parameter.kind {
-                            Some(annotation) => self.denote_kind(annotation, &mut scope),
+                            Some(annotation) => self.denote_annotation(annotation, &mut scope),
                             None => self.fresh(),
                         };
                         scope.insert(parameter.name.clone(), kind.clone());
                         parameters.push(kind);
                     }
                     let result = match declaration.kind {
-                        TypeDeclarationKind::Data | TypeDeclarationKind::Newtype => Kind::Type,
-                        TypeDeclarationKind::Class => Kind::Constraint,
+                        TypeDeclarationKind::Data | TypeDeclarationKind::Newtype => type_kind(),
+                        TypeDeclarationKind::Class => constraint_kind(),
                         TypeDeclarationKind::TypeSynonym => self.fresh(),
                         // A foreign data declaration always carries its kind.
                         // This arm is only the fallback when that kind is absent.
-                        TypeDeclarationKind::Foreign => Kind::Type,
+                        TypeDeclarationKind::Foreign => type_kind(),
                     };
                     let kind = parameters
                         .into_iter()
@@ -165,7 +125,15 @@ impl Checker<'_> {
         }
     }
 
+    /// Reads a standalone kind signature, quantifying its `forall` binders.
+    ///
+    /// Each binder becomes a rigid kind variable, so the annotation is checked
+    /// against the polymorphic kind it declares rather than against a variable
+    /// the annotation itself may bind.
     fn parse_declared_kind(&mut self, signature: &hir::Type) -> (Vec<u32>, Kind) {
+        // The whole signature is walked for an unsaturated synonym once, so the
+        // binders below read their annotations through `denote` alone.
+        self.check_annotation_saturation(signature);
         let mut variables = Vec::new();
         let mut scope = HashMap::new();
         let mut body = signature;
@@ -176,94 +144,40 @@ impl Checker<'_> {
         {
             for binder in binders {
                 if let Some(annotation) = &binder.kind {
-                    let kind = self.denote_kind(annotation, &mut scope);
+                    let kind = self.denote(annotation, &mut scope);
                     scope.insert(binder.name.clone(), kind);
                 }
-                let variable = self.fresh();
-                self.rigid.insert(match variable {
-                    Kind::Variable(id) => id,
-                    _ => unreachable!("fresh kinds are variables"),
-                });
-                scope.insert(binder.name.clone(), variable.clone());
-                if let Kind::Variable(id) = variable {
-                    variables.push(id);
-                }
+                let Kind::Variable(id) = self.fresh() else {
+                    unreachable!("a fresh kind is a variable")
+                };
+                self.state.make_rigid(id);
+                scope.insert(binder.name.clone(), Kind::Variable(id));
+                variables.push(id);
             }
             body = inner;
         }
-        let kind = self.denote_kind(body, &mut scope);
+        let kind = self.denote(body, &mut scope);
         (variables, kind)
-    }
-
-    // ----- Kind denotation (annotations) ------------------------------
-
-    fn denote_kind(&mut self, ty: &hir::Type, scope: &mut HashMap<String, Kind>) -> Kind {
-        match &ty.kind {
-            TypeKind::Wildcard => self.fresh(),
-            TypeKind::Variable(name) => scope.get(name).cloned().unwrap_or_else(|| self.fresh()),
-            TypeKind::Constructor(builtin) => match builtin {
-                BuiltinType::Type => Kind::Type,
-                BuiltinType::Constraint => Kind::Constraint,
-                BuiltinType::Symbol => Kind::Symbol,
-                BuiltinType::Row => Kind::Row,
-                other => Kind::Builtin(*other),
-            },
-            TypeKind::Named(id) | TypeKind::Opaque(id) => Kind::Named(*id),
-            TypeKind::Application(..) => {
-                let (head, arguments) = flatten_spine(ty);
-                self.check_partial_synonym(head, arguments.len(), ty.span);
-                let mut kind = self.denote_kind(head, scope);
-                for argument in arguments {
-                    let argument = self.denote_kind(argument, scope);
-                    kind = Kind::App(Box::new(kind), Box::new(argument));
-                }
-                kind
-            }
-            TypeKind::OperatorChain { .. } => {
-                self.report(
-                    "UnloweredTypeOperator",
-                    ty.span,
-                    "type operator chain reached kind denotation before P4",
-                );
-                self.fresh()
-            }
-            TypeKind::Function { parameter, result } => Kind::Function(
-                Box::new(self.denote_kind(parameter, scope)),
-                Box::new(self.denote_kind(result, scope)),
-            ),
-            TypeKind::Forall { variables, body } => {
-                let saved = scope.clone();
-                for variable in variables {
-                    if let Some(annotation) = &variable.kind {
-                        let kind = self.denote_kind(annotation, scope);
-                        scope.insert(variable.name.clone(), kind);
-                    } else {
-                        scope.insert(variable.name.clone(), Kind::Type);
-                    }
-                }
-                let kind = self.denote_kind(body, scope);
-                *scope = saved;
-                kind
-            }
-            TypeKind::Constrained { body, .. } => self.denote_kind(body, scope),
-            TypeKind::Row { .. } => Kind::App(Box::new(Kind::Row), Box::new(Kind::Type)),
-            TypeKind::Record { .. } => Kind::Type,
-            TypeKind::Integer(_) => Kind::Builtin(BuiltinType::Int),
-            TypeKind::String(_) => Kind::Symbol,
-        }
     }
 
     // ----- Definition checking -----------------------------------------
 
     pub(super) fn check_definitions(&mut self) {
-        for declaration in &self.module.declarations {
+        for module in self.modules {
+            self.current = module.id;
+            self.check_module_definitions(module);
+        }
+    }
+
+    fn check_module_definitions(&mut self, module: &hir::Module) {
+        for declaration in &module.declarations {
             if let Some(signature) = &declaration.signature {
                 let mut scope = HashMap::new();
                 let kind = self.kind_of_type(signature, &mut scope);
-                self.unify(kind, Kind::Type, signature.span);
+                self.unify(kind, type_kind(), signature.span);
             }
         }
-        for declaration in &self.module.types {
+        for declaration in &module.types {
             let Some(scheme) = self.schemes.get(&declaration.id).cloned() else {
                 continue;
             };
@@ -277,7 +191,7 @@ impl Checker<'_> {
                     for constructor in &declaration.constructors {
                         for field in &constructor.fields {
                             let kind = self.kind_of_type(field, &mut scope);
-                            self.unify(kind, Kind::Type, field.span);
+                            self.unify(kind, type_kind(), field.span);
                         }
                     }
                 }
@@ -290,20 +204,20 @@ impl Checker<'_> {
                 TypeDeclarationKind::Class => {
                     for superclass in &declaration.superclasses {
                         let kind = self.kind_of_type(superclass, &mut scope);
-                        self.unify(kind, Kind::Constraint, superclass.span);
+                        self.unify(kind, constraint_kind(), superclass.span);
                     }
                     for member in &declaration.members {
                         if let Some(signature) = &member.signature {
                             let kind = self.kind_of_type(signature, &mut scope);
-                            self.unify(kind, Kind::Type, signature.span);
+                            self.unify(kind, type_kind(), signature.span);
                         }
                     }
                 }
                 TypeDeclarationKind::Foreign => {}
             }
         }
-        self.check_instance_heads();
-        self.check_local_type_annotations();
+        self.check_instance_heads(module);
+        self.check_local_type_annotations(module);
     }
 
     /// Checks every instance head against its class's kind scheme.
@@ -316,16 +230,15 @@ impl Checker<'_> {
     /// kind and therefore cannot reject a head. Without this an instance is the
     /// one place a type is applied to a kind signature and never checked, so
     /// `class C :: Constraint -> Constraint` accepts `instance C Int`.
-    fn check_instance_heads(&mut self) {
-        for instance in &self.module.instances {
+    fn check_instance_heads(&mut self, module: &hir::Module) {
+        for instance in &module.instances {
             // A head that applies its class to the wrong number of arguments is
             // an arity error, not a kind error, and the class environment owns
             // that rule. Checking it here too would report `KindsDoNotUnify`
             // where `ClassInstanceArityMismatch` is the official code, and would
             // pre-empt the arity diagnostic entirely. A class this module does
             // not declare has no known arity here either, so it is left alone.
-            let Some(declared) = self
-                .module
+            let Some(declared) = module
                 .types
                 .iter()
                 .find(|declaration| declaration.id == instance.class_id)
@@ -338,7 +251,7 @@ impl Checker<'_> {
             }
             let mut scope = HashMap::new();
             let kind = self.kind_of_type_against(&instance.head, &mut scope, false);
-            self.unify(kind, Kind::Constraint, instance.head.span);
+            self.unify(kind, constraint_kind(), instance.head.span);
         }
     }
 }
@@ -354,12 +267,7 @@ fn collect_kind_variables(kind: &Kind, out: &mut Vec<u32>) {
             collect_kind_variables(parameter, out);
             collect_kind_variables(result, out);
         }
-        Kind::Type
-        | Kind::Constraint
-        | Kind::Symbol
-        | Kind::Row
-        | Kind::Builtin(_)
-        | Kind::Named(_) => {}
+        Kind::Builtin(_) | Kind::Named(_) => {}
     }
 }
 
@@ -374,7 +282,7 @@ fn strip_function(kind: &Kind, arguments: usize) -> (Vec<Kind>, Kind) {
             }
             other => {
                 parameters.push(other);
-                current = Kind::Type;
+                current = type_kind();
             }
         }
     }

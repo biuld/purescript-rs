@@ -162,12 +162,47 @@ change:
   a crate when it has a real owner and API.
 - Preserve source ranges through every representation and lowering pass where
   diagnostics or debugging need them.
-- Implement a feature as part of the existing model. A new type belongs on the
-  shared spine; a new check belongs to unification, subsumption, or entailment;
-  a runtime representation is produced by one explicit lowering. Do not add a
-  private constructor, a unification equation, or a side table that makes one
-  library type behave differently in every later pass. Leave an incomplete
-  rule incomplete instead of imitating it with a narrower special case.
+
+## Iteration Principles
+
+- Before extending a feature, identify the governing design, the owner of each
+  semantic rule, and the invariants its inputs and outputs must satisfy. If the
+  existing model cannot express the rule, fix that foundation as part of the
+  change. Do not build further behavior on a known incorrect invariant.
+- Give each semantic fact one authoritative owner. Consumers must use its
+  result or shared operations rather than reconstructing it independently.
+  Keep syntax interpretation, semantic checking, and runtime representation
+  in their respective stages. A module or crate split must preserve this
+  ownership and the contracts between stages.
+- Extend shared representations and operations before adding feature-specific
+  paths. Preserve the structure, identities, and scope needed for substitution
+  and composition. Do not replace a general relation with a private restricted
+  model, name-based exception, or side table that later passes must reinterpret.
+  Specialized rules must have an explicit semantic justification and use the
+  same surrounding invariants.
+- Enforce invariants at the common operations that can violate them, across
+  every entry point. Changes to related solver state must remain consistent;
+  speculative work must use a complete rollback contract, and scoped work
+  must have a defined entry and exit contract. Avoid feature-local copies of
+  these mechanisms.
+- Make stage contracts truthful. Publish a result as checked only after its
+  required checks succeed, preserving diagnostics and their origins. Missing
+  required metadata and invalid shapes are errors; they must not silently
+  become fresh unknowns, permissive defaults, or valid empty results. Document
+  deliberate approximations and trusted assumptions in the owning contract.
+- Preserve semantic evidence across a boundary until an explicit lowering can
+  discharge or erase it. State which guarantees a verifier checks and which
+  it trusts from the producer; retain enough immutable information for the
+  checks it claims to perform.
+- Keep incomplete work explicit. A supported subset must preserve the full
+  model's invariants and report unsupported cases honestly. Record remaining
+  obligations without narrowing the normative design or describing a partial
+  implementation as complete.
+- Review integration as well as the local feature: equivalent forms must
+  receive equivalent treatment, and new behavior must compose with adjacent
+  mechanisms and imported declarations. Choose validation that exercises these
+  interactions and rejection paths. Passing isolated cases does not establish
+  architectural coherence.
 
 ## Compiler Representation Boundaries
 

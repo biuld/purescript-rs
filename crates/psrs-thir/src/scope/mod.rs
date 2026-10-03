@@ -440,6 +440,18 @@ fn verify_evidence_scope(
         EvidenceKind::Superclass { parent, .. } => {
             verify_evidence_scope(parent, types, scope, errors)
         }
+        EvidenceKind::Primitive { arguments } => {
+            for argument in arguments {
+                verify_type_scope(
+                    *argument,
+                    types,
+                    scope,
+                    evidence.span,
+                    &mut HashSet::new(),
+                    errors,
+                );
+            }
+        }
         EvidenceKind::Instance {
             constructor_type,
             context,

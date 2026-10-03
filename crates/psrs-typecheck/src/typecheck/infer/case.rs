@@ -28,7 +28,7 @@ impl Checker {
             let pattern = self.check_pattern(&branch.pattern, &scrutinee.ty, &mut inserted)?;
             let value = self.infer_expr_with_expected(&branch.value, result_ty.clone())?;
             for id in inserted {
-                self.locals.remove(&id);
+                self.scope.locals.remove(&id);
             }
             match &result_ty {
                 None => result_ty = Some(value.ty.clone()),
@@ -66,15 +66,16 @@ impl Checker {
         let hir::ExprKind::Local(id) = expression.kind else {
             return self.infer_expr(expression);
         };
-        let Some(scheme) = self.locals.get(&id).cloned() else {
-            self.errors.push(TypeCheckError::new(
+        let Some(scheme) = self.scope.locals.get(&id).cloned() else {
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::InvalidHir,
                 expression.span,
                 "local pattern scrutinee has no type environment entry",
             ));
             return None;
         };
-        let mapping = self.instantiate_type_variables(scheme.variables.iter().copied());
+        let mapping = self
+            .instantiate_type_variables(scheme.variables.iter().copied(), &scheme.variable_kinds);
         let ty = super::super::unify::substitute(&scheme.ty, &mapping);
         let ty = self.freshen_foralls(&ty);
         let ty = self.resolve_type(ty);

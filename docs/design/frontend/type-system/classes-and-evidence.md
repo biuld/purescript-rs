@@ -10,7 +10,7 @@
 
 ## Scope
 
-This document owns class and instance validation, constraint entailment, functional-dependency improvement, ambiguity checks, and evidence elaboration. [Backend dictionaries](../../backend/fp/type-classes-and-dictionaries.md) own runtime representation; [rows](rows-and-records.md) owns row primitive semantics.
+This document owns class and instance validation, constraint entailment, functional-dependency improvement, ambiguity checks, and evidence elaboration. [Primitives](prim.md) owns which `Prim.*` members exist, which of them the compiler solves, and what a rule returns; [backend dictionaries](../../backend/fp/type-classes-and-dictionaries.md) own runtime representation; [rows](rows-and-records.md) owns row structure and equations.
 
 ## Background
 
@@ -22,11 +22,15 @@ A constraint `C a b` requires a dictionary. A class can have several parameters,
 Class = { id, kind_parameters, type_parameters, fundeps,
           superclasses, methods, covering_sets }
 Instance = { id, class_id, head, context, chain_id, chain_position, source }
-Constraint = { class_id, kind_args, type_args, source }
+TypeTemplate = { binders: [BinderId], body: TypeExpr }   # over class parameters
+Constraint = { class_id, arguments: [TypeExpr], source }
+SuperclassConstraint = { class_id, template: TypeTemplate, field, span }
 Evidence = Given(LocalId) | Superclass(Evidence, FieldId)
          | Instance(InstanceId, [Evidence])
          | Coercible(SourceType, TargetType) | Primitive(PrimitiveEvidence)
 ```
+
+One constraint representation serves every position a constraint appears in: a wanted, an instance context, a class parameter's argument, and a superclass edge. A wanted and an instance context are already ordinary types under `InferType`; a superclass edge differs only in that its arguments are written over the subclass's parameters, so it is stored as a `TypeTemplate` with an explicit binder scope and instantiated through the same substitution as everything else. Storing a superclass argument as a parameter *name* is rejected: it cannot express `C (Array a)`, it makes dictionary construction and superclass search re-derive arguments by name lookup, and it gives the same constraint two representations.
 
 An instance chain is a contiguous, ordered group of alternatives in its
 declaring module. `chain_id` is unique within that module and local
@@ -41,6 +45,8 @@ interfaces to inference. `Prim.Coerce.Coercible source target` is
 compiler-owned: users cannot provide instances for it, and its evidence is a
 checked proof of a representation relation rather than a runtime dictionary
 selected by ordinary instance search.
+
+Each compiler-owned primitive is selected by resolved class identity and dispatched according to its evidence class. Proof and relation rules run before direct given lookup; reporting behavior runs after it, so a scoped warning dictionary can take precedence and retained `Fail`/`Partial` constraints can propagate to their use site. [Primitives](prim.md) owns the per-member table and outcome contract; this document owns the shared search path, improvement, and evidence elaboration. A relation that declines continues through ordinary search, and one with no visible instance is reported as a missing instance rather than a coherence error.
 
 Instance bodies contain dictionary members, not module value declarations. A
 member's optional type signature must immediately precede its first equation;
@@ -79,6 +85,13 @@ signature says otherwise. Given `Coercible a b` constraints may justify the
 same relation in either direction. User instance declarations for the compiler
 class are rejected.
 
+`Coercible` owns the representational relation and nothing else. The kinds of its
+two arguments are read from the checked kind environment and compared through the
+shared kind solver, which is also what maintains the kind of every inference
+variable the proof mentions; a coercion never gets its own reading of what `Row`,
+`Record`, or an application's kind is, because that would let the same boundary be
+kind-correct in a coercion and kind-incorrect in the binding that produced it.
+
 The source value `Safe.Coerce.coerce` elaborates to a typed coercion expression
 carrying `Coercible` evidence and explicit source/target types. THIR verifies
 that the proof class and its boundary match the value and result. Core records
@@ -97,23 +110,25 @@ literal is rejected before solving. `SymbolCons` splits or builds one scalar
 head and a scalar tail. These solver rules do not change value-level string
 storage.
 
-Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Search givens first, then superclass paths and candidate instances. Matching a given unifies flexible wanted arguments with the given's arguments transactionally; it never assigns a rigid given variable, and a failed candidate leaves no substitutions behind. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
+Check class parameter kinds, dependency indices, superclass cycles, method signatures, instance heads and contexts, and coherence conditions before solving uses. Build a searchable instance environment respecting module visibility and the official orphan and instance-chain rules. Compiler-owned primitive evidence has an evidence-defined place in the search order: proof and relation rules run before direct given lookup; report rules run after it so a warning or unsolved report constraint can propagate through the enclosing declaration. For ordinary class constraints, search givens first, then superclass paths and candidate instances. Matching a given unifies flexible wanted arguments with the given's arguments transactionally; it never assigns a rigid given variable, and a failed candidate leaves no substitutions behind. Apply functional dependencies to improve unknowns using only the selected branch in each chain; repeat until stable. Compare every class argument in an instance head. Functional dependencies contribute the transitive closure of already matched positions, while arguments outside that closure can still prove a candidate apart. Within each visible chain, continue only when a branch is provably apart. A matching branch commits before its context is solved. An unknown non-final branch blocks later alternatives in that chain; unknown singleton and final branches are ignored. Unknown branches do not create an overlap with one definite match from an unrelated chain. Failure to solve a selected context does not fall through. Unrelated ordinary candidates must remain coherent; overlapping or unresolved obligations receive source-oriented diagnostics. Memoize and bound search to prevent cycles.
 
-Elaboration turns a constrained binding into explicit evidence parameters and inserts evidence at overloaded uses. A method selection projects from its dictionary; a superclass selection follows a dictionary field. The frontend proves and records the selected path. Backend optimization may specialize dictionaries but cannot change which instance was selected.
+Elaboration turns a constrained binding into explicit evidence parameters and inserts evidence at overloaded uses. A method selection projects from its dictionary; a superclass selection follows a dictionary field. The frontend proves and records the selected path. Backend optimization may specialize dictionaries but cannot change which instance was selected. Which constraints become parameters is decided by generalization, not here: a declaration's scheme carries the constraints inference retained, and elaboration realizes exactly those as dictionary parameters, so a signature and an inferred scheme produce the same evidence shape.
 
-Rejected alternatives: a global ban on overlapping heads would reject valid instance-chain programs; choosing the first ordinary candidate is incoherent; and postponing instance choice to runtime changes PureScript semantics.
+A superclass edge is instantiated, never re-derived. Dictionary construction and superclass search substitute the subclass's arguments into the edge's template and unify the result against the wanted constraint, so an edge written over an arbitrary type such as `C (Array a)` needs no separate rule. The dictionary field that stores a superclass dictionary is chosen from the edge's position, so the evidence and the field agree by construction.
+
+Rejected alternatives: a global ban on overlapping heads would reject valid instance-chain programs; choosing the first ordinary candidate is incoherent; postponing instance choice to runtime changes PureScript semantics; and representing a superclass edge as a permutation of parameter names would leave a constraint with two forms that only one of them can express.
 
 ## Algorithms
 
 ```text
 solve(wanted, givens, instances):
     normalize wanted; improve unknowns using class fundeps and givens
-    if a given can unify with wanted without changing rigid variables: return Given
+    if wanted has primitive Proof or Relation evidence: apply its checked rule
+    if a given can supply wanted's evidence without changing rigid variables:
+        return Given
+    if wanted has primitive ReportingDictionary or ReportOnly evidence:
+        apply its report behavior under the Retain/RequireSolved policy
     if a superclass path from a given proves wanted: return Superclass
-    if wanted is Coercible: prove it from checked roles, equalities, givens,
-        visible newtype constructors, and structural row rules; emit Coercible
-        evidence or report an unsatisfied constraint
-    if wanted is another primitive relation: apply its checked solver
     collect visible candidate instances and chains
     for each chain in stable module and chain order:
         continue after a branch only when its head is Apart from wanted
@@ -135,15 +150,14 @@ distinct unresolved variables remain Unknown. Functional dependencies compute
 the transitive closure of matched positions, so a branch can improve
 determined positions only when its determining positions identify that branch.
 
-Generalization retains constraints permitted by the inferred scheme. Check that every remaining variable is determined by the result type and dependencies; otherwise report ambiguity. Keep constraint origins through improvement and search.
+Generalization retains the constraints a declaration could not discharge; see [type inference](type-inference.md) for the solve, retain, ambiguity, generalize, and abstract sequence. Check that every remaining variable is determined by the result type and dependencies; otherwise report ambiguity. Keep constraint origins through improvement and search.
 
 ## Code map
 
 The frontend design is organized around these contracts:
 
-- `ClassEnv` owns checked class parameters, superclasses, methods, and
-  functional dependencies. `InstanceEnv` owns visible instance identities,
-  module visibility, and ordered chain membership.
+- `ClassEnv` owns checked class parameters, superclass edges as `TypeTemplate`s, methods, and functional dependencies. `InstanceEnv` owns visible instance identities, module visibility, and ordered chain membership.
+- `instantiate_template(&TypeTemplate, &[InferType]) -> Vec<InferType>` substitutes a subclass's arguments into a superclass edge through the shared substitution; superclass search and dictionary construction both call it instead of matching parameter names.
 - `match_instance_head(head, wanted, fundeps) -> Match | Apart | Unknown`
   compares all class arguments, applies transitive fundep coverage, and checks
   repeated-variable substitutions. `select_instance_groups(wanted)` processes
@@ -153,15 +167,21 @@ The frontend design is organized around these contracts:
   point without using a later fallback or assigning rigid variables.
   `solve_constraint(wanted, givens, InstanceEnv) -> Evidence | Diagnostic`
   commits the selected branch, freshens and unifies its complete head, then
-  solves its context without fallback.
+  solves its context without fallback. A candidate match runs under the shared
+  `speculate` operation, so a failed candidate leaves no substitution, level,
+  kind, or diagnostic behind.
+- `primitive_relation(class_id) -> Option<PrimitiveRule>` is the dispatch table
+  [primitives](prim.md) owns; this document's solver calls it by class identity
+  before givens and instances, and re-queues whatever obligations a rule defers.
 - `validate_coherence(InstanceEnv)` checks visible ordinary instances and
   chain boundaries. `elaborate_evidence(Constraint, Evidence) -> TypedCore`
   emits checked dictionary parameters, applications, and superclass
   projections; the Typed Core verifier checks the evidence boundary.
 - `solve_coercible(source, target, CheckedKindEnv, Visibility) -> CoercibleProof`
-  is a dedicated solver and never consults user instances. `coerce(value,
-  proof) -> TypedExpr` records source and target types in the checked expression;
-  its evidence remains explicit until Core lowers the proof to a
+  is the rule [primitives](prim.md) specifies for `Coercible`; it never consults
+  user instances and reads argument kinds through the shared kind solver.
+  `coerce(value, proof) -> TypedExpr` records source and target types in the checked
+  expression; its evidence remains explicit until Core lowers the proof to a
   `RepresentationCast` boundary.
 
 AST lowering assigns module-local chain identity and source position; name
@@ -171,19 +191,23 @@ responsibilities for the contracts above, not additional semantic owners.
 
 ## Invariants and verification
 
-Every selected evidence term proves exactly its checked constraint; ordinary instance lookup is coherent; chain order and visibility are respected; an unknown non-final branch blocks only its own chain; a unique definite match is not turned into an overlap by an unresolved chain; context failure cannot change a selected branch; improvement never assigns a rigid variable; and search terminates or reports a bounded cycle. A `Coercible` proof is generated only from a checked role, equality, given, or visible newtype decomposition; it cannot be forged by an instance, and THIR rejects a mismatched evidence boundary. Verify superclass paths, recursive contexts, fundep closure and independent-argument apartness, repeated-variable occurs checks, ambiguity, instance chains, overlap errors, and primitive constraints against official `purs` accept/reject cases.
+Every selected evidence term proves exactly its checked constraint; ordinary instance lookup is coherent; chain order and visibility are respected; an unknown non-final branch blocks only its own chain; a unique definite match is not turned into an overlap by an unresolved chain; context failure cannot change a selected branch; improvement never assigns a rigid variable; and search terminates or reports a bounded cycle. A superclass edge is a template over the subclass's parameters, so dictionary construction and superclass search instantiate it through the shared substitution and two spellings of the same constraint cannot disagree. Each compiler-owned class identity reaches exactly one solver. A `Coercible` proof is generated only from a checked role, equality, given, or visible newtype decomposition; it cannot be forged by an instance, and THIR rejects a mismatched evidence boundary. Verify superclass paths, superclass edges over constructed arguments, recursive contexts, fundep closure and independent-argument apartness, repeated-variable occurs checks, ambiguity, inferred qualified schemes without a signature, instance chains, overlap errors, and primitive constraints against official `purs` accept/reject cases; [primitives](prim.md) owns the primitive combinations.
 
 ## Worked example
 
 For `class Convert a b | a -> b`, a wanted `Convert Int x` can improve `x` from the matching instance head. If `convert :: forall a b. Convert a b => a -> b`, a use at `Int` receives the selected dictionary as an explicit argument. A superclass method instead receives a projection from an available subclass dictionary. For `newtype Age = Age Int`, `coerce :: Age -> Int` is accepted while its constructor is visible; the resulting checked representation boundary reaches the backend conversion planner.
 
+For `class Pretty a where pretty :: a -> String` and `class Pretty a => Show a`, a wanted `Show (Array Int)` instantiates the edge template over the subclass argument and then unifies the result with the wanted, so the superclass path is found without matching parameter names. For `f x = pretty x` with no signature, the wanted `Pretty ?a` is retained, `?a` is generalized at kind `Type`, and `f` becomes `forall a. Pretty a => a -> String`.
+
 ## Boundaries and interfaces
 
 P5 consumes resolved class and instance declarations plus the checked kind-and-role environment. It emits THIR dictionary evidence or a `Coercible` proof boundary. [Core lowering](../semantics/core-lowering.md) makes dictionary evidence operational and preserves coercion source/target types; the backend receives only verified values and proof-authorized conversions. [Polymorphism and erasure](../../backend/fp/polymorphism-and-erasure.md) owns the concrete adaptation plan.
 
+Evidence verification in the checked IR has a stated boundary, following [type inference](type-inference.md). THIR checks that a `Given` names a dictionary parameter in scope, that a `Superclass` node's field exists in its parent's dictionary record with the evidence's own type, that an `Instance` node's constructor type supplies exactly the context dictionaries it claims, and that a `Coercible` node proves the compiler's class with the empty dictionary type at the boundary its expression records. Three guarantees are trusted from P5: that the selected instance was coherent under the chain and fundep rules, that the class identity a deriving rule selected is the one the declaration owner gives it, and that a `Coercible` proof follows from roles and newtype visibility. Those depend on the solver's search and the checked environment, which THIR does not carry; a guarantee that must be verified rather than trusted needs the corresponding metadata retained in the IR.
+
 ## Open questions and future work
 
-Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. The current source subset covers role-aware higher-kinded given rewriting, checked kind compatibility, canonical open-row alignment, structural `Eq`/`Ord`, covariant `Functor.map`, `Bifunctor.bimap`, `Contravariant.cmap` through `Profunctor.lcmap`, and `derive newtype`. Class method `forall` signatures, quantified method parameters, and method-local constraints are checked with independent instantiation and scoped dictionary evidence; their verification is tracked in the [rank-N acceptance record](../../../implementation/frontend/rank-n.md). The remaining class-specific deriving traversals remain open. The function-based `Contravariant` case still reaches a backend closure-capture limit, and open-row runtime conversion remains outside the current CC layout. Implementation coverage belongs in [DEC-04](../../../decision/DEC-04-official-test-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
+Track the official compiler's exact orphan, instance-chain apartness, and primitive-class rules as executable compatibility cases. The current source subset covers role-aware higher-kinded given rewriting, checked kind compatibility, canonical open-row alignment, structural `Eq`/`Ord`, covariant `Functor.map`, `Bifunctor.bimap`, `Contravariant.cmap` through `Profunctor.lcmap`, and `derive newtype`. Class method `forall` signatures, quantified method parameters, and method-local constraints are checked with independent instantiation and scoped dictionary evidence; their verification is tracked in the [rank-N acceptance record](../../../implementation/frontend/rank-n.md). The remaining class-specific deriving traversals remain open. The function-based `Contravariant` case still reaches a backend closure-capture limit, and open-row runtime conversion remains outside the current CC layout. Implementation coverage belongs in [D-04](../../D-04-suite-roadmap.md) and the [roles and coercions acceptance record](../../../implementation/frontend/roles-and-coercions.md).
 
 ## References
 
@@ -202,5 +226,45 @@ still lack a runtime layout. Structural `Eq`/`Ord`, nested `Functor.map`,
 method signatures. Function-result mapping and `Contravariant` through a
 profunctor dictionary match the upstream source rules; the function-based
 Contravariant case still lacks Wasmtime evidence because of closure capture.
-Method-local constraints and the remaining upstream deriving classes keep
-FE-16 partial.
+Class-method local constraints and quantified parameters are covered under
+FE-18; the remaining upstream deriving classes keep FE-16 partial.
+
+The primitive rule table now covers all twelve row, row-list, symbol, and integer
+relations as well as the `Coercible` proof. `Prim.TypeError.Warn` reports through
+the typecheck warning result while returning its empty dictionary; an in-scope
+warning dictionary still takes precedence so the constraint can propagate to its
+consumer. `Prim.TypeError.Fail` reports a custom error for a well-formed `Doc`,
+while malformed `Doc` falls back to `NoInstanceFound`. `Prim.Partial` remains
+incomplete: this HIR has no producer for the exhaustiveness metadata in its
+constraint, so a direct unresolved `Partial` still receives the generic
+`NoInstanceFound` diagnostic. The five `Coercible` mismatches also remain open:
+proof evidence has no dictionary arguments for the framework's relation-decision
+check, so the proof needs its own verified answer contract. See [primitives](prim.md)
+for the dispatch and outcome contract and [D-04](../../D-04-suite-roadmap.md) for
+measured coverage.
+
+The parts that *are* reached now include what the previous revision of this note
+listed as missing. A declaration's scheme carries the constraints inference
+retained, so a signatureless declaration infers a qualified type —
+`f x = method x` for `class C a where method :: a -> a` infers
+`forall a. C a => a -> a`, matching `purs`, and one dictionary parameter per
+retained constraint wraps the declaration. An unsolvable constraint is still
+`NoInstance`, and a residual constraint in a *recursive* binding group is reported
+rather than generalized, matching official's `CannotGeneralizeRecursiveFunction`.
+A superclass edge is a `TypeTemplate` over the subclass's parameters and is
+instantiated through the shared substitution. The source and Wasmtime regression
+`a_superclass_edge_over_a_constructed_argument_runs_when_wasmtime_is_available`
+checks `class (Gamma (Array a)) <= Epsilon a`: an `Epsilon Int` dictionary
+contains `Gamma (Array Int)`, and `use` obtains that superclass dictionary from
+the edge. This is a constructed argument that parameter-name matching could not
+represent.
+The coercion rule is dispatched through the shared primitive table by class
+identity rather than by a comparison at the call site.
+
+Selected instance contexts retain stable wanted IDs in the shared worklist, so
+solving or generalizing a residual updates the evidence the instance constructor
+uses. A missing referenced wanted is an invalid-HIR error. Primitive deferrals
+share the outer retention policy and a bounded re-entry chain; reported or
+stalled obligations are not silently restarted with a fresh budget. THIR scheme
+matching compares row fields by label and duplicate occurrence, preserving full
+residual row bindings across repeated quantified uses.

@@ -47,9 +47,12 @@ pub(crate) fn resolve_ast_module(
 
     let mut external_globals = HashMap::new();
     for external in &inputs.externals {
+        // `coerce` and `undefined` are reached through their virtual module
+        // interfaces, not as free names, so their bootstrap spellings stay out
+        // of the value namespace.
         if matches!(
             &external.kind,
-            ExternalKind::Intrinsic(hir::Intrinsic::Coerce)
+            ExternalKind::Intrinsic(hir::Intrinsic::Coerce | hir::Intrinsic::Undefined)
         ) {
             continue;
         }

@@ -124,6 +124,10 @@ impl Projector<'_> {
             Some(Type::RowEmpty) | Some(Type::RowExtend { .. }) => {
                 Err("a bare row has no canonical guest layout".into())
             }
+            // A type-level literal is a compile-time value, not a layout.
+            Some(Type::TypeLevelString(_)) | Some(Type::TypeLevelInt(_)) => {
+                Err("a type-level literal has no canonical guest layout".into())
+            }
             None => Err("type is outside the Core type table".into()),
         }
     }

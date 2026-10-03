@@ -371,6 +371,10 @@ fn rejects_integer_literals_outside_i32() {
     assert_eq!(errors[0].kind, TypeCheckErrorKind::IntegerOutOfRange);
 }
 
+mod binding_kinds;
 mod foreign_data;
+mod kind_heads;
 mod rank_n;
+mod rows;
+mod type_level_literals;
 mod user_types;

@@ -22,11 +22,18 @@ fn resolve_one(source: &str) -> Result<psrs_hir::Module, Vec<psrs_resolve::Resol
     )
 }
 
-fn check_types(module: psrs_hir::Module) -> psrs_thir::Module {
-    let kinds = psrs_kind::check_module(&module);
+/// Kind checks the program and type checks its `subject` module. The subject's
+/// imported foreign types carry the kind their declaring module checked, which
+/// is what the program-level kind pass produces.
+fn check_types_in(program: &[psrs_hir::Module], subject: usize) -> psrs_thir::Module {
+    let (_, kinds) = psrs_kind::check_program(program);
     assert!(kinds.is_empty(), "unexpected kind errors: {kinds:?}");
-    let module = psrs_desugar::desugar_module(module).expect("desugar");
+    let module = psrs_desugar::desugar_module(program[subject].clone()).expect("desugar");
     typecheck_module(module).expect("typecheck")
+}
+
+fn check_types(module: psrs_hir::Module) -> psrs_thir::Module {
+    check_types_in(std::slice::from_ref(&module), 0)
 }
 
 #[test]
@@ -91,7 +98,7 @@ fn declares_an_opaque_foreign_type_and_rejects_source_construction() {
          bad = 1\n",
     )
     .expect("the illegal value should still resolve");
-    let kinds = psrs_kind::check_module(&forged);
+    let (_, kinds) = psrs_kind::check_program(std::slice::from_ref(&forged));
     assert!(kinds.is_empty(), "{kinds:?}");
     let forged = psrs_desugar::desugar_module(forged).expect("desugar");
     let errors = typecheck_module(forged).expect_err("Int must not inhabit Handle");
@@ -111,7 +118,7 @@ fn declares_an_opaque_foreign_type_and_rejects_source_construction() {
          pure x = x\n",
     )
     .expect("the higher-kinded declaration should resolve");
-    let kinds = psrs_kind::check_module(&effect);
+    let (_, kinds) = psrs_kind::check_program(std::slice::from_ref(&effect));
     assert!(kinds.is_empty(), "{kinds:?}");
     let effect = psrs_desugar::desugar_module(effect).expect("desugar");
     let errors = typecheck_module(effect).expect_err("a value must not build Effect a");
@@ -174,7 +181,7 @@ fn keeps_an_imported_foreign_type_opaque() {
                 imported.opaque && imported.reference == psrs_hir::TypeReference::Named(foreign.id)
             })
     );
-    check_types(resolved[1].clone());
+    check_types_in(&resolved, 1);
 }
 
 #[test]

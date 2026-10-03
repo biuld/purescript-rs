@@ -4,6 +4,9 @@ use psrs_span::TextRange;
 pub enum TypeCheckErrorKind {
     InvalidHir,
     TypeMismatch,
+    /// A binding would give a type a kind its recorded kind does not admit, so
+    /// the kind equation `bind_type_variable` solves has no solution.
+    KindsDoNotUnify,
     OccursCheck,
     SkolemEscape,
     UnconstrainedType,
@@ -24,6 +27,12 @@ pub enum TypeCheckErrorKind {
     /// A constraint still mentions variables that neither the result type nor
     /// the class's functional dependencies determine.
     AmbiguousConstraint,
+    /// A recursive declaration has constraints it cannot discharge, and
+    /// generalizing them would admit polymorphic recursion over a constraint the
+    /// recursive uses never proved. `purs` raises this in
+    /// `TypeChecker.Types.typesOf`, where it is the counterpart of retaining a
+    /// non-recursive group's residual constraints.
+    CannotGeneralizeRecursiveFunction,
     InvalidCoercibleInstanceDeclaration,
     /// An instance head the solver cannot match against, such as one that
     /// contains a type wildcard. `purs` raises this in
@@ -38,6 +47,22 @@ pub struct TypeCheckError {
     pub kind: TypeCheckErrorKind,
     pub span: TextRange,
     message: String,
+}
+
+/// A warning produced while checking a module. Warnings are kept separate from
+/// errors so a successful typecheck can return both its checked module and the
+/// reports that callers must surface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeCheckWarning {
+    pub span: TextRange,
+    pub message: String,
+}
+
+impl TypeCheckWarning {
+    /// The official PureScript `errorCode` for a user-defined warning.
+    pub fn error_code(&self) -> &'static str {
+        "UserDefinedWarning"
+    }
 }
 
 impl TypeCheckError {
@@ -59,6 +84,25 @@ impl TypeCheckError {
 
     /// The official PureScript `errorCode` for this diagnostic, when it maps to
     /// one.
+    pub fn error_code(&self) -> Option<&'static str> {
+        self.kind.error_code()
+    }
+}
+
+impl TypeCheckErrorKind {
+    /// Whether this error already reports why one wanted constraint failed to
+    /// resolve. Callers must not add a second `NoInstanceFound` at an enclosing
+    /// instance or deferral boundary.
+    pub(in crate::typecheck) fn reports_constraint_failure(self) -> bool {
+        matches!(
+            self,
+            TypeCheckErrorKind::NoInstance
+                | TypeCheckErrorKind::OverlappingInstances
+                | TypeCheckErrorKind::TypeMismatch
+        )
+    }
+
+    /// The official PureScript `errorCode` this kind raises, when it maps to one.
     ///
     /// The mappings follow `purs`' `ErrorCode` in
     /// `src/Language/PureScript/Errors.hs`. Three kinds deliberately have no
@@ -87,8 +131,9 @@ impl TypeCheckError {
     ///   right and the stage differs, so it is recorded here rather than left
     ///   unmapped.
     pub fn error_code(&self) -> Option<&'static str> {
-        Some(match self.kind {
+        Some(match self {
             TypeCheckErrorKind::TypeMismatch => "TypesDoNotUnify",
+            TypeCheckErrorKind::KindsDoNotUnify => "KindsDoNotUnify",
             TypeCheckErrorKind::OccursCheck => "InfiniteType",
             TypeCheckErrorKind::SkolemEscape => "EscapedSkolem",
             TypeCheckErrorKind::IntegerOutOfRange => "IntOutOfRange",
@@ -96,6 +141,9 @@ impl TypeCheckError {
             TypeCheckErrorKind::MissingInstanceMethod => "MissingClassMember",
             TypeCheckErrorKind::OverlappingInstances => "OverlappingInstances",
             TypeCheckErrorKind::AmbiguousConstraint => "AmbiguousTypeVariables",
+            TypeCheckErrorKind::CannotGeneralizeRecursiveFunction => {
+                "CannotGeneralizeRecursiveFunction"
+            }
             TypeCheckErrorKind::InvalidCoercibleInstanceDeclaration => {
                 "InvalidCoercibleInstanceDeclaration"
             }

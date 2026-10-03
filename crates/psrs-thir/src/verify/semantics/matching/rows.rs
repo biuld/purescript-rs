@@ -58,6 +58,50 @@ impl Matcher<'_> {
         )
     }
 
+    /// Matches rows embedded inside an invariant type application. Quantified
+    /// row variables may absorb fields regardless of source or canonical field
+    /// order, but field types still compare invariantly.
+    pub(super) fn relate_row_types(&mut self, actual: TypeId, expected: TypeId) -> bool {
+        let (Some((actual_fields, actual_tail)), Some((expected_fields, expected_tail))) =
+            (self.flatten_row(actual), self.flatten_row(expected))
+        else {
+            return false;
+        };
+        let mut actual_fields = actual_fields;
+        let mut expected_fields = expected_fields;
+        // Stable sorting makes distinct labels order-independent while pairing
+        // duplicate labels in their original occurrence order.
+        actual_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        expected_fields.sort_by(|left, right| left.0.cmp(&right.0));
+        let (mut actual_index, mut expected_index) = (0, 0);
+        let mut actual_rest = Vec::new();
+        let mut expected_rest = Vec::new();
+        while actual_index < actual_fields.len() && expected_index < expected_fields.len() {
+            let actual_field = &actual_fields[actual_index];
+            let expected_field = &expected_fields[expected_index];
+            match actual_field.0.cmp(&expected_field.0) {
+                std::cmp::Ordering::Equal => {
+                    if !self.equal(actual_field.1, expected_field.1, &mut HashSet::new()) {
+                        return false;
+                    }
+                    actual_index += 1;
+                    expected_index += 1;
+                }
+                std::cmp::Ordering::Less => {
+                    actual_rest.push(actual_field.clone());
+                    actual_index += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    expected_rest.push(expected_field.clone());
+                    expected_index += 1;
+                }
+            }
+        }
+        actual_rest.extend(actual_fields[actual_index..].iter().cloned());
+        expected_rest.extend(expected_fields[expected_index..].iter().cloned());
+        self.finish_row(actual_rest, actual_tail, expected_rest, expected_tail)
+    }
+
     pub(super) fn row_form_matches(&mut self, form: &RowForm, replacement: TypeId) -> bool {
         let Some((fields, tail)) = self.flatten_row(replacement) else {
             return false;

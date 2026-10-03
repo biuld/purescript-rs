@@ -81,18 +81,26 @@ public branch remains usable.
 
 `Prim` is a virtual module family. The root interface maps built-in type names
 to their existing `BuiltinType` identities. Official child-module types and
-classes are declared once in shared HIR primitive metadata with stable
-`TypeId`s, kinds, and class functional dependencies; the resolver, kind
-checker, and class environment consume those declarations. The interfaces do
+classes are declared once in a primitive registry with stable `TypeId`s, kinds,
+roles, and class functional dependencies; the resolver, kind checker, and class
+environment consume those declarations. The interfaces do
 not assign separate identities to aliases of the same primitive. In
 particular, `Number` is exported from `Prim`, not a `Prim.Number` child module.
 The official `Prim.*` module registry is derived from the shared declarations,
 so a recognized child module always has the member metadata it advertises.
 Import and export interfaces carry a `TypeReference`, preserving built-in and
-declared identities through qualification and re-exports. A source module
-named `Prim` or beginning with `Prim.` is rejected; source cannot replace a
-compiler interface. The root `undefined` value has no shared value identity
-yet and is not exported by the current virtual interface.
+declared identities through qualification and re-exports, and carry a
+`SymbolId` for the root `undefined` value, so an alias and a re-export of it
+reach the same compiler-owned identity. A source module named `Prim` or
+beginning with `Prim.` is rejected; source cannot replace a compiler interface.
+The root `undefined` value reaches source only through this interface, not as a
+free name.
+
+This document owns that interface: which names exist, which identity each carries,
+and that nothing in source can replace one. What a member *means* — which of them
+the compiler solves, what a rule decides, and how a report-only member reaches a
+diagnostic — belongs to [primitives](../type-system/prim.md), which also owns
+the member inventory this registry must satisfy.
 
 P3 resolves every value and type fixity target in its own namespace, binds the
 operator alias to its target `SymbolId` or `TypeReference`, and stores
@@ -107,9 +115,10 @@ same interface path and are not assigned declaration `TypeId`s.
 
 Primitive class declarations make names, kinds, and fundeps available to
 resolution and kind checking. Import support does not imply entailment or
-runtime support for their rules: `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
-`Prim.Int`, and `Prim.TypeError` constraints still need their compiler-owned
-solver semantics.
+runtime support for their rules: the `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
+`Prim.Int`, and `Prim.TypeError` relations still need the compiler-owned rules
+specified in [primitives](../type-system/prim.md), and a resolved member with no
+rule is a recorded state rather than a supported one.
 
 `foreign import` WIT binding text stays attached to the resolved declaration.
 The quoted binding is a source string value: a Unicode scalar sequence

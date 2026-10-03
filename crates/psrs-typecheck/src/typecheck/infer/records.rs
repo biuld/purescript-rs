@@ -11,13 +11,13 @@ impl Checker {
         let FlatRow {
             fields: expected_fields,
             ..
-        } = self.flatten_row(expected_row);
+        } = self.normalize_row_or_report(expected_row, span);
         let expected_fields = expected_fields.into_iter().collect::<HashMap<_, _>>();
         let mut inferred = Vec::with_capacity(fields.len());
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),
@@ -47,7 +47,7 @@ impl Checker {
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),
@@ -107,7 +107,7 @@ impl Checker {
         let mut labels = HashSet::new();
         for (label, value) in fields {
             if !labels.insert(label) {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("record label `{label}` occurs more than once"),

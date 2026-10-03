@@ -15,35 +15,18 @@ impl Checker {
         let expected = self.resolve_type(expected);
         match (actual, expected) {
             (actual, InferType::ForAll { variables, body }) => {
-                let outer_level = self.level;
-                let skolem_level = outer_level + 1;
-                self.level = skolem_level;
-                let previous_levels = variables
-                    .iter()
-                    .map(|variable| {
-                        let previous = self.levels.insert(*variable, skolem_level);
-                        self.rigid.insert(*variable);
-                        (*variable, previous)
-                    })
-                    .collect::<Vec<_>>();
-                self.subsume(actual, *body, span);
-                self.level = outer_level;
-                for (variable, previous) in previous_levels {
-                    if let Some(previous) = previous {
-                        self.levels.insert(variable, previous);
-                    }
-                }
+                self.with_skolem_scope(&variables, |checker| checker.subsume(actual, *body, span));
             }
             (InferType::ForAll { variables, body }, expected) => {
-                let mapping = self.instantiate_type_variables(variables);
+                let mapping = self.instantiate_type_variables(variables, &HashMap::new());
                 self.subsume(substitute(&body, &mapping), expected, span);
             }
             (actual, expected) => {
                 if let (Some(actual_row), Some(expected_row)) =
                     (record_row(&actual), record_row(&expected))
                 {
-                    let actual = self.flatten_row(actual_row);
-                    let expected = self.flatten_row(expected_row);
+                    let actual = self.normalize_row_or_report(actual_row, span);
+                    let expected = self.normalize_row_or_report(expected_row, span);
                     let actual_fields = actual.fields.into_iter().collect::<HashMap<_, _>>();
                     let expected_fields = expected.fields.into_iter().collect::<HashMap<_, _>>();
                     let mut actual_remainder = Vec::new();

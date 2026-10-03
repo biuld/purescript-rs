@@ -15,10 +15,13 @@ pub fn check_program_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<Program
 pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
     let mut errors = Vec::new();
     let resolved = desugar_resolved(resolve_partial(sources, &mut errors), &mut errors);
-    let (_, role_errors) = psrs_kind::check_roles(&resolved);
-    for (module, error) in role_errors {
+    // One program-level run over the modules that resolved. A module whose
+    // import could not be satisfied has no resolved module to depend on, so the
+    // run stays closed over the type declarations it can see.
+    let (_, diagnostics) = psrs_kind::check_program(&resolved);
+    for error in diagnostics {
         errors.push(ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(module.0 as usize),
+            source: DiagnosticOrigin::Source(error.origin.0 as usize),
             diagnostic: coded_diagnostic(
                 "P5 kind check",
                 error.span,
@@ -26,19 +29,6 @@ pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
                 error.message,
             ),
         });
-    }
-    for module in &resolved {
-        for error in psrs_kind::check_module(module) {
-            errors.push(ProgramDiagnostic {
-                source: DiagnosticOrigin::Source(module.id.0 as usize),
-                diagnostic: coded_diagnostic(
-                    "P5 kind check",
-                    error.span,
-                    Some(error.code),
-                    error.message,
-                ),
-            });
-        }
     }
     if errors.is_empty() {
         Ok(())
@@ -60,10 +50,11 @@ pub fn check_program_kinds_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
 pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<ProgramDiagnostic>> {
     let mut errors = Vec::new();
     let resolved = desugar_resolved(resolve_partial(sources, &mut errors), &mut errors);
-    let (checked_kinds, role_errors) = psrs_kind::check_roles(&resolved);
-    for (module, error) in role_errors {
+    let (checked_kinds, kind_diagnostics) = psrs_kind::check_program(&resolved);
+    let failed_kind_modules = kind_failure_modules(&kind_diagnostics);
+    for error in kind_diagnostics {
         errors.push(ProgramDiagnostic {
-            source: DiagnosticOrigin::Source(module.0 as usize),
+            source: DiagnosticOrigin::Source(error.origin.0 as usize),
             diagnostic: coded_diagnostic(
                 "P5 kind check",
                 error.span,
@@ -105,7 +96,7 @@ pub fn check_program_types_lenient(sources: &[(&str, &str)]) -> Result<(), Vec<P
 
     for module in resolved {
         let source = module.id.0 as usize;
-        if !psrs_kind::check_module(&module).is_empty() {
+        if failed_kind_modules.contains(&module.id) {
             continue;
         }
         let imported = imported_signatures(&module, &signatures);

@@ -106,6 +106,26 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
     effect_runtime_representation: bool,
     context: TypecheckContext<'_>,
 ) -> Result<thir::Module, Vec<TypeCheckError>> {
+    typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+        module,
+        imported,
+        effect_type,
+        effect_runtime_representation,
+        context,
+    )
+    .map(|output| output.module)
+}
+
+/// Type checks a module and returns warnings separately from errors. The
+/// caller owns their source attribution because it knows the module's position
+/// in the containing program.
+pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
+    module: hir::Module,
+    imported: &HashMap<SymbolId, hir::Type>,
+    effect_type: Option<hir::TypeId>,
+    effect_runtime_representation: bool,
+    context: TypecheckContext<'_>,
+) -> Result<TypeCheckOutput, Vec<TypeCheckError>> {
     if let Err(errors) = module.verify() {
         return Err(errors
             .into_iter()
@@ -121,99 +141,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
 
     let _ = (effect_type, effect_runtime_representation);
     let mut checker = Checker::new(&module, imported, context);
-    let components = order::declaration_order(&module);
     let mut inferred = (0..module.declarations.len())
         .map(|_| None)
         .collect::<Vec<Option<InferredDeclaration>>>();
-    let mut annotation_scopes = vec![HashMap::new(); module.declarations.len()];
-
-    for component in &components {
-        for &index in component {
-            let declaration = &module.declarations[index];
-            let (scheme, parameters) = match &declaration.signature {
-                Some(signature) => {
-                    let (constraints, parameters, body, variables) =
-                        checker.elaborate_declaration_signature(signature);
-                    annotation_scopes[index] = variables;
-                    (
-                        Scheme {
-                            variables: Vec::new(),
-                            constraints,
-                            ty: body,
-                        },
-                        parameters,
-                    )
-                }
-                None => (Scheme::monomorphic(checker.fresh()), Vec::new()),
-            };
-            checker
-                .pending_signatures
-                .insert(declaration.symbol, parameters);
-            checker.globals.insert(declaration.symbol, scheme);
-        }
-        for &index in component {
-            let declaration = &module.declarations[index];
-            let scheme = checker.globals[&declaration.symbol].clone();
-            let parameters = checker
-                .pending_signatures
-                .get(&declaration.symbol)
-                .cloned()
-                .unwrap_or_default();
-            let previous_annotation_variables = std::mem::replace(
-                &mut checker.annotation_variables,
-                annotation_scopes[index].clone(),
-            );
-            checker.begin_givens(&scheme.constraints, &parameters);
-            let wanted_start = checker.wanted.len();
-            let expected = declaration
-                .signature
-                .as_ref()
-                .map(|_| checker.globals[&declaration.symbol].ty.clone());
-            let Some(value) = checker.infer_expr_with_expected(&declaration.value, expected) else {
-                checker.end_givens();
-                checker.annotation_variables = previous_annotation_variables;
-                continue;
-            };
-            let span = declaration
-                .signature
-                .as_ref()
-                .map_or(declaration.name_span, |signature| signature.span);
-            checker.unify(scheme.ty.clone(), value.ty.clone(), span);
-            // An inferred (signatureless) binding is generalized below, so its
-            // constraints must be determinate; a declared signature may name
-            // ambiguous variables for the caller to instantiate.
-            let result = declaration.signature.is_none().then(|| value.ty.clone());
-            checker.solve_wanted_constraints(result.as_ref(), wanted_start);
-            checker.end_givens();
-            checker.annotation_variables = previous_annotation_variables;
-            let value = checker.wrap_dictionary_lambdas(value, &parameters);
-            inferred[index] = Some(InferredDeclaration {
-                symbol: declaration.symbol,
-                name: declaration.name.clone(),
-                name_span: declaration.name_span,
-                scheme,
-                value,
-                span: declaration.span,
-            });
-        }
-        // Generalize after the component is inferred so later components
-        // instantiate polymorphic definitions.
-        for &index in component {
-            let Some((monomorphic, constraints)) = inferred[index].as_ref().map(|declaration| {
-                (
-                    declaration.scheme.ty.clone(),
-                    declaration.scheme.constraints.clone(),
-                )
-            }) else {
-                continue;
-            };
-            let scheme = checker.generalize(&monomorphic, &constraints, TOP_LEVEL);
-            if let Some(declaration) = inferred[index].as_mut() {
-                declaration.scheme = scheme.clone();
-                checker.globals.insert(declaration.symbol, scheme);
-            }
-        }
-    }
+    checker.infer_declarations(&module, &mut inferred);
 
     // Instance dictionaries are ordinary declarations emitted after the value
     // declarations they may reference.
@@ -223,15 +154,15 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
         }
     }
 
-    super::checked_exports::check(&module, &inferred, &mut checker.errors);
+    super::checked_exports::check(&module, &inferred, &mut checker.state.errors);
 
-    if !checker.errors.is_empty() {
-        return Err(checker.errors);
+    if !checker.state.errors.is_empty() {
+        return Err(checker.state.errors);
     }
     let inferred = inferred.into_iter().flatten().collect::<Vec<_>>();
 
     let mut types = TypeInterner::default();
-    let mut generics = checker.generic_variables.clone();
+    let mut generics = checker.state.generic_variables.clone();
     let declarations = inferred
         .into_iter()
         .filter_map(|declaration| {
@@ -254,11 +185,12 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
             })
         })
         .collect::<Vec<_>>();
-    if !checker.errors.is_empty() {
-        return Err(checker.errors);
+    if !checker.state.errors.is_empty() {
+        return Err(checker.state.errors);
     }
 
     let constructor_infos = checker
+        .env
         .constructor_info
         .values()
         .cloned()
@@ -339,7 +271,10 @@ pub fn typecheck_module_with_checked_kinds_and_module_names(
         span: module.span,
     };
     match typed.verify() {
-        Ok(()) => Ok(typed),
+        Ok(()) => Ok(TypeCheckOutput {
+            module: typed,
+            warnings: checker.state.warnings,
+        }),
         Err(errors) => Err(errors
             .into_iter()
             .map(|error| {

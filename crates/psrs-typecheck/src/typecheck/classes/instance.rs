@@ -1,4 +1,5 @@
 use super::super::*;
+use super::UnsolvedPolicy;
 use super::evidence::record_field_type;
 
 impl Checker {
@@ -10,9 +11,19 @@ impl Checker {
         &mut self,
         instance: &hir::InstanceDeclaration,
     ) -> Option<InferredDeclaration> {
-        let class = self.classes.get(&instance.class_id).cloned()?;
+        self.with_report_origin(instance.span, |checker| {
+            checker.infer_instance_declaration_with_report_origin(instance)
+        })
+    }
+
+    fn infer_instance_declaration_with_report_origin(
+        &mut self,
+        instance: &hir::InstanceDeclaration,
+    ) -> Option<InferredDeclaration> {
+        let class = self.env.classes.get(&instance.class_id).cloned()?;
         let (head_arguments, head_variables, context, context_parameters) = {
             let info = self
+                .env
                 .instances
                 .iter()
                 .find(|info| info.symbol == instance.symbol)?;
@@ -29,7 +40,7 @@ impl Checker {
                 .iter()
                 .any(|method| method.name == member.name)
             {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedClass,
                     member.name_span,
                     format!(
@@ -62,7 +73,7 @@ impl Checker {
             span: instance.span,
         };
         let dictionary_type = self.dictionary_type(&constraint);
-        let wanted_start = self.wanted.len();
+        let wanted_start = self.state.wanted.len();
         self.begin_givens(&context, &context_parameters);
 
         if let Some(underlying) = derived_newtype_underlying {
@@ -78,24 +89,13 @@ impl Checker {
         }
 
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
-        for superclass in &class.superclasses {
-            let mut arguments = Vec::with_capacity(superclass.arguments.len());
-            for name in &superclass.arguments {
-                let index = class
-                    .parameters
-                    .iter()
-                    .position(|parameter| parameter == name)?;
-                arguments.push(head_arguments[index].clone());
-            }
-            let super_constraint = ClassConstraint {
-                class_id: superclass.class_id,
-                arguments,
-                span: superclass.span,
-            };
+        for (field, super_constraint) in
+            self.superclass_constraints(instance.class_id, &head_arguments)
+        {
             let super_dictionary = self.dictionary_type(&super_constraint);
             let wanted = self.push_wanted(super_constraint, super_dictionary.clone());
             fields.push((
-                superclass.field.clone(),
+                field,
                 InferredExpr {
                     kind: InferredExprKind::Evidence(wanted),
                     ty: super_dictionary,
@@ -114,15 +114,15 @@ impl Checker {
                 .find(|member| member.name == method.name)
             {
                 Some(member) => {
-                    let outer_level = self.level;
-                    self.level = outer_level + 1;
                     let mut method_variables = variables.clone();
                     let expected = self.elaborate_type(&method.signature, &mut method_variables);
-                    let previous_annotation_variables =
-                        std::mem::replace(&mut self.annotation_variables, head_variables.clone());
-                    let value = self.infer_expr_with_expected(&member.value, Some(expected));
-                    self.annotation_variables = previous_annotation_variables;
-                    self.level = outer_level;
+                    let head_variables = head_variables.clone();
+                    let value = self.with_scope(|checker| {
+                        checker.scope.annotation_variables = head_variables;
+                        checker.in_nested_level(|checker| {
+                            checker.infer_expr_with_expected(&member.value, Some(expected))
+                        })
+                    });
                     let Some(value) = value else {
                         self.end_givens();
                         return None;
@@ -130,34 +130,26 @@ impl Checker {
                     Some(value)
                 }
                 None => match instance.derivation {
-                    Some(hir::DerivationStrategy::Newtype) => {
-                        let outer_level = self.level;
-                        self.level = outer_level + 1;
-                        let value = self.derive_newtype_method(
+                    Some(hir::DerivationStrategy::Newtype) => self.in_nested_level(|checker| {
+                        checker.derive_newtype_method(
                             instance.class_id,
                             &class,
                             method,
                             &head_arguments,
                             instance.span,
-                        );
-                        self.level = outer_level;
-                        value
-                    }
-                    Some(hir::DerivationStrategy::KnownClass) => {
-                        let outer_level = self.level;
-                        self.level = outer_level + 1;
-                        let value = self.derive_known_class_method(
+                        )
+                    }),
+                    Some(hir::DerivationStrategy::KnownClass) => self.in_nested_level(|checker| {
+                        checker.derive_known_class_method(
                             instance.class_id,
                             &class,
                             method,
                             &head_arguments,
                             instance.span,
-                        );
-                        self.level = outer_level;
-                        value
-                    }
+                        )
+                    }),
                     None => {
-                        self.errors.push(TypeCheckError::new(
+                        self.state.errors.push(TypeCheckError::new(
                             TypeCheckErrorKind::MissingInstanceMethod,
                             instance.span,
                             format!("instance is missing method `{}`", method.name),
@@ -181,7 +173,7 @@ impl Checker {
             }
             let Some(dictionary_method_type) = record_field_type(&dictionary_type, &method.name)
             else {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::InvalidHir,
                     instance.span,
                     format!("dictionary has no field for method `{}`", method.name),
@@ -192,7 +184,11 @@ impl Checker {
             self.unify(dictionary_method_type, value.ty.clone(), instance.span);
             fields.push((method.name.clone(), value));
         }
-        self.solve_wanted_constraints(Some(&dictionary_type), wanted_start);
+        self.solve_wanted_constraints(
+            Some(&dictionary_type),
+            wanted_start,
+            UnsolvedPolicy::RequireSolved,
+        );
         self.end_givens();
         let value = self.wrap_dictionary_lambdas(
             InferredExpr {
@@ -205,7 +201,7 @@ impl Checker {
         // An instance head may contain type variables (for example a
         // `ToInt (Array a)` head); generalize the dictionary constructor over
         // them so the declaration is polymorphic in the head variables.
-        let scheme = self.generalize(&value.ty, &[], TOP_LEVEL);
+        let scheme = self.generalize(&[], &value.ty, &[], TOP_LEVEL);
         Some(InferredDeclaration {
             symbol: instance.symbol,
             name: instance.name.clone(),
@@ -216,6 +212,11 @@ impl Checker {
         })
     }
 
+    /// Checks the member's type against the class method signature. The check is
+    /// a trial: a member whose body types at the instance head but not at the
+    /// declared signature fails the instance, and the trial leaves the solver
+    /// exactly as it found it. Its diagnostic stays, because it is what the
+    /// caller has to report.
     fn check_instance_method_type(
         &mut self,
         signature: &hir::Type,
@@ -223,17 +224,13 @@ impl Checker {
         actual: &InferType,
         span: TextRange,
     ) -> bool {
-        let substitutions = self.substitutions.clone();
-        let levels = self.levels.clone();
-        let rigid = self.rigid.clone();
-        let error_count = self.errors.len();
-        let mut method_variables = class_variables.clone();
-        let expected = self.elaborate_type(signature, &mut method_variables);
-        self.unify(expected, actual.clone(), span);
-        let valid = self.errors.len() == error_count;
-        self.substitutions = substitutions;
-        self.levels = levels;
-        self.rigid = rigid;
-        valid
+        let mut class_variables = class_variables.clone();
+        self.speculate_reporting(|checker| {
+            let errors_before = checker.state.errors.len();
+            let expected = checker.elaborate_type(signature, &mut class_variables);
+            checker.unify(expected, actual.clone(), span);
+            (checker.state.errors.len() == errors_before).then_some(())
+        })
+        .is_some()
     }
 }
