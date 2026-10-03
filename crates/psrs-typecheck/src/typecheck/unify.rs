@@ -100,6 +100,16 @@ impl Checker {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
             }
+            // A row is a row whatever head it sits under, so a `Record`
+            // application and a bare `Row k` argument are the same equality.
+            // The `Record`-to-`Record` arm above is this one specialised; without
+            // this arm two bare rows meet only the catch-all below, so the
+            // equality a row-polymorphic declaration's own use asks for is
+            // reported as a mismatch between two identical rows, and a rule that
+            // decides a row cannot bind it.
+            (left, right) if self.is_row(&left) || self.is_row(&right) => {
+                self.unify_rows(left, right, span);
+            }
             (expected, actual) => {
                 let expected = self.display_type(&expected);
                 let actual = self.display_type(&actual);
@@ -259,39 +269,6 @@ impl Checker {
             .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
             .collect::<Vec<_>>()
             .join(", ")
-    }
-
-    /// Renders a row type for a diagnostic. A value that reached this path
-    /// without being a row is rendered between angle brackets, so the rendering
-    /// shows the shape instead of silently claiming a closed row.
-    fn display_record(&self, row: &InferType) -> String {
-        // A rendering has no expression of its own to name, so an invalid shape
-        // is reported at an empty range; the containing diagnostic carries the
-        // span that matters.
-        match self.normalize_row(row.clone(), TextRange::new(0, 0)) {
-            Err(error) => {
-                let fields = self.display_row_fields(&error.fields);
-                let found = self.display_type(&error.found);
-                if fields.is_empty() {
-                    format!("<{found}>")
-                } else {
-                    format!("{{{fields} | <{found}>}}")
-                }
-            }
-            Ok(FlatRow { fields, tail }) => {
-                let rendered = self.display_row_fields(&fields);
-                match tail {
-                    RowTail::Closed => format!("{{{rendered}}}"),
-                    RowTail::Open(variable) => {
-                        if rendered.is_empty() {
-                            format!("{{ | _T{variable} }}")
-                        } else {
-                            format!("{{{rendered} | _T{variable}}}")
-                        }
-                    }
-                }
-            }
-        }
     }
 
     pub(super) fn resolve_type(&self, ty: InferType) -> InferType {
