@@ -27,5 +27,6 @@ The [frontend design](design/frontend/README.md) groups syntax, semantic
 elaboration, and the [PureScript type system](design/frontend/type-system/README.md).
 The [backend design](design/backend/README.md) groups functional lowering,
 optimization, and the Wasm/WASI target. Their shared pass pipeline is
-[D-01](design/D-01-frontend-and-ir-boundaries.md); [DEC-04](decision/DEC-04-official-test-suite-roadmap.md)
+[D-01](design/D-01-frontend-and-ir-boundaries.md); compiler built-ins and their
+single registry are [D-15](design/D-15-compiler-builtins.md); [DEC-04](decision/DEC-04-official-test-suite-roadmap.md)
 tracks compatibility with the official compiler.
