@@ -101,6 +101,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         names,
         [
             "Prelude",
+            "Data.Function",
             "Effect",
             "Effect.Console",
             "Test.Assert",
@@ -121,6 +122,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         let path = std::path::Path::new(&module.path);
         assert!(
             path.ends_with("lib/Prelude.purs")
+                || path.ends_with("lib/Data/Function.purs")
                 || path.ends_with("lib/Effect.purs")
                 || path.ends_with("lib/Effect/Console.purs")
                 || path.ends_with("lib/Test/Assert.purs")
