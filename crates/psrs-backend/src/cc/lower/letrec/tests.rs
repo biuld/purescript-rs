@@ -1,6 +1,6 @@
 use super::super::super::{AssignmentKind, Function, ValueId, ValueShape};
-use psrs_core::{Binder, Binding, Declaration, Expr, ExprKind, Module, Primitive, Type, TypeId};
-use psrs_hir::{LocalId, ModuleId, SymbolId};
+use psrs_core::{Binder, Binding, Declaration, Expr, ExprKind, Module, Type, TypeId};
+use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 use psrs_span::TextRange;
 
 #[test]
@@ -359,10 +359,9 @@ fn call_recursive(
     start: u32,
 ) -> Expr {
     let decremented = expression(
-        ExprKind::Primitive {
-            op: Primitive::IntSub,
-            left: Box::new(local(parameter, int, start + 1)),
-            right: Box::new(integer(1, int, start + 2)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32Sub,
+            arguments: vec![local(parameter, int, start + 1), integer(1, int, start + 2)],
         },
         int,
         start + 1,
@@ -381,10 +380,9 @@ fn call_recursive(
 
 fn eq_zero(local_id: LocalId, int: TypeId, boolean: TypeId, start: u32) -> Expr {
     expression(
-        ExprKind::Primitive {
-            op: Primitive::IntEq,
-            left: Box::new(local(local_id, int, start)),
-            right: Box::new(integer(0, int, start + 1)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32Eq,
+            arguments: vec![local(local_id, int, start), integer(0, int, start + 1)],
         },
         boolean,
         start,

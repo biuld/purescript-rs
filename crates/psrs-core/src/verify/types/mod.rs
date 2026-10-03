@@ -1,6 +1,6 @@
 use super::{Locals, SchemeType};
-use crate::{Module, Primitive, Type, TypeConstructor, TypeId, UnaryPrimitive, VerifyError};
-use psrs_hir::{LocalId, ModuleId};
+use crate::{Module, Type, TypeConstructor, TypeId, VerifyError};
+use psrs_hir::{Intrinsic, LocalId, ModuleId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -20,48 +20,51 @@ pub(super) fn verify_type(
     }
 }
 
-pub(super) fn primitive_types(op: Primitive, module: &Module) -> (TypeId, TypeId) {
+pub(super) fn primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
     use TypeConstructor::{Boolean, Char, Int, Number};
-    let (operand_type, result_type) = match op {
-        Primitive::IntAdd
-        | Primitive::IntSub
-        | Primitive::IntMul
-        | Primitive::IntQuot
-        | Primitive::IntRem
-        | Primitive::IntDiv
-        | Primitive::IntMod
-        | Primitive::IntAnd
-        | Primitive::IntOr
-        | Primitive::IntXor
-        | Primitive::IntShl
-        | Primitive::IntShr
-        | Primitive::IntZshr => (Int, Int),
-        Primitive::IntEq
-        | Primitive::IntNe
-        | Primitive::IntLt
-        | Primitive::IntLe
-        | Primitive::IntGt
-        | Primitive::IntGe => (Int, Boolean),
-        Primitive::CharEq
-        | Primitive::CharNe
-        | Primitive::CharLt
-        | Primitive::CharLe
-        | Primitive::CharGt
-        | Primitive::CharGe => (Char, Boolean),
-        Primitive::NumberAdd
-        | Primitive::NumberSub
-        | Primitive::NumberMul
-        | Primitive::NumberDiv => (Number, Number),
-        Primitive::NumberEq
-        | Primitive::NumberNe
-        | Primitive::NumberLt
-        | Primitive::NumberLe
-        | Primitive::NumberGt
-        | Primitive::NumberGe => (Number, Boolean),
-        Primitive::BooleanAnd
-        | Primitive::BooleanOr
-        | Primitive::BooleanEq
-        | Primitive::BooleanNe => (Boolean, Boolean),
+    let (operand_type, result_type) = match intrinsic {
+        Intrinsic::I32Add
+        | Intrinsic::I32Sub
+        | Intrinsic::I32Mul
+        | Intrinsic::I32DivS
+        | Intrinsic::I32RemS
+        | Intrinsic::IntDiv
+        | Intrinsic::IntMod
+        | Intrinsic::IntAnd
+        | Intrinsic::IntOr
+        | Intrinsic::IntXor
+        | Intrinsic::IntShl
+        | Intrinsic::IntShr
+        | Intrinsic::IntZshr => (Int, Int),
+        Intrinsic::I32Eq
+        | Intrinsic::I32Ne
+        | Intrinsic::I32LtS
+        | Intrinsic::I32LeS
+        | Intrinsic::I32GtS
+        | Intrinsic::I32GeS => (Int, Boolean),
+        Intrinsic::CharEq
+        | Intrinsic::CharNe
+        | Intrinsic::CharLt
+        | Intrinsic::CharLe
+        | Intrinsic::CharGt
+        | Intrinsic::CharGe => (Char, Boolean),
+        Intrinsic::NumberAdd
+        | Intrinsic::NumberSub
+        | Intrinsic::NumberMul
+        | Intrinsic::NumberDiv => (Number, Number),
+        Intrinsic::NumberEq
+        | Intrinsic::NumberNe
+        | Intrinsic::NumberLt
+        | Intrinsic::NumberLe
+        | Intrinsic::NumberGt
+        | Intrinsic::NumberGe => (Number, Boolean),
+        Intrinsic::BooleanAnd
+        | Intrinsic::BooleanOr
+        | Intrinsic::BooleanEq
+        | Intrinsic::BooleanNe => (Boolean, Boolean),
+        _ => unreachable!(
+            "primitive_types is only called for a binary scalar intrinsic, got {intrinsic:?}"
+        ),
     };
     (
         primitive_type_id(module, operand_type),
@@ -69,18 +72,21 @@ pub(super) fn primitive_types(op: Primitive, module: &Module) -> (TypeId, TypeId
     )
 }
 
-pub(super) fn unary_primitive_types(op: UnaryPrimitive, module: &Module) -> (TypeId, TypeId) {
+pub(super) fn unary_primitive_types(intrinsic: Intrinsic, module: &Module) -> (TypeId, TypeId) {
     use TypeConstructor::{Boolean, Char, Int, Number};
-    let (operand, result) = match op {
-        UnaryPrimitive::IntNeg | UnaryPrimitive::IntComplement => (Int, Int),
-        UnaryPrimitive::NumberNeg => (Number, Number),
-        UnaryPrimitive::BooleanNot => (Boolean, Boolean),
-        UnaryPrimitive::IntToNumber => (Int, Number),
-        UnaryPrimitive::NumberToInt => (Number, Int),
-        UnaryPrimitive::BooleanToInt => (Boolean, Int),
-        UnaryPrimitive::IntToBoolean => (Int, Boolean),
-        UnaryPrimitive::CharToInt => (Char, Int),
-        UnaryPrimitive::IntToChar => (Int, Char),
+    let (operand, result) = match intrinsic {
+        Intrinsic::IntNeg | Intrinsic::IntComplement => (Int, Int),
+        Intrinsic::NumberNeg => (Number, Number),
+        Intrinsic::BooleanNot => (Boolean, Boolean),
+        Intrinsic::IntToNumber => (Int, Number),
+        Intrinsic::NumberToInt => (Number, Int),
+        Intrinsic::BooleanToInt => (Boolean, Int),
+        Intrinsic::IntToBoolean => (Int, Boolean),
+        Intrinsic::CharToInt => (Char, Int),
+        Intrinsic::IntToChar => (Int, Char),
+        _ => unreachable!(
+            "unary_primitive_types is only called for a unary scalar intrinsic, got {intrinsic:?}"
+        ),
     };
     (
         primitive_type_id(module, operand),

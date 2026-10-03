@@ -53,35 +53,6 @@ fn eliminate_expr(mut expression: Expr) -> Expr {
             intrinsic,
             arguments: arguments.into_iter().map(eliminate_expr).collect(),
         },
-        ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(eliminate_expr(*array))),
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(eliminate_expr(*left)),
-            right: Box::new(eliminate_expr(*right)),
-        },
-        ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(eliminate_expr(*value))),
-        ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(eliminate_expr(*value))),
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op,
-            value: Box::new(eliminate_expr(*value)),
-        },
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(eliminate_expr(*array)),
-            index: Box::new(eliminate_expr(*index)),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(eliminate_expr(*array)),
-            index: Box::new(eliminate_expr(*index)),
-            value: Box::new(eliminate_expr(*value)),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op,
-            left: Box::new(eliminate_expr(*left)),
-            right: Box::new(eliminate_expr(*right)),
-        },
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(eliminate_expr(*function)),
             Box::new(eliminate_expr(*argument)),
@@ -213,27 +184,8 @@ fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
             }
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => collect_refs(record, references),
-        ExprKind::UnaryPrimitive { value, .. } => collect_refs(value, references),
-        ExprKind::ArrayIndex { array, index } => {
-            collect_refs(array, references);
-            collect_refs(index, references);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            collect_refs(array, references);
-            collect_refs(index, references);
-            collect_refs(value, references);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        | ExprKind::RepresentationCast { value: record, .. } => collect_refs(record, references),
+        ExprKind::Application(left, right) => {
             collect_refs(left, references);
             collect_refs(right, references);
         }

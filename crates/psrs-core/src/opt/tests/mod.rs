@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
-    Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind, Primitive, Type,
-    TypeConstructor, TypeId,
+    Binder, CaseBranch, Declaration, Expr, ExprKind, Pattern, PatternKind, Type, TypeConstructor,
+    TypeId,
 };
-use psrs_hir::{ExternalKind, ExternalSymbol, LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
+use psrs_hir::{
+    ExternalKind, ExternalSymbol, Intrinsic, LocalId, ModuleId, SymbolId, TypeId as HirTypeId,
+};
 use psrs_span::TextRange;
 
 fn span(start: u32, end: u32) -> TextRange {
@@ -113,10 +115,12 @@ fn trace_call(function_type: u32, int_type: u32, argument: i32, start: u32) -> E
 #[test]
 fn folds_wrapping_integer_arithmetic_and_keeps_the_operation_span() {
     let value = expression(
-        ExprKind::Primitive {
-            op: Primitive::IntAdd,
-            left: Box::new(expression(ExprKind::Integer(i32::MAX), 0, 5, 6)),
-            right: Box::new(expression(ExprKind::Integer(1), 0, 9, 10)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32Add,
+            arguments: vec![
+                expression(ExprKind::Integer(i32::MAX), 0, 5, 6),
+                expression(ExprKind::Integer(1), 0, 9, 10),
+            ],
         },
         0,
         5,
@@ -141,10 +145,12 @@ fn folds_wrapping_integer_arithmetic_and_keeps_the_operation_span() {
 #[test]
 fn leaves_constant_division_that_would_trap() {
     let value = expression(
-        ExprKind::Primitive {
-            op: Primitive::IntQuot,
-            left: Box::new(expression(ExprKind::Integer(1), 0, 5, 6)),
-            right: Box::new(expression(ExprKind::Integer(0), 0, 9, 10)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32DivS,
+            arguments: vec![
+                expression(ExprKind::Integer(1), 0, 5, 6),
+                expression(ExprKind::Integer(0), 0, 9, 10),
+            ],
         },
         0,
         5,
@@ -161,8 +167,8 @@ fn leaves_constant_division_that_would_trap() {
     .unwrap();
     assert!(matches!(
         result.declarations[0].value.kind,
-        ExprKind::Primitive {
-            op: Primitive::IntQuot,
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32DivS,
             ..
         }
     ));
@@ -180,10 +186,12 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
         },
         quantified: Vec::new(),
         value: expression(
-            ExprKind::Primitive {
-                op: Primitive::IntDiv,
-                left: Box::new(expression(ExprKind::Integer(1), 0, 13, 14)),
-                right: Box::new(expression(ExprKind::Integer(0), 0, 17, 18)),
+            ExprKind::IntrinsicCall {
+                intrinsic: Intrinsic::IntDiv,
+                arguments: vec![
+                    expression(ExprKind::Integer(1), 0, 13, 14),
+                    expression(ExprKind::Integer(0), 0, 17, 18),
+                ],
             },
             0,
             13,
@@ -214,8 +222,8 @@ fn retains_an_unused_euclidean_division_that_may_trap() {
     };
     assert!(matches!(
         bindings[0].value.kind,
-        ExprKind::Primitive {
-            op: Primitive::IntDiv,
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::IntDiv,
             ..
         }
     ));
@@ -227,10 +235,12 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
     let mut types = vec![Type::Constructor(crate::TypeConstructor::Int)];
     let function_type = arrow_type(&mut types, int_type, int_type);
     let value = expression(
-        ExprKind::Primitive {
-            op: Primitive::IntMul,
-            left: Box::new(trace_call(function_type.0, int_type.0, 4, 5)),
-            right: Box::new(expression(ExprKind::Integer(0), int_type.0, 14, 15)),
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32Mul,
+            arguments: vec![
+                trace_call(function_type.0, int_type.0, 4, 5),
+                expression(ExprKind::Integer(0), int_type.0, 14, 15),
+            ],
         },
         int_type.0,
         5,
@@ -243,8 +253,8 @@ fn algebraic_zero_does_not_remove_an_effectful_operand() {
     .unwrap();
     assert!(matches!(
         result.declarations[0].value.kind,
-        ExprKind::Primitive {
-            op: Primitive::IntMul,
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::I32Mul,
             ..
         }
     ));

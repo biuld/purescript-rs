@@ -1,4 +1,4 @@
-use crate::{Expr, ExprKind, Primitive};
+use crate::{Expr, ExprKind};
 use psrs_hir::Intrinsic;
 
 /// Conservative evaluation effects relevant to call-by-value rewrites.
@@ -70,38 +70,7 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
             fields.iter().map(|(_, value)| summarize(value)),
         )),
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record) => summarize(record),
-        // The byte form validates its input, so a malformed value traps.
-        ExprKind::StringToBytes(record) | ExprKind::BytesToString(record) => Effects {
-            may_trap: true,
-            ..summarize(record)
-        },
-        ExprKind::UnaryPrimitive { value, .. } => summarize(value),
-        ExprKind::ArrayAppend { left, right } => summarize(left).combine(summarize(right)),
-        ExprKind::ArrayIndex { array, index } => Effects {
-            may_trap: true,
-            ..summarize(array).combine(summarize(index))
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => Effects {
-            may_trap: true,
-            ..summarize(array)
-                .combine(summarize(index))
-                .combine(summarize(value))
-        },
-        ExprKind::Primitive { op, left, right } => Effects {
-            // The Euclidean operators lower through helpers that still trap
-            // on a zero divisor; the truncating operators trap directly.
-            may_trap: matches!(
-                op,
-                Primitive::IntQuot | Primitive::IntRem | Primitive::IntDiv | Primitive::IntMod
-            ),
-            ..summarize(left).combine(summarize(right))
-        },
+        | ExprKind::RepresentationCast { value: record, .. } => summarize(record),
         ExprKind::Application(_, _) => Effects {
             may_call: true,
             may_trap: true,

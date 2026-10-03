@@ -71,13 +71,7 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
                     .iter()
                     .any(|(_, value)| expr_introduces_type_binders(value, types))
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record)
-        | ExprKind::UnaryPrimitive { value: record, .. } => {
-            expr_introduces_type_binders(record, types)
-        }
+        ExprKind::FieldAccess { record, .. } => expr_introduces_type_binders(record, types),
         ExprKind::RepresentationCast {
             value,
             source_type,
@@ -87,21 +81,7 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
                 || type_has_forall(*target_type, types, &mut HashSet::new())
                 || expr_introduces_type_binders(value, types)
         }
-        ExprKind::ArrayIndex { array, index } => {
-            expr_introduces_type_binders(array, types) || expr_introduces_type_binders(index, types)
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            expr_introduces_type_binders(array, types)
-                || expr_introduces_type_binders(index, types)
-                || expr_introduces_type_binders(value, types)
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        ExprKind::Application(left, right) => {
             expr_introduces_type_binders(left, types) || expr_introduces_type_binders(right, types)
         }
         ExprKind::If {
@@ -186,20 +166,8 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
             contains_case(record) || fields.iter().any(|(_, value)| contains_case(value))
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => contains_case(record),
-        ExprKind::UnaryPrimitive { value, .. } => contains_case(value),
-        ExprKind::ArrayIndex { array, index } => contains_case(array) || contains_case(index),
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => contains_case(array) || contains_case(index) || contains_case(value),
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => contains_case(left) || contains_case(right),
+        | ExprKind::RepresentationCast { value: record, .. } => contains_case(record),
+        ExprKind::Application(left, right) => contains_case(left) || contains_case(right),
         ExprKind::Lambda { body, .. } => contains_case(body),
         ExprKind::Let { bindings, body } => {
             bindings.iter().any(|binding| contains_case(&binding.value)) || contains_case(body)
@@ -245,27 +213,8 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
             }
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => collect_globals(record, out),
-        ExprKind::UnaryPrimitive { value, .. } => collect_globals(value, out),
-        ExprKind::ArrayIndex { array, index } => {
-            collect_globals(array, out);
-            collect_globals(index, out);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            collect_globals(array, out);
-            collect_globals(index, out);
-            collect_globals(value, out);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        | ExprKind::RepresentationCast { value: record, .. } => collect_globals(record, out),
+        ExprKind::Application(left, right) => {
             collect_globals(left, out);
             collect_globals(right, out);
         }

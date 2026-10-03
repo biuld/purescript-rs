@@ -49,45 +49,17 @@ fn record_expr(
                 record_expr(module, value, visiting, referenced);
             }
         }
-        ExprKind::FieldAccess { record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => {
+        ExprKind::FieldAccess { record, .. } => {
             record_expr(module, record, visiting, referenced);
-        }
-        ExprKind::ArrayIndex { array, index } => {
-            record_expr(module, array, visiting, referenced);
-            record_expr(module, index, visiting, referenced);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            record_expr(module, array, visiting, referenced);
-            record_expr(module, index, visiting, referenced);
-            record_expr(module, value, visiting, referenced);
         }
         ExprKind::Constructor { arguments, .. } | ExprKind::IntrinsicCall { arguments, .. } => {
             for argument in arguments {
                 record_expr(module, argument, visiting, referenced);
             }
         }
-        ExprKind::Application(function, argument)
-        | ExprKind::Primitive {
-            left: function,
-            right: argument,
-            ..
-        }
-        | ExprKind::ArrayAppend {
-            left: function,
-            right: argument,
-        } => {
+        ExprKind::Application(function, argument) => {
             record_expr(module, function, visiting, referenced);
             record_expr(module, argument, visiting, referenced);
-        }
-        ExprKind::UnaryPrimitive { value, .. } => {
-            record_expr(module, value, visiting, referenced);
         }
         ExprKind::RepresentationCast { value, .. } => {
             record_expr(module, value, visiting, referenced);

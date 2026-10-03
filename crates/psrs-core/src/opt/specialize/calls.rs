@@ -61,53 +61,6 @@ pub(super) fn rewrite(
             source_type,
             target_type,
         },
-        ExprKind::StringToBytes(value) => ExprKind::StringToBytes(Box::new(rewrite(
-            *value,
-            module,
-            declarations,
-            state,
-            pending,
-        ))),
-        ExprKind::BytesToString(value) => ExprKind::BytesToString(Box::new(rewrite(
-            *value,
-            module,
-            declarations,
-            state,
-            pending,
-        ))),
-        ExprKind::ArrayLength(array) => ExprKind::ArrayLength(Box::new(rewrite(
-            *array,
-            module,
-            declarations,
-            state,
-            pending,
-        ))),
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(rewrite(*left, module, declarations, state, pending)),
-            right: Box::new(rewrite(*right, module, declarations, state, pending)),
-        },
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(rewrite(*array, module, declarations, state, pending)),
-            index: Box::new(rewrite(*index, module, declarations, state, pending)),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(rewrite(*array, module, declarations, state, pending)),
-            index: Box::new(rewrite(*index, module, declarations, state, pending)),
-            value: Box::new(rewrite(*value, module, declarations, state, pending)),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op,
-            left: Box::new(rewrite(*left, module, declarations, state, pending)),
-            right: Box::new(rewrite(*right, module, declarations, state, pending)),
-        },
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op,
-            value: Box::new(rewrite(*value, module, declarations, state, pending)),
-        },
         ExprKind::Application(function, argument) => {
             let mut application = Expr {
                 kind: ExprKind::Application(

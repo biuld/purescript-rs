@@ -1,6 +1,6 @@
 use super::*;
-use crate::{Binder, Binding, Declaration, Expr, ExprKind, Module, Primitive, Type};
-use psrs_hir::{LocalId, ModuleId, SymbolId};
+use crate::{Binder, Binding, Declaration, Expr, ExprKind, Module, Type};
+use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 use std::collections::HashMap;
 
 #[test]
@@ -39,10 +39,9 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
                 span: span(1, 9),
             }],
             body: Box::new(expression(
-                ExprKind::Primitive {
-                    op: Primitive::IntAdd,
-                    left: Box::new(call),
-                    right: Box::new(expression(ExprKind::Local(LocalId(0)), 0, 40, 45)),
+                ExprKind::IntrinsicCall {
+                    intrinsic: Intrinsic::I32Add,
+                    arguments: vec![call, expression(ExprKind::Local(LocalId(0)), 0, 40, 45)],
                 },
                 int_type.0,
                 20,
@@ -80,10 +79,12 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
                             },
                             quantified: Vec::new(),
                             value: expression(
-                                ExprKind::Primitive {
-                                    op: Primitive::IntDiv,
-                                    left: Box::new(expression(ExprKind::Integer(1), 0, 70, 71)),
-                                    right: Box::new(expression(ExprKind::Integer(0), 0, 72, 73)),
+                                ExprKind::IntrinsicCall {
+                                    intrinsic: Intrinsic::IntDiv,
+                                    arguments: vec![
+                                        expression(ExprKind::Integer(1), 0, 70, 71),
+                                        expression(ExprKind::Integer(0), 0, 72, 73),
+                                    ],
                                 },
                                 int_type.0,
                                 70,
@@ -115,9 +116,9 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
     let ExprKind::Let { bindings, body } = &optimized.declarations[0].value.kind else {
         panic!("the caller binding should remain in scope")
     };
-    let ExprKind::Primitive {
-        op: Primitive::IntAdd,
-        left,
+    let ExprKind::IntrinsicCall {
+        intrinsic: Intrinsic::I32Add,
+        arguments,
         ..
     } = &body.kind
     else {
@@ -126,7 +127,7 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
     let ExprKind::Let {
         bindings: arguments,
         body: callee_body,
-    } = &left.kind
+    } = &arguments[0].kind
     else {
         panic!("the call argument must be bound before the callee body")
     };
@@ -144,8 +145,8 @@ fn named_global_inlining_binds_arguments_once_before_effects_and_preserves_spans
     };
     assert!(matches!(
         callee_bindings[0].value.kind,
-        ExprKind::Primitive {
-            op: Primitive::IntDiv,
+        ExprKind::IntrinsicCall {
+            intrinsic: Intrinsic::IntDiv,
             ..
         }
     ));
@@ -245,19 +246,22 @@ fn evaluate(
             }
             evaluate(body, module, &environment, trace)
         }
-        ExprKind::Primitive { op, left, right } => {
-            let Value::Integer(left) = evaluate(left, module, environment, trace)? else {
+        ExprKind::IntrinsicCall {
+            intrinsic,
+            arguments,
+        } => {
+            let Value::Integer(left) = evaluate(&arguments[0], module, environment, trace)? else {
                 return Err(());
             };
-            let Value::Integer(right) = evaluate(right, module, environment, trace)? else {
+            let Value::Integer(right) = evaluate(&arguments[1], module, environment, trace)? else {
                 return Err(());
             };
-            match op {
-                Primitive::IntAdd => Ok(Value::Integer(left.wrapping_add(right))),
-                Primitive::IntDiv if right != 0 => {
+            match intrinsic {
+                Intrinsic::I32Add => Ok(Value::Integer(left.wrapping_add(right))),
+                Intrinsic::IntDiv if right != 0 => {
                     left.checked_div_euclid(right).map(Value::Integer).ok_or(())
                 }
-                Primitive::IntDiv => Err(()),
+                Intrinsic::IntDiv => Err(()),
                 _ => Err(()),
             }
         }

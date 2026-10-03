@@ -49,19 +49,8 @@ pub(super) fn count_nodes(expression: &Expr) -> usize {
                     .sum::<usize>()
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record) => count_nodes(record),
-        ExprKind::StringToBytes(record) | ExprKind::BytesToString(record) => count_nodes(record),
-        ExprKind::UnaryPrimitive { value, .. } => count_nodes(value),
-        ExprKind::ArrayIndex { array, index } => count_nodes(array) + count_nodes(index),
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => count_nodes(array) + count_nodes(index) + count_nodes(value),
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => count_nodes(left) + count_nodes(right),
+        | ExprKind::RepresentationCast { value: record, .. } => count_nodes(record),
+        ExprKind::Application(left, right) => count_nodes(left) + count_nodes(right),
         ExprKind::Lambda { body, .. } => count_nodes(body),
         ExprKind::Let { bindings, body } => {
             bindings
@@ -184,41 +173,6 @@ fn substitute_inner(
             value: Box::new(substitute_inner(value, substitutions, shadowed)),
             source_type: *source_type,
             target_type: *target_type,
-        },
-        ExprKind::ArrayLength(array) => {
-            ExprKind::ArrayLength(Box::new(substitute_inner(array, substitutions, shadowed)))
-        }
-        ExprKind::ArrayAppend { left, right } => ExprKind::ArrayAppend {
-            left: Box::new(substitute_inner(left, substitutions, shadowed)),
-            right: Box::new(substitute_inner(right, substitutions, shadowed)),
-        },
-        ExprKind::StringToBytes(value) => {
-            ExprKind::StringToBytes(Box::new(substitute_inner(value, substitutions, shadowed)))
-        }
-        ExprKind::BytesToString(value) => {
-            ExprKind::BytesToString(Box::new(substitute_inner(value, substitutions, shadowed)))
-        }
-        ExprKind::UnaryPrimitive { op, value } => ExprKind::UnaryPrimitive {
-            op: *op,
-            value: Box::new(substitute_inner(value, substitutions, shadowed)),
-        },
-        ExprKind::ArrayIndex { array, index } => ExprKind::ArrayIndex {
-            array: Box::new(substitute_inner(array, substitutions, shadowed)),
-            index: Box::new(substitute_inner(index, substitutions, shadowed)),
-        },
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => ExprKind::ArrayUpdate {
-            array: Box::new(substitute_inner(array, substitutions, shadowed)),
-            index: Box::new(substitute_inner(index, substitutions, shadowed)),
-            value: Box::new(substitute_inner(value, substitutions, shadowed)),
-        },
-        ExprKind::Primitive { op, left, right } => ExprKind::Primitive {
-            op: *op,
-            left: Box::new(substitute_inner(left, substitutions, shadowed)),
-            right: Box::new(substitute_inner(right, substitutions, shadowed)),
         },
         ExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(substitute_inner(function, substitutions, shadowed)),
@@ -383,27 +337,8 @@ fn collect_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
             }
         }
         ExprKind::FieldAccess { record, .. }
-        | ExprKind::RepresentationCast { value: record, .. }
-        | ExprKind::ArrayLength(record)
-        | ExprKind::StringToBytes(record)
-        | ExprKind::BytesToString(record) => collect_ids(record, ids),
-        ExprKind::UnaryPrimitive { value, .. } => collect_ids(value, ids),
-        ExprKind::ArrayIndex { array, index } => {
-            collect_ids(array, ids);
-            collect_ids(index, ids);
-        }
-        ExprKind::ArrayUpdate {
-            array,
-            index,
-            value,
-        } => {
-            collect_ids(array, ids);
-            collect_ids(index, ids);
-            collect_ids(value, ids);
-        }
-        ExprKind::Primitive { left, right, .. }
-        | ExprKind::Application(left, right)
-        | ExprKind::ArrayAppend { left, right } => {
+        | ExprKind::RepresentationCast { value: record, .. } => collect_ids(record, ids),
+        ExprKind::Application(left, right) => {
             collect_ids(left, ids);
             collect_ids(right, ids);
         }
