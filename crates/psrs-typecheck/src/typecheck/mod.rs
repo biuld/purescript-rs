@@ -7,8 +7,9 @@
 //! `state` declares them and the operations that enter, leave, or roll each
 //! one back; `unify` owns equality and the binding rule; `infer` owns synthesis
 //! and expected-type propagation; `rank_n` owns subsumption and quantified
-//! instantiation; `classes` owns the adjacent constraint solver; and `kind`
-//! reads the kind of an inference type through the one kind solver.
+//! instantiation; `classes` owns the adjacent constraint solver; `prim` owns the
+//! `Prim` rule table that constraint solving dispatches to; and `kind` reads
+//! the kind of an inference type through the one kind solver.
 
 use psrs_hir::{
     self as hir, ExternalKind, Intrinsic, LocalBinder, LocalId, SymbolId, TypeVariableId,
@@ -96,6 +97,7 @@ mod generalize;
 mod infer;
 mod kind;
 mod order;
+mod prim;
 mod rank_n;
 mod result;
 mod rows;
