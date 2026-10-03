@@ -49,7 +49,9 @@ impl Checker {
 
     /// The dictionary record type for a class constraint: one field per
     /// superclass (holding that superclass's dictionary) followed by one field
-    /// per method, with the class parameters substituted.
+    /// per method, with the class parameters substituted. A superclass field's
+    /// dictionary type comes from instantiating that edge's template over the
+    /// constraint's arguments, the same operation superclass search uses.
     pub(in crate::typecheck) fn dictionary_type(
         &mut self,
         constraint: &ClassConstraint,
@@ -62,20 +64,11 @@ impl Checker {
             variables.insert(parameter.clone(), argument.clone());
         }
         let mut fields = Vec::with_capacity(class.superclasses.len() + class.methods.len());
-        for superclass in &class.superclasses {
-            let mut arguments = Vec::with_capacity(superclass.arguments.len());
-            for name in &superclass.arguments {
-                if let Some(argument) = variables.get(name) {
-                    arguments.push(argument.clone());
-                }
-            }
-            let super_constraint = ClassConstraint {
-                class_id: superclass.class_id,
-                arguments,
-                span: superclass.span,
-            };
+        for (field, super_constraint) in
+            self.superclass_constraints(constraint.class_id, &constraint.arguments)
+        {
             let field_ty = self.dictionary_type(&super_constraint);
-            fields.push((superclass.field.clone(), field_ty));
+            fields.push((field, field_ty));
         }
         for method in &class.methods {
             let mut method_variables = variables.clone();
