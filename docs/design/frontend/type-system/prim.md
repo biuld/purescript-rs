@@ -286,11 +286,12 @@ the nominal default at every use. The effect on `Coercible` is not yet visible
 from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
 type-level `Symbol` literals, which the shared type spine does not carry yet.
 
-Only `Coercible` has a rule, and it now reaches one shared dispatch site rather than a
-special case inside it. `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table:
+`Coercible` and the three `Prim.Int` relations have rules, and each reaches one shared
+dispatch site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table:
 `mod.rs` for the dispatch and the outcome types, `requeue.rs` for the deferral bound,
-and `coercible/mod.rs` for the one rule that exists, with the given-composition helpers
-it shares in `coercible/givens.rs`. The private kind table and private unifier the
+`coercible/mod.rs` for the one proof rule, with the given-composition helpers
+it shares in `coercible/givens.rs`, and `int.rs` for `Prim.Int.Add`, `Prim.Int.Mul`,
+and `Prim.Int.ToString`. The private kind table and private unifier the
 previous revision named are gone; the rule reads roles through the checked kind
 environment and kinds through the one kind solver, and it keeps only the
 recursion-bounded role walk, which is the mechanism every role-aware relation will
@@ -384,20 +385,59 @@ from the wanted list or from an instance context. Improvement still assigns only
 variables and still draws only on givens and on instance heads that are fully mapped, so
 it never assigns a rigid variable and never falls back to a later candidate.
 
-The other twelve relations have no rule and no dispatch entry: `Prim.Row.Cons`,
+The other nine relations have no rule and no dispatch entry: `Prim.Row.Cons`,
 `Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Cons`,
-`Compare`, `Prim.Int.Add`, `Mul`, `Compare`, and `ToString`. A wanted
-`Prim.Row.Lacks`, `Prim.Row.Union`, `Prim.Row.Nub`, `Prim.Row.Cons`,
+`Compare`, and `Prim.Int.Compare`. A wanted `Prim.Row.Lacks`,
+`Prim.Row.Union`, `Prim.Row.Nub`, `Prim.Row.Cons`,
 `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Prim.Symbol.Cons`,
-`Prim.Symbol.Compare`, `Prim.Int.Add`, `Prim.Int.Mul`, `Prim.Int.Compare`, or
-`Prim.Int.ToString` therefore reaches ordinary instance search and is reported as
-a missing instance, which is the correct outcome for an unimplemented relation but
-not for a supported one. `Warn` and `Fail` and `Partial` have no diagnostic
+`Prim.Symbol.Compare`, or `Prim.Int.Compare` therefore reaches ordinary instance
+search and is reported as a missing instance, which is the correct outcome for an
+unimplemented relation but not for a supported one. `Warn` and `Fail` and
+`Partial` have no diagnostic
 interface: `Fail` and `Partial` reach the same missing-instance path as any other
 unsolved class, and `Warn` does not defer to an enclosing warning. `ReportOnly` is
 recorded as a classification a rule declares, but the diagnostic interface for the three
 report members is still unbuilt, so `PrimitiveEvidence::Report` discharges nothing today
 and those members remain unimplemented.
+
+### The `Prim.Int` relations decide through the shared substitution
+
+`prim/int.rs` holds the three integer relations, and each one reads its arguments
+as `InferType` literals off the shared spine and binds what it decides through
+`Checker::unify`. Nothing here parses source syntax, keeps a kind table, or
+assigns an `InferType` to a wanted argument directly, so "the arguments its
+evidence records are the arguments the constraint now has" holds for them as it
+does for `Coercible`.
+
+`Add` is the only bidirectional one, and it is bidirectional in official
+`addInts`'s order: two known addends give the sum, a known left addend and a
+known sum give the right addend, and a known right addend and a known sum give
+the left addend. Two or fewer known arguments decide nothing and the rule
+declines. `Mul` decides forwards from the two factors and `ToString` forwards
+from one integer; neither reads its result backwards, because a product is not
+evidence of its factors and `Add`'s three fundeps have no `Mul` or `ToString`
+counterpart.
+
+Because the decision goes through the shared binder, a goal whose decided
+argument disagrees with the one the caller wrote is rejected by ordinary type
+equality under `TypesDoNotUnify`. That is official behaviour rather than a
+choice: `TypeChecker.Entailment` unifies a rule's decided arguments against the
+goal's arguments for every dictionary, and the two corpus cases
+`failing/IntToString1.purs` and `failing/IntToString3.purs` are exactly that
+rejection — the goal `Prim.Int.ToString 1 "a"` is decided as `[1, "1"]` and the
+decided string then fails to unify with the wanted one. It is also why none of
+these rules returns `Failed`: official has no failure answer for them, and a
+`NoInstanceFound` the suite does not expect would be a worse guess than
+declining. A rigid variable in the decided position is rejected by the same
+binder, as a signature mismatch, which is what official `unifyTypes` does to a
+skolem.
+
+One decision the shared model cannot make is the one that overflows. Official
+solves over `Integer` and has no bound, but a type-level `Int` here is an `i64`,
+so a sum, difference, or product that leaves the representable range declines
+rather than wrapping into a different and wrong answer. Declining is the honest
+answer rather than `Failed`: the relation is not impossible, it is one this
+model cannot state, and the obligation continues into the ordinary paths.
 
 The shared types those rules need are now reachable: `InferType` and THIR
 carry `TypeLevelString` and `TypeLevelInt`, a type-level literal is decided by
