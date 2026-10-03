@@ -44,8 +44,11 @@ impl Checker {
         match self.solve_primitive(constraint, depth) {
             PrimitiveDispatch::None => {}
             PrimitiveDispatch::Solved(solution) => return Some(solution),
-            // The rule reported the obligation itself, under an official code. A
-            // second diagnostic here would be the same rejection twice.
+            // The obligation cannot hold: the rule said so under an official
+            // code, or the framework unified the rule's decided arguments against
+            // the goal's and they disagree, which is the step official solving
+            // takes on every dictionary it produces. A second diagnostic here
+            // would be the same rejection twice.
             PrimitiveDispatch::Reported => return None,
             // A deferral discharges the obligation only when the rule decided part
             // of it and the re-queued obligations carry the rest. With no evidence

@@ -111,7 +111,11 @@ The order follows from the evidence class rather than being arbitrary. A `Proof`
 
 **Four outcomes, and unknowns are none of the decisive ones.** A rule distinguishes four results. `Solved` carries explicit evidence and may carry additional obligations. `Deferred` carries obligations without the full answer, which is how a rule makes progress without guessing. `Undecided` means the rule does not apply. `Failed` means the rule applies and the obligation cannot hold. An unsolved inference variable in any argument is never enough for `Solved` or `Failed`: a rule either makes progress on the known part and defers the rest, or declines. This is what keeps a `Prim` obligation from being reported as impossible while its argument is still unknown, and it is what lets `Lacks "a" ("a" :: Int | r)` be a definite failure while `Lacks "a" ("b" | r)` is a deferral and `Lacks "a" r` is undecided. `Failed` is reported under the official code for that obligation, with the relation's own reason as detail, so a diagnostic agrees with the suite instead of inventing a code.
 
-**Deferral is re-queued, not forgotten.** A deferred obligation re-enters wanted solving with its origin retained, after the improvement pass has run again on the improved arguments. Rules are bounded: a deferral that makes no progress toward a solved argument is reported rather than retried, and search depth and work remain bounded as for instance contexts. A rule's speculative work — reading a row, unifying a literal, solving a nested obligation — runs under the shared speculation operation, so a declined or failed candidate leaves no substitution, level, kind, or diagnostic behind.
+**The framework checks a decision; a rule only states one.** `Failed` is the answer for an obligation the *arguments* rule out — no reading of them can produce one, as `Cons "ab" "c" s` has. It is not the answer for a decision that turns out to be wrong, and no rule returns it for that. Official solving has no failure answer at all: a rule returns `Maybe [TypeClassDict]` and never inspects the goal, and the solver then unifies each produced dictionary's own arguments against the goal's, in order, for every dictionary it produces (`Entailment.hs:301`). A failed unification aborts that goal and reports the mismatch. So a rule's dictionary here carries the type it decided at the position it decides and the goal's own argument everywhere else — official's `tcdInstanceTypes` — and the framework runs that one unification through the shared unifier. It is what binds an argument the rule decided, and it is what rejects an argument the goal had already fixed; there is no per-rule copy of the check to omit, get wrong, or answer on a rule's own authority.
+
+That placement is load-bearing rather than tidier. A decision over two arguments that are *already known* binds nothing, so any test for "did the rule decide anything?" reads it as silence, and a contradiction is discarded with the speculative state that produced it — the obligation then falls through to instance search and the user is told no instance exists where official says the types do not match. Only the unifier can tell "decided nothing" apart from "proved impossible", so the unification decides it, before anything asks whether progress was made. The refusals below keep their purpose unchanged: a rule that guesses from a partly-unknown argument binds nothing and states nothing the unifier contradicts, so it is still downgraded to the deferral it should have been, and a rule still cannot declare an obligation impossible while an argument is unknown.
+
+**Deferral is re-queued, not forgotten.** A deferred obligation re-enters wanted solving with its origin retained, after the improvement pass has run again on the improved arguments. Rules are bounded: a deferral that makes no progress toward a solved argument is reported rather than retried, and search depth and work remain bounded as for instance contexts. A rule's speculative work — reading a row, deciding a literal, solving a nested obligation — runs under the shared speculation operation, so a declined or refused candidate leaves no substitution, level, kind, or diagnostic behind. The one thing speculation does not swallow is the framework's own check: a decision that contradicts the obligation keeps its diagnostic, because the diagnostic is the answer rather than a side effect of a trial that did not apply.
 
 **Functional dependencies are how a relation informs inference.** The fundeps in the inventory are the official ones and are improvement, not runtime fields. They are applied before a rule is consulted, so a rule usually receives determined arguments, and again after each deferral. Improvement never assigns a rigid variable and never uses a later fallback.
 
@@ -130,8 +134,13 @@ solve(wanted):
     improve wanted using class fundeps and givens
     if wanted.class_id has a primitive rule:
         match rule(arguments, state):
-            Solved   { evidence, deferred } -> keep evidence; re-queue deferred
-            Deferred { evidence, deferred } -> keep evidence if any; re-queue deferred
+            Solved   { evidence, deferred } -> unify each decided argument with the
+                                              goal's at that position; report the
+                                              mismatch if any fails; then keep the
+                                              evidence when something became more
+                                              determined, else defer; re-queue deferred
+            Deferred { evidence, deferred } -> the same check on the evidence, if any;
+                                              keep it; re-queue deferred
             Undecided                      -> continue to givens and instance search
             Failed { code, detail }        -> report code with detail, when every
                                               argument is determined
@@ -181,7 +190,7 @@ The registry owns declarations and nothing else:
 - `crates/psrs-hir/src/primitives/` holds one module per family — `core.rs`, `rows.rs`, `numbers.rs`, `type_error.rs` — behind `primitive_type_declarations() -> Vec<(&'static str, TypeDeclaration)>`. Each entry carries its `TypeId`, name, declared kind, fundeps, and roles; `tests.rs` holds the fidelity tests against the official environment. The registry contains no rule, no solver, and no diagnostic text.
 - `Interface::primitive_module` in the resolver derives each virtual module's members from the registry, so a recognized module always advertises exactly what the registry declares. [Modules and resolution](../semantics/modules-and-resolution.md) owns that derivation.
 - `psrs_kind::check_roles` consumes the registry alongside the resolved modules, the same way the kind pass already consumed it when it built its schemes, so a member's declared roles reach the checked kind environment instead of the nominal default.
-- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for dispatch and the outcome types, and one module per family — `row/`, `symbol.rs`, `int.rs`, `type_error.rs`, `coercible.rs` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. `coercible.rs` uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
+- `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table: `mod.rs` for the outcome types and the table itself, `dispatch.rs` for the acceptance path, `verify.rs` for the check official runs on every produced dictionary, and one module per family — `row/`, `symbol.rs`, `int.rs`, `compare/`, `coercible/` — where each rule is a function over the shared `InferState` returning `PrimitiveOutcome`. The `coercible` rule uses the shared kind solver rather than a private one. The existing coercion code under `typecheck/classes/coercion/` is the one rule that exists today; it moves to this module when it stops carrying its own kind denotation, substitution, and unifier.
 - `crates/psrs-typecheck/src/typecheck/classes/solve.rs` owns the single dispatch site, so givens, primitive rules, and instance search are consulted in one place and in one order.
 - Intrinsic values stay where they are: `psrs_hir::Intrinsic` for identity, the type checker's intrinsic typing for term types, and the backend for lowering. `Prim.undefined` is one of them and reaches the root `Prim` interface the same way `Safe.Coerce.coerce` does. No `Prim` name appears in that path.
 
@@ -290,8 +299,9 @@ type-level `Symbol` literals, which the shared type spine does not carry yet.
 
 `Coercible` and eight relations have rules, and each reaches one shared dispatch
 site rather than a special case inside it. `crates/psrs-typecheck/src/typecheck/prim/`
-holds the rule table: `mod.rs` for the dispatch and the outcome types, `requeue.rs`
-for the deferral bound, `coercible/mod.rs` for the one proof rule with the
+holds the rule table: `mod.rs` for the table and the outcome types, `dispatch.rs` for
+the acceptance path, `verify.rs` for the check official runs on every produced
+dictionary, `requeue.rs` for the deferral bound, `coercible/mod.rs` for the one proof rule with the
 given-composition helpers it shares in `coercible/givens.rs`, `symbol.rs` for
 `Prim.Symbol.Append` and `Prim.Symbol.Cons`, `compare/` for `Prim.Symbol.Compare`
 and `Prim.Int.Compare` with the relation solver in `compare/relation.rs`, `int.rs`
@@ -327,11 +337,19 @@ the same field.
 
 ### The outcome contract is enforced by the framework, not promised by a rule
 
-`Checker::solve_primitive` does not take a rule's `PrimitiveOutcome` on trust. It
-snapshots the solver, runs the rule, checks the outcome against the obligation's own
-arguments, and restores the snapshot unless the outcome is accepted. Three consequences,
-each of which is a case in `prim/tests/outcomes.rs`:
+`Checker::solve_primitive`, in `prim/dispatch.rs`, does not take a rule's `PrimitiveOutcome`
+on trust. It snapshots the solver, runs the rule, and acts on the answer in official
+solving's order — produce, check, report — restoring the snapshot only when the obligation
+continues into the ordinary paths. Four consequences, each of which is a case in
+`prim/tests/outcomes.rs`:
 
+- A relation's decided arguments are unified against the goal's arguments, position by
+  position, through the shared unifier, and a disagreement is reported and kept. This is
+  `Entailment.hs:301` verbatim in structure and `prim/verify.rs` in code. It runs first,
+  because it is the only step that can tell a rule that decided nothing apart from a rule
+  that proved the obligation cannot hold: both bind nothing. `a_decision_that_contradicts_a_known_argument_is_reported_and_kept`
+  is the case the two gates below could not see, and it is the mirror of the declined case
+  beside it — the diagnostic and the rule's allocation both survive.
 - `Failed` is honoured only when every argument is determined. An obligation with an
   unsolved argument is not impossible, it is undecided, so a refused `Failed` falls
   through to instance search instead of reporting it. This is the structural form of
@@ -341,17 +359,24 @@ each of which is a case in `prim/tests/outcomes.rs`:
   when every argument is determined. A rule that decides a known part does it by binding
   the rest through the shared substitution, so "nothing became more determined" means the
   rule decided on nothing, and the answer is read as the deferral it should have been.
+  Placing the check first has not cost this: a rule that guesses states nothing the
+  unifier contradicts and binds nothing either, so it is still downgraded.
 - A `Failed` whose `code` maps to no official `errorCode` is refused the same way, so a
   rule cannot invent a diagnostic the suite has never seen.
 
 Because acceptance is transactional, a declined, refused, or downgraded rule leaves no
 substitution, level, kind, or diagnostic behind — which the cases prove by fingerprinting
-the solver around a rule that binds, allocates, reports, and then declines.
+the solver around a rule that binds, allocates, reports, and then declines. The check above
+is the one thing that is not transactional: it runs as a reporting trial, so the bindings it
+made before it failed are rolled back while its diagnostic is deliberately re-emitted. A
+rule that contradicted its obligation therefore leaves a diagnostic describing it and no
+substitution pretending the decision was usable.
 
 ### A relation's evidence is an ordinary THIR dictionary node
 
-`PrimitiveEvidence::Dictionary` records the arguments the rule decided, and THIR gained
-`EvidenceKind::Primitive { arguments }` for it: a dictionary node that erases rather than
+`PrimitiveEvidence::Dictionary` records the dictionary's own arguments — the type the rule
+decided at each position it decides, and the goal's own argument where it did not — and THIR
+gained `EvidenceKind::Primitive { arguments }` for it: a dictionary node that erases rather than
 naming a constructor to apply, because a `Prim` relation declares no members. The verifier
 requires the empty class dictionary type, which is what distinguishes a relation's erased
 dictionary from a user class's, and Core lowering erases it to the same empty record a
@@ -402,15 +427,18 @@ only when the left symbol is a genuine prefix, so `Append "b" s "abc"` declines
 rather than answering `"a"` from the suffix reading, exactly as official solving
 does. `Cons` reads a known symbol by splitting it into its first scalar and the
 rest, and joins a head and a tail only when the head is one scalar; an empty
-symbol has no first scalar and decides nothing. Both bind what they decide
-through the shared substitution and record the decided arguments as the relation's
-dictionary evidence. A decided symbol that does not unify with an argument already
-known is reported under `TypesDoNotUnify`, which is the code official solving
-raises for its own decided argument, and a head that is not one scalar is reported
-under `NoInstanceFound` — a report the framework refuses while the symbol argument
-is still unknown, because an obligation with an unknown argument is undecided
-rather than impossible. `crates/psrs-driver/tests/prim_symbol.rs` pins every
-reading, decline, and rejection against `purs` 0.15.16.
+symbol has no first scalar and decides nothing. Both state what they decide in the
+relation's dictionary and let the framework unify it against the goal, so a decided
+symbol that does not unify with an argument already known is rejected under
+`TypesDoNotUnify` — the code official solving raises for its own decided argument,
+and the same one it raises for `Cons "ab" t "a"` however open `t` is, which is why
+the split's two halves are decided together and reported by the framework rather
+than by the rule. A head that is not one scalar is a different fact and keeps its
+own `Failed` under `NoInstanceFound`, because no unification finds it: the
+arguments permit no answer at all. The framework refuses that report while the
+symbol argument is still unknown, because an obligation with an unknown argument is
+undecided rather than impossible. `crates/psrs-driver/tests/prim_symbol.rs` pins
+every reading, decline, and rejection against `purs` 0.15.16.
 
 The three `Prim.Int` relations run forwards and backwards over their arguments.
 `Add 2 7 9` decides the third argument and `Add l 5 9` the second, `Mul` decides
@@ -563,32 +591,58 @@ sorted labels into `RowList.Cons` over `RowList.Nil`. An open row declines in
 both, because the answer depends on the labels inside the tail and there is no
 partial answer that is not a guess.
 
-A decided value that contradicts a row already known to be something else is
-reported as `Failed` under `TypesDoNotUnify`, which is the code official raises
-when it unifies a rule's decided arguments against the goal's arguments. That
-answer is honoured only when every argument is determined, so a decided
-extension that contradicts the wanted row while the *tail* is still unknown
-reaches instance search and is reported as a missing instance. Official reports
-`TypesDoNotUnify` there. This is the framework's rule and not the rule's, and it
-is the one place these three differ from `purs`.
+None of the three states its decision in the wanted argument. Each puts the row
+it decided at the position the relation determines and leaves the goal's own
+arguments everywhere else, which is official's `solveRowCons` dictionary:
+`[TypeLevelString sym, ty, r, srcRCons (Label sym) ty r]`. The framework unifies
+those against the goal's arguments through the shared row unifier, so a decided
+row that contradicts a row the obligation had already fixed is rejected by
+ordinary equality under `TypesDoNotUnify` — the code official raises at that same
+step — whether the wanted row is closed or the tail is still unknown. Nothing here
+decides whether its own answer is acceptable, and nothing truncates the unifier's
+diagnostic and restates it: `crates/psrs-driver/tests/prim_row.rs` pins each
+rejection to the code `purs` raises and to the shared unifier's own message.
 
-**The same shape is the largest remaining source of disagreement, and it is not
-specific to the row relations.** A rule that decides a value contradicting an
-argument the goal already fixes — `Int.Compare` deciding `LT` where the goal wants
-`EQ`, or `Row.Cons` deciding an extension the wanted row excludes — is downgraded
+**This closed the largest remaining source of disagreement with `purs`, and it was
+not specific to the row relations.** A rule that decided a value contradicting an
+argument the goal already fixed — `Int.Compare` deciding `LT` where the goal wants
+`EQ`, or `Row.Cons` deciding an extension the wanted row excludes — was downgraded
 to a decline and reported as a missing instance, where official reports the type
-mismatch. Two gates produce that, and both exist to stop a rule declaring an
-obligation impossible while an argument is still unknown: `Failed` is honoured only
-when every argument is determined, and `Solved` only when the rule made something
-more determined. A rule that unified two *known* types and found them
-contradictory has decided the obligation cannot hold, but having bound nothing it
-counts as no progress, so the contradiction is discarded and the obligation is
-searched instead. Ten `TypesDoNotUnify` cases — `CompareInt1` through
-`CompareInt10` — mismatch for this reason, where before bare rows began to unify
-they agreed for the wrong reason: a spurious `expected {left: _T8, right: _T9},
-found {left: _T8, right: _T9}` carried the right code for an unrelated reason.
-Separating "decided nothing" from "proved impossible" is what this design still
-owes every rule.
+mismatch. Two gates produced that, and both exist to stop a rule declaring an
+obligation impossible while an argument is still unknown: `Failed` was honoured
+only when every argument is determined, and `Solved` only when the rule made
+something more determined. A rule that unified two *known* types and found them
+contradictory had decided the obligation cannot hold, but having bound nothing it
+counted as no progress, so the contradiction was discarded with the speculative
+state and the obligation was searched instead. Separating "decided nothing" from
+"proved impossible" is what this design still owed every rule, and it is what the
+framework's own unification now does: the step that binds a decided argument and
+the step that rejects it are one operation, so a rule cannot reach either without
+passing through it.
+
+What this changed on the board: nothing. The ten `CompareInt1` through
+`CompareInt10` cases already agreed on `TypesDoNotUnify` once bare rows began to
+unify — they were the cases whose agreement had been an artifact, and unifying
+bare rows is what made their reason correct rather than a spurious `expected
+{left: _T8, right: _T9}, found {left: _T8, right: _T9}`. Their decision already
+contradicted an argument the goal had fixed, and they were already reporting
+`type mismatch: expected EQ, found GT` rather than a missing instance, because
+`Prim.Int.Compare` binds its decision through `Checker::unify` and that binding is
+what the unifier reports. The corpus has no case that needs this for a decided
+value over an *open* row or tail, which is the shape `Prim.Row.Cons` reaches and
+`purs` reports as `TypesDoNotUnify`. So the evidence here is the differential
+against `purs` and not a gate number, and the change is worth having because it
+removes four copies of a rule deciding whether its own answer was acceptable.
+
+The rule that took the `Failed` path here — `decide`, which unified the decision
+itself, dropped the unifier's diagnostic, and restated the failure so that the
+relation would be named — is gone. Restating it was not merely redundant: the
+framework refuses a `Failed` while an argument is unsolved, so the case where a
+decided extension contradicts the wanted row while the *tail* is still unknown was
+the one place these three differed from `purs`. A decided extension over an open
+tail binds nothing, so the refusal was correct and the contradiction was still lost.
+`Prim.Row.Cons` with a known label and an unknown tail is now `TypesDoNotUnify`,
+as `purs` reports it.
 
 Two shapes the shared model does not spell out are recorded rather than worked
 around. A row label is a `TypeLevelString`, and the member's declared kind is

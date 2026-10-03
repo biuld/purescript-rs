@@ -23,8 +23,19 @@
 //! The other thing the reference fixes is that an arm which cannot decide
 //! returns nothing rather than trying the next reading: `Append` strips a prefix
 //! only if the left symbol is a genuine prefix, and `Cons` joins only if the
-//! head is exactly one scalar. Those are the declines and the definite failures
+//! head is exactly one scalar. Those are the declines and the one definite failure
 //! below, and neither is ever answered with a guess.
+//!
+//! A decision is *stated* in the relation's dictionary rather than assigned to the
+//! wanted argument, and the framework unifies a dictionary's own arguments against
+//! the goal's — official `Entailment.hs:301`, in `super::verify`. So a split or a
+//! concatenation that contradicts an argument the obligation already fixed is
+//! found there and rejected under `TypesDoNotUnify`, and no rule here inspects the
+//! goal to notice, restates, or re-report it. That includes a split whose
+//! contradiction sits at a position another argument leaves unknown: the head and
+//! the tail are decided together, so a rule that reported the failure itself would
+//! have it refused as "not determined" and lose the contradiction, which is what
+//! `Cons "ab" s "a"` with `s` still open used to do.
 
 use super::{EvidenceClass, PrimitiveArgs, PrimitiveEvidence, PrimitiveOutcome, PrimitiveRule};
 use crate::typecheck::*;
@@ -50,8 +61,8 @@ const CONS: PrimitiveRule = PrimitiveRule {
 };
 
 /// The argument positions of each member, in declaration order. A decision
-/// carries both the position it fills and that position's name, so a diagnostic
-/// says which argument the rule decided.
+/// carries the position it fills, which is what official's dictionary needs in
+/// order to say where the rule's answer goes.
 const APPEND_LEFT: usize = 0;
 const APPEND_RIGHT: usize = 1;
 const APPEND_APPENDED: usize = 2;
@@ -59,11 +70,10 @@ const CONS_HEAD: usize = 0;
 const CONS_TAIL: usize = 1;
 const CONS_SYMBOL: usize = 2;
 
-/// One argument a rule decided: the position it fills, the name that position
-/// has in the member's declaration, and the symbol it is decided to.
+/// One argument a rule decided: the position it fills and the symbol it is
+/// decided to.
 struct Decision {
     position: usize,
-    argument: &'static str,
     symbol: String,
 }
 
@@ -91,14 +101,12 @@ fn solve_append(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome
     let decisions = match (known_symbol(left), known_symbol(right)) {
         (Some(left), Some(right)) => vec![Decision {
             position: APPEND_APPENDED,
-            argument: "appended",
             symbol: String::from(left) + right,
         }],
         (Some(left), _) => {
             match known_symbol(appended).and_then(|appended| appended.strip_prefix(left)) {
                 Some(suffix) => vec![Decision {
                     position: APPEND_RIGHT,
-                    argument: "right",
                     symbol: suffix.to_owned(),
                 }],
                 None => return PrimitiveOutcome::Undecided,
@@ -108,7 +116,6 @@ fn solve_append(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome
             match known_symbol(appended).and_then(|appended| appended.strip_suffix(right)) {
                 Some(prefix) => vec![Decision {
                     position: APPEND_LEFT,
-                    argument: "left",
                     symbol: prefix.to_owned(),
                 }],
                 None => return PrimitiveOutcome::Undecided,
@@ -116,13 +123,7 @@ fn solve_append(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome
         }
         _ => return PrimitiveOutcome::Undecided,
     };
-    decided(
-        checker,
-        args,
-        hir::TypeId::PRIM_SYMBOL_APPEND,
-        &arguments,
-        decisions,
-    )
+    decided(&arguments, decisions)
 }
 
 /// Whether `Cons head tail symbol` holds for three type-level symbols.
@@ -150,12 +151,10 @@ fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
                 Some(first) => vec![
                     Decision {
                         position: CONS_HEAD,
-                        argument: "head",
                         symbol: first.to_string(),
                     },
                     Decision {
                         position: CONS_TAIL,
-                        argument: "tail",
                         symbol: scalars.as_str().to_owned(),
                     },
                 ],
@@ -165,7 +164,6 @@ fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
         None => match (known_symbol(head), known_symbol(tail)) {
             (Some(head), Some(tail)) if head.chars().count() == 1 => vec![Decision {
                 position: CONS_SYMBOL,
-                argument: "symbol",
                 symbol: String::from(head) + tail,
             }],
             (Some(head), Some(_)) => {
@@ -180,80 +178,29 @@ fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
             _ => return PrimitiveOutcome::Undecided,
         },
     };
-    decided(
-        checker,
-        args,
-        hir::TypeId::PRIM_SYMBOL_CONS,
-        &arguments,
-        decisions,
-    )
+    decided(&arguments, decisions)
 }
 
-/// Applies `decisions` to the arguments they decide and turns the result into
-/// the relation's outcome.
+/// Puts each decision at the position it fills and returns the relation's
+/// evidence.
 ///
-/// A decision is expressed through the shared substitution, so the evidence
-/// records the arguments the constraint has *after* the decision — the same
-/// arguments every later stage sees, rather than a copy of what the rule
-/// computed.
-fn decided(
-    checker: &mut Checker,
-    args: &PrimitiveArgs,
-    class_id: hir::TypeId,
-    arguments: &[InferType],
-    decisions: Vec<Decision>,
-) -> PrimitiveOutcome {
-    let span = args.span();
-    for decision in decisions {
-        let Decision {
-            position,
-            argument,
-            symbol,
-        } = decision;
-        match &arguments[position] {
-            InferType::TypeLevelString(known) if *known == symbol => {}
-            InferType::TypeLevelString(_) => {
-                // The rule applies, and the argument it decided is already known
-                // to be something else, so the obligation cannot hold. This is
-                // the case official solving reports as the failed unification of
-                // its own decided argument, and it is the only case in which this
-                // relation has a decided value to be wrong about.
-                //
-                // An earlier decision in the same obligation may already have
-                // bound an argument, and that binding is what lets this report be
-                // honoured: the framework reads a `Failed` as impossible only
-                // once every argument is determined.
-                return PrimitiveOutcome::Failed {
-                    code: TypeCheckErrorKind::TypeMismatch,
-                    detail: format!(
-                        "{} does not hold: the {argument} is {symbol:?}",
-                        checker.display_constraint(class_id, arguments)
-                    ),
-                };
-            }
-            InferType::Variable(variable) if !checker.state.rigid.contains(variable) => {
-                if !checker.bind_type_variable(*variable, InferType::TypeLevelString(symbol), span)
-                {
-                    // The shared unifier refused the binding and reported why, so
-                    // there is no decision to record and the rule declines.
-                    return PrimitiveOutcome::Undecided;
-                }
-            }
-            // A rigid variable, or a type that is not a type-level string, is a
-            // position this rule does not decide: it never assigns a rigid
-            // variable, and it does not guess what a symbol of another shape is.
-            // A decline after an earlier decision is rolled back with the rest of
-            // the rule's speculative work, so a partial decision does not survive.
-            _ => return PrimitiveOutcome::Undecided,
-        }
+/// The decisions are *stated*, not applied. This is official's dictionary, whose
+/// `tcdInstanceTypes` carry the symbol the rule decided at each position it
+/// decides and the goal's own arguments everywhere else, and the framework unifies
+/// those against the goal's through the shared unifier. That single step binds an
+/// argument that was open, rejects one that was already fixed to something else,
+/// and never assigns a rigid variable — which is what official's `unifyTypes` over
+/// a rule's decided arguments does to a skolem.
+fn decided(arguments: &[InferType], decisions: Vec<Decision>) -> PrimitiveOutcome {
+    let mut decided = arguments.to_vec();
+    for Decision { position, symbol } in decisions {
+        let Some(slot) = decided.get_mut(position) else {
+            return PrimitiveOutcome::Undecided;
+        };
+        *slot = InferType::TypeLevelString(symbol);
     }
     PrimitiveOutcome::Solved {
-        evidence: PrimitiveEvidence::Dictionary {
-            arguments: arguments
-                .iter()
-                .map(|argument| checker.resolve_type(argument.clone()))
-                .collect(),
-        },
+        evidence: PrimitiveEvidence::Dictionary { arguments: decided },
         deferred: Vec::new(),
     }
 }

@@ -25,14 +25,15 @@
 //!
 //! Official then unifies each rule's decided arguments against the goal's
 //! arguments in order, and that step is where a wrong answer is rejected. This
-//! rule reproduces it by binding the decided value through the shared unifier
-//! and, when the unifier reports a disagreement, answering `Failed` under
-//! `TypesDoNotUnify` — the code `purs` raises for its own decided argument. The
-//! framework still refuses that answer while an argument is unsolved, because an
-//! obligation with an unknown argument is undecided rather than impossible; the
-//! one case that differs from official is a decided extension that contradicts
-//! the wanted row while the tail is still unknown, and there the obligation
-//! reaches instance search instead of being reported.
+//! module reproduces it by handing the decision to the framework as the
+//! dictionary's own argument at that position, and the framework runs that
+//! unification through the shared unifier — `Entailment.hs:301` is the reference,
+//! and `super::verify` is where it happens. So a rule here never inspects the
+//! goal's row to decide whether its answer is acceptable, never restates a
+//! unification failure as its own `Failed`, and never has to guess whether the
+//! framework will believe it: a decided extension that contradicts the wanted row
+//! is reported as `TypesDoNotUnify` by the same step for a closed row, for an open
+//! tail, and for every other relation in the table.
 //!
 //! Two shapes the shared model does not spell out are recorded here rather than
 //! worked around. A row label is a `TypeLevelString`, so the relation's declared
@@ -107,15 +108,7 @@ fn solve_cons(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
         ty: Box::new(value.clone()),
         tail: Box::new(tail.clone()),
     };
-    decide(
-        checker,
-        args,
-        hir::TypeId::PRIM_ROW_CONS,
-        &arguments,
-        CONS_ROW,
-        extension,
-        "row",
-    )
+    decide(&arguments, CONS_ROW, extension)
 }
 
 /// Whether `Nub original nubbed` holds for two rows.
@@ -151,15 +144,7 @@ fn solve_nub(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
         return PrimitiveOutcome::Undecided;
     };
     let nubbed = row_from_fields(nub(&fields), InferType::RowEmpty);
-    decide(
-        checker,
-        args,
-        hir::TypeId::PRIM_ROW_NUB,
-        &arguments,
-        NUB_NUBBED,
-        nubbed,
-        "nubbed",
-    )
+    decide(&arguments, NUB_NUBBED, nubbed)
 }
 
 /// Whether `RowToList row list` holds for a row and the list that names its
@@ -190,15 +175,7 @@ fn solve_row_to_list(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOu
         .fold(row_list_nil(), |tail, (label, field)| {
             row_list_cons(label, field.clone(), tail)
         });
-    decide(
-        checker,
-        args,
-        hir::TypeId::PRIM_ROW_TO_LIST,
-        &arguments,
-        ROW_TO_LIST_LIST,
-        list,
-        "list",
-    )
+    decide(&arguments, ROW_TO_LIST_LIST, list)
 }
 
 /// Drops every entry whose label an earlier entry already carries, after a
@@ -257,54 +234,30 @@ fn known_label(argument: &InferType) -> Option<&str> {
     }
 }
 
-/// Binds the argument at `position` to what a rule decided, through the shared
-/// substitution, and turns the result into the relation's evidence.
+/// Puts the row the rule decided at the position the relation determines, and
+/// returns the relation's evidence.
 ///
-/// The binding goes through [`Checker::unify`] rather than through a direct
-/// assignment, so the decision is one the rest of inference can see, the
-/// arguments' kinds are checked by the shared binder, and two rows are compared
-/// by the shared row normalizer rather than structurally. That is also where
-/// official rejects a wrong answer: `TypeChecker.Entailment` unifies each rule's
-/// decided arguments against the goal's arguments for every dictionary it
-/// produces, and the diagnostic a disagreement produces here comes from that
-/// same step.
+/// The decision is *stated*, not applied: this is official's dictionary, whose
+/// `tcdInstanceTypes` carry the decided row at the position the rule decides and
+/// the goal's own argument everywhere else. The framework unifies those against
+/// the goal's arguments through the shared unifier, which is what binds the
+/// obligation when the wanted row is still unknown, compares two rows through the
+/// shared row normalizer when it is not, and rejects the answer under
+/// `TypesDoNotUnify` when the two disagree — the code official raises at that same
+/// step.
 ///
-/// A disagreement is reported as `Failed` rather than left to the unifier's own
-/// diagnostic, because the obligation itself is what cannot hold and `Failed` is
-/// the answer that says so — and because the framework, not the rule, decides
-/// whether an answer may be honoured: it refuses a `Failed` while an argument is
-/// unsolved. The unifier's diagnostic for the attempt is dropped here, because
-/// the rule's own reason is the one that names the relation.
-fn decide(
-    checker: &mut Checker,
-    args: &PrimitiveArgs,
-    class_id: hir::TypeId,
-    arguments: &[InferType],
-    position: usize,
-    value: InferType,
-    argument: &'static str,
-) -> PrimitiveOutcome {
-    let span = args.span();
-    let Some(wanted) = arguments.get(position).cloned() else {
+/// A rule that applied the decision itself would have to inspect the unifier's
+/// result and restate the failure, and would have to decide whether the framework
+/// would believe it; that is precisely the part of official's step that belongs
+/// to the solver rather than to a rule.
+fn decide(arguments: &[InferType], position: usize, value: InferType) -> PrimitiveOutcome {
+    if position >= arguments.len() {
         return PrimitiveOutcome::Undecided;
-    };
-    let errors_before = checker.state.errors.len();
-    checker.unify(value.clone(), wanted, span);
-    if checker.state.errors.len() > errors_before {
-        checker.state.errors.truncate(errors_before);
-        return PrimitiveOutcome::Failed {
-            code: TypeCheckErrorKind::TypeMismatch,
-            detail: format!(
-                "{} does not hold: the {argument} is {}",
-                checker.display_constraint(class_id, arguments),
-                checker.display_type(&value)
-            ),
-        };
     }
+    let mut decided = arguments.to_vec();
+    decided[position] = value;
     PrimitiveOutcome::Solved {
-        evidence: PrimitiveEvidence::Dictionary {
-            arguments: args.resolved(checker),
-        },
+        evidence: PrimitiveEvidence::Dictionary { arguments: decided },
         deferred: Vec::new(),
     }
 }
