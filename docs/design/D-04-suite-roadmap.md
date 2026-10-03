@@ -183,8 +183,9 @@ and type operator aliases preserve their target identities through imports and
 re-exports; P4 applies fixities, expands sections, and lowers type operators.
 After generalization, P5 checks inferred public schemes by stable type identity.
 Source modules cannot replace the reserved `Prim` namespace. `Prim.Number` is
-not an official child module, and the root `undefined` value is not represented
-yet. Type-level entailment for `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
+not an official child module. The root `Prim.undefined` value has a stable
+compiler-owned identity and type, but Core lowering still reports that it has no
+runtime representation. Type-level entailment for `Prim.Row`, `Prim.RowList`, `Prim.Symbol`,
 `Prim.Int`, and `Prim.TypeError` remains separate from module availability.
 The supported guarded equation, guarded case, multi-scrutinee, and local
 pattern-binding forms now resolve and lower in a subset. Instance declarations
@@ -235,13 +236,19 @@ M1`; only the case's own diagnostics decide agreement.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M2.
 
-**Progress (implemented slice):** kinds are checked as a dedicated pass
-(`psrs-kind`, P5) over resolved HIR. HIR and AST now carry kinded `forall`
+**Progress (implemented slice):** kinds are checked once per program by a dedicated
+pass (`psrs-kind`, P5) over resolved HIR. HIR and AST now carry kinded `forall`
 binders, standalone kind signatures, kind annotations on type parameters,
 records/rows, constraints, and type-level literals. The checker infers kinds for
-`data`, `newtype`, `type`, and `class` declarations, unifies them with an occurs
-check, and reports `KindsDoNotUnify`, `InfiniteKind`, `PartiallyAppliedSynonym`,
-`CycleInTypeSynonym`, `CycleInKindDeclaration`, and `UndefinedTypeVariable`.
+`data`, `newtype`, `type`, and `class` declarations, unifies them through one
+solver with an occurs check, and reports `KindsDoNotUnify`, `InfiniteKind`,
+`PartiallyAppliedSynonym`, `CycleInTypeSynonym`, `CycleInKindDeclaration`, and
+`UndefinedTypeVariable`. One program-level entry point produces the checked kind
+and role environment that every module's type check consumes, and each diagnostic
+is attributed to the module that declares the offending type; a referenced
+declaration with no checked scheme is an `UnknownName` diagnostic rather than a
+fresh kind variable. `Kind` has no reserved constant and no dedicated `Row` head,
+so one primitive table is the only reading of what kind a primitive has.
 An instance head is checked against its class's kind scheme, so a standalone
 kind signature on a class is enforced at the instance that uses it; a head that
 applies its class to the wrong number of arguments is left to the class
@@ -250,19 +257,24 @@ lenient kind check and the `l3` scoreboard; the scoreboard also runs against the
 vendored corpus without `purs`.
 
 **Measured current result (annotations oracle, 2026-10-03):** M3 failing
-agreement is **30/48**. Per code: `CycleInKindDeclaration` 2/2,
+agreement is **31/48**. Per code: `CycleInKindDeclaration` 2/2,
 `InfiniteKind` 2/2, `CycleInTypeSynonym` 3/4, `UndefinedTypeVariable` 3/4,
-`PartiallyAppliedSynonym` 8/12, and `KindsDoNotUnify` 12/24. Eighteen expected
+`PartiallyAppliedSynonym` 8/12, and `KindsDoNotUnify` 13/24. Seventeen expected
 diagnostics still differ: some are blocked by absent cross-module libraries
 such as `Data.Foldable`, `Data.Newtype`, `Effect.Console`, `Safe.Coerce`, or
 `Prim.*`; the rest need kind checking in expressions, polykinded instantiation,
-type-level row functions, local scoped variables, or a shared cross-module kind
-environment. The scoreboard output records each case.
-`failing/StandaloneKindSignatures4.purs` now agrees: a standalone kind signature
-on a `class` reached the class scheme but nothing applied it to the instance, so
-`To Int "foo"` was accepted. The other three standalone-signature cases
-(`StandaloneKindSignatures1/2/3`, on `data`, `newtype`, and `type`) already
-agreed, so the signature itself was never lost.
+type-level row functions, or local scoped variables. The scoreboard output records
+each case.
+`failing/DiffKindsSameName.purs` now agrees, and it is the case the single
+program-level environment was for: kind checking ran twice before, a program-level
+pass whose diagnostics were discarded and a per-module pass that gave an imported
+declaration a fresh kind variable, so the conflict this case names was absorbed by
+the per-module run and reported nowhere. `failing/StandaloneKindSignatures4.purs`
+agrees for a separate reason: a standalone kind signature on a `class` reached the
+class scheme but nothing applied it to the instance, so `To Int "foo"` was
+accepted. The other three standalone-signature cases (`StandaloneKindSignatures1/2/3`,
+on `data`, `newtype`, and `type`) already agreed, so the signature itself was never
+lost.
 
 **Polykind generalization is not yet generalizing, and a naive version is
 measurably worse.** An unannotated `data`/`newtype`/`type` parameter gets a
@@ -292,14 +304,66 @@ measurable until Phase 3 provides those modules.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M3 and M6.
 
-**Measured current result (2026-10-03, annotations oracle):** **17/38** failing
-cases agree, per code: `TypesDoNotUnify` 15/31, `IntOutOfRange` 1/1,
+**Measured current result (2026-10-03, annotations oracle):** **30/47** failing
+cases agree, per code: `TypesDoNotUnify` 28/40, `IntOutOfRange` 1/1,
 `InfiniteType` 2/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, and
 `AmbiguousTypeVariables` 0/1. `HoleInferredType` and
 `CannotApplyExpressionOfTypeOnType` have no mapped kind and contribute no
-case. The aggregate counts distinct cases, while per-code totals count expected
+case.
+
+**Agreement here is by `errorCode`, and one group of ten cases agreed for the wrong
+reason until bare rows began to unify.** `CompareInt1.purs` through
+`CompareInt10.purs` produced `TypesDoNotUnify` — the annotated code — but by the
+route of a defect: `unify` reached `unify_rows` only for a `Record`-to-`Record`
+pair, so two identical rows met the catch-all and were reported as a mismatch
+between themselves, `expected {left: _T8, right: _T9}, found {left: _T8, right:
+_T9}`. That arm now routes any pair where either side is a row through the shared
+normalizer, and each of those ten reports the reason `purs` gives: `purs` says
+`Could not match type EQ with type GT` while solving `Prim.Int.Compare a0 c1`, and
+we now say `type mismatch: expected EQ, found GT`.
+
+The count does not move, which is the point worth keeping: `30/47` was true before
+and is true after, and the board cannot distinguish a case that agrees because the
+compiler is right from one that agrees because a defect happened to emit the right
+code. Read the aggregate as a floor on agreement, not as agreement.
+
+The aggregate counts distinct cases, while per-code totals count expected
 annotations: `failing/MultipleErrors.purs` declares `TypesDoNotUnify` twice, so
-the per-code totals sum to 39 annotations across 38 cases.
+the per-code totals sum to 48 annotations across 47 cases.
+
+The move is 17/38 to 30/47, and the denominator grew because 13 cases stopped
+being blocked before type checking. The ten `TypesDoNotUnify` cases above kept
+their count while changing their reason, which is the one improvement here the
+board cannot see. Type-level `String` and `Int` literals are
+now ordinary nodes on the shared type spine, so a signature may contain them and
+they participate in equality, substitution, generalization, and THIR
+verification instead of being rejected as an unsupported form.
+`CompareInt1.purs` through `CompareInt10.purs` now produce `TypesDoNotUnify` from
+ordinary unification where each previously stopped at `P5 typecheck [None]: this
+type is not supported yet`, and now do so for the reason `purs` gives rather than
+through the identical-row defect described above.
+The corresponding class-stage mismatches and earlier blockers are recorded
+in M5; adding a relation rule does not by itself establish corpus agreement.
+
+`IntToString1.purs` and `IntToString3.purs` now agree, and they are the first two
+cases in the suite closed by a compiler-owned rule rather than by a shared
+mechanism. `Prim.Int.ToString` decides the string argument from a known
+type-level integer, so `ToString 1 "a"` is rejected by ordinary equality between
+the decided `"1"` and the wanted `"a"` — the diagnostic comes from unifying a
+decided argument, not from a rule inspecting the wanted string. `Prim.Int.Add` and
+`Prim.Int.Mul` run forwards and backwards over three arguments, so `Add 2 7 9`
+decides the third argument and `Add l 5 9` decides the second; each declines when
+no direction applies. `failing/IntToString2.purs`, whose integer is negative, is
+still blocked at P2 surface lowering on the `Proxy (-1)` spelling and is a
+P5-independent gap; the rule itself handles a negative literal.
+
+All twelve `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, and `Prim.Int` relations
+now have an entry in the rule table: `Symbol.Append`, `Symbol.Cons`,
+`Symbol.Compare`, `Int.Compare`, `Int.Add`, `Int.Mul`, `Int.ToString`,
+`Row.Cons`, `Row.Nub`, `RowList.RowToList`, `Row.Lacks`, and `Row.Union`.
+[Issue #120](https://github.com/biuld/purescript-rs/issues/120) therefore has no
+relation left without a rule. What is still open on the row side is the
+rigid-tail unification defect recorded under FE-13, not a missing rule.
 
 `TypeCheckError::error_code` now maps `TypeMismatch` to `TypesDoNotUnify`,
 `OccursCheck` to `InfiniteType`, `IntegerOutOfRange` to `IntOutOfRange`, and
@@ -312,15 +376,14 @@ have no code, each decided by reading `purs` rather than by guessing:
 | `FundepConflict` | Our "a fundep's determined positions disagree". There is no `FunctionalDependencyError` in `purs`' `Errors.hs`; `purs` reports the consequence — the corpus files `RowInInstanceNotDetermined0/1` expect `InvalidInstanceHead`, raised in `TypeChecker.checkTypeClassInstance`. |
 | `AmbiguousConstraint` | Mapped to `AmbiguousTypeVariables`, which `purs` throws in `TypeChecker/Types.hs` with the same set of undetermined variables, but at generalization rather than while solving a goal. The mapping is right and the stage differs. |
 
-The 21 M4 mismatches decompose by expected code: 16 `TypesDoNotUnify`, two
-`EscapedSkolem`, two `ExpectedType`, and one `AmbiguousTypeVariables`. Compared
-with the previous baseline, `InstanceSigsDifferentTypes.purs` now agrees;
-`IntToString1.purs` and `IntToString3.purs` now stop at an unsupported P5 type
-form and are counted as earlier blockers. The combined L4/L5 run measured 33
-cases blocked before type checking, compared with 29 at the previous baseline.
-These case reclassifications change the denominator and are separate from the
-diagnostic mismatches. Missing libraries belong to Phase 3, class-rule gaps to
-Phase 4, and accepted mismatches still need type-checking fixes.
+The 17 M4 mismatches decompose by expected code: 12 `TypesDoNotUnify`, two
+`EscapedSkolem`, two `ExpectedType`, and one `AmbiguousTypeVariables`. The
+combined L4/L5 run measured 20 cases blocked before type checking, down from 33.
+Those case reclassifications change the denominator and are separate from the
+diagnostic mismatches: a case that stopped being blocked now counts here whether
+it agrees or mismatches, which is why the aggregate rose by 13 while the mismatch
+count fell by 4. Missing libraries belong to Phase 3, the remaining row-side
+obligation to FE-13, and accepted mismatches still need type-checking fixes.
 ### M5 — Type classes and instances
 
 - **Suite:** `NoInstanceFound` (53), `OverlappingInstances` (8),
@@ -335,23 +398,32 @@ Phase 4, and accepted mismatches still need type-checking fixes.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M4.
 
-**Measured current result (2026-10-03, annotations oracle):** **45/87** failing
+**Measured current result (2026-10-03, annotations oracle):** **49/91** failing
 cases agree. Per-code agreement is `OverlappingInstances` 8/8,
-`NoInstanceFound` 34/48, `MissingClassMember` 2/2, `DuplicateInstance` 1/1,
+`NoInstanceFound` 38/52, `MissingClassMember` 2/2, `DuplicateInstance` 1/1,
 and 0 for `PossiblyInfiniteInstance` (1), `OrphanInstance` (6),
 `InvalidInstanceHead` (7), `InvalidNewtypeInstance` (5),
 `DuplicateTypeClass` (1), `ClassInstanceArityMismatch` (1), and
 `CannotDeriveInvalidConstructorArg` (7).
-Compared with the previous baseline, the official `DuplicateInstance.purs` case
-now agrees. `failing/2567.purs`, `failing/LacksWithSubGoal.purs`,
-`failing/RowLacks.purs`, and `failing/Superclasses5.purs` do not contribute a
-case-owned class diagnostic in this run: the first two stop at an unsupported
-type form, while the latter two import `Effect.Console` and, for `RowLacks`,
-`Type.Proxy`, which this library does not provide. These earlier-stage cases
-account for the changed denominator; they do not count as class-rule evidence.
-The 42 remaining mismatches are accounted for by those per-code results; they
-include incomplete instance, deriving, and pattern support. The scoreboard
-output names each case.
+The integrated #120 tree moves M5 from 48/91 to 49/91, entirely in
+`NoInstanceFound` (37/52 to 38/52): `failing/2567.purs` now checks the
+`Fail (Text ...)` obligation in a constrained expression annotation and reports
+its custom error instead of `TypesDoNotUnify`. The denominator remains 91.
+M2 remains 72/72, M3 31/48, M4 30/47, parse 904/908, and corpus runtime 0/413.
+These six results were remeasured together on the integrated tree with
+`PSRS_ORACLE=annotations cargo test -p psrs-driver --test suite -- --ignored --nocapture`.
+
+The remaining mismatches are accounted for by those per-code results; they
+include incomplete instance and deriving support and earlier-stage library
+blockers. The scoreboard output names each case. Relation and report behavior
+now has additional installed-`purs` differential evidence: closed and open
+`Lacks`/`Union`, duplicate labels, `Row Symbol`, nested instance residuals,
+structured `Fail` messages, unresolved `Partial`, and scoped `Warn` propagation
+with declaration-owned warning ranges. Required Wasmtime tests execute the
+nested `Union` method, constrained forall dictionary use, and erased `Warn`
+dictionaries, each producing 42. These targeted executions do not establish
+whole-corpus runtime coverage. `Partial` still lacks missing-case metadata, and
+the five `Coercible` mismatches remain outside this relation/report slice.
 `DerivingFunctor.purs`, `DerivingFoldable.purs`, and
 `DerivingTraversable.purs` show that `passing` cases also reach the solver.
 
@@ -683,9 +755,9 @@ for matrix status.
 | L0 | Layout goldens | 15/15 official parse outcomes agree (12 accepted, 3 rejected), enforced by regression tests. | 15/15 agreement, with all layout cases covered by regression tests. |
 | L1 | Non-excluded parse behavior | 904/908 agreement using the annotations oracle; `passing` 410/413, `failing` 412/413, `warning` 67/67, `layout` 15/15, with the four remaining cases recorded as DEC-16 intentional differences | 100% agreement apart from the DEC-16 intentional differences. |
 | L2 | Module, import, export, and name resolution | 72/72 failing cases; 59/413 passing modules resolve, with 337 blocked on a missing module, 5 at P2, 8 at P3, and 4 at P0; no case is blocked on assembly. | The mapped resolution cases and all required passing-module cases agree. |
-| L3 | Kinds and higher-kinded types | 30/48 failing cases; `KindsDoNotUnify` 12/24 and the other mapped code totals as measured in M3. | 100% agreement for the mapped kind cases. |
-| L4 | Core type checking | 17/38 failing cases; `TypesDoNotUnify` 15/31, `IntOutOfRange` 1/1, `InfiniteType` 2/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, `AmbiguousTypeVariables` 0/1. | 100% agreement for the mapped type cases. |
-| L5 | Classes and instances | 45/87 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 34/48, `MissingClassMember` 2/2, `DuplicateInstance` 1/1, and 0 for the other mapped codes. | 100% agreement for the mapped class cases. |
+| L3 | Kinds and higher-kinded types | 31/48 failing cases; `KindsDoNotUnify` 13/24 and the other mapped code totals as measured in M3. | 100% agreement for the mapped kind cases. |
+| L4 | Core type checking | 30/47 failing cases; `TypesDoNotUnify` 28/40, `IntOutOfRange` 1/1, `InfiniteType` 2/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, `AmbiguousTypeVariables` 0/1. | 100% agreement for the mapped type cases. |
+| L5 | Classes and instances | 49/91 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 38/52, `MissingClassMember` 2/2, `DuplicateInstance` 1/1, and 0 for the other mapped codes. | 100% agreement for the mapped class cases. |
 | L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; 337 stop on missing modules, 5 at P2, 55 at P10, 8 at P3, 4 at P0, 3 at P5 typecheck, and 1 at P5 kind checking; no harness-loading blockers. | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
@@ -725,25 +797,25 @@ resolved, type checked, and represented in Typed Core as required.
 | ID | Feature | Current support | Status | Next landing |
 | --- | --- | --- | --- | --- |
 | FE-01 | Lexing, Unicode tokens, comments, literals, and layout | Lexer and layout agree with the L1 annotations scoreboard at 904/908, including 15/15 layout cases. The four differences are the DEC-16 intentional differences: a supplementary scalar is accepted as one `Char` (`failing/2434.purs`), and an unpaired surrogate escape is rejected in `StringEscapes.purs` and the two `StringEdgeCases` files. A paired surrogate escape decodes as one scalar, and no surrogate becomes U+FFFD. Parse agreement does not verify string values. | Partial | Cover the remaining literal forms the corpus exercises. |
-| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, fixity aliases, virtual `Prim.*` type/class interfaces, instance dictionary identities, per-branch instance exports, and unary minus through ordinary `negate` resolution work in a subset; 72/72 mapped failing cases agree and 59/413 passing modules resolve. Class-only imports do not import methods into the value namespace; selective imports still receive visible instances through the module dependency graph. P3 checks explicit signatures and declaration dependencies; P5 checks inferred public schemes by stable type identity. The root `Prim.undefined` value and primitive class entailment are not represented. Broader pattern-binding support remains incomplete. | Partial | Complete pattern-binding support; add `Prim.undefined` when its compiler-owned value identity and runtime lowering exist, and implement primitive class rules under entailment. |
+| FE-02 | Module headers, imports, exports, qualified names, aliases, and hiding | Module graph, stable module IDs, value/type/constructor/class imports and exports, fixity aliases, virtual `Prim.*` type/class interfaces, instance dictionary identities, per-branch instance exports, and unary minus through ordinary `negate` resolution work in a subset; 72/72 mapped failing cases agree and 59/413 passing modules resolve. Class-only imports do not import methods into the value namespace; selective imports still receive visible instances through the module dependency graph. P3 checks explicit signatures and declaration dependencies; P5 checks inferred public schemes by stable type identity. `Prim.undefined` has a compiler-owned identity, type, and interface export, but Core lowering still rejects it because no runtime representation is defined. The [primitives topic](frontend/type-system/prim.md) owns the `Prim.*` inventory, the evidence-class dispatch order, relation outcomes, and diagnostic behavior; #120 adds the missing relation and report paths. Broader pattern-binding support remains incomplete. | Partial | Complete pattern-binding support; add the `Prim.undefined` runtime representation and continue official-suite coverage for primitive solving. |
 | FE-03 | Value declarations, signatures, recursive groups, pattern bindings, and `where` | Named declarations, signatures, recursive local groups, and top-level SCC inference work; selected local pattern declarations, including `LetPattern`, lower through the pattern pipeline. The full declaration and `where` forms are not end-to-end. | Partial | Complete remaining pattern declarations and local `where` blocks. |
 | FE-04 | Declaration forms: `data`, `newtype`, `type`, `class`, `instance`, `derive`, `foreign`, roles, fixities, and kind signatures | Data/newtype roles are inferred and checked, foreign role signatures enter the checked kind environment, and source role errors retain spans. Instance declarations resolve into dictionary-scoped members; signatures associate with consecutive equations, reject orphan/repeated declaration groups, and check against the class method specialized by the instance head. Deriving and several declaration forms remain incomplete. | Partial | Complete deriving and the remaining declaration-form semantics. |
 | FE-05 | Expressions: application, operators, lambdas, `if`, `let`, `case`, records, arrays, literals, sections, `do`, and `ado` | Application, value and type operators with resolved fixities, unary minus through the ordinary in-scope `negate` value, lambdas, `if`, `let`, `case`, scalar arrays, empty array literals whose element type is determined, records, and selected literals work; `do`/`ado` lower to bind, discard, and `let`. The ascription `e :: T` is checked against its written type and remains explicit through Typed Core. Sections lower through P4 and have runtime coverage. Remaining literal and expression forms are open. | Partial | Complete the remaining literal and expression forms. |
 | FE-06 | Patterns: variables, wildcards, constructors, records, literals, tuples, arrays, guards, and binders | Variables, wildcards, multi-field constructors (`passing/1185.purs`), nested named record patterns (`passing/2049.purs`), literals, arrays, typed binders, operator patterns, tuple products, and local pattern declarations reach Typed Core and the shared pattern matrix. The 34 fixed pattern blockers lower through P2; value-sensitive source-shaped executions select the expected fields for both 1185 (85) and 2049 (84), and the matrix suite covers scalar, array, string, char, Number, record, and guard first-match behavior. Guard coverage provenance and guarded Boolean alternative warnings have source and matrix evidence under PM-14; the full L4/L6 feature gates remain open. Five non-pattern P2 cases remain. | Partial | Complete broader official type/runtime coverage. |
 | FE-07 | Operators, sections, fixity declarations, and type/value operators | P2 retains unresolved value, constructor-pattern, and type operator chains and both section forms; P3 binds value/type aliases and attaches fixities; P4 reassociates the chains and expands sections. Official operator-alias failures agree and focused runtime cases cover custom associativity, precedence, constructor patterns, and both sections. Builtin `Prim.Function` and `Prim.Int` type-operator aliases retain identity through module re-exports; `Prim.Int` overapplication reaches the kind arity check. Full type checking still depends on cross-module higher-kinded schemes. | Partial | Complete surrounding type/runtime coverage. |
 | FE-08 | Primitive types and monomorphic inference | `Int`, `Number` (IEEE-754 binary64), `Boolean`, `Char` (a Unicode scalar as `i32`; source literals accept supplementary scalars and reject surrogate code points under [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)), `String` (frontend Rust text; the accepted contract is [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)), `Unit`, function types, unification, occurs check, and source-spanned primitive errors work in the compiler slice. Source and Wasmtime pattern cases execute astral `Char` equality. | Partial | Reach the complete L4/L6 gate and add official-suite evidence for the remaining primitive semantics. |
-| FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, outermost `forall`, and the first generic CC/Wasm representation work through THIR/Core. | Partial | Reach the corresponding type/runtime suite gate, then add dictionary passing and the remaining generic representations. |
+| FE-09 | Rank-1 polymorphism, generalization, instantiation, signatures, `forall`, and scoped variables | Local and top-level generalization, instantiation, rigid signature variables, and outermost `forall` work through THIR/Core. A declaration without a signature retains residual constraints and abstracts them as dictionary parameters; constraints that cannot be generalized, including residual constraints in recursive groups, are reported. Constrained-forall expression ascriptions are checked with rollback and re-elaborated at their expected use type, with ordinary dictionaries preserved at monomorphic and rank-N uses. | Partial | Complete official type/runtime coverage and remaining generic representations; higher-rank corpus reconciliation is tracked under FE-18. |
 | FE-10 | Type constructors, type application, type synonyms, and saturation | Constructor/application types, built-in and user constructors, and synonym substitution work in a restricted set. | Partial | Complete constructor environments, arity rules, recursive synonyms, and backend-independent acceptance. |
-| FE-11 | Kinds, kind signatures, higher-kinded types, kind annotations, and kind variables | Dedicated kind inference/checking covers several declarations, annotations, records/rows, and official kind errors. | Partial | Complete cross-module environments, rows in kinds, and expression-level cases. |
+| FE-11 | Kinds, kind signatures, higher-kinded types, kind annotations, and kind variables | Dedicated kind inference/checking covers several declarations, annotations, records/rows, and official kind errors. Kind checking runs once per program and produces the checked kind and role environment every module's type check consumes, with each diagnostic attributed to the module that declares the offending type and a missing scheme reported instead of inferred; one primitive table is the only reading of a primitive's kind, and the `Coercible` solver consumes that shared denotation and kind solver. A declaration's scheme quantifies only the kind unknowns its own definition leaves undetermined, but the well-scoped-quantification rule (`QuantificationCheckFailureInKind`) is not implemented, and an instance head whose class is declared in another module is still skipped. | Partial | Add the well-scoped-quantification rule, cross-module instance heads, kind checking in expressions, and type-level row functions. |
 | FE-12 | Algebraic data types, constructors, newtypes, and constructor typing | Data/newtype declarations, constructor schemes, constructor application, and basic case typing work. | Partial | Add full recursive/parameterized checking, exhaustiveness, and all pattern forms. |
-| FE-13 | Records, row types, row polymorphism, and variants | Closed concrete records, field access/update, partial source record patterns, exact generated product patterns, and row unification work. Open and closed rows match by label; field types unify; duplicate labels and extension of a closed or rigid tail are rejected. Labels are scalar sequences under [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md); the current compiler still uses Rust strings and does not preserve lone surrogates. A label that exists only in an unknown tail is not accessed or updated. **Ownership of the missing `Prim.Row` work is split, and recorded here so it is no longer unowned:** the `Prim.Row*` *syntax* — row constructors in a type synonym such as `type Baz = { | Foo }`, and a label-typed synonym parameter such as `type Foo r = (x :: Number | r)` — belongs to FE-17 and is tracked by #87; the `Prim.Row.Cons`, `Lacks`, `Union`, and `Nub` *constraints* belong to FE-14's constraint machinery and are tracked by #97, since each is a type-class constraint rather than a type form. Neither is measurable today: all four `failing` row-constructor cases and `failing/RowLacks.purs` stop at P3 on `Effect.Console` and `Type.Proxy`. The runtime half is a separate question and stays with the closure-conversion rule below, because an open row has no layout. Variants are not implemented. An open row has no runtime layout, so closure conversion rejects a function whose type still contains a row variable. | Partial | Complete `Prim.Row` syntax and entailment, then add variants without choosing a runtime field layout. |
-| FE-14 | Constraints, type classes, superclasses, class members, and instances | Source constraint elaboration, contextual and multi-parameter instances, superclass evidence, imported generic dictionaries, ordered source instance chains, and rank-1 polymorphic method signatures execute. Instance member signatures are associated with consecutive equations, resolve instance-head variables, and are checked against specialized class method types; source and Wasmtime tests cover specialized and more-general signatures plus mismatches. Duplicate member groups, orphan member signatures, duplicate named instances, and ordinary-value/name collisions use official diagnostics. Explicit export lists filter instance branches by class/head/context visibility while preserving identity and chain positions; imports do not require the class in their selective list to receive visible instances. Class-only imports keep methods out of the ordinary value namespace. Subsumption retains constraints from annotations, but constrained annotations that need instance solving to specialize to monomorphic expected method types remain unsupported. **The `Prim.Row.Cons`, `Lacks`, `Union`, and `Nub` constraints are FE-14's unsolved work** and are tracked by #97, not #87: `failing/RowLacks.purs` expects `NoInstanceFound` from a `Lacks` constraint this compiler does not solve, and #87 covers the `Prim.Row` *syntax* that FE-17 owns instead. A wildcard in an instance head is rejected as `InvalidInstanceHead`; a wildcard in an instance context stays legal because the constraint is still solvable. Scoped method-local constraints and quantified method parameters have evidence in the [rank-N acceptance record](../implementation/frontend/rank-n.md). | Partial | Reconcile remaining constraint rules and official-suite coverage; deriving is tracked under FE-16. |
+| FE-13 | Records, row types, row polymorphism, and variants | Closed concrete records, field access/update, partial source record patterns, exact generated product patterns, and row unification work. The row normalizer returns collected fields and tail or an `InvalidShape` diagnostic; it does not treat an unrecognized shape as a closed row. The `Prim.Row` and `Prim.RowList` relations use that normalizer and the shared kind solver. #87 tracks row syntax under FE-17; #120 covers the primitive row constraints under FE-14. Rigid-tail row unification still has known bugs. Labels are scalar sequences under [DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md); the current compiler still uses Rust strings and does not preserve lone surrogates. A label that exists only in an unknown tail is not accessed or updated. Open rows still have no runtime layout, and variants are not implemented. | Partial | Fix rigid-tail row unification; complete row syntax and official coverage, then add variants without choosing a runtime field layout. |
+| FE-14 | Constraints, type classes, superclasses, class members, and instances | Source constraint elaboration, contextual and multi-parameter instances, superclass evidence, imported generic dictionaries, ordered source instance chains, and rank-1 polymorphic method signatures execute. Superclass edges use `TypeTemplate` substitution, including constructed arguments such as `C (Array a)`; `a_superclass_edge_over_a_constructed_argument_runs_when_wasmtime_is_available` executes the `Gamma (Array a)` edge through an `Epsilon Int` use. Instance member signatures are associated with consecutive equations, resolve instance-head variables, and are checked against specialized class method types; source and Wasmtime tests cover specialized and more-general signatures plus mismatches. A constrained instance-member annotation cannot yet be solved solely to specialize it to a monomorphic expected method type. Duplicate member groups, orphan member signatures, duplicate named instances, and ordinary-value/name collisions use official diagnostics. Explicit export lists filter instance branches by class/head/context visibility while preserving identity and chain positions; imports do not require the class in their selective list to receive visible instances. Class-only imports keep methods out of the ordinary value namespace. Constrained-forall expression ascriptions are checked in a complete rollback probe, then elaborated at their expected use type; ordinary class dictionaries survive both monomorphic and rank-N uses, with actual Wasmtime execution evidence. #120 adds compiler-owned rules for the twelve `Prim.Row`, `Prim.RowList`, `Prim.Symbol`, and `Prim.Int` relations and a report path for `Prim.TypeError.Fail`, `Warn`, and `Partial`. Open-row `Lacks` and `Union` preserve partial evidence and re-enter solving on residual constraints; the outcome contract belongs to each rule, while the shared framework checks returned dictionary arguments and bounds speculative work. `Warn` propagates through explicit scoped dictionaries; otherwise it emits at the enclosing value or instance declaration and discharges, so inferred schemes do not retain a `Warn` context; `Fail` renders a valid `Doc` as a custom error, while malformed `Doc` falls back to `NoInstanceFound`. `Partial` still lacks HIR exhaustiveness metadata and therefore reports the generic no-instance message. Five `Coercible` board mismatches remain because the proof evidence has no relation arguments for the shared dictionary verification path. The [primitives topic](frontend/type-system/prim.md) owns these semantics and their measured coverage. A wildcard in an instance head is rejected as `InvalidInstanceHead`; a wildcard in an instance context stays legal because the constraint is still solvable. Scoped method-local constraints and quantified method parameters have evidence in the [rank-N acceptance record](../implementation/frontend/rank-n.md). | Partial | Reconcile remaining class-rule mismatches and official-suite coverage; deriving is tracked under FE-16. |
 | FE-15 | Functional dependencies | Source fundep improvement uses transitive determining closure and selected branches; independent class arguments still prove apartness. Ambiguity and consistency diagnostics are covered. One known divergence: a type wildcard standing for a fundep-determined position is reported as a fundep conflict, where `purs` only warns — `passing/WildcardInInstance.purs` says so in its own comment. It is unmeasurable until Phase 3 provides `Effect` and `Effect.Console`. | Partial | Reconcile official-suite fundep coverage and remaining advanced class forms. |
-| FE-16 | Deriving, roles, `Coercible`, and newtype-based derivation | Role inference/checking (including imported aliases), compiler-owned `Coercible` solving, checked kind compatibility, higher-kinded given rewriting, canonical open-row alignment, constructor-visibility checks, explicit Typed Core evidence boundaries, and backend-planned conversions work for the covered subset. Source and Wasmtime tests cover phantom/nominal/representational roles, parameterized newtype scalar/function/array payloads, structural `Eq`/`Ord`, nested alias-aware `Functor.map`, direct `Bifunctor.bimap`, recursive `Eq`, checked `derive newtype` adapters, empty-class underlying-instance validation, and cross-module dictionaries. Differential tests also cover function-result traversal, `Contravariant` via `Profunctor.lcmap`, and resolved re-exported class identity. Runtime closure capture still blocks the function-based `Contravariant` case; other upstream deriving classes, method-local class constraints, and open-row runtime conversion remain incomplete. | Partial | Implement the remaining upstream deriving classes and method-local constraints; expand closure-capture runtime support and remaining coercion cases. See [roles and coercions acceptance](../implementation/frontend/roles-and-coercions.md). |
-| FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. A wildcard in a value signature is solved by unification and is accepted in every shape `purs` accepts; a wildcard in an instance head is rejected as `InvalidInstanceHead`, while one in an instance context stays legal. The `1664.purs` wildcard binder lowers through P2. Visible type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The two remaining P2 type forms are negative type-level integer prefixes in `passing/IntToString.purs` and `passing/ParseTypeInt.purs`; row entailment remains under #97. | Partial | Add explicit type-application elaboration and hole/wildcard diagnostics. |
+| FE-16 | Deriving, roles, `Coercible`, and newtype-based derivation | Role inference/checking (including imported aliases), compiler-owned `Coercible` solving, checked kind compatibility, higher-kinded given rewriting, canonical open-row alignment, constructor-visibility checks, explicit Typed Core evidence boundaries, and backend-planned conversions work for the covered subset. Source and Wasmtime tests cover phantom/nominal/representational roles, parameterized newtype scalar/function/array payloads, structural `Eq`/`Ord`, nested alias-aware `Functor.map`, direct `Bifunctor.bimap`, recursive `Eq`, checked `derive newtype` adapters, empty-class underlying-instance validation, and cross-module dictionaries. Differential tests also cover function-result traversal, `Contravariant` via `Profunctor.lcmap`, and resolved re-exported class identity. Runtime closure capture still blocks the function-based `Contravariant` case; other upstream deriving classes and open-row runtime conversion remain incomplete. Scoped method-local constraints on class methods are covered under FE-18. The `Coercible` solver reads primitive kinds through the shared kind checker; expression-level kind checking remains incomplete. Five `Coercible` board mismatches remain because a `Proof` member has no dictionary arguments for the framework's decided-argument check, so its answer still needs an explicit verification contract. | Partial | Implement the remaining upstream deriving classes; expand closure-capture runtime support and remaining coercion cases. See [roles and coercions acceptance](../implementation/frontend/roles-and-coercions.md). |
+| FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. Type-level `String` and `Int` literals are ordinary spine nodes: a signature may contain them, they unify by value, and they survive into THIR where the verifier compares them. A wildcard in a value signature is solved by unification and is accepted in every shape `purs` accepts; a wildcard in an instance head is rejected as `InvalidInstanceHead`, while one in an instance context stays legal. The `1664.purs` wildcard binder lowers through P2. Visible term type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The `Type`, `Constraint`, and `Symbol` heads are accepted as ordinary type constructors with their declared primitive kinds. PureScript source syntax has no explicit kind-application form; its kind checker inserts internal `KindApp` nodes while implicitly instantiating polymorphic kinds. This compiler performs that instantiation in the kind solver and has no `KindApplication` node in its source type spine, so this is not a source-compatibility gap. The two remaining P2 type forms are negative type-level integer prefixes in `passing/IntToString.purs` and `passing/ParseTypeInt.purs`; the primitive row relations themselves all have rules, and the row-side gap that remains is the rigid-tail unification defect under FE-13. | Partial | Add visible term type-application elaboration and hole/wildcard diagnostics. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
-| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 30/48, L4 17/38, L5 45/87. The L4/L5 denominators count cases reaching their owner stage; 33 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 31/48, L4 30/47, L5 49/91. The L4/L5 denominators count cases reaching their owner stage; 20 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
 | FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
 
 The frontend landing order is:
@@ -808,7 +880,7 @@ acceptance result.
 | Scalars and primitives | BE-04; FE-08 input | Re-baselined by DEC-10: SP-01..SP-12 are Verified, including the GC-string representation. | [SP-01..SP-12](../implementation/backend/scalars-and-primitives.md) |
 | Pattern matching | BE-05, BE-06; supporting BE-08, BE-09 | PM-01..PM-15 have implementation, verifier, and required execution evidence. PM-14 includes source-spanned Boolean redundancy and guarded fallthrough; broader feature rows retain their separate gates. | [PM-01..PM-15](../implementation/backend/pattern-matching.md) |
 | Effects | BE-21; supporting BE-02, BE-26 | Representation lowering is in place. `Effect` stays an opaque user application through Typed Core, and `lower_effects` emits a one-parameter closure before closure conversion. EF-01..EF-11 are verified on that encoding. The negative fixtures call `EffectLowering::verify` after replacing a recorded node with an arity-two `Effect (a -> b)` closure or a closure whose result is wrong; they fail in Core. The backend maps a `VerifyError` that `lower_effects` itself returns. A type table changed after the pass returns is not checked again. BE-21 stays the broader landing gate. `callable_types` remains and is always empty. | [EF-01..EF-11](../implementation/backend/effects.md) |
-| Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Backend acceptance complete from verified Typed Core fixtures: DICT-01..DICT-11 have implementation, verifier, and required execution evidence. Source constrained calls, contextual/imported generic instances, superclasses, fundeps, and ordered instance chains execute; FE-14/15 remain partial for method-local annotations, deriving under FE-16, and official-suite acceptance. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
+| Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Backend acceptance complete from verified Typed Core fixtures: DICT-01..DICT-11 have implementation, verifier, and required execution evidence. Source constrained calls, contextual/imported generic instances, superclasses, fundeps, and ordered instance chains execute; FE-14/15 remain partial for remaining source class/fundep coverage, the constrained instance-member specialization limit, and official-suite acceptance. Class-method local constraints are covered under FE-18; deriving is tracked under FE-16. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
 | Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
 | Optimization | BE-12 | Topic acceptance complete: OPT-01..OPT-14 have implementation, verifier, and required execution evidence. The official M8-O gate stays on the broader BE-12 row. | [OPT-01..OPT-14](../implementation/backend/optimization.md) |
 | Wasm encoding, validation, and capability | BE-13, BE-14, BE-16; supporting BE-15 | Topic acceptance complete: ENC-01..ENC-11 have implementation, verifier, and required execution evidence. Broader feature rows retain their separate gates. | [ENC-01..ENC-11](../implementation/backend/wasm-encoding.md) |

@@ -106,8 +106,10 @@ DICT-01:
     executes a Global Eq dictionary feeding an Instance Ord dictionary.
   Input boundary: verified Typed Core and malformed Typed Core.
   Result: pass; the positive case executed under Wasmtime.
-  Gaps: method-local annotations remain incomplete; FE-16 executes structural
-  `Eq`/`Ord`, nested `Functor`, `Bifunctor`, and newtype-derived dictionaries.
+  Gaps: an instance-member constrained annotation is not yet solved merely to
+  specialize it to a monomorphic expected class-method type; the frontend owns
+  this FE-14 boundary. FE-16 executes structural `Eq`/`Ord`, nested `Functor`,
+  `Bifunctor`, and newtype-derived dictionaries.
   `Contravariant` and function-result `Functor` have source and upstream
   differential evidence, but no Wasmtime result for the function adapter due
   the P8 closure-capture limit. Other deriving rules remain open.
@@ -295,11 +297,14 @@ DICT-11:
 
 ## Remaining work and blockers
 
-- FE-14/15: method-local
-  explicit foralls/constraints remain unsupported. Source tests reject these
-  forms explicitly. Deriving belongs to FE-16. Source default methods are not
-  part of PureScript syntax; Typed Core default-field fixtures establish only
-  the backend dictionary behavior.
+- FE-14/15: class-method quantified parameters and scoped constraints are
+  covered by the rank-N acceptance evidence. An instance-member constrained
+  annotation still cannot be solved solely to specialize it to a monomorphic
+  expected class-method type; see the [frontend class and evidence
+  design](../../design/frontend/type-system/classes-and-evidence.md).
+  Deriving belongs to FE-16. Source default methods are not part of PureScript
+  syntax; Typed Core default-field fixtures establish only the backend
+  dictionary behavior.
 - Official test suite: class/instance upstream cases have not been individually
   reconciled with source coverage and are not counted as acceptance evidence.
 - Cross-topic handoff: DICT-08 required a fix in the shared CC indirect-call

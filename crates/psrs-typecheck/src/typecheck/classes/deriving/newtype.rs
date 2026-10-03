@@ -109,11 +109,11 @@ impl Checker {
                 "derive newtype requires its final class argument to be a newtype constructor",
             );
         };
-        let Some(declaration) = self.type_declarations.get(type_id).cloned() else {
+        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the newtype declaration to derive");
         };
         if declaration.kind != hir::TypeDeclarationKind::Newtype
-            || type_id.module != self.module_id
+            || type_id.module != self.env.module_id
             || arguments.len() > declaration.parameters.len()
         {
             return self.deriving_error(
@@ -202,8 +202,8 @@ impl Checker {
         if let (Some((source_parameter, source_result)), Some((target_parameter, target_result))) =
             (arrow_parts(&source), arrow_parts(&target))
         {
-            let local = LocalId(self.next_dictionary_local);
-            self.next_dictionary_local += 1;
+            let local = LocalId(self.state.next_dictionary_local);
+            self.state.next_dictionary_local += 1;
             let binder = LocalBinder {
                 id: local,
                 name: format!("__derived_arg_{}", local.0),

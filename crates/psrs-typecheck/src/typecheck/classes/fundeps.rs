@@ -23,12 +23,25 @@ impl Checker {
         }
     }
 
+    /// Applies class functional dependencies to one constraint until it produces
+    /// no further type information.
+    ///
+    /// This is the same fixed point [`Self::improve_wanted`] reaches, narrowed to
+    /// one constraint, so a caller that holds a single obligation — the primitive
+    /// rule table, and a deferral re-entry — improves a rule's arguments the same
+    /// way the wanted-list pass improves them. It is needed there because the
+    /// wanted-list pass runs before solving starts and cannot reach a constraint
+    /// that instance solving builds afterwards.
+    pub(in crate::typecheck) fn improve_one(&mut self, constraint: &mut WantedConstraint) {
+        while self.improve_constraint(constraint) {}
+    }
+
     /// Improves one constraint from the class's functional dependencies. Each
     /// dependency whose determining positions are all known contributes the
     /// determined positions of every givens or instance head that agrees on
     /// those determining positions. Returns whether any type was assigned.
     fn improve_constraint(&mut self, constraint: &mut WantedConstraint) -> bool {
-        let Some(class) = self.classes.get(&constraint.class_id).cloned() else {
+        let Some(class) = self.env.classes.get(&constraint.class_id).cloned() else {
             return false;
         };
         if class.fundeps.is_empty() {
@@ -106,7 +119,7 @@ impl Checker {
         determining.iter().all(|&index| {
             !matches!(
                 self.resolve_type(arguments[index].clone()),
-                InferType::Variable(variable) if !self.rigid.contains(&variable)
+                InferType::Variable(variable) if !self.state.rigid.contains(&variable)
             )
         })
     }
@@ -127,10 +140,10 @@ impl Checker {
         }
         match (&wanted, &source) {
             (InferType::Variable(variable), _) => {
-                if self.rigid.contains(variable) {
+                if self.state.rigid.contains(variable) {
                     return false;
                 }
-                self.bind_variable(*variable, source, span)
+                self.bind_type_variable(*variable, source, span)
             }
             (InferType::Application(wf, wa), InferType::Application(sf, sa)) => {
                 let mut changed = self.assign_determined(wf, sf, span);
@@ -167,7 +180,7 @@ impl Checker {
 
     fn has_flexible_variable(&self, ty: &InferType) -> bool {
         match self.resolve_type(ty.clone()) {
-            InferType::Variable(variable) => !self.rigid.contains(&variable),
+            InferType::Variable(variable) => !self.state.rigid.contains(&variable),
             InferType::Application(function, argument) => {
                 self.has_flexible_variable(&function) || self.has_flexible_variable(&argument)
             }
@@ -182,7 +195,10 @@ impl Checker {
                     .any(|argument| self.has_flexible_variable(argument))
                     || self.has_flexible_variable(&body)
             }
-            InferType::Constructor(_) | InferType::RowEmpty => false,
+            InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => false,
         }
     }
 
@@ -193,10 +209,11 @@ impl Checker {
             "functional dependency conflict: {wanted_display} is also determined to be {source_display}"
         );
         if self
+            .state
             .reported_fundep_conflicts
             .insert((span, message.clone()))
         {
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::FundepConflict,
                 span,
                 message,
@@ -209,56 +226,14 @@ impl Checker {
     /// Only constraints introduced by the current declaration (`start` onward)
     /// are considered; earlier entries were checked with their own result type.
     pub(super) fn check_ambiguity(&mut self, result: &InferType, start: usize) {
-        let start = start.min(self.wanted.len());
-        if start == self.wanted.len() {
+        let start = start.min(self.state.wanted.len());
+        if start == self.state.wanted.len() {
             return;
         }
         let mut determined = HashSet::new();
         collect_infer_variables(&self.resolve_type(result.clone()), &mut determined);
-        loop {
-            let mut changed = false;
-            for constraint in &self.wanted[start..] {
-                let Some(class) = self.classes.get(&constraint.class_id) else {
-                    continue;
-                };
-                if class.fundeps.is_empty() {
-                    continue;
-                }
-                let argument_variables = constraint
-                    .arguments
-                    .iter()
-                    .map(|argument| {
-                        let mut variables = HashSet::new();
-                        collect_infer_variables(
-                            &self.resolve_type(argument.clone()),
-                            &mut variables,
-                        );
-                        variables
-                    })
-                    .collect::<Vec<_>>();
-                for fundep in &class.fundeps {
-                    if fundep.determining.iter().all(|&index| {
-                        argument_variables
-                            .get(index)
-                            .is_some_and(|variables| variables.is_subset(&determined))
-                    }) {
-                        for &index in &fundep.determined {
-                            if let Some(variables) = argument_variables.get(index) {
-                                for variable in variables {
-                                    if determined.insert(*variable) {
-                                        changed = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-        for constraint in &self.wanted[start..] {
+        self.fundep_determined(&self.state.wanted[start..], &mut determined);
+        for constraint in &self.state.wanted[start..] {
             if constraint.solution.is_none() {
                 continue;
             }
@@ -289,7 +264,7 @@ impl Checker {
                 continue;
             }
             let rendered = self.display_constraint(constraint.class_id, &constraint.arguments);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::AmbiguousConstraint,
                 constraint.span,
                 format!(
@@ -297,6 +272,125 @@ impl Checker {
                 ),
             ));
         }
+    }
+
+    /// Adds, to `determined`, every variable the class functional dependencies
+    /// determine across `constraints`, to a fixed point. A dependency
+    /// contributes only when all of its determining positions are already
+    /// determined, so the closure reaches what a chain of dependencies reaches
+    /// and no further.
+    ///
+    /// This is the one closure both ambiguity checks run: the one over the
+    /// constraints a declaration discharged and the one a retained constraint is
+    /// measured against. They must be the same closure, or a variable one
+    /// accepts and the other rejects would be the same variable.
+    pub(super) fn fundep_determined(
+        &self,
+        constraints: &[WantedConstraint],
+        determined: &mut HashSet<u32>,
+    ) {
+        loop {
+            let mut changed = false;
+            for constraint in constraints {
+                let Some(class) = self.env.classes.get(&constraint.class_id) else {
+                    continue;
+                };
+                if class.fundeps.is_empty() {
+                    continue;
+                }
+                let argument_variables = constraint
+                    .arguments
+                    .iter()
+                    .map(|argument| {
+                        let mut variables = HashSet::new();
+                        collect_infer_variables(
+                            &self.resolve_type(argument.clone()),
+                            &mut variables,
+                        );
+                        variables
+                    })
+                    .collect::<Vec<_>>();
+                for fundep in &class.fundeps {
+                    if fundep.determining.iter().all(|&index| {
+                        argument_variables
+                            .get(index)
+                            .is_some_and(|variables| variables.is_subset(determined))
+                    }) {
+                        for &index in &fundep.determined {
+                            if let Some(variables) = argument_variables.get(index) {
+                                for variable in variables {
+                                    if determined.insert(*variable) {
+                                        changed = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    /// Rejects a retained constraint whose variables the declaration's result
+    /// type and the class functional dependencies do not determine.
+    ///
+    /// Generalizing such a constraint would quantify a variable nothing pins
+    /// down: no use could instantiate it and no dictionary could be chosen for
+    /// it. Official PureScript raises the same set as `AmbiguousTypeVariables`
+    /// after taking the same dependency closure over the retained constraints,
+    /// which is [`Self::fundep_determined`] here.
+    pub(in crate::typecheck) fn check_residual_ambiguity(
+        &mut self,
+        residual: &[WantedConstraint],
+        result: &InferType,
+        declaration: &str,
+        declaration_span: TextRange,
+    ) {
+        if residual.is_empty() {
+            return;
+        }
+        let mut determined = HashSet::new();
+        collect_infer_variables(&self.resolve_type(result.clone()), &mut determined);
+        self.fundep_determined(residual, &mut determined);
+        for constraint in residual {
+            let mut variables = HashSet::new();
+            for argument in &constraint.arguments {
+                collect_infer_variables(&self.resolve_type(argument.clone()), &mut variables);
+            }
+            let ambiguous = variables
+                .difference(&determined)
+                .copied()
+                .collect::<Vec<_>>();
+            if ambiguous.is_empty() {
+                continue;
+            }
+            let rendered = self.display_constraint(constraint.class_id, &constraint.arguments);
+            let names = ambiguous
+                .iter()
+                .map(|variable| self.display_unknown(*variable))
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.state.errors.push(TypeCheckError::new(
+                TypeCheckErrorKind::AmbiguousConstraint,
+                declaration_span,
+                format!(
+                    "ambiguous constraint {rendered} in the type inferred for `{declaration}`: {names} is not determined by the result type or a functional dependency"
+                ),
+            ));
+        }
+    }
+
+    /// A solver variable's name for a diagnostic: the source name a signature or
+    /// a type hole gave it, and its identity otherwise.
+    fn display_unknown(&self, variable: u32) -> String {
+        self.scope
+            .type_variable_names
+            .get(&variable)
+            .cloned()
+            .unwrap_or_else(|| format!("_T{variable}"))
     }
 }
 
@@ -307,9 +401,13 @@ fn solution_uses_lexical_given(solution: &WantedSolution) -> bool {
             .solution
             .as_ref()
             .is_some_and(solution_uses_lexical_given),
+        // An abstracted dictionary is a parameter of the declaration itself, so
+        // it determines nothing the result type and the dependencies do not.
         WantedSolution::Global(_)
         | WantedSolution::Instance { .. }
-        | WantedSolution::Coercible { .. } => false,
+        | WantedSolution::Abstracted(_)
+        | WantedSolution::Coercible { .. }
+        | WantedSolution::Primitive { .. } => false,
     }
 }
 
@@ -342,6 +440,9 @@ pub(in crate::typecheck) fn collect_infer_variables(ty: &InferType, out: &mut Ha
             }
             collect_infer_variables(body, out);
         }
-        InferType::Constructor(_) | InferType::RowEmpty => {}
+        InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => {}
     }
 }

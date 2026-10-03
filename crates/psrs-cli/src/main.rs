@@ -64,8 +64,11 @@ fn run() -> Result<(), String> {
     let text = fs::read_to_string(&path).map_err(|error| format!("{path}: {error}"))?;
     let source = SourceFile::new(path.as_str(), text.as_str());
     if command == "check" {
-        return match psrs_driver::check_source(&path, &text) {
-            Ok(()) => Ok(()),
+        return match psrs_driver::check_source_with_warnings(&path, &text) {
+            Ok(warnings) => {
+                print_warnings(&warnings, &[(path, text)]);
+                Ok(())
+            }
             Err(errors) => {
                 for error in errors {
                     print_diagnostic(&source, error.span, error.stage, &error.message);
@@ -266,39 +269,70 @@ fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {
         .iter()
         .map(|(path, text)| (path.as_str(), text.as_str()))
         .collect();
-    let result = if kinds {
-        psrs_driver::check_program_kinds_lenient(&inputs)
-    } else {
-        psrs_driver::check_program(&inputs)
-    };
-    match result {
-        Ok(()) => Ok(()),
-        Err(errors) => {
-            for error in errors {
-                let Some((path, text)) = error
+    if kinds {
+        return match psrs_driver::check_program_kinds_lenient(&inputs) {
+            Ok(()) => Ok(()),
+            Err(errors) => {
+                print_program_diagnostics(errors, &sources);
+                Err(String::new())
+            }
+        };
+    }
+    match psrs_driver::check_program_with_warnings(&inputs) {
+        Ok(warnings) => {
+            for warning in warnings {
+                let Some((path, text)) = warning
                     .source
                     .source_index()
-                    .and_then(|source| sources.get(source))
+                    .and_then(|index| sources.get(index))
                 else {
-                    eprintln!(
-                        "program: {} [{}]: {}",
-                        error.diagnostic.message,
-                        error.diagnostic.stage,
-                        error.diagnostic.code.unwrap_or("no error code")
-                    );
                     continue;
                 };
                 let source = SourceFile::new(path.as_str(), text.as_str());
+                let stage = format!("{} warning", warning.diagnostic.stage);
                 print_coded_diagnostic(
                     &source,
-                    error.diagnostic.span,
-                    error.diagnostic.stage,
-                    error.diagnostic.code,
-                    &error.diagnostic.message,
+                    warning.diagnostic.span,
+                    &stage,
+                    warning.diagnostic.code,
+                    &warning.diagnostic.message,
                 );
             }
+            Ok(())
+        }
+        Err(errors) => {
+            print_program_diagnostics(errors, &sources);
             Err(String::new())
         }
+    }
+}
+
+fn print_program_diagnostics(
+    errors: Vec<psrs_driver::ProgramDiagnostic>,
+    sources: &[(String, String)],
+) {
+    for error in errors {
+        let Some((path, text)) = error
+            .source
+            .source_index()
+            .and_then(|source| sources.get(source))
+        else {
+            eprintln!(
+                "program: {} [{}]: {}",
+                error.diagnostic.message,
+                error.diagnostic.stage,
+                error.diagnostic.code.unwrap_or("no error code")
+            );
+            continue;
+        };
+        let source = SourceFile::new(path.as_str(), text.as_str());
+        print_coded_diagnostic(
+            &source,
+            error.diagnostic.span,
+            error.diagnostic.stage,
+            error.diagnostic.code,
+            &error.diagnostic.message,
+        );
     }
 }
 
@@ -392,10 +426,11 @@ fn print_warnings(warnings: &[psrs_driver::Warning], sources: &[(String, String)
 
 fn print_warning(source: &SourceFile, warning: &psrs_driver::Warning) {
     let kind = format!("{} warning", warning.diagnostic.stage);
-    print_diagnostic(
+    print_coded_diagnostic(
         source,
         warning.diagnostic.span,
         &kind,
+        warning.diagnostic.code,
         &warning.diagnostic.message,
     );
 }

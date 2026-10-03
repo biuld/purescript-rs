@@ -19,7 +19,7 @@ impl Checker {
             }
             hir::PatternKind::Integer(text) => {
                 let Ok(value) = text.parse::<i32>() else {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::IntegerOutOfRange,
                         span,
                         format!("integer literal `{text}` is outside the signed 32-bit range"),
@@ -33,7 +33,7 @@ impl Checker {
             }
             hir::PatternKind::Number(text) => {
                 if !text.parse::<f64>().is_ok_and(f64::is_finite) {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::NumberOutOfRange,
                         span,
                         "number literal is not a valid Number",
@@ -85,15 +85,16 @@ impl Checker {
                 }
             }
             hir::PatternKind::Typed { pattern, ty } => {
-                let annotation = self.elaborate_type(ty, &mut self.annotation_variables.clone());
+                let annotation =
+                    self.elaborate_type(ty, &mut self.scope.annotation_variables.clone());
                 self.unify(expected.clone(), annotation.clone(), ty.span);
                 return self.check_pattern(pattern, &annotation, inserted);
             }
             hir::PatternKind::Constructor {
                 symbol, arguments, ..
             } => {
-                let Some(info) = self.constructor_info.get(symbol).cloned() else {
-                    self.errors.push(TypeCheckError::new(
+                let Some(info) = self.env.constructor_info.get(symbol).cloned() else {
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::InvalidHir,
                         span,
                         "pattern constructor has no type declaration",
@@ -103,7 +104,7 @@ impl Checker {
                 let (result, fields) = self.instantiate_constructor(&info);
                 self.unify(expected.clone(), result, span);
                 if arguments.len() != fields.len() {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::TypeMismatch,
                         span,
                         format!(
@@ -125,7 +126,7 @@ impl Checker {
                 }
             }
             hir::PatternKind::OperatorChain { .. } => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnloweredOperator,
                     span,
                     "operator patterns must be resolved before type checking",
@@ -135,8 +136,8 @@ impl Checker {
             hir::PatternKind::Record { fields, mode } => {
                 let expected = self.resolve_type(expected.clone());
                 let mut record_fields = if let Some(row) = record_row(&expected) {
-                    let flattened = self.flatten_row(row);
-                    (flattened.fields, flattened.tail)
+                    let normalized = self.normalize_row_or_report(row, span);
+                    (normalized.fields, normalized.tail)
                 } else if matches!(expected, InferType::Variable(_)) {
                     let inferred_fields = fields
                         .iter()
@@ -153,7 +154,7 @@ impl Checker {
                     );
                     (inferred_fields, tail)
                 } else {
-                    self.errors.push(TypeCheckError::new(
+                    self.state.errors.push(TypeCheckError::new(
                         TypeCheckErrorKind::UnsupportedExpression,
                         span,
                         "record pattern requires a record type",
@@ -172,7 +173,7 @@ impl Checker {
                         .filter(|label| !requested_labels.contains(label))
                         .collect::<Vec<_>>();
                     if !extra_labels.is_empty() {
-                        self.errors.push(TypeCheckError::new(
+                        self.state.errors.push(TypeCheckError::new(
                             TypeCheckErrorKind::TypeMismatch,
                             span,
                             format!(
@@ -187,7 +188,7 @@ impl Checker {
                 let mut lowered = Vec::with_capacity(fields.len());
                 for (label, field_pattern) in fields {
                     if !labels.insert(label) {
-                        self.errors.push(TypeCheckError::new(
+                        self.state.errors.push(TypeCheckError::new(
                             TypeCheckErrorKind::TypeMismatch,
                             field_pattern.span,
                             format!("record label `{label}` occurs more than once"),
@@ -215,7 +216,7 @@ impl Checker {
                         record_fields.0.push((label.clone(), field_ty.clone()));
                         field_ty
                     } else {
-                        self.errors.push(TypeCheckError::new(
+                        self.state.errors.push(TypeCheckError::new(
                             TypeCheckErrorKind::TypeMismatch,
                             field_pattern.span,
                             format!("record has no field `{label}`"),
@@ -248,7 +249,8 @@ impl Checker {
         ty: &InferType,
         inserted: &mut Vec<LocalId>,
     ) {
-        self.locals
+        self.scope
+            .locals
             .insert(binder.id, Scheme::monomorphic(ty.clone()));
         inserted.push(binder.id);
     }

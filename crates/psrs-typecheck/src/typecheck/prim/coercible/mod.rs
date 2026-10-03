@@ -1,17 +1,78 @@
-use super::super::*;
+//! The `Prim.Coerce.Coercible` rule: the one `Proof` member, and the one
+//! member whose evidence is a compile-time boundary rather than a dictionary.
+//!
+//! It is entered from the rule table by class identity and *before* the lexical
+//! givens, because nothing in scope discharges a proof: a `Coercible` given
+//! supplies an assumption that two types are convertible, while this rule
+//! *derives* the conversion from role analysis, equality, the visible newtypes,
+//! and those same givens. Deriving it first is what official solving does —
+//! `forClassNameM` tries `solveCoercible` before falling back to the instance
+//! lookup — and it is what lets a `coerce` boundary carry an explicit proof
+//! rather than a dictionary parameter, which THIR verifies requires.
+//!
+//! The mechanism reads roles through the checked kind environment and reads
+//! kinds through the one kind solver, so it shares the foundations every other
+//! rule will share: no private kind table, no private row representation, and no
+//! private reader for source syntax.
+
+use super::{EvidenceClass, PrimitiveArgs, PrimitiveEvidence, PrimitiveOutcome, PrimitiveRule};
+use crate::typecheck::*;
 
 mod givens;
-mod kinds;
+
+/// `Coercible`'s entry in the rule table.
+pub(in crate::typecheck) const RULE: PrimitiveRule = PrimitiveRule {
+    class_id: hir::TypeId::COERCIBLE,
+    evidence: EvidenceClass::CompileTimeProof,
+    arity: 2,
+    solve,
+};
+
+/// Whether `Coercible a b` is derivable from what is known now.
+///
+/// This member has exactly one answer shape, which is why its evidence class is
+/// what the dispatch order is keyed on rather than a coincidence of its
+/// identity: a proof obligation is either derived from the role analysis or it
+/// is not, so there is no partial answer to record and no further obligation to
+/// emit. `Undecided` is therefore this rule's only alternative to `Solved`, and
+/// it is the honest one — an argument that is still an unsolved inference
+/// variable yields `Undecided`, not `Failed`, because a convertible pair is a
+/// claim about determined types and reporting it as impossible while a type is
+/// unknown is the conflation the four-outcome contract exists to prevent.
+/// `Undecided` sends the obligation into instance search, which is where an
+/// assumption about the unknown types would be found.
+fn solve(checker: &mut Checker, args: &PrimitiveArgs) -> PrimitiveOutcome {
+    let arguments = args.resolved(checker);
+    let [source, target] = arguments.as_slice() else {
+        return PrimitiveOutcome::Undecided;
+    };
+    if !checker.proves_coercible(source, target, args.span()) {
+        return PrimitiveOutcome::Undecided;
+    }
+    PrimitiveOutcome::Solved {
+        evidence: PrimitiveEvidence::Proof {
+            source: source.clone(),
+            target: target.clone(),
+        },
+        deferred: Vec::new(),
+    }
+}
 
 impl Checker {
-    pub(super) fn proves_coercible(&mut self, source: &InferType, target: &InferType) -> bool {
-        self.proves_coercible_inner(source, target, 0, &mut HashSet::new())
+    pub(super) fn proves_coercible(
+        &mut self,
+        source: &InferType,
+        target: &InferType,
+        span: TextRange,
+    ) -> bool {
+        self.proves_coercible_inner(source, target, span, 0, &mut HashSet::new())
     }
 
     fn proves_coercible_inner(
         &mut self,
         source: &InferType,
         target: &InferType,
+        span: TextRange,
         depth: usize,
         path: &mut HashSet<(String, String)>,
     ) -> bool {
@@ -20,7 +81,7 @@ impl Checker {
         }
         let source = self.resolve_type(source.clone());
         let target = self.resolve_type(target.clone());
-        if !self.coercion_kinds_compatible(&source, &target) {
+        if !self.coercion_kinds_compatible(&source, &target, span) {
             return false;
         }
         if self.infer_types_equal(&source, &target) || self.given_coercible(&source, &target) {
@@ -45,11 +106,13 @@ impl Checker {
                 return self.proves_coercible_inner(
                     source_field,
                     target_field,
+                    span,
                     depth + 1,
                     &mut field_path,
                 ) && self.proves_coercible_inner(
                     source_tail,
                     target_tail,
+                    span,
                     depth + 1,
                     &mut tail_path,
                 );
@@ -67,13 +130,13 @@ impl Checker {
 
         if let Some(underlying) = self.unwrap_visible_newtype(&source) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&underlying, &target, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(&underlying, &target, span, depth + 1, &mut nested) {
                 return true;
             }
         }
         if let Some(underlying) = self.unwrap_visible_newtype(&target) {
             let mut nested = path.clone();
-            if self.proves_coercible_inner(&source, &underlying, depth + 1, &mut nested) {
+            if self.proves_coercible_inner(&source, &underlying, span, depth + 1, &mut nested) {
                 return true;
             }
         }
@@ -106,6 +169,7 @@ impl Checker {
                     self.proves_coercible_inner(
                         source_argument,
                         target_argument,
+                        span,
                         depth + 1,
                         &mut nested,
                     )
@@ -126,6 +190,7 @@ impl Checker {
             }
             TypeConstructor::Function => vec![hir::Role::Representational; arity],
             TypeConstructor::User(id) => self
+                .env
                 .checked_kinds
                 .roles(id)
                 .map(<[hir::Role]>::to_vec)
@@ -135,7 +200,12 @@ impl Checker {
             | TypeConstructor::Boolean
             | TypeConstructor::String
             | TypeConstructor::Char
-            | TypeConstructor::Unit => Vec::new(),
+            | TypeConstructor::Unit
+            | TypeConstructor::Type
+            | TypeConstructor::Constraint
+            | TypeConstructor::Symbol => Vec::new(),
+            // Official PureScript declares `Prim.Row` with a phantom role.
+            TypeConstructor::Row => vec![hir::Role::Phantom; arity],
         }
     }
 
@@ -144,10 +214,10 @@ impl Checker {
         let InferType::Constructor(TypeConstructor::User(id)) = head else {
             return None;
         };
-        if !self.visible_newtypes.contains(id) {
+        if !self.env.visible_newtypes.contains(id) {
             return None;
         }
-        let declaration = self.type_declarations.get(id)?.clone();
+        let declaration = self.env.type_declarations.get(id)?.clone();
         if declaration.kind != hir::TypeDeclarationKind::Newtype
             || arguments.len() != declaration.parameters.len()
         {

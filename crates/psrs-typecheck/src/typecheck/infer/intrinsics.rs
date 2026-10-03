@@ -24,6 +24,12 @@ impl Checker {
     }
 
     pub(super) fn intrinsic_type(&mut self, intrinsic: Intrinsic) -> Option<InferType> {
+        // `Prim.undefined` is `forall a. a`, so its type is one fresh variable
+        // that the use decides. It takes no argument, so there is no arrow to
+        // build.
+        if intrinsic == Intrinsic::Undefined {
+            return Some(self.fresh());
+        }
         if intrinsic == Intrinsic::ArrayLength {
             let element = self.fresh();
             return Some(arrow(
@@ -149,7 +155,8 @@ impl Checker {
             | Intrinsic::IntToChar
             | Intrinsic::StringToBytes
             | Intrinsic::BytesToString
-            | Intrinsic::Coerce => return None,
+            | Intrinsic::Coerce
+            | Intrinsic::Undefined => return None,
         };
         Some(curried(
             vec![primitive(operand), primitive(operand)],

@@ -1,20 +1,29 @@
-use psrs_hir::{BuiltinType, Role, TypeId, TypeKind};
+//! The kind model: one representation of a checked kind, the one primitive kind
+//! table, and the diagnostic that carries a kind error back to the module that
+//! declares the offending type.
+
+use psrs_hir::{BuiltinType, ModuleId, Role, TypeId, TypeKind};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
-/// A checked kind. Kinds are PureScript types of kind `Type`, so a named type
-/// may denote a kind; `Builtin` covers primitive type constructors used as
-/// kinds, and `Named` covers user declarations used as kinds.
+/// A checked kind. Kinds are PureScript types, so a kind is a type expression
+/// read in a kind position and the two grammars cannot drift apart. A primitive
+/// constructor read as a kind is [`Kind::Builtin`], a user declaration read as a
+/// kind is its resolved identity, and everything else is an application, an
+/// arrow, or a kind variable.
+///
+/// There is deliberately no reserved constant for one primitive and no
+/// dedicated head for `Row`: a constant only for `Type` would make the same
+/// kind expression denote two different things depending on which module reads
+/// it, and the two readings do not unify.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
-    Type,
-    Constraint,
-    Symbol,
-    /// The `Row` kind constructor, before application.
-    Row,
-    /// A primitive type constructor used as a kind, such as `Int` or `Array`.
+    /// A primitive constructor read as a kind. `Builtin(Type)` and
+    /// `Builtin(Constraint)` are the primitive kinds, `Builtin(Symbol)` is the
+    /// kind of a type-level string, `Builtin(Int)` the kind of a type-level
+    /// integer, and `Builtin(Row)` the row kind constructor.
     Builtin(BuiltinType),
-    /// A user type declaration used as a kind.
+    /// A user type declaration read as a kind.
     Named(TypeId),
     App(Box<Kind>, Box<Kind>),
     Function(Box<Kind>, Box<Kind>),
@@ -22,33 +31,67 @@ pub enum Kind {
     Variable(u32),
 }
 
-/// A possibly polymorphic kind: `variables` are rigid `forall` binders.
+impl Kind {
+    /// Applies a kind constructor head to an argument kind.
+    pub fn app(head: Kind, argument: Kind) -> Kind {
+        Kind::App(Box::new(head), Box::new(argument))
+    }
+
+    /// `Row element`: the kind of a row whose entries have kind `element`.
+    pub fn row(element: Kind) -> Kind {
+        Kind::app(Kind::Builtin(BuiltinType::Row), element)
+    }
+}
+
+/// The primitive `Type` kind, which every value signature ends at.
+pub fn type_kind() -> Kind {
+    Kind::Builtin(BuiltinType::Type)
+}
+
+/// The primitive `Constraint` kind, which every class constraint ends at.
+pub fn constraint_kind() -> Kind {
+    Kind::Builtin(BuiltinType::Constraint)
+}
+
+/// The kind of a primitive type constructor, exactly as official PureScript's
+/// `Environment.hs` states it in `primTypes`.
+///
+/// This is the only primitive kind table in the compiler. A kind annotation, a
+/// constraint argument, and a coerced boundary all read a primitive's kind
+/// here, so they cannot disagree about what `Row`, `Record`, `Array`, or
+/// `Function` mean. Reading a primitive *as a kind* is a different operation and
+/// is [`Kind::Builtin`]; this table answers what kind a primitive has when it is
+/// used as a type.
+pub fn primitive_kind(builtin: BuiltinType) -> Kind {
+    match builtin {
+        BuiltinType::Int
+        | BuiltinType::Number
+        | BuiltinType::Boolean
+        | BuiltinType::String
+        | BuiltinType::Char
+        | BuiltinType::Unit
+        | BuiltinType::Type
+        | BuiltinType::Constraint
+        | BuiltinType::Symbol => type_kind(),
+        BuiltinType::Function => Kind::Function(
+            Box::new(type_kind()),
+            Box::new(Kind::Function(Box::new(type_kind()), Box::new(type_kind()))),
+        ),
+        BuiltinType::Row | BuiltinType::Array => {
+            Kind::Function(Box::new(type_kind()), Box::new(type_kind()))
+        }
+        BuiltinType::Record => {
+            Kind::Function(Box::new(Kind::row(type_kind())), Box::new(type_kind()))
+        }
+    }
+}
+
+/// A possibly polymorphic kind. Every variable in `variables` is rigid at every
+/// use, so instantiating the scheme is what makes the kind usable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KindScheme {
     pub variables: Vec<u32>,
     pub kind: Kind,
-}
-
-/// Checked role metadata for one resolved program. Type roles are attached to
-/// resolved constructor identities so importers use the declaring module's
-/// representation contract.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CheckedKindEnv {
-    pub roles: HashMap<TypeId, Vec<Role>>,
-    /// Kind schemes for named constructors, including imports. Keeping these
-    /// alongside roles lets coercion checking validate argument kinds after
-    /// the source type tree has been elaborated.
-    pub kinds: HashMap<TypeId, KindScheme>,
-}
-
-impl CheckedKindEnv {
-    pub fn roles(&self, id: TypeId) -> Option<&[Role]> {
-        self.roles.get(&id).map(Vec::as_slice)
-    }
-
-    pub fn kind(&self, id: TypeId) -> Option<&KindScheme> {
-        self.kinds.get(&id)
-    }
 }
 
 impl KindScheme {
@@ -60,75 +103,68 @@ impl KindScheme {
     }
 }
 
+/// The checked kind environment of one program. It is the only source of kind
+/// and role metadata for a declaration that another module uses, and it is
+/// produced once by [`check_program`](crate::check_program) rather than rebuilt
+/// per module.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CheckedKindEnv {
+    pub roles: HashMap<TypeId, Vec<Role>>,
+    /// Kind schemes for named constructors, including imports. Keeping these
+    /// alongside roles lets coercion checking validate argument kinds after
+    /// the source type tree has been elaborated.
+    pub kinds: HashMap<TypeId, KindScheme>,
+    /// The module that declares each entry, so a use in one module is checked
+    /// against, and reported against, the module that declared the type.
+    pub declaring_module: HashMap<TypeId, ModuleId>,
+}
+
+impl CheckedKindEnv {
+    pub fn roles(&self, id: TypeId) -> Option<&[Role]> {
+        self.roles.get(&id).map(Vec::as_slice)
+    }
+
+    /// The checked kind scheme for a declaration, if the program produced one.
+    /// This and [`CheckedKindEnv::roles`] are the only lookups a consumer needs:
+    /// a kind or a role is never reconstructed from surface syntax.
+    pub fn kind_scheme(&self, id: TypeId) -> Option<&KindScheme> {
+        self.kinds.get(&id)
+    }
+
+    /// The checked kind scheme for a declaration.
+    ///
+    /// Retained under its previous name for callers that already read it; it is
+    /// the same lookup as [`CheckedKindEnv::kind_scheme`].
+    pub fn kind(&self, id: TypeId) -> Option<&KindScheme> {
+        self.kind_scheme(id)
+    }
+}
+
 /// A kind diagnostic, aligned to an official PureScript `errorCode`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KindDiagnostic {
     pub code: &'static str,
     pub span: TextRange,
     pub message: String,
+    /// The module that declares the offending type. This is not necessarily the
+    /// module whose use exposed the problem: a conflict in module A is reported
+    /// against A's source even when B's use exposed it.
+    pub origin: ModuleId,
 }
 
 impl KindDiagnostic {
-    pub fn new(code: &'static str, span: TextRange, message: impl Into<String>) -> Self {
+    pub fn new(
+        origin: ModuleId,
+        code: &'static str,
+        span: TextRange,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             code,
             span,
             message: message.into(),
+            origin,
         }
-    }
-}
-
-/// The kind a primitive type constructor has, when used as a type.
-pub fn builtin_type_kind(builtin: BuiltinType) -> Kind {
-    match builtin {
-        BuiltinType::Int
-        | BuiltinType::Number
-        | BuiltinType::Boolean
-        | BuiltinType::String
-        | BuiltinType::Char
-        | BuiltinType::Unit
-        | BuiltinType::Type
-        | BuiltinType::Constraint
-        | BuiltinType::Symbol => Kind::Type,
-        BuiltinType::Function => Kind::Function(
-            Box::new(Kind::Type),
-            Box::new(Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type))),
-        ),
-        BuiltinType::Row => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
-        BuiltinType::Record => Kind::Function(
-            Box::new(Kind::App(Box::new(Kind::Row), Box::new(Kind::Type))),
-            Box::new(Kind::Type),
-        ),
-        BuiltinType::Array => Kind::Function(Box::new(Kind::Type), Box::new(Kind::Type)),
-    }
-}
-
-pub fn substitute(kind: &Kind, mapping: &HashMap<u32, Kind>) -> Kind {
-    match kind {
-        Kind::Variable(variable) => mapping
-            .get(variable)
-            .cloned()
-            .unwrap_or(Kind::Variable(*variable)),
-        Kind::App(function, argument) => Kind::App(
-            Box::new(substitute(function, mapping)),
-            Box::new(substitute(argument, mapping)),
-        ),
-        Kind::Function(parameter, result) => Kind::Function(
-            Box::new(substitute(parameter, mapping)),
-            Box::new(substitute(result, mapping)),
-        ),
-        primitive => primitive.clone(),
-    }
-}
-
-pub fn occurs(variable: u32, kind: &Kind) -> bool {
-    match kind {
-        Kind::Variable(other) => variable == *other,
-        Kind::App(function, argument) => occurs(variable, function) || occurs(variable, argument),
-        Kind::Function(parameter, result) => {
-            occurs(variable, parameter) || occurs(variable, result)
-        }
-        _ => false,
     }
 }
 

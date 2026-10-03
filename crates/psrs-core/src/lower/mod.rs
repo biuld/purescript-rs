@@ -52,6 +52,20 @@ fn lower_expr(
     let kind = match expression.kind {
         TypedExprKind::Local(id) => ExprKind::Local(id),
         TypedExprKind::Global(id) => {
+            // `Prim.undefined` type checks as `forall a. a` but has no runtime
+            // representation, and none of the primitive lowering shapes
+            // describes a partial value. Reporting it here keeps Core honest
+            // rather than emitting a reference to a global that does not
+            // exist.
+            if matches!(
+                externals.get(&id),
+                Some(ExternalKind::Intrinsic(psrs_hir::Intrinsic::Undefined))
+            ) {
+                return Err(LowerError {
+                    span,
+                    message: "`Prim.undefined` has no runtime representation",
+                });
+            }
             if let Some(constructor) = constructors.get(&id) {
                 if constructor.field_count != 0 {
                     return Err(LowerError {

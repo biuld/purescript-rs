@@ -2,13 +2,13 @@ use super::*;
 
 impl Checker {
     pub(super) fn fresh(&mut self) -> InferType {
-        let id = self.next_variable;
-        self.next_variable += 1;
-        self.levels.insert(id, self.level);
-        let kind = self.next_kind_variable;
-        self.next_kind_variable += 1;
-        self.infer_variable_kinds
-            .insert(id, psrs_kind::Kind::Variable(kind));
+        let id = self.state.next_variable;
+        self.state.next_variable += 1;
+        self.state.levels.insert(id, self.state.level);
+        // Every type unknown carries a kind from the moment it exists, so the
+        // binding check always has one to compare against.
+        let kind = self.fresh_kind();
+        self.record_variable_kind(id, kind);
         InferType::Variable(id)
     }
 
@@ -18,28 +18,28 @@ impl Checker {
         match (left, right) {
             (InferType::Variable(a), InferType::Variable(b)) if a == b => {}
             (InferType::Variable(a), InferType::Variable(b)) => {
-                match (self.rigid.contains(&a), self.rigid.contains(&b)) {
+                match (self.state.rigid.contains(&a), self.state.rigid.contains(&b)) {
                     (true, true) => self.signature_mismatch(
                         InferType::Variable(a),
                         InferType::Variable(b),
                         span,
                     ),
                     (true, false) => {
-                        self.bind_variable(b, InferType::Variable(a), span);
+                        self.bind_type_variable(b, InferType::Variable(a), span);
                     }
                     (false, _) => {
-                        self.bind_variable(a, InferType::Variable(b), span);
+                        self.bind_type_variable(a, InferType::Variable(b), span);
                     }
                 }
             }
-            (InferType::Variable(variable), ty) if self.rigid.contains(&variable) => {
+            (InferType::Variable(variable), ty) if self.state.rigid.contains(&variable) => {
                 self.signature_mismatch(InferType::Variable(variable), ty, span);
             }
-            (ty, InferType::Variable(variable)) if self.rigid.contains(&variable) => {
+            (ty, InferType::Variable(variable)) if self.state.rigid.contains(&variable) => {
                 self.signature_mismatch(ty, InferType::Variable(variable), span);
             }
             (InferType::Variable(variable), ty) | (ty, InferType::Variable(variable)) => {
-                self.bind_variable(variable, ty, span);
+                self.bind_type_variable(variable, ty, span);
             }
             (
                 InferType::ForAll {
@@ -84,6 +84,12 @@ impl Checker {
                 self.unify(*left_body, *right_body, span);
             }
             (InferType::Constructor(a), InferType::Constructor(b)) if a == b => {}
+            // Two decided literals unify when their scalar sequences or values
+            // are equal. A literal is never bound to anything: the arms above
+            // already solve an unknown variable *to* the literal, so this only
+            // decides the case where both sides are literals.
+            (InferType::TypeLevelString(a), InferType::TypeLevelString(b)) if a == b => {}
+            (InferType::TypeLevelInt(a), InferType::TypeLevelInt(b)) if a == b => {}
             (InferType::Application(f1, a1), InferType::Application(f2, a2))
                 if matches!(*f1, InferType::Constructor(TypeConstructor::Record))
                     && matches!(*f2, InferType::Constructor(TypeConstructor::Record)) =>
@@ -94,10 +100,20 @@ impl Checker {
                 self.unify(*f1, *f2, span);
                 self.unify(*a1, *a2, span);
             }
+            // A row is a row whatever head it sits under, so a `Record`
+            // application and a bare `Row k` argument are the same equality.
+            // The `Record`-to-`Record` arm above is this one specialised; without
+            // this arm two bare rows meet only the catch-all below, so the
+            // equality a row-polymorphic declaration's own use asks for is
+            // reported as a mismatch between two identical rows, and a rule that
+            // decides a row cannot bind it.
+            (left, right) if self.is_row(&left) || self.is_row(&right) => {
+                self.unify_rows(left, right, span);
+            }
             (expected, actual) => {
                 let expected = self.display_type(&expected);
                 let actual = self.display_type(&actual);
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::TypeMismatch,
                     span,
                     format!("type mismatch: expected {expected}, found {actual}"),
@@ -106,32 +122,69 @@ impl Checker {
         }
     }
 
-    /// Binds `variable` to `ty`, reporting an occurs-check failure and leaving
-    /// the substitution unchanged when it would be recursive. Returns whether a
-    /// binding was recorded, so a fixed-point caller can detect progress.
-    pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
+    /// Binds `variable` to `ty`, rejecting a binding that would be recursive,
+    /// would let a skolem escape, or would give the variable a kind its recorded
+    /// kind does not admit.
+    ///
+    /// Returns whether a binding was recorded, so a fixed-point caller can
+    /// detect progress. The kind check is part of the same operation as the
+    /// occurs, escape, and level rules: whether an operation is kind-corrected
+    /// must not depend on which module reached it.
+    pub(super) fn bind_type_variable(
+        &mut self,
+        variable: u32,
+        ty: InferType,
+        span: TextRange,
+    ) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
-            self.errors.push(TypeCheckError::new(
+            self.state.errors.push(TypeCheckError::new(
                 TypeCheckErrorKind::OccursCheck,
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
-            false
-        } else if self.reject_skolem_escape(variable, &ty, span) {
-            false
-        } else {
-            let level = self.levels.get(&variable).copied().unwrap_or(TOP_LEVEL);
-            self.adjust_levels(&ty, level);
-            self.substitutions.insert(variable, ty);
-            true
+            return false;
         }
+        if self.reject_skolem_escape(variable, &ty, span) {
+            return false;
+        }
+        let level = self
+            .state
+            .levels
+            .get(&variable)
+            .copied()
+            .unwrap_or(TOP_LEVEL);
+        self.adjust_levels(&ty, level);
+        if !self.check_binding_kind(variable, &ty, span) {
+            return false;
+        }
+        self.state.substitutions.insert(variable, ty);
+        true
+    }
+
+    /// Unifies the kind recorded for `variable` with the kind of the type it is
+    /// being bound to, through the one kind solver.
+    ///
+    /// This is the inference-side rule `kinds.md` states: a row-valued binding
+    /// is checked against `Row k`, an arrow against `Type -> Type`, and every
+    /// other type against the kind its head and arguments give it. A type whose
+    /// kind the checked environment does not supply is left alone, because the
+    /// missing scheme is the kind pass's diagnostic and inference must not
+    /// reject the same module a second time for it.
+    fn check_binding_kind(&mut self, variable: u32, ty: &InferType, span: TextRange) -> bool {
+        let Some(recorded) = self.recorded_kind(variable) else {
+            return true;
+        };
+        let Some(ty_kind) = self.kind_of_type(ty, span) else {
+            return true;
+        };
+        self.unify_kind(recorded, ty_kind, span)
     }
 
     fn signature_mismatch(&mut self, expected: InferType, found: InferType, span: TextRange) {
         let expected_display = self.display_type(&expected);
         let found_display = self.display_type(&found);
-        self.errors.push(TypeCheckError::new(
+        self.state.errors.push(TypeCheckError::new(
             TypeCheckErrorKind::TypeMismatch,
             span,
             format!("signature mismatch: expected {expected_display}, found {found_display}"),
@@ -145,6 +198,7 @@ impl Checker {
             InferType::Constructor(constructor) => match constructor {
                 TypeConstructor::Function => "Function".into(),
                 TypeConstructor::Record => "Record".into(),
+                TypeConstructor::Row => "Row".into(),
                 TypeConstructor::Array => "Array".into(),
                 TypeConstructor::Int => "Int".into(),
                 TypeConstructor::Number => "Number".into(),
@@ -152,7 +206,11 @@ impl Checker {
                 TypeConstructor::String => "String".into(),
                 TypeConstructor::Char => "Char".into(),
                 TypeConstructor::Unit => "Unit".into(),
+                TypeConstructor::Type => "Type".into(),
+                TypeConstructor::Constraint => "Constraint".into(),
+                TypeConstructor::Symbol => "Symbol".into(),
                 TypeConstructor::User(id) => self
+                    .env
                     .type_names
                     .get(&id)
                     .cloned()
@@ -199,31 +257,24 @@ impl Checker {
             ),
             InferType::RowEmpty => "{ }".into(),
             row @ InferType::RowExtend { .. } => self.display_record(&row),
+            InferType::TypeLevelString(value) => format!("\"{value}\""),
+            InferType::TypeLevelInt(value) => value.to_string(),
         }
     }
 
-    fn display_record(&self, row: &InferType) -> String {
-        let FlatRow { fields, tail } = self.flatten_row(row.clone());
-        let rendered = fields
+    /// Renders the labelled entries of a row, in the order given.
+    pub(super) fn display_row_fields(&self, fields: &[(String, InferType)]) -> String {
+        fields
             .iter()
             .map(|(label, ty)| format!("{label}: {}", self.display_type(ty)))
             .collect::<Vec<_>>()
-            .join(", ");
-        match tail {
-            RowTail::Closed => format!("{{{rendered}}}"),
-            RowTail::Open(variable) => {
-                if rendered.is_empty() {
-                    format!("{{ | _T{variable} }}")
-                } else {
-                    format!("{{{rendered} | _T{variable}}}")
-                }
-            }
-        }
+            .join(", ")
     }
 
     pub(super) fn resolve_type(&self, ty: InferType) -> InferType {
         match ty {
             InferType::Variable(variable) => self
+                .state
                 .substitutions
                 .get(&variable)
                 .map(|ty| self.resolve_type(ty.clone()))
@@ -266,13 +317,17 @@ impl Checker {
     fn adjust_levels_excluding(&mut self, ty: &InferType, max_level: u32, bound: &HashSet<u32>) {
         match ty {
             InferType::Variable(variable) if !bound.contains(variable) => {
-                if let Some(level) = self.levels.get_mut(variable)
+                if let Some(level) = self.state.levels.get_mut(variable)
                     && *level > max_level
                 {
                     *level = max_level;
                 }
             }
-            InferType::Variable(_) | InferType::Constructor(_) | InferType::RowEmpty => {}
+            InferType::Variable(_)
+            | InferType::Constructor(_)
+            | InferType::RowEmpty
+            | InferType::TypeLevelString(_)
+            | InferType::TypeLevelInt(_) => {}
             InferType::Application(function, argument) => {
                 self.adjust_levels_excluding(function, max_level, bound);
                 self.adjust_levels_excluding(argument, max_level, bound);
@@ -310,7 +365,7 @@ impl Checker {
                 Some(interner.intern(Type::Variable(TypeVariableId(variable))))
             }
             InferType::Variable(variable) => {
-                self.errors.push(TypeCheckError::new(
+                self.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnconstrainedType,
                     span,
                     format!("cannot infer a monomorphic type for _T{variable}"),
@@ -321,6 +376,7 @@ impl Checker {
                 Some(interner.intern(Type::Constructor(match constructor {
                     TypeConstructor::Function => thir::TypeConstructor::Function,
                     TypeConstructor::Record => thir::TypeConstructor::Record,
+                    TypeConstructor::Row => thir::TypeConstructor::Row,
                     TypeConstructor::Array => thir::TypeConstructor::Array,
                     TypeConstructor::Int => thir::TypeConstructor::Int,
                     TypeConstructor::Number => thir::TypeConstructor::Number,
@@ -328,6 +384,9 @@ impl Checker {
                     TypeConstructor::String => thir::TypeConstructor::String,
                     TypeConstructor::Char => thir::TypeConstructor::Char,
                     TypeConstructor::Unit => thir::TypeConstructor::Unit,
+                    TypeConstructor::Type => thir::TypeConstructor::Type,
+                    TypeConstructor::Constraint => thir::TypeConstructor::Constraint,
+                    TypeConstructor::Symbol => thir::TypeConstructor::Symbol,
                     TypeConstructor::User(id) => thir::TypeConstructor::User(id),
                 })))
             }
@@ -364,6 +423,10 @@ impl Checker {
             }
             InferType::RowEmpty => Some(interner.intern(Type::RowEmpty)),
             row @ InferType::RowExtend { .. } => self.finalize_row(row, span, interner, generics),
+            InferType::TypeLevelString(value) => {
+                Some(interner.intern(Type::TypeLevelString(value)))
+            }
+            InferType::TypeLevelInt(value) => Some(interner.intern(Type::TypeLevelInt(value))),
         }
     }
 }

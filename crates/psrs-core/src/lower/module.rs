@@ -5,6 +5,7 @@ fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::Typ
     match constructor {
         psrs_thir::TypeConstructor::Function => crate::TypeConstructor::Function,
         psrs_thir::TypeConstructor::Record => crate::TypeConstructor::Record,
+        psrs_thir::TypeConstructor::Row => crate::TypeConstructor::Row,
         psrs_thir::TypeConstructor::Array => crate::TypeConstructor::Array,
         psrs_thir::TypeConstructor::Int => crate::TypeConstructor::Int,
         psrs_thir::TypeConstructor::Number => crate::TypeConstructor::Number,
@@ -12,6 +13,9 @@ fn lower_type_constructor(constructor: psrs_thir::TypeConstructor) -> crate::Typ
         psrs_thir::TypeConstructor::String => crate::TypeConstructor::String,
         psrs_thir::TypeConstructor::Char => crate::TypeConstructor::Char,
         psrs_thir::TypeConstructor::Unit => crate::TypeConstructor::Unit,
+        psrs_thir::TypeConstructor::Type => crate::TypeConstructor::Type,
+        psrs_thir::TypeConstructor::Constraint => crate::TypeConstructor::Constraint,
+        psrs_thir::TypeConstructor::Symbol => crate::TypeConstructor::Symbol,
         psrs_thir::TypeConstructor::User(id) => crate::TypeConstructor::User(id),
     }
 }
@@ -58,6 +62,8 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
                 ty: TypeId(ty.0),
                 tail: TypeId(tail.0),
             },
+            psrs_thir::Type::TypeLevelString(value) => Type::TypeLevelString(value),
+            psrs_thir::Type::TypeLevelInt(value) => Type::TypeLevelInt(value),
         })
         .collect();
     let mut declarations = Vec::with_capacity(module.declarations.len());
