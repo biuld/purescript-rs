@@ -51,6 +51,15 @@ pub(super) enum TypeConstructor {
     String,
     Char,
     Unit,
+    /// The `Prim.Type` kind constructor. Official PureScript declares it with
+    /// kind `Type`, so naming it in a type position is a nominal type on the
+    /// same spine as every other head, not a kind read in a type position.
+    Type,
+    /// The `Prim.Constraint` kind constructor, of kind `Type`.
+    Constraint,
+    /// The `Prim.Symbol` kind constructor. It is the kind of a type-level string
+    /// and, like `Type` and `Constraint`, a type of kind `Type`.
+    Symbol,
     User(hir::TypeId),
 }
 

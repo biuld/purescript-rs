@@ -372,6 +372,7 @@ fn rejects_integer_literals_outside_i32() {
 }
 
 mod foreign_data;
+mod kind_heads;
 mod rank_n;
 mod rows;
 mod type_level_literals;
