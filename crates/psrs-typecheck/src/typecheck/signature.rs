@@ -123,20 +123,14 @@ impl Checker {
                 hir::BuiltinType::Function => InferType::Constructor(TypeConstructor::Function),
                 hir::BuiltinType::Record => InferType::Constructor(TypeConstructor::Record),
                 hir::BuiltinType::Row => InferType::Constructor(TypeConstructor::Row),
-                // `Type`, `Constraint`, and `Symbol` name kinds rather than
-                // spine heads. Naming one in a type position needs the
-                // `KindApplication` node, which this spine does not carry yet,
-                // so they stay rejected instead of becoming a fresh unknown.
-                hir::BuiltinType::Type
-                | hir::BuiltinType::Constraint
-                | hir::BuiltinType::Symbol => {
-                    self.state.errors.push(TypeCheckError::new(
-                        TypeCheckErrorKind::UnsupportedType,
-                        ty.span,
-                        "this type is not supported yet",
-                    ));
-                    self.fresh()
-                }
+                // `Type`, `Constraint`, and `Symbol` name kinds, and official
+                // PureScript declares each of them with kind `Type`, so a type
+                // position that names one is an ordinary nominal type on the
+                // same spine as `Record` and `Row`. Their kinds come from the
+                // one primitive kind table, not from a reading here.
+                hir::BuiltinType::Type => InferType::Constructor(TypeConstructor::Type),
+                hir::BuiltinType::Constraint => InferType::Constructor(TypeConstructor::Constraint),
+                hir::BuiltinType::Symbol => InferType::Constructor(TypeConstructor::Symbol),
             },
             hir::TypeKind::Named(id) | hir::TypeKind::Opaque(id) => {
                 if self.env.synonyms.contains_key(id) {

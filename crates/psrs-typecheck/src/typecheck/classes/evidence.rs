@@ -66,20 +66,11 @@ impl Checker {
         // dictionary is built at, not against the nested level its signature is
         // elaborated in.
         let outer_level = self.state.level;
-        for superclass in &class.superclasses {
-            let mut arguments = Vec::with_capacity(superclass.arguments.len());
-            for name in &superclass.arguments {
-                if let Some(argument) = variables.get(name) {
-                    arguments.push(argument.clone());
-                }
-            }
-            let super_constraint = ClassConstraint {
-                class_id: superclass.class_id,
-                arguments,
-                span: superclass.span,
-            };
+        for (field, super_constraint) in
+            self.superclass_constraints(constraint.class_id, &constraint.arguments)
+        {
             let field_ty = self.dictionary_type(&super_constraint);
-            fields.push((superclass.field.clone(), field_ty));
+            fields.push((field, field_ty));
         }
         for method in &class.methods {
             let mut method_variables = variables.clone();
