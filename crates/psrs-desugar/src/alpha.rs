@@ -117,7 +117,9 @@ fn collect_expr_ids(expression: &Expr, ids: &mut HashSet<LocalId>) {
                 collect_expr_ids(value, ids);
             }
         }
-        ExprKind::FieldAccess { expression, .. } | ExprKind::Typed { expression, .. } => {
+        ExprKind::FieldAccess { expression, .. }
+        | ExprKind::Typed { expression, .. }
+        | ExprKind::TypeApplication { expression, .. } => {
             collect_expr_ids(expression, ids);
         }
         ExprKind::Application(function, argument) => {
@@ -250,6 +252,10 @@ fn rename_expr(expression: Expr, mapping: &HashMap<LocalId, LocalId>) -> Expr {
             Box::new(rename_expr(*argument, mapping)),
         ),
         ExprKind::Typed { expression, ty } => ExprKind::Typed {
+            expression: Box::new(rename_expr(*expression, mapping)),
+            ty,
+        },
+        ExprKind::TypeApplication { expression, ty } => ExprKind::TypeApplication {
             expression: Box::new(rename_expr(*expression, mapping)),
             ty,
         },

@@ -79,7 +79,7 @@ fn validate_expr(expression: &Expr, errors: &mut Vec<DesugarError>) {
             validate_expr(function, errors);
             validate_expr(argument, errors);
         }
-        ExprKind::Typed { expression, ty } => {
+        ExprKind::Typed { expression, ty } | ExprKind::TypeApplication { expression, ty } => {
             validate_expr(expression, errors);
             validate_type(ty, errors);
         }

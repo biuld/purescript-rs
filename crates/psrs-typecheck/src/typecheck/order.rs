@@ -72,7 +72,8 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             }
         }
         hir::ExprKind::FieldAccess { expression, .. } => collect_globals(expression, out),
-        hir::ExprKind::Typed { expression, .. } => collect_globals(expression, out),
+        hir::ExprKind::Typed { expression, .. }
+        | hir::ExprKind::TypeApplication { expression, .. } => collect_globals(expression, out),
         hir::ExprKind::Global(symbol) => out.push(*symbol),
         hir::ExprKind::Operator {
             operator,
