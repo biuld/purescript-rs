@@ -3,6 +3,7 @@
 Prelude
 Data.Function
 Data.Semigroup
+Data.Monoid
 Data.Eq
 Data.Ord
 Data.Semiring
@@ -11,6 +12,7 @@ Effect.Console
 Test.Assert
 Data.Maybe
 Data.Either
+Data.Foldable
 WASI.Resource
 WASI.IO
 WASI.Clock
