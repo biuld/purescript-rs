@@ -286,12 +286,13 @@ the nominal default at every use. The effect on `Coercible` is not yet visible
 from source: `Text "a"`, `QuoteLabel "a"`, and the other phantom members need
 type-level `Symbol` literals, which the shared type spine does not carry yet.
 
-Only `Coercible` has a rule, and it now reaches one shared dispatch site rather than a
+`Coercible` has a rule and reaches one shared dispatch site rather than a
 special case inside it. `crates/psrs-typecheck/src/typecheck/prim/` holds the rule table:
 `mod.rs` for the dispatch and the outcome types, `requeue.rs` for the deferral bound,
-and `coercible/mod.rs` for the one rule that exists, with the given-composition helpers
-it shares in `coercible/givens.rs`. The private kind table and private unifier the
-previous revision named are gone; the rule reads roles through the checked kind
+`coercible/mod.rs` for that rule, with the given-composition helpers
+it shares in `coercible/givens.rs`, and `symbol.rs` for `Symbol.Append` and
+`Symbol.Cons`. The private kind table and private unifier the
+previous revision named are gone; the `Coercible` rule reads roles through the checked kind
 environment and kinds through the one kind solver, and it keeps only the
 recursion-bounded role walk, which is the mechanism every role-aware relation will
 share. The old `classes/coercion/` path is gone with them.
@@ -384,11 +385,30 @@ from the wanted list or from an instance context. Improvement still assigns only
 variables and still draws only on givens and on instance heads that are fully mapped, so
 it never assigns a rigid variable and never falls back to a later candidate.
 
-The other twelve relations have no rule and no dispatch entry: `Prim.Row.Cons`,
-`Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Cons`,
-`Compare`, `Prim.Int.Add`, `Mul`, `Compare`, and `ToString`. A wanted
-`Prim.Row.Lacks`, `Prim.Row.Union`, `Prim.Row.Nub`, `Prim.Row.Cons`,
-`Prim.RowList.RowToList`, `Prim.Symbol.Append`, `Prim.Symbol.Cons`,
+`Prim.Symbol.Append` and `Prim.Symbol.Cons` have rules, in
+`crates/psrs-typecheck/src/typecheck/prim/symbol.rs`, and they follow official
+`appendSymbols` and `consSymbol` arm for arm — including the order, which is part
+of what each relation decides. `Append` reads two known symbols as a
+concatenation, a known left symbol and a known appended symbol as a prefix, and a
+known right symbol and a known appended symbol as a suffix; it strips a prefix
+only when the left symbol is a genuine prefix, so `Append "b" s "abc"` declines
+rather than answering `"a"` from the suffix reading, exactly as official solving
+does. `Cons` reads a known symbol by splitting it into its first scalar and the
+rest, and joins a head and a tail only when the head is one scalar; an empty
+symbol has no first scalar and decides nothing. Both bind what they decide
+through the shared substitution and record the decided arguments as the relation's
+dictionary evidence. A decided symbol that does not unify with an argument already
+known is reported under `TypesDoNotUnify`, which is the code official solving
+raises for its own decided argument, and a head that is not one scalar is reported
+under `NoInstanceFound` — a report the framework refuses while the symbol argument
+is still unknown, because an obligation with an unknown argument is undecided
+rather than impossible. `crates/psrs-driver/tests/prim_symbol.rs` pins every
+reading, decline, and rejection against `purs` 0.15.16.
+
+The other ten relations have no rule and no dispatch entry: `Prim.Row.Cons`,
+`Lacks`, `Union`, `Nub`, `Prim.RowList.RowToList`, `Prim.Symbol.Compare`,
+`Prim.Int.Add`, `Mul`, `Compare`, and `ToString`. A wanted `Prim.Row.Lacks`,
+`Prim.Row.Union`, `Prim.Row.Nub`, `Prim.Row.Cons`, `Prim.RowList.RowToList`,
 `Prim.Symbol.Compare`, `Prim.Int.Add`, `Prim.Int.Mul`, `Prim.Int.Compare`, or
 `Prim.Int.ToString` therefore reaches ordinary instance search and is reported as
 a missing instance, which is the correct outcome for an unimplemented relation but

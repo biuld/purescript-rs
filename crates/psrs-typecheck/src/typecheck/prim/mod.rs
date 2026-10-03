@@ -23,6 +23,7 @@ use crate::typecheck::*;
 
 mod coercible;
 mod requeue;
+mod symbol;
 
 use requeue::RequeueChain;
 #[cfg(test)]
@@ -95,7 +96,7 @@ pub(in crate::typecheck) struct PrimitiveRule {
 ///
 #[cfg(not(test))]
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
-    core::iter::once(&coercible::RULE)
+    core::iter::once(&coercible::RULE).chain(&symbol::RULES)
 }
 
 /// The test build adds the framework cases' synthetic rules. They are keyed by
@@ -103,7 +104,9 @@ fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
 /// contract rather than any `Prim` relation.
 #[cfg(test)]
 fn rules() -> impl Iterator<Item = &'static PrimitiveRule> {
-    core::iter::once(&coercible::RULE).chain(tests::SYNTHETIC.iter())
+    core::iter::once(&coercible::RULE)
+        .chain(&symbol::RULES)
+        .chain(tests::SYNTHETIC.iter())
 }
 
 /// The rule for `class_id`, if that member has one.
@@ -125,7 +128,7 @@ pub(in crate::typecheck) fn primitive_rule(
     not(test),
     expect(
         dead_code,
-        reason = "only the Coercible rule exists; a relation's dictionary and a report's absence belong to the rules that do not exist yet"
+        reason = "a report's absence belongs to the three report members whose rules do not exist yet; a relation's dictionary is already produced by the symbol rules"
     )
 )]
 #[derive(Clone, Debug)]
@@ -168,15 +171,15 @@ impl PrimitiveEvidence {
 /// second as a missing instance. Splitting them is what lets a `Prim`
 /// obligation that is still unknown reach instance search instead of being
 /// reported as impossible.
-// `Solved` and `Undecided` are the two answers `Coercible` returns. `Deferred`
-// and `Failed` belong to the relations and reports whose rules do not exist yet;
-// the framework handles both and the tests reach both, so a rule can return them
-// without the framework changing.
+// `Solved`, `Undecided`, and `Failed` are the three answers the rules that exist
+// return. `Deferred` belongs to the relations and reports whose rules do not
+// exist yet; the framework handles it and the tests reach it, so a rule can
+// return it without the framework changing.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the only rule today is a Proof, which never defers and never fails; the remaining outcomes belong to the relations and reports not yet implemented"
+        reason = "no rule defers yet; a deferral belongs to the relations and reports not yet implemented"
     )
 )]
 pub(in crate::typecheck) enum PrimitiveOutcome {
