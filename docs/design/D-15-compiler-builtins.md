@@ -374,19 +374,18 @@ The registry is data. Its consumers are the pass entry points named above.
 
 ## Implementation notes
 
-The identity list exists (`psrs_hir::Intrinsic`), but its metadata is scattered:
-`psrs-resolve`'s `bootstrap_externals` holds the names, `psrs-typecheck`'s
-`infer/intrinsics.rs` re-derives each type, and the type checker and Core each
-classify which intrinsics are unary or binary. Only the metadata is duplicated;
-lowering correctly stays per pass. The registry above gives the metadata one
-owner; this document records the design before that change lands.
+The registry and the one generic `ExprKind::IntrinsicCall` are landed. The
+identity, name, arity, category, and type scheme have one owner in `psrs-hir`'s
+intrinsic module; resolve builds the externals from it, type checking instantiates
+its schemes, and each representation's intrinsic module owns the per-operation
+verification, folding, and lowering. Core has no per-operation expression node and
+no scalar `Primitive`/`UnaryPrimitive` enum.
 
-Two shortcuts currently stand in for the target boundary. The bootstrap binds the
+One shortcut still stands in for the target boundary. The bootstrap binds the
 surface operators `+`, `==`, and `<` directly to the `Int` intrinsics, so the
 operator spelling is compiler-owned; the design moves those to library classes
-(`Semiring`, `Eq`, `Ord`) over internal primitives. And `bootstrap_externals`
-leaves `ExternalSymbol.signature` as `None`; the design fills it from the
-descriptor's scheme.
+(`Semiring`, `Eq`, `Ord`) over internal primitives, which is the remaining
+follow-up.
 
 ## References
 
