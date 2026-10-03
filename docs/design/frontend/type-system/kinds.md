@@ -188,14 +188,23 @@ table of what kind a primitive has when it is used as a type. `denote_kind`,
 `primitive_kind`, `unify_kind`, `bind_kind_variable`, and `KindState` are exported from
 `psrs-kind` so a module cannot reach for a private table or a private unifier.
 
+Inference reads those operations through one module,
+`crates/psrs-typecheck/src/typecheck/kind.rs`. `kind_of_type` is the one reading of an
+`InferType`'s kind, `kind_from_hir` is a thin owner over `denote_kind` that reports an
+unlowered operator chain against its own range, and `unify_kind` is the only way
+inference solves a kind equation. The kind state is a single `psrs_kind::KindState` in
+`InferState` beside the type substitutions, with the recorded kind of each inference
+type variable in `variable_kinds` next to it, so `speculate` rolls a kind binding back
+with the type binding that produced it. The coercion module's private denotation,
+primitive table, substitution, and unifier are gone; `coercion_kinds_compatible` now
+reads both kinds through `kind_of_type` and solves the equation speculatively, so a
+conversion that turns out not to hold leaves no kind binding behind. `bind_variable`
+runs the kind check alongside the occurs, escape, and level rules, and a row tail
+solved during row unification keeps the kind its row admits through that same
+binding.
+
 What remains, and what the next wave owns:
 
-- The coercion module under
-  `crates/psrs-typecheck/src/typecheck/classes/coercion/kinds.rs` still carries its own
-  denotation, substitution, and unifier. It now compiles against `Builtin` where the
-  retired constants used to be, but it is still a second reader. It moves onto the
-  exported operations here when ordinary `bind_variable` starts checking the kind of
-  a binding instead of only the occurs, level, and skolem-escape rules.
 - The well-scoped-quantification rule is not implemented. A scheme quantifies the kind
   unknowns its own definition leaves undetermined and keeps the kinds the definition
   determines, and `data Branch m = Branch (m Branch)` is rejected by the occurs check
@@ -217,9 +226,11 @@ What remains, and what the next wave owns:
   separate foreign-role-signature argument, because a foreign declaration's roles
   come from its own `type role` annotation; and `check_module` has no `local` flag,
   because every caller is checking one module against an environment its declaring
-  modules produced. `kind_of_type` over an `InferType` is not implemented here at all
-  and remains in the type checker.
+  modules produced. `kind_of_type` over an `InferType` is not implemented in
+  `psrs-kind`, because an inference type is not HIR: it lives in the type checker's
+  `kind.rs` and reads the same solver.
 
-Consolidating `psrs-kind` into the type checker is a consequence of the remaining
-duplicate rather than a prerequisite: kind checking's main consumer is still P5, and
-the crate split is not what caused the drift.
+Consolidating `psrs-kind` into the type checker is now a consequence of packaging
+alone: kind checking's main consumer is still P5, and the crate split is not what
+caused the drift. The single denotation, the single solver, and the program-level
+environment are what close the ownership, and they are now the only readers.

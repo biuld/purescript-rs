@@ -318,7 +318,7 @@ impl Checker {
                 .map(|kind| self.kind_from_hir(kind, &kind_scope))
                 .unwrap_or_else(|| self.fresh_kind());
             if let InferType::Variable(id) = variable {
-                self.state.variable_kinds.insert(id, kind.clone());
+                self.record_variable_kind(id, kind.clone());
                 if rigid {
                     self.state.rigid.insert(id);
                 }

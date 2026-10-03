@@ -119,6 +119,8 @@ that resolved to a non-row value is a diagnostic, never a closed row. Because
 that reached the shape rather than the shape's own construction site. Record
 literals no longer have a dedicated checking path: record syntax and an explicit
 `Record` application reach one `Application(Constructor(Record), row)`, so both
-reach this normalizer with the same kinds. Row unification still consults no kind,
-so the kind of a tail is never checked where it is solved. There is no per-member
+reach this normalizer with the same kinds. A row equation solves its tails through
+`bind_variable`, which now checks the kind as well, so a tail keeps the kind its
+row admits and a tail that would acquire another kind is a kind diagnostic at the
+binding. There is no per-member
 `Prim.Row` rule; see [primitives](prim.md).

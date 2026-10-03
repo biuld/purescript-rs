@@ -183,6 +183,11 @@ impl Checker {
         }
     }
 
+    /// Solves one open row tail. The binding goes through
+    /// [`Self::bind_variable`], so the tail variable keeps the kind its row
+    /// admits: a row of what the entries hold, not the `Type` a plain value has.
+    /// A tail that would acquire another kind is a kind diagnostic rather than a
+    /// silently accepted row.
     fn bind_row(
         &mut self,
         variable: u32,

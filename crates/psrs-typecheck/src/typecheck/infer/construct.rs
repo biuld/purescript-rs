@@ -146,7 +146,7 @@ impl Checker {
                 rigid: HashSet::new(),
                 generic_variables: HashSet::new(),
                 variable_kinds: HashMap::new(),
-                next_kind_variable: 0,
+                kinds: psrs_kind::KindState::default(),
                 wanted: Vec::new(),
                 errors: Vec::new(),
                 reported_fundep_conflicts: HashSet::new(),

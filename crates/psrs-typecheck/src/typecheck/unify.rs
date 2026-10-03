@@ -5,11 +5,10 @@ impl Checker {
         let id = self.state.next_variable;
         self.state.next_variable += 1;
         self.state.levels.insert(id, self.state.level);
-        let kind = self.state.next_kind_variable;
-        self.state.next_kind_variable += 1;
-        self.state
-            .variable_kinds
-            .insert(id, psrs_kind::Kind::Variable(kind));
+        // Every type unknown carries a kind from the moment it exists, so the
+        // binding check always has one to compare against.
+        let kind = self.fresh_kind();
+        self.record_variable_kind(id, kind);
         InferType::Variable(id)
     }
 
@@ -113,9 +112,14 @@ impl Checker {
         }
     }
 
-    /// Binds `variable` to `ty`, reporting an occurs-check failure and leaving
-    /// the substitution unchanged when it would be recursive. Returns whether a
-    /// binding was recorded, so a fixed-point caller can detect progress.
+    /// Binds `variable` to `ty`, rejecting a binding that would be recursive,
+    /// would let a skolem escape, or would give the variable a kind its recorded
+    /// kind does not admit.
+    ///
+    /// Returns whether a binding was recorded, so a fixed-point caller can
+    /// detect progress. The kind check is part of the same operation as the
+    /// occurs, escape, and level rules: whether an operation is kind-corrected
+    /// must not depend on which module reached it.
     pub(super) fn bind_variable(&mut self, variable: u32, ty: InferType, span: TextRange) -> bool {
         if occurs(variable, &ty) {
             let displayed = self.display_type(&ty);
@@ -124,20 +128,42 @@ impl Checker {
                 span,
                 format!("infinite type: _T{variable} occurs in {displayed}"),
             ));
-            false
-        } else if self.reject_skolem_escape(variable, &ty, span) {
-            false
-        } else {
-            let level = self
-                .state
-                .levels
-                .get(&variable)
-                .copied()
-                .unwrap_or(TOP_LEVEL);
-            self.adjust_levels(&ty, level);
-            self.state.substitutions.insert(variable, ty);
-            true
+            return false;
         }
+        if self.reject_skolem_escape(variable, &ty, span) {
+            return false;
+        }
+        let level = self
+            .state
+            .levels
+            .get(&variable)
+            .copied()
+            .unwrap_or(TOP_LEVEL);
+        self.adjust_levels(&ty, level);
+        if !self.check_binding_kind(variable, &ty, span) {
+            return false;
+        }
+        self.state.substitutions.insert(variable, ty);
+        true
+    }
+
+    /// Unifies the kind recorded for `variable` with the kind of the type it is
+    /// being bound to, through the one kind solver.
+    ///
+    /// This is the inference-side rule `kinds.md` states: a row-valued binding
+    /// is checked against `Row k`, an arrow against `Type -> Type`, and every
+    /// other type against the kind its head and arguments give it. A type whose
+    /// kind the checked environment does not supply is left alone, because the
+    /// missing scheme is the kind pass's diagnostic and inference must not
+    /// reject the same module a second time for it.
+    fn check_binding_kind(&mut self, variable: u32, ty: &InferType, span: TextRange) -> bool {
+        let Some(recorded) = self.recorded_kind(variable) else {
+            return true;
+        };
+        let Some(ty_kind) = self.kind_of_type(ty, span) else {
+            return true;
+        };
+        self.unify_kind(recorded, ty_kind, span)
     }
 
     fn signature_mismatch(&mut self, expected: InferType, found: InferType, span: TextRange) {

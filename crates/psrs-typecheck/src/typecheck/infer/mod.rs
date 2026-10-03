@@ -59,7 +59,7 @@ impl Checker {
                 if let InferType::Variable(id) = variable {
                     self.state.rigid.insert(id);
                     if let Some(kind) = parameter_kinds.get(index) {
-                        self.state.variable_kinds.insert(id, kind.clone());
+                        self.record_variable_kind(id, kind.clone());
                     }
                 }
                 variables.insert(parameter.clone(), variable.clone());

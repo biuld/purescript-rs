@@ -222,9 +222,19 @@ Generalization currently keeps only a signature's constraints. A signatureless
 declaration starts as a monomorphic scheme with no constraints and every wanted
 constraint is solved before generalization, so an unsolvable one becomes
 `NoInstance` and no residual-constraint abstraction exists. A scheme records only
-its quantified type variables, not their kinds. Kind checking during inference is
-the coercion module's private denotation and unifier, and ordinary bindings do not
-check kinds.
+its quantified type variables, not their kinds.
+
+`bind_variable` is the inference-side rule `kinds.md` states. It runs the occurs
+check, the skolem-escape check, the level adjustment, and then the kind
+compatibility check, in that order, through the one kind solver in
+`typecheck/kind.rs`. A variable's kind is recorded when the variable is created,
+and `record_variable_kind` is the only writer of that table, so a fresh unknown, a
+`forall` binder, a constructor parameter, and a quantified variable's fresh
+instance all establish a kind the same way. A binding refused for a kind reason
+records nothing and returns `false`, which is the same answer a refused occurs
+check gives, so a fixed-point caller reads it correctly. A type whose kind the
+checked environment does not supply is left alone, because the missing scheme is
+the kind pass's diagnostic and inference must not reject the same module twice.
 
 The three state owners are declared in `typecheck/state.rs`: `SemanticEnv`,
 `InferState`, and `Scope`, with `Checker` owning all three. `InferState::snapshot`
