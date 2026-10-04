@@ -81,6 +81,25 @@ fn the_effect_context_survives_backend_stage_recompilation() {
 }
 
 #[test]
+fn a_quantified_effect_import_lowers_to_a_monotype_wrapper() {
+    let clock = (
+        "Clock.purs",
+        "module Clock where\nimport Prelude\nforeign import \"wasi:clocks/monotonic-clock#now\" now :: forall a. Effect Int\n",
+    );
+    let main = (
+        "Main.purs",
+        "module Main where\nimport Prelude\nimport WASI.Console\nimport Clock\nmain :: Effect Unit\nmain = bind now (\\_ -> log \"quantified\")\n",
+    );
+    let artifact = compile_program_sources_with_prelude(&[clock, main])
+        .expect("a rank-1 effect import must lower without repeating its forall");
+    let Some(output) = run_wasm(&artifact.wasm) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"quantified\n");
+}
+
+#[test]
 fn effect_import_alias_is_expanded_before_suspension_planning() {
     let types = (
         "Types.purs",

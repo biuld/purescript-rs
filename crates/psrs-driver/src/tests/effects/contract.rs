@@ -120,3 +120,68 @@ fn an_effect_source_entry_requires_command_metadata() {
     context.command_entry = None;
     rejects(core, context, "missing Effect command entry");
 }
+
+#[test]
+fn checked_import_verification_keeps_the_foreign_source_module() {
+    let prepared = crate::prepare_sources(&[
+        (
+            "Clock.purs",
+            "module Clock where\nimport Prelude\nforeign import \"wasi:clocks/monotonic-clock#now\" keep :: Int\n",
+        ),
+        (
+            "Main.purs",
+            "module Main where\nimport Prelude\nimport Clock\nmain = keep\n",
+        ),
+    ])
+    .expect("the clock import links before its checked signature is damaged");
+    let mut core = prepared.core;
+    let context = prepared.effect_context.expect("trusted effect");
+    let entry = core.entry.expect("selected main");
+    let keep = core
+        .externals
+        .iter()
+        .find(|external| external.name == "keep")
+        .expect("clock import")
+        .symbol;
+    let source_module = core
+        .external_types
+        .iter()
+        .find(|external| external.symbol == keep)
+        .expect("checked clock signature")
+        .source_module;
+    assert_ne!(source_module, entry.module);
+    core.types
+        .push(psrs_core::Type::Variable(psrs_hir::TypeVariableId(900_001)));
+    let free = psrs_core::TypeId((core.types.len() - 1) as u32);
+    core.external_types
+        .iter_mut()
+        .find(|external| external.symbol == keep)
+        .expect("checked clock signature")
+        .ty = free;
+    let context = Some(context);
+    let optimized = psrs_backend::compile_with_context(
+        core.clone(),
+        context.clone(),
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect_err("optimization must reject an unbound variable in a checked import");
+    let lowered = psrs_backend::lower_cc_with_context(core, context.as_ref())
+        .expect_err("effect lowering must reject an unbound variable in a checked import");
+    for errors in [optimized, lowered] {
+        assert!(
+            errors.iter().any(|error| {
+                error.module == Some(source_module)
+                    && error
+                        .message
+                        .contains("type variable is outside its quantifier scope")
+            }),
+            "{errors:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .all(|error| error.module != Some(entry.module)),
+            "the entry module must not own the import's verification failure: {errors:?}"
+        );
+    }
+}

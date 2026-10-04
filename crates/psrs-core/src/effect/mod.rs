@@ -300,9 +300,6 @@ pub fn fresh_foreign_symbol(module: &Module) -> SymbolId {
     SymbolId::new(ModuleId::INTRINSICS, next)
 }
 
-/// Allocates a foreign symbol owned by `owner`, above every symbol already in
-/// that module. This is used for synthesized host imports whose diagnostics
-/// must remain attributed to the source module that declared the import.
 /// A fresh local id above every binder already in the module.
 pub fn fresh_local(module: &Module) -> LocalId {
     LocalSupply::new(module).fresh()

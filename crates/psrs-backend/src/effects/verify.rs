@@ -237,13 +237,13 @@ fn core_effect_payload(
     psrs_core::effect::effect_application(module, ty, effect).map(|(_, payload)| payload)
 }
 
-pub(super) fn verification_errors(
-    module: &CoreModule,
-    errors: &[psrs_core::VerifyError],
-) -> Vec<BackendError> {
+pub(super) fn verification_errors(errors: &[psrs_core::VerifyError]) -> Vec<BackendError> {
     errors
         .iter()
-        .map(|error| effect_error(module, error.span, error.message))
+        .map(|error| {
+            BackendError::invalid_ir("P8 effect lowering", error.span, error.message.to_string())
+                .with_module(error.module)
+        })
         .collect()
 }
 
