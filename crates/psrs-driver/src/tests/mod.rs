@@ -12,6 +12,7 @@ mod deriving;
 mod effect_arity;
 mod effects;
 mod foldable;
+mod functor;
 mod guard_coverage;
 mod operators;
 mod partial_application;

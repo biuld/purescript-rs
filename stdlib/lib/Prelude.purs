@@ -24,7 +24,9 @@ module Prelude
   , pure
   , bind
   , discard
+  , class Functor
   , map
+  , (<$>)
   , apply
   , runEffect
   , trap
@@ -59,6 +61,7 @@ module Prelude
   ) where
 
 import Data.Function (const, flip, (#), ($))
+import Data.Functor (class Functor, map, (<$>))
 import Data.Semigroup (class Semigroup, append, (<>))
 import Data.Eq (class Eq, eq, notEq, (==), (/=))
 import Data.Ord (class Ord, lessThan, lessThanOrEq, greaterThan, greaterThanOrEq, (<), (<=), (>), (>=))
@@ -74,8 +77,11 @@ foreign import "psrs:effect#bind" bind :: forall a b. Effect a -> (a -> Effect b
 discard :: forall a b. Effect a -> (a -> Effect b) -> Effect b
 discard first next = bind first next
 
-map :: forall a b. (a -> b) -> Effect a -> Effect b
-map f x = bind x (\v -> pure (f v))
+-- | `map` on `Effect` is this instance, not a separate function. The body is
+-- | the previous `Effect`-only `map`: it builds a new action and does not run
+-- | `action` until that action is run.
+instance functorEffect :: Functor Effect where
+  map f action = bind action (\value -> pure (f value))
 
 apply :: forall a b. Effect (a -> b) -> Effect a -> Effect b
 apply f x = bind f (\g -> bind x (\v -> pure (g v)))
