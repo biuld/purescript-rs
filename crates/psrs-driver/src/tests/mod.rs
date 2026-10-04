@@ -20,8 +20,7 @@ mod semigroup;
 mod show;
 
 fn lower_source_to_mir(source: &str) -> psrs_backend::mir::Module {
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let backend_input = psrs_backend::cc::lower_module(core).expect("Core should lower to CC");
+    let backend_input = crate::lower_main_to_cc(source).expect("Core should lower to CC");
     psrs_backend::mir::lower_module_with_bindings(
         backend_input.cc,
         backend_input.externals,

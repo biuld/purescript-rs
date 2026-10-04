@@ -126,6 +126,32 @@ pub fn compile(module: psrs_core::Module) -> Result<Artifact, Vec<BackendError>>
     Ok(compile_with_stages(module)?.artifact)
 }
 
+/// Compiles linked Core using the trusted Effect identities issued by the
+/// driver. Core-only callers that do not provide this contract receive no
+/// library-specific Effect lowering.
+pub fn compile_with_effect_context(
+    module: psrs_core::Module,
+    effect_context: psrs_core::effect::EffectCompilation,
+) -> Result<Artifact, Vec<BackendError>> {
+    Ok(compile_with_context(module, Some(effect_context), TargetCapabilities::default())?.artifact)
+}
+
+/// Lowers Core to CC after applying an explicit Effect contract.
+///
+/// Callers that already removed trusted Effect imports, or that have no
+/// trusted contract, pass `None` and get the same binding extraction as
+/// [`cc::lower_module`].
+pub fn lower_cc_with_context(
+    mut module: psrs_core::Module,
+    effect_context: Option<&psrs_core::effect::EffectCompilation>,
+) -> Result<BackendInput, Vec<BackendError>> {
+    let mut external_bindings = ExternalBindings::from_core(&module);
+    if let Some(context) = effect_context {
+        effects::lower_effects(&mut module, &mut external_bindings, context)?;
+    }
+    cc::lower_module_with_bindings(module, external_bindings)
+}
+
 /// The default-profile validator, retained for backend unit tests.
 #[allow(dead_code)]
 pub(crate) fn validator() -> wasmparser::Validator {
@@ -144,6 +170,8 @@ pub(crate) fn validator_for(target: TargetCapabilities) -> wasmparser::Validator
 pub struct Stages {
     /// Verified Typed Core after P7 and before P8.
     pub core: psrs_core::Module,
+    /// The explicit trusted Effect context needed to compile `core` again.
+    pub effect_context: Option<psrs_core::effect::EffectCompilation>,
     pub cc: cc::Module,
     pub mir: mir::Module,
     pub wasm: wasm::Module,
@@ -159,6 +187,14 @@ pub fn compile_with_target(
     module: psrs_core::Module,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
+    compile_with_context(module, None, target)
+}
+
+pub fn compile_with_context(
+    module: psrs_core::Module,
+    effect_context: Option<psrs_core::effect::EffectCompilation>,
+    target: TargetCapabilities,
+) -> Result<Stages, Vec<BackendError>> {
     let owner = module.entry.map(|entry| entry.module);
     let mut module =
         psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()).map_err(|errors| {
@@ -167,14 +203,17 @@ pub fn compile_with_target(
                     .into_iter()
                     .map(|error| {
                         BackendError::new("P7 Core optimization", error.span, error.message)
+                            .with_module(error.module)
                     })
                     .collect(),
                 owner,
             )
         })?;
     let optimized_core = module.clone();
-    let mut external_bindings = ExternalBindings::from_core(&mut module);
-    effects::lower_effects(&mut module, &mut external_bindings)?;
+    let mut external_bindings = ExternalBindings::from_core(&module);
+    if let Some(context) = effect_context.as_ref() {
+        effects::lower_effects(&mut module, &mut external_bindings, context)?;
+    }
     external_bindings.validate_conformance(&module, target)?;
     let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
     let cc = lowered_cc.cc;
@@ -238,6 +277,7 @@ pub fn compile_with_target(
     })?;
     Ok(Stages {
         core: optimized_core,
+        effect_context,
         cc,
         mir,
         wasm,

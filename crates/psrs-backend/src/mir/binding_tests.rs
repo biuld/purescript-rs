@@ -56,6 +56,7 @@ fn input(call: bool) -> (cc::Module, ExternalBindings) {
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external,
+            source_module: ModuleId(0),
             interface: crate::abi::names::STDOUT.into(),
             function: crate::abi::names::GET_STDOUT.into(),
             type_id: None,
@@ -164,6 +165,7 @@ fn p9_exposes_an_owned_handle_without_dropping_it() {
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external,
+            source_module: ModuleId(0),
             interface: crate::abi::names::STDOUT.into(),
             function: crate::abi::names::GET_STDOUT.into(),
             type_id: None,

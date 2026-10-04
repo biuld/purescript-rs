@@ -1,12 +1,51 @@
 use crate::{
     Evidence, EvidenceKind, Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError,
 };
+use psrs_hir::ExternalKind;
 use psrs_span::TextRange;
 
 mod semantics;
 
 pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
     let mut errors = Vec::new();
+    let mut external_type_symbols = std::collections::HashSet::new();
+    for external_type in &module.external_types {
+        if !external_type_symbols.insert(external_type.symbol) {
+            errors.push(VerifyError {
+                span: module.span,
+                message: "a foreign symbol has more than one checked signature",
+            });
+        }
+        if !module
+            .externals
+            .iter()
+            .any(|external| external.symbol == external_type.symbol)
+        {
+            errors.push(VerifyError {
+                span: module.span,
+                message: "a checked foreign signature has no external declaration",
+            });
+        }
+        verify_type_id(
+            external_type.ty,
+            module.types.len(),
+            module.span,
+            &mut errors,
+        );
+    }
+    for external in &module.externals {
+        if matches!(&external.kind, ExternalKind::Wit { .. })
+            && !external_type_symbols.contains(&external.symbol)
+        {
+            errors.push(VerifyError {
+                span: external
+                    .signature
+                    .as_ref()
+                    .map_or(module.span, |ty| ty.span),
+                message: "a foreign declaration has no checked signature",
+            });
+        }
+    }
     for ty in &module.types {
         match ty {
             Type::Application(parameter, result) => {

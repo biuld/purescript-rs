@@ -109,18 +109,40 @@ constructors is fixed:
 The primitive constructors name the source primitives; their concrete runtime
 representation is fixed later at MIR, not in Core.
 
+Every WIT external import also has a checked, normalized scheme in
+`Module.external_types`:
+
+```text
+ExternalType = { symbol: SymbolId, ty: TypeId }
+```
+
+The type checker elaborates each WIT external annotation into the checked type
+table, expanding type synonyms while preserving `ForAll` quantifiers. The raw
+HIR external declaration remains for its source name and WIT binding metadata;
+its annotation is not a later-stage semantic input. Compiler intrinsics keep
+their explicit `Intrinsic` descriptor contracts and do not use this table.
+Linking and optimization remap `ExternalType.ty` with the module type table.
+Core verification requires one valid checked scheme for every WIT import.
+Consumers such as effect lowering and target binding use this scheme and never
+reconstruct it from HIR.
+
 A data type's cases are not part of its `Type`; they are `ConstructorInfo`
 records naming a tag, a field count, and field types. A sum is therefore an
 ordered set of cases with stable tags, not a nested pair of constructors.
 
 `Effect a` is `Application(Constructor(User(effect_id)), a)`: an ordinary
 imported abstract type constructor applied on the uniform spine. Core has no
-`Effect` node, no token type, and no side table that makes this constructor
-callable. After Core, one representation lowering replaces each `Effect τ`
-value with a closure whose parameter list is the runtime token and whose result
-is the lowering of `τ`. That closure is not a source arrow, so curried-arrow
-flattening does not absorb a function or a nested effect inside `τ`. The
-translation and the execution boundary are specified in
+`Effect` node, token type, or callable-type side table. Trusted library binding
+resolves the constructor and operation identities once and passes that metadata
+alongside linked Core. Each WIT import also carries its checked,
+synonym-expanded scheme in `Module.external_types`; `ForAll` quantification is
+preserved and `Effect` remains abstract in the scheme. The effect-lowering
+pipeline uses the trusted identities and checked WIT schemes to classify
+effectful imports before representation lowering, then replaces each `Effect τ`
+value with a generic closure whose parameter list is the runtime token and
+whose result is the lowering of `τ`. That closure is not a source arrow, so
+curried-arrow flattening does not absorb a function or a nested effect inside
+`τ`. The translation and execution boundary are specified in
 [effects](../../backend/fp/effects.md).
 
 `Module.newtype_ids` records single-field newtypes that are represented by their
@@ -314,7 +336,9 @@ must preserve that scope when replacing the expression.
 
 ```text
 verify_module(module):
-    build globals = declarations -> checked type, externals -> unknown
+    build globals = declarations -> checked type,
+                    WIT externals -> checked scheme from Module.external_types,
+                    compiler intrinsics -> Intrinsic descriptor contract
     for each type in module.types: verify_type
     for each declaration:
         verify_type(declaration.ty)
@@ -341,12 +365,15 @@ The required modules and the values they provide are:
 - `psrs-thir` owns the typed IR that the type checker produces and that Typed
   Core is elaborated from. It provides `Type`, `TypeId`, `TypeConstructor`,
   `Expr`, `ExprKind`, `Primitive`, `ConstructorInfo`, `Declaration`, `Binding`,
-  and `Binder`.
+  `ExternalType`, and `Binder`. Its `Module.external_types` records one checked,
+  synonym-expanded scheme per WIT external import.
 - `psrs-typecheck` checks `Effect` through its imported kind and declarations,
   using the same type rules as for other abstract type constructors.
 - `psrs-core` owns Typed Core and the P7 boundary. It provides:
   - `Module`, `Type`, `Expr`, `ExprKind`, `Primitive`, `ConstructorInfo`,
     `Declaration`, `Binding`, and `Binder` at the crate root;
+  - `ExternalType { symbol, ty }`, the checked, synonym-expanded scheme for each
+    WIT import, remapped with `Module.types`;
   - `Pattern` and `PatternKind` for the source-oriented pattern form;
   - `Module::verify(&self) -> Result<(), Vec<VerifyError>>`, the P8 input
     verifier, with `VerifyError` retaining a source span;
@@ -363,6 +390,8 @@ consistent before P8 consumes it:
 
 - every `TypeId` is inside `Module.types`, and every referenced `TypeId` is
   valid;
+- every WIT external has exactly one `ExternalType`, and its `ty` is a valid
+  checked scheme in `Module.types`; no compiler intrinsic has an `ExternalType`;
 - `Local` references are in scope, and `Global` references name a declaration
   or external;
 - `Array*` expressions have an array type, `FieldAccess`, `Record*` and record
@@ -430,12 +459,15 @@ such a call are specified in [CC IR](../../backend/fp/cc-ir.md).
 
 ## Boundaries and interfaces
 
-- **Input.** P6 elaborates checked THIR into Typed Core. The driver links and
-  prunes declarations and selects the entry `SymbolId`
-  ([D-01](../../D-01-frontend-and-ir-boundaries.md)).
+- **Input.** P6 elaborates checked THIR into Typed Core. The driver links
+  declarations, selects `Main.main` when present or the unique top-level
+  `main` otherwise, and prunes from that resolved entry `SymbolId`. The same
+  identity is used by the lexical `runEffect` check and generated command
+  wrapper ([D-01](../../D-01-frontend-and-ir-boundaries.md)).
 - **Output.** A verified Core module for P7 with an explicit checked type on every
   expression, `quantified` variables at binding sites, source spans, external
-  `symbols`, and newtype metadata. P7 preserves this contract for P8.
+  `symbols`, checked WIT `ExternalType` schemes, and newtype metadata. P7
+  preserves the checked schemes and remaps their `TypeId`s for P8.
 - **To P8 (CC IR).** Core fixes evaluation order and carries explicit dictionary
   evidence. It leaves captures and runtime requirements to
   [CC IR](../../backend/fp/cc-ir.md).

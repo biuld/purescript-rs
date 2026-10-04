@@ -1,3 +1,6 @@
+mod contract;
+mod entry;
+
 use super::super::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -121,11 +124,11 @@ fn transitive_effect_types_keep_their_closure_representation() {
 fn an_untrusted_prelude_effect_remains_an_ordinary_user_type() {
     let prelude_source = (
         "Prelude.purs",
-        "module Prelude where\ndata Effect a = MkEffect a\nidentity :: Effect Int\nidentity = MkEffect 42\n",
+        "module Prelude where\nforeign import data Effect :: Type -> Type\nforeign import \"wasi:clocks/monotonic-clock#now\" foreignEffect :: Effect Int\n",
     );
     let main_source = (
         "Main.purs",
-        "module Main where\nimport Prelude\nforward :: Effect Int\nforward = identity\nmain = 0\n",
+        "module Main where\nimport Prelude\nforward :: Effect Int\nforward = foreignEffect\nmain = 0\n",
     );
     let typed = crate::program::typecheck_program_sources(&[prelude_source, main_source]).unwrap();
     let main = typed.iter().find(|module| module.name == "Main").unwrap();
@@ -142,7 +145,18 @@ fn an_untrusted_prelude_effect_remains_an_ordinary_user_type() {
         main.types[effect_constructor.0 as usize],
         psrs_thir::Type::Constructor(psrs_thir::TypeConstructor::User(_))
     ));
-    assert!(compile_program_sources(&[prelude_source, main_source]).is_ok());
+    let errors = compile_program_sources(&[prelude_source, main_source])
+        .expect_err("the untrusted nominal Effect remains an ordinary WIT result type");
+    assert!(
+        errors.iter().any(|error| {
+            error.diagnostic.stage == "P8 WIT linking"
+                && error
+                    .diagnostic
+                    .message
+                    .contains("source result type incompatible")
+        }),
+        "{errors:#?}"
+    );
 }
 
 #[test]
@@ -390,7 +404,9 @@ fn ado_notation_combines_effectful_arguments_in_order() {
 
 #[test]
 fn ado_notation_runs_effects_left_to_right() {
-    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = runEffect (ado\n  first <- log \"first\"\n  second <- log \"second\"\n  in first)\n";
+    // The `ado` block stays outside `let`: its `in` closes the nearest
+    // layout `let`, so the Int entry is the block's own result.
+    let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = runEffect (ado\n  first <- log \"first\"\n  second <- log \"second\"\n  in 0)\n";
     let Some(output) = run_effect_program(source) else {
         eprintln!("skipping: wasmtime is not installed");
         return;

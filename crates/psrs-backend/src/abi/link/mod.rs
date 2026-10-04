@@ -1,21 +1,23 @@
 //! Target-aware linking helpers for source WIT bindings.
 //!
-//! A foreign import's resolved source type is interned into the Core type table
-//! so the backend can refer to it by identity. A structurally equal Core type
-//! already in the table is reused, so a foreign signature shares the canonical
-//! representation of the same type used elsewhere in the module. This replaces
-//! recovering the type by structural search at the CC boundary.
+//! WIT declarations consume the checked external schemes carried by Core.
+//! Structural HIR interning remains available only to isolated ABI fixtures;
+//! production linking never reconstructs the checked source type from HIR.
 
+#[cfg(test)]
 use psrs_core::{Module as CoreModule, Type as CoreType, TypeConstructor, TypeId as CoreTypeId};
+#[cfg(test)]
 use psrs_hir::{BuiltinType, Type as HirType, TypeKind as HirTypeKind};
 
 /// Interns the resolved source type of a foreign import and returns its
 /// [`CoreTypeId`]. The type is appended to the module type table when no
 /// structurally equal type is present.
+#[cfg(test)]
 pub(crate) fn intern_source_type(module: &mut CoreModule, ty: &HirType) -> Option<CoreTypeId> {
     intern_into(&mut module.types, ty)
 }
 
+#[cfg(test)]
 fn intern_into(types: &mut Vec<CoreType>, ty: &HirType) -> Option<CoreTypeId> {
     let core = match &ty.kind {
         HirTypeKind::Constructor(BuiltinType::Int) => {
@@ -91,6 +93,7 @@ fn intern_into(types: &mut Vec<CoreType>, ty: &HirType) -> Option<CoreTypeId> {
     Some(intern_core_type(types, core))
 }
 
+#[cfg(test)]
 fn is_array_constructor(types: &[CoreType], id: CoreTypeId) -> bool {
     matches!(
         types.get(id.0 as usize),
@@ -98,6 +101,7 @@ fn is_array_constructor(types: &[CoreType], id: CoreTypeId) -> bool {
     )
 }
 
+#[cfg(test)]
 fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
     match types.get(id.0 as usize) {
         // `Unit` is a primitive but has no canonical list element.
@@ -122,6 +126,7 @@ fn is_array_element(types: &[CoreType], id: CoreTypeId) -> bool {
     }
 }
 
+#[cfg(test)]
 fn is_record(types: &[CoreType], id: CoreTypeId) -> bool {
     let Some(CoreType::Application(function, _)) = types.get(id.0 as usize) else {
         return false;
@@ -132,6 +137,7 @@ fn is_record(types: &[CoreType], id: CoreTypeId) -> bool {
     )
 }
 
+#[cfg(test)]
 fn is_user_type(types: &[CoreType], id: CoreTypeId) -> bool {
     matches!(
         types.get(id.0 as usize),
@@ -139,6 +145,7 @@ fn is_user_type(types: &[CoreType], id: CoreTypeId) -> bool {
     )
 }
 
+#[cfg(test)]
 fn intern_core_type(types: &mut Vec<CoreType>, core: CoreType) -> CoreTypeId {
     if let Some(index) = types.iter().position(|existing| *existing == core) {
         return CoreTypeId(index as u32);

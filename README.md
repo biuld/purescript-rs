@@ -28,8 +28,9 @@ cargo run -- dump mir examples/basic.purs
 `build <file.purs>...` resolves and links every listed module with the standard
 library from `stdlib/lib` and writes the artifact. `wat <file.purs>...` renders
 the text form. `dump <core|cc|mir> <file.purs>` prints an intermediate IR for
-debugging. `main` must be a zero-argument `Int` declaration; its value becomes
-the process exit code.
+debugging. A selected `main :: Int` returns its value as the process exit code.
+A selected `main :: Effect Unit` runs that action once and returns 0; a trap
+still propagates.
 
 For a guided, interactive walkthrough of P0 through P11, use the React
 application in [`psrs-explorer/`](psrs-explorer/). It labels compact teaching
@@ -45,11 +46,11 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 54/70 failing, 52/413 passing | official `errorCode`s; 106 `passing` files stop in surface lowering |
-| L3 kinds | 27/48 failing | official kind `errorCode`s |
-| L4 types | 12/40 failing | official `errorCode`s; most mismatches blocked on a missing library module |
-| L5 classes | 41/81 failing | official `errorCode`s; most mismatches blocked on a missing library module |
-| L6/M7 runtime | 0/413 passing | 244 blocked on a missing module, 106 in surface lowering |
+| L2 resolution | 72/72 failing, 270/413 passing | official `errorCode`s; 53 `passing` files stop on a missing module and 86 at P3 |
+| L3 kinds | 35/48 failing | official kind `errorCode`s |
+| L4 types | 35/50 failing | official `errorCode`s |
+| L5 classes | 53/80 failing | official `errorCode`s |
+| L6/M7 runtime | 124/413 passing | all 124 exit 0; 63 have no selected `main`; 53 stop on a missing module |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:

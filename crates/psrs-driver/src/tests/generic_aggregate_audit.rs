@@ -127,8 +127,7 @@ fn retained_generic_capture_executes_through_a_closure() {
 }
 
 fn assert_retained_capture(name: &str, source: &str) {
-    let core = lower_source_to_core("Main.purs", source).expect("closure source should lower");
-    let stages = psrs_backend::compile_with_stages(core).expect("closure should compile");
+    let stages = crate::compile_main_stages(source).expect("closure should compile");
     assert!(
         stages
             .mir
@@ -152,8 +151,7 @@ fn assert_retained_capture(name: &str, source: &str) {
 #[test]
 fn p9_reuses_helpers_for_equal_complete_conversion_plans() {
     let source = "module Main where\nimport Prelude\ncopy :: forall a. Array a -> Array a\ncopy values = values\nmain = arrayIndex (copy [1, 2]) 0 + arrayIndex (copy [3, 4]) 1\n";
-    let core = lower_source_to_core("Main.purs", source).unwrap();
-    let backend_input = psrs_backend::cc::lower_module(core).unwrap();
+    let backend_input = crate::lower_main_to_cc(source).unwrap();
     let (mir, _) = psrs_backend::mir::lower_module_with_bindings(
         backend_input.cc,
         backend_input.externals,
@@ -399,7 +397,8 @@ use fixtures::{array_new_default_count, clear_array_literals};
 #[test]
 fn empty_array_reconstruction_executes() {
     let source = "module Main where\ndata Wrap a = Wrap (Array a)\nwrap :: forall a. Array a -> Wrap a\nwrap values = Wrap values\nunwrap :: forall a. Wrap a -> Array a\nunwrap value = case value of\n  Wrap values -> values\nmain = arrayLength (unwrap (wrap [0]))\n";
-    let mut core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
+    let mut prepared = crate::prepare_main(source).expect("source should lower to Core");
+    let core = &mut prepared.core;
     let mut cleared = false;
     for declaration in &mut core.declarations {
         cleared |= clear_array_literals(&mut declaration.value);
@@ -408,8 +407,12 @@ fn empty_array_reconstruction_executes() {
         cleared,
         "the fixture should contain an array literal to empty"
     );
-    let stages = psrs_backend::compile_with_stages(core)
-        .expect("an empty concrete array must still lower through the conversion path");
+    let stages = psrs_backend::compile_with_context(
+        prepared.core,
+        prepared.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("an empty concrete array must still lower through the conversion path");
     assert!(
         array_new_default_count(&stages.mir) >= 1,
         "the empty array should still allocate its canonical destination"

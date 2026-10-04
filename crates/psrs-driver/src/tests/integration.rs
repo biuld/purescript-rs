@@ -118,8 +118,7 @@ fn exposes_readable_core_and_backend_ir_dumps() {
 
 #[test]
 fn backend_stages_expose_core_after_p7() {
-    let core = lower_source_to_core("Main.purs", "module Main where\nmain = 3\n").unwrap();
-    let stages = psrs_backend::compile_with_stages(core).unwrap();
+    let stages = crate::compile_main_stages("module Main where\nmain = 3\n").unwrap();
     let main = stages
         .core
         .declarations
@@ -232,7 +231,12 @@ fn rejects_ambiguous_program_entries_instead_of_using_source_order() {
 
 #[test]
 fn attributes_backend_errors_to_their_declaring_module() {
-    let a = ("A.purs", "module A where\nmain = let x = x in x\n");
+    // The result uses `x`, so dead-binding cleanup cannot delete the cycle
+    // before closure conversion. The entry stays `Int`.
+    let a = (
+        "A.purs",
+        "module A where\nmain :: Int\nmain = let x = x in x\n",
+    );
     let b = ("B.purs", "module B where\nanswer = 0\n");
     let errors = compile_program_sources(&[a, b]).unwrap_err();
     assert!(errors.iter().any(|error| {

@@ -5,7 +5,7 @@
 //! runtime token alone and returns the lowered effect result.
 
 use super::*;
-use crate::effect::{EffectClosure, lower_effects};
+use crate::effect::{EffectClosure, TrustedEffect, classify_effect_import, lower_effects};
 use psrs_hir::{ModuleId, SymbolId, TypeId as HirTypeId, TypeVariableId};
 
 const SPAN: TextRange = TextRange::new(0, 8);
@@ -16,6 +16,14 @@ const B: TypeId = TypeId(2);
 const ARROW: TypeId = TypeId(5);
 const EFFECT: TypeId = TypeId(6);
 const EFFECT_APPLICATION: TypeId = TypeId(7);
+const EFFECT_HIR: HirTypeId = HirTypeId::new(ModuleId(0), 3);
+
+fn trusted_effect() -> TrustedEffect {
+    TrustedEffect {
+        effect_type: EFFECT_HIR,
+        operations: Vec::new(),
+    }
+}
 
 /// A linked module whose only effect is `Effect (a -> b)`.
 ///
@@ -29,11 +37,12 @@ const EFFECT_APPLICATION: TypeId = TypeId(7);
 /// | 6 | `Prelude.Effect` |
 /// | 7 | `Effect (a -> b)`, the node lowering replaces |
 fn effect_module() -> Module {
-    let effect = HirTypeId::new(ModuleId(0), 3);
+    let effect = EFFECT_HIR;
     Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
             Type::Variable(TypeVariableId(0)),
@@ -60,7 +69,8 @@ fn effect_module() -> Module {
 #[test]
 fn lowered_effect_closures_are_one_token_closure_over_the_effect_result() {
     let mut module = effect_module();
-    let lowering = lower_effects(&mut module).expect("the written closure keeps its shape");
+    let lowering =
+        lower_effects(&mut module, &trusted_effect()).expect("the written closure keeps its shape");
     assert_eq!(
         lowering.closures,
         vec![EffectClosure {
@@ -89,7 +99,8 @@ fn lowered_effect_closures_are_one_token_closure_over_the_effect_result() {
 #[test]
 fn a_lowered_effect_closure_flattened_to_arity_two_is_rejected() {
     let mut module = effect_module();
-    let lowering = lower_effects(&mut module).expect("the written closure starts in its shape");
+    let lowering = lower_effects(&mut module, &trusted_effect())
+        .expect("the written closure starts in its shape");
     module.types[EFFECT_APPLICATION.0 as usize] = Type::Closure {
         parameters: vec![TOKEN, A],
         result: ARROW,
@@ -110,7 +121,8 @@ fn a_lowered_effect_closure_flattened_to_arity_two_is_rejected() {
 #[test]
 fn a_lowered_effect_closure_with_the_wrong_result_is_rejected() {
     let mut module = effect_module();
-    let lowering = lower_effects(&mut module).expect("the written closure starts in its shape");
+    let lowering = lower_effects(&mut module, &trusted_effect())
+        .expect("the written closure starts in its shape");
     module.types[EFFECT_APPLICATION.0 as usize] = Type::Closure {
         parameters: vec![TOKEN],
         result: B,
@@ -126,7 +138,8 @@ fn a_lowered_effect_closure_with_the_wrong_result_is_rejected() {
 #[test]
 fn a_lowered_effect_that_is_not_a_closure_is_rejected() {
     let mut module = effect_module();
-    let lowering = lower_effects(&mut module).expect("the written closure starts in its shape");
+    let lowering = lower_effects(&mut module, &trusted_effect())
+        .expect("the written closure starts in its shape");
     module.types[EFFECT_APPLICATION.0 as usize] = Type::Application(EFFECT, ARROW);
     let errors = lowering
         .verify(&module)
@@ -141,13 +154,109 @@ fn a_lowered_effect_that_is_not_a_closure_is_rejected() {
 
 /// A module without the opaque library type is left alone and passes the check.
 #[test]
-fn a_module_without_the_library_effect_has_no_lowered_closures() {
+fn lowering_rejects_missing_trusted_effect_identity() {
     let mut module = effect_module();
     module.type_names.clear();
     module.opaque_ids.clear();
-    let lowering = lower_effects(&mut module).expect("nothing to lower");
-    assert!(lowering.closures.is_empty());
-    assert!(lowering.verify(&module).is_ok());
+    let errors = lower_effects(&mut module, &trusted_effect())
+        .expect_err("missing trusted identity metadata is an error");
+    assert_eq!(
+        errors[0].message,
+        "trusted Effect identity is missing or is not an opaque type"
+    );
+}
+
+#[test]
+fn effect_import_classification_rejects_a_cyclic_arrow_result() {
+    let mut module = effect_module();
+    module.types = vec![
+        Type::Constructor(TypeConstructor::Function),
+        Type::Constructor(TypeConstructor::Int),
+        Type::Application(TypeId(0), TypeId(1)),
+        Type::Application(TypeId(2), TypeId(3)),
+    ];
+    let error = classify_effect_import(&module, TypeId(3), EFFECT_HIR)
+        .expect_err("a recursive arrow spine is malformed");
+    assert_eq!(error, "cyclic type spine in effect import signature");
+}
+
+#[test]
+fn a_checked_foreign_effect_signature_must_quantify_its_type_variables() {
+    let mut module = effect_module();
+    let symbol = SymbolId::new(ModuleId(0), 9);
+    let free = TypeId(module.types.len() as u32);
+    module.types.push(Type::Variable(TypeVariableId(99)));
+    module.externals.push(psrs_hir::ExternalSymbol {
+        symbol,
+        name: "foreignEffect".into(),
+        kind: psrs_hir::ExternalKind::Wit {
+            interface: "test:effect".into(),
+            function: "foreign-effect".into(),
+        },
+        signature: None,
+    });
+    module.external_types.push(crate::ExternalType {
+        symbol,
+        source_module: module.id,
+        ty: free,
+    });
+
+    let errors = module
+        .verify()
+        .expect_err("free external variables are invalid");
+    assert!(
+        errors
+            .iter()
+            .any(|error| { error.message == "type variable is outside its quantifier scope" })
+    );
+}
+
+#[test]
+fn another_foreign_effect_identity_is_not_the_trusted_effect_constructor() {
+    let mut module = effect_module();
+    let other_effect = HirTypeId::new(ModuleId(1), 3);
+    let other = TypeId(module.types.len() as u32);
+    module
+        .types
+        .push(Type::Constructor(TypeConstructor::User(other_effect)));
+    let application = TypeId(module.types.len() as u32);
+    module.types.push(Type::Application(other, A));
+    module.opaque_ids.push(other_effect);
+    module
+        .type_names
+        .push((other_effect, "Prelude.Effect".into()));
+
+    assert_eq!(
+        classify_effect_import(&module, application, EFFECT_HIR).unwrap(),
+        None,
+        "matching spelling and opacity do not substitute for trusted identity"
+    );
+
+    lower_effects(&mut module, &trusted_effect()).unwrap();
+    assert!(matches!(
+        module.types.get(application.0 as usize),
+        Some(Type::Application(_, _))
+    ));
+    assert!(matches!(
+        module.types.get(EFFECT_APPLICATION.0 as usize),
+        Some(Type::Closure { .. })
+    ));
+}
+
+#[test]
+fn an_ordinary_closure_shaped_import_is_not_an_effect_import() {
+    let mut module = effect_module();
+    let ordinary = TypeId(module.types.len() as u32);
+    module.types.push(Type::Closure {
+        parameters: vec![A],
+        result: B,
+    });
+
+    assert_eq!(
+        classify_effect_import(&module, ordinary, EFFECT_HIR).unwrap(),
+        None,
+        "suspension is planned from the checked abstract Effect result, not closure shape"
+    );
 }
 
 fn messages(result: Result<(), Vec<VerifyError>>) -> Vec<&'static str> {

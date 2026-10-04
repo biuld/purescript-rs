@@ -58,6 +58,7 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -78,6 +79,19 @@ fn module(types: Vec<Type>, declaration_type: u32, value: Expr) -> Module {
 }
 
 fn with_trace(mut module: Module) -> Module {
+    let int = TypeId(
+        module
+            .types
+            .iter()
+            .position(|ty| matches!(ty, Type::Constructor(TypeConstructor::Int)))
+            .expect("trace fixture has an integer type") as u32,
+    );
+    let ty = arrow_type(&mut module.types, int, int);
+    module.external_types.push(crate::ExternalType {
+        symbol: SymbolId::new(ModuleId(0), 0),
+        source_module: module.id,
+        ty,
+    });
     module.externals.push(ExternalSymbol {
         symbol: SymbolId::new(ModuleId(0), 0),
         name: "trace".into(),

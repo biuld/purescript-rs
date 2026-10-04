@@ -163,6 +163,31 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
 
     let mut types = TypeInterner::default();
     let mut generics = checker.state.generic_variables.clone();
+    let external_types = module
+        .externals
+        .iter()
+        .filter_map(|external| {
+            if !matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                return None;
+            }
+            let signature = external.signature.as_ref()?;
+            let inferred = checker.elaborate_type_mode(signature, &mut HashMap::new(), true);
+            if contains_constraint(&inferred) {
+                checker.state.errors.push(TypeCheckError::new(
+                    TypeCheckErrorKind::UnsupportedType,
+                    signature.span,
+                    "class-constrained WIT imports are not supported by the WASI binding ABI",
+                ));
+                return None;
+            }
+            let ty = checker.finalize_type(&inferred, signature.span, &mut types, &generics)?;
+            Some(thir::ExternalType {
+                symbol: external.symbol,
+                source_module: module.id,
+                ty,
+            })
+        })
+        .collect::<Vec<_>>();
     let declarations = inferred
         .into_iter()
         .filter_map(|declaration| {
@@ -261,6 +286,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         id: module.id,
         name: module.name,
         externals: module.externals,
+        external_types,
         types: types.values,
         newtype_ids,
         opaque_ids,
@@ -285,5 +311,23 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
                 )
             })
             .collect()),
+    }
+}
+
+fn contains_constraint(ty: &InferType) -> bool {
+    match ty {
+        InferType::Constrained { .. } => true,
+        InferType::Application(function, argument) => {
+            contains_constraint(function) || contains_constraint(argument)
+        }
+        InferType::ForAll { body, .. } => contains_constraint(body),
+        InferType::RowExtend { ty, tail, .. } => {
+            contains_constraint(ty) || contains_constraint(tail)
+        }
+        InferType::Variable(_)
+        | InferType::Constructor(_)
+        | InferType::RowEmpty
+        | InferType::TypeLevelString(_)
+        | InferType::TypeLevelInt(_) => false,
     }
 }

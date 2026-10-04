@@ -26,6 +26,7 @@ fn module() -> Module {
         id: ModuleId(0),
         name: "RecordOracleTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(u)),
             Type::Constructor(psrs_core::TypeConstructor::Int),

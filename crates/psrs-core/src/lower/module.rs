@@ -84,6 +84,15 @@ pub(super) fn lower_module_inner(module: psrs_thir::Module) -> Result<Module, Ve
         id: module.id,
         name: module.name,
         externals: module.externals,
+        external_types: module
+            .external_types
+            .into_iter()
+            .map(|external| crate::ExternalType {
+                symbol: external.symbol,
+                source_module: external.source_module,
+                ty: TypeId(external.ty.0),
+            })
+            .collect(),
         types,
         newtype_ids: module.newtype_ids,
         opaque_ids: module.opaque_ids,

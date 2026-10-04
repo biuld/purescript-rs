@@ -110,10 +110,16 @@ pub struct Compilation {
 }
 
 pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, Vec<Diagnostic>> {
-    let (core, trusted_prefix, mut warnings) =
-        lower_source_with_prelude_to_core(source_name, source_text)?;
-    let output = psrs_backend::compile(core).map_err(backend_diagnostics)?;
-    warnings.extend(backend_warnings(output.warnings, trusted_prefix));
+    let lowered = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let mut warnings = lowered.warnings;
+    let output = psrs_backend::compile_with_context(
+        lowered.core,
+        lowered.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .map_err(backend_diagnostics)?
+    .artifact;
+    warnings.extend(backend_warnings(output.warnings, lowered.trusted_prefix));
     Ok(Artifact {
         wasm: output.wasm,
         wat: output.wat,
@@ -121,21 +127,29 @@ pub fn compile_source(source_name: &str, source_text: &str) -> Result<Artifact, 
     })
 }
 
+struct LoweredSource {
+    core: psrs_core::Module,
+    trusted_prefix: usize,
+    warnings: Vec<Warning>,
+    effect_context: Option<psrs_core::effect::EffectCompilation>,
+}
+
 /// Parses the standard library and a program module and links both into one
 /// Core module. Library declarations the program does not reach are pruned.
 fn lower_source_with_prelude_to_core(
     source_name: &str,
     source_text: &str,
-) -> Result<(psrs_core::Module, usize, Vec<Warning>), Vec<Diagnostic>> {
+) -> Result<LoweredSource, Vec<Diagnostic>> {
     let (sources, trusted_prefix) = prepend_stdlib(&[(source_name, source_text)])?;
-    let (module, warnings) =
-        program::lower_program_to_core_with_trusted_prefix_and_warnings(&sources, trusted_prefix)
+    let (core, warnings, effect_context) =
+        program::lower_program_to_core_and_effect_context(&sources, trusted_prefix)
             .map_err(program_diagnostics_from_hidden_prelude)?;
-    Ok((
-        module,
+    Ok(LoweredSource {
+        core,
         trusted_prefix,
-        program::typecheck_warnings(warnings, trusted_prefix),
-    ))
+        warnings: program::typecheck_warnings(warnings, trusted_prefix),
+        effect_context,
+    })
 }
 
 fn prepend_stdlib<'a>(
@@ -165,17 +179,73 @@ pub(crate) fn lower_source_to_core(
     source_name: &str,
     source_text: &str,
 ) -> Result<psrs_core::Module, Vec<Diagnostic>> {
-    lower_source_with_prelude_to_core(source_name, source_text).map(|(module, _, _)| module)
+    lower_source_with_prelude_to_core(source_name, source_text).map(|lowered| lowered.core)
+}
+
+/// Linked Core plus the trusted Effect contract required to lower it.
+#[cfg(test)]
+pub(crate) struct PreparedSource {
+    pub core: psrs_core::Module,
+    pub effect_context: Option<psrs_core::effect::EffectCompilation>,
+}
+
+#[cfg(test)]
+pub(crate) fn prepare_main(source: &str) -> Result<PreparedSource, Vec<Diagnostic>> {
+    prepare_sources(&[("Main.purs", source)])
+}
+
+#[cfg(test)]
+pub(crate) fn prepare_sources(sources: &[(&str, &str)]) -> Result<PreparedSource, Vec<Diagnostic>> {
+    let (sources, trusted_prefix) = prepend_stdlib(sources)?;
+    let (core, _warnings, effect_context) =
+        program::lower_program_to_core_and_effect_context(&sources, trusted_prefix)
+            .map_err(program_diagnostics_from_hidden_prelude)?;
+    Ok(PreparedSource {
+        core,
+        effect_context,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn compile_main_stages(source: &str) -> Result<psrs_backend::Stages, Vec<Diagnostic>> {
+    compile_main_with_target(source, psrs_backend::TargetCapabilities::default())
+}
+
+#[cfg(test)]
+pub(crate) fn compile_main_with_target(
+    source: &str,
+    target: psrs_backend::TargetCapabilities,
+) -> Result<psrs_backend::Stages, Vec<Diagnostic>> {
+    let prepared = prepare_main(source)?;
+    psrs_backend::compile_with_context(prepared.core, prepared.effect_context, target)
+        .map_err(backend_diagnostics)
+}
+
+#[cfg(test)]
+pub(crate) fn lower_main_to_cc(
+    source: &str,
+) -> Result<psrs_backend::BackendInput, Vec<Diagnostic>> {
+    let prepared = prepare_main(source)?;
+    psrs_backend::lower_cc_with_context(prepared.core, prepared.effect_context.as_ref())
+        .map_err(backend_diagnostics)
 }
 
 pub fn compile_source_with_dumps(
     source_name: &str,
     source_text: &str,
 ) -> Result<Compilation, Vec<Diagnostic>> {
-    let (core, trusted_prefix, mut warnings) =
-        lower_source_with_prelude_to_core(source_name, source_text)?;
-    let stages = psrs_backend::compile_with_stages(core).map_err(backend_diagnostics)?;
-    warnings.extend(backend_warnings(stages.artifact.warnings, trusted_prefix));
+    let lowered = lower_source_with_prelude_to_core(source_name, source_text)?;
+    let mut warnings = lowered.warnings;
+    let stages = psrs_backend::compile_with_context(
+        lowered.core,
+        lowered.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .map_err(backend_diagnostics)?;
+    warnings.extend(backend_warnings(
+        stages.artifact.warnings,
+        lowered.trusted_prefix,
+    ));
     Ok(Compilation {
         artifact: Artifact {
             wasm: stages.artifact.wasm,

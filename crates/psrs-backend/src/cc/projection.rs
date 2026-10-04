@@ -379,6 +379,7 @@ mod tests {
             id: module_id,
             name: "ProjectionTest".into(),
             externals: Vec::new(),
+            external_types: Vec::new(),
             types,
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),

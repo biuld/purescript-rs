@@ -91,6 +91,7 @@ fn indirect_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: "take".into(),
             type_id: None,

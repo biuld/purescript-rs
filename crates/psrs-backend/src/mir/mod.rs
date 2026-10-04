@@ -227,7 +227,7 @@ fn lower_module_after_binding_validation(
         let import = wasi.import(interface, function).map_err(|message| {
             vec![
                 BackendError::new("P9 MIR lowering", external.span, message)
-                    .with_module(external.symbol.module),
+                    .with_module(external.source_module),
             ]
         })?;
         if let Some(reason) = &import.unsupported {
@@ -237,7 +237,7 @@ fn lower_module_after_binding_validation(
                     external.span,
                     format!("WIT import `{interface}#{function}` is unsupported: {reason}"),
                 )
-                .with_module(external.symbol.module),
+                .with_module(external.source_module),
             ]);
         }
         let Some(signature) = abstract_signatures.get(&external.symbol).cloned() else {
@@ -247,7 +247,7 @@ fn lower_module_after_binding_validation(
                     external.span,
                     format!("WIT import `{interface}#{function}` has no abstract signature"),
                 )
-                .with_module(external.symbol.module),
+                .with_module(external.source_module),
             ]);
         };
         wit_imports.insert(
