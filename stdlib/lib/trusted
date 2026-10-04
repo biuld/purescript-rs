@@ -13,6 +13,7 @@ Effect.Console
 Test.Assert
 Data.Maybe
 Data.Either
+Data.Tuple
 Data.Foldable
 WASI.Resource
 WASI.IO
