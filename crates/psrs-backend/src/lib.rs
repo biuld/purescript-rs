@@ -178,6 +178,27 @@ pub struct Stages {
     pub artifact: Artifact,
 }
 
+/// IR values captured by the diagnostic compile path. Each field is populated
+/// only after that representation has been produced successfully by its pass.
+#[derive(Clone, Debug, Default)]
+pub struct PartialStages {
+    /// Optimized Core after P7.
+    pub core: Option<psrs_core::Module>,
+    /// CC after closure conversion and its verifier both succeed.
+    pub cc: Option<cc::Module>,
+    /// Latest MIR produced by lowering or optimization.
+    pub mir: Option<mir::Module>,
+    /// The pass that most recently produced `mir`.
+    pub mir_stage: Option<&'static str>,
+}
+
+/// Backend diagnostics together with the last successful IR values.
+#[derive(Clone, Debug)]
+pub struct CompileFailure {
+    pub errors: Vec<BackendError>,
+    pub partial: PartialStages,
+}
+
 pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<BackendError>> {
     compile_with_target(module, TargetCapabilities::default())
 }
@@ -195,6 +216,28 @@ pub fn compile_with_context(
     effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
+    compile_with_context_inner(module, effect_context, target, None)
+}
+
+/// Compiles using the normal backend pipeline and returns only representations
+/// whose producing pass completed. In particular, a CC verifier failure leaves
+/// the verified Core available but does not publish the unverified CC candidate.
+pub fn compile_with_context_capturing(
+    module: psrs_core::Module,
+    effect_context: Option<psrs_core::effect::EffectCompilation>,
+    target: TargetCapabilities,
+) -> Result<Stages, CompileFailure> {
+    let mut partial = PartialStages::default();
+    compile_with_context_inner(module, effect_context, target, Some(&mut partial))
+        .map_err(|errors| CompileFailure { errors, partial })
+}
+
+fn compile_with_context_inner(
+    module: psrs_core::Module,
+    effect_context: Option<psrs_core::effect::EffectCompilation>,
+    target: TargetCapabilities,
+    mut capture: Option<&mut PartialStages>,
+) -> Result<Stages, Vec<BackendError>> {
     let owner = module.entry.map(|entry| entry.module);
     let mut module =
         psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()).map_err(|errors| {
@@ -210,6 +253,9 @@ pub fn compile_with_context(
             )
         })?;
     let optimized_core = module.clone();
+    if let Some(capture) = capture.as_deref_mut() {
+        capture.core = Some(optimized_core.clone());
+    }
     let mut external_bindings = ExternalBindings::from_core(&module);
     if let Some(context) = effect_context.as_ref() {
         effects::lower_effects(&mut module, &mut external_bindings, context)?;
@@ -217,9 +263,20 @@ pub fn compile_with_context(
     external_bindings.validate_conformance(&module, target)?;
     let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
     let cc = lowered_cc.cc;
+    if let Some(capture) = capture.as_deref_mut() {
+        capture.cc = Some(cc.clone());
+    }
     let (mir, mut wasi) =
         mir::lower_module_with_bindings(cc.clone(), lowered_cc.externals, target)?;
+    if let Some(capture) = capture.as_deref_mut() {
+        capture.mir = Some(mir.clone());
+        capture.mir_stage = Some("P9 MIR lowering");
+    }
     let mir = mir::opt::optimize(mir, target)?;
+    if let Some(capture) = capture.as_deref_mut() {
+        capture.mir = Some(mir.clone());
+        capture.mir_stage = Some("P10 MIR optimization");
+    }
     let owner = mir.entry.map(|entry| entry.module);
     if !target.component_model
         || !target.wasi_p2

@@ -19,6 +19,9 @@ uncommitted work.
 - For a new user-facing feature, maintain the relevant feature and design
   documents under `docs/`. Add a decision record only for a major, durable
   decision. Keep documentation proportional to the change.
+- For compiler fixes, follow the [compiler iteration SOP](docs/workflow/compiler-iteration-sop.md)
+  to capture a comparable baseline, locate the owning stage contract, and verify
+  the change at the right layer.
 - Review the local diff and run the validation relevant to the files changed.
 
 ### Commit granularity
@@ -104,6 +107,10 @@ as project fields would create a second source of truth.
 - New syntax and new diagnostics land with official-suite evidence, not only a
   local test. The issue states whether that is a `purs` differential case or a
   scoreboard number.
+- Before a broad compiler fix, record a small or filtered compile-diagnosis
+  baseline and inspect the first blocker, diagnostic origin, and last completed
+  stage. Use the SOP's failure-group counts to guide investigation, while
+  choosing roadmap work and semantic ownership by the rules in this section.
 - Run the issue's `Validation` block. It is the issue-specific superset of the
   workspace validation below.
 
@@ -238,6 +245,11 @@ cargo fmt --all --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+An explicit user-defined validation scope takes precedence over these
+defaults. An issue's `Validation` block adds its required checks to the
+applicable defaults. Report omitted commands and their scope; do not present
+unrun checks as passing.
 
 The workspace default member is the CLI so `cargo run -- ...` works from the
 repository root. Always use `cargo test --workspace` to include library tests.

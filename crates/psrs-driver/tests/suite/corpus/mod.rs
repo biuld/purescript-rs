@@ -48,17 +48,7 @@ pub fn collected_files(dir: &Path, limit: Option<usize>) -> Vec<PathBuf> {
 }
 
 pub fn collect_purs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.filter_map(|entry| entry.ok()) {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_purs_files(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "purs") {
-            out.push(path);
-        }
-    }
+    psrs_driver::collect_purs_files(dir, out);
 }
 
 /// One corpus case, assembled the way the compiler loads a program.
@@ -127,30 +117,12 @@ impl Case {
 /// dependencies there, and that subdirectory is searched first, so its support
 /// modules win over anything found beside the case.
 pub fn load_case(path: &Path, category_dir: &Path, text: &str) -> Case {
-    let own = own_sources(path, text);
     let own_directory = path.parent() != Some(category_dir);
-    let loaded = if !own_directory {
-        Vec::new()
-    } else {
-        let entry = own
-            .iter()
-            .skip(1)
-            .map(|(path, _)| path.clone())
-            .chain(std::iter::once(path.to_string_lossy().into_owned()))
-            .collect::<Vec<String>>();
-        match psrs_driver::load_program_files(&entry) {
-            Ok(sources) => sources
-                .into_iter()
-                .filter(|(loaded, _)| !own.iter().any(|(own, _)| own == loaded))
-                .collect(),
-            // The loader only fails on an unreadable entry file, which the case
-            // sources above have already read.
-            Err(_) => Vec::new(),
-        }
-    };
+    let sources = psrs_driver::load_program_case_sources(path, category_dir, text)
+        .expect("a previously read suite case and its support files remain readable");
     Case {
-        own,
-        loaded,
+        own: sources.own,
+        loaded: sources.loaded,
         directory: path.parent().unwrap_or(Path::new(".")).to_path_buf(),
         own_directory,
     }
@@ -159,19 +131,9 @@ pub fn load_case(path: &Path, category_dir: &Path, text: &str) -> Case {
 /// The main source plus the modules in a sibling directory named after the file
 /// stem, which is how the corpus supplies a case's support modules.
 pub fn own_sources(path: &Path, text: &str) -> Vec<(String, String)> {
-    let mut sources = vec![(path.to_string_lossy().into_owned(), text.to_owned())];
-    let support_dir = path.with_extension("");
-    if support_dir.is_dir() {
-        let mut files = Vec::new();
-        collect_purs_files(&support_dir, &mut files);
-        files.sort();
-        for support in files {
-            if let Ok(text) = std::fs::read_to_string(&support) {
-                sources.push((support.to_string_lossy().into_owned(), text));
-            }
-        }
-    }
-    sources
+    psrs_driver::load_program_case_sources(path, path.parent().unwrap_or(Path::new(".")), text)
+        .map(|sources| sources.own)
+        .unwrap_or_else(|_| vec![(path.to_string_lossy().into_owned(), text.to_owned())])
 }
 
 /// Why a case is blocked, split so the phase that recovers it is visible.

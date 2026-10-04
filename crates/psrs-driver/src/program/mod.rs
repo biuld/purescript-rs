@@ -2,19 +2,25 @@
 //! checking against imported signatures, Core lowering, and linking.
 
 use super::{
-    Artifact, DiagnosticOrigin, ProgramDiagnostic, ProgramWarning, Warning, backend_warnings,
-    coded_diagnostic, diagnostic, lower_source_to_ast,
+    DiagnosticOrigin, ProgramDiagnostic, ProgramWarning, Warning, coded_diagnostic, diagnostic,
+    lower_source_to_ast,
 };
 
+pub use compilation::compile_program_sources;
+pub(super) use compilation::{
+    compile_program_sources_with_trusted_prefix, compile_program_sources_with_trusted_prefix_report,
+};
 pub use lenient::{
     check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
 };
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
     check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
+    compile_program_sources_with_prelude_report,
 };
 use std::collections::{HashMap, HashSet};
 
+mod compilation;
 mod effects;
 mod graph;
 mod lenient;
@@ -41,45 +47,6 @@ fn desugar_diagnostic(error: psrs_desugar::DesugarError) -> super::Diagnostic {
 }
 
 use graph::{imported_instance_declarations, module_dependencies, module_table, typecheck_order};
-
-/// Compiles a whole program to a single Wasm component. Every module is type
-/// checked in dependency order and lowered to Core; the modules are then linked
-/// into one before the backend runs.
-pub fn compile_program_sources(
-    sources: &[(&str, &str)],
-) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    compile_program_sources_with_trusted_prefix(sources, 0)
-}
-
-fn compile_program_sources_with_trusted_prefix(
-    sources: &[(&str, &str)],
-    trusted_prefix: usize,
-) -> Result<Artifact, Vec<ProgramDiagnostic>> {
-    let (core, source_warnings, effect_context) =
-        lower_program_to_core_and_effect_context(sources, trusted_prefix)?;
-    let output = match effect_context {
-        Some(context) => psrs_backend::compile_with_effect_context(core, context),
-        None => psrs_backend::compile(core),
-    }
-    .map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|error| ProgramDiagnostic {
-                source: error.module.map_or(DiagnosticOrigin::Program, |module| {
-                    DiagnosticOrigin::Source(module.0 as usize)
-                }),
-                diagnostic: diagnostic(error.pass, error.span, error.message),
-            })
-            .collect::<Vec<_>>()
-    })?;
-    let mut warnings = typecheck_warnings(source_warnings, trusted_prefix);
-    warnings.extend(backend_warnings(output.warnings, trusted_prefix));
-    Ok(Artifact {
-        wasm: output.wasm,
-        wat: output.wat,
-        warnings,
-    })
-}
 
 #[cfg(test)]
 pub(crate) fn lower_program_to_core(

@@ -15,11 +15,18 @@ Project documentation is written in English and grouped by purpose:
 | [F-01: Source inspection](feature/F-01-source-inspection.md) | [Frontend and IR boundaries](design/D-01-frontend-and-ir-boundaries.md) | In progress |
 | [F-02: Build portable programs](feature/F-02-portable-programs.md) | [Backend design](design/backend/README.md) | In progress |
 | [F-03: PSRS Explorer](feature/F-03-interactive-ir-explorer.md) | [PSRS Explorer](design/D-14-interactive-ir-explorer.md) | In progress |
+| [F-04: Diagnose compile failures](feature/F-04-compile-diagnosis.md) | [Compile failure diagnosis](design/D-16-compile-diagnosis.md) | In progress |
 
 Decision records use the `DEC-XX` prefix. See [decision policy](decision/README.md).
 The [authoring guide](authoring-guide.md) is the reference for where a document
 goes, how it is named, the topic design document template, and how to state a
 measured number.
+
+## Contributor workflows
+
+- [Compiler iteration SOP](workflow/compiler-iteration-sop.md): diagnose a
+  baseline, locate the responsible stage contract, implement a bounded fix, and
+  compare the same cases afterward.
 
 ## Compiler design
 

@@ -2,6 +2,8 @@ use psrs_span::{SourceFile, TextRange};
 use psrs_syntax::{LayoutTokenKind, RawToken, RawTokenKind, add_layout, lex, parse_module};
 use std::{env, fs, process::ExitCode};
 
+mod diagnose;
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -19,6 +21,17 @@ fn run() -> Result<(), String> {
     let Some(command) = args.next() else {
         return Err(usage());
     };
+    if command == "__diagnose-worker" {
+        let request = args.next().ok_or_else(usage)?;
+        let response = args.next().ok_or_else(usage)?;
+        if args.next().is_some() {
+            return Err(usage());
+        }
+        return diagnose::worker(&request, &response);
+    }
+    if command == "diagnose" {
+        return diagnose::run(args.collect());
+    }
     if command == "check-program" {
         let paths: Vec<String> = args.collect();
         if paths.is_empty() {
@@ -256,7 +269,7 @@ fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs>... [-o output.wasm]\n       psrs wat <file.purs>... [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs>... [-o output.wasm]\n       psrs wat <file.purs>... [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>\n       psrs diagnose <file.purs> [--out report.json]\n       psrs diagnose --corpus passing [--filter TEXT] [--limit N] [--out report.json]\n       psrs diagnose --compare OLD.json NEW.json".into()
 }
 
 fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {

@@ -194,6 +194,7 @@ fn verify_function_inner(
         representations,
         functions,
         function.span,
+        &function.name,
     )?;
     if !available.contains(&function.result) {
         return Err(vec![BackendError::invalid_ir(

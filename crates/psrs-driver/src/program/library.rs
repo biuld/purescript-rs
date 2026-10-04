@@ -1,11 +1,11 @@
 //! Prepends the on-disk standard library as the trusted source prefix.
 
 use super::{
-    Artifact, check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
+    check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
     compile_program_sources_with_trusted_prefix, diagnostic,
 };
 use crate::prelude;
-use crate::{DiagnosticOrigin, ProgramDiagnostic};
+use crate::{Artifact, CompilationReport, DiagnosticOrigin, ProgramDiagnostic};
 
 /// Compiles user sources together with the on-disk standard library.
 ///
@@ -19,6 +19,19 @@ pub fn compile_program_sources_with_prelude(
     let (all_sources, trusted_prefix) = with_prelude(sources)?;
     compile_program_sources_with_trusted_prefix(&all_sources, trusted_prefix)
         .map_err(|errors| shift(errors, trusted_prefix))
+}
+
+/// Compiles with the trusted library and retains the last successful IR stages
+/// for diagnosis. Backend diagnostics keep their source origin and error kind.
+pub fn compile_program_sources_with_prelude_report(sources: &[(&str, &str)]) -> CompilationReport {
+    let (all_sources, trusted_prefix) = match with_prelude(sources) {
+        Ok(sources) => sources,
+        Err(errors) => return CompilationReport::failed(errors, Default::default()),
+    };
+    let mut report =
+        super::compile_program_sources_with_trusted_prefix_report(&all_sources, trusted_prefix);
+    report.diagnostics = shift(report.diagnostics, trusted_prefix);
+    report
 }
 
 /// Resolves user sources leniently together with the on-disk standard library.
