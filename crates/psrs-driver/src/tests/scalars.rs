@@ -122,9 +122,7 @@ main = pick First
 
 #[test]
 fn generates_floor_helpers_for_division_nested_in_case_branches() {
-    let core = lower_source_to_core("Main.purs", CASE_HELPER_SOURCE)
-        .expect("typechecking a case with nested division");
-    let stages = psrs_backend::compile_with_stages(core)
+    let stages = crate::compile_main_stages(CASE_HELPER_SOURCE)
         .expect("case-nested division must generate its helper before MIR lowering");
     assert!(
         stages.cc.functions.iter().any(|function| {

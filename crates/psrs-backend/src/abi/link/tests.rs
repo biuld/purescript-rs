@@ -13,6 +13,7 @@ fn module() -> CoreModule {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             CoreType::Constructor(psrs_core::TypeConstructor::Int),
             CoreType::Constructor(psrs_core::TypeConstructor::Number),

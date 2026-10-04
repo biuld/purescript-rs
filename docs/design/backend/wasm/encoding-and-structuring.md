@@ -223,11 +223,15 @@ aligned blocks ([linear memory boundary](linear-memory-and-canonical-abi-boundar
 
 ### Command entry synthesis
 
-The selected entry declaration must be a zero-argument function returning `Int`
-(`i32`). P10 synthesizes a `run` entry with type `() -> i32` whose body calls
-`main`, then calls `wasi:cli/exit.exit-with-code` with `main`'s result, then
-returns `0`, the canonical `ok` discriminant of the `run` result. The core
-module exports this entry under the name `wit-component` expects
+The selected `Int` entry retains the existing zero-argument integer command
+convention and preserves its result. An `Effect Unit` entry is normalized by an
+ordinary Core adapter that runs the selected action exactly once, then returns
+zero; a guest trap propagates before normal completion. Both forms reach P10 as
+a zero-argument integer command function, with no generated adapter around the
+`Int` entry. P10 synthesizes a `run` entry with type `() -> i32` that calls this
+function, passes its result to `wasi:cli/exit.exit-with-code`, then returns `0`,
+the canonical `ok` discriminant of the `run` result. The core module exports
+this entry under the name `wit-component` expects
 (`wasi:cli/run@0.2.12#run`) and exports its linear memory as `memory`. The
 component lift and world are described in [WASI platform library](wasi-platform-library.md).
 

@@ -125,6 +125,7 @@ pub(super) fn record_with_aggregate_field_fixture() -> (cc::Module, ExternalBind
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: "get".into(),
             type_id: None,
@@ -348,6 +349,7 @@ pub(super) fn record_with_aggregate_field_parameter_fixture()
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: "take".into(),
             type_id: None,

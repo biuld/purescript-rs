@@ -10,8 +10,7 @@ use super::*;
 use psrs_backend::cc::AssignmentKind;
 
 fn stages(source: &str) -> psrs_backend::Stages {
-    let core = lower_source_to_core("Main.purs", source).expect("source lowers to Core");
-    psrs_backend::compile_with_stages(core).expect("Core lowers through CC to Wasm")
+    crate::compile_main_stages(source).expect("Core lowers through CC to Wasm")
 }
 
 fn flatten_cc(assignments: &[psrs_backend::cc::Assignment]) -> Vec<&psrs_backend::cc::Assignment> {

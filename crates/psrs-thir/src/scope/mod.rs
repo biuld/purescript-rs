@@ -41,6 +41,16 @@ pub(super) fn verify_module(module: &Module) -> Vec<VerifyError> {
             );
         }
     }
+    for external in &module.external_types {
+        verify_type_scope(
+            external.ty,
+            &module.types,
+            &HashSet::new(),
+            module.span,
+            &mut HashSet::new(),
+            &mut errors,
+        );
+    }
     for declaration in &module.declarations {
         let mut scope = HashSet::new();
         enter_binders(

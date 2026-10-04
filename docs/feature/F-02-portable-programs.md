@@ -24,10 +24,18 @@ Existing Node.js APIs and JavaScript FFI modules are not supported compatibility
 targets. Programs that use unsupported syntax, types, or platform services
 receive source-oriented diagnostics rather than a malformed artifact.
 
-The selected command entry is a zero-argument integer `main`. It may use the
-provided `runEffect` operation to execute effect values; other source
-declarations cannot invoke the runner. An `Effect` value is opaque to source
-code, and constructing it does not execute it.
+The compiler selects `Main.main` when that declaration exists; otherwise it
+requires exactly one top-level declaration named `main`. The selected entry
+takes no arguments and may return `Int` or `Effect Unit`. An integer result
+continues to determine the process exit code. For `Effect Unit`, the compiler
+runs the returned action once; normal completion exits with code 0, and a guest
+trap propagates as a failure.
+
+A direct reference to the provided `runEffect` operation may appear only in the
+selected entry declaration. This is a lexical source restriction: the entry may
+pass the runner to a helper, and that helper may call it. An `Effect` value is
+opaque to source code, and constructing the value itself does not run its
+deferred operation.
 
 The compiler emits a WASI 0.2 Component Model artifact. The legacy WASI
 Preview 1 module ABI is not part of the supported output contract.
@@ -69,16 +77,17 @@ The initial slice supports direct top-level functions, integer and boolean
 values, integer arithmetic and comparisons, scalar `let`, `if`, nullary enum
 tags, non-parameterized data constructors with scalar or nested aggregate
 fields, single-field `newtype` values, constructor patterns in `case` and
-function parameters, including nested constructor patterns,
-a restricted parameterized ADT slice with erased scalar
-fields, concrete scalar array literals and indexing, closed concrete records,
-field reads, record updates, and closed concrete record patterns with variable,
-wildcard, and nested constructor or record field bindings, function values including scalar-capturing closures,
-higher-order calls, and the
-implemented effect-based WASI console and clock libraries plus random imports.
-The selected entry must be a zero-argument integer `main` function. Generic direct
-calls and annotated rank-N values are lowered, including quantified parameters,
-record and constructor fields, captures, and returned functions. Each use can
+function parameters, including nested constructor patterns, a restricted
+parameterized ADT slice with erased scalar fields, concrete scalar array
+literals and indexing, closed concrete records, field reads, record updates,
+and closed concrete record patterns with variable, wildcard, and nested
+constructor or record field bindings, function values including
+scalar-capturing closures, higher-order calls, and the implemented effect-based
+WASI console and clock libraries plus random imports.
+The selected source entry must take no arguments and return `Int` or
+`Effect Unit`. Generic direct calls and annotated rank-N values are lowered,
+including quantified parameters, record and constructor fields, captures, and
+returned functions. Each use can
 instantiate a quantified value independently; nested constraints are supplied
 through the corresponding class instances. Generic arrays
 and records cross the supported polymorphic boundaries with their contents
@@ -128,10 +137,10 @@ function calls.
 - A supported source program produces a validated core Wasm module at the
   requested output path.
 - The compiler prints WAT or writes it at the requested output path.
-- The eventual WASI artifact runs in a compatible WASI runtime and produces
-  the program's expected observable result.
-- The artifact runs in a compatible WASI runtime and produces the program's
-  expected observable result.
+- The WASI artifact runs in a compatible runtime and preserves observable
+  behavior. An `Int` entry preserves its exit code; an `Effect Unit` entry
+  executes once, exits with code 0 after normal completion, and propagates a
+  trap.
 - Unsupported constructs fail with a source-oriented diagnostic.
 - Each added platform service has documented behavior and executable tests.
 

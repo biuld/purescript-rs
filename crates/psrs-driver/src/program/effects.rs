@@ -1,41 +1,190 @@
 use super::{DiagnosticOrigin, ProgramDiagnostic, diagnostic};
-use psrs_hir::{Expr, ExprKind, Module, SymbolId};
+use psrs_core::effect::EffectOperation;
+use psrs_hir::{Expr, ExprKind, ExternalKind, Module, SymbolId, TypeDeclarationKind};
 use psrs_span::TextRange;
 
-/// Restricts references to the trusted `Prelude.runEffect` value to the
-/// selected command entry. This runs on resolved HIR, before type inference.
-pub(super) fn check_run_effect_scope(
-    modules: &[Module],
-    trusted_prefix: usize,
-) -> Result<(), Vec<ProgramDiagnostic>> {
-    let Some(runner) = modules
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct EntrySelection {
+    pub symbol: SymbolId,
+    pub source: usize,
+    pub span: TextRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum EntryResolution {
+    Selected(EntrySelection),
+    Missing,
+    Ambiguous {
+        entries: Vec<EntrySelection>,
+        main_modules: bool,
+    },
+}
+
+pub(super) fn select_entry(modules: &[Module]) -> EntryResolution {
+    let candidates = modules
         .iter()
-        .take(trusted_prefix)
-        .find(|module| module.name == "Prelude")
-        .and_then(|module| {
+        .enumerate()
+        .flat_map(|(source, module)| {
             module
                 .declarations
                 .iter()
-                .find(|declaration| declaration.name == "runEffect")
-                .map(|declaration| declaration.symbol)
-                .or_else(|| {
-                    module
-                        .externals
-                        .iter()
-                        .find(|external| external.name == "runEffect")
-                        .map(|external| external.symbol)
+                .filter(|declaration| declaration.name == "main")
+                .map(move |declaration| EntrySelection {
+                    symbol: declaration.symbol,
+                    source,
+                    span: declaration.name_span,
                 })
         })
+        .collect::<Vec<_>>();
+    let main_modules = candidates
+        .iter()
+        .filter(|entry| modules[entry.source].name == "Main")
+        .copied()
+        .collect::<Vec<_>>();
+    match main_modules.as_slice() {
+        [entry] => EntryResolution::Selected(*entry),
+        [] if candidates.len() == 1 => EntryResolution::Selected(candidates[0]),
+        [] if candidates.is_empty() => EntryResolution::Missing,
+        _ if !main_modules.is_empty() => EntryResolution::Ambiguous {
+            entries: main_modules,
+            main_modules: true,
+        },
+        _ => EntryResolution::Ambiguous {
+            entries: candidates,
+            main_modules: false,
+        },
+    }
+}
+
+pub(super) fn require_unambiguous_entry(
+    resolution: EntryResolution,
+) -> Result<Option<EntrySelection>, Vec<ProgramDiagnostic>> {
+    match resolution {
+        EntryResolution::Selected(entry) => Ok(Some(entry)),
+        EntryResolution::Missing => Ok(None),
+        EntryResolution::Ambiguous {
+            entries,
+            main_modules,
+        } => {
+            let message = if main_modules {
+                "multiple `main` declarations exist in modules named `Main`"
+            } else {
+                "program has multiple `main` declarations; define one `main` in `Main`"
+            };
+            Err(entries
+                .into_iter()
+                .map(|entry| ProgramDiagnostic {
+                    source: DiagnosticOrigin::Source(entry.source),
+                    diagnostic: diagnostic("P7 entry selection", entry.span, message),
+                })
+                .collect())
+        }
+    }
+}
+
+pub(super) fn trusted_effect(
+    modules: &[Module],
+    trusted_prefix: usize,
+) -> Result<Option<psrs_core::effect::TrustedEffect>, Vec<ProgramDiagnostic>> {
+    let preludes = modules
+        .iter()
+        .take(trusted_prefix)
+        .enumerate()
+        .filter(|(_, module)| module.name == "Prelude")
+        .collect::<Vec<_>>();
+    if preludes.is_empty() {
+        return Ok(None);
+    }
+    if preludes.len() != 1 {
+        return Err(vec![ProgramDiagnostic {
+            source: DiagnosticOrigin::Program,
+            diagnostic: diagnostic(
+                "P7 Effect contract",
+                preludes[1].1.span,
+                "trusted program contains multiple Prelude modules",
+            ),
+        }]);
+    }
+    let (source, prelude) = preludes[0];
+    let Some(effect) = prelude.types.iter().find(|declaration| {
+        declaration.name == "Effect" && declaration.kind == TypeDeclarationKind::Foreign
+    }) else {
+        return Ok(None);
+    };
+    let mut operations = Vec::new();
+    for (name, operation, wit_name) in [
+        ("pure", EffectOperation::Pure, "pure"),
+        ("bind", EffectOperation::Bind, "bind"),
+        ("runEffect", EffectOperation::Run, "run"),
+        ("trap", EffectOperation::Trap, "trap"),
+    ] {
+        let Some(external) = prelude
+            .externals
+            .iter()
+            .find(|external| external.name == name)
+        else {
+            return Err(vec![ProgramDiagnostic {
+                source: DiagnosticOrigin::Source(source),
+                diagnostic: diagnostic(
+                    "P7 Effect contract",
+                    prelude.span,
+                    "trusted Prelude is missing a required Effect operation binding",
+                ),
+            }]);
+        };
+        if !matches!(
+            &external.kind,
+            ExternalKind::Wit { interface, function }
+                if interface == "psrs:effect" && function == wit_name
+        ) {
+            return Err(vec![ProgramDiagnostic {
+                source: DiagnosticOrigin::Source(source),
+                diagnostic: diagnostic(
+                    "P7 Effect contract",
+                    external
+                        .signature
+                        .as_ref()
+                        .map_or(prelude.span, |ty| ty.span),
+                    "trusted Prelude Effect operation has the wrong WIT identity",
+                ),
+            }]);
+        }
+        operations.push(psrs_core::effect::EffectOperationBinding {
+            operation,
+            symbol: external.symbol,
+        });
+    }
+    Ok(Some(psrs_core::effect::TrustedEffect {
+        effect_type: effect.id,
+        operations,
+    }))
+}
+
+/// Enforces the source compatibility rule: `runEffect` may be referenced only
+/// inside the selected declaration. Passing it from that declaration to a
+/// helper is allowed; this is a lexical rule, not capability confinement.
+pub(super) fn check_run_effect_scope(
+    modules: &[Module],
+    entry: Option<EntrySelection>,
+    trusted: Option<&psrs_core::effect::TrustedEffect>,
+) -> Result<(), Vec<ProgramDiagnostic>> {
+    let Some(runner) = trusted
+        .and_then(|trusted| {
+            trusted
+                .operations
+                .iter()
+                .find(|operation| operation.operation == EffectOperation::Run)
+        })
+        .map(|operation| operation.symbol)
     else {
         return Ok(());
     };
-    let entry = selected_entry_symbol(modules);
     let mut errors = Vec::new();
     for (source, module) in modules.iter().enumerate() {
         for declaration in &module.declarations {
             let mut references = Vec::new();
             collect_runner_references(&declaration.value, runner, &mut references);
-            if Some(declaration.symbol) == entry {
+            if entry.is_some_and(|entry| declaration.symbol == entry.symbol) {
                 continue;
             }
             for span in references {
@@ -49,33 +198,27 @@ pub(super) fn check_run_effect_scope(
                 });
             }
         }
+        for instance in &module.instances {
+            for member in &instance.members {
+                let mut references = Vec::new();
+                collect_runner_references(&member.value, runner, &mut references);
+                for span in references {
+                    errors.push(ProgramDiagnostic {
+                        source: DiagnosticOrigin::Source(source),
+                        diagnostic: diagnostic(
+                            "P7 entry selection",
+                            span,
+                            "the trusted `runEffect` binding may only be referenced from the selected command entry `main`",
+                        ),
+                    });
+                }
+            }
+        }
     }
     if errors.is_empty() {
         Ok(())
     } else {
         Err(errors)
-    }
-}
-
-fn selected_entry_symbol(modules: &[Module]) -> Option<SymbolId> {
-    let candidates = modules
-        .iter()
-        .flat_map(|module| {
-            module
-                .declarations
-                .iter()
-                .filter(|declaration| declaration.name == "main")
-                .map(move |declaration| (module.name.as_str(), declaration.symbol))
-        })
-        .collect::<Vec<_>>();
-    let main_module = candidates
-        .iter()
-        .filter(|(module_name, _)| *module_name == "Main")
-        .collect::<Vec<_>>();
-    match main_module.as_slice() {
-        [(_, symbol)] => Some(*symbol),
-        [] if candidates.len() == 1 => Some(candidates[0].1),
-        _ => None,
     }
 }
 

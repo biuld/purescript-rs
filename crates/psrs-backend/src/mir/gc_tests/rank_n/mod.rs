@@ -387,6 +387,7 @@ pub(super) fn module(types: Vec<Type>, declarations: Vec<Declaration>, entry: Sy
         id: entry.module,
         name: "RankNBackendTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

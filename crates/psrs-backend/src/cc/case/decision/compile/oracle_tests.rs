@@ -33,6 +33,7 @@ fn module() -> Module {
         id: ModuleId(0),
         name: "OracleTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(t)),
             Type::Constructor(TypeConstructor::User(u)),

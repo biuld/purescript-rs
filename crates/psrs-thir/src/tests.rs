@@ -7,6 +7,7 @@ fn verifier_rejects_invalid_type_references() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -44,6 +45,7 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
             Type::Constructor(TypeConstructor::Record),
@@ -101,6 +103,7 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
             Type::RowEmpty,
@@ -166,6 +169,7 @@ fn literal_reference_module(reference_type: TypeId) -> Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(proxy)),
             Type::TypeLevelString("a".into()),
@@ -253,6 +257,7 @@ fn verifier_rejects_coercion_evidence_for_a_different_boundary() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::Int),
             Type::Constructor(TypeConstructor::Boolean),

@@ -52,6 +52,7 @@ fn module_with(bad: thir::Declaration, span: TextRange) -> thir::Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: types.list(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

@@ -6,37 +6,73 @@
 //! integer `0`, and `trap` is the effect that escapes instead of returning.
 
 use super::supplies::{LocalSupply, VariableSupply};
-use super::{EFFECT_INTERFACE, intern};
+use super::{EFFECT_INTERFACE, TrustedEffect, intern};
 use crate::{Binder, Declaration, Expr, ExprKind, Module, Type, TypeConstructor, TypeId};
 use psrs_hir::{ExternalKind, LocalId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
 
 /// Synthesizes `pure`, `bind`, `run`, and `trap`, dropping the abstract imports
 /// they replace. Returns the symbols that became ordinary declarations.
-pub(super) fn synthesize_operations(module: &mut Module, token: TypeId) -> Vec<SymbolId> {
-    let operations = module
-        .externals
-        .iter()
-        .enumerate()
-        .filter_map(|(index, external)| {
-            let ExternalKind::Wit {
-                interface,
-                function,
-            } = &external.kind
-            else {
-                return None;
-            };
-            (*interface == EFFECT_INTERFACE).then_some((
-                index,
-                external.symbol,
-                external.name.clone(),
-                function.clone(),
-                external_span(external),
-            ))
-        })
-        .collect::<Vec<_>>();
-    if operations.is_empty() {
-        return Vec::new();
+pub(super) fn synthesize_operations(
+    module: &mut Module,
+    token: TypeId,
+    trusted: &TrustedEffect,
+) -> Result<Vec<SymbolId>, Vec<crate::VerifyError>> {
+    let mut operations = Vec::new();
+    let mut seen_symbols = std::collections::HashSet::new();
+    let mut seen_operations = std::collections::HashSet::new();
+    for binding in &trusted.operations {
+        if !seen_symbols.insert(binding.symbol) || !seen_operations.insert(binding.operation) {
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect operation bindings are duplicated",
+            )]);
+        }
+        let Some((index, external)) = module
+            .externals
+            .iter()
+            .enumerate()
+            .find(|(_, external)| external.symbol == binding.symbol)
+        else {
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect operation binding has no external declaration",
+            )]);
+        };
+        let ExternalKind::Wit {
+            interface,
+            function,
+        } = &external.kind
+        else {
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect operation is not a WIT import",
+            )]);
+        };
+        if interface != EFFECT_INTERFACE || function != binding.operation.wit_function() {
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect operation identity does not match its WIT binding",
+            )]);
+        }
+        operations.push((
+            index,
+            binding.symbol,
+            external.name.clone(),
+            function.clone(),
+            external_span(external),
+        ));
+    }
+    if module.externals.iter().any(|external| {
+        matches!(
+            &external.kind,
+            ExternalKind::Wit { interface, .. } if interface == EFFECT_INTERFACE
+        ) && !seen_symbols.contains(&external.symbol)
+    }) {
+        return Err(vec![verification_error(
+            module,
+            "Effect WIT import is missing from the trusted operation bindings",
+        )]);
     }
     let mut locals = LocalSupply::new(module);
     let mut variables = VariableSupply::new(module);
@@ -82,7 +118,10 @@ pub(super) fn synthesize_operations(module: &mut Module, token: TypeId) -> Vec<S
             _ => None,
         };
         let Some(declaration) = declaration else {
-            continue;
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect operation has no lowering rule",
+            )]);
         };
         module.declarations.push(declaration);
         synthesized.push(symbol);
@@ -92,7 +131,18 @@ pub(super) fn synthesize_operations(module: &mut Module, token: TypeId) -> Vec<S
     for index in remove.into_iter().rev() {
         module.externals.remove(index);
     }
-    synthesized
+    module
+        .external_types
+        .retain(|external| !seen_symbols.contains(&external.symbol));
+    Ok(synthesized)
+}
+
+fn verification_error(module: &Module, message: &'static str) -> crate::VerifyError {
+    crate::VerifyError {
+        module: module.id,
+        span: module.span,
+        message,
+    }
 }
 
 fn pure_declaration(

@@ -177,11 +177,26 @@ pub struct ConstructorInfo {
     pub parameters: Vec<TypeVariableId>,
 }
 
+/// The normalized checked scheme for one WIT value import. Unlike the HIR
+/// signature kept for names and diagnostics, `ty` has had type synonyms
+/// expanded by the type checker and uses this module's type table. Intrinsics
+/// use registry-owned contracts and do not appear in this table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalType {
+    pub symbol: SymbolId,
+    /// Source module that declared this import. External symbols themselves
+    /// live in the reserved intrinsic namespace, so their symbol ID cannot
+    /// carry diagnostic origin.
+    pub source_module: ModuleId,
+    pub ty: TypeId,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub id: ModuleId,
     pub name: String,
     pub externals: Vec<ExternalSymbol>,
+    pub external_types: Vec<ExternalType>,
     pub types: Vec<Type>,
     /// Nominal types whose single constructor is erased at runtime. The type
     /// checker keeps these types distinct; later lowering uses this metadata
@@ -354,6 +369,8 @@ impl Module {
     }
 }
 
+#[cfg(test)]
+mod external_type_tests;
 #[cfg(test)]
 mod rank_n_tests;
 #[cfg(test)]

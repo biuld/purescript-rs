@@ -26,6 +26,7 @@ fn wit_external(symbol: SymbolId) -> ExternalSymbol {
 fn binding(symbol: SymbolId) -> ExternalBinding {
     ExternalBinding {
         symbol,
+        source_module: ModuleId(0),
         interface: "wasi:cli/stdout@0.2.12".into(),
         function: "log".into(),
         type_id: None,
@@ -39,6 +40,7 @@ fn module(externals: Vec<ExternalSymbol>) -> CoreModule {
         id: ModuleId(1),
         name: "Main".into(),
         externals,
+        external_types: Vec::new(),
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

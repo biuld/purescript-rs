@@ -54,6 +54,7 @@ fn module(types: Vec<Type>, declarations: Vec<Declaration>) -> Module {
         id: ModuleId(0),
         name: "RankN".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

@@ -5,7 +5,6 @@
 //! `return_call_ref` only when the target enables the tail-call proposal; the
 //! stable profile keeps them as ordinary calls plus return.
 
-use super::*;
 use psrs_backend::TargetCapabilities;
 use psrs_backend::mir::Terminator;
 
@@ -42,8 +41,7 @@ fn execute_component(name: &str, wasm: &[u8]) -> Result<Option<std::process::Out
 }
 
 fn compile_with(source: &str, target: TargetCapabilities) -> psrs_backend::Stages {
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    psrs_backend::compile_with_target(core, target).expect("the program should compile")
+    crate::compile_main_with_target(source, target).expect("the program should compile")
 }
 
 fn has_tail_call(mir: &psrs_backend::mir::Module) -> bool {

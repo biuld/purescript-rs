@@ -23,6 +23,7 @@ fn single_constructor_product_dispatch_projects_and_binds_first_row_once() {
         id: module_id,
         name: "ProductDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(type_id)),
             Type::Constructor(psrs_core::TypeConstructor::Int),

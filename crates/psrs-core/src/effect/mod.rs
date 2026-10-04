@@ -12,11 +12,69 @@ mod supplies;
 
 use crate::{Module, Type, TypeConstructor, TypeId, VerifyError, closure_parts};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
+use std::collections::HashSet;
 
 use operations::synthesize_operations;
 use supplies::LocalSupply;
 
 const EFFECT_INTERFACE: &str = "psrs:effect";
+
+/// The resolved identity of the trusted effect library interface. The driver
+/// creates this only from its trusted library prefix and carries it to P8.
+/// Consumers must not reconstruct trust from qualified names or opacity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedEffect {
+    pub effect_type: HirTypeId,
+    pub operations: Vec<EffectOperationBinding>,
+}
+
+/// A source command entry that the frontend has checked to have type
+/// `Effect Unit`. P8 wraps it after lowering the abstract effect type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EffectCommandEntry {
+    pub symbol: SymbolId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectCompilation {
+    pub trusted: TrustedEffect,
+    pub command_entry: Option<EffectCommandEntry>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EffectOperationBinding {
+    pub operation: EffectOperation,
+    pub symbol: SymbolId,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EffectOperation {
+    Pure,
+    Bind,
+    Run,
+    Trap,
+}
+
+impl EffectOperation {
+    pub fn wit_function(self) -> &'static str {
+        match self {
+            Self::Pure => "pure",
+            Self::Bind => "bind",
+            Self::Run => "run",
+            Self::Trap => "trap",
+        }
+    }
+}
+
+/// An import signature classified while its result still names the abstract
+/// trusted Effect constructor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EffectImportType {
+    pub quantified: Vec<psrs_hir::TypeVariableId>,
+    pub parameters: Vec<TypeId>,
+    pub application: TypeId,
+    pub payload: TypeId,
+}
 
 /// One representation closure written for an `Effect` application.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,24 +136,87 @@ impl EffectLowering {
 /// Lowers library effects in a linked Core module.
 ///
 /// Programs that do not contain the opaque `Prelude.Effect` type are unchanged.
-pub fn lower_effects(module: &mut Module) -> Result<EffectLowering, Vec<VerifyError>> {
-    let Some(effect) = library_effect(module) else {
-        return Ok(EffectLowering::default());
-    };
+pub fn lower_effects(
+    module: &mut Module,
+    trusted: &TrustedEffect,
+) -> Result<EffectLowering, Vec<VerifyError>> {
+    let effect = trusted.effect_type;
+    if !module.opaque_ids.contains(&effect) {
+        return Err(vec![verification_error(
+            module,
+            "trusted Effect identity is missing or is not an opaque type",
+        )]);
+    }
     let token = intern(module, Type::Constructor(TypeConstructor::Int));
     let closures = rewrite_effect_applications(module, effect, token);
+    let synthesized = synthesize_operations(module, token, trusted)?;
     let lowering = EffectLowering {
-        synthesized: synthesize_operations(module, token),
+        synthesized,
         closures,
     };
     lowering.verify(module)?;
     Ok(lowering)
 }
 
-fn library_effect(module: &Module) -> Option<HirTypeId> {
-    module.type_names.iter().find_map(|(id, name)| {
-        (*name == "Prelude.Effect" && module.opaque_ids.contains(id)).then_some(*id)
-    })
+/// Classifies a WIT source signature by its abstract result type. The returned
+/// structure is evidence for a later wrapper; no closure shape is inspected.
+pub fn classify_effect_import(
+    module: &Module,
+    ty: TypeId,
+    effect: HirTypeId,
+) -> Result<Option<EffectImportType>, &'static str> {
+    let mut current = ty;
+    let mut quantified = Vec::new();
+    let mut parameters = Vec::new();
+    let mut visited = HashSet::new();
+    loop {
+        if !visited.insert(current) {
+            return Err("cyclic type spine in effect import signature");
+        }
+        let Some(node) = module.types.get(current.0 as usize) else {
+            return Err("effect import signature references an invalid type id");
+        };
+        if let Type::ForAll { variables, body } = node {
+            quantified.extend_from_slice(variables);
+            current = *body;
+            continue;
+        }
+        if let Type::Application(function, argument) = node
+            && (module.types.get(function.0 as usize).is_none()
+                || module.types.get(argument.0 as usize).is_none())
+        {
+            return Err("effect import signature contains an invalid application spine");
+        }
+        if let Some((function, payload)) = effect_application(module, current, effect) {
+            return Ok(Some(EffectImportType {
+                quantified,
+                parameters,
+                application: function,
+                payload,
+            }));
+        }
+        let Some((parameter, result)) = crate::arrow_parts(&module.types, current) else {
+            return Ok(None);
+        };
+        if module.types.get(parameter.0 as usize).is_none()
+            || module.types.get(result.0 as usize).is_none()
+        {
+            return Err("effect import signature contains an invalid function spine");
+        }
+        parameters.push(parameter);
+        current = result;
+    }
+}
+
+pub fn effect_application(
+    module: &Module,
+    id: TypeId,
+    effect: HirTypeId,
+) -> Option<(TypeId, TypeId)> {
+    let Type::Application(function, payload) = module.types.get(id.0 as usize)? else {
+        return None;
+    };
+    is_effect_constructor(module, *function, effect).then_some((id, *payload))
 }
 
 /// Writes `Type::Closure` over each `Effect` application and records the shape
@@ -154,30 +275,6 @@ fn intern(module: &mut Module, ty: Type) -> TypeId {
     TypeId((module.types.len() - 1) as u32)
 }
 
-/// A suspended import: source parameters, the closure type, and its payload.
-pub fn suspended_import(module: &Module, ty: TypeId) -> Option<(Vec<TypeId>, TypeId, TypeId)> {
-    let mut current = ty;
-    let mut seen = 0;
-    while seen <= module.types.len()
-        && let Some((_, body)) = crate::forall_parts(&module.types, current)
-    {
-        current = body;
-        seen += 1;
-    }
-    let mut parameters = Vec::new();
-    loop {
-        if let Some((closure_parameters, result)) = closure_parts(&module.types, current) {
-            if closure_parameters.len() != 1 {
-                return None;
-            }
-            return Some((parameters, current, result));
-        }
-        let (parameter, result) = crate::arrow_parts(&module.types, current)?;
-        parameters.push(parameter);
-        current = result;
-    }
-}
-
 /// Builds `parameters -> result` in the module type table.
 pub fn function_type(module: &mut Module, parameters: &[TypeId], result: TypeId) -> TypeId {
     let mut ty = result;
@@ -203,6 +300,9 @@ pub fn fresh_foreign_symbol(module: &Module) -> SymbolId {
     SymbolId::new(ModuleId::INTRINSICS, next)
 }
 
+/// Allocates a foreign symbol owned by `owner`, above every symbol already in
+/// that module. This is used for synthesized host imports whose diagnostics
+/// must remain attributed to the source module that declared the import.
 /// A fresh local id above every binder already in the module.
 pub fn fresh_local(module: &Module) -> LocalId {
     LocalSupply::new(module).fresh()

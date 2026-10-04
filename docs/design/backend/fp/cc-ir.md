@@ -236,10 +236,13 @@ ExternalBinding  = { symbol: SymbolId, interface: String, function: String,
 ```
 
 The Rust names are `BackendInput`, `ExternalBindings`, and `ExternalBinding`
-(`crates/psrs-backend/src/bindings.rs`); `ExternalBindings` is the concrete side
+(`crates/psrs-backend/src/bindings/mod.rs`); `ExternalBindings` is the concrete side
 table. Its `imports` map a symbol to its source declaration and platform binding.
 For the WASI target the binding contains the WIT interface and function names and
-the declaration's resolved Core type identity required by the
+the declaration's checked Core type identity from `Module.external_types`. That
+scheme has type synonyms expanded and retains `ForAll` quantifiers. The raw HIR
+annotation is source metadata, not an input from which the backend rebuilds the
+type. The binding's checked type identity is required by the
 [canonical ABI](../wasm/canonical-abi-and-wit.md). P9 resolves these bindings
 through the ABI registry, emits canonical calls and adapters for referenced
 symbols, and keeps unused runtime imports out of MIR. Consequently, WIT names do

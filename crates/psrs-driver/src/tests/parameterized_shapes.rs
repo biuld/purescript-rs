@@ -12,10 +12,13 @@ unwrap value = case value of
   Wrap values -> values
 main = arrayIndex (unwrap (wrap [40, 42])) 1
 ";
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::cc::lower_module(core.clone())
-        .expect("generic source Core should lower to CC before P7")
-        .cc;
+    let prepared = crate::prepare_main(source).expect("source should lower to Core");
+    let generic_cc = psrs_backend::lower_cc_with_context(
+        prepared.core.clone(),
+        prepared.effect_context.as_ref(),
+    )
+    .expect("generic source Core should lower to CC before P7")
+    .cc;
     let generic_array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
@@ -24,8 +27,12 @@ main = arrayIndex (unwrap (wrap [40, 42])) 1
         generic_array_maps >= 2,
         "expected pre-P7 concrete/generic boundary maps; found {generic_array_maps}"
     );
-    let stages = psrs_backend::compile_with_stages(core)
-        .expect("generic Array a must map at concrete call boundaries");
+    let stages = psrs_backend::compile_with_context(
+        prepared.core,
+        prepared.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("generic Array a must map at concrete call boundaries");
     let erased = psrs_backend::cc::ValueShape::Reference(psrs_backend::cc::Reference {
         nullable: false,
         heap: psrs_backend::cc::RefShape::Erased,
@@ -100,10 +107,13 @@ copy :: forall a. { items :: Array a, value :: a } -> { items :: Array a, value 
 copy record = record { value = record.value }
 main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
 ";
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::cc::lower_module(core.clone())
-        .expect("generic source Core should lower to CC before P7")
-        .cc;
+    let prepared = crate::prepare_main(source).expect("source should lower to Core");
+    let generic_cc = psrs_backend::lower_cc_with_context(
+        prepared.core.clone(),
+        prepared.effect_context.as_ref(),
+    )
+    .expect("generic source Core should lower to CC before P7")
+    .cc;
     let generic_conversions = aggregate_conversions(&generic_cc);
     assert!(
         generic_conversions
@@ -111,8 +121,12 @@ main = arrayIndex ((copy { items: [40, 42], value: 7 }).items) 1
             .any(|conversion| { contains_canonical_record_array_map(&conversion.plan) }),
         "expected a pre-P7 canonical closed-record map containing a nested array map"
     );
-    let stages = psrs_backend::compile_with_stages(core)
-        .expect("closed generic records should map across concrete instantiations");
+    let stages = psrs_backend::compile_with_context(
+        prepared.core,
+        prepared.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("closed generic records should map across concrete instantiations");
     assert!(stages.artifact.wat.contains("struct.new"));
     assert!(stages.artifact.wat.contains("struct.get"));
     assert!(stages.artifact.wat.contains("array.new_fixed"));
@@ -136,10 +150,13 @@ duplicate :: forall a. Array (Array a) -> Array (Array a)
 duplicate values = values
 main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
 ";
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::cc::lower_module(core.clone())
-        .expect("generic source Core should lower to CC before P7")
-        .cc;
+    let prepared = crate::prepare_main(source).expect("source should lower to Core");
+    let generic_cc = psrs_backend::lower_cc_with_context(
+        prepared.core.clone(),
+        prepared.effect_context.as_ref(),
+    )
+    .expect("generic source Core should lower to CC before P7")
+    .cc;
     let conversions = aggregate_conversions(&generic_cc);
     let maximum_nested_array_maps = conversions
         .iter()
@@ -150,8 +167,12 @@ main = arrayIndex (arrayIndex (duplicate [[40, 42]]) 0) 1
         maximum_nested_array_maps >= 2,
         "expected pre-P7 recursively nested ArrayMap plans; found depth {maximum_nested_array_maps}"
     );
-    let stages = psrs_backend::compile_with_stages(core)
-        .expect("nested generic arrays should map recursively");
+    let stages = psrs_backend::compile_with_context(
+        prepared.core,
+        prepared.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("nested generic arrays should map recursively");
     assert!(stages.artifact.wat.contains("array.get"));
     let Some(output) = run_wasmtime(source) else {
         eprintln!("skipping execution: wasmtime is not installed");
@@ -174,10 +195,13 @@ concrete :: Array Int -> Array Int
 concrete values = values
 main = arrayIndex (applyArray concrete [40, 42]) 1
 ";
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let generic_cc = psrs_backend::cc::lower_module(core.clone())
-        .expect("generic source Core should lower to CC before P7")
-        .cc;
+    let prepared = crate::prepare_main(source).expect("source should lower to Core");
+    let generic_cc = psrs_backend::lower_cc_with_context(
+        prepared.core.clone(),
+        prepared.effect_context.as_ref(),
+    )
+    .expect("generic source Core should lower to CC before P7")
+    .cc;
     let array_maps = aggregate_conversions(&generic_cc)
         .iter()
         .map(|conversion| array_map_count(&conversion.plan))
@@ -186,8 +210,12 @@ main = arrayIndex (applyArray concrete [40, 42]) 1
         array_maps >= 2,
         "expected pre-P7 higher-order argument and result ArrayMap plans; found {array_maps}"
     );
-    let stages = psrs_backend::compile_with_stages(core)
-        .expect("higher-order adapters should convert generic aggregate arguments and results");
+    let stages = psrs_backend::compile_with_context(
+        prepared.core,
+        prepared.effect_context,
+        psrs_backend::TargetCapabilities::default(),
+    )
+    .expect("higher-order adapters should convert generic aggregate arguments and results");
     assert!(stages.artifact.wat.contains("array.get"));
     let Some(output) = run_wasmtime(source) else {
         eprintln!("skipping execution: wasmtime is not installed");
