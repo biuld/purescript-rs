@@ -8,18 +8,40 @@ impl Checker {
         let mut direct = Vec::new();
         let mut edges = Vec::new();
         let mut relations = Vec::new();
-        for (given, _) in &self.scope.givens {
-            if given.class_id != hir::TypeId::COERCIBLE || given.arguments.len() != 2 {
+        let mut pending = self
+            .scope
+            .givens
+            .iter()
+            .map(|(given, _)| (given.class_id, given.arguments.clone()))
+            .collect::<Vec<_>>();
+        let mut visited: Vec<(hir::TypeId, Vec<InferType>)> = Vec::new();
+        while let Some((class_id, arguments)) = pending.pop() {
+            if visited.iter().any(|(seen_class, seen_arguments)| {
+                *seen_class == class_id
+                    && seen_arguments.len() == arguments.len()
+                    && seen_arguments
+                        .iter()
+                        .zip(&arguments)
+                        .all(|(seen, current)| self.infer_types_equal(seen, current))
+            }) {
                 continue;
             }
-            let left = self.resolve_type(given.arguments[0].clone());
-            let right = self.resolve_type(given.arguments[1].clone());
-            add_edge(&mut edges, left.clone(), right.clone(), self);
-            add_edge(&mut edges, right.clone(), left.clone(), self);
-            direct.push((left.clone(), right.clone()));
-            if let Some(canonical) = self.canonical_given(&left, &right) {
-                push_relation(&mut relations, canonical, self);
+            visited.push((class_id, arguments.clone()));
+            if class_id == hir::TypeId::COERCIBLE && arguments.len() == 2 {
+                let left = self.resolve_type(arguments[0].clone());
+                let right = self.resolve_type(arguments[1].clone());
+                add_edge(&mut edges, left.clone(), right.clone(), self);
+                add_edge(&mut edges, right.clone(), left.clone(), self);
+                direct.push((left.clone(), right.clone()));
+                if let Some(canonical) = self.canonical_given(&left, &right) {
+                    push_relation(&mut relations, canonical, self);
+                }
             }
+            pending.extend(
+                self.superclass_constraints(class_id, &arguments)
+                    .into_iter()
+                    .map(|(_, constraint)| (constraint.class_id, constraint.arguments)),
+            );
         }
 
         // A given can discharge its exact relation (in either direction), and

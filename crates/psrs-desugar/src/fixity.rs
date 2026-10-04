@@ -350,15 +350,25 @@ fn reduce(values: &mut Vec<Expr>, operators: &mut Vec<ResolvedOperator>) {
     let right = values.pop().expect("operator has a right operand");
     let left = values.pop().expect("operator has a left operand");
     let span = TextRange::new(left.span.start, right.span.end);
-    values.push(Expr {
-        kind: ExprKind::Operator {
+    let kind = if let Some(local) = operator.local {
+        let function = Expr {
+            kind: ExprKind::Local(local),
+            span: operator.operator_span,
+        };
+        let partial = Expr {
+            kind: ExprKind::Application(Box::new(function), Box::new(left)),
+            span,
+        };
+        ExprKind::Application(Box::new(partial), Box::new(right))
+    } else {
+        ExprKind::Operator {
             operator: operator.symbol,
             operator_span: operator.operator_span,
             left: Box::new(left),
             right: Box::new(right),
-        },
-        span,
-    });
+        }
+    };
+    values.push(Expr { kind, span });
 }
 
 pub(super) fn reassociate_pattern(

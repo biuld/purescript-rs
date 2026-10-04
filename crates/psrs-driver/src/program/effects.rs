@@ -113,8 +113,8 @@ pub(super) fn trusted_effect(
     };
     let mut operations = Vec::new();
     for (name, operation, wit_name) in [
-        ("pure", EffectOperation::Pure, "pure"),
-        ("bind", EffectOperation::Bind, "bind"),
+        ("effectPure", EffectOperation::Pure, "pure"),
+        ("effectBind", EffectOperation::Bind, "bind"),
         ("runEffect", EffectOperation::Run, "run"),
         ("trap", EffectOperation::Trap, "trap"),
     ] {
@@ -275,7 +275,7 @@ fn collect_runner_references(expression: &Expr, runner: SymbolId, spans: &mut Ve
             operators,
         } => {
             for operator in operators {
-                if operator.symbol == runner {
+                if operator.local.is_none() && operator.symbol == runner {
                     spans.push(operator.operator_span);
                 }
             }

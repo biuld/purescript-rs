@@ -111,6 +111,10 @@ pub enum ExprKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedOperator {
     pub symbol: SymbolId,
+    /// A backticked value in scope, such as `` `f` ``. The CST grammar binds
+    /// that form tighter than every symbolic operator. `symbol` is unused
+    /// when this is set.
+    pub local: Option<LocalId>,
     pub operator_span: TextRange,
     pub associativity: Associativity,
     pub precedence: u32,

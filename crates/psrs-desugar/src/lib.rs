@@ -158,7 +158,10 @@ fn desugar_expr(expression: Expr) -> Expr {
                 span: binder.span,
             };
             let function = Expr {
-                kind: ExprKind::Global(operator.symbol),
+                kind: match operator.local {
+                    Some(local) => ExprKind::Local(local),
+                    None => ExprKind::Global(operator.symbol),
+                },
                 span: operator.operator_span,
             };
             let (left, right) = match side {

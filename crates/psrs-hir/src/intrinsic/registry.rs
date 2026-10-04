@@ -46,10 +46,9 @@ pub enum IntrinsicCategory {
 pub struct IntrinsicDescriptor {
     pub intrinsic: Intrinsic,
     /// The name `resolve` binds for this intrinsic. It is the compiler-internal
-    /// primitive name; a surface operator spelling and its fixity belong to the
-    /// library. Until the library classes land, the `Int` operators are still
-    /// bound directly here (see the implementation notes in
-    /// `docs/design/D-15-compiler-builtins.md`).
+    /// primitive name. Surface operator spellings and their fixities belong to
+    /// the library (`Data.Ring` owns `-`, `Data.EuclideanRing` owns `/`).
+    /// `%` is still the truncating remainder primitive.
     pub name: &'static str,
     /// The number of arguments a saturated call supplies: the leading-arrow
     /// count of `scheme`.
@@ -85,9 +84,9 @@ descriptors! {
     BoolTrue => "true", 0, Nullary, scheme::boolean;
     BoolFalse => "false", 0, Nullary, scheme::boolean;
     I32Add => "intAdd", 2, BinaryScalar, scheme::int_int_int;
-    I32Sub => "-", 2, BinaryScalar, scheme::int_int_int;
+    I32Sub => "intSub", 2, BinaryScalar, scheme::int_int_int;
     I32Mul => "intMul", 2, BinaryScalar, scheme::int_int_int;
-    I32DivS => "/", 2, BinaryScalar, scheme::int_int_int;
+    I32DivS => "intQuot", 2, BinaryScalar, scheme::int_int_int;
     I32RemS => "%", 2, BinaryScalar, scheme::int_int_int;
     I32Eq => "intEq", 2, BinaryScalar, scheme::int_int_bool;
     I32Ne => "intNe", 2, BinaryScalar, scheme::int_int_bool;

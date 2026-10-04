@@ -1,4 +1,6 @@
-use super::names::{Resolver, builtin_type, is_uppercase, prim_type, split_qualified};
+use super::names::{
+    Resolver, builtin_type, implicit_prim_class, is_uppercase, prim_type, split_qualified,
+};
 use super::{PlannedType, ResolveErrorKind};
 use psrs_ast as ast;
 use psrs_hir::{
@@ -168,8 +170,11 @@ impl Resolver {
                 self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
                 None
             }
-            (None, None) => match builtin_type(text) {
-                Some(builtin) => Some(TypeReference::Builtin(builtin)),
+            (None, None) => match builtin_type(text)
+                .map(TypeReference::Builtin)
+                .or_else(|| implicit_prim_class(text))
+            {
+                Some(reference) => Some(reference),
                 None => {
                     self.report(ResolveErrorKind::UnknownTypeName, text.to_owned(), span);
                     None

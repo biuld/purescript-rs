@@ -1,6 +1,6 @@
 use super::{
-    function_type_signature, is_callable_type, layout_error, newtype_field_type,
-    primitive_shape_of, unquantified_type, user_type_id,
+    depends_on_type_variable, function_type_signature, is_callable_type, layout_error,
+    newtype_field_type, primitive_shape_of, unquantified_type, user_type_id,
 };
 use crate::BackendError;
 use crate::cc::{RefShape, Reference, ReprId, Signature, SignatureId, ValueShape};
@@ -43,7 +43,7 @@ pub(crate) fn declaration_shape(
                     "lambda binder type differs from the function parameter type",
                 )]);
             }
-            parameters.push(scalar_type(
+            parameters.push(function_parameter_shape(
                 module,
                 binder.ty,
                 binder.span,
@@ -84,7 +84,7 @@ pub(crate) fn declaration_shape(
             )]);
         }
         ty = result;
-        parameters.push(scalar_type(
+        parameters.push(function_parameter_shape(
             module,
             binder.ty,
             binder.span,
@@ -390,6 +390,34 @@ pub(crate) fn scalar_type(
             span,
             "expression type is outside the Core type table",
         )]),
+    }
+}
+
+pub(super) fn function_parameter_shape(
+    module: &CoreModule,
+    ty: TypeId,
+    span: TextRange,
+    enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
+    array_types: &HashMap<TypeId, ReprId>,
+    record_types: &HashMap<TypeId, ReprId>,
+    function_types: &HashMap<TypeId, SignatureId>,
+) -> Result<ValueShape, Vec<BackendError>> {
+    if module.is_record_type(ty) && depends_on_type_variable(module, ty) {
+        Ok(aggregate_value_type())
+    } else {
+        scalar_type(
+            module,
+            ty,
+            span,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            array_types,
+            record_types,
+            function_types,
+        )
     }
 }
 

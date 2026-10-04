@@ -2,7 +2,9 @@ use super::super::*;
 
 mod bifunctor;
 mod contravariant;
+mod eq;
 mod functor;
+mod generic;
 mod newtype;
 mod ord;
 mod types;
@@ -12,7 +14,11 @@ pub(crate) use types::contains_wildcard;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KnownDerivingClass {
     Eq,
+    Eq1,
     Ord,
+    Ord1,
+    Newtype,
+    Generic,
     Functor,
     Bifunctor,
     Contravariant,
@@ -22,7 +28,11 @@ impl KnownDerivingClass {
     fn identity(self) -> (&'static str, &'static str) {
         match self {
             Self::Eq => ("Data.Eq", "Eq"),
+            Self::Eq1 => ("Data.Eq", "Eq1"),
             Self::Ord => ("Data.Ord", "Ord"),
+            Self::Ord1 => ("Data.Ord", "Ord1"),
+            Self::Newtype => ("Data.Newtype", "Newtype"),
+            Self::Generic => ("Data.Generic.Rep", "Generic"),
             Self::Functor => ("Data.Functor", "Functor"),
             Self::Bifunctor => ("Data.Bifunctor", "Bifunctor"),
             Self::Contravariant => ("Data.Functor.Contravariant", "Contravariant"),
@@ -32,7 +42,11 @@ impl KnownDerivingClass {
     fn method(self) -> &'static str {
         match self {
             Self::Eq => "eq",
+            Self::Eq1 => "eq1",
             Self::Ord => "compare",
+            Self::Ord1 => "compare1",
+            Self::Newtype => "wrap",
+            Self::Generic => "to",
             Self::Functor => "map",
             Self::Bifunctor => "bimap",
             Self::Contravariant => "cmap",
@@ -57,10 +71,7 @@ impl Checker {
         self.infer_expr_with_expected(implementation, Some(expected))
     }
 
-    /// Generates the structural `Eq` method for a local data or newtype type.
-    /// Field comparisons remain ordinary class-method selections, so explicit
-    /// instance-context dictionaries and imported instances use the existing
-    /// evidence solver.
+    /// Synthesizes the methods of a compiler-supported derived class.
     pub(super) fn derive_known_class_method(
         &mut self,
         class_id: hir::TypeId,
@@ -69,15 +80,25 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
-        if class.parameters.len() != 1 {
-            return self.deriving_error(span, "known-class deriving requires a unary class");
-        }
         let Some(known_class) = self.known_deriving_class(class_id) else {
             return self.deriving_error(
                 span,
                 "the known-class deriving rule is unavailable for this class",
             );
         };
+        if known_class == KnownDerivingClass::Newtype {
+            return self.deriving_error(span, "Newtype has no derivable class methods");
+        }
+        if known_class == KnownDerivingClass::Generic {
+            if !matches!(method.name.as_str(), "to" | "from") {
+                return self
+                    .deriving_error(span, "Generic derives only its `to` and `from` methods");
+            }
+            return self.derive_generic_method(method, class_arguments, span);
+        }
+        if class.parameters.len() != 1 {
+            return self.deriving_error(span, "known-class deriving requires a unary class");
+        }
         if method.name != known_class.method() {
             return self.deriving_error(
                 span,
@@ -85,162 +106,29 @@ impl Checker {
             );
         }
         match known_class {
+            KnownDerivingClass::Eq => self.derive_eq_method(method, class_arguments, span),
+            KnownDerivingClass::Eq1 => self.derive_eq1_method(method, class_arguments, span),
+            KnownDerivingClass::Ord => self.derive_ord_method(method, class_arguments, span),
+            KnownDerivingClass::Ord1 => self.derive_ord1_method(method, class_arguments, span),
             KnownDerivingClass::Functor => {
-                return self.derive_functor_method(method, class_arguments, span);
+                self.derive_functor_method(method, class_arguments, span)
             }
             KnownDerivingClass::Bifunctor => {
-                return self.derive_bifunctor_method(method, class_arguments, span);
+                self.derive_bifunctor_method(method, class_arguments, span)
             }
             KnownDerivingClass::Contravariant => {
-                return self.derive_contravariant_method(method, class_arguments, span);
+                self.derive_contravariant_method(method, class_arguments, span)
             }
-            KnownDerivingClass::Ord => {
-                return self.derive_ord_method(method, class_arguments, span);
-            }
-            KnownDerivingClass::Eq => {}
+            KnownDerivingClass::Newtype => unreachable!("handled above"),
+            KnownDerivingClass::Generic => unreachable!("handled above"),
         }
-        let Some(instance_type) = class_arguments.first() else {
-            return self.deriving_error(span, "Eq deriving requires one type argument");
-        };
-        let instance_type = self.resolve_type(instance_type.clone());
-        let (head, arguments) = flatten_spine(&instance_type);
-        let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
-            return self.deriving_error(
-                span,
-                "Eq deriving requires a local data or newtype constructor",
-            );
-        };
-        let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self.deriving_error(span, "cannot find the data declaration to derive Eq");
-        };
-        if type_id.module != self.env.module_id
-            || !matches!(
-                declaration.kind,
-                hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
-            )
-            || arguments.len() != declaration.parameters.len()
-        {
-            return self.deriving_error(
-                span,
-                "Eq deriving requires a locally declared, fully applied data type",
-            );
-        }
-
-        let left = self.fresh_deriving_binder("__derived_left", span);
-        let right = self.fresh_deriving_binder("__derived_right", span);
-        let mut left_case_branches = Vec::new();
-        for constructor in &declaration.constructors {
-            let left_fields = constructor
-                .fields
-                .iter()
-                .map(|_| self.fresh_deriving_binder("__derived_l", span))
-                .collect::<Vec<_>>();
-            let right_fields = constructor
-                .fields
-                .iter()
-                .map(|_| self.fresh_deriving_binder("__derived_r", span))
-                .collect::<Vec<_>>();
-            let body = Self::derive_eq_field_tests(
-                constructor,
-                &left_fields,
-                &right_fields,
-                method.symbol,
-                span,
-            );
-            let same_constructor = hir::CaseBranch {
-                coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Constructor {
-                        symbol: constructor.symbol,
-                        name_span: constructor.name_span,
-                        arguments: right_fields
-                            .iter()
-                            .cloned()
-                            .map(|binder| hir::Pattern {
-                                kind: hir::PatternKind::Var(binder),
-                                span,
-                            })
-                            .collect(),
-                    },
-                    span,
-                },
-                value: body,
-                span,
-            };
-            let mismatch = hir::CaseBranch {
-                coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Wildcard,
-                    span,
-                },
-                value: boolean_literal(false, span),
-                span,
-            };
-            let right_case = hir::Expr {
-                kind: hir::ExprKind::Case {
-                    scrutinee: Box::new(local_expr(right.id, span)),
-                    branches: vec![same_constructor, mismatch],
-                },
-                span,
-            };
-            left_case_branches.push(hir::CaseBranch {
-                coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Constructor {
-                        symbol: constructor.symbol,
-                        name_span: constructor.name_span,
-                        arguments: left_fields
-                            .iter()
-                            .cloned()
-                            .map(|binder| hir::Pattern {
-                                kind: hir::PatternKind::Var(binder),
-                                span,
-                            })
-                            .collect(),
-                    },
-                    span,
-                },
-                value: right_case,
-                span,
-            });
-        }
-        if left_case_branches.is_empty() {
-            left_case_branches.push(hir::CaseBranch {
-                coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Wildcard,
-                    span,
-                },
-                value: boolean_literal(true, span),
-                span,
-            });
-        }
-        let implementation = hir::Expr {
-            kind: hir::ExprKind::Lambda {
-                binder: left.clone(),
-                body: Box::new(hir::Expr {
-                    kind: hir::ExprKind::Lambda {
-                        binder: right.clone(),
-                        body: Box::new(hir::Expr {
-                            kind: hir::ExprKind::Case {
-                                scrutinee: Box::new(local_expr(left.id, span)),
-                                branches: left_case_branches,
-                            },
-                            span,
-                        }),
-                    },
-                    span,
-                }),
-            },
-            span,
-        };
-        self.infer_derived_method(method, class_arguments, &implementation)
     }
 
     pub(super) fn validate_known_deriving_class(
         &mut self,
         class_id: hir::TypeId,
         class: &ClassInfo,
+        head_arguments: &[InferType],
         span: TextRange,
     ) -> Option<()> {
         let Some(known_class) = self.known_deriving_class(class_id) else {
@@ -249,20 +137,73 @@ impl Checker {
                 "the known-class deriving rule is unavailable for this class",
             );
         };
-        if class.parameters.len() != 1 {
-            return self.deriving_error(span, "known-class deriving requires a unary class");
+        let expected_arity = match known_class {
+            KnownDerivingClass::Newtype | KnownDerivingClass::Generic => 2,
+            _ => 1,
+        };
+        if class.parameters.len() != expected_arity || head_arguments.len() != expected_arity {
+            return self.deriving_error(
+                span,
+                "known-class deriving requires the class's supported parameter arity",
+            );
         }
-        if !class
-            .methods
-            .iter()
-            .any(|method| method.name == known_class.method())
-        {
+        let has_required_methods = match known_class {
+            KnownDerivingClass::Newtype => class.methods.is_empty(),
+            KnownDerivingClass::Generic => ["to", "from"]
+                .iter()
+                .all(|name| class.methods.iter().any(|method| method.name == *name)),
+            _ => class
+                .methods
+                .iter()
+                .any(|method| method.name == known_class.method()),
+        };
+        if !has_required_methods {
             return self.deriving_error(
                 span,
                 "the class is missing the method required by its known deriving rule",
             );
         }
+        if known_class == KnownDerivingClass::Newtype {
+            let underlying = self.newtype_underlying_type(&head_arguments[..1], span)?;
+            let errors_before = self.state.errors.len();
+            self.unify(head_arguments[1].clone(), underlying, span);
+            if self.state.errors.len() != errors_before {
+                return None;
+            }
+        }
+        if known_class == KnownDerivingClass::Generic {
+            let representation = self.generic_representation(&head_arguments[0], span)?;
+            let errors_before = self.state.errors.len();
+            self.unify(head_arguments[1].clone(), representation, span);
+            if self.state.errors.len() != errors_before {
+                return None;
+            }
+        }
         Some(())
+    }
+
+    fn known_method_symbol(
+        &self,
+        module_name: &str,
+        class_name: &str,
+        method_name: &str,
+    ) -> Option<SymbolId> {
+        let class_id = self.env.type_names.iter().find_map(|(class_id, name)| {
+            (name == class_name
+                && self
+                    .env
+                    .type_modules
+                    .get(class_id)
+                    .is_some_and(|module| module == module_name))
+            .then_some(*class_id)
+        })?;
+        self.env
+            .classes
+            .get(&class_id)?
+            .methods
+            .iter()
+            .find(|method| method.name == method_name)
+            .map(|method| method.symbol)
     }
 
     fn known_deriving_class(&self, class_id: hir::TypeId) -> Option<KnownDerivingClass> {
@@ -270,47 +211,17 @@ impl Checker {
         let name = self.env.type_names.get(&class_id)?.as_str();
         [
             KnownDerivingClass::Eq,
+            KnownDerivingClass::Eq1,
             KnownDerivingClass::Ord,
+            KnownDerivingClass::Ord1,
+            KnownDerivingClass::Newtype,
+            KnownDerivingClass::Generic,
             KnownDerivingClass::Functor,
             KnownDerivingClass::Bifunctor,
             KnownDerivingClass::Contravariant,
         ]
         .into_iter()
         .find(|known| known.identity() == (module, name))
-    }
-
-    fn derive_eq_field_tests(
-        constructor: &hir::Constructor,
-        left_fields: &[hir::LocalBinder],
-        right_fields: &[hir::LocalBinder],
-        eq_method: SymbolId,
-        span: TextRange,
-    ) -> hir::Expr {
-        let tests = constructor
-            .fields
-            .iter()
-            .zip(left_fields)
-            .zip(right_fields)
-            .map(|((_field, left), right)| {
-                let method = global_expr(eq_method, span);
-                apply_expr(
-                    apply_expr(method, local_expr(left.id, span), span),
-                    local_expr(right.id, span),
-                    span,
-                )
-            })
-            .collect::<Vec<_>>();
-        tests
-            .into_iter()
-            .rev()
-            .fold(boolean_literal(true, span), |rest, test| hir::Expr {
-                kind: hir::ExprKind::If {
-                    condition: Box::new(test),
-                    then_branch: Box::new(rest),
-                    else_branch: Box::new(boolean_literal(false, span)),
-                },
-                span,
-            })
     }
 
     fn fresh_deriving_local(&mut self, prefix: &str, span: TextRange) -> hir::LocalBinder {

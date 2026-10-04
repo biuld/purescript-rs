@@ -46,17 +46,17 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 72/72 failing, 276/413 passing | official `errorCode`s; 53 `passing` files stop on a missing module and 80 at P3 |
-| L3 kinds | 36/48 failing | official kind `errorCode`s |
-| L4 types | 35/50 failing | official `errorCode`s |
-| L5 classes | 53/79 failing | official `errorCode`s |
-| L6/M7 runtime | 125/413 passing | all 125 exit 0; 63 have no selected `main`; 53 stop on a missing module |
+| L2 resolution | 71/72 failing, 386/413 passing | official `errorCode`s; 23 passing files stop at P3 and 4 at P0 |
+| L3 kinds | 39/48 failing | official kind `errorCode`s |
+| L4 types | 39/50 failing | official `errorCode`s |
+| L5 classes | 58/81 failing | official `errorCode`s |
+| L6/M7 runtime | 164/413 passing | all 164 exit 0; 249 do not agree, including 46 with no selected `main` |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:
 
 ```sh
-PSRS_ORACLE=annotations \
+PSRS_ORACLE=annotations PSRS_REQUIRE_WASMTIME=1 \
   cargo test -p psrs-driver --test suite -- --ignored --nocapture
 ```
 

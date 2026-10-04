@@ -53,6 +53,16 @@ fn runs_a_record_field_access_through_a_gc_struct() {
 }
 
 #[test]
+fn anonymous_record_accessor_projects_nested_fields() {
+    let source = "module Main where\nproject :: { inner :: { value :: Int } } -> Int\nproject = _.inner.value\nmain = if intEq (project { inner: { value: 42 } }) 42 then 0 else 1\n";
+    let Some(output) = run_program_with_wasmtime(&[("Main.purs", source)]) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
+#[test]
 fn evaluates_record_fields_in_source_order_before_canonical_layout() {
     let source = "module Main where\nimport Prelude\nimport WASI.Console\nmain = let record = { z: runEffect (log \"z\"), a: runEffect (log \"a\") } in 0\n";
     let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");

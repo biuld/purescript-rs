@@ -1,13 +1,9 @@
--- | A pair, as the closed record `{ _1, _2 }`.
--- |
--- | FE-06 already lowers tuple syntax to that record, and DEC-13 maps a WIT
--- | `tuple<A, B>` to the same labels. This module is that record, not a second
--- | product: `Tuple a b` and `{ _1 :: a, _2 :: b }` are one type, and `(x, y)`
--- | is a value of it. There is no algebraic `Tuple` constructor and no
--- | `Eq` / `Ord` / `Show` / `Functor` instance; those would either duplicate
--- | the record or belong to the Prelude class slices.
+-- | A strict product of two values. Native tuple syntax remains a closed
+-- | record, while this library type provides the constructor used by the core
+-- | libraries. WIT tuples continue to map to closed records as specified by
+-- | DEC-13.
 module Data.Tuple
-  ( Tuple
+  ( Tuple(..)
   , fst
   , snd
   , curry
@@ -15,24 +11,24 @@ module Data.Tuple
   , swap
   ) where
 
-type Tuple a b = { _1 :: a, _2 :: b }
+data Tuple a b = Tuple a b
 
--- | The first component. `fst (x, y)` is `x`.
+-- | The first component. `fst (Tuple x y)` is `x`.
 fst :: forall a b. Tuple a b -> a
-fst tuple = tuple._1
+fst (Tuple first _) = first
 
--- | The second component. `snd (x, y)` is `y`.
+-- | The second component. `snd (Tuple x y)` is `y`.
 snd :: forall a b. Tuple a b -> b
-snd tuple = tuple._2
+snd (Tuple _ second) = second
 
 -- | Turns a function of a pair into a function of two arguments.
 curry :: forall a b c. (Tuple a b -> c) -> a -> b -> c
-curry f x y = f { _1: x, _2: y }
+curry f x y = f (Tuple x y)
 
 -- | Turns a function of two arguments into a function of a pair.
 uncurry :: forall a b c. (a -> b -> c) -> Tuple a b -> c
-uncurry f tuple = f (tuple._1) (tuple._2)
+uncurry f (Tuple first second) = f first second
 
 -- | Exchanges the two components.
 swap :: forall a b. Tuple a b -> Tuple b a
-swap tuple = { _1: tuple._2, _2: tuple._1 }
+swap (Tuple first second) = Tuple second first

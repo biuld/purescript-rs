@@ -1,5 +1,6 @@
 use super::ResolveErrorKind;
 use super::names::Resolver;
+use super::names::builtin_type;
 use psrs_ast as ast;
 use psrs_hir::{
     self as hir, ExportedInstance, ExportedOperator, ExportedSymbol, ExportedType,
@@ -284,83 +285,89 @@ impl Resolver {
             })
             .cloned()
             .collect();
-        let [import] = matches.as_slice() else {
-            if matches.is_empty() {
-                self.report(
-                    ResolveErrorKind::UnknownExport,
-                    name.text.clone(),
-                    name.span,
-                );
-            } else {
-                // More than one import provides the qualifier.
-                self.report_conflict(name.text.clone(), name.span);
-            }
-            return;
-        };
-        let pseudo = import.alias.is_some();
-        for symbol in &import.symbols {
-            if import.fixities.iter().any(|fixity| {
-                fixity.namespace == hir::FixityNamespace::Value
-                    && fixity.operator == symbol.external_name
-            }) {
-                continue;
-            }
-            // A real (unaliased) import re-exports names from unqualified
-            // scope, so an ambiguous name is a scope conflict.
-            if !pseudo
-                && self
-                    .unqualified
-                    .get(&symbol.external_name)
-                    .is_some_and(|symbols| symbols.iter().any(|other| *other != symbol.symbol))
-            {
-                self.report_conflict(symbol.external_name.clone(), name.span);
-                continue;
-            }
-            self.add_value(
-                &mut exports.values,
-                &mut exports.value_sources,
-                symbol.symbol,
-                symbol.external_name.clone(),
+        if matches.is_empty() {
+            self.report(
+                ResolveErrorKind::UnknownExport,
+                name.text.clone(),
                 name.span,
             );
+            return;
         }
-        for fixity in &import.fixities {
-            match fixity.target {
-                hir::FixityTarget::Value(symbol) => self.add_operator(
-                    &mut exports.operators,
+        // A shared import alias (for example the standard library's
+        // `as Exports`) denotes the union of those modules' exports.
+        for import in &matches {
+            let pseudo = import.alias.is_some();
+            for symbol in &import.symbols {
+                if import.fixities.iter().any(|fixity| {
+                    fixity.namespace == hir::FixityNamespace::Value
+                        && fixity.operator == symbol.external_name
+                }) {
+                    continue;
+                }
+                // A real (unaliased) import re-exports names from unqualified
+                // scope, so an ambiguous name is a scope conflict.
+                if !pseudo
+                    && self
+                        .unqualified
+                        .get(&symbol.external_name)
+                        .is_some_and(|symbols| symbols.iter().any(|other| *other != symbol.symbol))
+                {
+                    self.report_conflict(symbol.external_name.clone(), name.span);
+                    continue;
+                }
+                self.add_value(
+                    &mut exports.values,
                     &mut exports.value_sources,
-                    symbol,
-                    fixity.operator.clone(),
-                    fixity.target_name.clone(),
+                    symbol.symbol,
+                    symbol.external_name.clone(),
                     name.span,
-                ),
-                hir::FixityTarget::Type(reference) => self.add_type_operator(
-                    &mut exports.type_operators,
-                    &mut exports.type_sources,
-                    reference,
-                    fixity.operator.clone(),
-                    fixity.target_name.clone(),
-                    name.span,
-                ),
+                );
             }
-        }
-        for imported in &import.types {
-            if import.fixities.iter().any(|fixity| {
-                fixity.namespace == hir::FixityNamespace::Type && fixity.operator == imported.name
-            }) {
-                continue;
+            for fixity in &import.fixities {
+                match fixity.target {
+                    hir::FixityTarget::Value(symbol) => self.add_operator(
+                        &mut exports.operators,
+                        &mut exports.value_sources,
+                        symbol,
+                        fixity.operator.clone(),
+                        fixity.target_name.clone(),
+                        name.span,
+                    ),
+                    hir::FixityTarget::Type(reference) => self.add_type_operator(
+                        &mut exports.type_operators,
+                        &mut exports.type_sources,
+                        reference,
+                        fixity.operator.clone(),
+                        fixity.target_name.clone(),
+                        name.span,
+                    ),
+                }
             }
-            self.add_type(
-                exports,
-                TypeExportRequest {
-                    reference: imported.reference,
-                    name: imported.name.clone(),
-                    name_span: name.span,
-                    is_class: false,
-                    constructors: None,
-                    opaque: imported.opaque,
-                },
-            );
+            for imported in &import.types {
+                if import.fixities.iter().any(|fixity| {
+                    fixity.namespace == hir::FixityNamespace::Type
+                        && fixity.operator == imported.name
+                }) {
+                    continue;
+                }
+                self.add_type(
+                    exports,
+                    TypeExportRequest {
+                        reference: imported.reference,
+                        name: imported.name.clone(),
+                        name_span: name.span,
+                        is_class: false,
+                        constructors: (!imported.constructors.is_empty()).then(|| {
+                            imported
+                                .constructors
+                                .iter()
+                                .map(|(_, symbol)| *symbol)
+                                .collect()
+                        }),
+                        opaque: imported.opaque,
+                    },
+                );
+            }
         }
     }
 
@@ -380,6 +387,10 @@ impl Resolver {
                     .map(|constructor| constructor.symbol)
                     .collect(),
             );
+        }
+        // `Format()` exports the type and none of its constructors.
+        if members.names.is_empty() {
+            return Some(Vec::new());
         }
         let mut symbols = Vec::new();
         for member in &members.names {
@@ -436,8 +447,15 @@ impl Resolver {
         if let Some(id) = self.type_names.get(name) {
             return Some(TypeReference::Named(*id));
         }
-        self.imported_types
+        if let Some(reference) = self
+            .imported_types
             .get(name)
             .and_then(|references| references.first().copied())
+        {
+            return Some(reference);
+        }
+        // `Unit` is a compiler builtin with no local declaration. `Data.Unit`
+        // re-exports that builtin so `import Data.Unit (Unit)` is the same type.
+        builtin_type(name).map(TypeReference::Builtin)
     }
 }

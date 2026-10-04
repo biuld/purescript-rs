@@ -157,6 +157,84 @@ fn verifier_requires_superclass_evidence_to_name_a_well_typed_field() {
     );
 }
 
+#[test]
+fn verifier_accepts_alpha_equivalent_superclass_field_types() {
+    let left_variable = TypeVariableId(10);
+    let right_variable = TypeVariableId(11);
+    let module = Module {
+        type_names: Vec::new(),
+        id: ModuleId(0),
+        name: "Main".into(),
+        externals: Vec::new(),
+        external_types: Vec::new(),
+        types: vec![
+            Type::RowEmpty,
+            Type::Variable(left_variable),
+            Type::Constructor(TypeConstructor::Function),
+            Type::Application(TypeId(2), TypeId(1)),
+            Type::Application(TypeId(3), TypeId(1)),
+            Type::ForAll {
+                variables: vec![left_variable],
+                body: TypeId(4),
+            },
+            Type::Variable(right_variable),
+            Type::Application(TypeId(2), TypeId(6)),
+            Type::Application(TypeId(7), TypeId(6)),
+            Type::ForAll {
+                variables: vec![right_variable],
+                body: TypeId(8),
+            },
+            Type::RowExtend {
+                label: "method".into(),
+                ty: TypeId(5),
+                tail: TypeId(0),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(TypeId(11), TypeId(10)),
+            Type::RowExtend {
+                label: "super".into(),
+                ty: TypeId(12),
+                tail: TypeId(0),
+            },
+            Type::Constructor(TypeConstructor::Record),
+            Type::Application(TypeId(14), TypeId(13)),
+        ],
+        newtype_ids: Vec::new(),
+        opaque_ids: Vec::new(),
+        callable_types: Vec::new(),
+        constructors: Vec::new(),
+        declarations: vec![Declaration {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "main".into(),
+            name_span: TextRange::new(0, 4),
+            quantified: Vec::new(),
+            ty: TypeId(12),
+            value: Expr {
+                kind: ExprKind::Evidence(Evidence {
+                    kind: EvidenceKind::Superclass {
+                        parent: Box::new(Evidence {
+                            kind: EvidenceKind::Given(LocalId(0)),
+                            class_id: psrs_hir::TypeId::new(ModuleId(0), 1),
+                            ty: TypeId(15),
+                            span: TextRange::new(8, 9),
+                        }),
+                        field: "super".into(),
+                    },
+                    class_id: psrs_hir::TypeId::new(ModuleId(0), 0),
+                    ty: TypeId(12),
+                    span: TextRange::new(8, 18),
+                }),
+                ty: TypeId(12),
+                span: TextRange::new(8, 18),
+            },
+            span: TextRange::new(0, 18),
+        }],
+        span: TextRange::new(0, 18),
+    };
+
+    assert!(module.verify().is_ok());
+}
+
 /// A module carrying `Proxy 1` and `Proxy 2` and one global reference at each.
 /// A literal is decided, so the verifier compares the two by value instead of
 /// treating both as applications of the same nominal head.

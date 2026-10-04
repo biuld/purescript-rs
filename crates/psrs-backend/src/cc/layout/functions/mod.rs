@@ -7,7 +7,12 @@ use std::collections::{HashMap, HashSet};
 
 mod reachable;
 
+use super::scalar::function_parameter_shape;
 use reachable::referenced_types;
+
+pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
+    reachable::live_type_ids(module)
+}
 
 pub(super) fn append_function_types(
     module: &CoreModule,
@@ -19,14 +24,9 @@ pub(super) fn append_function_types(
     representations: &mut RepresentationTable,
 ) -> Result<FunctionLayouts, Vec<BackendError>> {
     // Constructor schemes and unused library declarations leave callable types
-    // in the linked table. Laying those out would demand a runtime shape for an
-    // ADT the program never references. Both source arrows and the closure
-    // representation of a registered callable constructor are callable, so both
-    // receive a signature here.
-    let referenced = referenced_types(
-        module,
-        array_types.keys().chain(record_types.keys()).copied(),
-    );
+    // in the linked table. Only types referenced by remaining declarations and
+    // constructor fields need runtime signatures.
+    let referenced = referenced_types(module, std::iter::empty());
     let function_ids = module
         .types
         .iter()
@@ -114,7 +114,7 @@ pub(crate) fn function_signature(
     let parameters = parameter_ids
         .into_iter()
         .map(|parameter| {
-            scalar_type(
+            function_parameter_shape(
                 module,
                 parameter,
                 module.span,

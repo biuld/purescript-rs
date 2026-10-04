@@ -6,6 +6,7 @@
 //! depend on the process current directory.
 
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -16,6 +17,7 @@ pub(crate) struct ModuleSource {
     pub path: String,
     pub module_name: String,
     pub text: String,
+    imports: Vec<String>,
 }
 
 struct Library {
@@ -33,14 +35,41 @@ pub(crate) fn module_names() -> Result<HashSet<String>, String> {
         .collect())
 }
 
-/// Prepends the trusted standard-library modules to `sources`.
+/// Prepends the trusted standard-library modules reachable from `sources`.
 pub(crate) fn prepend<'a>(
     user_sources: &[(&'a str, &'a str)],
 ) -> Result<PrefixedSources<'a>, String> {
     let library = sources()?;
-    let trusted_prefix = library.len();
+    let by_name = library
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.module_name.as_str(), index))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut needed = HashSet::new();
+    let mut pending = VecDeque::new();
+    for (name, text) in user_sources {
+        if let Ok(parsed) = crate::lower_source_to_ast(name, text) {
+            pending.extend(parsed.imports.into_iter().map(|import| import.module.text));
+        }
+    }
+    while let Some(name) = pending.pop_front() {
+        let Some(&index) = by_name.get(name.as_str()) else {
+            continue;
+        };
+        if needed.insert(index) {
+            pending.extend(library[index].imports.iter().cloned());
+        }
+    }
+
+    let selected = library
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| needed.contains(index))
+        .map(|(_, module)| module)
+        .collect::<Vec<_>>();
+    let trusted_prefix = selected.len();
     let mut all = Vec::with_capacity(trusted_prefix + user_sources.len());
-    for module in library {
+    for module in selected {
         all.push((module.path.as_str(), module.text.as_str()));
     }
     all.extend_from_slice(user_sources);
@@ -71,7 +100,10 @@ fn read_library() -> Result<Library, String> {
                 .first()
                 .map(|error| error.message.as_str())
                 .unwrap_or("could not parse the standard-library module");
-            format!("{display}: {message}")
+            format!(
+                "{display}:{}: {message}",
+                errors.first().map(|error| error.span.start).unwrap_or(0)
+            )
         })?;
         if parsed.name.text != name {
             return Err(format!(
@@ -83,6 +115,11 @@ fn read_library() -> Result<Library, String> {
             path: display,
             module_name: name,
             text,
+            imports: parsed
+                .imports
+                .into_iter()
+                .map(|import| import.module.text)
+                .collect(),
         });
     }
     Ok(Library { modules })

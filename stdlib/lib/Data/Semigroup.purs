@@ -1,32 +1,86 @@
--- | The `Semigroup` class and its `<>` operator.
--- |
--- | This is the first class the library itself declares. The class, its
--- | method, and the operator alias are all re-exported from `Prelude`, which
--- | is what the corpus imports.
--- |
--- | `append` for `String` is built from the effect-free `stringToBytes` /
--- | `arrayAppend` / `bytesToString` primitives rather than a second string
--- | concatenation path. Joining two well-formed UTF-8 byte sequences always
--- | yields well-formed UTF-8, so `bytesToString`'s validation is a no-op here
--- | and the one string representation stays the only writer
--- | ([DEC-16](../../../decision/DEC-16-scalar-strings-and-utf8-storage.md)).
 module Data.Semigroup
   ( class Semigroup
   , append
   , (<>)
+  , class SemigroupRecord
+  , appendRecord
   ) where
 
--- | A type with an associative binary operation.
+import Data.Symbol (class IsSymbol, reflectSymbol)
+import Data.Unit (Unit, unit)
+import Data.Void (Void, absurd)
+import Prim.Row as Row
+import Prim.RowList as RL
+import Record.Unsafe (unsafeGet, unsafeSet)
+import Type.Proxy (Proxy(..))
+
+-- | The `Semigroup` type class identifies an associative operation on a type.
+-- |
+-- | Instances are required to satisfy the following law:
+-- |
+-- | - Associativity: `(x <> y) <> z = x <> (y <> z)`
+-- |
+-- | One example of a `Semigroup` is `String`, with `(<>)` defined as string
+-- | concatenation. Another example is `List a`, with `(<>)` defined as
+-- | list concatenation.
+-- |
+-- | ### Newtypes for Semigroup
+-- |
+-- | There are two other ways to implement an instance for this type class
+-- | regardless of which type is used. These instances can be used by
+-- | wrapping the values in one of the two newtypes below:
+-- | 1. `First` - Use the first argument every time: `append first _ = first`.
+-- | 2. `Last` - Use the last argument every time: `append _ last = last`.
 class Semigroup a where
   append :: a -> a -> a
 
 infixr 5 append as <>
 
 instance semigroupString :: Semigroup String where
-  append left right = bytesToString (arrayAppend (stringToBytes left) (stringToBytes right))
+  append x y = concatString x y
 
 instance semigroupUnit :: Semigroup Unit where
   append _ _ = unit
 
+instance semigroupVoid :: Semigroup Void where
+  append _ = absurd
+
+instance semigroupFn :: Semigroup s' => Semigroup (s -> s') where
+  append f g x = f x <> g x
+
 instance semigroupArray :: Semigroup (Array a) where
-  append left right = arrayAppend left right
+  append x y = concatArray x y
+
+instance semigroupProxy :: Semigroup (Proxy a) where
+  append _ _ = Proxy
+
+instance semigroupRecord :: (RL.RowToList row list, SemigroupRecord list row row) => Semigroup (Record row) where
+  append = appendRecord (Proxy :: Proxy list)
+
+concatString :: String -> String -> String
+concatString a0 a1 = bytesToString (arrayAppend (stringToBytes a0) (stringToBytes a1))
+concatArray :: forall a. Array a -> Array a -> Array a
+concatArray a0 a1 = arrayAppend a0 a1
+
+-- | A class for records where all fields have `Semigroup` instances, used to
+-- | implement the `Semigroup` instance for records.
+class SemigroupRecord :: RL.RowList Type -> Row Type -> Row Type -> Constraint
+class SemigroupRecord rowlist row subrow | rowlist -> subrow where
+  appendRecord :: Proxy rowlist -> Record row -> Record row -> Record subrow
+
+instance semigroupRecordNil :: SemigroupRecord RL.Nil row () where
+  appendRecord _ _ _ = {}
+
+instance semigroupRecordCons ::
+  ( IsSymbol key
+  , Row.Cons key focus subrowTail subrow
+  , SemigroupRecord rowlistTail row subrowTail
+  , Semigroup focus
+  ) =>
+  SemigroupRecord (RL.Cons key focus rowlistTail) row subrow where
+  appendRecord _ ra rb = insert (get ra <> get rb) tail
+    where
+    key = reflectSymbol (Proxy :: Proxy key)
+    get = unsafeGet key :: Record row -> focus
+    insert = unsafeSet key :: focus -> Record subrowTail -> Record subrow
+    tail = appendRecord (Proxy :: Proxy rowlistTail) ra rb

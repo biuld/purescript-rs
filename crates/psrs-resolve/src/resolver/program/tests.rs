@@ -60,6 +60,15 @@ fn import(module_name: &str) -> ast::Import {
     }
 }
 
+fn import_as(module_name: &str, alias: &str) -> ast::Import {
+    ast::Import {
+        module: name(module_name),
+        alias: Some(name(alias)),
+        list: None,
+        span: TextRange::new(0, 10),
+    }
+}
+
 fn import_list(module_name: &str, items: Vec<ast::ImportRef>, hiding: bool) -> ast::Import {
     let span = TextRange::new(0, 20);
     ast::Import {
@@ -405,6 +414,37 @@ fn a_module_can_reexport_an_imported_operator_alias_without_its_target() {
         SymbolId::new(ModuleId(0), 0),
         "the re-exported alias must keep the target's identity"
     );
+}
+
+#[test]
+fn a_module_reexports_all_imports_sharing_one_alias() {
+    let left = module("Left", Vec::new(), None, vec![value("left", integer("1"))]);
+    let right = module(
+        "Right",
+        Vec::new(),
+        None,
+        vec![value("right", integer("2"))],
+    );
+    let facade = module(
+        "Facade",
+        vec![import_as("Left", "Exports"), import_as("Right", "Exports")],
+        Some(ast::ExportList {
+            items: vec![ast::ExportRef::Module(name("Exports"))],
+            span: TextRange::new(0, 20),
+        }),
+        Vec::new(),
+    );
+
+    let resolved = resolve_program(vec![left, right, facade]).unwrap();
+    let names = resolved[2]
+        .exports
+        .as_ref()
+        .unwrap()
+        .values
+        .iter()
+        .map(|value| value.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(names, std::collections::HashSet::from(["left", "right"]));
 }
 
 #[test]

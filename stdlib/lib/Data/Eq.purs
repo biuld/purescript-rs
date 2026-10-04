@@ -1,41 +1,134 @@
--- | The `Eq` class and its `==` / `/=` operators.
--- |
--- | The `Int`, `Number`, `Boolean`, and `Char` instances are the compiler's
--- | internal equality intrinsics; `Unit` has one value, so it is equal to
--- | itself. The surface operators are library declarations over the internal
--- | primitives, so the primitive names stay out of the source namespace.
 module Data.Eq
   ( class Eq
   , eq
-  , notEq
   , (==)
+  , notEq
   , (/=)
+  , class Eq1
+  , eq1
+  , notEq1
+  , class EqRecord
+  , eqRecord
   ) where
 
--- | A type whose values can be compared for equality.
+import Data.HeytingAlgebra ((&&))
+import Data.Symbol (class IsSymbol, reflectSymbol)
+import Data.Unit (Unit)
+import Data.Void (Void)
+import Prim.Row as Row
+import Prim.RowList as RL
+import Record.Unsafe (unsafeGet)
+import Type.Proxy (Proxy(..))
+
+-- | The `Eq` type class represents types which support decidable equality.
+-- |
+-- | `Eq` instances should satisfy the following laws:
+-- |
+-- | - Reflexivity: `x == x = true`
+-- | - Symmetry: `x == y = y == x`
+-- | - Transitivity: if `x == y` and `y == z` then `x == z`
+-- |
+-- | **Note:** The `Number` type is not an entirely law abiding member of this
+-- | class due to the presence of `NaN`, since `NaN /= NaN`. Additionally,
+-- | computing with `Number` can result in a loss of precision, so sometimes
+-- | values that should be equivalent are not.
 class Eq a where
   eq :: a -> a -> Boolean
-  notEq :: a -> a -> Boolean
 
 infix 4 eq as ==
+
+-- | `notEq` tests whether one value is _not equal_ to another. Shorthand for
+-- | `not (eq x y)`.
+notEq :: forall a. Eq a => a -> a -> Boolean
+notEq x y = (x == y) == false
+
 infix 4 notEq as /=
 
+instance eqBoolean :: Eq Boolean where
+  eq x y = eqBooleanImpl x y
+
 instance eqInt :: Eq Int where
-  eq x y = intEq x y
-  notEq x y = intNe x y
+  eq x y = eqIntImpl x y
 
 instance eqNumber :: Eq Number where
-  eq x y = numberEq x y
-  notEq x y = numberNe x y
-
-instance eqBoolean :: Eq Boolean where
-  eq x y = booleanEq x y
-  notEq x y = booleanNe x y
+  eq x y = eqNumberImpl x y
 
 instance eqChar :: Eq Char where
-  eq x y = charEq x y
-  notEq x y = charNe x y
+  eq x y = eqCharImpl x y
+
+instance eqString :: Eq String where
+  eq x y = eqStringImpl x y
 
 instance eqUnit :: Eq Unit where
   eq _ _ = true
-  notEq _ _ = false
+
+instance eqVoid :: Eq Void where
+  eq _ _ = true
+
+instance eqArray :: Eq a => Eq (Array a) where
+  eq xs ys = eqArrayImpl eq xs ys
+
+instance eqRec :: (RL.RowToList row list, EqRecord list row) => Eq (Record row) where
+  eq = eqRecord (Proxy :: Proxy list)
+
+instance eqProxy :: Eq (Proxy a) where
+  eq _ _ = true
+
+eqBooleanImpl :: Boolean -> Boolean -> Boolean
+eqBooleanImpl a0 a1 = booleanEq a0 a1
+eqIntImpl :: Int -> Int -> Boolean
+eqIntImpl a0 a1 = intEq a0 a1
+eqNumberImpl :: Number -> Number -> Boolean
+eqNumberImpl a0 a1 = numberEq a0 a1
+eqCharImpl :: Char -> Char -> Boolean
+eqCharImpl a0 a1 = charEq a0 a1
+eqStringImpl :: String -> String -> Boolean
+eqStringImpl a0 a1 = eqBytes (stringToBytes a0) (stringToBytes a1) 0
+
+eqBytes :: Array Int -> Array Int -> Int -> Boolean
+eqBytes xs ys index =
+  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
+  else if intGe index (arrayLength ys) then false
+  else if intEq (arrayIndex xs index) (arrayIndex ys index) then eqBytes xs ys (intAdd index 1)
+  else false
+
+eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean
+eqArrayImpl a0 a1 a2 = eqArrayFrom a0 a1 a2 0
+
+eqArrayFrom :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Int -> Boolean
+eqArrayFrom eq xs ys index =
+  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
+  else if eq (arrayIndex xs index) (arrayIndex ys index) then eqArrayFrom eq xs ys (intAdd index 1)
+  else false
+
+-- | The `Eq1` type class represents type constructors with decidable equality.
+class Eq1 f where
+  eq1 :: forall a. Eq a => f a -> f a -> Boolean
+
+instance eq1Array :: Eq1 Array where
+  eq1 = eq
+
+notEq1 :: forall f a. Eq1 f => Eq a => f a -> f a -> Boolean
+notEq1 x y = (x `eq1` y) == false
+
+-- | A class for records where all fields have `Eq` instances, used to implement
+-- | the `Eq` instance for records.
+class EqRecord :: RL.RowList Type -> Row Type -> Constraint
+class EqRecord rowlist row where
+  eqRecord :: Proxy rowlist -> Record row -> Record row -> Boolean
+
+instance eqRowNil :: EqRecord RL.Nil row where
+  eqRecord _ _ _ = true
+
+instance eqRowCons ::
+  ( EqRecord rowlistTail row
+  , Row.Cons key focus rowTail row
+  , IsSymbol key
+  , Eq focus
+  ) =>
+  EqRecord (RL.Cons key focus rowlistTail) row where
+  eqRecord _ ra rb = (get ra == get rb) && tail
+    where
+    key = reflectSymbol (Proxy :: Proxy key)
+    get = unsafeGet key :: Record row -> focus
+    tail = eqRecord (Proxy :: Proxy rowlistTail) ra rb

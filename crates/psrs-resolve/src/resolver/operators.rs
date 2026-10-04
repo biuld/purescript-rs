@@ -1,6 +1,6 @@
 use super::names::Resolver;
 use psrs_ast as ast;
-use psrs_hir::{self as hir, Associativity, ExprKind, ResolvedOperator};
+use psrs_hir::{self as hir, Associativity, ExprKind, LocalId, ModuleId, ResolvedOperator, SymbolId};
 use std::collections::HashMap;
 
 pub(super) fn merge_fixities(
@@ -48,7 +48,7 @@ impl Resolver {
             .collect::<Option<Vec<_>>>()?;
         let operators = operators
             .into_iter()
-            .map(|operator| self.resolve_operator(&operator.name.text, operator.span))
+            .map(|operator| self.resolve_chain_operator(&operator.name.text, operator.span))
             .collect::<Option<Vec<_>>>()?;
         Some(ExprKind::OperatorChain {
             operands,
@@ -63,7 +63,7 @@ impl Resolver {
         side: ast::SectionSide,
         span: psrs_span::TextRange,
     ) -> Option<ExprKind> {
-        let operator = self.resolve_operator(&operator.text, operator.span)?;
+        let operator = self.resolve_chain_operator(&operator.text, operator.span)?;
         let operand = self.resolve_expr(operand)?;
         let binder = self.new_local(format!("__psrs_section_{}", span.start), span);
         Some(ExprKind::OperatorSection {
@@ -83,17 +83,51 @@ impl Resolver {
         span: psrs_span::TextRange,
     ) -> Option<ResolvedOperator> {
         let symbol = self.lookup_global(name, span)?;
+        Some(self.global_operator(name, symbol, span))
+    }
+
+    /// A backticked identifier is the value itself, not a fixity declaration.
+    /// A name in scope wins. Otherwise the operator is the global of that name.
+    fn resolve_chain_operator(
+        &mut self,
+        name: &str,
+        span: psrs_span::TextRange,
+    ) -> Option<ResolvedOperator> {
+        if let Some(local) = self.lookup_local(name).map(|binder| binder.id) {
+            return Some(local_operator(local, span));
+        }
+        self.resolve_operator(name, span)
+    }
+
+    fn global_operator(
+        &self,
+        name: &str,
+        symbol: SymbolId,
+        span: psrs_span::TextRange,
+    ) -> ResolvedOperator {
         let (associativity, precedence) = self
             .fixities
             .get(name)
             .map(|fixity| (fixity.associativity, fixity.precedence))
             .unwrap_or_else(|| default_fixity(name));
-        Some(ResolvedOperator {
+        ResolvedOperator {
             symbol,
+            local: None,
             operator_span: span,
             associativity,
             precedence,
-        })
+        }
+    }
+}
+
+/// Backticked values sit above the symbolic operator table, left-associative.
+fn local_operator(local: LocalId, span: psrs_span::TextRange) -> ResolvedOperator {
+    ResolvedOperator {
+        symbol: SymbolId::new(ModuleId::INTRINSICS, u32::MAX),
+        local: Some(local),
+        operator_span: span,
+        associativity: Associativity::Left,
+        precedence: 10,
     }
 }
 

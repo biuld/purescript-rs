@@ -1,41 +1,114 @@
--- | The `Functor` class and the `<$>` operator.
--- |
--- | `map` is the class method. `Prelude` re-exports it and supplies the
--- | `Effect` instance, because this module cannot import `Prelude` without a
--- | cycle. The `Array` instance walks indexes with `arrayIndex` and builds the
--- | result with `arrayAppend`, the same primitives the rest of the library
--- | uses for arrays.
 module Data.Functor
   ( class Functor
   , map
   , (<$>)
+  , mapFlipped
+  , (<#>)
+  , void
+  , voidRight
+  , (<$)
+  , voidLeft
+  , ($>)
+  , flap
+  , (<@>)
   ) where
 
-import Data.Either (Either(..))
-import Data.Maybe (Maybe(..))
+import Data.Function (const, compose)
+import Data.Unit (Unit, unit)
+import Type.Proxy (Proxy(..))
 
--- | A type constructor that can apply a function to its contents.
+-- | A `Functor` is a type constructor which supports a mapping operation
+-- | `map`.
+-- |
+-- | `map` can be used to turn functions `a -> b` into functions
+-- | `f a -> f b` whose argument and return types use the type constructor `f`
+-- | to represent some computational context.
+-- |
+-- | Instances must satisfy the following laws:
+-- |
+-- | - Identity: `map identity = identity`
+-- | - Composition: `map (f <<< g) = map f <<< map g`
 class Functor f where
   map :: forall a b. (a -> b) -> f a -> f b
 
 infixl 4 map as <$>
 
+-- | `mapFlipped` is `map` with its arguments reversed. For example:
+-- |
+-- | ```purescript
+-- | [1, 2, 3] <#> \n -> n * n
+-- | ```
+mapFlipped :: forall f a b. Functor f => f a -> (a -> b) -> f b
+mapFlipped fa f = f <$> fa
+
+infixl 1 mapFlipped as <#>
+
+instance functorFn :: Functor ((->) r) where
+  map = compose
+
 instance functorArray :: Functor Array where
-  map f xs = mapFrom f xs 0
+  map x y = arrayMap x y
 
-instance functorMaybe :: Functor Maybe where
-  map _ Nothing = Nothing
-  map f (Just value) = Just (f value)
+instance functorProxy :: Functor Proxy where
+  map _ _ = Proxy
 
-instance functorEither :: Functor (Either a) where
-  map _ (Left value) = Left value
-  map f (Right value) = Right (f value)
+arrayMap :: forall a b. (a -> b) -> Array a -> Array b
+arrayMap a0 a1 = mapArrayFrom a0 a1 0
 
--- | `mapFrom f xs i` is `f xs[i]` followed by the rest. The recursive call is
--- | an argument of `arrayAppend`, so this copies the tail at each index.
-mapFrom :: forall a b. (a -> b) -> Array a -> Int -> Array b
-mapFrom f xs index =
+mapArrayFrom :: forall a b. (a -> b) -> Array a -> Int -> Array b
+mapArrayFrom f xs index =
   if intLt index (arrayLength xs) then
-    arrayAppend [f (arrayIndex xs index)] (mapFrom f xs (intAdd index 1))
+    arrayAppend [f (arrayIndex xs index)] (mapArrayFrom f xs (intAdd index 1))
   else
     []
+
+-- | The `void` function is used to ignore the type wrapped by a
+-- | [`Functor`](#functor), replacing it with `Unit` and keeping only the type
+-- | information provided by the type constructor itself.
+-- |
+-- | `void` is often useful when using `do` notation to change the return type
+-- | of a monadic computation:
+-- |
+-- | ```purescript
+-- | main = forE 1 10 \n -> void do
+-- |   print n
+-- |   print (n * n)
+-- | ```
+void :: forall f a. Functor f => f a -> f Unit
+void fa = map (\_ -> unit) fa
+
+-- | Ignore the return value of a computation, using the specified return value
+-- | instead.
+voidRight :: forall f a b. Functor f => a -> f b -> f a
+voidRight x fa = map (\_ -> x) fa
+
+infixl 4 voidRight as <$
+
+-- | A version of `voidRight` with its arguments flipped.
+voidLeft :: forall f a b. Functor f => f a -> b -> f b
+voidLeft fa x = (\_ -> x) <$> fa
+
+infixl 4 voidLeft as $>
+
+-- | Apply a value in a computational context to a value in no context.
+-- |
+-- | Generalizes `flip`.
+-- |
+-- | ```purescript
+-- | longEnough :: String -> Bool
+-- | hasSymbol :: String -> Bool
+-- | hasDigit :: String -> Bool
+-- | password :: String
+-- |
+-- | validate :: String -> Array Bool
+-- | validate = flap [longEnough, hasSymbol, hasDigit]
+-- | ```
+-- |
+-- | ```purescript
+-- | flap (-) 3 4 == 1
+-- | threeve <$> Just 1 <@> 'a' <*> Just true == Just (threeve 1 'a' true)
+-- | ```
+flap :: forall f a b. Functor f => f (a -> b) -> a -> f b
+flap ff x = map (\f -> f x) ff
+
+infixl 4 flap as <@>

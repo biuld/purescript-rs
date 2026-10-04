@@ -160,7 +160,6 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         return Err(checker.state.errors);
     }
     let inferred = inferred.into_iter().flatten().collect::<Vec<_>>();
-
     let mut types = TypeInterner::default();
     let mut generics = checker.state.generic_variables.clone();
     let external_types = module

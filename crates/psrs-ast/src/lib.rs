@@ -218,10 +218,13 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
         } => expr::lower_record_update(*expression, fields)?,
         CstExprKind::FieldAccess {
             expression, field, ..
-        } => ExprKind::FieldAccess {
-            expression: Box::new(lower_expr(*expression)?),
-            field: field.text,
-        },
+        } => return expr::lower_field_access(*expression, field, span),
+        CstExprKind::RecordAccessor {
+            marker_span,
+            fields,
+        } => {
+            return Ok(expr::lower_record_accessor(marker_span, fields, span));
+        }
         CstExprKind::Application(function, argument) => ExprKind::Application(
             Box::new(lower_expr(*function)?),
             Box::new(lower_expr(*argument)?),

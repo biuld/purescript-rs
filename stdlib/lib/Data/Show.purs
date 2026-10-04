@@ -2,9 +2,9 @@
 -- |
 -- | `show` renders a value as text. The `Int`, `Number`, `Boolean`, `Char`,
 -- | `String`, `Unit`, and `Array` instances are the ones the corpus actually
--- | applies `show` to. `Show Unit` lives here rather than in `Data.Unit`
--- | because that module is not part of this library yet; a record instance is
--- | not here because it needs `reflectSymbol`, which has no runtime.
+-- | applies `show` to. `Show Unit` lives here; `Data.Unit` only re-exports the
+-- | builtin. A record instance is not here because `reflectSymbol` has no
+-- | runtime.
 -- |
 -- | `Boolean`, `Int`, `Char`, `String`, `Unit`, and `Array` match the official
 -- | spelling, including the `Char`/`String` escapes. `Number` uses the same
@@ -55,7 +55,7 @@ instance showArray :: Show a => Show (Array a) where
   show value = "[" <> showElements value 0 <> "]"
 
 minInt :: Int
-minInt = (0 - 2147483647) - 1
+minInt = intSub (intSub 0 2147483647) 1
 
 positiveInfinity :: Number
 positiveInfinity = numberDiv 1.0 0.0
@@ -121,13 +121,13 @@ powerOfTen :: Number -> Int -> Int
 powerOfTen value exponent =
   if numberEq value 0.0 then exponent
   else if numberGe value 10.0 then powerOfTen (numberDiv value 10.0) (intAdd exponent 1)
-  else if numberLt value 1.0 then powerOfTen (numberMul value 10.0) (exponent - 1)
+  else if numberLt value 1.0 then powerOfTen (numberMul value 10.0) (intSub exponent 1)
   else exponent
 
 scaleToUnit :: Number -> Int -> Number
 scaleToUnit value exponent =
   if intEq exponent 0 then value
-  else if intGt exponent 0 then scaleToUnit (numberDiv value 10.0) (exponent - 1)
+  else if intGt exponent 0 then scaleToUnit (numberDiv value 10.0) (intSub exponent 1)
   else scaleToUnit (numberMul value 10.0) (intAdd exponent 1)
 
 -- | Floor of a non-negative number. Groups of nine digits stay inside `Int`,
@@ -176,7 +176,7 @@ collectFraction fraction remaining digits =
       digitValue = numberToInt scaled
       rest = numberSub scaled (intToNumber digitValue)
     in
-      collectFraction rest (remaining - 1) (arrayAppend digits [digitValue])
+      collectFraction rest (intSub remaining 1) (arrayAppend digits [digitValue])
 
 trimZeros :: Array Int -> Array Int
 trimZeros digits =
@@ -184,7 +184,7 @@ trimZeros digits =
     length = arrayLength digits
   in
     if intEq length 0 then digits
-    else if intEq (arrayIndex digits (length - 1)) 0 then trimZeros (takePrefix digits (length - 1))
+    else if intEq (arrayIndex digits (intSub length 1)) 0 then trimZeros (takePrefix digits (intSub length 1))
     else digits
 
 takePrefix :: Array Int -> Int -> Array Int

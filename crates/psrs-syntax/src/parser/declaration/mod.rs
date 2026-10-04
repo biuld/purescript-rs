@@ -36,11 +36,21 @@ impl<'a> Parser<'a> {
         let pattern = self.parse_pattern()?;
         let equals_span = self.consume_raw(RawTokenKind::Equals)?.span;
         let value = self.parse_expression(0)?;
-        let span = TextRange::new(pattern.span.start, value.span.end);
+        let where_block = if self.at_raw(&RawTokenKind::Where) {
+            Some(self.parse_declaration_block()?)
+        } else {
+            None
+        };
+        let end = where_block
+            .as_ref()
+            .map(|block| block.span.end)
+            .unwrap_or(value.span.end);
+        let span = TextRange::new(pattern.span.start, end);
         Ok(Declaration::Pattern(PatternDeclaration {
             pattern,
             equals_span,
             value,
+            where_block,
             span,
         }))
     }

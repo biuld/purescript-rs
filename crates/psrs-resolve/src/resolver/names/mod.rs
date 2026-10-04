@@ -370,7 +370,7 @@ impl Resolver {
             .collect()
     }
 
-    fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
+    pub(super) fn lookup_local(&self, name: &str) -> Option<&LocalBinder> {
         self.scopes.iter().rev().find_map(|scope| scope.get(name))
     }
 
@@ -465,4 +465,6 @@ fn ast_expr_is_guarded(expression: &ast::Expr) -> bool {
     }
 }
 
-pub(super) use util::{PRIM_TYPES, builtin_type, is_uppercase, prim_type, split_qualified};
+pub(super) use util::{
+    PRIM_TYPES, builtin_type, implicit_prim_class, is_uppercase, prim_type, split_qualified,
+};

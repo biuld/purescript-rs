@@ -6,6 +6,10 @@ use std::collections::HashMap;
 
 mod matching;
 
+pub(super) fn types_equal(left: TypeId, right: TypeId, module: &Module) -> bool {
+    matching::equivalent(left, right, module)
+}
+
 #[derive(Clone)]
 struct Scheme {
     ty: TypeId,
@@ -351,6 +355,7 @@ fn primitive_type(module: &Module, constructor: TypeConstructor) -> Option<TypeI
 }
 
 fn array_element(module: &Module, id: TypeId) -> Option<TypeId> {
+    let id = strip_leading_foralls(module, id);
     let Type::Application(head, element) = module.types.get(id.0 as usize)? else {
         return None;
     };

@@ -387,9 +387,11 @@ primitives, and `Prelude` re-exports them, matching official PureScript. A sourc
 that uses them imports `Prelude`. Each instance eta-expands its intrinsic
 (`eq x y = intEq x y`) because a first-class intrinsic reference is not lowerable.
 
-The remaining surface operators `-`, `/`, and `%` are still bound to the `Int`
-intrinsics directly. `Data.Ring` and the Euclidean division class are the
-follow-up.
+`-` is the `Data.Ring` operator and `/` is the `Data.EuclideanRing` operator,
+both re-exported from `Prelude`. The primitives under them are `intSub`
+(wrapping subtraction) and `intQuot` (truncating division). `intDiv` and
+`intMod` stay the Euclidean pair the `Int` instance calls. `%` is still the
+truncating remainder primitive; the library spells that operation `mod`.
 
 `Show` is a library class in `Data.Show`, re-exported from `Prelude`, over the
 same primitives. It does not add an intrinsic: integer, character, and string

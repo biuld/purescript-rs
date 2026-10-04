@@ -336,7 +336,8 @@ fn collect_parameters(
     if let cst::TypeExprKind::Application(function, arguments) = &expression.kind {
         collect_parameters(function, out)?;
         for argument in arguments {
-            match &strip_parens(argument).kind {
+            let argument = strip_parens(argument);
+            match &argument.kind {
                 cst::TypeExprKind::Name(name) if is_type_variable(&name.text) => {
                     out.push(TypeParameter {
                         name: lower_name(name.clone()),
@@ -359,6 +360,23 @@ fn collect_parameters(
                             span: value.span,
                         });
                     }
+                }
+                // In a class head, `(a :: k)` is a kinded class parameter.
+                // The CST parser represents this parenthesized form as a
+                // one-field row because the same token sequence also spells a
+                // row type. At this boundary the class-head context makes the
+                // binder interpretation explicit.
+                cst::TypeExprKind::Row { fields, tail, .. }
+                    if tail.is_none()
+                        && fields.len() == 1
+                        && is_type_variable(&fields[0].label.text) =>
+                {
+                    let field = &fields[0];
+                    out.push(TypeParameter {
+                        name: lower_name(field.label.clone()),
+                        kind: Some(lower_type(field.type_expr.clone())?),
+                        span: field.label.span,
+                    });
                 }
                 _ => {}
             }

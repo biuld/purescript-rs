@@ -2,7 +2,7 @@ mod records;
 mod sections;
 
 use crate::{LayoutTokenKind, RawTokenKind};
-use psrs_cst::{CstName, Expr, ExprKind, RecordField, RecordUpdateField};
+use psrs_cst::{CstName, Expr, ExprKind, RecordAccessorField, RecordField, RecordUpdateField};
 use psrs_span::TextRange;
 
 use super::super::{ParseError, Parser};
@@ -14,14 +14,45 @@ impl<'a> Parser<'a> {
             if self.at_raw(&RawTokenKind::Dot) && self.starts_label_at(1) {
                 let dot_span = self.bump().span;
                 let field = self.parse_label("record field")?;
-                let span = TextRange::new(function.span.start, field.span.end);
-                function = Expr {
-                    kind: ExprKind::FieldAccess {
-                        expression: Box::new(function),
-                        dot_span,
-                        field,
-                    },
-                    span,
+                let field_end = field.span.end;
+                function = match function.kind {
+                    ExprKind::Name(name) if name.text == "_" => {
+                        let marker_span = name.span;
+                        Expr {
+                            kind: ExprKind::RecordAccessor {
+                                marker_span,
+                                fields: vec![RecordAccessorField { dot_span, field }],
+                            },
+                            span: TextRange::new(marker_span.start, field_end),
+                        }
+                    }
+                    ExprKind::RecordAccessor {
+                        marker_span,
+                        mut fields,
+                    } => {
+                        fields.push(RecordAccessorField { dot_span, field });
+                        Expr {
+                            kind: ExprKind::RecordAccessor {
+                                marker_span,
+                                fields,
+                            },
+                            span: TextRange::new(marker_span.start, field_end),
+                        }
+                    }
+                    kind => {
+                        let span = TextRange::new(function.span.start, field.span.end);
+                        Expr {
+                            kind: ExprKind::FieldAccess {
+                                expression: Box::new(Expr {
+                                    kind,
+                                    span: function.span,
+                                }),
+                                dot_span,
+                                field,
+                            },
+                            span,
+                        }
+                    }
                 };
                 continue;
             }

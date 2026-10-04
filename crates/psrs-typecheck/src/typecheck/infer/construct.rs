@@ -44,9 +44,7 @@ impl Checker {
             .map(|declaration| (declaration.id, module.name.clone()))
             .collect::<HashMap<_, _>>();
         for declaration in known_types {
-            if declaration.kind == hir::TypeDeclarationKind::Class
-                && let Some(name) = module_names.get(&declaration.id.module)
-            {
+            if let Some(name) = module_names.get(&declaration.id.module) {
                 type_modules.insert(declaration.id, name.clone());
             }
         }

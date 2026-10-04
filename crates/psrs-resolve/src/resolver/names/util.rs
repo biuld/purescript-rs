@@ -1,4 +1,4 @@
-use psrs_hir::BuiltinType;
+use psrs_hir::{BuiltinType, TypeReference};
 
 pub(in crate::resolver) const PRIM_TYPES: [(&str, BuiltinType); 12] = [
     ("Array", BuiltinType::Array),
@@ -19,10 +19,21 @@ pub(in crate::resolver) fn split_qualified(text: &str) -> Option<(&str, &str)> {
     if let Some(index) = text.rfind(".(")
         && text.ends_with(')')
     {
-        return Some((&text[..index], &text[index + 2..text.len() - 1]));
+        let qualifier = &text[..index];
+        return is_module_qualifier(qualifier)
+            .then_some((qualifier, &text[index + 2..text.len() - 1]));
     }
     let index = text.rfind('.')?;
-    Some((&text[..index], &text[index + 1..]))
+    let qualifier = &text[..index];
+    let member = &text[index + 1..];
+    (is_module_qualifier(qualifier) && !member.is_empty()).then_some((qualifier, member))
+}
+
+fn is_module_qualifier(qualifier: &str) -> bool {
+    !qualifier.is_empty()
+        && qualifier
+            .split('.')
+            .all(|part| part.chars().next().is_some_and(char::is_uppercase))
 }
 
 pub(in crate::resolver) fn is_uppercase(name: &str) -> bool {
@@ -50,8 +61,35 @@ pub(in crate::resolver) fn builtin_type(name: &str) -> Option<BuiltinType> {
     })
 }
 
+/// `Partial` lives in `Prim` and is in scope in every module, the same way
+/// `Int` is. Source does not import it.
+pub(in crate::resolver) fn implicit_prim_class(name: &str) -> Option<TypeReference> {
+    psrs_hir::primitive_type_declarations()
+        .into_iter()
+        .find(|(owner, declaration)| *owner == "Prim" && declaration.name == name)
+        .map(|(_, declaration)| TypeReference::Named(declaration.id))
+}
+
 pub(in crate::resolver) fn prim_type(name: &str) -> Option<BuiltinType> {
     PRIM_TYPES
         .iter()
         .find_map(|(prim_name, builtin)| (*prim_name == name).then_some(*builtin))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_qualified;
+
+    #[test]
+    fn symbolic_operator_names_are_not_split_as_qualified_names() {
+        assert_eq!(split_qualified(".&."), None);
+        assert_eq!(
+            split_qualified("Data.Int.Bits.and"),
+            Some(("Data.Int.Bits", "and"))
+        );
+        assert_eq!(
+            split_qualified("Data.Int.Bits.(.&.)"),
+            Some(("Data.Int.Bits", ".&."))
+        );
+    }
 }

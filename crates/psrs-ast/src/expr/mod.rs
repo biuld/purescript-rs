@@ -191,6 +191,50 @@ pub(super) fn lower_record_update(
     })
 }
 
+pub(super) fn lower_field_access(
+    expression: psrs_cst::Expr,
+    field: psrs_cst::CstName,
+    span: TextRange,
+) -> Result<Expr, LowerError> {
+    Ok(Expr {
+        kind: ExprKind::FieldAccess {
+            expression: Box::new(super::lower_expr(expression)?),
+            field: field.text,
+        },
+        span,
+    })
+}
+
+pub(super) fn lower_record_accessor(
+    marker_span: TextRange,
+    fields: Vec<psrs_cst::RecordAccessorField>,
+    span: TextRange,
+) -> Expr {
+    let binder = Binder {
+        name: format!("$psrs_record_accessor_{}", marker_span.start),
+        span: marker_span,
+    };
+    let mut body = Expr {
+        kind: ExprKind::Name(crate::Name {
+            text: binder.name.clone(),
+            span: marker_span,
+        }),
+        span: marker_span,
+    };
+    for field in fields {
+        body = Expr {
+            kind: ExprKind::FieldAccess {
+                expression: Box::new(body),
+                field: field.field.text,
+            },
+            span: TextRange::new(marker_span.start, field.field.span.end),
+        };
+    }
+    let mut accessor = super::lower_lambda(binder, body);
+    accessor.span = span;
+    accessor
+}
+
 pub(super) fn lower_pattern_lambda(
     pattern: psrs_cst::Pattern,
     body: Expr,

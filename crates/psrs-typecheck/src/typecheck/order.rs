@@ -97,7 +97,12 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
             operands,
             operators,
         } => {
-            out.extend(operators.iter().map(|operator| operator.symbol));
+            out.extend(
+                operators
+                    .iter()
+                    .filter(|operator| operator.local.is_none())
+                    .map(|operator| operator.symbol),
+            );
             for operand in operands {
                 collect_globals(operand, out);
             }
@@ -105,7 +110,9 @@ fn collect_globals(expression: &hir::Expr, out: &mut Vec<SymbolId>) {
         hir::ExprKind::OperatorSection {
             operator, operand, ..
         } => {
-            out.push(operator.symbol);
+            if operator.local.is_none() {
+                out.push(operator.symbol);
+            }
             collect_globals(operand, out);
         }
         hir::ExprKind::Application(function, argument) => {

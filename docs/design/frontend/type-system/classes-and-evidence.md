@@ -54,10 +54,13 @@ the signature applies to that consecutive equation group. Consecutive equations
 for one member form one definition, while a later separated group with the
 same name is a duplicate declaration. A signature without its matching member
 is an orphan type declaration. Member signatures are checked against the class
-method after substituting the instance head, and their unbound type variables
-resolve in the instance-head scope. The implementation supports the existing
-subsumption rules for these annotations; it does not yet solve a constrained
-annotation merely to specialize it to a monomorphic expected method type.
+method after substituting the instance head. Variables introduced by the
+instance context share the same type identities in method bodies and
+annotations; a context-only variable is valid when the context's functional
+dependencies determine it from the instance head. The implementation supports
+the existing subsumption rules for these annotations; it does not yet solve a
+constrained annotation merely to specialize it to a monomorphic expected method
+type.
 
 ## Design
 

@@ -47,6 +47,24 @@ impl Checker {
         self.scheme(variables, constraints.to_vec(), resolved)
     }
 
+    /// Generalizes an instance dictionary over every variable in its head,
+    /// including variables erased from the runtime dictionary shape. Compiler
+    /// evidence such as `Coercible (Additive a) a` still mentions those
+    /// variables while the dictionary constructor is checked and finalized.
+    pub(in crate::typecheck) fn generalize_instance_dictionary(
+        &mut self,
+        head_variables: &[u32],
+        ty: &InferType,
+    ) -> Scheme {
+        // Instance head variables belong to the dictionary constructor even if
+        // the runtime dictionary erases them. Its compile-time evidence still
+        // mentions them, so retain them alongside variables in the value type.
+        let inferred = self.generalize(&[], ty, &[], TOP_LEVEL);
+        let mut variables = inferred.variables;
+        variables.extend(head_variables.iter().copied());
+        self.scheme(variables, inferred.constraints, inferred.ty)
+    }
+
     /// The scheme a declaration exposes to the uses inside its binding group: the
     /// type its signature states, with that signature's `forall` binders
     /// quantified. A recursive use instantiates it, so a signature's

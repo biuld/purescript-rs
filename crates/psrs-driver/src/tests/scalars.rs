@@ -108,6 +108,27 @@ fn scalar_intrinsics_are_reachable_from_source_and_execute_with_documented_seman
     );
 }
 
+#[test]
+fn data_int_bits_uses_the_integer_bitwise_intrinsics() {
+    let main = r#"
+module Main where
+import Data.Int.Bits ((.&.))
+main = if intEq (6 .&. 3) 2 then 0 else 1
+"#;
+    let sources = [
+        (
+            "Data.Int.Bits.purs",
+            include_str!("../../../../stdlib/lib/Data/Int/Bits.purs"),
+        ),
+        ("Main.purs", main),
+    ];
+    let Some(output) = super::run_program_with_wasmtime(&sources) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
 const CASE_HELPER_SOURCE: &str = "\
 module Main where
 

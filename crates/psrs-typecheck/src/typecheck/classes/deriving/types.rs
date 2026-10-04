@@ -14,6 +14,9 @@ impl Checker {
 /// `TypeChecker.checkTypeClassInstance` with `InvalidInstanceHead`; see
 /// `failing/TypeWildcards3.purs`. A wildcard in an instance *context* is a
 /// different matter and stays legal, as `passing/WildcardInInstance.purs` needs.
+/// The compiler's known `Newtype` and `Generic` derivations also accept one
+/// final wildcard: the wrapped field or generated representation determines
+/// that class argument.
 pub(crate) fn contains_wildcard(ty: &hir::Type) -> bool {
     match &ty.kind {
         hir::TypeKind::Wildcard => true,

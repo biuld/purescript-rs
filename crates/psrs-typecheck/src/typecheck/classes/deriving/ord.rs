@@ -17,6 +17,29 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
+        self.derive_ord_method_using(method, class_arguments, method.symbol, false, span)
+    }
+
+    pub(super) fn derive_ord1_method(
+        &mut self,
+        method: &MethodInfo,
+        class_arguments: &[InferType],
+        span: TextRange,
+    ) -> Option<InferredExpr> {
+        let Some(compare_method) = self.known_method_symbol("Data.Ord", "Ord", "compare") else {
+            return self.deriving_error(span, "cannot find the Ord method for Ord1 deriving");
+        };
+        self.derive_ord_method_using(method, class_arguments, compare_method, true, span)
+    }
+
+    fn derive_ord_method_using(
+        &mut self,
+        method: &MethodInfo,
+        class_arguments: &[InferType],
+        compare_method: SymbolId,
+        higher_kinded: bool,
+        span: TextRange,
+    ) -> Option<InferredExpr> {
         let Some(instance_type) = class_arguments.first() else {
             return self.deriving_error(span, "Ord deriving requires one type argument");
         };
@@ -31,16 +54,25 @@ impl Checker {
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the data declaration to derive Ord");
         };
+        let expected_arguments =
+            declaration
+                .parameters
+                .len()
+                .checked_sub(if higher_kinded { 1 } else { 0 });
         if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
             )
-            || arguments.len() != declaration.parameters.len()
+            || expected_arguments != Some(arguments.len())
         {
             return self.deriving_error(
                 span,
-                "Ord deriving requires a locally declared, fully applied data type",
+                if higher_kinded {
+                    "Ord1 deriving requires a locally declared type constructor with one final parameter"
+                } else {
+                    "Ord deriving requires a locally declared, fully applied data type"
+                },
             );
         }
         let Some(ordering_id) = ordering_result_id(&method.signature) else {
@@ -65,7 +97,7 @@ impl Checker {
         let left = self.fresh_deriving_binder("__derived_left", span);
         let right = self.fresh_deriving_binder("__derived_right", span);
         let field_context = OrdFieldContext {
-            method: method.symbol,
+            method: compare_method,
             less,
             equal,
             greater,

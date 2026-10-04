@@ -103,7 +103,10 @@ pub(super) struct InstanceInfo {
     pub(super) chain_id: u32,
     pub(super) chain_position: u32,
     pub(super) head_arguments: Vec<InferType>,
-    pub(super) head_variables: HashMap<String, InferType>,
+    /// Every type variable shared by the instance head and context. Context
+    /// variables determined through fundeps still need one identity in method
+    /// bodies and their type annotations.
+    pub(super) instance_variables: HashMap<String, InferType>,
     pub(super) context: Vec<ClassConstraint>,
     pub(super) context_parameters: Vec<(LocalId, InferType)>,
 }

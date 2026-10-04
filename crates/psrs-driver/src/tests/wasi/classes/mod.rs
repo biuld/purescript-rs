@@ -396,6 +396,20 @@ fn an_ambiguous_instance_context_variable_is_reported() {
     );
 }
 
+#[test]
+fn instance_context_variables_determined_by_functional_dependencies_are_accepted() {
+    let source = r#"
+module Main where
+
+class KeyValue key value | key -> value
+class Container key
+
+instance containerKeyValue :: KeyValue key value => Container key
+"#;
+    crate::typecheck_program_sources(&[("Main.purs", source)])
+        .expect("the instance head determines `value` through KeyValue's functional dependency");
+}
+
 const CLASS_DEFAULT_SOURCE: &str = r#"
 module Main where
 

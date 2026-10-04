@@ -18,6 +18,12 @@ module Effect
   , discard
   , map
   , apply
+  , untilE
   ) where
 
 import Prelude (Effect, apply, bind, discard, map, pure)
+
+-- | Repeats an effect until it returns `true`.
+untilE :: Effect Boolean -> Effect Unit
+untilE action = bind action \done ->
+  if done then pure unit else untilE action

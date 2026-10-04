@@ -3,10 +3,11 @@ use crate::{
 };
 use psrs_hir::TypeVariableId;
 use psrs_span::TextRange;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 mod free_type_variables;
-use free_type_variables::free_type_variables;
+mod polymorphic;
+use polymorphic::{leading_foralls, open_child_binders};
 
 pub(super) fn verify_module(module: &Module) -> Vec<VerifyError> {
     let mut errors = Vec::new();
@@ -121,10 +122,12 @@ fn verify_type_scope(
         return;
     }
     match types.get(id.0 as usize) {
-        Some(Type::Variable(variable)) if !scope.contains(variable) => errors.push(VerifyError {
-            span,
-            message: "type variable is outside its quantifier scope",
-        }),
+        Some(Type::Variable(variable)) if !scope.contains(variable) => {
+            errors.push(VerifyError {
+                span,
+                message: "type variable is outside its quantifier scope",
+            });
+        }
         Some(Type::Application(function, argument)) => {
             verify_type_scope(*function, types, scope, span, active, errors);
             verify_type_scope(*argument, types, scope, span, active, errors);
@@ -195,13 +198,24 @@ fn verify_expr_scope(
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
         ExprKind::Array(elements) => {
+            let binders = leading_foralls(types, expression.ty);
             for element in elements {
-                verify_expr_scope(element, types, scope, errors);
+                let mut element_scope = scope.clone();
+                open_child_binders(element, &binders, types, &mut element_scope, errors);
+                verify_expr_scope(element, types, &mut element_scope, errors);
             }
         }
         ExprKind::Record(fields) => {
-            for (_, value) in fields {
-                verify_expr_scope(value, types, scope, errors);
+            let field_types = crate::record_fields(types, expression.ty).unwrap_or_default();
+            for (label, value) in fields {
+                let binders = field_types
+                    .iter()
+                    .find(|(field_label, _)| field_label == label)
+                    .map(|(_, ty)| leading_foralls(types, *ty))
+                    .unwrap_or_default();
+                let mut field_scope = scope.clone();
+                open_child_binders(value, &binders, types, &mut field_scope, errors);
+                verify_expr_scope(value, types, &mut field_scope, errors);
             }
         }
         ExprKind::RecordUpdate { expression, fields } => {
@@ -210,8 +224,13 @@ fn verify_expr_scope(
                 verify_expr_scope(value, types, scope, errors);
             }
         }
-        ExprKind::FieldAccess { expression, .. } => {
-            verify_expr_scope(expression, types, scope, errors)
+        ExprKind::FieldAccess {
+            expression: record, ..
+        } => {
+            let binders = leading_foralls(types, expression.ty);
+            let mut record_scope = scope.clone();
+            open_child_binders(record, &binders, types, &mut record_scope, errors);
+            verify_expr_scope(record, types, &mut record_scope, errors)
         }
         ExprKind::Evidence(evidence) => verify_evidence_scope(evidence, types, scope, errors),
         ExprKind::Coerce {
@@ -334,42 +353,6 @@ fn open_expression_binders(
     scope.extend(local);
 }
 
-fn open_child_binders(
-    child: &Expr,
-    candidates: &[TypeVariableId],
-    types: &[Type],
-    scope: &mut HashSet<TypeVariableId>,
-    errors: &mut Vec<VerifyError>,
-) {
-    let mut free = HashSet::new();
-    free_type_variables(
-        child.ty,
-        types,
-        &mut HashMap::new(),
-        &mut HashSet::new(),
-        &mut free,
-    );
-    let relevant = candidates
-        .iter()
-        .copied()
-        .filter(|variable| free.contains(variable))
-        .collect::<Vec<_>>();
-    if relevant.is_empty() {
-        return;
-    }
-    let mut local = HashSet::new();
-    if relevant
-        .iter()
-        .any(|variable| !local.insert(*variable) || scope.contains(variable))
-    {
-        errors.push(VerifyError {
-            span: child.span,
-            message: "forall binder shadows an active type variable",
-        });
-    }
-    scope.extend(local);
-}
-
 fn verify_pattern_scope(
     pattern: &Pattern,
     types: &[Type],
@@ -480,21 +463,4 @@ fn verify_evidence_scope(
             }
         }
     }
-}
-
-fn leading_foralls(types: &[Type], mut id: TypeId) -> Vec<TypeVariableId> {
-    let mut variables = Vec::new();
-    let mut seen = HashSet::new();
-    while let Some(Type::ForAll {
-        variables: binders,
-        body,
-    }) = types.get(id.0 as usize)
-    {
-        if !seen.insert(id) {
-            break;
-        }
-        variables.extend(binders.iter().copied());
-        id = *body;
-    }
-    variables
 }

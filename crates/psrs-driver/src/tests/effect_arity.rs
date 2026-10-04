@@ -29,12 +29,12 @@ fn an_effect_of_a_function_is_not_arity_two_and_log_is_saturated() {
         "Effect Int is a one-parameter closure"
     );
     assert_eq!(
-        function("pure").parameters.len(),
+        function("effectPure").parameters.len(),
         1,
         "pure takes the value and returns the token closure"
     );
     assert_eq!(
-        function("bind").parameters.len(),
+        function("effectBind").parameters.len(),
         2,
         "bind takes the effect and the continuation; the token belongs to the result"
     );

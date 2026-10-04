@@ -147,6 +147,16 @@ pub fn lower_effects(
             "trusted Effect identity is missing or is not an opaque type",
         )]);
     }
+    match module.callable_parameters(effect) {
+        Some(1) => {}
+        Some(_) => {
+            return Err(vec![verification_error(
+                module,
+                "trusted Effect type has an incompatible callable representation",
+            )]);
+        }
+        None => module.callable_types.push((effect, 1)),
+    }
     let token = intern(module, Type::Constructor(TypeConstructor::Int));
     let closures = rewrite_effect_applications(module, effect, token);
     let synthesized = synthesize_operations(module, token, trusted)?;

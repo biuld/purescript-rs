@@ -133,6 +133,44 @@ fn parentheses_are_removed_without_losing_the_expression_range() {
 }
 
 #[test]
+fn anonymous_record_accessor_is_lowered_to_a_lambda() {
+    let underscore_span = TextRange::new(25, 26);
+    let field_span = TextRange::new(27, 32);
+    let expression = cst::Expr {
+        kind: CstExprKind::RecordAccessor {
+            marker_span: underscore_span,
+            fields: vec![cst::RecordAccessorField {
+                dot_span: TextRange::new(26, 27),
+                field: name("value", field_span.start),
+            }],
+        },
+        span: TextRange::new(25, 32),
+    };
+    let declaration = value_declaration(
+        "project",
+        18,
+        Vec::new(),
+        TextRange::new(23, 24),
+        expression,
+        32,
+        None,
+    );
+    let module = lower_module(cst_module(declaration)).unwrap();
+    let ExprKind::Lambda { binder, body } = &module.declarations[0].value.kind else {
+        panic!("an anonymous record accessor should become a lambda");
+    };
+    assert_eq!(module.declarations[0].value.span, TextRange::new(25, 32));
+    let ExprKind::FieldAccess { expression, field } = &body.kind else {
+        panic!("the accessor lambda should contain a field access");
+    };
+    assert_eq!(field, "value");
+    assert!(matches!(
+        &expression.kind,
+        ExprKind::Name(name) if name.text == binder.name
+    ));
+}
+
+#[test]
 fn lowers_forall_types_and_removes_parentheses() {
     let annotation = cst::TypeExpr {
         kind: cst::TypeExprKind::Forall {

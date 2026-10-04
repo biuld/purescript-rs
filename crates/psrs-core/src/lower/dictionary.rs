@@ -50,12 +50,11 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 };
                 function_type = result;
             }
-            if function.ty != ty {
-                return Err(LowerError {
-                    span,
-                    message: "instance evidence result has the wrong dictionary type",
-                });
-            }
+            // THIR has already checked this application with semantic type
+            // equality. Its result can be represented by a distinct TypeId
+            // (for example, after solving a derived Generic representation),
+            // so leave the applied constructor's result type intact; Core's
+            // verifier compares it semantically at the evidence use site.
             return Ok(function);
         }
     };

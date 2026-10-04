@@ -93,7 +93,14 @@ pub(crate) fn verify_expr(
                 });
             }
             for operator in operators {
-                if !globals.contains(&operator.symbol) {
+                if let Some(local) = operator.local {
+                    if !visible_locals.contains(&local) {
+                        errors.push(VerifyError {
+                            span: operator.operator_span,
+                            message: "backticked operator is not in scope",
+                        });
+                    }
+                } else if !globals.contains(&operator.symbol) {
                     errors.push(VerifyError {
                         span: operator.operator_span,
                         message: "operator symbol is not declared in the module or intrinsic set",
@@ -110,7 +117,14 @@ pub(crate) fn verify_expr(
             binder,
             ..
         } => {
-            if !globals.contains(&operator.symbol) {
+            if let Some(local) = operator.local {
+                if !visible_locals.contains(&local) {
+                    errors.push(VerifyError {
+                        span: operator.operator_span,
+                        message: "backticked operator is not in scope",
+                    });
+                }
+            } else if !globals.contains(&operator.symbol) {
                 errors.push(VerifyError {
                     span: operator.operator_span,
                     message: "operator symbol is not declared in the module or intrinsic set",

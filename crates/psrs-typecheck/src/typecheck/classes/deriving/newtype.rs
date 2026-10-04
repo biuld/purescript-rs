@@ -74,12 +74,16 @@ impl Checker {
             ty: underlying_method_type.clone(),
             span,
         };
-        self.adapt_newtype_method(
-            selected_method,
-            underlying_method_type,
-            derived_method_type,
-            span,
-        )
+        let mut method_foralls = Vec::new();
+        leading_forall_variables(&derived_method_type, &mut method_foralls);
+        self.with_skolem_scope(&method_foralls, |checker| {
+            checker.adapt_newtype_method(
+                selected_method,
+                underlying_method_type,
+                derived_method_type,
+                span,
+            )
+        })
     }
 
     pub(in crate::typecheck::classes) fn validate_newtype_deriving_instance(
@@ -90,7 +94,7 @@ impl Checker {
         self.newtype_underlying_type(class_arguments, span)
     }
 
-    fn newtype_underlying_type(
+    pub(super) fn newtype_underlying_type(
         &mut self,
         class_arguments: &[InferType],
         span: TextRange,
@@ -309,4 +313,18 @@ fn strip_newtype_arguments(
         ty = *function;
     }
     Some(ty)
+}
+
+fn leading_forall_variables(ty: &InferType, variables: &mut Vec<u32>) {
+    match ty {
+        InferType::ForAll {
+            variables: binders,
+            body,
+        } => {
+            variables.extend(binders);
+            leading_forall_variables(body, variables);
+        }
+        InferType::Constrained { body, .. } => leading_forall_variables(body, variables),
+        _ => {}
+    }
 }

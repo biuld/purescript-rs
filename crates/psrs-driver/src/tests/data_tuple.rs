@@ -1,46 +1,54 @@
-//! The library's `Data.Tuple` surface.
-//!
-//! `Tuple a b` is the closed record `{ _1 :: a, _2 :: b }` that FE-06 already
-//! lowers a tuple to, not an algebraic product. These tests check that the
-//! synonym, the tuple syntax, and a record literal are one value, and that the
-//! projection functions execute under Wasmtime.
+//! Library tuples and native tuple syntax keep their distinct representations.
 
 use super::*;
 
+const DATA_TUPLE: &str = include_str!("../../../../stdlib/lib/Data/Tuple.purs");
+
 #[test]
-fn a_tuple_is_the_closed_record_and_executes_under_wasmtime() {
-    let source = r#"
+fn library_tuple_constructor_and_helpers_execute() {
+    let main = r#"
 module Main where
 
-import Prelude
-import Data.Tuple (Tuple, curry, fst, snd, swap, uncurry)
+import Data.Tuple (Tuple(..), curry, fst, snd, swap, uncurry)
 
-fromSyntax :: Tuple Int Int
-fromSyntax = (40, 2)
+pair :: Tuple Int Int
+pair = Tuple 40 2
 
-fromRecord :: Tuple Int Int
-fromRecord = { _1: 40, _2: 2 }
-
-passed :: Boolean -> Int
-passed flag = if flag then 1 else 0
-
-main :: Int
-main =
-  passed (uncurry (\a b -> a + b) fromSyntax == 42)
-    + passed (uncurry (\a b -> a + b) fromRecord == 42)
-    + passed (fst fromSyntax == 40)
-    + passed (snd fromRecord == 2)
-    + passed (fst (swap fromSyntax) == 2)
-    + passed (snd (swap fromRecord) == 40)
-    + passed (curry (\pair -> fst pair + snd pair) 20 22 == 42)
+main = if intEq (uncurry (\left right -> intAdd left right) pair) 42
+  then if intEq (fst (swap pair)) 2
+    then if intEq (snd (swap pair)) 40
+      then if intEq (curry (\tuple -> intAdd (fst tuple) (snd tuple)) 20 22) 42 then 0 else 1
+      else 1
+    else 1
+  else 1
 "#;
-    let Some(output) = run_with_wasmtime(source) else {
-        eprintln!("skipping: wasmtime is not installed");
+    let sources = [("Data.Tuple.purs", DATA_TUPLE), ("Main.purs", main)];
+    let Some(output) = run_program_with_wasmtime(&sources) else {
+        eprintln!("skipping execution: wasmtime is not installed");
         return;
     };
-    assert_eq!(
-        output.status.code(),
-        Some(7),
-        "tuple syntax and the record form must be the same value: {output:?}"
-    );
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+}
+
+#[test]
+fn native_tuple_syntax_still_has_the_closed_record_representation() {
+    let main = r#"
+module Main where
+
+type Pair = { _1 :: Int, _2 :: Int }
+
+fromSyntax :: Pair
+fromSyntax = (40, 2)
+
+fromRecord :: Pair
+fromRecord = { _1: 40, _2: 2 }
+
+main = 0
+"#;
+    let sources = [("Data.Tuple.purs", DATA_TUPLE), ("Main.purs", main)];
+    let Some(output) = run_program_with_wasmtime(&sources) else {
+        eprintln!("skipping execution: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
 }

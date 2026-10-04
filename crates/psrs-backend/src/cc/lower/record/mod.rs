@@ -212,7 +212,16 @@ impl FunctionLowerer<'_> {
         ty: ValueShape,
         assignments: &mut Vec<Assignment>,
     ) -> Result<ValueId, Vec<BackendError>> {
-        let Some(representation) = self.record_types.get(&record.ty).copied() else {
+        // A local may be used at an instantiated type while its runtime value
+        // still has the layout fixed by its binder (notably a class dictionary
+        // passed through a higher-kinded method). Project using that stored
+        // layout, then convert the selected field to the use-site type below.
+        let source_type = match &record.kind {
+            psrs_core::ExprKind::Local(local) => self.local_types.get(local).copied(),
+            _ => None,
+        }
+        .unwrap_or(record.ty);
+        let Some(representation) = self.record_types.get(&source_type).copied() else {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 expression.span,

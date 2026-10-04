@@ -143,6 +143,28 @@ impl Interface {
                         class_members.insert(exported.name.clone(), members);
                     }
                 }
+                for exported in &exports.types {
+                    let TypeReference::Named(id) = exported.reference else {
+                        continue;
+                    };
+                    if declarations.contains_key(&id) {
+                        continue;
+                    }
+                    let Some(symbols) = &exported.constructors else {
+                        continue;
+                    };
+                    let mut members = Vec::new();
+                    for symbol in symbols {
+                        let Some(value) =
+                            exports.values.iter().find(|value| value.symbol == *symbol)
+                        else {
+                            continue;
+                        };
+                        values.entry(value.name.clone()).or_insert(*symbol);
+                        members.push((value.name.clone(), *symbol));
+                    }
+                    constructors.insert(exported.name.clone(), members);
+                }
                 for operator in &exports.type_operators {
                     types.insert(operator.name.clone(), operator.reference);
                     if let Some(fixity) = find_fixity(module, &operator.name) {

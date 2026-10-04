@@ -130,6 +130,23 @@ fn distinguishes_lowercase_record_fields_from_uppercase_qualified_values() {
 }
 
 #[test]
+fn parses_anonymous_record_field_accessors() {
+    let module = parse("module Main where\nproject = _.value.nested\n").unwrap();
+    let accessor = plain_value(as_value(&module.declarations[0]));
+    let ExprKind::RecordAccessor {
+        marker_span,
+        fields,
+    } = &accessor.kind
+    else {
+        panic!("expected `_ .field` to have its own CST node");
+    };
+    assert_eq!(marker_span, &TextRange::new(28, 29));
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].field.text, "value");
+    assert_eq!(fields[1].field.text, "nested");
+}
+
+#[test]
 fn parses_single_line_let_blocks() {
     let module = parse("module Main where\nmain = let x = 1 in x\n").unwrap();
     assert!(matches!(
@@ -219,6 +236,18 @@ fn parses_forall_with_multiple_variables() {
             .collect::<Vec<_>>(),
         ["a", "b"]
     );
+}
+
+#[test]
+fn parses_empty_parentheses_as_an_empty_row_type() {
+    let module = parse("module Main where\ntype Empty = ()\n").unwrap();
+    let Declaration::TypeSynonym(declaration) = &module.declarations[0] else {
+        panic!("expected a type synonym");
+    };
+    assert!(matches!(
+        &declaration.body.kind,
+        TypeExprKind::Row { fields, tail: None, .. } if fields.is_empty()
+    ));
 }
 
 #[test]

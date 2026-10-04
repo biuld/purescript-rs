@@ -1,5 +1,5 @@
 use super::error;
-use crate::{Module, Type, TypeId, VerifyError};
+use crate::{Module, Type, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
@@ -36,6 +36,16 @@ pub(in crate::verify) fn compatible(
             "Core expression type is inconsistent with its context",
         ));
     }
+}
+
+fn applied_variable(id: TypeId, module: &Module) -> Option<(psrs_hir::TypeVariableId, TypeId)> {
+    let Type::Application(function, argument) = module.types.get(id.0 as usize)? else {
+        return None;
+    };
+    let Type::Variable(variable) = module.types.get(function.0 as usize)? else {
+        return None;
+    };
+    Some((*variable, *argument))
 }
 
 /// Checks whether `instance` is a legal use of a declaration or local scheme.
@@ -246,6 +256,11 @@ impl TypeMatcher<'_> {
             return result;
         }
 
+        if let Some(result) = self.subsumes_callable_application(actual, expected, instantiate) {
+            self.active.remove(&(actual, expected));
+            return result;
+        }
+
         if let Some(result) = self.subsumes_closure(actual, expected, instantiate) {
             self.active.remove(&(actual, expected));
             return result;
@@ -342,6 +357,74 @@ impl TypeMatcher<'_> {
         }
         self.replacements.insert(variable, replacement);
         true
+    }
+
+    /// A trusted callable type constructor application is lowered to a
+    /// closure type at P8. When a polymorphic class method is instantiated
+    /// through such a constructor, relate `f a` to `Closure(params, a)` while
+    /// retaining the constructor identity for other occurrences of `f`.
+    fn subsumes_callable_application(
+        &mut self,
+        actual: TypeId,
+        expected: TypeId,
+        instantiate: bool,
+    ) -> Option<bool> {
+        let actual_application = applied_variable(actual, self.module);
+        let expected_application = applied_variable(expected, self.module);
+        let actual_closure = crate::closure_parts(&self.module.types, actual)
+            .map(|(parameters, result)| (parameters.len(), result));
+        let expected_closure = crate::closure_parts(&self.module.types, expected)
+            .map(|(parameters, result)| (parameters.len(), result));
+        let (variable, argument, result, actual_is_application, arity) = match (
+            actual_application,
+            expected_application,
+            actual_closure,
+            expected_closure,
+        ) {
+            (Some((variable, argument)), None, _, Some((arity, result))) => {
+                (variable, argument, result, true, arity)
+            }
+            (None, Some((variable, argument)), Some((arity, result)), _) => {
+                (variable, argument, result, false, arity)
+            }
+            _ => return None,
+        };
+
+        if !self.flexible.contains(&variable) {
+            return Some(false);
+        }
+        let mut callable_ids =
+            self.module
+                .callable_types
+                .iter()
+                .filter_map(|(id, hidden_parameters)| {
+                    (*hidden_parameters as usize == arity).then_some(*id)
+                });
+        let Some(callable_id) = callable_ids.next() else {
+            return Some(false);
+        };
+        if callable_ids.next().is_some() {
+            return Some(false);
+        }
+        let Some((constructor_index, _)) = self
+            .module
+            .types
+            .iter()
+            .enumerate()
+            .find(|(_, ty)| {
+                matches!(ty, Type::Constructor(TypeConstructor::User(id)) if *id == callable_id)
+            })
+        else {
+            return Some(false);
+        };
+        if !self.bind_flexible(variable, TypeId(constructor_index as u32)) {
+            return Some(false);
+        }
+        Some(if actual_is_application {
+            self.subsumes(argument, result, instantiate)
+        } else {
+            self.subsumes(result, argument, instantiate)
+        })
     }
 
     fn subsumes_record(&mut self, actual: TypeId, expected: TypeId) -> bool {

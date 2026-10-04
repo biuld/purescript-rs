@@ -28,8 +28,12 @@ pub(super) fn reserve_aggregate_layouts(
 ) -> AggregateLayouts {
     let mut arrays = HashMap::new();
     let mut records = HashMap::new();
+    let live_types = super::functions::live_type_ids(module);
     for index in 0..module.types.len() {
         let id = TypeId(index as u32);
+        if !live_types.contains(&id) {
+            continue;
+        }
         if array_element_type(module, id).is_some() {
             arrays.insert(id, representations.reserve());
         } else if module.is_record_type(id) && !module.record_is_open(id).unwrap_or(false) {
