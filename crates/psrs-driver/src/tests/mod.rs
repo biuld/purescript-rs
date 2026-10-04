@@ -94,7 +94,14 @@ fn run_wasmtime_with_dirs(
 ) -> Option<std::process::Output> {
     wasmtime_available()?;
     use std::io::Write;
+    if let Some(path) = std::env::var_os("PSRS_DUMP_CC") {
+        let compilation = crate::compile_source_with_dumps("Main.purs", source).unwrap();
+        std::fs::write(path, compilation.dumps.cc).unwrap();
+    }
     let artifact = compile_source("Main.purs", source).unwrap();
+    if let Some(path) = std::env::var_os("PSRS_DUMP_WAT") {
+        std::fs::write(path, &artifact.wat).unwrap();
+    }
     let id = WASM_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("psrs-{}-{id}.wasm", std::process::id()));
     std::fs::write(&path, &artifact.wasm).unwrap();
