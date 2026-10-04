@@ -7,12 +7,10 @@
 -- | That keeps one place that decides where output goes, rather than a
 -- | wrapper that could drift from it.
 -- |
--- | `logShow` is **absent**, not approximated. Its official type is
--- | `forall a. Show a => a -> Effect Unit`, and no module in this library
--- | declares a `Show` class yet, so providing it would mean either inventing a
--- | second notion of stringification or special-casing the handful of types the
--- | corpus happens to print. Both are the narrower special case the iteration
--- | principles reject. It lands with the class surface in #94.
+-- | `logShow` is **absent**, not approximated. `Data.Show` declares the class
+-- | it needs (`forall a. Show a => a -> Effect Unit` is `log` of `show`), but
+-- | the wrapper is the remaining `Effect.Console` surface and stays with #95
+-- | rather than being slipped in beside the class.
 module Effect.Console (log, warn, error) where
 
 import Prelude
