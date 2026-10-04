@@ -5,7 +5,8 @@ mod loader;
 mod prelude;
 mod program;
 
-pub use diagnostics::{CompilationReport, PartialIrDumps};
+pub use diagnostics::{CompilationReport, FrontendPassTrace, IrDumpArtifacts, PartialIrDumps};
+pub use psrs_backend::trace::*;
 
 pub use loader::{
     ProgramCaseSources, collect_purs_files, load_program_case_sources, load_program_files,
@@ -14,8 +15,9 @@ pub use program::{
     check_program, check_program_kinds_lenient, check_program_kinds_lenient_with_prelude,
     check_program_lenient, check_program_lenient_with_prelude, check_program_types_lenient,
     check_program_types_lenient_with_prelude, check_program_with_warnings, compile_program_sources,
-    compile_program_sources_with_prelude, compile_program_sources_with_prelude_report,
-    resolve_program_sources, typecheck_program_sources, typecheck_program_sources_with_warnings,
+    compile_program_sources_with_prelude, compile_program_sources_with_prelude_diagnosis,
+    compile_program_sources_with_prelude_report, resolve_program_sources,
+    typecheck_program_sources, typecheck_program_sources_with_warnings,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

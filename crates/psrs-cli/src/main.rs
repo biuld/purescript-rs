@@ -269,7 +269,7 @@ fn compile_program(command: &str, raw_args: Vec<String>) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs>... [-o output.wasm]\n       psrs wat <file.purs>... [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>\n       psrs diagnose <file.purs> [--out report.json]\n       psrs diagnose --corpus passing [--filter TEXT] [--limit N] [--out report.json]\n       psrs diagnose --compare OLD.json NEW.json".into()
+    "usage: psrs <lex|layout|parse|ast|hir|check> <file.purs>\n       psrs check-program <file.purs>...\n       psrs check-program-kinds <file.purs>...\n       psrs build <file.purs>... [-o output.wasm]\n       psrs wat <file.purs>... [-o output.wat]\n       psrs dump <core|cc|mir> <file.purs>\n       psrs diagnose <file.purs> [--input FILE]... [--trace] [--out report.json]\n       psrs diagnose --corpus passing [--filter TEXT] [--limit N] [--trace] [--out report.json]\n       psrs diagnose --compare OLD.json NEW.json".into()
 }
 
 fn check_program(paths: &[String], kinds: bool) -> Result<(), String> {

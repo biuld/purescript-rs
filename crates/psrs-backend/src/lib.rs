@@ -5,12 +5,15 @@ pub mod cc;
 pub mod component;
 mod effects;
 pub mod mir;
+mod pipeline;
+pub mod trace;
 pub mod types;
 pub mod wasm;
 
 pub use bindings::{BackendInput, ExternalBinding, ExternalBindings};
 
 pub use capability::TargetCapabilities;
+pub use trace::*;
 
 use psrs_hir::ModuleId;
 use psrs_span::TextRange;
@@ -199,6 +202,14 @@ pub struct CompileFailure {
     pub partial: PartialStages,
 }
 
+/// Normal backend result together with the pass/artifact events observed while
+/// compiling it. Partial IR values are retained only when requested.
+#[derive(Clone, Debug)]
+pub struct TracedCompile {
+    pub result: Result<Stages, CompileFailure>,
+    pub trace: CompileTrace,
+}
+
 pub fn compile_with_stages(module: psrs_core::Module) -> Result<Stages, Vec<BackendError>> {
     compile_with_target(module, TargetCapabilities::default())
 }
@@ -216,7 +227,21 @@ pub fn compile_with_context(
     effect_context: Option<psrs_core::effect::EffectCompilation>,
     target: TargetCapabilities,
 ) -> Result<Stages, Vec<BackendError>> {
-    compile_with_context_inner(module, effect_context, target, None)
+    pipeline::compile_with_context_inner(module, effect_context, target, None, None)
+}
+
+/// Compiles with actual top-level pass/artifact tracing. Setting
+/// `capture_partial` retains IR snapshots for diagnostics; the trace itself is
+/// lightweight and does not clone or format IR values.
+pub fn compile_with_context_traced(
+    module: psrs_core::Module,
+    effect_context: Option<psrs_core::effect::EffectCompilation>,
+    target: TargetCapabilities,
+    capture_partial: bool,
+) -> TracedCompile {
+    let (result, trace) =
+        pipeline::compile_with_context_traced(module, effect_context, target, capture_partial);
+    TracedCompile { result, trace }
 }
 
 /// Compiles using the normal backend pipeline and returns only representations
@@ -228,120 +253,6 @@ pub fn compile_with_context_capturing(
     target: TargetCapabilities,
 ) -> Result<Stages, CompileFailure> {
     let mut partial = PartialStages::default();
-    compile_with_context_inner(module, effect_context, target, Some(&mut partial))
+    pipeline::compile_with_context_inner(module, effect_context, target, Some(&mut partial), None)
         .map_err(|errors| CompileFailure { errors, partial })
-}
-
-fn compile_with_context_inner(
-    module: psrs_core::Module,
-    effect_context: Option<psrs_core::effect::EffectCompilation>,
-    target: TargetCapabilities,
-    mut capture: Option<&mut PartialStages>,
-) -> Result<Stages, Vec<BackendError>> {
-    let owner = module.entry.map(|entry| entry.module);
-    let mut module =
-        psrs_core::opt::optimize(module, psrs_core::opt::Budget::default()).map_err(|errors| {
-            annotate_errors(
-                errors
-                    .into_iter()
-                    .map(|error| {
-                        BackendError::new("P7 Core optimization", error.span, error.message)
-                            .with_module(error.module)
-                    })
-                    .collect(),
-                owner,
-            )
-        })?;
-    let optimized_core = module.clone();
-    if let Some(capture) = capture.as_deref_mut() {
-        capture.core = Some(optimized_core.clone());
-    }
-    let mut external_bindings = ExternalBindings::from_core(&module);
-    if let Some(context) = effect_context.as_ref() {
-        effects::lower_effects(&mut module, &mut external_bindings, context)?;
-    }
-    external_bindings.validate_conformance(&module, target)?;
-    let lowered_cc = cc::lower_module_with_bindings(module, external_bindings)?;
-    let cc = lowered_cc.cc;
-    if let Some(capture) = capture.as_deref_mut() {
-        capture.cc = Some(cc.clone());
-    }
-    let (mir, mut wasi) =
-        mir::lower_module_with_bindings(cc.clone(), lowered_cc.externals, target)?;
-    if let Some(capture) = capture.as_deref_mut() {
-        capture.mir = Some(mir.clone());
-        capture.mir_stage = Some("P9 MIR lowering");
-    }
-    let mir = mir::opt::optimize(mir, target)?;
-    if let Some(capture) = capture.as_deref_mut() {
-        capture.mir = Some(mir.clone());
-        capture.mir_stage = Some("P10 MIR optimization");
-    }
-    let owner = mir.entry.map(|entry| entry.module);
-    if !target.component_model
-        || !target.wasi_p2
-        || !target.wasi_cli
-        || !target.wasi_io
-        || !target.wasi_clocks
-        || !target.wasi_random
-    {
-        return Err(annotate_errors(
-            vec![BackendError::new(
-                "P11 target capabilities",
-                mir.span,
-                "the current artifact pipeline requires Component Model and WASI 0.2 capabilities",
-            )],
-            owner,
-        ));
-    }
-    let wasm = wasm::lower_module_with_capabilities(&mir, &mut wasi, target)
-        .map_err(|errors| annotate_errors(errors, owner))?;
-    let core = wasm::encode_module(&wasm).map_err(|errors| annotate_errors(errors, owner))?;
-    let (resolve, world) = component::command_world().map_err(|message| {
-        annotate_errors(
-            vec![BackendError::new("P11 component", mir.span, message)],
-            owner,
-        )
-    })?;
-    let binary = component::componentize(&core, &resolve, world).map_err(|message| {
-        annotate_errors(
-            vec![BackendError::new("P11 component", mir.span, message)],
-            owner,
-        )
-    })?;
-    validator_for(target)
-        .validate_all(&binary)
-        .map_err(|error| {
-            annotate_errors(
-                vec![BackendError::new(
-                    "P11 Wasm validation",
-                    mir.span,
-                    format!("generated WebAssembly failed validation: {error}"),
-                )],
-                owner,
-            )
-        })?;
-    let warnings = lowered_cc.warnings;
-    let text = wasmprinter::print_bytes(&binary).map_err(|error| {
-        annotate_errors(
-            vec![BackendError::new(
-                "P11 WAT printing",
-                mir.span,
-                format!("generated WebAssembly could not be printed as WAT: {error}"),
-            )],
-            owner,
-        )
-    })?;
-    Ok(Stages {
-        core: optimized_core,
-        effect_context,
-        cc,
-        mir,
-        wasm,
-        artifact: Artifact {
-            wasm: binary,
-            wat: text,
-            warnings,
-        },
-    })
 }

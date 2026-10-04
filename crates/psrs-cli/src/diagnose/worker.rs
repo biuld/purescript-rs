@@ -1,4 +1,7 @@
-use super::{DiagnosticRecord, SourceInput, atomic_write, fingerprint_sources, first_line};
+use super::{
+    CaseTrace, DiagnosticRecord, SourceInput, atomic_write, empty_case_trace, fingerprint_sources,
+    first_line, from_report,
+};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -6,9 +9,15 @@ use std::time::{Duration, Instant};
 use std::{env, fs, thread};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct WorkerRequest {
-    path: String,
-    category_dir: Option<String>,
+pub(super) struct WorkerRequest {
+    pub(super) path: String,
+    pub(super) category_dir: Option<String>,
+    #[serde(default)]
+    pub(super) explicit_inputs: Vec<String>,
+    #[serde(default)]
+    pub(super) capture_dumps: bool,
+    #[serde(default)]
+    pub(super) trusted_stdlib_fingerprint: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,11 +34,12 @@ pub(super) struct WorkerResponse {
     pub(super) cc: Option<String>,
     pub(super) mir_stage: Option<String>,
     pub(super) mir: Option<String>,
+    pub(super) trace: Option<CaseTrace>,
 }
 
 #[derive(Debug)]
 pub(super) enum WorkerOutcome {
-    Completed(WorkerResponse),
+    Completed(Box<WorkerResponse>),
     TimedOut {
         elapsed_ms: u64,
     },
@@ -72,6 +82,7 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
                 cc: None,
                 mir_stage: None,
                 mir: None,
+                trace: None,
             };
             return atomic_write(
                 Path::new(response_path),
@@ -82,8 +93,18 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
     let loaded = if let Some(category) = request.category_dir.as_deref() {
         psrs_driver::load_program_case_sources(&entry_path, Path::new(category), &entry_text)
             .map(|case| case.own.into_iter().chain(case.loaded).collect::<Vec<_>>())
+    } else if request.explicit_inputs.is_empty() {
+        psrs_driver::load_program_files(std::slice::from_ref(&request.path))
     } else {
-        psrs_driver::load_program_files(&[request.path.clone()])
+        request
+            .explicit_inputs
+            .iter()
+            .map(|path| {
+                fs::read_to_string(path)
+                    .map(|text| (path.clone(), text))
+                    .map_err(|error| format!("{path}: {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
     };
     let (sources, input_set_complete, load_error) = match loaded {
         Ok(sources) => (sources, true, None),
@@ -97,9 +118,16 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
     if let Some(error) = load_error {
+        let input_fingerprint = fingerprint_sources(&inputs);
+        let trace = empty_case_trace(
+            &inputs,
+            input_set_complete,
+            &input_fingerprint,
+            request.capture_dumps,
+        );
         let response = WorkerResponse {
             passed: false,
-            input_fingerprint: fingerprint_sources(&inputs),
+            input_fingerprint,
             sources: inputs,
             input_set_complete,
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -119,6 +147,7 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
             cc: None,
             mir_stage: None,
             mir: None,
+            trace: Some(trace),
         };
         return atomic_write(
             Path::new(response_path),
@@ -130,7 +159,19 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
         .iter()
         .map(|source| (source.name.as_str(), source.text.as_str()))
         .collect::<Vec<_>>();
-    let report = psrs_driver::compile_program_sources_with_prelude_report(&source_refs);
+    let report = psrs_driver::compile_program_sources_with_prelude_diagnosis(
+        &source_refs,
+        request.capture_dumps,
+    );
+    let input_fingerprint = fingerprint_sources(&sources);
+    let trace = from_report(
+        &sources,
+        input_set_complete,
+        &input_fingerprint,
+        &request.trusted_stdlib_fingerprint,
+        request.capture_dumps,
+        &report,
+    )?;
     let diagnostics = report
         .diagnostics
         .iter()
@@ -157,7 +198,7 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
         .collect::<Vec<_>>();
     let response = WorkerResponse {
         passed: report.artifact.is_some(),
-        input_fingerprint: fingerprint_sources(&sources),
+        input_fingerprint,
         sources,
         input_set_complete,
         elapsed_ms: started.elapsed().as_millis() as u64,
@@ -168,6 +209,7 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
         cc: report.dumps.cc,
         mir_stage: report.dumps.mir_stage.map(str::to_owned),
         mir: report.dumps.mir,
+        trace: Some(trace),
     };
     atomic_write(
         Path::new(response_path),
@@ -175,56 +217,11 @@ pub fn worker(request_path: &str, response_path: &str) -> Result<(), String> {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn missing_entry_is_a_loading_error_without_fabricated_source() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after UNIX epoch")
-            .as_nanos();
-        let root = env::temp_dir().join(format!("psrs-diagnose-worker-{unique}"));
-        fs::create_dir_all(&root).expect("create worker test directory");
-        let missing = root.join("missing.purs");
-        let request_path = root.join("request.json");
-        let response_path = root.join("response.json");
-        let request = WorkerRequest {
-            path: missing.to_string_lossy().into_owned(),
-            category_dir: None,
-        };
-        fs::write(
-            &request_path,
-            serde_json::to_vec(&request).expect("serialize worker request"),
-        )
-        .expect("write worker request");
-
-        worker(
-            request_path.to_str().expect("request path is UTF-8"),
-            response_path.to_str().expect("response path is UTF-8"),
-        )
-        .expect("worker writes loading-error response");
-        let response: WorkerResponse =
-            serde_json::from_slice(&fs::read(&response_path).expect("read worker response"))
-                .expect("parse worker response");
-
-        assert!(!response.passed);
-        assert!(!response.input_set_complete);
-        assert!(response.sources.is_empty());
-        assert_eq!(response.diagnostics[0].stage, "input loading");
-        assert!(response.diagnostics[0].message.contains("missing.purs"));
-        let _ = fs::remove_dir_all(root);
-    }
-}
-
 pub(super) fn run_worker(
     work_root: &Path,
     index: usize,
-    path: &Path,
-    category_dir: Option<&Path>,
     timeout_seconds: u64,
+    request: WorkerRequest,
 ) -> Result<WorkerOutcome, String> {
     let worker_dir = work_root.join(format!("case-{index}"));
     let _ = fs::remove_dir_all(&worker_dir);
@@ -233,10 +230,6 @@ pub(super) fn run_worker(
     let request_path = worker_dir.join("request.json");
     let response_path = worker_dir.join("response.json");
     let stderr_path = worker_dir.join("stderr.log");
-    let request = WorkerRequest {
-        path: path.to_string_lossy().into_owned(),
-        category_dir: category_dir.map(|path| path.to_string_lossy().into_owned()),
-    };
     fs::write(
         &request_path,
         serde_json::to_vec(&request).map_err(|error| error.to_string())?,
@@ -274,7 +267,7 @@ pub(super) fn run_worker(
                     elapsed_ms: started.elapsed().as_millis() as u64,
                 });
             };
-            return Ok(WorkerOutcome::Completed(result));
+            return Ok(WorkerOutcome::Completed(Box::new(result)));
         }
         if started.elapsed() >= Duration::from_secs(timeout_seconds) {
             child
@@ -286,5 +279,52 @@ pub(super) fn run_worker(
             });
         }
         thread::sleep(Duration::from_millis(15));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn missing_entry_is_a_loading_error_without_fabricated_source() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after UNIX epoch")
+            .as_nanos();
+        let root = env::temp_dir().join(format!("psrs-diagnose-worker-{unique}"));
+        fs::create_dir_all(&root).expect("create worker test directory");
+        let missing = root.join("missing.purs");
+        let request_path = root.join("request.json");
+        let response_path = root.join("response.json");
+        let request = WorkerRequest {
+            path: missing.to_string_lossy().into_owned(),
+            category_dir: None,
+            explicit_inputs: Vec::new(),
+            capture_dumps: false,
+            trusted_stdlib_fingerprint: String::new(),
+        };
+        fs::write(
+            &request_path,
+            serde_json::to_vec(&request).expect("serialize worker request"),
+        )
+        .expect("write worker request");
+
+        worker(
+            request_path.to_str().expect("request path is UTF-8"),
+            response_path.to_str().expect("response path is UTF-8"),
+        )
+        .expect("worker writes loading-error response");
+        let response: WorkerResponse =
+            serde_json::from_slice(&fs::read(&response_path).expect("read worker response"))
+                .expect("parse worker response");
+
+        assert!(!response.passed);
+        assert!(!response.input_set_complete);
+        assert!(response.sources.is_empty());
+        assert_eq!(response.diagnostics[0].stage, "input loading");
+        assert!(response.diagnostics[0].message.contains("missing.purs"));
+        let _ = fs::remove_dir_all(root);
     }
 }

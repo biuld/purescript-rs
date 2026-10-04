@@ -94,7 +94,9 @@ pub(super) fn count(snapshot: &Snapshot, key: &str) -> usize {
 pub(super) fn compare(before_path: &str, after_path: &str) -> Result<(), String> {
     let before: Snapshot = read_json(before_path)?;
     let after: Snapshot = read_json(after_path)?;
-    if before.schema_version != SCHEMA_VERSION || after.schema_version != SCHEMA_VERSION {
+    if !matches!(before.schema_version, 1 | SCHEMA_VERSION)
+        || !matches!(after.schema_version, 1 | SCHEMA_VERSION)
+    {
         return Err("cannot compare unsupported diagnosis snapshot schema".into());
     }
     if before.cohort.mode != after.cohort.mode
@@ -148,11 +150,33 @@ pub(super) fn compare(before_path: &str, after_path: &str) -> Result<(), String>
                 input_comparison: input_comparison.into(),
                 before: left.and_then(case_label),
                 after: right.and_then(case_label),
+                trace_comparison: match (left, right) {
+                    (Some(a), Some(b))
+                        if before.schema_version == SCHEMA_VERSION
+                            && after.schema_version == SCHEMA_VERSION =>
+                    {
+                        Some(compare_traces(
+                            a.trace.as_ref(),
+                            b.trace.as_ref(),
+                            a.input_set_complete
+                                && b.input_set_complete
+                                && a.input_fingerprint == b.input_fingerprint,
+                        ))
+                    }
+                    _ => None,
+                },
             }
         })
         .collect::<Vec<_>>();
     let report = CompareReport {
         compatible_cohort: true,
+        observed_environment_compatibility: compare_observed_environment(
+            &before.environment,
+            &after.environment,
+            before.schema_version,
+            after.schema_version,
+        ),
+        build_toolchain_compatibility: "unavailable_not_embedded_in_compiler_binary".into(),
         before_compiler: before.compiler,
         after_compiler: after.compiler,
         changes,
@@ -162,6 +186,42 @@ pub(super) fn compare(before_path: &str, after_path: &str) -> Result<(), String>
         serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
     );
     Ok(())
+}
+
+fn compare_observed_environment(
+    before: &EnvironmentMetadata,
+    after: &EnvironmentMetadata,
+    before_schema: u32,
+    after_schema: u32,
+) -> String {
+    if before_schema < SCHEMA_VERSION || after_schema < SCHEMA_VERSION {
+        return "unavailable_legacy_snapshot".into();
+    }
+    let values = [
+        (&before.host_os, &after.host_os),
+        (&before.host_arch, &after.host_arch),
+        (
+            &before.rustc_observed_version,
+            &after.rustc_observed_version,
+        ),
+        (
+            &before.cargo_observed_version,
+            &after.cargo_observed_version,
+        ),
+    ];
+    if values
+        .iter()
+        .any(|(left, right)| left.is_some() && right.is_some() && left != right)
+    {
+        "observed_values_differ".into()
+    } else if values
+        .iter()
+        .all(|(left, right)| left.is_some() && right.is_some())
+    {
+        "same_observed_values".into()
+    } else {
+        "incomplete_observation".into()
+    }
 }
 
 pub(super) fn compare_status(before: &CaseRecord, after: &CaseRecord) -> &'static str {
@@ -224,6 +284,7 @@ mod tests {
                 message: message.into(),
             }),
             bundle: None,
+            trace: None,
         }
     }
 
@@ -260,6 +321,8 @@ mod tests {
                 working_tree_fingerprint: "tree".into(),
                 binary_fingerprint: "binary".into(),
             },
+            environment: EnvironmentMetadata::default(),
+            trace_mode: TraceMode::Manifest,
             cases: vec![
                 failed_case("A.purs", "expected Integer, got Number"),
                 failed_case("B.purs", "expected Integer, got Boolean"),

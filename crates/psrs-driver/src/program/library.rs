@@ -34,6 +34,25 @@ pub fn compile_program_sources_with_prelude_report(sources: &[(&str, &str)]) -> 
     report
 }
 
+/// Compiles for `psrs diagnose`, retaining a lightweight pass trace and
+/// optionally the IR snapshots used by trace-mode bundles.
+pub fn compile_program_sources_with_prelude_diagnosis(
+    sources: &[(&str, &str)],
+    capture_dumps: bool,
+) -> CompilationReport {
+    let (all_sources, trusted_prefix) = match with_prelude(sources) {
+        Ok(sources) => sources,
+        Err(errors) => return CompilationReport::failed(errors, Default::default()),
+    };
+    let mut report = super::compile_program_sources_with_trusted_prefix_diagnosis(
+        &all_sources,
+        trusted_prefix,
+        capture_dumps,
+    );
+    report.diagnostics = shift(report.diagnostics, trusted_prefix);
+    report
+}
+
 /// Resolves user sources leniently together with the on-disk standard library.
 ///
 /// A lenient check tolerates imports whose modules are not provided at all, so a

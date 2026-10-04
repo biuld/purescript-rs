@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -7,120 +6,16 @@ mod artifacts;
 use artifacts::*;
 mod report;
 use report::*;
+mod schema;
+use schema::*;
+mod trace;
+use trace::*;
 mod worker;
 pub(super) use worker::worker;
-use worker::{WorkerOutcome, WorkerResponse, run_worker};
+use worker::{WorkerOutcome, WorkerRequest, WorkerResponse, run_worker};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const DEFAULT_TIMEOUT: u64 = 20;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SourceInput {
-    name: String,
-    text: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct DiagnosticRecord {
-    origin: String,
-    source: Option<String>,
-    stage: String,
-    start: u32,
-    end: u32,
-    code: Option<String>,
-    kind: Option<String>,
-    message: String,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum CaseStatus {
-    Passed,
-    Failed,
-    Excluded,
-    TimedOut,
-    Crashed,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct FirstBlocker {
-    stage: String,
-    category: String,
-    message: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct CaseRecord {
-    path: String,
-    input_fingerprint: String,
-    input_set_complete: bool,
-    elapsed_ms: u64,
-    status: CaseStatus,
-    excluded_reason: Option<String>,
-    diagnostics: Vec<DiagnosticRecord>,
-    first_blocker: Option<FirstBlocker>,
-    bundle: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct GroupRecord {
-    stage: String,
-    category: String,
-    sample_messages: Vec<String>,
-    cases: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Cohort {
-    mode: String,
-    corpus: Option<String>,
-    filter: Option<String>,
-    limit: Option<usize>,
-    timeout_seconds: u64,
-    trusted_stdlib_fingerprint: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct CompilerRevision {
-    head: Option<String>,
-    dirty: bool,
-    working_tree_fingerprint: String,
-    binary_fingerprint: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct BundleContext {
-    compiler: CompilerRevision,
-    trusted_stdlib_fingerprint: String,
-    executable: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Snapshot {
-    schema_version: u32,
-    cohort: Cohort,
-    compiler: CompilerRevision,
-    cases: Vec<CaseRecord>,
-    groups: Vec<GroupRecord>,
-    counts: BTreeMap<String, usize>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct CompareRow {
-    path: String,
-    change: String,
-    input_comparison: String,
-    before: Option<String>,
-    after: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct CompareReport {
-    compatible_cohort: bool,
-    before_compiler: CompilerRevision,
-    after_compiler: CompilerRevision,
-    changes: Vec<CompareRow>,
-}
 
 pub(super) fn run(args: Vec<String>) -> Result<(), String> {
     if args.first().is_some_and(|arg| arg == "--compare") {
@@ -138,23 +33,16 @@ pub(super) fn run(args: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-struct Options {
-    file: Option<PathBuf>,
-    corpus: Option<String>,
-    filter: Option<String>,
-    limit: Option<usize>,
-    timeout_seconds: u64,
-    output: PathBuf,
-}
-
 impl Options {
     fn parse(args: Vec<String>) -> Result<Self, String> {
         let mut file = None;
+        let mut additional_inputs = Vec::new();
         let mut corpus = None;
         let mut filter = None;
         let mut limit = None;
         let mut timeout_seconds = DEFAULT_TIMEOUT;
         let mut output = PathBuf::from("diagnose.json");
+        let mut trace = false;
         let mut index = 0;
         while index < args.len() {
             match args[index].as_str() {
@@ -196,6 +84,14 @@ impl Options {
                     };
                     output = PathBuf::from(value);
                 }
+                "--input" => {
+                    index += 1;
+                    let Some(value) = args.get(index) else {
+                        return Err(usage());
+                    };
+                    additional_inputs.push(PathBuf::from(value));
+                }
+                "--trace" => trace = true,
                 value if value.starts_with('-') => return Err(usage()),
                 value => {
                     if file.replace(PathBuf::from(value)).is_some() {
@@ -207,16 +103,28 @@ impl Options {
         }
         if file.is_some() == corpus.is_some()
             || corpus.as_deref().is_some_and(|name| name != "passing")
+            || (corpus.is_some() && !additional_inputs.is_empty())
         {
             return Err(usage());
         }
+        if let Some(main) = file.as_ref() {
+            let mut seen = BTreeMap::new();
+            for input in std::iter::once(main).chain(additional_inputs.iter()) {
+                let identity = fs::canonicalize(input).unwrap_or_else(|_| input.clone());
+                if seen.insert(identity, ()).is_some() {
+                    return Err(format!("{}: duplicate diagnosis input", input.display()));
+                }
+            }
+        }
         Ok(Self {
             file,
+            additional_inputs,
             corpus,
             filter,
             limit,
             timeout_seconds,
             output,
+            trace,
         })
     }
 }
@@ -251,8 +159,10 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
             .collect()
     };
     if let Some(file) = &options.file {
-        if !file.is_file() {
-            return Err(format!("{}: file does not exist", file.display()));
+        for input in std::iter::once(file).chain(options.additional_inputs.iter()) {
+            if !input.is_file() {
+                return Err(format!("{}: file does not exist", input.display()));
+            }
         }
     }
 
@@ -299,6 +209,7 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                 diagnostics: Vec::new(),
                 first_blocker: None,
                 bundle: None,
+                trace: None,
             });
             eprintln!(
                 "[{}/{}] {}: excluded (FFI)",
@@ -310,13 +221,23 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
             continue;
         }
         let bundle = bundles.join(format!("{:04}-{}", worker_index, safe_name(&display_path)));
-        let result = run_worker(
-            &work_root,
-            worker_index,
-            &path,
-            category.as_deref(),
-            options.timeout_seconds,
-        )?;
+        let request = WorkerRequest {
+            path: path.to_string_lossy().into_owned(),
+            category_dir: category
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            explicit_inputs: if category.is_none() && !options.additional_inputs.is_empty() {
+                std::iter::once(&path)
+                    .chain(options.additional_inputs.iter())
+                    .map(|input| input.to_string_lossy().into_owned())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            capture_dumps: options.trace,
+            trusted_stdlib_fingerprint: bundle_context.trusted_stdlib_fingerprint.clone(),
+        };
+        let result = run_worker(&work_root, worker_index, options.timeout_seconds, request)?;
         let entry_source = vec![SourceInput {
             name: path.to_string_lossy().into_owned(),
             text,
@@ -329,15 +250,18 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
             elapsed_ms,
             blocker,
             bundle_path,
+            trace_record,
         ) = match result {
             WorkerOutcome::Completed(response) => {
+                let response = *response;
                 let status = if response.passed {
                     CaseStatus::Passed
                 } else {
                     CaseStatus::Failed
                 };
                 let blocker = response.diagnostics.first().map(first_blocker);
-                if !response.passed {
+                let should_bundle = !response.passed || options.trace;
+                if should_bundle {
                     write_bundle(
                         &bundle,
                         &response.sources,
@@ -345,6 +269,7 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                         &display_path,
                         response.input_set_complete,
                         &bundle_context,
+                        options.trace,
                     )?;
                 }
                 (
@@ -354,18 +279,22 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                     response.input_set_complete,
                     response.elapsed_ms,
                     blocker,
-                    (!response.passed).then(|| bundle.to_string_lossy().into_owned()),
+                    should_bundle.then(|| bundle.to_string_lossy().into_owned()),
+                    response.trace,
                 )
             }
             WorkerOutcome::TimedOut { elapsed_ms } => {
                 write_empty_bundle(
                     &bundle,
                     &entry_source,
-                    &display_path,
-                    "compiler worker timed out",
-                    "",
-                    false,
+                    EmptyBundleFailure {
+                        case: &display_path,
+                        reason: "compiler worker timed out",
+                        stderr: "",
+                        input_set_complete: false,
+                    },
                     &bundle_context,
+                    options.trace,
                 )?;
                 (
                     CaseStatus::TimedOut,
@@ -379,6 +308,12 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                         message: format!("exceeded {}s", options.timeout_seconds),
                     }),
                     Some(bundle.to_string_lossy().into_owned()),
+                    Some(empty_case_trace(
+                        &entry_source,
+                        false,
+                        &fingerprint_sources(&entry_source),
+                        options.trace,
+                    )),
                 )
             }
             WorkerOutcome::Crashed {
@@ -389,11 +324,14 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                 write_empty_bundle(
                     &bundle,
                     &entry_source,
-                    &display_path,
-                    &message,
-                    &stderr,
-                    false,
+                    EmptyBundleFailure {
+                        case: &display_path,
+                        reason: &message,
+                        stderr: &stderr,
+                        input_set_complete: false,
+                    },
                     &bundle_context,
+                    options.trace,
                 )?;
                 (
                     CaseStatus::Crashed,
@@ -407,6 +345,12 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
                         message,
                     }),
                     Some(bundle.to_string_lossy().into_owned()),
+                    Some(empty_case_trace(
+                        &entry_source,
+                        false,
+                        &fingerprint_sources(&entry_source),
+                        options.trace,
+                    )),
                 )
             }
         };
@@ -428,6 +372,7 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
             diagnostics,
             first_blocker: blocker,
             bundle: bundle_path,
+            trace: trace_record,
         });
         worker_index += 1;
     }
@@ -444,6 +389,12 @@ fn diagnose(options: Options) -> Result<Snapshot, String> {
         schema_version: SCHEMA_VERSION,
         cohort,
         compiler: bundle_context.compiler,
+        environment: observed_environment(),
+        trace_mode: if options.trace {
+            TraceMode::Dumps
+        } else {
+            TraceMode::Manifest
+        },
         cases: records,
         groups: Vec::new(),
         counts: BTreeMap::new(),

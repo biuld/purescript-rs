@@ -1,4 +1,6 @@
-use super::{BundleContext, CompilerRevision, Snapshot, SourceInput, WorkerResponse};
+use super::{
+    BundleContext, CompilerRevision, Snapshot, SourceInput, WorkerResponse, empty_case_trace,
+};
 use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +13,7 @@ pub(super) fn write_bundle(
     case: &str,
     input_set_complete: bool,
     context: &BundleContext,
+    capture_trace: bool,
 ) -> Result<(), String> {
     let _ = fs::remove_dir_all(bundle);
     fs::create_dir_all(bundle.join("inputs"))
@@ -23,7 +26,7 @@ pub(super) fn write_bundle(
         paths.push(file);
     }
     write_dumps(bundle, response)?;
-    let command = replay_command(&paths, &context.executable);
+    let command = replay_script(&paths, &context.executable, capture_trace);
     fs::write(
         bundle.join("replay.sh"),
         format!("#!/bin/sh\nset -eu\ncd \"$(dirname \"$0\")\"\n{command}\n"),
@@ -37,6 +40,14 @@ pub(super) fn write_bundle(
             .chain(paths.iter().cloned())
             .chain(["-o".into(), "output.wasm".into()])
             .collect::<Vec<_>>(),
+        "trace_replay_argv": if capture_trace {
+            trace_replay_argv(&paths)
+        } else {
+            None
+        },
+        "trace_mode": if capture_trace { "dumps" } else { "manifest" },
+        "trace_capture_status": if response.trace.is_some() { "recorded" } else { "unavailable" },
+        "trace": &response.trace,
         "diagnostics": &response.diagnostics,
         "input_fingerprint": &response.input_fingerprint,
         "compiler": &context.compiler,
@@ -53,17 +64,15 @@ pub(super) fn write_bundle(
 pub(super) fn write_empty_bundle(
     bundle: &Path,
     sources: &[SourceInput],
-    case: &str,
-    reason: &str,
-    stderr: &str,
-    input_set_complete: bool,
+    failure: EmptyBundleFailure<'_>,
     context: &BundleContext,
+    capture_trace: bool,
 ) -> Result<(), String> {
     let empty = WorkerResponse {
         passed: false,
         input_fingerprint: fingerprint_sources(sources),
         sources: sources.to_vec(),
-        input_set_complete,
+        input_set_complete: failure.input_set_complete,
         elapsed_ms: 0,
         diagnostics: Vec::new(),
         core_stage: None,
@@ -72,13 +81,36 @@ pub(super) fn write_empty_bundle(
         cc: None,
         mir_stage: None,
         mir: None,
+        trace: Some(empty_case_trace(
+            sources,
+            failure.input_set_complete,
+            &fingerprint_sources(sources),
+            capture_trace,
+        )),
     };
-    write_bundle(bundle, sources, &empty, case, input_set_complete, context)?;
-    fs::write(bundle.join("worker-failure.txt"), reason).map_err(|error| error.to_string())?;
-    if !stderr.is_empty() {
-        fs::write(bundle.join("worker-stderr.log"), stderr).map_err(|error| error.to_string())?;
+    write_bundle(
+        bundle,
+        sources,
+        &empty,
+        failure.case,
+        failure.input_set_complete,
+        context,
+        capture_trace,
+    )?;
+    fs::write(bundle.join("worker-failure.txt"), failure.reason)
+        .map_err(|error| error.to_string())?;
+    if !failure.stderr.is_empty() {
+        fs::write(bundle.join("worker-stderr.log"), failure.stderr)
+            .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+pub(super) struct EmptyBundleFailure<'a> {
+    pub(super) case: &'a str,
+    pub(super) reason: &'a str,
+    pub(super) stderr: &'a str,
+    pub(super) input_set_complete: bool,
 }
 
 fn write_dumps(bundle: &Path, response: &WorkerResponse) -> Result<(), String> {
@@ -100,17 +132,45 @@ fn write_dumps(bundle: &Path, response: &WorkerResponse) -> Result<(), String> {
     Ok(())
 }
 
-fn replay_command(paths: &[String], executable: &str) -> String {
+fn replay_script(paths: &[String], executable: &str, capture_trace: bool) -> String {
     let args = paths
         .iter()
         .map(|path| shell_quote(path))
         .collect::<Vec<_>>()
         .join(" ");
-    let args = format!("build {args} -o output.wasm");
+    let build = format!("\"$PSRS_BIN\" build {args} -o output.wasm");
+    let trace = if capture_trace {
+        trace_replay_argv(paths).map_or_else(
+            || "echo 'trace recapture unavailable: bundle contains no source inputs' >&2\n".into(),
+            |argv| {
+                let diagnose = argv
+                    .iter()
+                    .map(|arg| shell_quote(arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    "if ! \"$PSRS_BIN\" {diagnose}; then\n  echo 'trace recapture failed; continuing with build replay' >&2\nfi\n"
+                )
+            },
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "if [ -z \"${{PSRS_BIN:-}}\" ]; then PSRS_BIN={}; fi\n\"$PSRS_BIN\" {args}",
+        "if [ -z \"${{PSRS_BIN:-}}\" ]; then PSRS_BIN={}; fi\n{trace}{build}",
         shell_quote(executable)
     )
+}
+
+fn trace_replay_argv(paths: &[String]) -> Option<Vec<String>> {
+    let first = paths.first()?;
+    let mut args = vec!["diagnose".to_owned(), first.clone()];
+    for path in paths.iter().skip(1) {
+        args.push("--input".into());
+        args.push(path.clone());
+    }
+    args.extend(["--trace".into(), "--out".into(), "replay-trace.json".into()]);
+    Some(args)
 }
 
 pub(super) fn trusted_stdlib_fingerprint() -> Result<String, String> {
@@ -297,5 +357,5 @@ pub(super) fn first_line(text: &str) -> &str {
 }
 
 pub(super) fn usage() -> String {
-    "usage: psrs diagnose <file.purs> [--out report.json] [--timeout SECONDS]\n       psrs diagnose --corpus passing [--filter TEXT] [--limit N] [--out report.json] [--timeout SECONDS]\n       psrs diagnose --compare OLD.json NEW.json".into()
+    "usage: psrs diagnose <file.purs> [--input FILE]... [--trace] [--out report.json] [--timeout SECONDS]\n       psrs diagnose --corpus passing [--filter TEXT] [--limit N] [--trace] [--out report.json] [--timeout SECONDS]\n       psrs diagnose --compare OLD.json NEW.json".into()
 }

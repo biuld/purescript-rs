@@ -9,6 +9,7 @@ mod coercion;
 mod data_function;
 mod data_tuple;
 mod deriving;
+mod diagnosis_trace;
 mod effect_arity;
 mod effects;
 mod foldable;

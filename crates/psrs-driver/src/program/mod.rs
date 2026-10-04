@@ -8,7 +8,9 @@ use super::{
 
 pub use compilation::compile_program_sources;
 pub(super) use compilation::{
-    compile_program_sources_with_trusted_prefix, compile_program_sources_with_trusted_prefix_report,
+    compile_program_sources_with_trusted_prefix,
+    compile_program_sources_with_trusted_prefix_diagnosis,
+    compile_program_sources_with_trusted_prefix_report,
 };
 pub use lenient::{
     check_program_kinds_lenient, check_program_lenient, check_program_types_lenient,
@@ -16,7 +18,7 @@ pub use lenient::{
 pub use library::{
     check_program_kinds_lenient_with_prelude, check_program_lenient_with_prelude,
     check_program_types_lenient_with_prelude, compile_program_sources_with_prelude,
-    compile_program_sources_with_prelude_report,
+    compile_program_sources_with_prelude_diagnosis, compile_program_sources_with_prelude_report,
 };
 use std::collections::{HashMap, HashSet};
 
