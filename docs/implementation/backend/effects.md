@@ -5,8 +5,10 @@
 **Design:** [Effects](../../design/backend/fp/effects.md)
 
 **Progress:** EF-01 through EF-13 are Verified on the explicit trusted-identity
-contract. The 2026-10-04 runtime scoreboard is 124/413 (Wasmtime 49.0.2, `purs`
-0.15.16). Those 124 files are the previous non-`Int` entries; each exits 0.
+contract. The effect-entry measurement on 2026-10-04 was 124/413 (Wasmtime
+49.0.2, `purs` 0.15.16). Those 124 files are the previous non-`Int` entries;
+each exits 0. A later `Data.Functor` measurement on the same day moved the
+board to 125/413; the added file is `passing/3549.purs`.
 The 63 files with no selected `main` stay blocked. BE-21 stays Partial. A type
 table changed after `lower_effects` returns is not checked again. Historical
 records below describe the earlier encoding and are not the current evidence.
