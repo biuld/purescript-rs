@@ -2,7 +2,7 @@ use super::VariantCase;
 use super::{ReprId, Representation, RepresentationTable, Signature, SignatureId, ValueShape};
 use crate::BackendError;
 use psrs_core::{Module as CoreModule, Type, TypeConstructor, TypeId};
-use psrs_hir::{SymbolId, TypeId as HirTypeId};
+use psrs_hir::{SymbolId, TypeId as HirTypeId, TypeVariableId};
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
@@ -408,24 +408,44 @@ pub(super) fn array_element_type(module: &CoreModule, id: TypeId) -> Option<Type
 }
 
 pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool {
-    fn visit(module: &CoreModule, id: TypeId, visiting: &mut HashSet<TypeId>) -> bool {
+    fn visit(
+        module: &CoreModule,
+        id: TypeId,
+        bound: &mut HashMap<TypeVariableId, usize>,
+        visiting: &mut HashSet<TypeId>,
+    ) -> bool {
         if !visiting.insert(id) {
             return false;
         }
         let result = match module.types.get(id.0 as usize) {
-            Some(Type::Variable(_)) => true,
+            Some(Type::Variable(variable)) => !bound.contains_key(variable),
             Some(Type::Application(function, argument)) => {
-                visit(module, *function, visiting) || visit(module, *argument, visiting)
+                visit(module, *function, bound, visiting)
+                    || visit(module, *argument, bound, visiting)
             }
-            Some(Type::ForAll { body, .. }) => visit(module, *body, visiting),
+            Some(Type::ForAll { variables, body }) => {
+                for variable in variables {
+                    *bound.entry(*variable).or_default() += 1;
+                }
+                let dependent = visit(module, *body, bound, visiting);
+                for variable in variables {
+                    if let Some(count) = bound.get_mut(variable) {
+                        *count -= 1;
+                        if *count == 0 {
+                            bound.remove(variable);
+                        }
+                    }
+                }
+                dependent
+            }
             Some(Type::RowExtend { ty, tail, .. }) => {
-                visit(module, *ty, visiting) || visit(module, *tail, visiting)
+                visit(module, *ty, bound, visiting) || visit(module, *tail, bound, visiting)
             }
             Some(Type::Closure { parameters, result }) => {
                 parameters
                     .iter()
-                    .any(|parameter| visit(module, *parameter, visiting))
-                    || visit(module, *result, visiting)
+                    .any(|parameter| visit(module, *parameter, bound, visiting))
+                    || visit(module, *result, bound, visiting)
             }
             Some(Type::RowEmpty) => false,
             _ => false,
@@ -434,5 +454,5 @@ pub(super) fn depends_on_type_variable(module: &CoreModule, id: TypeId) -> bool 
         result
     }
 
-    visit(module, id, &mut HashSet::new())
+    visit(module, id, &mut HashMap::new(), &mut HashSet::new())
 }

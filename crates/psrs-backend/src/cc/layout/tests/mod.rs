@@ -123,6 +123,68 @@ fn quantifier_erasure_terminates_on_a_malformed_cycle() {
 }
 
 #[test]
+fn bound_rank_n_record_fields_do_not_make_dictionary_layout_dependent() {
+    fn push_closed_record(types: &mut Vec<Type>, field_type: TypeId) -> TypeId {
+        let empty = TypeId(types.len() as u32);
+        types.push(Type::RowEmpty);
+        let row = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: "method".into(),
+            ty: field_type,
+            tail: empty,
+        });
+        let record_constructor = TypeId(types.len() as u32);
+        types.push(Type::Constructor(TypeConstructor::Record));
+        let record = TypeId(types.len() as u32);
+        types.push(Type::Application(record_constructor, row));
+        record
+    }
+
+    let variable = TypeVariableId(0);
+    let mut types = vec![
+        Type::Variable(variable),
+        Type::Constructor(TypeConstructor::Int),
+    ];
+    let identity = push_arrow(&mut types, TypeId(0), TypeId(0));
+    let polymorphic_identity = TypeId(types.len() as u32);
+    types.push(Type::ForAll {
+        variables: vec![variable],
+        body: identity,
+    });
+    let dictionary = push_closed_record(&mut types, polymorphic_identity);
+    let genuinely_dependent = push_closed_record(&mut types, TypeId(0));
+    let module = empty_module(types);
+
+    fn parameter_shape(module: &Module, ty: TypeId, representation: ReprId) -> ValueShape {
+        let record_types = HashMap::from([(ty, representation)]);
+        super::scalar::function_parameter_shape(
+            module,
+            ty,
+            module.span,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &record_types,
+            &HashMap::new(),
+        )
+        .expect("a closed record parameter has a canonical product shape")
+    }
+
+    assert!(!depends_on_type_variable(&module, dictionary));
+    assert!(depends_on_type_variable(&module, genuinely_dependent));
+    for (ty, representation) in [(dictionary, ReprId(7)), (genuinely_dependent, ReprId(8))] {
+        assert_eq!(
+            parameter_shape(&module, ty, representation),
+            ValueShape::Reference(Reference {
+                nullable: false,
+                heap: RefShape::Repr(representation),
+            })
+        );
+    }
+}
+
+#[test]
 fn equal_normalized_function_signatures_share_one_signature_id() {
     let array = TypeId(0);
     let int = TypeId(1);
