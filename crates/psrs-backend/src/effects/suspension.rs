@@ -247,7 +247,7 @@ pub(super) fn verify(
                 "effect import wrapper declaration is missing",
             )]);
         };
-        if wrapper.ty != plan.source
+        if wrapper.ty != plan.source_body
             || wrapper.quantified != plan.quantified
             || !wrapper_matches(module, wrapper, plan, applied.host)
         {
@@ -359,7 +359,7 @@ fn build_wrapper(
         name: plan.name.clone(),
         name_span: plan.span,
         quantified: plan.quantified.clone(),
-        ty: plan.source,
+        ty: plan.source_body,
         value,
         span: plan.span,
     })

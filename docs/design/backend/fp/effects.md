@@ -205,9 +205,13 @@ abstract, and produces CC closures with explicit parameter lists.
   external scheme. `Effect` remains abstract until this lowering.
   The plan records the checked source scheme, source parameters, and effect
   payload. When applying it, lowering derives the host function type from those
-  parameters and the payload. The wrapper performs the host call when the
-  returned effect closure is
-  run; an unrelated import returning an ordinary closure is left unchanged.
+  parameters and the payload. The generated wrapper keeps the scheme's binders
+  on `Declaration.quantified` and the monotype, after `Effect` has been rewritten
+  to a closure, on `Declaration.ty`. Core enters those binders before checking
+  `ty`, so the declaration type must not repeat the leading `ForAll`. The
+  quantified host scheme stays on the checked external type. The wrapper
+  performs the host call when the returned effect closure is run; an unrelated
+  import returning an ordinary closure is left unchanged.
   In a strict language, the host operation itself must not happen when the
   effect value is built. `pure foreignCall` would evaluate that call too early,
   so the import wrapper provides the suspension.

@@ -203,6 +203,7 @@ pub fn compile_with_context(
                     .into_iter()
                     .map(|error| {
                         BackendError::new("P7 Core optimization", error.span, error.message)
+                            .with_module(error.module)
                     })
                     .collect(),
                 owner,

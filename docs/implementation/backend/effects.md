@@ -52,8 +52,11 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 
 Wasmtime 49.0.2. `purs` 0.15.16. `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`
 passed, as did `cargo clippy --workspace --all-targets -- -D warnings`. The
-annotations scoreboard measured L6/M7 at 124/413. Scoreboard completion is not
-a golden comparison: a numeric exit with no trap marker counts as completion.
+annotations scoreboard measured L6/M7 at 124/413. The same command, after
+the rank-1 wrapper fix below, measured 124/413 again with the same blocker
+split, and all 124 files still exited 0. L1–L5 stayed unchanged. Scoreboard
+completion is not a golden comparison: a numeric exit with no trap marker
+counts as completion.
 The focused tests below assert stdout, status, or a trap marker.
 
 ```text
@@ -67,10 +70,13 @@ EF-01:
 EF-02:
   Tests: tests::effects::constructing_an_effect_does_not_execute_it,
     effect_import_alias_is_expanded_before_suspension_planning,
+    a_quantified_effect_import_lowers_to_a_monotype_wrapper,
     effect_suspension_conformance_errors_keep_the_imports_source_origin,
     class_constrained_wit_imports_are_rejected_with_a_source_diagnostic.
   Result: pass. A planned import is suspended from its checked scheme.
-    A class-constrained WIT signature is rejected rather than dropped.
+    A rank-1 scheme keeps its binders on the wrapper declaration and stores
+    the closure monotype in `ty`. A class-constrained WIT signature is
+    rejected rather than dropped.
   Gaps: none for this obligation.
 EF-05:
   Tests: tests::effects::run_effect_is_only_available_from_the_selected_entry,
@@ -93,8 +99,11 @@ EF-11:
     the_backend_rejects_operation_identity_and_checked_signature_mismatches,
     the_backend_rejects_an_effect_entry_context_for_an_integer_source_entry,
     effect_command_metadata_must_name_the_selected_source_entry,
-    an_effect_source_entry_requires_command_metadata.
+    an_effect_source_entry_requires_command_metadata,
+    checked_import_verification_keeps_the_foreign_source_module.
   Result: pass. These failures are returned by lowering before encoding.
+    Optimization and effect lowering both keep the module recorded on a Core
+    verification error.
   Gaps: a type table rewritten after lower_effects returns is not checked
     again. The Core negatives that mutate the table after a successful pass
     still fail in EffectLowering::verify, not in the backend mapping.

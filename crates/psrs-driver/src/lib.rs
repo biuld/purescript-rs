@@ -191,9 +191,18 @@ pub(crate) struct PreparedSource {
 
 #[cfg(test)]
 pub(crate) fn prepare_main(source: &str) -> Result<PreparedSource, Vec<Diagnostic>> {
-    lower_source_with_prelude_to_core("Main.purs", source).map(|lowered| PreparedSource {
-        core: lowered.core,
-        effect_context: lowered.effect_context,
+    prepare_sources(&[("Main.purs", source)])
+}
+
+#[cfg(test)]
+pub(crate) fn prepare_sources(sources: &[(&str, &str)]) -> Result<PreparedSource, Vec<Diagnostic>> {
+    let (sources, trusted_prefix) = prepend_stdlib(sources)?;
+    let (core, _warnings, effect_context) =
+        program::lower_program_to_core_and_effect_context(&sources, trusted_prefix)
+            .map_err(program_diagnostics_from_hidden_prelude)?;
+    Ok(PreparedSource {
+        core,
+        effect_context,
     })
 }
 

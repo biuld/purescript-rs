@@ -18,7 +18,7 @@ pub(crate) fn lower_effects(
     validate_entry_context(module, context)?;
     let suspensions = suspension::plan(module, bindings, &context.trusted)?;
     let lowering = psrs_core::effect::lower_effects(module, &context.trusted)
-        .map_err(|errors| verify::verification_errors(module, &errors))?;
+        .map_err(|errors| verify::verification_errors(&errors))?;
 
     let applied = suspension::apply(module, bindings, &suspensions)?;
     if let Some(entry) = context.command_entry {
@@ -27,9 +27,9 @@ pub(crate) fn lower_effects(
 
     lowering
         .verify(module)
-        .map_err(|errors| verify::verification_errors(module, &errors))?;
+        .map_err(|errors| verify::verification_errors(&errors))?;
     if let Err(errors) = module.verify() {
-        return Err(verify::verification_errors(module, &errors));
+        return Err(verify::verification_errors(&errors));
     }
     suspension::verify(module, bindings, &suspensions, &applied)?;
     let synthesized = lowering.synthesized.to_vec();
