@@ -53,10 +53,10 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 Wasmtime 49.0.2. `purs` 0.15.16. `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`
 passed, as did `cargo clippy --workspace --all-targets -- -D warnings`. The
 annotations scoreboard measured L6/M7 at 124/413. The same command, after
-the rank-1 wrapper fix below, measured 124/413 again with the same blocker
-split, and all 124 files still exited 0. L1–L5 stayed unchanged. Scoreboard
-completion is not a golden comparison: a numeric exit with no trap marker
-counts as completion.
+the wrapper kept its binders on `quantified` and the closure monotype in `ty`,
+measured 124/413 again with the same blocker split, and all 124 files still
+exited 0. L1–L5 stayed unchanged. Scoreboard completion is not a golden
+comparison: a numeric exit with no trap marker counts as completion.
 The focused tests below assert stdout, status, or a trap marker.
 
 ```text
@@ -74,9 +74,10 @@ EF-02:
     effect_suspension_conformance_errors_keep_the_imports_source_origin,
     class_constrained_wit_imports_are_rejected_with_a_source_diagnostic.
   Result: pass. A planned import is suspended from its checked scheme.
-    A rank-1 scheme keeps its binders on the wrapper declaration and stores
-    the closure monotype in `ty`. A class-constrained WIT signature is
-    rejected rather than dropped.
+    The wrapper declaration keeps the scheme's binders on `quantified` and
+    the closure monotype in `ty`, for a quantified import as well as a
+    monomorphic one. A class-constrained WIT signature is rejected rather
+    than dropped.
   Gaps: none for this obligation.
 EF-05:
   Tests: tests::effects::run_effect_is_only_available_from_the_selected_entry,
