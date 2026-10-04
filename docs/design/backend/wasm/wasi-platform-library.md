@@ -127,6 +127,8 @@ wrapper owns the corpus-facing name.
 | `Prelude` | `Effect`, `pure`, `bind`, `discard`, `map`, `apply`, `runEffect`, `trap`, and the re-exported `class Semigroup`, `append`, `<>`, `const`, `flip`, `$`, `#` | the `psrs:effect` interface the compiler synthesizes bodies for, and `Data.Function` / `Data.Semigroup` | FE-02, FE-05, FE-09, FE-14, BE-02, BE-21 |
 | `Data.Function` | `apply`, `applyFlipped`, `const`, `flip`, `on`, `$`, `#` | nothing: it is the definition site, and `$`/`#` are its fixity aliases | FE-05 |
 | `Data.Semigroup` | `class Semigroup`, `append`, `<>` | nothing: it is the definition site for the class, and `append` for `String` is built from the compiler's `stringToBytes` / `arrayAppend` / `bytesToString`; `append` for `Array a` is `arrayAppend` | FE-14, BE-10 |
+| `Data.Monoid` | `class Monoid`, `mempty` | `Data.Semigroup`; `String`, `Unit`, and `Array a` identities | FE-14 |
+| `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14, FE-16 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
 | `Effect.Console` | `log`, `warn`, `error` | `WASI.Console` | BE-21 |
@@ -223,12 +225,9 @@ constant, which exists to give the entry its declared `i32` result
 The platform library is source code under `stdlib/lib`, read from disk and
 resolved, type-checked, and linked like any module. `stdlib/lib/trusted` fixes
 the trusted prefix order (`Prelude`, `Data.Function`, `Data.Semigroup`,
-`Data.Eq`, `Data.Ord`, `Data.Semiring`, `Effect`, `Effect.Console`,
-`Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `WASI.Resource`,
-`WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`,
-`WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
+`Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, `WASI`). `Data.Function`
 declares the application operators and their fixities; `Data.Semigroup`
-declares the `Semigroup` class, its method, and the `<>` alias; `Prelude`
+declares the `Semigroup` class, its method, and the `<>` alias; `Data.Monoid` declares `Monoid` and `mempty` for `String`, `Unit`, and `Array a`; `Data.Foldable` declares `Foldable` with `foldr`, `foldl`, and `foldMap` for `Array`, `Maybe`, and `Either a`; `Prelude`
 re-exports `$`, `#`, `const`, `flip`, and `Data.Semigroup`'s
 `class Semigroup`, `append`, and `<>`, which is the official `Prelude`'s own
 re-export list. `Data.Maybe` and `Data.Either` are ordinary library
@@ -441,10 +440,7 @@ with execution tests. `WASI.Network` wraps the socket services and lowers; it
 has no execution test, and HTTP/TLS are not implemented, so their capability
 flags stay disabled in the default profile. The standard library is read from
 `stdlib/lib` at runtime (`stdlib/lib/trusted` lists `Prelude`, `Data.Function`,
-`Data.Semigroup`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Effect`,
-`Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`,
-`WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`,
-`WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
+`Data.Semigroup`, `Data.Monoid`, `Data.Eq`, `Data.Ord`, `Data.Semiring`, `Data.Show`, `Effect`, `Effect.Console`, `Test.Assert`, `Data.Maybe`, `Data.Either`, `Data.Tuple`, `Data.Foldable`, `WASI.Resource`, `WASI.IO`, `WASI.Clock`, `WASI.Random`, `WASI.Console`, `WASI.Process`, `WASI.FileSystem`, `WASI.Network`, and `WASI` in
 trusted-prefix order). The driver discovers user modules from the entry files'
 directories (`psrs_driver::load_program_files`): it indexes sibling `.purs`
 files by module name and follows the `import` graph, never searching names the

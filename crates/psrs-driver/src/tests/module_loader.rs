@@ -103,15 +103,18 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "Prelude",
             "Data.Function",
             "Data.Semigroup",
+            "Data.Monoid",
             "Data.Eq",
             "Data.Ord",
             "Data.Semiring",
+            "Data.Show",
             "Effect",
             "Effect.Console",
             "Test.Assert",
             "Data.Maybe",
             "Data.Either",
             "Data.Tuple",
+            "Data.Foldable",
             "WASI.Resource",
             "WASI.IO",
             "WASI.Clock",
@@ -129,15 +132,18 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             path.ends_with("lib/Prelude.purs")
                 || path.ends_with("lib/Data/Function.purs")
                 || path.ends_with("lib/Data/Semigroup.purs")
+                || path.ends_with("lib/Data/Monoid.purs")
                 || path.ends_with("lib/Data/Eq.purs")
                 || path.ends_with("lib/Data/Ord.purs")
                 || path.ends_with("lib/Data/Semiring.purs")
+                || path.ends_with("lib/Data/Show.purs")
                 || path.ends_with("lib/Effect.purs")
                 || path.ends_with("lib/Effect/Console.purs")
                 || path.ends_with("lib/Test/Assert.purs")
                 || path.ends_with("lib/Data/Maybe.purs")
                 || path.ends_with("lib/Data/Either.purs")
                 || path.ends_with("lib/Data/Tuple.purs")
+                || path.ends_with("lib/Data/Foldable.purs")
                 || path.ends_with("lib/WASI/Resource.purs")
                 || path.ends_with("lib/WASI/IO.purs")
                 || path.ends_with("lib/WASI/Clock.purs")

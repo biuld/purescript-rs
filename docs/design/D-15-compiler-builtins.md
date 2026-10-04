@@ -391,6 +391,13 @@ The remaining surface operators `-`, `/`, and `%` are still bound to the `Int`
 intrinsics directly. `Data.Ring` and the Euclidean division class are the
 follow-up.
 
+`Show` is a library class in `Data.Show`, re-exported from `Prelude`, over the
+same primitives. It does not add an intrinsic: integer, character, and string
+rendering are written in the source language, and `Number` rendering is too.
+That `Number` spelling is not a correctly rounded ECMAScript conversion. A pure
+numeric formatter with canonical inputs and outputs is the open capability
+question above, not a new `Intrinsic`.
+
 ## References
 
 - [D-01 — Frontend and IR Boundaries](D-01-frontend-and-ir-boundaries.md).
