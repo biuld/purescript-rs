@@ -131,7 +131,7 @@ wrapper owns the corpus-facing name.
 | `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14, FE-16 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
-| `Effect.Console` | `log`, `warn`, `error` | `WASI.Console` | BE-21 |
+| `Effect.Console` | `log`, `warn`, `error`, `logShow` | `WASI.Console`, and the library `Data.Show.show` for `logShow` | BE-21 |
 | `Test.Assert` | `assert`, `assert'`, `assertTrue`, `assertFalse` | `Effect.Console.error` and `Prelude.trap` | BE-21, BE-27 |
 
 ### Capability matrix

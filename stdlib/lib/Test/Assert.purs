@@ -11,9 +11,20 @@
 -- | **Deliberately absent**, with the reason recorded rather than approximated:
 -- |
 -- | - `assertEqual` and `assertEqual'` compare with `Eq` and print with `Show`.
--- |   Both classes are declared (`Data.Eq`, `Data.Show`); the functions stay
--- |   with #95, which owns the rest of this module. Providing them here would
--- |   take that slice's exports. `assertThrows` is a separate gap, below.
+-- |   Both classes are declared (`Data.Eq`, `Data.Show`), so the surface itself
+-- |   is writable — the official signature is what this compiler cannot yet
+-- |   elaborate. The corpus calls the record form
+-- |   (`assertEqual' "label" { expected: e, actual: a }`), whose official type is
+-- |   `forall a. Eq a => Show a => String -> { actual :: a, expected :: a } ->
+-- |   Effect Unit`. A constraint whose quantified variable appears inside a
+-- |   record type is elaborated with the *record* as the constraint's argument,
+-- |   so `Eq a` is wanted for `{ actual :: a, expected :: a }` and the
+-- |   declaration is rejected with `NoInstanceFound`. The same signature with a
+-- |   type synonym for the record fails identically, so it is constraint
+-- |   elaboration rather than the record syntax. Approximating the signature
+-- |   would change the official API the corpus calls, so the functions stay out
+-- |   until that is fixed. #137 carries the minimal reproduction and the probes
+-- |   that separate this defect from record syntax.
 -- | - `assertThrows` and `assertThrows'` need to observe that evaluating an
 -- |   argument failed. A trap is not observable from inside the guest without
 -- |   the Wasm exceptions proposal, which is outside the target profile
