@@ -453,6 +453,7 @@ fn module(types: Vec<Type>, declaration: Declaration, entry: SymbolId) -> Module
         id: entry.module,
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

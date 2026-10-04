@@ -1,5 +1,5 @@
 use crate::{Module, Type, TypeId, VerifyError};
-use psrs_hir::LocalId;
+use psrs_hir::{ExternalKind, LocalId};
 use std::collections::HashMap;
 
 mod expr;
@@ -36,14 +36,64 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
                 }),
             )
         })
-        .chain(
-            module
-                .externals
+        .chain(module.externals.iter().map(|external| {
+            let signature = module
+                .external_types
                 .iter()
-                .map(|external| (external.symbol, None)),
-        )
+                .find(|checked| checked.symbol == external.symbol)
+                .and_then(|checked| external_scheme(module, checked.ty));
+            (external.symbol, signature)
+        }))
         .collect::<HashMap<_, _>>();
     let mut errors = Vec::new();
+    let mut external_type_symbols = std::collections::HashSet::new();
+    for external_type in &module.external_types {
+        let span = module
+            .externals
+            .iter()
+            .find(|external| external.symbol == external_type.symbol)
+            .and_then(|external| external.signature.as_ref())
+            .map_or(module.span, |signature| signature.span);
+        if !external_type_symbols.insert(external_type.symbol) {
+            errors.push(error(
+                external_type.source_module,
+                span,
+                "a foreign symbol has more than one checked signature",
+            ));
+        }
+        if !module
+            .externals
+            .iter()
+            .any(|external| external.symbol == external_type.symbol)
+        {
+            errors.push(error(
+                external_type.source_module,
+                span,
+                "a checked foreign signature has no external declaration",
+            ));
+        }
+        verify_type(
+            external_type.ty,
+            module,
+            external_type.source_module,
+            span,
+            &mut errors,
+        );
+    }
+    for external in &module.externals {
+        if matches!(&external.kind, ExternalKind::Wit { .. })
+            && !external_type_symbols.contains(&external.symbol)
+        {
+            errors.push(error(
+                external.symbol.module,
+                external
+                    .signature
+                    .as_ref()
+                    .map_or(module.span, |ty| ty.span),
+                "a foreign declaration has no checked signature",
+            ));
+        }
+    }
     for (index, ty) in module.types.iter().enumerate() {
         let id = TypeId(index as u32);
         match ty {
@@ -106,4 +156,21 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
     } else {
         Err(errors)
     }
+}
+
+fn external_scheme(module: &Module, ty: TypeId) -> Option<SchemeType> {
+    let mut current = ty;
+    let mut quantified = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    while seen.insert(current) {
+        let Some((variables, body)) = crate::forall_parts(&module.types, current) else {
+            return Some(SchemeType {
+                ty: current,
+                quantified,
+            });
+        };
+        quantified.extend_from_slice(variables);
+        current = body;
+    }
+    None
 }

@@ -14,6 +14,7 @@ fn module_with(
         id: ModuleId(id),
         name: format!("M{id}"),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -154,5 +155,84 @@ fn link_reserves_ids_for_forall_binders_that_have_no_variable_node() {
         linked.verify().is_ok(),
         "{:?}",
         linked.verify().unwrap_err()
+    );
+}
+
+#[test]
+fn pruning_keeps_nominal_types_through_a_checked_wit_alias_and_nested_fields() {
+    let resource = HirTypeId::new(ModuleId(0), 1);
+    let nested = HirTypeId::new(ModuleId(0), 2);
+    let alias = HirTypeId::new(ModuleId(1), 7);
+    let import = SymbolId::new(ModuleId(0), 10);
+    let mut module = module_with(
+        0,
+        vec![
+            Type::Constructor(TypeConstructor::Int),
+            Type::Constructor(TypeConstructor::User(nested)),
+            Type::Constructor(TypeConstructor::User(resource)),
+        ],
+        vec![Declaration {
+            symbol: SymbolId::new(ModuleId(0), 0),
+            name: "main".into(),
+            name_span: SPAN,
+            quantified: Vec::new(),
+            ty: TypeId(0),
+            value: Expr {
+                kind: ExprKind::Integer(0),
+                ty: TypeId(0),
+                span: SPAN,
+            },
+            span: SPAN,
+        }],
+        vec![
+            ConstructorInfo {
+                symbol: SymbolId::new(ModuleId(0), 2),
+                name: "Nested".into(),
+                type_id: nested,
+                tag: 0,
+                field_count: 0,
+                field_types: Vec::new(),
+                parameters: Vec::new(),
+            },
+            ConstructorInfo {
+                symbol: SymbolId::new(ModuleId(0), 3),
+                name: "Resource".into(),
+                type_id: resource,
+                tag: 0,
+                field_count: 1,
+                field_types: vec![TypeId(1)],
+                parameters: Vec::new(),
+            },
+        ],
+    );
+    module.entry = Some(SymbolId::new(ModuleId(0), 0));
+    module.externals.push(psrs_hir::ExternalSymbol {
+        symbol: import,
+        name: "read".into(),
+        kind: psrs_hir::ExternalKind::Wit {
+            interface: "test:resource".into(),
+            function: "read".into(),
+        },
+        signature: Some(psrs_hir::Type {
+            kind: psrs_hir::TypeKind::Named(alias),
+            span: SPAN,
+        }),
+    });
+    module.external_types.push(crate::ExternalType {
+        symbol: import,
+        source_module: module.id,
+        ty: TypeId(2),
+    });
+
+    prune_unreachable(&mut module, SymbolId::new(ModuleId(0), 0));
+
+    assert_eq!(
+        module
+            .constructors
+            .iter()
+            .map(|constructor| constructor.type_id)
+            .collect::<Vec<_>>(),
+        [nested, resource],
+        "the checked alias and its constructor field both retain their nominal layouts"
     );
 }

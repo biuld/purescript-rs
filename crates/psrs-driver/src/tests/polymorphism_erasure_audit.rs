@@ -61,8 +61,7 @@ fn expect_exit(name: &str, source: &str, expected: i32) {
 }
 
 fn pre_optimization_mir(source: &str) -> psrs_backend::mir::Module {
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let backend_input = psrs_backend::cc::lower_module(core).expect("Core should lower to CC");
+    let backend_input = crate::lower_main_to_cc(source).expect("Core should lower to CC");
     psrs_backend::mir::lower_module_with_bindings(
         backend_input.cc,
         backend_input.externals,
@@ -89,9 +88,7 @@ fn function_type_keys(types: &[RecGroup]) -> Vec<(Vec<ValueType>, Vec<ValueType>
 #[test]
 fn equal_normalized_function_signatures_allocate_one_mir_function_type() {
     let source = "module Main where\nimport Prelude\nfInt :: Array Int -> Array Int\nfInt values = values\nfStr :: Array String -> Array String\nfStr values = values\nuseInt :: (Array Int -> Array Int) -> Int\nuseInt function = arrayLength (function [1, 2])\nuseStr :: (Array String -> Array String) -> Int\nuseStr function = arrayLength (function [\"a\", \"b\"])\nmain = useInt fInt + useStr fStr\n";
-    let core = lower_source_to_core("Main.purs", source).expect("source should lower to Core");
-    let stages =
-        psrs_backend::compile_with_stages(core).expect("the two function types should compile");
+    let stages = crate::compile_main_stages(source).expect("the two function types should compile");
     let keys = function_type_keys(&stages.mir.types);
     assert!(
         !keys.is_empty(),

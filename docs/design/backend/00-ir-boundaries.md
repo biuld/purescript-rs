@@ -95,9 +95,10 @@ established theory decides it, and the topic documents own the details:
   [Control flow](fp/control-flow-and-tail-calls.md) represents self tail
   recursion as a loop and other tail calls as `return_call*`.
 - **Effects.** Wadler's monadic translation; Levy's call-by-push-value. Source
-  and Typed Core keep `Effect a` abstract. One representation lowering then
-  produces an ordinary closure; later stages do not recover an effect arity
-  from the library type ([effects](fp/effects.md)).
+  and Typed Core keep `Effect a` abstract. Trusted-library binding supplies
+  stable constructor and operation identities; lowering plans effectful imports
+  before erasure and produces generic closures. Later stages do not infer
+  Effect semantics from closure shape ([effects](fp/effects.md)).
 
 Deliberately not used: lazy evaluation and strictness analysis (the source is
 strict), typed low-level IRs such as FLINT/TAL (this design verifies each
@@ -289,11 +290,16 @@ mechanical encoding of already-verified signatures.
 
 ### Boundary validation
 
-External binding validation runs in both directions. P8 checks that the side
-table is exactly the source WIT externals (`validate_core`); P9 checks that
-every binding has one CC external with a matching abstract signature
-(`validate_cc`). This prevents a caller from making a target binding disappear
-or disagree with the representation CC used while type-checking calls.
+External binding validation runs in both directions. P8 builds the side table
+from Core's checked `ExternalType` schemes and checks that every source WIT
+external has exactly one binding (`validate_core`). P9 checks that every binding
+has one CC external with a matching abstract signature (`validate_cc`). The
+checked schemes originate in THIR, where aliases are expanded and `ForAll`
+quantifiers are preserved, and their `TypeId`s are remapped through Core
+linking and optimization. WIT conformance and Effect classification consume
+these checked types; the backend does not reconstruct them from raw HIR
+annotations. This prevents a target binding from disappearing or disagreeing
+with the representation CC used while type-checking calls.
 
 ## Code map
 
@@ -311,7 +317,7 @@ crates/psrs-backend/src/
 lib.rs            crate surface: `compile` / `compile_with_target`, `ExternalBindings`
 capability.rs     `TargetCapabilities` and validator feature mapping
 types.rs          shared Wasm value/type model
-abi.rs, abi/      WIT registry, canonical ABI classification, source signatures
+abi/              WIT registry, canonical ABI classification, checked source signatures
 component.rs      component packaging
 cc/               CC IR (functional)
   mod.rs           `Module`, `Function`, `Assignment`, `AssignmentKind`, lowering entry
@@ -411,8 +417,10 @@ B0:
     Return v2
 ```
 
-with `main : () -> i32`. The verifier checks SSA, dominance, and the primitive's
-operand and result types.
+with `main : () -> i32` for the integer example. A source `Effect Unit` entry is
+normalized earlier to an ordinary zero-argument integer command function; the
+wrapper runs the action once, then returns zero. The verifier checks SSA,
+dominance, and the primitive's operand and result types.
 
 **P10 structured Wasm.** The structurer emits a function type `() -> i32`, then
 `i32.const 1`, `i32.const 2`, `i32.add`, and a return of the result. It assigns
@@ -431,13 +439,21 @@ and P10/P11 would name it from the ABI registry; CC would be unchanged.
 
 ## Boundaries and interfaces
 
-- **Frontend to P7.** The front end produces linked, pruned Typed Core with an
-  `entry` `SymbolId`. The backend may not infer semantic identity from source
-  text; no stage above MIR may depend on memory offsets, Wasm indices, or
-  target calling conventions ([D-01](../D-01-frontend-and-ir-boundaries.md), [Wasm
-  encoding](wasm/encoding-and-structuring.md)).
-- **P7 to P8.** A verified Core module plus the external binding side table.
-  See [functional core](../frontend/semantics/functional-core.md) and [CC IR](fp/cc-ir.md).
+- **Frontend and driver to P7.** The front end produces linked, pruned Typed
+  Core with checked WIT `ExternalType` schemes plus explicit trusted-library
+  binding metadata for `Effect` and an
+  `EffectCommandEntry` holding the selected source `SymbolId`. Select
+  `Main.main` when present; otherwise require a unique top-level `main`. The
+  same source identity feeds lexical runner checks and any generated wrapper.
+  The backend may not infer semantic identity from source text; no stage above
+  MIR may depend on memory offsets, Wasm indices, or target calling conventions
+  ([D-01](../D-01-frontend-and-ir-boundaries.md),
+  [Wasm encoding](wasm/encoding-and-structuring.md)).
+- **P7 to P8.** Verified Core plus explicit trusted-effect and selected-entry
+  metadata. P8 builds WIT bindings from Core's checked `ExternalType`
+  schemes before erasure. See
+  [functional core](../frontend/semantics/functional-core.md) and
+  [CC IR](fp/cc-ir.md).
 - **P8 to P9.** A `BackendInput { cc, externals }` plus an explicit
   `TargetCapabilities` profile. See [CC IR](fp/cc-ir.md) and
   [capability profile](wasm/capability-profile.md).

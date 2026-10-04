@@ -42,7 +42,7 @@ States are **Unverified**, **In progress**, **Blocked**, and **Verified**.
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
 | WASI-01 | The core module is componentized into a WASI 0.2 command with UTF-8 strings and matching world. | Component emission and world/capability tests. | Verified |
-| WASI-02 | The command entry calls `wasi:cli/run` and exits with the program result. | Executed component returns the program exit code. | Verified |
+| WASI-02 | The command adapter preserves the selected source entry: `Int` returns its exit code; `Effect Unit` runs once and returns zero after normal completion, while a trap propagates. | Mandatory Wasmtime component execution checks output, status, exactly-once behavior, and an explicit trap marker for both source entry forms. | Verified |
 | WASI-03 | Console stdout and stderr are wired and observable, linearizing GC strings per call. | Stdout/stderr execution tests and effect ordering. | Verified |
 | WASI-04 | Monotonic clock is wired. | Clock execution test. | Verified |
 | WASI-05 | Random bytes are wired, recovering the returned byte list into a GC value. | Random execution test. | Verified |
@@ -79,14 +79,23 @@ WASI-01:
 
 ```text
 WASI-02:
-  Implementation: crates/psrs-backend/src/wasm/lower/mod.rs (entry) and
-    component.rs.
-  Tests: component::tests::runs_the_command_when_wasmtime_is_available;
-    psrs-driver tests::wasi::runs_main_as_a_wasi_component_when_wasmtime_is_available.
-  Input boundary: source and executed component.
+  Implementation: crates/psrs-backend/src/effects/entry.rs (Core adapter),
+    crates/psrs-driver/src/program/mod.rs (entry classification),
+    component packaging of the resulting zero-argument Int export.
+  Tests: tests::effects::an_effect_unit_entry_executes_its_action_once_through_both_source_apis,
+    effect_unit_entry_propagates_a_trap_from_the_action,
+    effect_unit_entry_runs_strict_construction_effects_before_its_action,
+    both_single_source_apis_compile_int_main_with_the_trusted_effect_library;
+    component::tests::runs_the_command_when_wasmtime_is_available.
+  Input boundary: source and executed component. Assertions cover stdout,
+    process status, one action, and a trap marker.
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
-  Result: pass.
-  Gaps: none.
+  Result: pass on 2026-10-04 under Wasmtime 49.0.2. Effect Unit returns 0
+    after one run. A trap keeps `before` and suppresses later output. Int
+    main still returns its value. The official board moved from 0/413 to
+    124/413; every recovered file exits 0.
+  Gaps: scoreboard completion is not an upstream golden. The 63 files with
+    no selected main remain blocked and are not given an empty main.
 ```
 
 ```text

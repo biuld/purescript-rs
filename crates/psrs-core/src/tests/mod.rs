@@ -2,6 +2,7 @@ use super::*;
 use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 
 mod effects;
+mod external_types;
 mod link;
 mod patterns;
 mod rank_n;
@@ -26,6 +27,7 @@ fn verifier_rejects_out_of_range_types() {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![Type::Constructor(crate::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -61,6 +63,7 @@ fn verifier_attributes_declaration_errors_to_their_source_module() {
         id: ModuleId(0),
         name: "Linked".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![Type::Constructor(crate::TypeConstructor::Int)],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -93,6 +96,7 @@ fn single_declaration(types: Vec<Type>, declaration_type: TypeId, value: Expr) -
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

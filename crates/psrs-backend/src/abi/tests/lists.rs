@@ -18,6 +18,7 @@ fn empty_core() -> CoreModule {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: Vec::new(),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

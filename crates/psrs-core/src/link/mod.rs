@@ -1,5 +1,6 @@
 use crate::{
-    Binding, ConstructorInfo, Declaration, Expr, ExprKind, Module, PatternKind, Type, TypeId,
+    Binding, ConstructorInfo, Declaration, Expr, ExprKind, ExternalType, Module, PatternKind, Type,
+    TypeId,
 };
 use psrs_hir::{ModuleId, SymbolId, TypeVariableId};
 use psrs_span::TextRange;
@@ -29,6 +30,8 @@ pub fn link(modules: Vec<Module>) -> Module {
     let mut declarations = Vec::new();
     let mut externals = Vec::new();
     let mut seen_externals = std::collections::HashSet::new();
+    let mut external_types = Vec::new();
+    let mut seen_external_types = HashSet::new();
     let mut type_names = Vec::new();
     let mut seen_type_names = HashSet::new();
     let mut type_variable_offset = 0u32;
@@ -76,6 +79,15 @@ pub fn link(modules: Vec<Module>) -> Module {
                 externals.push(external);
             }
         }
+        for external in module.external_types {
+            if seen_external_types.insert(external.symbol) {
+                external_types.push(ExternalType {
+                    symbol: external.symbol,
+                    source_module: external.source_module,
+                    ty: shift_id(external.ty, offset),
+                });
+            }
+        }
         for (id, name) in module.type_names {
             if seen_type_names.insert(id) {
                 type_names.push((id, name));
@@ -86,6 +98,7 @@ pub fn link(modules: Vec<Module>) -> Module {
         id: ModuleId(0),
         name,
         externals,
+        external_types,
         types,
         newtype_ids,
         opaque_ids,
@@ -250,9 +263,23 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
     // never constructs or matches, such as a newtype resource wrapper. Its
     // constructors are still needed to resolve and lay out the binding, so keep
     // every type the external signatures mention.
-    for external in &module.externals {
-        if let Some(signature) = &external.signature {
-            collect_type_ids(signature, &mut used_types);
+    let mut visited = HashSet::new();
+    for external in &module.external_types {
+        collect_core_type_ids(external.ty, module, &mut used_types, &mut visited);
+    }
+    loop {
+        let before = used_types.len();
+        let field_types = module
+            .constructors
+            .iter()
+            .filter(|constructor| used_types.contains(&constructor.type_id))
+            .flat_map(|constructor| constructor.field_types.iter().copied())
+            .collect::<Vec<_>>();
+        for field_type in field_types {
+            collect_core_type_ids(field_type, module, &mut used_types, &mut visited);
+        }
+        if used_types.len() == before {
+            break;
         }
     }
     module
@@ -260,29 +287,35 @@ pub fn prune_unreachable(module: &mut Module, root: SymbolId) {
         .retain(|constructor| used_types.contains(&constructor.type_id));
 }
 
-fn collect_type_ids(ty: &psrs_hir::Type, out: &mut HashSet<psrs_hir::TypeId>) {
-    match &ty.kind {
-        psrs_hir::TypeKind::Named(id) | psrs_hir::TypeKind::Opaque(id) => {
-            out.insert(*id);
+fn collect_core_type_ids(
+    id: TypeId,
+    module: &Module,
+    out: &mut HashSet<psrs_hir::TypeId>,
+    visited: &mut HashSet<TypeId>,
+) {
+    if !visited.insert(id) {
+        return;
+    }
+    match module.types.get(id.0 as usize) {
+        Some(Type::Constructor(crate::TypeConstructor::User(type_id))) => {
+            out.insert(*type_id);
         }
-        psrs_hir::TypeKind::Application(function, argument) => {
-            collect_type_ids(function, out);
-            collect_type_ids(argument, out);
+        Some(Type::Application(function, argument)) => {
+            collect_core_type_ids(*function, module, out, visited);
+            collect_core_type_ids(*argument, module, out, visited);
         }
-        psrs_hir::TypeKind::Function { parameter, result } => {
-            collect_type_ids(parameter, out);
-            collect_type_ids(result, out);
+        Some(Type::ForAll { body, .. }) => {
+            collect_core_type_ids(*body, module, out, visited);
         }
-        psrs_hir::TypeKind::Forall { body, .. } | psrs_hir::TypeKind::Constrained { body, .. } => {
-            collect_type_ids(body, out)
+        Some(Type::RowExtend { ty, tail, .. }) => {
+            collect_core_type_ids(*ty, module, out, visited);
+            collect_core_type_ids(*tail, module, out, visited);
         }
-        psrs_hir::TypeKind::Row { fields, tail } | psrs_hir::TypeKind::Record { fields, tail } => {
-            for field in fields {
-                collect_type_ids(&field.ty, out);
+        Some(Type::Closure { parameters, result }) => {
+            for parameter in parameters {
+                collect_core_type_ids(*parameter, module, out, visited);
             }
-            if let Some(tail) = tail {
-                collect_type_ids(tail, out);
-            }
+            collect_core_type_ids(*result, module, out, visited);
         }
         _ => {}
     }

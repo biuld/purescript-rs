@@ -222,6 +222,7 @@ mod tests {
             id: ModuleId(0),
             name: "DictionaryLayout".into(),
             externals: Vec::new(),
+            external_types: Vec::new(),
             types,
             newtype_ids: Vec::new(),
             opaque_ids: Vec::new(),

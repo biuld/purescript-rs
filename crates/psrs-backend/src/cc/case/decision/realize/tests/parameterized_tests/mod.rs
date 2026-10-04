@@ -22,6 +22,7 @@ fn parameterized_array_field_projection_uses_its_stored_canonical_array() {
         id: module_id,
         name: "ParameterizedArrayDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(wrap_type)),
             Type::Variable(TypeVariableId(0)),
@@ -172,6 +173,7 @@ fn nested_parameterized_projection_keeps_each_canonical_field() {
         id: module_id,
         name: "NestedParameterizedDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(inner_type)),
             Type::Constructor(TypeConstructor::User(outer_type)),
@@ -320,6 +322,7 @@ fn generic_record_pattern_projects_its_canonical_array_field() {
         id: module_id,
         name: "GenericRecordDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Variable(TypeVariableId(0)),
             Type::Constructor(TypeConstructor::Array),

@@ -110,6 +110,7 @@ pub(crate) fn fixed_list_fixture() -> (cc::Module, ExternalBindings, Resolve) {
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: "take".into(),
             type_id: None,
@@ -186,6 +187,7 @@ pub(crate) fn fixed_list_result_fixture() -> (cc::Module, ExternalBindings, Reso
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: "get".into(),
             type_id: None,

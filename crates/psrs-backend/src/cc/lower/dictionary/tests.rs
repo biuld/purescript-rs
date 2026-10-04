@@ -277,6 +277,7 @@ fn dictionary_evidence_module() -> thir::Module {
         id: module_id,
         name: "DictionaryLayout".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

@@ -23,6 +23,7 @@ use canonical::{
     resolve as resolve_canonical,
 };
 pub use handles::{HandleMode, HandleResource};
+#[cfg(test)]
 pub(crate) use link::intern_source_type;
 use validation::{unsupported_shape, wasi_interface_enabled};
 

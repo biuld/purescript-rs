@@ -86,9 +86,7 @@ fn runs_a_case_on_nullary_constructors_when_wasmtime_is_available() {
 
 #[test]
 fn lowers_enum_case_to_mir_switch_and_wasm_br_table() {
-    let stages =
-        psrs_backend::compile_with_stages(lower_source_to_core("Main.purs", ENUM_SOURCE).unwrap())
-            .unwrap();
+    let stages = crate::compile_main_stages(ENUM_SOURCE).unwrap();
     let has_tag_switch = stages
         .cc
         .functions

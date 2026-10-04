@@ -29,6 +29,7 @@ fn compiled_root_switch_resolves_the_realizer_root_slot() {
         id: module_id,
         name: "DecisionRealizeTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![Type::Constructor(TypeConstructor::User(type_id))],
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
