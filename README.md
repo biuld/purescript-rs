@@ -46,11 +46,11 @@ what remains in each layer.
 | Gate | Measured | Scope |
 | --- | --- | --- |
 | L0/L1 lexing, layout, parsing | 904/908 | non-FFI `layout`, `passing`, `failing`, `warning` files; the four differences are recorded DEC-16 intentional differences |
-| L2 resolution | 72/72 failing, 270/413 passing | official `errorCode`s; 53 `passing` files stop on a missing module and 86 at P3 |
-| L3 kinds | 35/48 failing | official kind `errorCode`s |
+| L2 resolution | 72/72 failing, 276/413 passing | official `errorCode`s; 53 `passing` files stop on a missing module and 80 at P3 |
+| L3 kinds | 36/48 failing | official kind `errorCode`s |
 | L4 types | 35/50 failing | official `errorCode`s |
-| L5 classes | 53/80 failing | official `errorCode`s |
-| L6/M7 runtime | 124/413 passing | all 124 exit 0; 63 have no selected `main`; 53 stop on a missing module |
+| L5 classes | 53/79 failing | official `errorCode`s |
+| L6/M7 runtime | 125/413 passing | all 125 exit 0; 63 have no selected `main`; 53 stop on a missing module |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:
