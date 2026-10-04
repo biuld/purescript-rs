@@ -106,6 +106,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
             "Data.Eq",
             "Data.Ord",
             "Data.Semiring",
+            "Data.Show",
             "Effect",
             "Effect.Console",
             "Test.Assert",
@@ -131,6 +132,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
                 || path.ends_with("lib/Data/Eq.purs")
                 || path.ends_with("lib/Data/Ord.purs")
                 || path.ends_with("lib/Data/Semiring.purs")
+                || path.ends_with("lib/Data/Show.purs")
                 || path.ends_with("lib/Effect.purs")
                 || path.ends_with("lib/Effect/Console.purs")
                 || path.ends_with("lib/Test/Assert.purs")
