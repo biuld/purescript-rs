@@ -10,6 +10,7 @@ mod data_function;
 mod deriving;
 mod effect_arity;
 mod effects;
+mod foldable;
 mod guard_coverage;
 mod operators;
 mod partial_application;
