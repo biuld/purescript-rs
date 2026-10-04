@@ -67,6 +67,7 @@ fn lowering_erases_instance_and_superclass_evidence_to_calls_and_projections() {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),
@@ -199,6 +200,7 @@ fn lowering_erases_global_dictionary_evidence_to_a_core_global() {
         id: module_id,
         name: "Main".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             thir::Type::Constructor(thir::TypeConstructor::Int),
             thir::Type::RowEmpty,

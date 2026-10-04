@@ -102,6 +102,7 @@ fn base(
     let bindings = ExternalBindings {
         imports: vec![ExternalBinding {
             symbol: external_symbol,
+            source_module: ModuleId(0),
             interface: "wasi:io/streams".into(),
             function: function.into(),
             type_id: None,

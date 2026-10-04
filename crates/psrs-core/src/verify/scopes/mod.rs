@@ -40,6 +40,26 @@ pub(super) fn verify_module(module: &Module) -> Vec<VerifyError> {
             );
         }
     }
+    for external in &module.external_types {
+        let span = module
+            .externals
+            .iter()
+            .find(|declaration| declaration.symbol == external.symbol)
+            .and_then(|declaration| declaration.signature.as_ref())
+            .map_or(module.span, |signature| signature.span);
+        let first_error = errors.len();
+        types::scoped_type(
+            external.ty,
+            module,
+            &HashSet::new(),
+            span,
+            &mut HashSet::new(),
+            &mut errors,
+        );
+        for error in &mut errors[first_error..] {
+            error.module = external.source_module;
+        }
+    }
     for declaration in &module.declarations {
         let mut scope = HashSet::new();
         enter(

@@ -234,11 +234,12 @@ pub struct TagCase {
 /// Prefer [`lower_module_with_bindings`] when the caller already owns the
 /// backend input boundary.
 ///
-/// Effect representation lowering runs here, after the binding table has
-/// interned the abstract effect applications and before closure conversion.
-pub fn lower_module(mut module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
-    let mut bindings = ExternalBindings::from_core(&mut module);
-    crate::effects::lower_effects(&mut module, &mut bindings)?;
+/// This entry does not infer an Effect contract. A program that still contains
+/// trusted Effect imports must go through [`crate::lower_cc_with_context`] or
+/// [`crate::compile_with_context`] so those imports are lowered before WIT
+/// linking.
+pub fn lower_module(module: CoreModule) -> Result<BackendInput, Vec<BackendError>> {
+    let bindings = ExternalBindings::from_core(&module);
     lower_module_with_bindings(module, bindings)
 }
 
@@ -310,7 +311,7 @@ pub fn lower_module_with_bindings(
         .map_err(|message| {
             vec![
                 BackendError::new("P8 closure conversion", module.span, message)
-                    .with_module(binding.symbol.module),
+                    .with_module(binding.source_module),
             ]
         })?;
         if let Some(signature) = &signature {

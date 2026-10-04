@@ -4,8 +4,7 @@ use super::*;
 fn structures_wasm_ir_with_a_structured_region() {
     let source =
         "module Main where\nchoose condition = if condition then 9 else 2\nmain = choose true\n";
-    let core = lower_source_to_core("Main.purs", source).unwrap();
-    let stages = psrs_backend::compile_with_stages(core).unwrap();
+    let stages = crate::compile_main_stages(source).unwrap();
     assert!(
         stages.wasm.functions.iter().any(|function| function
             .body

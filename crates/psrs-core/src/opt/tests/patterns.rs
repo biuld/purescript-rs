@@ -111,6 +111,7 @@ fn nested_record_case(second: i32) -> Module {
         id: ModuleId(0),
         name: "PatternOptimization".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: std::mem::take(&mut types),
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

@@ -27,6 +27,7 @@ fn nested_sum_patterns_project_once_per_selected_constructor_and_trap_missing_ta
         id: module_id,
         name: "NestedDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(outer_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),

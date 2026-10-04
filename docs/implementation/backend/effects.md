@@ -4,28 +4,28 @@
 
 **Design:** [Effects](../../design/backend/fp/effects.md)
 
-**Progress:** `lower_effects` replaces the opaque `Prelude.Effect` application
-with a one-parameter closure after Typed Core and records every closure it
-wrote. `EffectLowering::verify` rejects a recorded closure whose parameter list
-is not `[Token]` or whose result is not the lowered effect result. The executed
-negative fixtures call that check after replacing the node; they stay in Core.
-EF-01 through EF-11 are verified on that encoding, including a saturated
-`log "message"` and a partial application of an effect-returning function.
-`callable_types` remains on the typed module and is always empty.
+**Progress:** EF-01 through EF-13 are Verified on the explicit trusted-identity
+contract. The 2026-10-04 runtime scoreboard is 124/413 (Wasmtime 49.0.2, `purs`
+0.15.16). Those 124 files are the previous non-`Int` entries; each exits 0.
+The 63 files with no selected `main` stay blocked. BE-21 stays Partial. A type
+table changed after `lower_effects` returns is not checked again. Historical
+records below describe the earlier encoding and are not the current evidence.
 
 **Roadmap:** [D-04 backend matrix](../../design/D-04-suite-roadmap.md#backend-feature-matrix), primarily BE-21, with BE-02 and BE-26 at closure/library boundaries.
 
 ## Scope and dependencies
 
 Complete the linked design's `Effect a` representation, `pure`, `bind`,
-`runEffect`, hidden execution token, and sequencing through CC/MIR/Wasm. A
-computation value is inert until an authorized runner invokes it. The linked
-design's present-tense contract is authoritative beyond this matrix. Source
-do/ado desugaring and class elaboration are frontend inputs; WASI service
-availability belongs to the platform topic. This topic must verify the
-ordinary closure interface and the trusted entry boundary. The embedded
-library declares `foreign import data Effect` and abstract `psrs:effect`
-operations; `lower_effects` supplies their closures.
+`runEffect`, hidden execution token, and sequencing through CC/MIR/Wasm. An
+Effect value defers its operation until an explicit source runner or the
+generated Effect Unit command adapter invokes it; strict source arguments are
+still evaluated normally. The linked design's contract is authoritative beyond
+this matrix. Source do/ado desugaring and class elaboration are frontend inputs;
+WASI service availability belongs to the platform topic. This topic verifies
+generic closure conversion and the lexical runEffect reference rule, which is
+not a capability or non-escape guarantee. The embedded library declares
+`foreign import data Effect` and abstract `psrs:effect` operations;
+`lower_effects` supplies their closures.
 
 ## Acceptance matrix
 
@@ -34,25 +34,87 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 
 | ID | Design obligation | Required acceptance evidence | State |
 | --- | --- | --- | --- |
-| EF-01 | `Effect a` is abstract through checking and Typed Core. One representation lowering emits a token closure; later passes do not match `Effect` or consult `callable_types`. | Inspect the lowering and generated CC/MIR; a source fixture cannot pass a function as an effect or name the token. | Verified |
-| EF-02 | Constructing, storing, passing, returning, or capturing an Effect value performs no action. | Compile programs that build and discard or store an effect; mandatory execution asserts no import call/output before run. | Verified |
+| EF-01 | `Effect a` is abstract through checking and Typed Core. Trusted-library binding resolves the constructor and operation identities once and passes them explicitly to lowering; the runtime form is a generic closure, with no dedicated Effect IR or runtime object. Checked WIT external schemes preserve alias expansion and quantification across THIR, Core, and the backend boundary. | Positive trusted import/re-export cases and same-name untrusted declarations; inspect identity metadata, checked WIT external schemes, and generic closure output. | Verified |
+| EF-02 | Effectful WIT imports are classified from trusted identities and checked, synonym-expanded external schemes before type erasure. Only imports with explicit suspension plans receive wrappers; an ordinary WIT import returning a one-parameter closure remains ordinary. The deferred operation is inert, while strict argument expressions keep their source behavior. | Source execution tests check planned-import timing and strict argument behavior. A direct Core/binding fixture proves that an ordinary closure-shaped WIT external is not classified as Effect. | Verified |
 | EF-03 | `pure` returns the supplied value when run and invokes no external action. | Source and verified Core cases for scalar/reference values; inspect closure call count and value-sensitive result. | Verified |
 | EF-04 | `bind` runs the first effect before applying the continuation and then runs the returned effect exactly once. | Observable output/call-count order, including a continuation that ignores its argument, nested binds, and expected traps. | Verified |
-| EF-05 | `runEffect` is available only to trusted entry/runtime code and invokes the closure once per call. | Unauthorized source call fails with source-associated diagnostic; two authorized runs produce two actions and a single run one action. | Verified |
+| EF-05 | A direct source reference to trusted `runEffect` is allowed only inside the selected entry declaration. The entry may pass the function value to a helper, which may invoke it; this is not an authority or non-escape guarantee. | A direct reference outside the selected entry receives a source diagnostic; a runner value passed from the entry to a helper is accepted and invokes the closure once per call. | Verified |
 | EF-06 | Under-application of a source arrow captures the supplied arguments. The token is a parameter of the effect closure, not a remaining parameter of a function such as `log :: String -> Effect Unit`. | `log "message"` is a saturated call that returns a closure; a genuinely partial source application still captures once and defers the action. | Verified |
 | EF-07 | Core/P8 preserve strict source order of `let`, effect construction, and effect execution. | Source order cases with distinguishable WASI outputs, failures, and nested/conditional effects; compare Core, CC and runtime sequence. | Verified |
 | EF-08 | Polymorphic `Effect a` uses the normal erasure, boxing and closure adapters without exposing the token. | Execute effects returning Int, Number, String and a GC aggregate through generic functions; inspect signatures and recovered values. | Verified |
-| EF-09 | Linked source modules forward Effect values without running them or granting untrusted modules runner privilege. | Producer/consumer modules with delayed execution, repeated forwarding, and unauthorized `runEffect` attempt. | Verified |
-| EF-10 | Wasm/component entry executes only the selected trusted action and preserves WASI call order, results, and failures. | Mandatory Wasmtime component execution with stdout/stderr or another observable import, call counts, exit behavior, and valid binary. | Verified |
-| EF-11 | A representation closure whose parameter list is not `[Token]`, or whose result is not the lowered effect result, fails verification before encoding. | Negative fixtures for the closure emitted by representation lowering, including an `Effect (a -> b)` closure that was flattened to arity two. | Verified |
+| EF-09 | Linked source modules forward Effect values without running them. The same resolved entry identity governs the lexical `runEffect` check across linked modules. | Producer/consumer modules with delayed execution and repeated forwarding; a direct runner reference in a non-entry declaration is rejected. | Verified |
+| EF-10 | The command entry preserves the selected source behavior: `Int` keeps its exit code; `Effect Unit` runs its returned action once, returns zero after normal completion, and propagates a guest trap. | Mandatory Wasmtime execution checks exact output, process status, action count, and an explicit trap marker for both entry forms. | Verified |
+| EF-11 | Structural verification checks trusted identities and checked WIT operation signatures, every recorded Effect application closure, each import plan against its host wrapper, and the complete transformed Core including generated wrappers. | Malformed identity, checked WIT scheme, import-plan, closure-shape, wrapper-signature, and post-wrapper Core fixtures fail before CC/encoding; these checks are reported as structural evidence only. | Verified |
 | EF-12 | `trap` is the `Effect Unit` whose application ends the guest instead of returning, and the effect chain sequenced after it does not run. | A failing library assertion writes its message and traps; a held one lets the program finish; a statement after the trap never writes. | Verified |
+| EF-13 | Entry selection resolves one source declaration: prefer `Main.main`, otherwise require a unique top-level `main`. The same `SymbolId` drives the runner check and any generated adapter; accepted result types are `Int` and trusted `Effect Unit`. | Source tests for preferred/fallback/ambiguous selection, aliases of `Effect Unit`, and agreement between selected identity, runner diagnostic, and generated adapter. | Verified |
+
+## Current evidence (2026-10-04)
+
+Wasmtime 49.0.2. `purs` 0.15.16. `PSRS_REQUIRE_WASMTIME=1 cargo test --workspace`
+passed, as did `cargo clippy --workspace --all-targets -- -D warnings`. The
+annotations scoreboard measured L6/M7 at 124/413. Scoreboard completion is not
+a golden comparison: a numeric exit with no trap marker counts as completion.
+The focused tests below assert stdout, status, or a trap marker.
+
+```text
+EF-01:
+  Tests: tests::effects::an_untrusted_prelude_effect_remains_an_ordinary_user_type,
+    transitive_effect_types_keep_their_closure_representation;
+    psrs-core and psrs-thir external-signature tests.
+  Result: pass. Trusted identity is explicit. A same-name untrusted Effect
+    stays an ordinary user type. Typed Core keeps the application abstract.
+  Gaps: none for this obligation.
+EF-02:
+  Tests: tests::effects::constructing_an_effect_does_not_execute_it,
+    effect_import_alias_is_expanded_before_suspension_planning,
+    effect_suspension_conformance_errors_keep_the_imports_source_origin,
+    class_constrained_wit_imports_are_rejected_with_a_source_diagnostic.
+  Result: pass. A planned import is suspended from its checked scheme.
+    A class-constrained WIT signature is rejected rather than dropped.
+  Gaps: none for this obligation.
+EF-05:
+  Tests: tests::effects::run_effect_is_only_available_from_the_selected_entry,
+    instance_member_references_do_not_bypass_the_run_effect_scope,
+    the_selected_entry_may_pass_run_effect_to_a_higher_order_helper.
+  Result: pass. The restriction is lexical. Passing the runner to a helper
+    is accepted and is not described as capability confinement.
+  Gaps: none for this obligation.
+EF-10:
+  Tests: tests::effects::an_effect_unit_entry_executes_its_action_once_through_both_source_apis,
+    effect_unit_entry_propagates_a_trap_from_the_action,
+    effect_unit_entry_runs_strict_construction_effects_before_its_action,
+    both_single_source_apis_compile_int_main_with_the_trusted_effect_library.
+  Result: pass under mandatory Wasmtime. The Effect Unit entry runs once,
+    returns 0, and a trap keeps the earlier stdout and suppresses later output.
+    An Int entry still returns its value.
+  Gaps: the scoreboard does not compare stdout with an upstream golden.
+EF-11:
+  Tests: tests::effects::the_backend_rejects_partial_and_duplicate_trusted_operation_metadata,
+    the_backend_rejects_operation_identity_and_checked_signature_mismatches,
+    the_backend_rejects_an_effect_entry_context_for_an_integer_source_entry,
+    effect_command_metadata_must_name_the_selected_source_entry,
+    an_effect_source_entry_requires_command_metadata.
+  Result: pass. These failures are returned by lowering before encoding.
+  Gaps: a type table rewritten after lower_effects returns is not checked
+    again. The Core negatives that mutate the table after a successful pass
+    still fail in EffectLowering::verify, not in the backend mapping.
+EF-13:
+  Tests: tests::effects::a_main_in_the_main_module_takes_precedence_and_unique_main_is_the_fallback,
+    an_effect_int_entry_remains_invalid,
+    effect_unit_entry_accepts_a_type_synonym_and_cross_module_value,
+    typechecking_does_not_require_a_unique_command_entry.
+  Result: pass. Selection prefers Main.main, otherwise one top-level main.
+    Effect Int is rejected. Effect Unit synonyms are accepted.
+  Gaps: files with no selected main stay scoreboard blockers (63).
+```
 
 ## Vertical execution order
 
-1. Audit library imports, trusted entry, Core-to-CC lowering, closure layout,
-   component runner, diagnostics, and tests against each design section.
-2. Resolve token and privilege mismatches, then implement `pure`/`bind`/run
-   semantics and verifier rules with exact negative tests.
+1. Audit trusted library identity, import signatures, entry selection, Core
+   wrapper insertion, external lowering, and the component runner against the
+   design.
+2. Carry trusted Effect identities through the Core boundary; classify imports
+   before erasure; build wrappers only from plans; verify the transformed Core.
 3. Execute inertness, order, repeated-run, polymorphic, and cross-module cases
    through the normal component path with mandatory Wasmtime.
 4. Record evidence and update D-04. Do/ado syntax and unrelated WASI services
@@ -62,8 +124,11 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 
 For each ID record code paths/functions, exact tests/assertions, input
 boundary, commands, Wasmtime version, actual executions/skips, revision, and
-gaps. Distinguish source privacy from a trusted test fixture. Runtime cases
-require `PSRS_REQUIRE_WASMTIME=1`; a skip is not verification. After Rust edits
+gaps. Distinguish source diagnostics, structural IR checks, and behavior
+observed through execution. Runtime cases require `PSRS_REQUIRE_WASMTIME=1`; a
+skip is not verification. Scoreboard runtime completion is not a golden output
+comparison and cannot identify every host CLI failure; focused tests must
+assert exact stdout/status or an explicit trap marker. After Rust edits
 run `cargo fmt --all --check`, `cargo test --workspace`, and
 `cargo clippy --workspace --all-targets -- -D warnings`, plus focused runtime
 cases. Close only when all rows and the complete present-tense design pass.
@@ -96,8 +161,10 @@ EF-01:
     arity test passed in the workspace suite; the partial-application test
     passed in that same command after it was added.
   Revision: uncommitted on issue/wit-abi-resolved-type-lowering
-  Gaps: `callable_types` is still a field and is always empty. Closure
-    conversion and MIR do not read it.
+  Gaps: this historical evidence did not check that trusted Effect identity
+    was passed explicitly; the old lowering recovered it from the qualified
+    type name and opacity metadata. Same-name untrusted declarations and
+    trusted re-exports need source-level coverage.
 EF-02:
   Implementation: crates/psrs-backend/src/cc/lower/lambda, cc/lower/call,
     crates/psrs-driver/src/tests/effects.rs
@@ -109,7 +176,8 @@ EF-02:
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver effects::
   Result: pass. Each program exits 0 with empty stdout before any run.
   Revision: 95aebe3 + uncommitted
-  Gaps: none
+  Gaps: these cases did not include an ordinary closure-shaped import decoy.
+    Import classification and wrapper timing require new tests.
 EF-03:
   Implementation: crates/psrs-core/src/effect/ (`pure_declaration`),
     crates/psrs-backend/src/cc/lower/call/partial.rs
@@ -147,7 +215,9 @@ EF-05:
   Result: pass. Unauthorized reference is a P7 entry-selection diagnostic;
     two authorized runs emit two actions.
   Revision: 95aebe3 + uncommitted
-  Gaps: none
+  Gaps: the direct-reference rule is lexical. This record does not test a
+    runner value passed from the selected entry to a helper; it must not be
+    described as whole-program privilege isolation.
 EF-06:
   Implementation: crates/psrs-core/src/effect/ (closure parameter list stops
     at the token), crates/psrs-backend/src/cc/lower/call/partial.rs
@@ -207,10 +277,11 @@ EF-09:
     run_effect_is_only_available_from_the_selected_entry
   Input boundary: source; executed Wasm component
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver effects::
-  Result: pass. The producer module never references `runEffect`; forwarding
-    is inert and the selected entry runs the action once.
+  Result: pass for cross-module Effect forwarding and delayed execution. The
+    producer does not directly reference `runEffect`.
   Revision: 95aebe3 + uncommitted
-  Gaps: none
+  Gaps: direct lexical reference restriction is not capability isolation; a
+    runner passed from the selected entry to a helper may be invoked there.
 EF-10:
   Implementation: crates/psrs-backend/src/component.rs,
     crates/psrs-backend/src/wasm/lower/mod.rs (entry wrapper),
@@ -221,9 +292,11 @@ EF-10:
     binary. tests/wasmtime_required.rs gates the runtime baseline.
   Input boundary: executed Wasm component
   Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace
-  Result: pass, 33 suites ok, 0 skipped under PSRS_REQUIRE_WASMTIME=1.
+  Result: pass for the historical `Int` entry behavior under
+    `PSRS_REQUIRE_WASMTIME=1`.
   Revision: 95aebe3 + uncommitted
-  Gaps: none
+  Gaps: this does not cover the generated `Effect Unit` adapter, normal zero
+    exit, exactly-once execution, or trap propagation through that adapter.
 EF-11:
   Implementation: crates/psrs-core/src/effect/mod.rs (`lower_effects`,
     `rewrite_effect_applications`, `EffectLowering::verify`). The pass records
@@ -257,11 +330,11 @@ EF-11:
     node, and fail in `EffectLowering::verify` with a Core `VerifyError`. They
     do not enter the backend, CC, MIR, or the encoder.
   Revision: 253809f + uncommitted on issue/wit-abi-resolved-type-lowering
-  Gaps: the check sees only the closures this pass recorded, which is the only
-    place that still recognizes `Effect`; a table mutated after the pass ran is
-    not re-checked. `Type::Closure` stays a general representation: only nodes
-    the lowering wrote are constrained to `[Token]`. BE-21 remains the broader
-    landing gate for this topic.
+  Gaps: these historical negatives stop at the effect-lowering Core check.
+    They do not exercise semantic identity validation, import-plan consistency,
+    generated wrapper structure, or verification of the complete transformed
+    Core. `Type::Closure` remains the generic runtime representation.
+    BE-21 remains the broader landing gate for this topic.
 EF-12:
   Implementation: stdlib/lib/Prelude.purs (`psrs:effect#trap`,
     `trap :: Effect Unit`), crates/psrs-core/src/effect/operations.rs
@@ -284,19 +357,20 @@ EF-12:
     instruction executed`); the held cases exit 0 and the trap stops the chain,
     so the statement after it never writes.
   Revision: uncommitted on feat/ph3-unit-and-test-assert
-  Gaps: `trap` is `Effect Unit`, not `forall a. Effect a`: a polymorphic form
-    would need the backend to fill a use-site result type on a path that never
-    produces one, and no library caller needs it. `assertThrows` needs to
-    observe a trap from inside the guest, which the target profile does not
-    provide ([DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)), so the
-    standard library omits it rather than approximating it.
+  Gaps: the current public signature is `Effect Unit` because that is the
+    assertion and platform API the library needs; this is not forced by
+    non-returning lowering. `assertThrows` needs to observe a trap from inside
+    the guest, which the target profile does not provide
+    ([DEC-05](../../decision/DEC-05-wasmtime-feature-set.md)), so the standard
+    library omits it rather than approximating it.
 ```
 
 ## Discovered obligations
 
-- The token is the Core `Int` chosen by `lower_effects`. The synthesized
-  `runEffect` applies the integer `0`. Source programs cannot name that token.
-  A later stateful token is an open question in the design, not a second
+- The token is the Core `Int` chosen by effect lowering. Its current value
+  `0` is a placeholder: it does not schedule work or establish ordering.
+  Source programs cannot name the token; order comes from the calls and
+  optimizer contracts. A later stateful token is an open question, not a second
   representation.
 - Partial application of a polymorphic declaration whose result is a type
   variable previously failed CC verification (the generated function returned

@@ -42,15 +42,26 @@ type-directedly, so the library is ordinary source code.
 
 ## Model
 
-Two side tables carry the boundary. Neither is part of CC or MIR. A
-target-aware linking stage (see [Design](#design)) resolves each import once and
-produces one [`ResolvedExternal`](#resolved-externals) per declaration, pairing
-the resolved source type with the WIT descriptor.
+Two side tables carry the boundary. Neither is part of CC or MIR. The type
+checker produces a checked `ExternalType` for each WIT external import; aliases
+are expanded there, and `ForAll` quantifiers remain in the checked type graph.
+P8 joins that scheme to the raw external's target binding and produces one
+[`ResolvedExternal`](#resolved-externals) per WIT declaration, pairing the
+checked source type with the WIT descriptor. The declaring `source_module`
+is captured before linking and preserved in the external binding: foreign
+symbols use the reserved intrinsic namespace, which is not their source owner.
+Binding diagnostics use this explicit owner and the original source span.
+
+Class-constrained WIT value signatures are currently unsupported: the checker
+reports `UnsupportedType` on the source signature rather than dropping its
+constraint evidence or inventing a canonical ABI for dictionary parameters.
+Quantified signatures without class constraints retain their `ForAll` structure.
 
 ```text
+ExternalType = { symbol: SymbolId, source_module: ModuleId, ty: TypeId }
 ExternalBindings = { imports: [ResolvedExternal] }
 ResolvedExternal = { symbol: SymbolId, interface: String, function: String,
-                     type_id: TypeId, import: WasiImport }
+                     checked_type: TypeId, import: WasiImport }
 
 WasiRegistry = { resolve: wit_parser::Resolve,
                  imports: [WasiImport],
@@ -80,11 +91,12 @@ WasiResultKind = None | Scalar | Boolean | Enum { cases: [String] }
 WasiField      = { name: String, kind: WasiParamKind }
 ```
 
-The linking stage resolves an `ExternalKind::Wit { interface, function }` against
-the vendored WIT once and produces a `ResolvedExternal`. `type_id` is the
-declaration's resolved source type, interned in the module type table, so CC can
-derive its layout from the shared representation table instead of re-deriving it
-from a source-type mirror. `import` is the WIT descriptor that carries the ABI
+P8 joins each `ExternalKind::Wit { interface, function }` to its checked
+`ExternalType` by `SymbolId`, resolves the vendored WIT once, and produces a
+`ResolvedExternal`. `checked_type` is the synonym-expanded source scheme from
+the Core type table, with its `ForAll` quantifiers preserved, so CC can derive
+its layout from the shared representation table instead of re-elaborating the
+raw HIR annotation. `import` is the WIT descriptor that carries the ABI
 facts the source type cannot: numeric width, `string` versus `list<u8>`,
 flattening, `retptr`, and `own`/`borrow` ownership. A declaration the
 source ABI cannot express yields no `ResolvedExternal` and is rejected.
@@ -126,11 +138,12 @@ foreign import "wasi:clocks/monotonic-clock#now" now :: Int
 ```
 
 The string is `<interface>#<function>`. The declaration's source name is
-unrelated to the WIT name, and its declared type is mapped to the canonical
+unrelated to the WIT name, and its checked external type is mapped to the canonical
 signature through the standard type mapping. There is a single external kind,
-`Wit`; the compiler has no per-function host registry. `ExternalBindings` is a
-lossless projection of the source externals, checked against Core
-(`validate_core`) and against CC's abstract signatures (`validate_cc`).
+`Wit`; the compiler has no per-function host registry. `ExternalBindings` is
+built from Core's checked `ExternalType` schemes and target-binding metadata,
+then checked against Core (`validate_core`) and CC's abstract signatures
+(`validate_cc`). It never re-elaborates the raw HIR type annotation.
 
 ### Source type mapping
 
@@ -200,15 +213,17 @@ WASI 0.2.12 WIT once, before CC lowering. Resolution:
 - finds the package and interface, then the WIT function;
 - computes the canonical signature with `Resolve::wasm_signature`;
 - classifies each WIT parameter and the result into the WIT descriptor;
-- interns the declaration's resolved source type in the module type table;
+- joins the external's checked `ExternalType` by symbol instead of rebuilding
+  its source scheme from the HIR annotation;
 - records an `unsupported` reason when the shape has no source mapping, when a
   list is not byte-valued, when flattening does not agree with the canonical
   signature, or when the interface's package is disabled by the target; and
 - interns the import and returns a `ResolvedExternal`.
 
-The stage validates the resolved source type against the WIT descriptor. A
-failure is reported against the declaration's span; a declaration fails even
-when dead code never calls it, because the side table is validated eagerly.
+The stage validates the checked source type against the WIT descriptor. A
+failure is reported against the declaration's source location; a declaration
+fails even when dead code never calls it, because the side table is validated
+eagerly.
 
 ### Lowering a call
 
@@ -448,12 +463,14 @@ the crate-level tree. The implementation must conform to this organization:
 
 ```text
 backend/src/
-  abi.rs               WasiRegistry, WasiImport, package gating
   abi/
+    mod.rs             WasiRegistry, WasiImport, package gating
     classification.rs  WIT type classification and value types
-    link.rs            target-aware linking: intern the resolved type and
-                       validate conformance
-  bindings.rs          ExternalBindings side table and boundary checks
+    link/
+      mod.rs            target binding lookup and conformance entry
+      conformance.rs    checked Core type versus WIT signature
+  bindings/
+    mod.rs             ExternalBindings side table and boundary checks
   mir/
     wit/
       mod.rs           canonical call lowering and result recovery
@@ -467,14 +484,15 @@ backend/src/
 
 - `ExternalBindings` — the side table of the Model section, holding one
   `ResolvedExternal` per `ExternalKind::Wit` binding. `ResolvedExternal` pairs
-  the declaration's resolved source `TypeId` with its resolved `WasiImport`
+  the declaration's checked Core `TypeId` from `Module.external_types` with its
+  resolved `WasiImport`
   descriptor. It must provide `validate_core` and `validate_cc` for the P8/P9
   boundary checks, and `validate_conformance`, which resolves and validates
   every binding against the resolved Core type where Core is available.
-- `abi/link.rs` — the target-aware linking stage. It interns each declaration's
-  resolved source type in the module type table, resolves the WIT import once,
-  and validates the two sides with `validate_import_signature(import, module,
-  type_id)`.
+- `abi/link/` — the target-aware conformance stage. It consumes the checked
+  Core type ID, resolves the WIT import once, and validates the two sides with
+  `validate_import_signature(import, module, checked_type)`. It does not parse
+  or re-intern raw HIR type annotations.
 - `WasiRegistry` — the interned `(interface, function)` registry, holding the
   `TargetCapabilities` it was loaded with. It must provide:
   - `load() -> Result<Self, String>` and
@@ -580,8 +598,8 @@ synthesize and export `cabi_realloc` ([linear memory boundary](linear-memory-and
 
 ## Boundaries and interfaces
 
-- **Input:** Typed Core externals projected into `ExternalBindings`, the vendored
-  WASI WIT, and the target profile.
+- **Input:** Core `ExternalType` schemes joined with target-binding metadata to
+  produce `ExternalBindings`, the vendored WASI WIT, and the target profile.
 - **Output:** a set of `ResolvedExternal`s and the `WasiRegistry` P9 hands to P10;
   MIR imports carry only the canonical symbol, parameters, and result.
 - **To MIR:** canonical calls and adaptation instructions. The ABI layer decides
@@ -733,19 +751,20 @@ implementation coverage, not design choices. The allocator, buffer free, and
   supported element is lowered.
 
 Resolved bindings ([DEC-12](../../../decision/DEC-12-resolved-wit-bindings.md)):
-each foreign import's resolved source type is interned into the Core type table
-by the linking boundary (`abi/link.rs`) and carried as an
-`ExternalBinding::type_id`. CC derives its whole abstract signature, including
-record and array representations, directly from that Core type; the structural
-re-search (`core_type_matches_source`) and the source-signature comparison are
-removed. WIT conformance validation runs at the linking boundary against the
-resolved Core type (`ExternalBindings::validate_conformance`,
-`abi/link::validate_import_signature`). MIR lowering reads the declaration's CC
-`Signature` (`ValueShape`) and projects record and flags fields by label from
-the planned representation table; the WIT descriptor drives canonical
-adaptation. `SourceType` and `SourceSignature` are deleted; the ABI unit tests
-validate against the resolved Core type. The refactor is behavior preserving and
-does not change the source language.
+each external's checked, synonym-expanded scheme is produced during type
+checking and carried in `Module.external_types`, with `ForAll` quantifiers
+preserved. `ExternalBindings::from_core` joins it to the WIT target binding and
+carries its Core type identity beside that binding. CC derives its whole
+abstract signature, including record and array representations, directly from
+that Core type; the structural re-search (`core_type_matches_source`) and the
+source-signature comparison are removed. WIT conformance validation runs at P8
+against the checked Core type (`ExternalBindings::validate_conformance`,
+`abi/link::conformance::validate_import_signature`). MIR lowering reads the
+declaration's CC `Signature` (`ValueShape`) and projects record and flags fields
+by label from the planned representation table; the WIT descriptor drives
+canonical adaptation. `SourceType` and `SourceSignature` are deleted; the ABI
+unit tests validate against the resolved Core type. The refactor is behavior
+preserving and does not change the source language.
 
 Implemented today: direct mappings for `bool`, `s32`, `s64`/`u64`, `f32`/`f64`,
 `char`, narrowed/unsigned integers, nullary enums, byte lists (`String`), direct

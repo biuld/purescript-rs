@@ -23,6 +23,7 @@ fn newtype_constructor_erases_before_nested_enum_dispatch() {
         id: module_id,
         name: "NewtypeDecisionTest".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(TypeConstructor::User(wrapper_type)),
             Type::Constructor(TypeConstructor::User(bool_type)),

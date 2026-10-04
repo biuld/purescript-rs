@@ -71,8 +71,7 @@ fn expect_prelude_program_exit(name: &str, sources: &[(&str, &str)], expected: i
 }
 
 fn cc_stages(source: &str) -> psrs_backend::Stages {
-    let core = lower_source_to_core("Main.purs", source).expect("source lowers to Core");
-    psrs_backend::compile_with_stages(core).expect("Core lowers through CC to Wasm")
+    crate::compile_main_stages(source).expect("Core lowers through CC to Wasm")
 }
 
 const RECURSIVE_SUM: &str = "module Main where\nimport Prelude\ng :: Int -> Int -> Int\ng n acc = if n == 0 then acc else g (n - 1) (acc + 1)\n";

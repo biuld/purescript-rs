@@ -3,7 +3,7 @@
 use crate::BackendError;
 use crate::cc;
 use psrs_core::{Module as CoreModule, TypeId as CoreTypeId};
-use psrs_hir::{ExternalKind, SymbolId, Type as HirType};
+use psrs_hir::{ExternalKind, ModuleId, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 /// The complete input consumed by P9. Platform binding metadata is kept beside
@@ -23,11 +23,12 @@ pub struct ExternalBindings {
 impl ExternalBindings {
     /// Extracts platform binding metadata while crossing the Core boundary.
     /// CC receives only this side table and therefore never needs to inspect
-    /// WIT names or HIR external kinds. Each declaration's resolved source type
-    /// is interned into the Core type table and recorded as a `type_id`, so CC
-    /// derives its layout from that identity instead of re-deriving it.
-    pub(crate) fn from_core(module: &mut CoreModule) -> Self {
-        let declared: Vec<(SymbolId, String, String, Option<HirType>)> = module
+    /// WIT names or HIR external kinds. Each declaration's checked,
+    /// synonym-expanded source scheme is read from Core's external signature
+    /// table and recorded as a `type_id`, so CC derives its layout from that
+    /// identity instead of re-deriving it from raw HIR.
+    pub(crate) fn from_core(module: &CoreModule) -> Self {
+        let imports = module
             .externals
             .iter()
             .filter_map(|external| {
@@ -38,31 +39,24 @@ impl ExternalBindings {
                 else {
                     return None;
                 };
-                Some((
-                    external.symbol,
-                    interface.clone(),
-                    function.clone(),
-                    external.signature.clone(),
-                ))
+                let checked = module
+                    .external_types
+                    .iter()
+                    .find(|checked| checked.symbol == external.symbol);
+                Some(ExternalBinding {
+                    symbol: external.symbol,
+                    source_module: checked.map_or(module.id, |checked| checked.source_module),
+                    interface: interface.clone(),
+                    function: function.clone(),
+                    type_id: checked.map(|checked| checked.ty),
+                    span: external
+                        .signature
+                        .as_ref()
+                        .map(|signature| signature.span)
+                        .unwrap_or(module.span),
+                })
             })
             .collect();
-        let module_span = module.span;
-        let mut imports = Vec::with_capacity(declared.len());
-        for (symbol, interface, function, signature) in declared {
-            let span = signature
-                .as_ref()
-                .map_or(module_span, |signature| signature.span);
-            let type_id = signature
-                .as_ref()
-                .and_then(|signature| crate::abi::intern_source_type(module, signature));
-            imports.push(ExternalBinding {
-                symbol,
-                interface,
-                function,
-                type_id,
-                span,
-            });
-        }
         Self { imports }
     }
 
@@ -84,7 +78,7 @@ impl ExternalBindings {
                 .map_err(|message| {
                     vec![
                         BackendError::new("P8 WIT linking", binding.span, message)
-                            .with_module(binding.symbol.module),
+                            .with_module(binding.source_module),
                     ]
                 })?;
             if let Some(reason) = &import.unsupported {
@@ -94,7 +88,7 @@ impl ExternalBindings {
                         binding.span,
                         format!("WIT import `{qualified}` is unsupported: {reason}"),
                     )
-                    .with_module(binding.symbol.module),
+                    .with_module(binding.source_module),
                 ]);
             }
             let Some(type_id) = binding.type_id else {
@@ -104,14 +98,14 @@ impl ExternalBindings {
                         binding.span,
                         format!("WIT import `{qualified}` has no resolved source type"),
                     )
-                    .with_module(binding.symbol.module),
+                    .with_module(binding.source_module),
                 ]);
             };
             crate::abi::link::validate_import_signature(&import, module, type_id).map_err(
                 |message| {
                     vec![
                         BackendError::new("P8 WIT linking", binding.span, message)
-                            .with_module(binding.symbol.module),
+                            .with_module(binding.source_module),
                     ]
                 },
             )?;
@@ -225,6 +219,7 @@ impl ExternalBindings {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalBinding {
     pub symbol: SymbolId,
+    pub source_module: ModuleId,
     pub interface: String,
     pub function: String,
     /// The declaration's resolved source type, interned in the module type

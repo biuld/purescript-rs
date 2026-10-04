@@ -250,8 +250,8 @@ total falls. Across both halves, 24 cases stop at another P3 name the library
 still owns — 8 on `$`, 2 each on `negate`, `_`, and the deliberately absent
 `assertEqual`, 2 on `logShow`, and singles on `Monad`, `Eq`, `Unit`'s import
 site, `append`, `show`, `Foo.Bar`, and `<>` — and 8 stop later in the pipeline
-(4 at P10 entry selection, 4 at P5 type checking). No case reaches execution, so
-the runtime board stays 0/413; the `unit` half also moves no case past P0,
+(4 at P10 entry selection, 4 at P5 type checking). No case reached execution in
+that measurement, so its runtime board stayed 0/413; the `unit` half also moves no case past P0,
 because the four DEC-16 surrogate files are unaffected.
 
 `Test.Assert` is landed as the four checks that need no class surface
@@ -307,8 +307,8 @@ landed) and after it, with
 L2 `passing` resolution moves from 245/413 to **253/413**, first-stage blockers
 from 168 to 160, and other P3 blockers from 107 to 99. The missing-module count
 stays 57. Eight files leave L2; `show` and `Show` are no longer first-blocker
-names. The same after-run is the L6 table below (still 0/413 executing) and the
-gate rows. `Number`'s digits are not a correctly rounded ECMAScript conversion,
+names. That after-run is the Show L6 table below, which was still 0/413
+executing. It is not the current gate row. `Number`'s digits are not a correctly rounded ECMAScript conversion,
 so a file that compares `show` of a non-dyadic fraction with the official text
 can still disagree once it runs. `logShow` and `assertEqual` stay with #95.
 
@@ -556,8 +556,9 @@ obligation to FE-13, and accepted mismatches still need type-checking fixes.
 - **Acceptance:** Agreement on the `errorCode`s above.
 - **Prerequisite:** M4.
 
-**Measured current result (2026-10-04, annotations oracle, remeasured with
-`Show`):** **53/84** failing cases agree. Per-code agreement is
+**Measured current result (2026-10-04, annotations oracle, remeasured with the
+Effect-entry run):** **53/80** failing cases agree. An earlier headline said
+53/84; the per-code totals sum to 80, and this run confirms 80. Per-code agreement is
 `OverlappingInstances` 8/8, `NoInstanceFound` 41/52, `MissingClassMember` 2/2,
 `DuplicateInstance` 1/1, `InvalidInstanceHead` 1/5, and 0 for
 `PossiblyInfiniteInstance` (1), `OrphanInstance` (6), `InvalidNewtypeInstance`
@@ -578,8 +579,8 @@ its custom error instead of `TypesDoNotUnify`.
 because a visible type application on a class-method head is not yet resolved.
 That is the FE-17 class-head limit, and it is the one place #87's work costs
 agreement rather than gaining it.
-M2 remains 72/72, and parse 904/908 and corpus runtime 0/413 are unchanged.
-These six results were remeasured together on the integrated tree with
+On that earlier integrated tree, M2 remained 72/72, parse remained 904/908, and
+corpus runtime remained 0/413. These six results were remeasured together with
 `PSRS_ORACLE=annotations cargo test -p psrs-driver --test suite -- --ignored --nocapture`.
 
 The remaining mismatches are accounted for by those per-code results; they
@@ -696,15 +697,17 @@ the code reference and an immutable capture array.
   file.
 - **Prerequisite:** M2–M6.
 
-**Progress (measured by `runtime::l6_runtime_scoreboard`):** **0 of 413**
-non-FFI `passing` files compile, validate, and run, with 26 excluded as FFI. The
-board compiles each case with the on-disk standard library on the module path,
-so "no scoreboard" is no longer the blocker; the compiler and the library are.
-No corpus case reaches Wasmtime in this board. Separate vertical execution
-tests run under mandatory Wasmtime for GC strings, arrays, closed records,
-erased newtypes, parameterized ADTs, closures, dictionaries, effects, the
-component path, and pattern-matrix behavior including the value-sensitive
-`1185.purs` and `2049.purs` shapes.
+**Progress (measured by `runtime::l6_runtime_scoreboard`):** **124 of 413**
+non-FFI `passing` files compile, validate, and run, with 26 excluded as FFI.
+All 124 exit 0 and print a first stdout line. They are the same 124 files whose
+previous first blocker was a `main` that was not a zero-argument `Int`. The 63
+files with no selected `main` stay blocked at P10. This measurement does not
+emit an empty main and does not change the 413 denominator. The board compiles
+each case with the on-disk standard library on the module path. Separate
+vertical execution tests run under mandatory Wasmtime for GC strings, arrays,
+closed records, erased newtypes, parameterized ADTs, closures, dictionaries,
+effects, the component path, and pattern-matrix behavior including the
+value-sensitive `1185.purs` and `2049.purs` shapes.
 
 Agreement here means the pipeline compiles the file, the component passes Wasm
 validation, and the guest runs to completion without trapping. The corpus
@@ -715,15 +718,30 @@ failure must reach the guest as a trap to be visible, which is the only
 execution signal the corpus can express. Nothing in the corpus needs argv,
 stdin, or a preopened directory, so the runner passes none.
 
-The 413 rejections, by the first phase that blocks them. The current figures come
+The 289 rejections, by the first phase that blocks them. The current figures come
 from one `PSRS_REQUIRE_WASMTIME=1 PSRS_ORACLE=annotations` run of all five boards
-on 2026-10-04 at `071fb11` plus the `logShow` slice, so they are a single
-consistent measurement. The two tables after it are earlier measurements taken
-independently on `6f66524` and are **not** additive with it or with each other;
-they are kept because the M2 paragraphs cite them.
+on 2026-10-04 (Wasmtime 49.0.2, `purs` 0.15.16). L1–L5 did not move in that run.
+The tables after the current one are earlier measurements and are **not**
+additive with it or with each other; they are kept because the M2 paragraphs
+cite them.
 
-After `Effect.Console.logShow` (`PSRS_REQUIRE_WASMTIME=1` L6/M7 scoreboard run on
-2026-10-04 at `071fb11` plus this slice):
+After the `Effect Unit` command entry (the same run):
+
+| Blocker | Cases | Recovered by |
+| --- | --- | --- |
+| Missing library module | 53 | Phase 3: #94 `Prelude`, #95 `Effect`/`Effect.Console`/`Test.Assert`, #96 `Proxy`/`Partial.Unsafe`, and #124 the unowned `Data.*` modules. |
+| P10 Wasm structuring | 63 | No selected `main`. The 124 files that previously stopped because `main` was not a zero-argument `Int` now run and exit 0. |
+| P3 resolve | 86 | Another resolution error behind the library gap; the library surface owns most of them. |
+| P5 typecheck | 46 | A type error behind the other blockers. |
+| P5 kind check | 17 | A kind error behind the other blockers. |
+| P8 closure conversion | 14 | A representation behind the other blockers. |
+| P0 lex | 4 | The DEC-16 lone-surrogate cases, which are also L1 differences. |
+| P6 Core lowering | 6 | `Prim.undefined` has no runtime representation, plus partially applied field constructors. |
+| P2 surface lowering | 0 | No `passing` file stops in surface lowering; Phase 2 closed this row. |
+| Harness loading | 0 | Nothing: every case assembles. |
+
+Earlier, after `Effect.Console.logShow` (`PSRS_REQUIRE_WASMTIME=1` L6/M7 scoreboard run on
+2026-10-04 at `071fb11` plus that slice):
 
 | Blocker | Cases | Recovered by |
 | --- | --- | --- |
@@ -801,8 +819,8 @@ The failure path is now landed rather than assumed: `Prelude.trap` is a
 `psrs:effect` external whose body is an unreachable path, `Test.Assert` writes a
 message and then escapes through it, and the vertical tests assert the trap
 rather than an exit code (`PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver
---lib tests::assertions`). No corpus case reaches Wasmtime yet, so the board
-stays 0/413.
+--lib tests::assertions`). That measurement's board was still 0/413. The
+current board is the 124/413 table above.
 
 The L2 run reports 19 sibling modules loaded and no case blocked because the
 loader could not use an on-disk sibling. Before #86, two such cases were
@@ -929,14 +947,15 @@ concrete slice issues as sub-issues; this table is the index.
 | 2 | [#75](https://github.com/biuld/purescript-rs/issues/75) Frontend surface lowering — **complete** | [#84](https://github.com/biuld/purescript-rs/issues/84) ascription, [#85](https://github.com/biuld/purescript-rs/issues/85) patterns, [#86](https://github.com/biuld/purescript-rs/issues/86) operator aliases, [#87](https://github.com/biuld/purescript-rs/issues/87) type wildcards and rows, [#88](https://github.com/biuld/purescript-rs/issues/88) guards and multi-scrutinee `case`, [#89](https://github.com/biuld/purescript-rs/issues/89) `Prim` and unary minus, [#90](https://github.com/biuld/purescript-rs/issues/90) instance resolution | **No `passing` file stops in surface lowering.** From the 61-case `5298aad` baseline, #88 moved 22 past P2, the 34 fixed pattern paths plus 22 type, kind, instance, and declaration forms brought it to 5, and [#87](https://github.com/biuld/purescript-rs/pull/122) removed the last five. All six slices are `Done`. |
 | 3 | [#76](https://github.com/biuld/purescript-rs/issues/76) Standard library — **next** | [#94](https://github.com/biuld/purescript-rs/issues/94) `Prelude` (77 measured after the `logShow` slice: the 7 cases that stopped on `logShow` stop instead on a `Prelude` name #94 also owns), [#95](https://github.com/biuld/purescript-rs/issues/95) `Effect`/`Effect.Console`/`Test.Assert` (305), [#96](https://github.com/biuld/purescript-rs/issues/96) `Proxy`/`Partial.Unsafe` (17), [#124](https://github.com/biuld/purescript-rs/issues/124) the `Data` modules no slice owned (27) | **342 of the 354** files L2 originally could not resolve were blocked on a missing library module. #95's first slice landed `Effect` and `Effect.Console`, dropping that to **83** and `passing` resolution from 59/413 to **199/413**; its second slice landed the `unit` value and `Test.Assert`, dropping the missing-module count to **62** and `passing` resolution to **209/413**. #94's first slice then landed `Data.Function` and the `$`/`#` operators, taking resolution to **225/413** and the missing-module count to **61**; its next slice landed `Data.Semigroup` and `<>`, taking resolution to **235/413**. `Eq`, `Ord`, and `Semiring` then landed with the intrinsic layer. The `Show` slice, measured on that master, moves resolution from 245/413 to **253/413**. `Data.Monoid` and `Data.Foldable`, measured independently on `6f66524` before `Show`, leave lenient resolution at **245/413** and move the compile-path missing-module count from 57 to 55. The figures were measured independently on `6f66524` and are not additive. The `Data.Tuple` slice, re-measured with the L2 scoreboard on `6f66524`, leaves resolution at **245/413** and moves the missing-module count from 57 to **56**, with other P3 blockers from 107 to **108**. That measurement is independent of the Show and Foldable figures and is not additive with them. Tuple's row said `logShow` and `assertEqual` were still waiting on the `Show`/`Eq` class surface, and that the GitHub `Corpus cases` field records the measured count; Show later recorded that the classes are declared and that the field was not written. What #95 still owns is `assertEqual` and `assertEqual'`; `logShow` has since landed as `log` of `show`, taking resolution to **270/413**. Depends on Phase 2, now complete: the library itself uses ascriptions, guards, sections, and instances. #94 measures 0 by first blocking stage only because `stdlib/lib/Prelude.purs` resolves; its missing surface is latent, surfacing as the P3 `Monad`, `identity`, `Functor`, and `negate` blockers *behind* the library modules. After the `logShow` slice, the 86 files blocked first at P3 on a name split as 77 to the `Prelude`/class surface #94 owns, 4 to #124 (`Unit` 2, `P.Unit` 1, `between` 1), 3 to #96 (`Partial`), and 2 to #95 (`assertEqual`). The 77 are `Monad` 13, `identity` 9, `_` 8, `negate` 6, `Functor` 6, `Eq1` 4, `<<<` 4, `otherwise` 3, `<$>` 3, `&&` 3, `when` 2, `mod` 2, `compare` 2, and one each of `P.identity`, `Applicative`, `||`, `>>>`, `not`, `-`, and `Foo.Bar`. `show` and `Show` are not in that set, and neither is `logShow` any longer. Show recorded that the GitHub `Corpus cases` field was not written because `gh` is not authenticated on that machine; Foldable's row said the field records the measured count, and that claim was not rechecked here. |
 | 4 | [#77](https://github.com/biuld/purescript-rs/issues/77) L4 and L5 to 100% | [#97](https://github.com/biuld/purescript-rs/issues/97) missing class checks, [#98](https://github.com/biuld/purescript-rs/issues/98) deriving and fundeps, [#99](https://github.com/biuld/purescript-rs/issues/99) hole inference, [#100](https://github.com/biuld/purescript-rs/issues/100) M3 kind gate, [#123](https://github.com/biuld/purescript-rs/issues/123) `forall` binder visibility | Turns "measurable" into "passing". #81 makes 153 cases trackable; the rest need rules. #123 is the shared root cause behind the three visible-type-application limits #87 recorded, and #100's polykind instantiation needs the same machinery, so it is filed as one foundational change rather than three patches. |
-| 5 | [#78](https://github.com/biuld/purescript-rs/issues/78) Backend on real programs | [#73](https://github.com/biuld/purescript-rs/issues/73) aggregate fixture execution, [#101](https://github.com/biuld/purescript-rs/issues/101) CC/MIR coverage | Consumes the output of Phases 2–4. The backend rows are `Partial` on source coverage, not on design. |
+| 5 | [#78](https://github.com/biuld/purescript-rs/issues/78) Backend on real programs | [#73](https://github.com/biuld/purescript-rs/issues/73) aggregate fixture execution, [#101](https://github.com/biuld/purescript-rs/issues/101) CC/MIR coverage, [#139](https://github.com/biuld/purescript-rs/issues/139) `Effect Unit` command entry | [#139](https://github.com/biuld/purescript-rs/issues/139) is an independent slice taken while Phase 3 and Phase 4 are still open. It does not complete those phases and it does not close #78. The other backend rows stay `Partial` on source coverage. |
 | 6 | [#79](https://github.com/biuld/purescript-rs/issues/79) M8 warnings and optimization | [#91](https://github.com/biuld/purescript-rs/issues/91) warning scoreboard, [#92](https://github.com/biuld/purescript-rs/issues/92) optimize comparison | Last, because both need a harness first and neither blocks another phase. |
 
 Two dependencies are worth stating because they are not visible in the table:
 Phase 3 cannot start before Phase 2, because the standard library is itself a
-large client of the forms Phase 2 lands; and Phase 5 cannot start before Phase
-3, because no corpus program is end-to-end comparable until the library
-exists.
+large client of the forms Phase 2 lands; and Phase 5 normally waits for Phase
+3, because most corpus programs are not end-to-end comparable until the library
+exists. #139 is the recorded exception: the command-entry slice above, taken
+while Phase 3 and Phase 4 remain open.
 
 Wasm proposal families outside the current target — BC-04 through BC-09,
 multi-value signatures, bulk memory, SIMD, exceptions, threads, memory64, and
@@ -1014,11 +1033,11 @@ for matrix status.
 | L3 | Kinds and higher-kinded types | 35/48 failing cases on the `Show` remeasurement (`KindsDoNotUnify` 15/24, `PartiallyAppliedSynonym` 10/12, and the other mapped code totals as measured in M3). The gate row Tuple left in place still said 34/48; Tuple did not remeasure L3, so 34/48 and 35/48 are not a combined result. | 100% agreement for the mapped kind cases. |
 | L4 | Core type checking | 35/50 failing cases; `TypesDoNotUnify` 32/41, `IntOutOfRange` 1/1, `InfiniteType` 2/2, `CannotApplyExpressionOfTypeOnType` 1/2, `EscapedSkolem` 0/2, `ExpectedType` 0/2, `AmbiguousTypeVariables` 0/1. | 100% agreement for the mapped type cases. |
 | L5 | Classes and instances | 53/80 failing cases; `OverlappingInstances` 8/8, `NoInstanceFound` 41/52, `MissingClassMember` 2/2, `DuplicateInstance` 1/1, `InvalidInstanceHead` 1/5, and 0 for the other mapped codes. The row previously said 84; the per-code totals sum to 80 and the remeasurement confirms 80. | 100% agreement for the mapped class cases. |
-| L6/M7 | Runtime and standard library | 0/413 non-FFI passing files compile, validate, and run; 53 stop on missing modules, 187 at P10, 86 at P3, 46 at P5 typecheck, 17 at P5 kind checking, 14 at P8, 6 at P6, and 4 at P0; no P2 surface-lowering blockers and no harness-loading blockers. | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
+| L6/M7 | Runtime and standard library | 124/413 non-FFI passing files compile, validate, and run, all with exit code 0. Of the other 289, 53 stop on missing modules, 63 at P10 because no `main` was selected, 86 at P3, 46 at P5 typecheck, 17 at P5 kind checking, 14 at P8, 6 at P6, and 4 at P0; no P2 surface-lowering blockers and no harness-loading blockers. One `PSRS_REQUIRE_WASMTIME=1 PSRS_ORACLE=annotations` run of all boards on 2026-10-04 (Wasmtime 49.0.2, `purs` 0.15.16). L1–L5 in this table were unchanged in that run. | Every in-scope passing file for the feature compiles, validates, and runs with the expected result. |
 | M8-W | Warnings | 67 non-FFI warning files are in scope; no warning-code scoreboard exists | Warning-code agreement reaches 100% for the tracked warning corpus. |
 | M8-O | Optimization | 10 optimize files are in scope; they are not vendored and their goldens are JavaScript output | Expected optimize/CoreFn output agrees for all tracked optimize files. |
 
-The L2 and L6/M7 rows that name 253/413, 57 missing modules, 99 other P3 blockers, or 177 at P10 are the `Show` measurement on `6f66524`. `Data.Foldable`'s compile-path measurement of the same counters is the second M7 table and was taken independently on `6f66524`; the figures are not additive. Foldable did not rewrite these gate rows. The L5 53/84 figure is the `Show` remeasurement; Foldable left the earlier 51/92. `Data.Tuple`'s L2 figures (245/413, 56 missing modules, 108 at P3) were measured independently on `6f66524` and are not additive with either of those. Tuple did not re-run L6.
+The gate rows above are the 2026-10-04 measurement. Earlier M7 tables in the progress section record the `logShow`, `Show`, and Foldable runs; those figures are historical and are not added to this table. L5 is 53/80. An older headline of 53/84 does not match the per-code totals.
 
 ### Feature-to-gate crosswalk
 
@@ -1073,7 +1092,7 @@ resolved, type checked, and represented in Typed Core as required.
 | FE-17 | Visible type application, typed binders, type wildcards, holes, and advanced annotations | Typed binders preserve and check scoped annotations, and each source type wildcard receives fresh kind/type variables through the shared type spine. Type-level `String` and `Int` literals are ordinary spine nodes: a signature may contain them, they unify by value, and they survive into THIR where the verifier compares them. A wildcard in a value signature is solved by unification and is accepted in every shape `purs` accepts; a wildcard in an instance head is rejected as `InvalidInstanceHead`, while one in an instance context stays legal. The `1664.purs` wildcard binder lowers through P2. Visible term type application, wildcard warning/error behavior, higher-kinded application, and non-generalized hole diagnostics remain incomplete. The `Type`, `Constraint`, and `Symbol` heads are accepted as ordinary type constructors with their declared primitive kinds. Official's CST has no kind-application node; its kind checker synthesizes `KindApp` while instantiating a polymorphic kind, and this compiler performs that instantiation in the kind solver, so its source type spine needs no `KindApplication` node. The source forms that do name a kind or type explicitly are separate nodes. #87 lands both of the forms that blocked P2: a negative type-level integer prefix is the negative literal on the shared spine, and a visible type application `e @T` is elaborated by the checker, which substitutes the written argument for the operand's outermost quantifier after checking it against that quantifier's kind, and is erased at runtime. No P2 surface-lowering case remains. Three limits are recorded rather than approximated. A chained application `f @A @B` is reported, because the quantifiers an application leaves behind are scheme variables here and choosing between them needs the scheme to record which variables a visible application has consumed. A visible application on a class-method head is unresolved, which is `failing/ClassHeadNoVTA3.purs`. And this compiler's CST does not carry the binder visibility that official's `CST/Convert.hs` derives from `forall @a.`, so a plain `forall a.` binder is selectable where `purs` rejects it — the permissive direction, and the remaining half of `failing/VisibleTypeApplications1.purs`. `CannotApplyExpressionOfTypeOnType` and `CannotSkipTypeApplication` are the mapped codes. The primitive row relations themselves all have rules, and the row-side gap that remains is the rigid-tail unification defect under FE-13. | Partial | Model `forall` binder visibility so a visible application matches official, then resolve chained applications and class-method heads. |
 | FE-18 | Higher-rank types, subsumption, impredicativity, and higher-rank `forall` | Bidirectional checking preserves nested quantifiers, checks directional function/record subsumption, and rejects escaping skolems and specialized universal arguments. Source and GC execution cases cover rank-2 through rank-4, fields, returned and captured values, recursive annotations, higher-kinded parameters, and nested constraints. See the [rank-N acceptance record](../implementation/frontend/rank-n.md) for verification evidence and the official differential battery. | Partial | Reconcile the complete official higher-rank/skolem corpus, including its library dependencies and separate higher-rank kind requirements; track visible type application and diagnostic agreement. |
 | FE-19 | Foreign declarations and target-aware external names | Source-declared WIT bindings are resolved for the supported backend path. `foreign import data` is a nominal opaque type with no constructors; a nullary one maps to a WIT resource. THIR and Core keep it as `Constructor(User(id))` plus `opaque_ids`, distinct from `Int` (`lowers_an_opaque_foreign_type_to_core_without_collapsing_it_to_int`). JavaScript FFI is not a frontend target. CC/MIR handle layout is not done. | Partial | Finish target-aware foreign value rules beyond the supported WIT subset. Resource lifetime and handle layout stay in the backend. |
-| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 35/48, L4 35/50, L5 53/84. The L4/L5 denominators count cases reaching their owner stage; 16 cases in the combined run are blocked earlier. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
+| FE-20 | Warnings, holes, source spans, and official diagnostic codes | Source spans exist and resolution, kind, type, and class `errorCode`s are measured: L1 904/908, L2 72/72, L3 35/48, L4 35/50, L5 53/80. Pattern-binder diagnostics match the annotated duplicate-name cases; warning coverage and complete diagnostic agreement remain open. Non-generalized hole diagnostics remain tracked under FE-17. | Partial | Add the missing class checks (#97) and track warning-code agreement separately from acceptance errors. |
 | FE-21 | Typed Core normalization and CoreFn/optimization compatibility | Typed Core lowering and verification work for the supported subset; official optimize output is not yet a target. | Partial | Add Core optimization passes and an explicit optimize compatibility track. |
 
 The frontend landing order is:
@@ -1113,13 +1132,13 @@ Wasm is the target encoding, and WIT/WASI are the platform integration layers.
 | BE-18 | Generic source-declared WIT imports | Compatible `Int`/`Boolean`/`Number` scalars, handles, and `list<u8>`/`string` imports lower through the canonical ABI with signature validation. A WIT `string` is a source `String` and a WIT `list<u8>` is `Array Int`, so the two no longer share a source type ([DEC-16](../decision/DEC-16-scalar-strings-and-utf8-storage.md)). Closed, directly flattened WIT records can contain nested `list<u8>` fields. | Partial | Add other aggregate WIT values, richer results, and user-library loading. |
 | BE-19 | WIT aggregate values and resources | Resource handles lower under [DEC-14](../decision/DEC-14-resource-handle-ownership.md): the compiler drops no handle on its own and exposes `resource.drop` to source, so the standard library owns the lifetime discipline; byte lists and closed WIT records with nested byte-list fields are classified and lowered in WIT field order. Indirect parameter tuples are allocated through `cabi_realloc`. Non-byte `list<T>` of scalars, `bool`, `char`, strings, nullary enums, flags, resource handles, and directly flattened records of scalar or string fields is copied between a source GC array and the canonical buffer, with a driver execution test for `list<string>` and synthesized Wasm fixtures for `list<record>`, `list<flags>`, and `list<handle>` ([ABI-08](../implementation/backend/linear-memory-and-canonical-abi.md) In progress). `option`, `result`, and non-unit `variant` are classified and validated against `Data.Maybe.Maybe`, `Data.Either.Either`, and a source data type, CC derives their variant representation and a concrete payload tree, and MIR branches on each tag and rebuilds the source value recursively for a scalar payload of any width (`s8`..`u64`, `f32`/`f64`), a byte or non-byte list, `flags`, a closed record, and a nested `option`/`result`/`variant`, recursing through record fields and a `list<record>`/`list<flags>` element, with synthesized Wasm fixtures ([DEC-13](../decision/DEC-13-wit-to-source-type-mapping.md)); a large aggregate return area is allocated through `cabi_realloc`, a handle in a result is an ordinary value the standard library drops explicitly, and an indirect parameter record carries a mapped aggregate. The aggregate ABI is generated from one normalized canonical type ([compositional canonical ABI lowering](backend/wasm/canonical-abi-compositional.md)); the descriptor types and per-shape plans are removed. `list<option<T>>`/`list<result>`/`list<variant>` elements, nested `list<list<T>>`, multi-word flags as list elements and in aggregates, non-byte `list<T, N>`, and `list<own<T>>` results are classified and lowered, and a unit-success `result<_, E>` maps to `Either E Unit` (the error on `Left`) and sizes its return area from the error payload. | Partial | Add general aggregate layouts beyond the list-and-handle subset. |
 | BE-20 | Component Model packaging and capability-based imports | `wit-component` lifts the core module to a WASI 0.2 component and prunes unused imports. | Partial | Add component import/export regression cases beyond the CLI path and pass the L6/M7 gate. |
-| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. Source `Effect` values remain inert until the selected entry calls `runEffect`; focused execution tests cover source order and repeated runs ([WASI-02/03](../implementation/backend/wasi-platform.md) Verified). | Partial | Expand source-level runtime cases and pass the L6/M7 gate. |
+| BE-21 | WASI CLI entry, exit, stdout, and stderr | `wasi:cli/run`, exit codes, console output, and error output work in the component path. A selected `Int` entry returns its value as the exit code. A selected `Effect Unit` entry runs that action once, returns 0 after normal completion, and propagates a trap. Creating an action does not run its deferred operation. Focused Wasmtime tests assert output, status, and trap markers ([WASI-02/03](../implementation/backend/wasi-platform.md) Verified). The official board is 124/413, so this row stays Partial. | Partial | Pass the L6/M7 gate. The 63 files with no selected `main` stay explicit blockers. |
 | BE-22 | WASI clocks and randomness | Monotonic time and random bytes are wired through WASI and tested. | Partial | Expose the remaining clock/random library surface and pass the L6/M7 gate. |
 | BE-23 | WASI arguments, environment, and filesystem | WIT descriptions are vendored, but the source library and aggregate lowering are not complete ([WASI-07](../implementation/backend/wasi-platform.md) In progress). | Planned | Add module loading and aggregate/list support, then expose these services. |
 | BE-24 | WASI sockets and HTTP | Not part of the current synchronous portable-program target. | Excluded | Revisit as a separate platform scope after the core target is stable. |
 | BE-25 | WASI 0.3 async streams and futures | The current compiler targets synchronous WASI 0.2. | Planned | Revisit only with an explicit platform decision and async language/library plan. |
 | BE-26 | Standard library and user module loading | User modules are discovered from the entry files' directories and linked transitively ([WASI-09](../implementation/backend/wasi-platform.md) Verified); the PureScript-facing standard library is loaded from `stdlib/lib` in trusted-prefix order ([WASI-10](../implementation/backend/wasi-platform.md) Verified). | Partial | Pass the L6/M7 module-loading scoreboard. |
-| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice, and the `l6_runtime_scoreboard` harness compiles, validates, and runs the 413 non-FFI `passing` files; it measures 0/413 today. The first blockers are 53 missing library modules, 187 P10 entry-point-selection failures, 86 P3 resolution failures, 46 P5 type errors, 17 P5 kind errors, 14 P8 representation errors, 6 P6 Core-lowering failures, and 4 P0 lexing failures; there are 0 harness-loading blockers. The library surface this row was waiting on is landed: `Effect`/`Effect.Console` — including `logShow` over the library `show` — and `Test.Assert`, whose failure path is a real guest trap (`Prelude.trap`). The remaining library work is the `Prelude` class and value surface (#94), the unowned `Data.*` modules (#124), and `Test.Assert.assertEqual` (#95), which #137 blocks because a constraint on a variable inside a record type is elaborated against the record. P10 is the largest single blocker at 187 and is not a library gap, so this row cannot move above 0/413 until Phase 5 selects an entry for `main :: Effect Unit`. The 26 FFI files are excluded. | Partial | Land the `Prelude` class surface, then track per-feature runtime cases against the board. |
+| BE-27 | Wasm/WASI execution and official passing-suite runtime coverage | Vertical execution tests pass for the bootstrap slice, and the `l6_runtime_scoreboard` harness compiles, validates, and runs the 413 non-FFI `passing` files; it measures **124/413** on 2026-10-04 (Wasmtime 49.0.2, `purs` 0.15.16). All 124 exit 0 and are the files whose previous first blocker was a non-`Int` entry. The first blockers of the other 289 are 53 missing library modules, 63 P10 files with no selected `main`, 86 P3 resolution failures, 46 P5 type errors, 17 P5 kind errors, 14 P8 representation errors, 6 P6 Core-lowering failures, and 4 P0 lexing failures; there are 0 harness-loading blockers and 0 P2 blockers. The library surface this row was waiting on is landed: `Effect`/`Effect.Console` — including `logShow` over the library `show` — and `Test.Assert`, whose failure path is a real guest trap (`Prelude.trap`). The remaining library work is the `Prelude` class and value surface (#94), the unowned `Data.*` modules (#124), and `Test.Assert.assertEqual` (#95), which #137 blocks because a constraint on a variable inside a record type is elaborated against the record. The remaining P10 files have no selected `main` and stay explicit blockers; this row does not emit an empty main. The 26 FFI files are excluded. The row stays Partial because L6 is not complete. | Partial | Land the `Prelude` class surface, then track per-feature runtime cases against the board. |
 | BE-28 | JavaScript/Node.js FFI compatibility | Not emitted or executed by this backend. | Excluded | No work planned under this decision. |
 
 ### Topic implementation acceptance
@@ -1137,7 +1156,7 @@ acceptance result.
 | Polymorphism and erasure | BE-02, BE-08; FE-09 input | Re-baselined by DEC-10: PE-01..PE-11 are Verified, including GC-string erasure and capture. | [PE-01..PE-11](../implementation/backend/polymorphism-and-erasure.md) |
 | Scalars and primitives | BE-04; FE-08 input | Re-baselined by DEC-10: SP-01..SP-12 are Verified, including the GC-string representation. | [SP-01..SP-12](../implementation/backend/scalars-and-primitives.md) |
 | Pattern matching | BE-05, BE-06; supporting BE-08, BE-09 | PM-01..PM-15 have implementation, verifier, and required execution evidence. PM-14 includes source-spanned Boolean redundancy and guarded fallthrough; broader feature rows retain their separate gates. | [PM-01..PM-15](../implementation/backend/pattern-matching.md) |
-| Effects | BE-21; supporting BE-02, BE-26 | Representation lowering is in place. `Effect` stays an opaque user application through Typed Core, and `lower_effects` emits a one-parameter closure before closure conversion. EF-01..EF-12 are verified on that encoding; EF-12 covers `trap`, the `Effect Unit` whose application ends the guest, which is how the standard library reports an assertion that did not hold. The negative fixtures call `EffectLowering::verify` after replacing a recorded node with an arity-two `Effect (a -> b)` closure or a closure whose result is wrong; they fail in Core. The backend maps a `VerifyError` that `lower_effects` itself returns. A type table changed after the pass returns is not checked again. BE-21 stays the broader landing gate. `callable_types` remains and is always empty. | [EF-01..EF-11](../implementation/backend/effects.md) |
+| Effects | BE-21; supporting BE-02, BE-26 | Trusted Effect identities and checked WIT schemes are passed explicitly. Source `Effect a` stays abstract through Typed Core; P8 lowers it to a generic one-parameter closure. EF-01..EF-13 are Verified, including the `Effect Unit` command adapter and the lexical `runEffect` rule. A type table changed after `lower_effects` returns is not checked again. The official runtime board is 124/413. The 63 files with no selected `main` remain blocked, and BE-21 stays Partial. | [EF-01..EF-13](../implementation/backend/effects.md) |
 | Type classes and dictionaries | BE-02, BE-09; FE-14/15 input | Backend acceptance complete from verified Typed Core fixtures: DICT-01..DICT-11 have implementation, verifier, and required execution evidence. Source constrained calls, contextual/imported generic instances, superclasses, fundeps, and ordered instance chains execute; FE-14/15 remain partial for remaining source class/fundep coverage, the constrained instance-member specialization limit, and official-suite acceptance. Class-method local constraints are covered under FE-18; deriving is tracked under FE-16. | [DICT-01..DICT-11](../implementation/backend/type-classes-and-dictionaries.md) |
 | Generic aggregate erasure | BE-08, BE-09, BE-10; supporting BE-02, BE-03, BE-13, BE-15 | Topic acceptance complete: all GA-01..GA-20 checks have implementation, verifier and required execution evidence. Broader feature rows retain their separate gates. | [Requirements, repair evidence, and validation](../implementation/backend/generic-aggregate-erasure.md) |
 | Optimization | BE-12 | Topic acceptance complete: OPT-01..OPT-14 have implementation, verifier, and required execution evidence. The official M8-O gate stays on the broader BE-12 row. | [OPT-01..OPT-14](../implementation/backend/optimization.md) |

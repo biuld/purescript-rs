@@ -14,6 +14,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         id: ModuleId(0),
         name: "ConversionDiagnostic".into(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types: vec![
             Type::Constructor(psrs_core::TypeConstructor::Int),
             Type::Constructor(psrs_core::TypeConstructor::Number),

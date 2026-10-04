@@ -9,8 +9,7 @@ use super::run_with_wasmtime;
 #[test]
 fn an_effect_of_a_function_is_not_arity_two_and_log_is_saturated() {
     let source = "module Main where\nimport Prelude\nimport WASI.Clock\nimport WASI.Console\nmk :: Effect (Int -> Int)\nmk = pure (\\x -> x + 1)\nmain = let stored = now in let message = log \"message\" in runEffect (bind mk (\\f -> pure (f 41)))\n";
-    let core = crate::lower_source_to_core("Main.purs", source).expect("source lowers to Core");
-    let stages = psrs_backend::compile_with_stages(core).expect("Core lowers through CC");
+    let stages = crate::compile_main_stages(source).expect("Core lowers through CC");
     let function = |name: &str| {
         stages
             .cc
@@ -75,10 +74,7 @@ fn an_effect_of_a_function_is_not_arity_two_and_log_is_saturated() {
 #[test]
 fn a_partial_source_application_captures_once_and_defers_the_effect() {
     let stored = "module Main where\nimport Prelude\nimport WASI.Console\npick :: Boolean -> String -> Effect Unit\npick choice message = if choice then log message else log \"other\"\nmain = let partial = pick true in 0\n";
-    let stages = psrs_backend::compile_with_stages(
-        crate::lower_source_to_core("Main.purs", stored).expect("source lowers to Core"),
-    )
-    .expect("Core lowers through CC");
+    let stages = crate::compile_main_stages(stored).expect("Core lowers through CC");
     let pick = stages
         .cc
         .functions

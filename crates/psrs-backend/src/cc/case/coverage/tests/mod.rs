@@ -20,6 +20,7 @@ fn module(types: Vec<Type>, constructors: Vec<psrs_core::ConstructorInfo>) -> Mo
         id: ModuleId(0),
         name: "CoverageTest".to_owned(),
         externals: Vec::new(),
+        external_types: Vec::new(),
         types,
         newtype_ids: Vec::new(),
         opaque_ids: Vec::new(),

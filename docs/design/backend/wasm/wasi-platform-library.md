@@ -148,7 +148,7 @@ consolidated capability layout: `WASI.Resource`, `WASI.IO`, `WASI.Console`,
 | On-disk `stdlib/lib` and the trusted prefix | WASI-10 | Done. The driver reads `stdlib/lib/trusted`. |
 | Exported wrappers | This library, [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md) | Every service wrapper, plus the `WASI` umbrella. Raw imports stay unexported. |
 | `wasi:cli/exit.exit` (`status: result`) | Not wrapped | One canonical `i32`, and still not a library wrapper. See below. |
-| `Effect` as `foreign import data` | [Effects](../fp/effects.md) | `Prelude` declares `foreign import data Effect` and the `psrs:effect` externals `pure`, `bind`, `run`, and `trap`. `lower_effects` turns the opaque application into a one-parameter closure after Typed Core and supplies those four bodies. |
+| `Effect` as `foreign import data` | [Effects](../fp/effects.md) | Trusted library binding carries the resolved constructor and operation identities. Effect lowering turns applications into generic one-parameter closures, and import wrappers come only from plans formed from checked external schemes before `Effect` erasure. |
 | `Maybe`, `Either`, records, and data types as wrappers | [DEC-13](../../../decision/DEC-13-wit-to-source-type-mapping.md) | Library types, not compiler types; every `result` is an `Either E O` with the error on `Left`. |
 | **WASI-07 Arguments, environment, and filesystem** | #59 | Verified. `WASI.Process.arguments`/`environment` and `WASI.FileSystem` wrap `wasi:cli/environment` and `wasi:filesystem`; a file round-trip, a directory walk, and an environment read execute under Wasmtime. |
 | **WASI-08 Sockets** | #59 | In progress. `WASI.Network` wraps the socket services and the wrapper surface lowers; no socket execution test yet. HTTP/TLS are excluded. |
@@ -210,15 +210,25 @@ WASI 0.2 families to be enabled in the target profile
 
 ### Entry and exit
 
-The selected entry declaration is a zero-argument `Int` function. P10
-synthesizes the `run` entry that calls `main`, passes the result to
-`wasi:cli/exit.exit-with-code`, and returns `0`, the canonical `ok`
-discriminant of the `run` result. That synthesized call is how `main`'s
-integer code exits. `WASI.Process.exitWithCode` is a separate effectful call to
-the same WIT function; it does not replace the entry. A runtime that
-implements `exit-with-code` as process termination never observes the trailing
-constant, which exists to give the entry its declared `i32` result
-([Wasm encoding](encoding-and-structuring.md)).
+The driver selects one source declaration by resolved identity: `Main.main`
+when present, otherwise the unique top-level declaration named `main`. The
+selected declaration takes no arguments and returns `Int` or the trusted
+`Effect Unit` type. An `Int` declaration keeps the existing zero-argument
+integer command convention and preserves its result. For `Effect Unit`, P8
+generates an ordinary Core adapter that evaluates the selected declaration,
+runs the returned action once, and returns zero after normal completion. The
+adapter becomes the Core entry before CC; no adapter is added around an `Int`
+entry.
+
+The `Effect Unit` wrapper propagates a guest trap instead of producing a
+successful zero exit. P10's `run` entry calls the selected or generated
+zero-argument integer function, passes its result to
+`wasi:cli/exit.exit-with-code`, and returns `0`,
+the canonical `ok` discriminant of the `run` result. `WASI.Process.exitWithCode`
+is a separate effectful call to the same WIT function; it does not replace the
+entry. A runtime that implements `exit-with-code` as process termination never
+observes the trailing constant, which exists to give the entry its declared
+`i32` result ([Wasm encoding](encoding-and-structuring.md)).
 
 ### The platform library
 
@@ -395,18 +405,18 @@ sufficient ([IR boundaries](../00-ir-boundaries.md)).
 
 ## Worked example
 
-Take `main = log "hello"`. The platform library defines `log` over the WIT
-imports `wasi:cli/stdout#get-stdout` and
+Take `main = log "hello"` with the inferred type `Effect Unit`. The platform
+library defines `log` over the WIT imports `wasi:cli/stdout#get-stdout` and
 `wasi:io/streams#[method]output-stream.blocking-write-and-flush`. Linking keeps
 those imports because `main` reaches them, and prunes them otherwise. Lowering
 produces the Canonical ABI call shown in
-[canonical ABI and WIT](canonical-abi-and-wit.md), the string literal lives in a
-data segment ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)),
-and P10 synthesizes the entry that calls `main` and exits. `componentize` then
-lifts the core module: the component imports `wasi:cli/stdout@0.2.12` and
-`wasi:io/streams@0.2.12` (plus their support interfaces) and exports
-`wasi:cli/run@0.2.12`. `wasmtime run hello.wasm` calls `run`, which writes
-`hello\n` and exits with `main`'s code.
+[canonical ABI and WIT](canonical-abi-and-wit.md), and the string literal lives
+in a data segment ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md)).
+The generated command wrapper runs the selected action once and returns zero.
+`componentize` lifts the core module: the component imports
+`wasi:cli/stdout@0.2.12` and `wasi:io/streams@0.2.12` (plus their support
+interfaces) and exports `wasi:cli/run@0.2.12`. `wasmtime run hello.wasm` calls
+`run`, which writes `hello\n` and exits successfully.
 
 ## Boundaries and interfaces
 
