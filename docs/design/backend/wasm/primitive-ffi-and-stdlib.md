@@ -346,7 +346,7 @@ stdlib/lib/
   Data/Function.purs           const, flip, apply, applyFlipped, on, $, #
   Data/Semigroup.purs          class Semigroup, append, <>
   Effect.purs                  the corpus-facing name for that interface
-  Effect/Console.purs          log, warn, error over WASI.Console
+  Effect/Console.purs          log, warn, error over WASI.Console; logShow over show
   Test/Assert.purs             assert, assert', assertTrue, assertFalse
   Data/Maybe.purs              data Maybe a = Nothing | Just a, plus eliminators
   Data/Either.purs             data Either a b = Left a | Right b, plus eliminators
@@ -373,8 +373,10 @@ crates/psrs-backend/src/
   `exitWithCode :: Int -> Effect Unit` and does not export `exitWithCodeRaw`.
   The `WASI` umbrella re-exports the curated API of every focused module.
 - The corpus-facing modules wrap that surface rather than adding imports:
-  `Effect.Console` re-exports `WASI.Console` under the names the suite imports,
-  and `Test.Assert` composes `Effect.Console.error` with `Prelude.trap`. A
+  `Effect.Console` re-exports `WASI.Console` under the names the suite imports
+  and adds `logShow` as `log` of the library's `show`, so it is a wrapper over
+  `Data.Show` and not a second stringifier. `Test.Assert` composes
+  `Effect.Console.error` with `Prelude.trap`. A
   failure is a guest trap because that is the only signal a compilable corpus
   case can carry; `Prelude.trap` is a `psrs:effect` external, not a host call.
 - Each raw binding is an unexported `foreign import` whose parameters and

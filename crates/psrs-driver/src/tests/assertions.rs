@@ -135,3 +135,40 @@ fn assert_true_and_assert_false_report_the_value_that_did_not_hold() {
         "Assertion failed: Expected: true\nActual:   false\n",
     );
 }
+
+/// The renderings `Data.Show` produces, so this fails if `logShow` grows a
+/// stringifier of its own instead of composing the library `show`.
+///
+/// The negative case is written `0 - 7` rather than `- 7` on purpose: unary
+/// minus resolves through an ordinary in-scope `negate`, which this library
+/// does not declare yet, and this test is about the `Show` rendering.
+#[test]
+fn log_show_writes_the_library_rendering() {
+    let source = r#"
+module Main where
+
+import Prelude
+import Effect.Console (logShow)
+
+checks :: Effect Unit
+checks = do
+  logShow 42
+  logShow (0 - 7)
+  logShow "hi"
+  logShow 'c'
+  logShow true
+  logShow [1, 2, 3]
+  pure unit
+
+main = let ignored = runEffect checks in 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        output.stdout, b"42\n-7\n\"hi\"\n'c'\ntrue\n[1,2,3]\n",
+        "`logShow` must write exactly what `Data.Show.show` produces: {output:?}"
+    );
+}

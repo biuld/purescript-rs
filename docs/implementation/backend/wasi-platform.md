@@ -240,7 +240,8 @@ WASI-10:
     a_failed_assertion_traps_with_its_message_when_wasmtime_is_available,
     a_failed_assertion_writes_the_message_before_it_traps,
     a_statement_after_a_failed_assertion_never_runs,
-    assert_true_and_assert_false_report_the_value_that_did_not_hold};
+    assert_true_and_assert_false_report_the_value_that_did_not_hold,
+    log_show_writes_the_library_rendering};
     tests::wasi::{prints_hello_world_when_wasmtime_is_available,
     reads_the_monotonic_clock_when_wasmtime_is_available,
     rejects_an_import_of_unexported_exit_with_code_raw,
