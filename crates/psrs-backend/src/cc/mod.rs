@@ -1,3 +1,4 @@
+use crate::boundary::{BoundaryEvidence, RepresentationRegistry};
 use crate::{BackendError, BackendInput, ExternalBindings, annotate_errors};
 use psrs_core::Module as CoreModule;
 use psrs_hir::{SymbolId, TypeId as HirTypeId};
@@ -248,18 +249,18 @@ pub fn lower_module_with_bindings(
     module: CoreModule,
     bindings: ExternalBindings,
 ) -> Result<BackendInput, Vec<BackendError>> {
-    lower_module_with_relations(module, bindings, None, &HashMap::new())
+    lower_module_with_relations(module, bindings, None, RepresentationRegistry::new())
 }
 
-/// Lowers Core using an immutable source module for instantiation evidence and
-/// representation-owner constructor protocols. `source` is the pre-lowering
-/// module when effect applications have been rewritten; otherwise it is absent
-/// and relations are read from `module` itself.
+/// Lowers Core using the Core-to-CC boundary side table: an immutable source
+/// program for checked instantiation evidence and the registered representation
+/// policies. `source` is the pre-lowering module when effect applications have
+/// been rewritten; otherwise it is absent and relations are read from `module`.
 pub(crate) fn lower_module_with_relations(
     module: CoreModule,
     bindings: ExternalBindings,
     source: Option<&CoreModule>,
-    protocols: &HashMap<HirTypeId, Vec<psrs_core::TypeId>>,
+    registry: RepresentationRegistry,
 ) -> Result<BackendInput, Vec<BackendError>> {
     bindings.validate_core(&module)?;
     let relations = source.unwrap_or(&module);
@@ -349,13 +350,12 @@ pub(crate) fn lower_module_with_relations(
             (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
+    let boundary = BoundaryEvidence::new(relations, &module, registry, layout.protocols);
     let context = LoweringContext {
         module: &module,
-        source: relations,
-        constructor_protocols: protocols,
+        boundary: &boundary,
         signatures: &signatures,
         representations: &layout.representations,
-        transport_signatures: &layout.transport_signatures,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,

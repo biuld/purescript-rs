@@ -46,12 +46,7 @@ impl FunctionLowerer<'_> {
         if source_type == target_type || !is_function_type(self.module, target_type) {
             return Ok(value);
         }
-        let evidence = super::instantiation::instantiation_at(
-            self.source,
-            self.module,
-            source_type,
-            target_type,
-        );
+        let evidence = self.boundary.instantiation_at(source_type, target_type);
         self.adapt_erased_function_value(
             value,
             source_type,

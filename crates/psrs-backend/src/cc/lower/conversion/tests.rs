@@ -1,4 +1,5 @@
 use super::*;
+use crate::boundary::BoundaryEvidence;
 use crate::cc::RepresentationTable;
 use crate::cc::lower::GeneratedSymbolAllocator;
 use psrs_core::Type;
@@ -36,16 +37,15 @@ fn unsupported_typed_boundary_reports_its_source_span() {
     let constructor_reprs = HashMap::new();
     let function_types = HashMap::new();
     let function_wrappers = HashMap::new();
+    let boundary = BoundaryEvidence::empty(&module);
     let mut lowerer = FunctionLowerer {
         next_value: 0,
         values: Vec::new(),
         locals: HashMap::new(),
         signatures: &signatures,
         representations: &representations,
-        transport_signatures: &HashMap::new(),
         module: &module,
-        source: &module,
-        constructor_protocols: &HashMap::new(),
+        boundary: &boundary,
         enum_types: &ids,
         aggregate_types: &ids,
         newtype_ids: &ids,

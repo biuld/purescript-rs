@@ -1,5 +1,6 @@
 pub mod abi;
 mod bindings;
+mod boundary;
 pub mod capability;
 pub mod cc;
 pub mod component;
@@ -150,13 +151,13 @@ pub fn lower_cc_with_context(
 ) -> Result<BackendInput, Vec<BackendError>> {
     let mut external_bindings = ExternalBindings::from_core(&module);
     let mut source = None;
-    let mut protocols = std::collections::HashMap::new();
+    let mut registry = boundary::RepresentationRegistry::new();
     if let Some(context) = effect_context {
         let prepared = effects::lower_effects(&mut module, &mut external_bindings, context)?;
-        protocols = prepared.protocols;
+        registry = prepared.registry;
         source = Some(prepared.source);
     }
-    cc::lower_module_with_relations(module, external_bindings, source.as_ref(), &protocols)
+    cc::lower_module_with_relations(module, external_bindings, source.as_ref(), registry)
 }
 
 /// The default-profile validator, retained for backend unit tests.

@@ -1,3 +1,4 @@
+use crate::boundary::BoundaryEvidence;
 use crate::cc::lower::{FunctionLowerer, GeneratedSymbolAllocator};
 use crate::cc::{
     Function, RefShape, Reference, ReprId, RepresentationTable, ValueDecl, ValueShape,
@@ -43,6 +44,7 @@ pub(super) fn lower_and_verify(
     let function_types = HashMap::new();
     let function_wrappers = HashMap::new();
     let generated_symbols = Rc::new(RefCell::new(GeneratedSymbolAllocator::new(module)));
+    let boundary = BoundaryEvidence::empty(module);
     let mut lowerer = FunctionLowerer {
         next_value: 1,
         values: vec![ValueDecl {
@@ -52,10 +54,8 @@ pub(super) fn lower_and_verify(
         locals: HashMap::new(),
         signatures: &signatures,
         representations: context.representations,
-        transport_signatures: &HashMap::new(),
         module,
-        source: module,
-        constructor_protocols: &HashMap::new(),
+        boundary: &boundary,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: &newtype_ids,

@@ -273,12 +273,7 @@ impl FunctionLowerer<'_> {
         // is the checked instance, including a constructor such as Effect.
         // The source module still has that relation after representation
         // rewriting replaces applications at the same type ids.
-        let evidence = super::instantiation::instantiation_at(
-            self.source,
-            self.module,
-            field_layout.ty,
-            target_type,
-        );
+        let evidence = self.boundary.instantiation_at(field_layout.ty, target_type);
         let conversion = self.typed_conversion_with_instantiation(
             field_layout.ty,
             target_type,

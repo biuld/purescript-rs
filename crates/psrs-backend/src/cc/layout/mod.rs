@@ -288,7 +288,7 @@ pub(super) fn type_layout(
     }
 
     Ok(TypeLayout {
-        transport_signatures: functions::transport_signatures(&mut representations),
+        protocols: crate::boundary::payload_erased_protocols(&mut representations, &function_types),
         representations,
         array_types,
         record_types,
@@ -300,7 +300,10 @@ pub(super) fn type_layout(
 }
 
 pub(super) struct TypeLayout {
-    pub(super) transport_signatures: HashMap<Vec<ValueShape>, SignatureId>,
+    /// The payload-erased protocol signature of each callable constructor,
+    /// keyed by its concrete signature. Built from the registered
+    /// representation owners and the module's callable signatures.
+    pub(super) protocols: HashMap<SignatureId, SignatureId>,
     pub(super) representations: RepresentationTable,
     pub(super) array_types: HashMap<TypeId, ReprId>,
     pub(super) record_types: HashMap<TypeId, ReprId>,

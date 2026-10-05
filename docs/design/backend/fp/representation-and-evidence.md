@@ -490,19 +490,20 @@ directly in the erased slot and needs no array map.
 
 ## Implementation notes
 
-The current lowering implements this contract in part. It reconstructs the
-checked relation inside P8 from the immutable Core module
-(`cc/lower/instantiation.rs`), and it derives callable constructor policies from
-a HIR-`TypeId`-keyed table (`FunctionLowerer::constructor_protocols`) plus a
-signature-prefix derivation (`cc/layout/functions/mod.rs::transport_signatures`).
-Those are interim mechanisms, not the model: the checked relation and each
-producer policy should be produced by their owning stages and travel through the
-side table. Keying a semantic CC decision on a HIR identity, and deriving a
-policy by enumerating signatures, are the deviations to remove, and they are
-recorded in
-[polymorphism and erasure](../../../implementation/backend/polymorphism-and-erasure.md).
+Checked instantiation evidence and the representation policies of constructors
+reach P8 through the Core-to-CC side table (`psrs-backend/src/boundary.rs`),
+beside CC the way `ExternalBindings` carries the WIT boundary. P8 reads the
+checked relation from the immutable source program and the registered
+`RepresentationPolicy` per constructor; it does not reconstruct the relation
+from the Core type arena, key a semantic decision on a HIR identity, or derive a
+policy by enumerating signatures. The registry registers `Function` (whose fixed
+parameters are its checked instantiation arguments) and the trusted `Effect`
+(whose fixed parameter is its runtime token); an unregistered constructor is
+reported rather than resolved by arity or a signature search. Protocol
+signatures are interned once per registered callable constructor as the concrete
+calling convention with the payload erased.
 
-The effect token is likewise a placeholder: the model makes it the `State#
+The effect token remains a placeholder: the model makes it the `State#
 RealWorld` analogue, while the current lowering uses the constant `i32` `0`
 ([effects](../../../implementation/backend/effects.md)).
 

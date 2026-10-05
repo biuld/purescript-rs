@@ -135,14 +135,12 @@ EF-13:
 EF-14:
   Implementation: crates/psrs-core/src/instantiation.rs (checked
     instantiation), crates/psrs-backend/src/effects/mod.rs (the Effect
-    representation owner contributes the runtime token as the `Effect`
-    constructor policy), crates/psrs-backend/src/cc/lower/conversion/
-    (transport.rs and callable.rs) and cc/lower/{global,record,erased}
-    (evidence threaded to each boundary). The token and the
-    HIR-`TypeId`-keyed policy table are the transitional mechanism described in
-    [polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md#implementation-notes);
-    the design token is the `State# RealWorld` analogue and the policy should
-    travel with the value, not be keyed by source identity.
+    representation owner registers the runtime token as a
+    `RepresentationPolicy` in the Core-to-CC registry), crates/psrs-backend/
+    src/boundary.rs (`BoundaryEvidence`), crates/psrs-backend/src/cc/lower/
+    conversion/ (transport.rs and callable.rs) and cc/lower/{global,record,erased}
+    (evidence read from the boundary at each use). The token itself is still the
+    `i32` `0` placeholder; the design token is the `State# RealWorld` analogue.
   Tests: tests::effects::discard_defined_from_bind_sequences_effects (stdout
     `a\nb\n`, exit 0); tests::functor::
     mapping_an_effect_does_not_run_it_until_the_action_runs (stdout

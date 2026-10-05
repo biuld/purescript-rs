@@ -90,7 +90,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                 // Evidence is required only if the adaptation reaches an
                 // abstract constructor boundary; `constructor_transport`
                 // reports the missing binding where the boundary applies.
-                let evidence = self.source.checked_instantiation(
+                let evidence = self.boundary.checked_instantiation(
                     source_type,
                     &declaration.quantified,
                     expression.ty,
@@ -133,7 +133,7 @@ impl GlobalLowering for FunctionLowerer<'_> {
                     global_error(expression, "global value has no source declaration type")
                 })?;
             let source_type = declaration.ty;
-            let evidence = self.source.checked_instantiation(
+            let evidence = self.boundary.checked_instantiation(
                 source_type,
                 &declaration.quantified,
                 expression.ty,

@@ -3,6 +3,7 @@ use super::{
     Assignment, AssignmentKind, Function, ReprId, RepresentationTable, Signature, SignatureId,
     ValueDecl, ValueId, ValueShape,
 };
+use crate::boundary::BoundaryEvidence;
 use crate::{BackendError, BackendWarning};
 use psrs_core::{Expr, ExprKind, Module as CoreModule, dictionary::ClassLayout};
 use psrs_hir::{LocalId, ModuleId, SymbolId, TypeId as HirTypeId};
@@ -17,7 +18,6 @@ mod conversion;
 mod dictionary;
 mod erased;
 mod global;
-pub(in crate::cc::lower) mod instantiation;
 mod intrinsic;
 mod lambda;
 mod letrec;
@@ -35,16 +35,12 @@ pub(in crate::cc) use symbols::GeneratedSymbolAllocator;
 
 pub(super) struct LoweringContext<'a> {
     pub(super) module: &'a CoreModule,
-    /// Types used for checked instantiation. This is the physical module when
-    /// representation lowering has not rewritten any source type.
-    pub(super) source: &'a CoreModule,
-    /// Fixed calling-convention parameters registered by a representation
-    /// owner, keyed by the source constructor. `Function` is not in this map:
-    /// its fixed parameters are the checked instantiation arguments.
-    pub(super) constructor_protocols: &'a HashMap<HirTypeId, Vec<psrs_core::TypeId>>,
+    /// The Core-to-CC boundary side table: checked instantiation evidence and
+    /// the registered representation policies. Replaces ambient reads of the
+    /// Core arena and any HIR-keyed protocol table.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
-    pub(super) transport_signatures: &'a HashMap<Vec<ValueShape>, SignatureId>,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,
@@ -72,10 +68,8 @@ pub(super) fn lower_function(
         local_types: HashMap::new(),
         signatures: context.signatures,
         representations: context.representations,
-        transport_signatures: context.transport_signatures,
         module,
-        source: context.source,
-        constructor_protocols: context.constructor_protocols,
+        boundary: context.boundary,
         enum_types: context.enum_types,
         aggregate_types: context.aggregate_types,
         newtype_ids: context.newtype_ids,
@@ -214,10 +208,10 @@ pub(super) struct FunctionLowerer<'a> {
     pub(super) local_types: HashMap<LocalId, psrs_core::TypeId>,
     pub(super) signatures: &'a HashMap<SymbolId, Signature>,
     pub(super) representations: &'a RepresentationTable,
-    pub(super) transport_signatures: &'a HashMap<Vec<ValueShape>, SignatureId>,
     pub(super) module: &'a CoreModule,
-    pub(super) source: &'a CoreModule,
-    pub(super) constructor_protocols: &'a HashMap<HirTypeId, Vec<psrs_core::TypeId>>,
+    /// Checked instantiation evidence and registered representation policies,
+    /// supplied by the Core-to-CC boundary.
+    pub(super) boundary: &'a BoundaryEvidence<'a>,
     pub(super) enum_types: &'a HashSet<HirTypeId>,
     pub(super) aggregate_types: &'a HashSet<HirTypeId>,
     pub(super) newtype_ids: &'a HashSet<HirTypeId>,

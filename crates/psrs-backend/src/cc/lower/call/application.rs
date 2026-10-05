@@ -60,8 +60,11 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                 .iter()
                 .find(|declaration| declaration.symbol == function);
             let evidence = declaration.and_then(|declaration| {
-                self.source
-                    .checked_instantiation(declaration.ty, &declaration.quantified, head.ty)
+                self.boundary.checked_instantiation(
+                    declaration.ty,
+                    &declaration.quantified,
+                    head.ty,
+                )
             });
             self.check_call_shape(
                 &signature,

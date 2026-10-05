@@ -6,7 +6,7 @@ use crate::{
     BackendError,
     cc::{RecoveryEvidence, RefShape, Reference, ValueConversion, ValueShape},
 };
-use psrs_core::{Instantiation, Type, TypeConstructor, TypeId};
+use psrs_core::{Instantiation, Type, TypeId};
 use psrs_span::TextRange;
 
 fn abstract_head(module: &psrs_core::Module, ty: TypeId) -> Option<psrs_hir::TypeVariableId> {
@@ -52,18 +52,16 @@ impl FunctionLowerer<'_> {
         let (constructor, arguments) = evidence.and_then(|proof| proof.constructor(variable))
             .ok_or_else(|| vec![BackendError::new("P8 closure conversion", span,
                 format!("abstract constructor transport has no checked constructor binding for {variable:?}, endpoints {source:?} -> {target:?}"))])?;
-        let parameter_types = self.protocol_parameters(constructor, arguments, span)?;
+        let parameter_types = self
+            .boundary
+            .protocol_parameters(constructor, &arguments)
+            .ok_or_else(|| {
+                conversion_error(span, "constructor transport has no representation protocol")
+            })?;
         let parameters = parameter_types
             .into_iter()
             .map(|ty| self.value_shape(ty, span))
             .collect::<Result<Vec<_>, _>>()?;
-        let protocol = self
-            .transport_signatures
-            .get(&parameters)
-            .copied()
-            .ok_or_else(|| {
-                conversion_error(span, "constructor transport has no registered signature")
-            })?;
         let concrete = callable(if entering { source_shape } else { target_shape }).unwrap();
         let signature = self.representations.signature(concrete).ok_or_else(|| {
             conversion_error(span, "constructor transport has no concrete signature")
@@ -74,6 +72,9 @@ impl FunctionLowerer<'_> {
                 "constructor transport requires a callable segment adapter",
             ));
         }
+        let protocol = self.boundary.protocol_signature(concrete).ok_or_else(|| {
+            conversion_error(span, "constructor transport has no registered protocol")
+        })?;
         let payload = signature.result;
         let protocol_shape = ValueShape::Reference(Reference {
             nullable: false,
@@ -98,33 +99,5 @@ impl FunctionLowerer<'_> {
             ])
         };
         Ok(Some(plan))
-    }
-
-    /// Fixed parameters of a constructor protocol.
-    ///
-    /// `Function` takes its checked instantiation arguments (the Reader domain).
-    /// A registered representation owner, such as Effect, supplies its own
-    /// hidden parameters (the runtime token) and does not read them off the
-    /// closure. An unregistered constructor is rejected.
-    fn protocol_parameters(
-        &self,
-        constructor: TypeConstructor,
-        arguments: Vec<TypeId>,
-        span: TextRange,
-    ) -> Result<Vec<TypeId>, Vec<BackendError>> {
-        match constructor {
-            TypeConstructor::Function if arguments.len() == 1 => Ok(arguments),
-            TypeConstructor::User(type_id) if arguments.is_empty() => self
-                .constructor_protocols
-                .get(&type_id)
-                .cloned()
-                .ok_or_else(|| {
-                    conversion_error(span, "constructor transport has no representation protocol")
-                }),
-            _ => Err(conversion_error(
-                span,
-                "constructor transport has no callable representation contract",
-            )),
-        }
     }
 }

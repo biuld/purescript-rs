@@ -276,15 +276,16 @@ PE-13:
   Implementation: psrs-core/src/instantiation.rs (read-only checked
     instantiation evidence), psrs-core/src/verify/types/matching/invariant.rs
     (invariant matcher with explicit constructor binding), psrs-backend/src/
-    cc/lower/instantiation.rs (scheme/use evidence that borrows the immutable
-    source module), cc/lower/conversion/transport.rs (constructor transport),
+    boundary.rs (BoundaryEvidence and the RepresentationRegistry: scheme/use
+    evidence read from the immutable source module; Function and Effect
+    constructor policies; payload-erased protocol signatures),
+    cc/lower/conversion/transport.rs (constructor transport),
     cc/lower/conversion/callable.rs (representation-only adapter emission),
     cc/lower/conversion/mod.rs (plan_conversion consults transport first),
     cc/lower/erased/mod.rs and cc/lower/{global,record}/mod.rs (evidence
-    threaded to the boundary), cc/lower/call/partial.rs
+    read from the boundary at the use), cc/lower/call/partial.rs
     (lower_indirect_partial_application captures an under-applied local or
-    dictionary callee), cc/layout/functions/mod.rs
-    (transport_signatures registers the producer protocol).
+    dictionary callee).
   Tests: psrs-driver tests::closure_protocol::
     reader_dictionary_returns_the_concrete_result (Reader `Chain ((->) Int)`
     exits 42 with empty stdout),
@@ -339,20 +340,15 @@ PE-13:
   nodes on the type, and constructors other than `Function` and the registered
   Effect token protocol do not each have explicit execution evidence. The two
   experimental worktrees are stopped and are not integrated.
-- **Transitional representation evidence (to remove).** P8 currently
-  reconstructs the checked instantiation relation from the immutable Core module
-  (`cc/lower/instantiation.rs`, `FunctionLowerer::source`) and derives callable
-  constructor policies from a HIR-`TypeId`-keyed table
-  (`FunctionLowerer::constructor_protocols`) plus a signature-prefix derivation
-  (`cc/layout/functions/mod.rs::transport_signatures`). The design
-  ([representation and
-  evidence](../../design/backend/fp/representation-and-evidence.md))
-  calls for the checked relation and each erased value's representation policy
-  to be produced by their owning stages and carried through an explicit
-  Core-to-CC side table, the way `ExternalBindings` carries the WIT boundary.
-  These fields are the interim implementation and should be removed when that
-  side table lands; keying a semantic CC decision on a HIR identity, and
-  deriving a protocol by enumerating signatures, are not the model.
+- **Representation evidence and policies (landed).** Checked instantiation
+  evidence and constructor representation policies reach P8 through the
+  Core-to-CC side table (`psrs-backend/src/boundary.rs`). The
+  `RepresentationRegistry` registers `Function` (checked instantiation arguments)
+  and the trusted `Effect` (runtime token); `BoundaryEvidence` provides the
+  checking-owned relation and the payload-erased protocol signature of each
+  callable constructor. `FunctionLowerer::source`, `constructor_protocols`, and
+  `transport_signatures` are gone. What remains is the effect token placeholder
+  and the two-relation matcher, tracked separately.
 - **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
   for reasons this topic does not own: five use `-` or `/` without importing the
   library operator that now owns it (`tests::scalars`, `tests::functions`,

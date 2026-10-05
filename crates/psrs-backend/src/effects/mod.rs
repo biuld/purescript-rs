@@ -5,17 +5,17 @@ mod entry;
 mod suspension;
 mod verify;
 
+use super::boundary::{RepresentationPolicy, RepresentationRegistry};
 use crate::BackendError;
 use crate::bindings::ExternalBindings;
-use psrs_core::{Module as CoreModule, TypeId, effect::EffectCompilation};
-use psrs_hir::TypeId as HirTypeId;
-use std::collections::{HashMap, HashSet};
+use psrs_core::{Module as CoreModule, TypeConstructor, effect::EffectCompilation};
+use std::collections::HashSet;
 
 /// Source Core captured before effect applications become closures, plus the
-/// token protocol the Effect representation owner contributes to conversion.
+/// representation registry the Effect owner contributes to conversion.
 pub(crate) struct EffectPreparation {
     pub(crate) source: CoreModule,
-    pub(crate) protocols: HashMap<HirTypeId, Vec<TypeId>>,
+    pub(crate) registry: RepresentationRegistry,
 }
 
 pub(crate) fn lower_effects(
@@ -29,7 +29,7 @@ pub(crate) fn lower_effects(
     let source = module.clone();
     let lowering = psrs_core::effect::lower_effects(module, &context.trusted)
         .map_err(|errors| verify::verification_errors(&errors))?;
-    let protocols = effect_protocols(module, &context.trusted, &lowering)?;
+    let registry = effect_registry(module, &context.trusted, &lowering)?;
 
     let applied = suspension::apply(module, bindings, &suspensions)?;
     if let Some(entry) = context.command_entry {
@@ -47,17 +47,17 @@ pub(crate) fn lower_effects(
     bindings
         .imports
         .retain(|binding| !synthesized.contains(&binding.symbol));
-    Ok(EffectPreparation { source, protocols })
+    Ok(EffectPreparation { source, registry })
 }
 
-/// The Effect constructor's stored calling convention is the token chosen by
-/// effect lowering. The payload remains the application's result and is not a
-/// hidden parameter.
-fn effect_protocols(
+/// The Effect representation owner registers its constructor's stored calling
+/// convention: the runtime token chosen by effect lowering. The payload
+/// remains the application's result and is not a hidden parameter.
+fn effect_registry(
     module: &CoreModule,
     trusted: &psrs_core::effect::TrustedEffect,
     lowering: &psrs_core::effect::EffectLowering,
-) -> Result<HashMap<HirTypeId, Vec<TypeId>>, Vec<BackendError>> {
+) -> Result<RepresentationRegistry, Vec<BackendError>> {
     let mut tokens = HashSet::new();
     for closure in &lowering.closures {
         tokens.insert(closure.token);
@@ -69,11 +69,14 @@ fn effect_protocols(
             "Effect lowering produced more than one runtime token",
         )]);
     }
-    let mut protocols = HashMap::new();
+    let mut registry = RepresentationRegistry::new();
     if let Some(token) = tokens.into_iter().next() {
-        protocols.insert(trusted.effect_type, vec![token]);
+        registry.register(
+            TypeConstructor::User(trusted.effect_type),
+            RepresentationPolicy::Fixed(vec![token]),
+        );
     }
-    Ok(protocols)
+    Ok(registry)
 }
 
 fn validate_entry_context(

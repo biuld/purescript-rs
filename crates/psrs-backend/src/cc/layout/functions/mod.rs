@@ -99,40 +99,6 @@ pub(super) struct FunctionLayouts {
     pub(super) function_types: HashMap<TypeId, SignatureId>,
 }
 
-/// Registers physical callable-constructor protocols. A checked constructor
-/// binding determines the fixed parameter prefix; the varying payload uses the
-/// erased result protocol. These are representation-only signatures.
-pub(super) fn transport_signatures(
-    representations: &mut RepresentationTable,
-) -> HashMap<Vec<ValueShape>, SignatureId> {
-    let mut interned = representations
-        .signatures
-        .iter()
-        .cloned()
-        .enumerate()
-        .map(|(index, signature)| (signature, SignatureId(index as u32)))
-        .collect::<HashMap<_, _>>();
-    let signatures = representations.signatures.clone();
-    let mut protocols = HashMap::new();
-    for signature in signatures {
-        for count in 0..=signature.parameters.len() {
-            let parameters = signature.parameters[..count].to_vec();
-            let protocol = Signature {
-                parameters: parameters.clone(),
-                result: ValueShape::Reference(crate::cc::Reference {
-                    nullable: false,
-                    heap: RefShape::Erased,
-                }),
-            };
-            let id = *interned
-                .entry(protocol.clone())
-                .or_insert_with(|| representations.add_signature(protocol));
-            protocols.insert(parameters, id);
-        }
-    }
-    protocols
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn function_signature(
     module: &CoreModule,

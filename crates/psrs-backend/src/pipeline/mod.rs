@@ -91,7 +91,7 @@ pub(crate) fn compile_with_context_inner(
     };
 
     let mut effect_source = None;
-    let mut effect_protocols = std::collections::HashMap::new();
+    let mut effect_registry = crate::boundary::RepresentationRegistry::new();
     if let Some(context) = effect_context.as_ref() {
         let effect_call = trace.as_deref_mut().map(|trace| {
             trace.begin(
@@ -116,7 +116,7 @@ pub(crate) fn compile_with_context_inner(
                 return Err(errors);
             }
         };
-        effect_protocols = prepared.protocols;
+        effect_registry = prepared.registry;
         effect_source = Some(prepared.source);
         if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
             let outputs = trace.complete(
@@ -190,7 +190,7 @@ pub(crate) fn compile_with_context_inner(
         module,
         external_bindings,
         effect_source.as_ref(),
-        &effect_protocols,
+        effect_registry,
     ) {
         Ok(lowered) => lowered,
         Err(errors) => {

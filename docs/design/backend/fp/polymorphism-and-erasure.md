@@ -646,18 +646,14 @@ conversion plans, including recursive function-adapter leaves. The
 distinguishes source programs from verified Typed Core backend fixtures and
 records source coverage and remaining obligations.
 
-**Transitional mechanism.** The current lowering does not yet carry a
-representation policy explicitly. It reconstructs the checked boundary
-relation inside P8 from the immutable Core module, and it derives callable
-constructor policies from a constructor-identity table supplied by the Effect
-owner plus a signature-prefix derivation over the registered signatures. Both
-are interim implementations of this design, not the model: the checked
-relation and each value's representation policy should be produced by their
-owning stages and travel to P8 through an explicit Core-to-CC side table, the
-same boundary discipline `ExternalBindings` already uses. Keying a semantic
-decision on a HIR type identity inside CC, and deriving a protocol by
-enumerating signatures, are deviations to remove once that side table exists;
-they are recorded as such in the acceptance record.
+Checked instantiation evidence and each constructor's representation policy
+travel to P8 through the Core-to-CC side table
+(`psrs-backend/src/boundary.rs`), beside CC the way `ExternalBindings` carries
+the WIT boundary. The `RepresentationRegistry` registers `Function` (its checked
+instantiation arguments are the fixed protocol parameters) and the trusted
+`Effect` (its runtime token); an unregistered constructor is reported rather
+than resolved by arity or a signature search, and the payload-erased protocol
+signature is interned once per registered callable constructor.
 
 ## References
 
