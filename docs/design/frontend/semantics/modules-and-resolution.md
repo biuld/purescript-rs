@@ -94,7 +94,17 @@ declared identities through qualification and re-exports, and carry a
 reach the same compiler-owned identity. A source module named `Prim` or
 beginning with `Prim.` is rejected; source cannot replace a compiler interface.
 The root `undefined` value reaches source only through this interface, not as a
-free name.
+free name. The compiler-provided set is not limited to `Prim`:
+`Safe.Coerce` is virtual too, exporting `coerce` as the checked coercion
+intrinsic and `Coercible` as the shared declared class. Because the vendored
+official `Safe.Coerce` source is kept faithful to upstream — its body is
+`coerce = unsafeCoerce` — the driver must not load an on-disk file for a module
+the compiler provides; doing so would shadow the interface with a body the
+project cannot compile. The loader skips such a module and imports fall through
+to the virtual interface. `Unsafe.Coerce.unsafeCoerce` has no compiler
+interface yet: the vendored module is faithful but its `foreign import` is
+represented as a self-recursive stub this project cannot execute, so a program
+that reaches it is a recorded gap rather than a working coercion.
 
 This document owns that interface: which names exist, which identity each carries,
 and that nothing in source can replace one. What a member *means* — which of them

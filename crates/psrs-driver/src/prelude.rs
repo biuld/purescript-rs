@@ -91,6 +91,13 @@ fn read_library() -> Result<Library, String> {
     let names = read_trusted_names(&lib.join("trusted"))?;
     let mut modules = Vec::with_capacity(names.len());
     for name in names {
+        // A compiler-provided module (for example `Safe.Coerce`) resolves
+        // through its primitive interface. Loading the vendored file as well
+        // would shadow that interface with the official `unsafeCoerce` body,
+        // which the project cannot compile.
+        if psrs_resolve::compiler_provided_module(&name) {
+            continue;
+        }
         let path = module_file(&lib, &name);
         let text = std::fs::read_to_string(&path)
             .map_err(|error| format!("{}: {error}", path.display()))?;

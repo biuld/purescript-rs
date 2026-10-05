@@ -17,6 +17,12 @@ mod interface;
 
 use interface::Interface;
 
+/// Whether the compiler provides `name` as a primitive interface rather than
+/// from source. A library file with the same name must not shadow it.
+pub fn compiler_provided_module(name: &str) -> bool {
+    Interface::primitive_module(name).is_some()
+}
+
 /// A resolution error tied to one module of a program.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramError {
