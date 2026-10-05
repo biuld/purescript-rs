@@ -3,10 +3,16 @@ use super::super::super::*;
 use super::super::evidence::record_field_type;
 use super::flatten_spine;
 
+struct CheckedNewtype {
+    type_id: hir::TypeId,
+    underlying: InferType,
+}
+
 impl Checker {
     /// Builds the method implementation for a `derive newtype` instance.
     /// The source method is selected from the wrapped type's dictionary, then
-    /// adapted at each function boundary through checked Coercible evidence.
+    /// adapted through the trusted representation-transparent newtype contract.
+    /// This is dictionary reuse, not a claim of ordinary Coercible entailment.
     pub(in crate::typecheck::classes) fn derive_newtype_method(
         &mut self,
         class_id: hir::TypeId,
@@ -22,7 +28,12 @@ impl Checker {
                 "derive newtype class head has the wrong arity",
             );
         }
-        let underlying = self.newtype_underlying_type(class_arguments, span, false)?;
+        let checked = self.checked_newtype(class_arguments, span, false)?;
+        let origin = thir::UncheckedCoercionOrigin::NewtypeDeriving {
+            class_id,
+            newtype_id: checked.type_id,
+        };
+        let underlying = checked.underlying;
 
         let mut underlying_arguments = class_arguments.to_vec();
         *underlying_arguments.last_mut()? = underlying;
@@ -86,6 +97,7 @@ impl Checker {
                 underlying_method_type,
                 derived_method_type,
                 span,
+                origin,
             )
         })
     }
@@ -104,6 +116,16 @@ impl Checker {
         span: TextRange,
         deriving_newtype_class: bool,
     ) -> Option<InferType> {
+        self.checked_newtype(class_arguments, span, deriving_newtype_class)
+            .map(|checked| checked.underlying)
+    }
+
+    fn checked_newtype(
+        &mut self,
+        class_arguments: &[InferType],
+        span: TextRange,
+        deriving_newtype_class: bool,
+    ) -> Option<CheckedNewtype> {
         let Some(newtype) = class_arguments.last() else {
             return self.deriving_error(
                 TypeCheckErrorKind::InvalidNewtypeInstance,
@@ -180,7 +202,10 @@ impl Checker {
                 "the wrapped type must end in every unapplied newtype parameter",
             );
         };
-        Some(underlying)
+        Some(CheckedNewtype {
+            type_id: *type_id,
+            underlying,
+        })
     }
 
     fn adapt_newtype_method(
@@ -189,6 +214,7 @@ impl Checker {
         source: InferType,
         target: InferType,
         span: TextRange,
+        origin: thir::UncheckedCoercionOrigin,
     ) -> Option<InferredExpr> {
         let source = self.resolve_type(source);
         let target = self.resolve_type(target);
@@ -217,6 +243,7 @@ impl Checker {
                 source_body.as_ref().clone(),
                 target_body.as_ref().clone(),
                 span,
+                origin,
             )?;
             return Some(InferredExpr {
                 ty: target,
@@ -249,6 +276,7 @@ impl Checker {
                 target_parameter.clone(),
                 source_parameter,
                 span,
+                origin,
             );
             let applied = InferredExpr {
                 kind: InferredExprKind::Application(Box::new(value), Box::new(converted_argument)),
@@ -260,6 +288,7 @@ impl Checker {
                 source_result.clone(),
                 target_result.clone(),
                 span,
+                origin,
             )?;
             return Some(InferredExpr {
                 kind: InferredExprKind::Lambda {
@@ -273,7 +302,7 @@ impl Checker {
                 span,
             });
         }
-        Some(self.apply_newtype_coercion(value, source, target, span))
+        Some(self.apply_newtype_coercion(value, source, target, span, origin))
     }
 
     fn apply_newtype_coercion(
@@ -282,20 +311,14 @@ impl Checker {
         source: InferType,
         target: InferType,
         span: TextRange,
+        origin: thir::UncheckedCoercionOrigin,
     ) -> InferredExpr {
-        let constraint = ClassConstraint {
-            class_id: hir::TypeId::COERCIBLE,
-            arguments: vec![source.clone(), target.clone()],
-            span,
-        };
-        let dictionary_type = self.dictionary_type(&constraint);
-        let wanted = self.push_wanted(constraint, dictionary_type);
         let function_type = arrow(source.clone(), target.clone());
         let function = InferredExpr {
-            kind: InferredExprKind::CoerceFunction {
-                wanted,
+            kind: InferredExprKind::UnsafeCoerceFunction {
                 source,
                 target: target.clone(),
+                origin,
             },
             ty: function_type,
             span,

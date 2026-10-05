@@ -112,7 +112,11 @@ impl Checker {
                     body: Box::new(body),
                 }
             }
-            InferredExprKind::UnsafeCoerceFunction { source, target } => {
+            InferredExprKind::UnsafeCoerceFunction {
+                source,
+                target,
+                origin,
+            } => {
                 let source_type =
                     self.finalize_type(&source, expression.span, interner, generics)?;
                 let target_type =
@@ -135,6 +139,7 @@ impl Checker {
                         value: Box::new(value),
                         source_type,
                         target_type,
+                        origin,
                     },
                     ty: target_type,
                     span: expression.span,

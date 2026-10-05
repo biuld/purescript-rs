@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn newtype_deriving_reuses_a_dictionary_under_an_unknown_constructor() {
+    let source = r#"module Main where
+
+data Id a = Id a
+
+class Tick m where
+  project :: m Int -> Int
+
+instance tickId :: Tick Id where
+  project (Id n) = n
+
+class Echo t where
+  echo :: forall f. f t -> f t
+  run :: forall m. Tick m => (t -> m t) -> t -> Int
+
+instance echoInt :: Echo Int where
+  echo value = value
+  run f n = project (f n)
+
+newtype Age = Age Int
+
+derive newtype instance echoAge :: Echo Age
+
+main :: Int
+main = case echo (Id (Age 42)) of
+  Id (Age n) -> run (\x -> Id x) (Age n)
+  _ -> 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(
+        output.status.code(),
+        Some(42),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn polymorphic_newtype_deriving_executes_its_adapter() {
     let source = r#"module Main where
 

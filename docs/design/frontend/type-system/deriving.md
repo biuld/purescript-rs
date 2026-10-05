@@ -27,8 +27,9 @@ function boundary.
 It does not own the class solver, instance search, coherence, evidence
 elaboration, or superclass projection; those are
 [classes and evidence](classes-and-evidence.md). It does not own the
-`Coercible` proof; [primitives](prim.md) owns that rule and this document only
-consumes its proof boundary. It does not own roles or the checked kind
+`Coercible` proof; [primitives](prim.md) owns that rule. Newtype deriving does
+not consume it: a wrapped dictionary is reused after the newtype check. It does
+not own roles or the checked kind
 environment ([kinds](kinds.md)), the constraint and `TypeTemplate`
 representation, or the surface grammar of `derive` declarations
 ([parsing and CST](../syntax/parsing-and-cst.md)). Deriving is a distinct topic
@@ -62,7 +63,8 @@ introduces a special evidence form.
 
 `derive newtype instance` is a separate strategy. It does not walk the wrapped
 type's fields at all: it selects the dictionary for the wrapped class head and
-adapts each method at function boundaries through checked `Coercible` evidence.
+adapts each method at function boundaries by a representation cast. That cast
+is the official dictionary reuse, not a `Coercible` proof.
 The wrapped head is a class constraint on the same constraint spine every other
 instance context uses.
 
@@ -196,12 +198,23 @@ monomorphic instance supplies the dictionary.
 
 `derive newtype instance C ... T` resolves `T` to a locally declared newtype,
 computes its wrapped type, and pushes the wrapped constraint `C ... wrapped` as
-an ordinary wanted. For each method it selects the wrapped dictionary's method
-and adapts it to the derived head: it peels shared method quantifiers, then
-inserts a `Coercible` conversion at each arrow boundary; a method whose type is
-already equal needs no conversion. The proof is the compiler-owned `Coercible`
-relation from [primitives](prim.md); deriving produces no coercion proof of its
-own and cannot forge one.
+an ordinary wanted. That wanted is solved by the ordinary instance solver, so
+the wrapped type's instance is the dictionary that is reused. For each method
+the implementation selects that dictionary's method and adapts it to the
+derived head. Shared method quantifiers stay on the adapted value. At each
+arrow boundary whose endpoints differ, the adapter inserts a representation
+cast authorized by the checked newtype (a local single-field declaration) and
+by the selected wrapped instance. A method whose type is already equal needs
+no cast.
+
+This is not a `Coercible` proof. Ordinary `Coercible` cannot lift
+`Coercible a b` through an unknown constructor `f` to `Coercible (f a) (f b)`,
+and that refusal stays. `Traversable`'s `sequence` has the shape
+`forall a m. Applicative m => t (m a) -> m (t a)`, so the two heads differ
+under the unknown `m`. The official compiler therefore reuses the dictionary
+after the newtype and underlying-instance checks (`DeferredDictionary`) rather
+than discharging a coercion obligation. The cast records that deriving
+authority; it does not invent a `Coercible` instance.
 
 Method-level `forall` binders are instantiated once with stable placeholders and
 substituted separately at the two heads, so a quantifier shared by the method
@@ -308,15 +321,17 @@ derive_newtype(instance):
     for each method:
         template = elaborate method signature with one placeholder per class parameter
         source   = template[wrapped]; target = template[head_args]
-        body     = adapt(select(source), source, target)         # Coercible at each arrow
+        body     = adapt(select(source), source, target)         # representation cast
         emit Member(method, body)
 
 adapt(value, source, target):
-    peel matching shared foralls
+    # Quantifiers stay on the result. Their binders are the scope of any
+    # cast underneath them; they are not discharged as Coercible.
+    peel matching shared foralls onto the result type
     if source == target: return value
     if source = a -> b and target = a' -> b':
-        return \x -> adapt(value (coerce x), b, b')
-    return coerce value          # checked Coercible source -> target
+        return \x -> adapt(value (cast x), b, b')
+    return cast value            # newtype-deriving authority, not Coercible
 ```
 
 Edge cases: a data type with no constructors derives a `Functor`/`Foldable` body
@@ -345,8 +360,8 @@ The deriving topic lives inside the P5 owner. The intended organization:
 - `typecheck/classes/deriving/foldable/` — `Foldable`/`Bifoldable`, driven by the
   usage tree.
 - `typecheck/classes/deriving/traversable.rs` — `Traversable`/`Bitraversable`.
-- `typecheck/classes/deriving/newtype.rs` — newtype strategy and the `Coercible`
-  adapter.
+- `typecheck/classes/deriving/newtype.rs` — newtype strategy and the
+  dictionary-reuse adapter.
 - `typecheck/classes/deriving/generic.rs` — representation type and `to`/`from`.
 - `typecheck/error.rs` — the official deriving diagnostic variants and their
   `errorCode` mapping.
@@ -374,8 +389,10 @@ design; code is expected to conform to this map, not the reverse.
 - Field usage agrees with the class's variance and with the visible instance
   environment: a derivation is accepted exactly when every field occurrence has
   the mapping instance the traversal needs.
-- A newtype method conversion is authorized by a checked `Coercible` proof; the
-  adapter inserts no unchecked cast.
+- A newtype method conversion is authorized by the checked newtype declaration
+  and the selected wrapped instance. The adapter does not emit a `Coercible`
+  wanted, and ordinary `Coercible` still refuses to lift through an unknown
+  constructor.
 - A derivable wildcard is resolved before instance recording; no instance is
   recorded with a wildcard it should not have.
 - Each failure carries the official `errorCode` for its condition.
@@ -430,8 +447,9 @@ Deriving consumes resolved HIR instance declarations, the checked kind and role
 environment, the class environment, and the visible instance environment. It
 produces generated method terms and, for `Newtype`/`Generic`, a concrete final
 head argument, handing both to the instance-checking path in
-[classes and evidence](classes-and-evidence.md). It consumes the `Coercible`
-proof from [primitives](prim.md) but does not implement it. It adds no node to
+[classes and evidence](classes-and-evidence.md). Newtype deriving does not
+consume the `Coercible` proof from [primitives](prim.md); that rule still
+refuses to lift through an unknown constructor. It adds no node to
 CST, AST, or HIR; a derived instance is an ordinary instance after elaboration.
 
 ## Open questions and future work

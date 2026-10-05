@@ -35,6 +35,7 @@ impl Checker {
             InferredExprKind::UnsafeCoerceFunction {
                 source: source.clone(),
                 target: target.clone(),
+                origin: psrs_thir::UncheckedCoercionOrigin::UnsafeCoerce,
             },
             arrow(source, target),
         )

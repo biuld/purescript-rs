@@ -189,6 +189,7 @@ fn lower_expr(
             value,
             source_type,
             target_type,
+            ..
         } => {
             if source_type != value.ty || target_type.0 != ty.0 {
                 return Err(LowerError {

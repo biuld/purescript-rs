@@ -36,6 +36,27 @@ fn expands_type_synonyms_before_coercible_role_matching() {
 }
 
 #[test]
+fn ordinary_coercible_does_not_lift_through_an_unknown_type_constructor() {
+    // A newtype is coercible to its field, and that conversion lifts through a
+    // known representational constructor. It does not lift through a quantified
+    // `f`: the parameter's role is not known. Newtype deriving must not ask
+    // this rule to prove `Coercible (f (NonEmptyArray a)) (f (Array a))`.
+    let source = r#"module Main where
+
+import Safe.Coerce (coerce)
+
+newtype NonEmptyArray a = NonEmptyArray (Array a)
+
+bad :: forall f a. f (NonEmptyArray a) -> f (Array a)
+bad = coerce
+
+main :: Int
+main = 0
+"#;
+    rejects(&[("Main.purs", source)], "NoInstanceFound");
+}
+
+#[test]
 fn a_nominal_data_role_blocks_newtype_coercion_of_its_parameter() {
     let source = "module Main where\n\
         import Safe.Coerce (coerce)\n\

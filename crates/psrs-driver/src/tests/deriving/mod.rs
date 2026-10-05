@@ -87,6 +87,37 @@ main = toInt (Age 42) true
 }
 
 #[test]
+fn newtype_deriving_reuses_the_dictionary_under_an_unknown_type_constructor() {
+    // `Traversable`'s `sequence` / `traverse` quantify an unknown `m`.
+    // Ordinary `Coercible` cannot lift `NonEmptyArray` ~ `Array` under that
+    // `m`. Deriving still accepts the instance by reusing `Array`'s dictionary
+    // after the newtype and underlying-instance checks.
+    let source = r#"module Main where
+
+class Applicative m where
+  pure :: forall a. a -> m a
+
+class Sequence t where
+  echo :: forall f a. f (t a) -> f (t a)
+  run :: forall a m. Applicative m => (t a -> m (t a)) -> t a -> m (t a)
+
+instance sequenceArray :: Sequence Array where
+  echo value = value
+  run f xs = f xs
+
+newtype NonEmptyArray a = NonEmptyArray (Array a)
+
+derive newtype instance sequenceNonEmpty :: Sequence NonEmptyArray
+
+main :: Int
+main = 0
+"#;
+    crate::check_program(&[("Main.purs", source)]).unwrap_or_else(|errors| {
+        panic!("newtype deriving should reuse the wrapped dictionary: {errors:?}")
+    });
+}
+
+#[test]
 fn rejects_newtype_deriving_for_a_data_declaration() {
     let sources = [(
         "Main.purs",

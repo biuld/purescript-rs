@@ -262,6 +262,7 @@ fn verify_expr_scope(
             value,
             source_type,
             target_type,
+            ..
         } => {
             verify_expr_scope(value, types, scope, errors);
             verify_type_scope(

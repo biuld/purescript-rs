@@ -110,8 +110,9 @@ receive a source diagnostic.
 `derive instance` generates implementations for the supported standard classes
 from a locally declared type's constructors and fields. Structural `Eq` and
 `Ord`, and the covered `Functor` and `Bifunctor` mappings, are supported.
-`derive newtype instance` reuses an instance for the wrapped type, with checked
-conversions at method boundaries. Derived instances participate in the same
+`derive newtype instance` reuses an instance for the wrapped type. Method
+boundaries are representation casts authorized by the newtype declaration and
+the wrapped instance, not by ordinary `Coercible`. Derived instances participate in the same
 constraint checks and module imports as explicitly written instances. Other
 standard deriving rules and additional field shapes remain incomplete.
 

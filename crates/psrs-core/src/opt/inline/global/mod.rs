@@ -1,4 +1,4 @@
-mod analysis;
+pub(super) mod analysis;
 mod call;
 
 use super::super::util::{FreshLocals, next_locals};

@@ -161,6 +161,7 @@ impl Context<'_> {
                 value,
                 source_type,
                 target_type,
+                ..
             } => {
                 self.expr(value, Some(*source_type));
                 self.compatible(*target_type, expression.ty, expression.span);

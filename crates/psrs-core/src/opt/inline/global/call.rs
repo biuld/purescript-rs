@@ -1,6 +1,8 @@
 use super::super::super::util::{FreshLocals, count_nodes, substitute_locals};
 use super::super::alpha::clone_with_fresh_locals;
-use super::analysis::{application_parts, function_arity, introduces_type_binders};
+use super::analysis::{
+    application_parts, function_arity, introduces_type_binders, leading_foralls,
+};
 use crate::{Binder, Binding, Declaration, Expr, ExprKind, Type};
 use psrs_hir::SymbolId;
 use std::collections::{HashMap, HashSet};
@@ -66,7 +68,7 @@ pub(super) fn inline_named_global(
                 ty: parameter.ty,
                 span: parameter.span,
             },
-            quantified: Vec::new(),
+            quantified: leading_foralls(application.ty, types),
             value: argument.clone(),
             span: application.span,
         });

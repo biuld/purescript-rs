@@ -8,7 +8,7 @@ mod evidence;
 mod scope;
 mod verify;
 
-pub use evidence::{Evidence, EvidenceKind};
+pub use evidence::{Evidence, EvidenceKind, UncheckedCoercionOrigin};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
@@ -287,7 +287,7 @@ pub enum ExprKind {
         source_type: TypeId,
         target_type: TypeId,
     },
-    /// An unchecked representational conversion from `Unsafe.Coerce`. Unlike
+    /// An unchecked representational conversion with an explicit authority. Unlike
     /// [`ExprKind::Coerce`] it carries no `Coercible` proof; the value crosses
     /// its erased representation unchanged. Core lowers it to a
     /// `RepresentationCast`.
@@ -295,6 +295,7 @@ pub enum ExprKind {
         value: Box<Expr>,
         source_type: TypeId,
         target_type: TypeId,
+        origin: UncheckedCoercionOrigin,
     },
     Application(Box<Expr>, Box<Expr>),
     Lambda {

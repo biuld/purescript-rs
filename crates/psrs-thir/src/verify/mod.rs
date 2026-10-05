@@ -168,6 +168,7 @@ fn verify_expr(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>
             value,
             source_type,
             target_type,
+            origin,
         } => {
             verify_expr(value, module, errors);
             if *source_type != value.ty || *target_type != expression.ty {
@@ -175,6 +176,23 @@ fn verify_expr(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>
                     span: expression.span,
                     message: "unsafe coercion boundary types do not match its value and result",
                 });
+            }
+            if let crate::UncheckedCoercionOrigin::NewtypeDeriving { newtype_id, .. } = origin {
+                let constructors = module
+                    .constructors
+                    .iter()
+                    .filter(|constructor| constructor.type_id == *newtype_id)
+                    .collect::<Vec<_>>();
+                if !module.newtype_ids.contains(newtype_id)
+                    || constructors.len() != 1
+                    || constructors[0].field_count != 1
+                    || constructors[0].field_types.len() != 1
+                {
+                    errors.push(VerifyError {
+                        span: expression.span,
+                        message: "newtype deriving conversion requires a declared single-field newtype",
+                    });
+                }
             }
         }
         ExprKind::Application(function, argument) => {

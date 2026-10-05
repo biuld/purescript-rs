@@ -2,6 +2,19 @@ use super::TypeId;
 use psrs_hir::{LocalId, SymbolId, TypeId as ClassId};
 use psrs_span::TextRange;
 
+/// Authority for a conversion that is not an ordinary Coercible proof.
+/// Newtype deriving relies on representation transparency and a selected
+/// wrapped instance, as upstream dictionary reuse does. The checker owns that
+/// validation; THIR verifies the named newtype and the conversion endpoints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UncheckedCoercionOrigin {
+    UnsafeCoerce,
+    NewtypeDeriving {
+        class_id: ClassId,
+        newtype_id: ClassId,
+    },
+}
+
 /// A frontend-selected dictionary derivation retained in Typed Core.
 ///
 /// The class solver owns the meaning and coherence of this derivation. Core

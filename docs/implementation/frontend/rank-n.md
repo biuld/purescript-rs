@@ -61,8 +61,8 @@ inconsistent scheme instance, closed records with extra fields, rigid open rows,
 and one row variable with two residuals are rejected; one repeated residual is
 accepted. Global inlining leaves a `ForAll` signature and a body that binds its
 own type variable in place. The linker renumbers `TypeVariableId` across modules.
-`derive newtype` peels a shared method quantifier before building `Coercible`
-evidence.
+`derive newtype` keeps a shared method quantifier as the scope of its
+representation cast. That cast is not `Coercible` evidence.
 
 RN-12 stays unverified. The differential battery agrees with `purs` 0.15.16, and
 the official higher-rank and skolem corpus, including its library dependencies,
