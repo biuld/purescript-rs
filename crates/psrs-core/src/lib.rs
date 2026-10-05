@@ -139,6 +139,12 @@ pub enum ExprKind {
     /// constructor application. Its canonical runtime value is the integer `0`
     /// ([scalars and primitives](../../design/backend/fp/scalars-and-primitives.md)).
     Unit,
+    /// The one value of the compiler-owned opaque state token an `Effect`
+    /// closure takes. Only effect lowering produces it; it is threaded through
+    /// the chain and never inspected, the `State# RealWorld` analogue of
+    /// [effects](../../design/backend/fp/effects.md). Its runtime shape is a
+    /// scalar, but it is not an `Int`.
+    StateToken,
     /// An expression that never produces its value: the guest traps. Core
     /// carries it so the effect interface can supply an `Effect Unit` that
     /// escapes instead of returning, which is what an uncaught failure is on

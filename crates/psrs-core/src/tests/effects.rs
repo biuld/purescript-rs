@@ -31,20 +31,21 @@ fn trusted_effect() -> TrustedEffect {
 ///
 /// | id | node |
 /// | --- | --- |
-/// | 0 | `Int`, the token representation lowering chose |
+/// | 0 | the opaque state token, the representation lowering chose |
 /// | 1, 2 | `a`, `b` |
 /// | 3, 4, 5 | `a -> b` |
 /// | 6 | `Prelude.Effect` |
 /// | 7 | `Effect (a -> b)`, the node lowering replaces |
 fn effect_module() -> Module {
     let effect = EFFECT_HIR;
+    let token = HirTypeId::STATE_TOKEN;
     Module {
         id: ModuleId(0),
         name: "Main".into(),
         externals: Vec::new(),
         external_types: Vec::new(),
         types: vec![
-            Type::Constructor(TypeConstructor::Int),
+            Type::Constructor(TypeConstructor::User(token)),
             Type::Variable(TypeVariableId(0)),
             Type::Variable(TypeVariableId(1)),
             Type::Constructor(TypeConstructor::Function),
@@ -54,7 +55,7 @@ fn effect_module() -> Module {
             Type::Application(EFFECT, ARROW),
         ],
         newtype_ids: Vec::new(),
-        opaque_ids: vec![effect],
+        opaque_ids: vec![effect, token],
         callable_types: Vec::new(),
         constructors: Vec::new(),
         declarations: Vec::new(),

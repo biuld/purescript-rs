@@ -320,6 +320,15 @@ impl FunctionLowerer<'_> {
                 ty,
                 assignments,
             )),
+            // The state token carries no payload for the synchronous effect
+            // model, so it lowers to a constant scalar. Its type stays opaque,
+            // so no pass can treat it as an `Int`.
+            ExprKind::StateToken => Ok(self.lower_literal(
+                AssignmentKind::Constant(0),
+                expression.span,
+                ty,
+                assignments,
+            )),
             // A trap has a type but no value: it is the one expression that
             // ends the path instead of filling a destination.
             ExprKind::Trap => self.lower_trap(expression.span, ty, assignments),

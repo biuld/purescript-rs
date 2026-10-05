@@ -31,6 +31,8 @@ pub(super) fn summarize(expression: &Expr) -> Effects {
         | ExprKind::Char(_) => Effects::default(),
         // The unit value has no payload and no failure mode.
         ExprKind::Unit => Effects::default(),
+        // The state token has no payload and no failure mode.
+        ExprKind::StateToken => Effects::default(),
         // A trap is a failure by definition, so no rewrite may drop or move it
         // as if it were an inert value.
         ExprKind::Trap => Effects {

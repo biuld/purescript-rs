@@ -24,6 +24,7 @@ pub(super) fn shift_kind(kind: ExprKind, offset: u32, variable_offset: u32) -> E
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Unit => ExprKind::Unit,
+        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
         ExprKind::Array { elements } => ExprKind::Array {
             elements: elements

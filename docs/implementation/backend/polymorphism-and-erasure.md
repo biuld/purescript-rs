@@ -347,8 +347,9 @@ PE-13:
   and the trusted `Effect` (runtime token); `BoundaryEvidence` provides the
   checking-owned relation and the payload-erased protocol signature of each
   callable constructor. `FunctionLowerer::source`, `constructor_protocols`, and
-  `transport_signatures` are gone. What remains is the effect token placeholder
-  and the two-relation matcher, tracked separately.
+  `transport_signatures` are gone. The effect token is the opaque
+  `TypeId::STATE_TOKEN`; what remains is the two-relation matcher (`subsumes`
+  and `matches`), tracked separately.
 - **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
   for reasons this topic does not own: five use `-` or `/` without importing the
   library operator that now owns it (`tests::scalars`, `tests::functions`,

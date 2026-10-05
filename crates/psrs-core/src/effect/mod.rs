@@ -157,7 +157,7 @@ pub fn lower_effects(
         }
         None => module.callable_types.push((effect, 1)),
     }
-    let token = intern(module, Type::Constructor(TypeConstructor::Int));
+    let token = state_token_type(module);
     let closures = rewrite_effect_applications(module, effect, token);
     let synthesized = synthesize_operations(module, token, trusted)?;
     let lowering = EffectLowering {
@@ -267,6 +267,18 @@ fn is_effect_constructor(module: &Module, id: TypeId, effect: HirTypeId) -> bool
         module.types.get(id.0 as usize),
         Some(Type::Constructor(TypeConstructor::User(id))) if *id == effect
     )
+}
+
+/// Interns the compiler-owned opaque state token an `Effect` closure takes.
+/// It has no source spelling; marking it opaque gives it a scalar runtime shape
+/// without letting any pass treat it as an `Int`
+/// ([effects](../../../design/backend/fp/effects.md)).
+fn state_token_type(module: &mut Module) -> TypeId {
+    let token = psrs_hir::TypeId::STATE_TOKEN;
+    if !module.opaque_ids.contains(&token) {
+        module.opaque_ids.push(token);
+    }
+    intern(module, Type::Constructor(TypeConstructor::User(token)))
 }
 
 fn verification_error(module: &Module, message: &'static str) -> VerifyError {

@@ -110,6 +110,7 @@ fn expr_introduces_type_binders(expression: &Expr, types: &[Type]) -> bool {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
+        | ExprKind::StateToken
         | ExprKind::Trap => false,
     }
 }
@@ -185,6 +186,7 @@ pub(super) fn contains_case(expression: &Expr) -> bool {
         | ExprKind::String(_)
         | ExprKind::Char(_)
         | ExprKind::Unit
+        | ExprKind::StateToken
         | ExprKind::Trap => false,
     }
 }
@@ -249,6 +251,6 @@ pub(super) fn collect_globals(expression: &Expr, out: &mut Vec<SymbolId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
     }
 }

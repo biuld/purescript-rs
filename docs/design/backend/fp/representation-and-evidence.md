@@ -503,9 +503,12 @@ reported rather than resolved by arity or a signature search. Protocol
 signatures are interned once per registered callable constructor as the concrete
 calling convention with the payload erased.
 
-The effect token remains a placeholder: the model makes it the `State#
-RealWorld` analogue, while the current lowering uses the constant `i32` `0`
-([effects](../../../implementation/backend/effects.md)).
+The effect token is the compiler-owned opaque state token
+(`psrs_hir::TypeId::STATE_TOKEN`) that effect lowering threads through each
+`Effect` closure, the `State# RealWorld` analogue. It has no source spelling and
+one uninspectable value, so no later pass can treat it as an `Int`; its runtime
+shape is a scalar because the synchronous, single-threaded effect carries no
+payload ([effects](../../../implementation/backend/effects.md)).
 
 ## References
 

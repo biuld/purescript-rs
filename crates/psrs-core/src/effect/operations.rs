@@ -3,7 +3,8 @@
 //! `lower_effects` replaces the library's opaque imports with the values the
 //! design specifies: `pure` returns a closure over the token, `bind` runs the
 //! first effect before the continuation, `run` applies the closure to the
-//! integer `0`, and `trap` is the effect that escapes instead of returning.
+//! runtime state token, and `trap` is the effect that escapes instead of
+//! returning.
 
 use super::supplies::{LocalSupply, VariableSupply};
 use super::{EFFECT_INTERFACE, TrustedEffect, intern};
@@ -225,7 +226,7 @@ fn run_declaration(
     let action_ty = closure_type(module, token, result_ty);
     let ty = arrow(module, action_ty, result_ty);
     let action = locals.fresh();
-    let token_value = expr(ExprKind::Integer(0), token, span);
+    let token_value = expr(ExprKind::StateToken, token, span);
     let body = application(
         expr(ExprKind::Local(action), action_ty, span),
         token_value,

@@ -139,8 +139,9 @@ EF-14:
     `RepresentationPolicy` in the Core-to-CC registry), crates/psrs-backend/
     src/boundary.rs (`BoundaryEvidence`), crates/psrs-backend/src/cc/lower/
     conversion/ (transport.rs and callable.rs) and cc/lower/{global,record,erased}
-    (evidence read from the boundary at each use). The token itself is still the
-    `i32` `0` placeholder; the design token is the `State# RealWorld` analogue.
+    (evidence read from the boundary at each use). The token is the compiler-owned
+    opaque `TypeId::STATE_TOKEN`; effect lowering threads it and `run` supplies the
+    `StateToken` value, the `State# RealWorld` analogue.
   Tests: tests::effects::discard_defined_from_bind_sequences_effects (stdout
     `a\nb\n`, exit 0); tests::functor::
     mapping_an_effect_does_not_run_it_until_the_action_runs (stdout
@@ -421,9 +422,10 @@ EF-12:
 
 ## Discovered obligations
 
-- The token is the Core `Int` chosen by effect lowering. Its current value
-  `0` is a placeholder: it does not schedule work or establish ordering.
-  Source programs cannot name the token; order comes from the calls and
+- The token is the compiler-owned opaque `TypeId::STATE_TOKEN` chosen by effect
+  lowering. Its one value is the `StateToken` expression `run` supplies; the
+  runtime shape is a scalar constant because the synchronous token carries no
+  payload. Source programs cannot name the token; order comes from the calls and
   optimizer contracts. A later stateful token is an open question, not a second
   representation.
 - Partial application of a polymorphic declaration whose result is a type

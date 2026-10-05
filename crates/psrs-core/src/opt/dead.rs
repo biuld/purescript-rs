@@ -109,6 +109,7 @@ fn eliminate_expr(mut expression: Expr) -> Expr {
         ExprKind::String(value) => ExprKind::String(value),
         ExprKind::Char(value) => ExprKind::Char(value),
         ExprKind::Unit => ExprKind::Unit,
+        ExprKind::StateToken => ExprKind::StateToken,
         ExprKind::Trap => ExprKind::Trap,
     };
     expression
@@ -220,6 +221,6 @@ fn collect_refs(expression: &Expr, references: &mut HashSet<LocalId>) {
         | ExprKind::Boolean(_)
         | ExprKind::String(_)
         | ExprKind::Char(_) => {}
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
     }
 }

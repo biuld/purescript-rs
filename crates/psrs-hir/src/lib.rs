@@ -100,6 +100,12 @@ impl TypeId {
     pub const PRIM_TYPE_ERROR_QUOTE_LABEL: Self = Self::new(ModuleId::INTRINSICS, 28);
     pub const PRIM_TYPE_ERROR_BESIDE: Self = Self::new(ModuleId::INTRINSICS, 29);
     pub const PRIM_TYPE_ERROR_ABOVE: Self = Self::new(ModuleId::INTRINSICS, 30);
+    /// The compiler-owned opaque state token an `Effect` closure takes. It has
+    /// no source spelling and one uninspectable value; it is the `State#
+    /// RealWorld` analogue of [effects](../design/backend/fp/effects.md), not a
+    /// source type. Its runtime shape is a scalar, but no source or later pass
+    /// may treat it as an `Int`.
+    pub const STATE_TOKEN: Self = Self::new(ModuleId::INTRINSICS, 31);
 }
 
 mod intrinsic;

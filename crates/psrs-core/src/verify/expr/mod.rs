@@ -2,7 +2,7 @@ use super::{
     Locals, SchemeType, array_element, compatible, error, primitive_type_id, record_field,
     restore_local, verify_pattern, verify_type,
 };
-use crate::{Expr, ExprKind, Module, TypeConstructor, TypeId, VerifyError};
+use crate::{Expr, ExprKind, Module, Type, TypeConstructor, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
@@ -109,6 +109,21 @@ impl Context<'_> {
             ExprKind::String(_) => self.shape(expression, TypeConstructor::String),
             ExprKind::Char(_) => self.shape(expression, TypeConstructor::Char),
             ExprKind::Unit => self.shape(expression, TypeConstructor::Unit),
+            // The state token is the one value of the compiler-owned opaque
+            // token type. Only effect lowering produces it.
+            ExprKind::StateToken => {
+                if !matches!(
+                    self.module.types.get(expression.ty.0 as usize),
+                    Some(Type::Constructor(TypeConstructor::User(id)))
+                        if *id == psrs_hir::TypeId::STATE_TOKEN
+                ) {
+                    self.errors.push(error(
+                        self.owner,
+                        expression.span,
+                        "state token expression does not have the compiler token type",
+                    ));
+                }
+            }
             // A trap produces no value, so its type is only the one its context
             // wants; the surrounding context check already established that.
             ExprKind::Trap => {}

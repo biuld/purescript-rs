@@ -27,7 +27,7 @@ pub(super) fn scoped_expr(
         | ExprKind::Char(_) => {}
         // Both are leaves: their type is already checked by the expression
         // check, and neither mentions a binder.
-        ExprKind::Unit | ExprKind::Trap => {}
+        ExprKind::Unit | ExprKind::StateToken | ExprKind::Trap => {}
         ExprKind::Constructor { arguments, .. } => {
             for argument in arguments {
                 scoped_expr(argument, module, scope, errors);

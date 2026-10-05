@@ -89,15 +89,14 @@ erasure with bridge methods, and Koka-style explicit evidence.
 
 - The transitional mechanisms are removed, not extended: the HIR-keyed protocol
   table, the signature-prefix protocol derivation, and the effect token's
-  special case become a single side table plus the one planner. Until that
-  migration lands, they are recorded as deviations from the design.
+  special case are now a single Core-to-CC side table plus the one planner.
 - A new constructor is added by registering one representation owner, not by
   teaching each pass a new rule.
 - `Safe.Coerce.coerce` and `Unsafe.Coerce.unsafeCoerce` are compiler-provided
   primitive values. A module the compiler provides is never shadowed by a
   vendored on-disk file, so the vendored source stays faithful to upstream.
-- The effect token becomes the `State# RealWorld` analogue; the current `i32` `0`
-  is a placeholder rather than the model.
+- The effect token is the opaque, compiler-owned `State# RealWorld` analogue; the
+  earlier `i32` `0` placeholder is gone.
 - Generic aggregate normalization and the aggregate conversion plan
   (`ProductMap`/`ArrayMap`, canonical aggregate keys) are sections of the model
   document, not a separate design; the concrete aggregate layouts and their

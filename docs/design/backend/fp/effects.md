@@ -179,14 +179,13 @@ flag, private constructor, or representation mode.
   IR node, closure kind, or runtime object. After representation lowering, CC
   and MIR see generic closures and calls.
 - The runtime token is the state token of a strict IO-like effect, the
-  `State# RealWorld` analogue in GHC. It is threaded through the chain and may
-  be neither duplicated nor observed; ordering comes from the calls and strict
-  evaluation order, not from the token's bits. For the current synchronous,
-  single-threaded `Effect` the token carries no payload, so it lowers to a
-  constant placeholder; that placeholder is an implementation gap, not the
-  model, because a value that can be copied is not a linear state token.
-  Call order and multiplicity are preserved by the evaluation and optimizer
-  contracts.
+  `State# RealWorld` analogue in GHC. It is the compiler-owned opaque
+  `TypeId::STATE_TOKEN`, threaded through the chain and neither duplicated nor
+  observed; ordering comes from the calls and strict evaluation order, not from
+  the token's bits. For the current synchronous, single-threaded `Effect` the
+  token carries no payload, so its runtime shape is a scalar constant; the type
+  stays opaque, so no pass treats it as an `Int`. Call order and multiplicity
+  are preserved by the evaluation and optimizer contracts.
 - Entry selection produces one resolved command-entry `SymbolId`: use
   `Main.main` when present, otherwise require one unique top-level `main`.
   The lexical `runEffect` reference check and generated entry wrapper use that
@@ -239,12 +238,14 @@ becomes a record/closure over its operation implementations and
 lowering mechanism, and it still introduces no dedicated CC/MIR node.
 
 The token is a single abstract state value, the `State# RealWorld` analogue:
-the lowering passes it along and never inspects or copies it. The current
-implementation lowers it to the constant `i32` `0`, which is a placeholder
-rather than the model — distinct token bits carry no meaning, and the calls
-themselves are observable and cannot be merged or removed. A later runtime may
-pass a state or resource handle through the same parameter without exposing it
-to source programs.
+the lowering passes it along and never inspects or copies it. The compiler
+interns it as the opaque `TypeId::STATE_TOKEN`, which has no source spelling;
+its one value is the `StateToken` expression the effect runner supplies. Its
+runtime shape is a scalar constant because the synchronous effect carries no
+payload — distinct token bits carry no meaning, and the calls themselves are
+observable and cannot be merged or removed. A later runtime may pass a state or
+resource handle through the same parameter without exposing it to source
+programs.
 
 ### Partial application
 
