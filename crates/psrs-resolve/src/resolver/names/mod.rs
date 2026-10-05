@@ -300,7 +300,7 @@ impl Resolver {
     fn resolve_record_update(
         &mut self,
         expression: ast::Expr,
-        fields: Vec<(String, ast::Expr)>,
+        fields: Vec<ast::RecordUpdateField>,
         span: TextRange,
     ) -> Option<ExprKind> {
         let record = self.resolve_expr(expression)?;
@@ -330,19 +330,17 @@ impl Resolver {
     fn resolve_record_update_fields(
         &mut self,
         base: &Expr,
-        fields: Vec<(String, ast::Expr)>,
+        fields: Vec<ast::RecordUpdateField>,
     ) -> Option<Vec<(String, Expr)>> {
         fields
             .into_iter()
-            .map(|(label, value)| {
-                let value_span = value.span;
-                let value = match value.kind {
-                    AstExprKind::RecordUpdate { expression, fields }
-                        if matches!(
-                            expression.kind,
-                            AstExprKind::Name(ref name) if name.text == label
-                        ) =>
-                    {
+            .map(|field| {
+                let label = field.label;
+                let value = match field.value {
+                    ast::RecordUpdateValue::Nested {
+                        fields,
+                        span: value_span,
+                    } => {
                         let nested_record = Expr {
                             kind: ExprKind::FieldAccess {
                                 expression: Box::new(base.clone()),
@@ -360,10 +358,7 @@ impl Resolver {
                             span: value_span,
                         }
                     }
-                    kind => self.resolve_expr(ast::Expr {
-                        kind,
-                        span: value_span,
-                    })?,
+                    ast::RecordUpdateValue::Expression(value) => self.resolve_expr(value)?,
                 };
                 Some((label, value))
             })

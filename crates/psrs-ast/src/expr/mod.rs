@@ -1,13 +1,15 @@
 use crate::{LowerError, Name, Type};
-use psrs_cst::{self as cst, RecordField, RecordUpdateField};
+use psrs_cst as cst;
 use psrs_span::TextRange;
 use std::collections::HashSet;
 
 mod guards;
+mod records;
 pub use guards::{Guard, GuardedExpr};
 pub(super) use guards::{
     lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, prepend_guards,
 };
+pub(super) use records::{lower_record, lower_record_update};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binder {
@@ -40,7 +42,7 @@ pub enum ExprKind {
     Record(Vec<(String, Expr)>),
     RecordUpdate {
         expression: Box<Expr>,
-        fields: Vec<(String, Expr)>,
+        fields: Vec<RecordUpdateField>,
     },
     FieldAccess {
         expression: Box<Expr>,
@@ -104,6 +106,22 @@ pub enum ExprKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordUpdateField {
+    pub label: String,
+    pub value: RecordUpdateValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecordUpdateValue {
+    Expression(Expr),
+    /// A source path update, whose base is the enclosing record's field.
+    Nested {
+        fields: Vec<RecordUpdateField>,
+        span: TextRange,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CaseBranch {
     pub pattern: Pattern,
     pub value: Expr,
@@ -157,38 +175,6 @@ pub enum PatternKind {
         pattern: Box<Pattern>,
         ty: crate::Type,
     },
-}
-
-pub(super) fn lower_record(
-    fields: Vec<RecordField>,
-    tail: Option<Box<psrs_cst::Expr>>,
-    span: TextRange,
-) -> Result<ExprKind, LowerError> {
-    if tail.is_some() {
-        return Err(LowerError::new(
-            span,
-            "open record rows are not supported yet",
-        ));
-    }
-    Ok(ExprKind::Record(
-        fields
-            .into_iter()
-            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
-            .collect::<Result<Vec<_>, LowerError>>()?,
-    ))
-}
-
-pub(super) fn lower_record_update(
-    expression: psrs_cst::Expr,
-    fields: Vec<RecordUpdateField>,
-) -> Result<ExprKind, LowerError> {
-    Ok(ExprKind::RecordUpdate {
-        expression: Box::new(super::lower_expr(expression)?),
-        fields: fields
-            .into_iter()
-            .map(|field| Ok((field.label.text, super::lower_expr(field.value)?)))
-            .collect::<Result<Vec<_>, LowerError>>()?,
-    })
 }
 
 pub(super) fn lower_field_access(

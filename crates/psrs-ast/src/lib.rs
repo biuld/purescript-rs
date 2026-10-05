@@ -18,7 +18,7 @@ mod type_decl;
 pub use export::{ExportList, ExportRef, TypeMembers};
 pub use expr::{
     Binder, CaseBranch, Declaration, Expr, ExprKind, Guard, GuardedExpr, Pattern, PatternKind,
-    RecordPatternMode,
+    RecordPatternMode, RecordUpdateField, RecordUpdateValue,
 };
 pub use fixity::{Associativity, FixityDeclaration, FixityNamespace, Operator, SectionSide};
 pub use import::{Import, ImportList, ImportRef};
@@ -212,10 +212,10 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
                 .map(lower_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        CstExprKind::Record { fields, tail, .. } => expr::lower_record(fields, tail, span)?,
+        CstExprKind::Record { fields, tail, .. } => return expr::lower_record(fields, tail, span),
         CstExprKind::RecordUpdate {
             expression, fields, ..
-        } => expr::lower_record_update(*expression, fields)?,
+        } => return expr::lower_record_update(*expression, fields, span),
         CstExprKind::FieldAccess {
             expression, field, ..
         } => return expr::lower_field_access(*expression, field, span),

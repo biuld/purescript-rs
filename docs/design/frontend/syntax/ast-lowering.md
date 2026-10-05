@@ -44,6 +44,8 @@ alias, and spans. Expression and type operator chains retain source order, and
 operator sections retain which side supplies their operand using explicit
 anonymous arguments such as `(_ + 1)` and `(1 + _)`. Parenthesized unary
 negation remains a negation expression; it is not interpreted as a section.
+Backticked value sections such as ``(_ `eq` value)`` retain the same section
+side and unresolved value identity, including local names.
 Constructor operator patterns remain chains as well. None of these forms binds
 an operator name or applies precedence in P2.
 
@@ -55,6 +57,21 @@ normalizes grouped function parameters to nested single-binder functions;
 and it keeps all forms whose meaning depends on imports, types, or the
 language's sequencing rules. The AST is a separate type, not a view or alias
 of CST.
+
+Record constructors with immediate anonymous field arguments become lambdas
+in written field order: `{ z: _, a: _ }` becomes `\z a -> { z, a }`,
+independently of canonical type or runtime field ordering. Record updaters
+use the same rule, with an anonymous base record as the first argument.
+Anonymous leaves of nested update paths belong to the enclosing updater;
+an explicit field expression or nested record literal introduces its own
+scope. P2 gives generated binders source-inexpressible names and preserves
+each underscore's span; it does not reinterpret other expressions containing
+`_` as constructor arguments. These rules follow the official compiler's
+`Sugar.ObjectWildcards` conversion and require no resolved names or types.
+AST update fields explicitly distinguish an expression from a nested path.
+P3 projects a nested path from its enclosing base, while resolving explicit
+expressions in lexical scope: `field = field { value = 7 }` must use the
+local `field` value rather than the enclosing record's `field` member.
 
 Pattern normalization removes grouping parentheses, maps tuples to closed
 records, and turns record puns into field-variable patterns. Record patterns
