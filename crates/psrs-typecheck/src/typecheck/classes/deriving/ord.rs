@@ -1,9 +1,10 @@
 use super::super::super::*;
-use super::flatten_spine;
+use super::{flatten_spine, is_applied_variable};
 
 #[derive(Clone, Copy)]
 struct OrdFieldContext {
     method: SymbolId,
+    field_method: Option<SymbolId>,
     less: SymbolId,
     equal: SymbolId,
     greater: SymbolId,
@@ -17,7 +18,38 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
-        self.derive_ord_method_using(method, class_arguments, method.symbol, false, span)
+        // A field whose type is an applied type variable `f a` is compared
+        // through `Ord1`'s `compare1`, exactly as the official deriving rule
+        // does. The lookup is lazy because a data type with no such field does
+        // not need `Ord1` to exist in the environment at all.
+        let needs_ord1 = class_arguments
+            .first()
+            .and_then(|argument| {
+                let instance_type = self.resolve_type(argument.clone());
+                let (head, _) = flatten_spine(&instance_type);
+                let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
+                    return None;
+                };
+                self.env.type_declarations.get(type_id).map(|declaration| {
+                    declaration
+                        .constructors
+                        .iter()
+                        .any(|constructor| constructor.fields.iter().any(is_applied_variable))
+                })
+            })
+            .unwrap_or(false);
+        let field_method = if needs_ord1 {
+            match self.known_method_symbol("Data.Ord", "Ord1", "compare1") {
+                Some(method) => Some(method),
+                None => {
+                    return self
+                        .deriving_error(span, "cannot find the Ord1 method for Ord deriving");
+                }
+            }
+        } else {
+            None
+        };
+        self.derive_ord_method_using(method, class_arguments, method.symbol, field_method, span)
     }
 
     pub(super) fn derive_ord1_method(
@@ -26,10 +58,15 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
+        // The official rule derives `Ord1` by delegating to `Ord` at the
+        // applied argument: `compare1 = compare`. The matching `Ord` instance
+        // supplies the dictionary, so its context must be visible alongside the
+        // method's.
         let Some(compare_method) = self.known_method_symbol("Data.Ord", "Ord", "compare") else {
             return self.deriving_error(span, "cannot find the Ord method for Ord1 deriving");
         };
-        self.derive_ord_method_using(method, class_arguments, compare_method, true, span)
+        let implementation = global_expr(compare_method, span);
+        self.infer_derived_method(method, class_arguments, &implementation)
     }
 
     fn derive_ord_method_using(
@@ -37,7 +74,7 @@ impl Checker {
         method: &MethodInfo,
         class_arguments: &[InferType],
         compare_method: SymbolId,
-        higher_kinded: bool,
+        field_method: Option<SymbolId>,
         span: TextRange,
     ) -> Option<InferredExpr> {
         let Some(instance_type) = class_arguments.first() else {
@@ -54,25 +91,16 @@ impl Checker {
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self.deriving_error(span, "cannot find the data declaration to derive Ord");
         };
-        let expected_arguments =
-            declaration
-                .parameters
-                .len()
-                .checked_sub(if higher_kinded { 1 } else { 0 });
         if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
             )
-            || expected_arguments != Some(arguments.len())
+            || declaration.parameters.len() != arguments.len()
         {
             return self.deriving_error(
                 span,
-                if higher_kinded {
-                    "Ord1 deriving requires a locally declared type constructor with one final parameter"
-                } else {
-                    "Ord deriving requires a locally declared, fully applied data type"
-                },
+                "Ord deriving requires a locally declared, fully applied data type",
             );
         }
         let Some(ordering_id) = ordering_result_id(&method.signature) else {
@@ -98,6 +126,7 @@ impl Checker {
         let right = self.fresh_deriving_binder("__derived_right", span);
         let field_context = OrdFieldContext {
             method: compare_method,
+            field_method,
             less,
             equal,
             greater,
@@ -195,6 +224,7 @@ fn derive_ord_field_tests(
 ) -> hir::Expr {
     let OrdFieldContext {
         method,
+        field_method,
         less,
         equal,
         greater,
@@ -202,7 +232,12 @@ fn derive_ord_field_tests(
     } = context;
     fields.iter().zip(left).zip(right).rev().fold(
         global_expr(equal, span),
-        |rest, ((_field, left), right)| {
+        |rest, ((field, left), right)| {
+            let method = if is_applied_variable(field) {
+                field_method.unwrap_or(method)
+            } else {
+                method
+            };
             let compared = apply_expr(
                 apply_expr(global_expr(method, span), local_expr(left.id, span), span),
                 local_expr(right.id, span),

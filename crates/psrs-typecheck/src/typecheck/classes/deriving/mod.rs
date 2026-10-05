@@ -252,6 +252,18 @@ impl Checker {
     }
 }
 
+/// Whether the type is an application whose immediate head is a type
+/// variable, such as `f a`. The official `Eq`/`Ord` deriving rules compare
+/// exactly these fields through the class's higher-kinded `eq1`/`compare1`
+/// counterpart; a deeper application such as `f a b` is not one, matching the
+/// official `isAppliedVar` test.
+fn is_applied_variable(ty: &hir::Type) -> bool {
+    matches!(
+        &ty.kind,
+        hir::TypeKind::Application(function, _) if matches!(function.kind, hir::TypeKind::Variable(_))
+    )
+}
+
 fn flatten_spine(ty: &InferType) -> (&InferType, Vec<InferType>) {
     let mut head = ty;
     let mut arguments = Vec::new();

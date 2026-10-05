@@ -7,7 +7,37 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
-        self.derive_structural_eq(method, class_arguments, method.symbol, false, span)
+        // A field whose type is an applied type variable `f a` is compared
+        // through `Eq1`'s `eq1`, exactly as the official deriving rule does.
+        // The lookup is lazy because a data type with no such field does not
+        // need `Eq1` to exist in the environment at all.
+        let needs_eq1 = class_arguments
+            .first()
+            .and_then(|argument| {
+                let instance_type = self.resolve_type(argument.clone());
+                let (head, _) = flatten_spine(&instance_type);
+                let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
+                    return None;
+                };
+                self.env.type_declarations.get(type_id).map(|declaration| {
+                    declaration
+                        .constructors
+                        .iter()
+                        .any(|constructor| constructor.fields.iter().any(is_applied_variable))
+                })
+            })
+            .unwrap_or(false);
+        let eq1_method = if needs_eq1 {
+            match self.known_method_symbol("Data.Eq", "Eq1", "eq1") {
+                Some(method) => Some(method),
+                None => {
+                    return self.deriving_error(span, "cannot find the Eq1 method for Eq deriving");
+                }
+            }
+        } else {
+            None
+        };
+        self.derive_structural_eq(method, class_arguments, method.symbol, eq1_method, span)
     }
 
     pub(super) fn derive_eq1_method(
@@ -16,10 +46,14 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
+        // The official rule derives `Eq1` by delegating to `Eq` at the applied
+        // argument: `eq1 = eq`. The matching `Eq` instance supplies the
+        // dictionary, so its context must be visible alongside the method's.
         let Some(eq_method) = self.known_method_symbol("Data.Eq", "Eq", "eq") else {
             return self.deriving_error(span, "cannot find the Eq method for Eq1 deriving");
         };
-        self.derive_structural_eq(method, class_arguments, eq_method, true, span)
+        let implementation = global_expr(eq_method, span);
+        self.infer_derived_method(method, class_arguments, &implementation)
     }
 
     fn derive_structural_eq(
@@ -27,10 +61,9 @@ impl Checker {
         method: &MethodInfo,
         class_arguments: &[InferType],
         eq_method: SymbolId,
-        higher_kinded: bool,
+        eq1_method: Option<SymbolId>,
         span: TextRange,
     ) -> Option<InferredExpr> {
-        let description = if higher_kinded { "Eq1" } else { "Eq" };
         let Some(instance_type) = class_arguments.first() else {
             return self.deriving_error(span, "equality deriving requires one type argument");
         };
@@ -39,33 +72,23 @@ impl Checker {
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
             return self.deriving_error(
                 span,
-                &format!("{description} deriving requires a local data or newtype constructor"),
+                "Eq deriving requires a local data or newtype constructor",
             );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
             return self
                 .deriving_error(span, "cannot find the data declaration to derive equality");
         };
-        let fixed_parameters =
-            declaration
-                .parameters
-                .len()
-                .checked_sub(if higher_kinded { 1 } else { 0 });
         if type_id.module != self.env.module_id
             || !matches!(
                 declaration.kind,
                 hir::TypeDeclarationKind::Data | hir::TypeDeclarationKind::Newtype
             )
-            || fixed_parameters != Some(arguments.len())
+            || declaration.parameters.len() != arguments.len()
         {
-            let requirement = if higher_kinded {
-                "a locally declared type constructor with one final parameter"
-            } else {
-                "a locally declared, fully applied data type"
-            };
             return self.deriving_error(
                 span,
-                &format!("{description} deriving requires {requirement}"),
+                "Eq deriving requires a locally declared, fully applied data type",
             );
         }
 
@@ -83,8 +106,14 @@ impl Checker {
                 .iter()
                 .map(|_| self.fresh_deriving_binder("__derived_r", span))
                 .collect::<Vec<_>>();
-            let body =
-                derive_eq_field_tests(constructor, &left_fields, &right_fields, eq_method, span);
+            let body = derive_eq_field_tests(
+                constructor,
+                &left_fields,
+                &right_fields,
+                eq_method,
+                eq1_method,
+                span,
+            );
             let same_constructor = hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
                 pattern: constructor_pattern(constructor, &right_fields, span),
@@ -153,6 +182,7 @@ fn derive_eq_field_tests(
     left_fields: &[hir::LocalBinder],
     right_fields: &[hir::LocalBinder],
     eq_method: SymbolId,
+    eq1_method: Option<SymbolId>,
     span: TextRange,
 ) -> hir::Expr {
     constructor
@@ -160,8 +190,13 @@ fn derive_eq_field_tests(
         .iter()
         .zip(left_fields)
         .zip(right_fields)
-        .map(|((_field, left), right)| {
-            let method = global_expr(eq_method, span);
+        .map(|((field, left), right)| {
+            let method = if is_applied_variable(field) {
+                eq1_method.unwrap_or(eq_method)
+            } else {
+                eq_method
+            };
+            let method = global_expr(method, span);
             apply_expr(
                 apply_expr(method, local_expr(left.id, span), span),
                 local_expr(right.id, span),
