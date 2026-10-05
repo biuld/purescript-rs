@@ -42,9 +42,31 @@ fn layout_for(module: &Module) -> TypeLayout {
     type_layout(module, &enums, &aggregates, &newtypes).expect("layout should succeed")
 }
 
+/// Roots aggregate types through declarations so the layout builder treats
+/// them as live. The production builder only lays out types reachable from a
+/// declaration or a constructor field, so a fixture with neither has no
+/// arrays or records to normalize.
+fn root_types(module: &mut Module, roots: impl IntoIterator<Item = TypeId>) {
+    for (index, ty) in roots.into_iter().enumerate() {
+        module.declarations.push(Declaration {
+            symbol: SymbolId::new(module.id, index as u32),
+            name: format!("root{index}"),
+            name_span: psrs_span::TextRange::new(0, 1),
+            quantified: Vec::new(),
+            ty,
+            value: Expr {
+                kind: ExprKind::Unit,
+                ty,
+                span: psrs_span::TextRange::new(0, 1),
+            },
+            span: psrs_span::TextRange::new(0, 1),
+        });
+    }
+}
+
 #[test]
 fn canonical_arrays_key_by_element_shape() {
-    let module = empty_module(vec![
+    let mut module = empty_module(vec![
         Type::Variable(TypeVariableId(0)),
         Type::Constructor(TypeConstructor::Array),
         Type::Application(TypeId(1), TypeId(0)),
@@ -52,6 +74,8 @@ fn canonical_arrays_key_by_element_shape() {
         Type::Application(TypeId(1), TypeId(3)),
         Type::Application(TypeId(1), TypeId(2)),
     ]);
+    // `Array Int` and `Array (Array a)` reach every element shape under test.
+    root_types(&mut module, [TypeId(4), TypeId(5)]);
     let layout = layout_for(&module);
     let generic = layout.array_types[&TypeId(2)];
     let concrete = layout.array_types[&TypeId(4)];
@@ -85,11 +109,13 @@ fn canonical_arrays_key_by_element_shape() {
 
 #[test]
 fn recursive_aggregate_normalization_terminates() {
-    let module = empty_module(vec![
+    let mut module = empty_module(vec![
         Type::Application(TypeId(2), TypeId(1)),
         Type::Application(TypeId(2), TypeId(0)),
         Type::Constructor(TypeConstructor::Array),
     ]);
+    // The two mutually recursive arrays are unreachable without a root.
+    root_types(&mut module, [TypeId(0)]);
     let layout = layout_for(&module);
     let first = layout.array_types[&TypeId(0)];
     let second = layout.array_types[&TypeId(1)];
@@ -431,7 +457,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
     let opaque = HirTypeId::new(module_id, 0);
     let handle = TypeId(0);
     let array_handle = TypeId(2);
-    let module = Module {
+    let mut module = Module {
         type_names: Vec::new(),
         id: module_id,
         name: "OpaqueHandleLayoutTest".into(),
@@ -450,6 +476,7 @@ fn an_opaque_handle_and_an_array_of_handles_have_scalar_layouts() {
         entry: None,
         span: psrs_span::TextRange::new(0, 40),
     };
+    root_types(&mut module, [array_handle]);
     let newtypes = HashSet::new();
     let enums = enum_type_ids(&module, &newtypes);
     let aggregates = aggregate_type_ids(&module, &newtypes);

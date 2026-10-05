@@ -170,7 +170,8 @@ fn canonical_record_keys_sort_labels_and_share_equal_keyed_records() {
     ];
     let first_record = push_record(&mut types, vec![("x", TypeId(0)), ("y", TypeId(1))]);
     let second_record = push_record(&mut types, vec![("y", TypeId(1)), ("x", TypeId(0))]);
-    let module = empty_module(types);
+    let mut module = empty_module(types);
+    root_types(&mut module, [first_record, second_record]);
     let layout = layout_for(&module);
     let first = layout.record_types[&first_record];
     let second = layout.record_types[&second_record];
