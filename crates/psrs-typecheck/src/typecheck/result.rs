@@ -76,6 +76,12 @@ pub(super) enum InferredExprKind {
         source: InferType,
         target: InferType,
     },
+    /// The `Unsafe.Coerce.unsafeCoerce` function. It has no `Coercible` wanted;
+    /// finalization closes it into an unchecked representation cast.
+    UnsafeCoerceFunction {
+        source: InferType,
+        target: InferType,
+    },
     /// A dictionary solved for `wanted`, used directly (for example as an
     /// instance's superclass field).
     Evidence(usize),

@@ -61,7 +61,11 @@ PSRS_REQUIRE_WASMTIME=1 cargo test -p psrs-driver --lib tests::wasi::classes::de
 ```
 
 The compiler-provided value shim follows upstream's `Safe.Coerce.coerce`
-source API; `Prim.Coerce.Coercible` remains the compiler-owned class. The
+source API; `Prim.Coerce.Coercible` remains the compiler-owned class, and
+`Unsafe.Coerce.unsafeCoerce` is the compiler-owned intrinsic that `coerce` is
+defined from upstream. A focused execution case
+(`tests::coercion::unsafe_coerce_is_a_compiler_primitive_identity_cast`) lowers a
+newtype through `unsafeCoerce` and runs to its value under mandatory Wasmtime. The
 durable `differential_role_and_coercible_rules_against_purs` test compares 20
 accepted and rejected fixtures with `purs 0.15.16`, including role
 decomposition, higher-kinded given rewriting, checked kind compatibility,

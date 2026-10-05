@@ -51,6 +51,11 @@ impl Interface {
                     TypeReference::Named(TypeId::COERCIBLE),
                 );
             }
+            "Unsafe.Coerce" => {
+                interface
+                    .values
+                    .insert("unsafeCoerce".to_owned(), Intrinsic::UnsafeCoerce.symbol());
+            }
             _ if name != "Prim.Coerce"
                 && !hir::primitive_type_declarations()
                     .iter()

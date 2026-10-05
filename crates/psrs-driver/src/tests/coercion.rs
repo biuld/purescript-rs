@@ -260,6 +260,36 @@ fn compiler_coercion_intrinsic_is_only_in_scope_through_safe_coerce() {
 }
 
 #[test]
+fn compiler_unsafe_coercion_intrinsic_is_only_in_scope_through_unsafe_coerce() {
+    let source = "module Main where\n\
+        main :: Int\n\
+        main = __psrs_unsafe_coerce 42\n";
+    rejects(&[("Main.purs", source)], "UnknownName");
+}
+
+#[test]
+fn unsafe_coerce_is_a_compiler_primitive_identity_cast() {
+    let source = r#"
+module Main where
+
+import Unsafe.Coerce (unsafeCoerce)
+
+newtype Age = Age Int
+
+asInt :: Age -> Int
+asInt = unsafeCoerce
+
+main :: Int
+main = asInt (Age 42)
+"#;
+    let Some(output) = super::run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn an_imported_newtype_requires_its_constructor_for_unwrapping() {
     let library = "module Lib (Age, age) where\n\
         newtype Age = Age Int\n\

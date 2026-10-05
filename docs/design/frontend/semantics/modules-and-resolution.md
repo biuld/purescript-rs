@@ -102,10 +102,11 @@ declared class, and `unsafeCoerce` is the unchecked representation cast, the
 bodies a faithful vendored source must carry. A module the compiler provides is
 never shadowed by an on-disk file: the loader omits such a module and an import
 of it resolves through the virtual interface, so the vendored source can stay
-faithful to upstream without its uncompilable body taking effect. The
-`unsafeCoerce` primitive is not implemented yet, so a program that reaches it is
-a recorded gap rather than a working cast; the design target is the same
-compiler-owned value path `coerce` already uses.
+faithful to upstream without its uncompilable body taking effect. `unsafeCoerce`
+is the unchecked `unsafeCoerce#` analogue: the compiler lowers it to a
+representation-preserving cast at the value's erased boundary, so a program that
+reaches it compiles and runs through the same compiler-owned value path
+`coerce` uses.
 
 This document owns that interface: which names exist, which identity each carries,
 and that nothing in source can replace one. What a member *means* — which of them

@@ -141,6 +141,7 @@ descriptors! {
     Undefined => "__psrs_undefined", 0, PartialValue, scheme::undefined;
     Unit => "unit", 0, Nullary, scheme::unit;
     ArrayAppend => "arrayAppend", 2, ArrayAppend, scheme::array_append;
+    UnsafeCoerce => "__psrs_unsafe_coerce", 1, Coercion, scheme::unsafe_coerce;
 }
 
 /// The HIR type schemes. Each returns a fresh [`Type`], so a caller that
@@ -347,6 +348,12 @@ mod scheme {
             },
             span: empty_span(),
         }
+    }
+
+    /// `Unsafe.Coerce.unsafeCoerce`: an unconstrained identity cast. It has no
+    /// `Coercible` proof; the value crosses its erased representation unchanged.
+    pub(super) fn unsafe_coerce() -> Type {
+        forall(&["a", "b"], arrow(variable("a"), variable("b")))
     }
 }
 

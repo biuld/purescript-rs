@@ -71,6 +71,27 @@ impl FunctionLowerer<'_> {
             Intrinsic::BytesToString => {
                 self.lower_bytes_to_string(expression, &arguments[0], ty, assignments)
             }
+            Intrinsic::UnsafeCoerce => {
+                let argument = &arguments[0];
+                let source_type = argument.ty;
+                let source_shape = self.value_shape(source_type, expression.span)?;
+                let value = self.lower_value(argument, assignments)?;
+                let conversion = self.typed_conversion(
+                    source_type,
+                    expression.ty,
+                    source_shape,
+                    ty,
+                    expression.span,
+                )?;
+                Ok(self.emit_conversion(
+                    value,
+                    source_shape,
+                    ty,
+                    conversion,
+                    expression.span,
+                    assignments,
+                ))
+            }
             _ => match intrinsic.descriptor().category {
                 IntrinsicCategory::BinaryScalar => {
                     let left = self.lower_value(&arguments[0], assignments)?;

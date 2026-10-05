@@ -287,6 +287,15 @@ pub enum ExprKind {
         source_type: TypeId,
         target_type: TypeId,
     },
+    /// An unchecked representational conversion from `Unsafe.Coerce`. Unlike
+    /// [`ExprKind::Coerce`] it carries no `Coercible` proof; the value crosses
+    /// its erased representation unchanged. Core lowers it to a
+    /// `RepresentationCast`.
+    UnsafeCoerce {
+        value: Box<Expr>,
+        source_type: TypeId,
+        target_type: TypeId,
+    },
     Application(Box<Expr>, Box<Expr>),
     Lambda {
         binder: Binder,

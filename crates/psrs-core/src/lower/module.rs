@@ -59,6 +59,7 @@ fn scan_expr_locals(expression: &psrs_thir::Expr, max: &mut Option<u32>) {
             scan_expr_locals(value, max);
             scan_evidence_locals(evidence, max);
         }
+        psrs_thir::ExprKind::UnsafeCoerce { value, .. } => scan_expr_locals(value, max),
         psrs_thir::ExprKind::Application(function, argument) => {
             scan_expr_locals(function, max);
             scan_expr_locals(argument, max);

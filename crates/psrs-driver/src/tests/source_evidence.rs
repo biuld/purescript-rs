@@ -64,6 +64,10 @@ fn walk_expr(expression: &psrs_thir::Expr, seen: &mut Seen) {
             walk_evidence(evidence, seen);
             seen.coercible = true;
         }
+        ExprKind::UnsafeCoerce { value, .. } => {
+            walk_expr(value, seen);
+            seen.coercible = true;
+        }
         ExprKind::Array(elements) => {
             for element in elements {
                 walk_expr(element, seen);

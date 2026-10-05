@@ -92,6 +92,11 @@ pub enum Intrinsic {
     /// of a computed length has no source spelling; the library's
     /// `Semigroup (Array a)` instance and `Semigroup String` are its users.
     ArrayAppend,
+    /// Source-level `Unsafe.Coerce.unsafeCoerce`, the unchecked representation
+    /// coercion (`unsafeCoerce#`). Unlike `Coerce` it carries no `Coercible`
+    /// proof; it is a representation-preserving cast at the value's erased
+    /// boundary.
+    UnsafeCoerce,
 }
 
 impl Intrinsic {
@@ -107,7 +112,7 @@ impl Intrinsic {
 
     /// Every variant, in discriminant order. `bootstrap_externals` builds the
     /// compiler-known externals from it; the assertion below keeps it exact.
-    pub const ALL: [Intrinsic; 60] = [
+    pub const ALL: [Intrinsic; 61] = [
         Intrinsic::BoolTrue,
         Intrinsic::BoolFalse,
         Intrinsic::I32Add,
@@ -168,6 +173,7 @@ impl Intrinsic {
         Intrinsic::Undefined,
         Intrinsic::Unit,
         Intrinsic::ArrayAppend,
+        Intrinsic::UnsafeCoerce,
     ];
 }
 
@@ -176,7 +182,7 @@ impl Intrinsic {
 // cannot be added and silently left out of the bootstrap name table.
 const _: () = {
     assert!(
-        Intrinsic::ALL.len() == Intrinsic::ArrayAppend as u32 as usize + 1,
+        Intrinsic::ALL.len() == Intrinsic::UnsafeCoerce as u32 as usize + 1,
         "Intrinsic::ALL is out of date: update it when adding a variant",
     );
     let mut seen: u128 = 0;

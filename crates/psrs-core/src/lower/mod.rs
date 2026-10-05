@@ -185,6 +185,29 @@ fn lower_expr(
                 target_type: TypeId(target_type.0),
             }
         }
+        TypedExprKind::UnsafeCoerce {
+            value,
+            source_type,
+            target_type,
+        } => {
+            if source_type != value.ty || target_type.0 != ty.0 {
+                return Err(LowerError {
+                    span,
+                    message: "unsafe coercion boundary does not match its value and result",
+                });
+            }
+            ExprKind::RepresentationCast {
+                value: Box::new(lower_expr(
+                    *value,
+                    externals,
+                    constructors,
+                    source_types,
+                    context,
+                )?),
+                source_type: TypeId(source_type.0),
+                target_type: TypeId(target_type.0),
+            }
+        }
         TypedExprKind::Application(function, argument) => {
             let function = lower_expr(*function, externals, constructors, source_types, context)?;
             let argument = lower_expr(*argument, externals, constructors, source_types, context)?;

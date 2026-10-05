@@ -139,6 +139,9 @@ impl Checker {
                         Some(ExternalKind::Intrinsic(Intrinsic::Coerce)) => {
                             self.coercion_function(span)
                         }
+                        Some(ExternalKind::Intrinsic(Intrinsic::UnsafeCoerce)) => {
+                            self.unsafe_coercion_function(span)
+                        }
                         Some(ExternalKind::Intrinsic(intrinsic)) => (
                             InferredExprKind::Global(*symbol),
                             self.intrinsic_type(intrinsic),

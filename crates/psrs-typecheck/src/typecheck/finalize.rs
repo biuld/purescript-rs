@@ -112,6 +112,38 @@ impl Checker {
                     body: Box::new(body),
                 }
             }
+            InferredExprKind::UnsafeCoerceFunction { source, target } => {
+                let source_type =
+                    self.finalize_type(&source, expression.span, interner, generics)?;
+                let target_type =
+                    self.finalize_type(&target, expression.span, interner, generics)?;
+                let local = LocalId(self.state.next_dictionary_local);
+                self.state.next_dictionary_local += 1;
+                let binder = thir::Binder {
+                    id: local,
+                    name: "__unsafe_coerce_value".to_owned(),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let value = thir::Expr {
+                    kind: thir::ExprKind::Local(local),
+                    ty: source_type,
+                    span: expression.span,
+                };
+                let body = thir::Expr {
+                    kind: thir::ExprKind::UnsafeCoerce {
+                        value: Box::new(value),
+                        source_type,
+                        target_type,
+                    },
+                    ty: target_type,
+                    span: expression.span,
+                };
+                thir::ExprKind::Lambda {
+                    binder,
+                    body: Box::new(body),
+                }
+            }
             InferredExprKind::Evidence(wanted) => {
                 let evidence = self.wanted_evidence(wanted, interner, generics)?;
                 thir::ExprKind::Evidence(evidence)

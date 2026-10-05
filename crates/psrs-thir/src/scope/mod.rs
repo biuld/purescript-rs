@@ -258,6 +258,29 @@ fn verify_expr_scope(
                 errors,
             );
         }
+        ExprKind::UnsafeCoerce {
+            value,
+            source_type,
+            target_type,
+        } => {
+            verify_expr_scope(value, types, scope, errors);
+            verify_type_scope(
+                *source_type,
+                types,
+                scope,
+                expression.span,
+                &mut HashSet::new(),
+                errors,
+            );
+            verify_type_scope(
+                *target_type,
+                types,
+                scope,
+                expression.span,
+                &mut HashSet::new(),
+                errors,
+            );
+        }
         ExprKind::Application(function, argument) => {
             let binders = leading_foralls(types, expression.ty);
             let mut function_scope = scope.clone();

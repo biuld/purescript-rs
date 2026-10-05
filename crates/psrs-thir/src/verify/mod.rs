@@ -164,6 +164,19 @@ fn verify_expr(expression: &Expr, module: &Module, errors: &mut Vec<VerifyError>
                 }),
             }
         }
+        ExprKind::UnsafeCoerce {
+            value,
+            source_type,
+            target_type,
+        } => {
+            verify_expr(value, module, errors);
+            if *source_type != value.ty || *target_type != expression.ty {
+                errors.push(VerifyError {
+                    span: expression.span,
+                    message: "unsafe coercion boundary types do not match its value and result",
+                });
+            }
+        }
         ExprKind::Application(function, argument) => {
             verify_expr(function, module, errors);
             verify_expr(argument, module, errors);
