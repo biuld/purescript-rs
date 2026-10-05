@@ -25,6 +25,9 @@ belong to the frontend's
 It does not own the general record and closure layouts
 ([data representation](data-representation.md)), or the erased representation of
 polymorphic values ([polymorphism and erasure](polymorphism-and-erasure.md)).
+A dictionary is an instance of the shared representation policy and conversion
+contract in [representation and evidence](representation-and-evidence.md): an
+ordinary product of closures, with no dictionary-specific adaptation.
 
 ## Background
 

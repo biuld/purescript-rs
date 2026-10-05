@@ -4,7 +4,7 @@
 **Status:** Stable (design)  
 **Prerequisites:** [functional core](../../frontend/semantics/functional-core.md), [CC IR](cc-ir.md),
 [data representation](data-representation.md), and
-[generic aggregate erasure](generic-aggregate-erasure.md);
+[representation and evidence](representation-and-evidence.md);
 the WebAssembly type system (GC structs and arrays, typed function references)
 and the basics of SSA form and dominators. Read
 [IR boundaries](../00-ir-boundaries.md) first.  
@@ -27,7 +27,7 @@ in [scalars and primitives](scalars-and-primitives.md); concrete GC layouts in
 [data representation](data-representation.md); erased values in
 [polymorphism and erasure](polymorphism-and-erasure.md); generic aggregate
 normalization and conversion in
-[generic aggregate erasure](generic-aggregate-erasure.md).
+[representation and evidence](representation-and-evidence.md).
 
 ## Background
 
@@ -214,7 +214,7 @@ generic array layout, and other dependent arrays use an array of recursively
 normalized element shapes. Dependent closed records likewise use canonical
 product layouts. P9 converts between these nominal layouts by fresh
 allocation and recursive reconstruction, following
-[generic aggregate erasure](generic-aggregate-erasure.md).
+[representation and evidence](representation-and-evidence.md).
 
 ### Aggregate conversion lowering
 
@@ -502,7 +502,7 @@ dominated by the block, since `B3`'s parameter is defined at its entry.
   meantime.
 - **Generic aggregate conversion.** Canonical generic arrays, closed records,
   and their explicit reconstruction helpers are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md). Open rows and
+  [representation and evidence](representation-and-evidence.md). Open rows and
   unknown foreign aggregate layouts require separate contracts.
 - **Optimization.** [MIR optimization](../opt/mir.md) specifies P10 passes.
   Scalar unboxing across call boundaries remains a P9 representation decision.

@@ -59,6 +59,7 @@ Kinds are the official ones, since source compatibility requires them. "Provided
 | `Prim.Partial` | `Constraint` | Diagnostic | ReportOnly | yes | partial |
 | `Prim.Boolean.True`, `Prim.Boolean.False` | `Boolean` | Interface | — | yes | n/a |
 | `Safe.Coerce.coerce` (value) | `forall a b. Coercible a b => a -> b` | Interface | — | yes, as an intrinsic | n/a |
+| `Unsafe.Coerce.unsafeCoerce` (value) | `forall a b. a -> b` | Interface | — | yes, as an intrinsic | not yet |
 | `Prim.Coerce.Coercible` | `forall k. k -> k -> Constraint` | Proof | CompileTimeProof | yes | yes |
 | `Prim.Ordering.Ordering` | `Type` | Interface | — | yes | n/a |
 | `Prim.Ordering.LT`, `EQ`, `GT` | `Ordering` | Interface | — | yes | n/a |

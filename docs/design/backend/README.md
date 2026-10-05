@@ -45,6 +45,7 @@ is [Functional Core](../frontend/semantics/functional-core.md).
 
 | Document | Owns | Depends on |
 | --- | --- | --- |
+| [representation-and-evidence.md](fp/representation-and-evidence.md) | The shared RuntimeRep model, generic aggregate normalization, and the checked-boundary conversion contract every adaptation uses | frontend classes and evidence; functional core |
 | [cc-ir.md](fp/cc-ir.md) | ANF, closure conversion, CC operations and verifier | frontend Functional Core |
 | [mir.md](fp/mir.md) | SSA/CFG model, representation planning, MIR verifier | cc-ir |
 | [polymorphism-and-erasure.md](fp/polymorphism-and-erasure.md) | Rank-1 polymorphism, erased representation, adapters | mir |
@@ -77,11 +78,12 @@ rules.
 
 ## Ordering
 
-Read the functional concern bottom-up: functional core, then CC and MIR, then
-representation topics (erasure, scalars, data, patterns, control flow), then
-dictionaries and effects. Read P7 optimization after Core and P10 optimization
-after MIR and the target capability profile. Wasm/WASI encoding consumes the
-optimized MIR.
+Read the functional concern bottom-up: functional core, then the shared
+[representation and evidence](fp/representation-and-evidence.md) model, then CC
+and MIR, then representation topics (erasure, scalars, data, patterns, control
+flow), then dictionaries and effects. Read P7 optimization after Core and P10
+optimization after MIR and the target capability profile. Wasm/WASI encoding
+consumes the optimized MIR.
 
 ## Writing
 

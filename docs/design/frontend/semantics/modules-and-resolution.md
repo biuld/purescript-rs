@@ -94,17 +94,18 @@ declared identities through qualification and re-exports, and carry a
 reach the same compiler-owned identity. A source module named `Prim` or
 beginning with `Prim.` is rejected; source cannot replace a compiler interface.
 The root `undefined` value reaches source only through this interface, not as a
-free name. The compiler-provided set is not limited to `Prim`:
-`Safe.Coerce` is virtual too, exporting `coerce` as the checked coercion
-intrinsic and `Coercible` as the shared declared class. Because the vendored
-official `Safe.Coerce` source is kept faithful to upstream — its body is
-`coerce = unsafeCoerce` — the driver must not load an on-disk file for a module
-the compiler provides; doing so would shadow the interface with a body the
-project cannot compile. The loader skips such a module and imports fall through
-to the virtual interface. `Unsafe.Coerce.unsafeCoerce` has no compiler
-interface yet: the vendored module is faithful but its `foreign import` is
-represented as a self-recursive stub this project cannot execute, so a program
-that reaches it is a recorded gap rather than a working coercion.
+free name. The compiler-provided set is not limited to `Prim`. Compiler-provided modules
+export primitive values, and `Safe.Coerce` and `Unsafe.Coerce` are two of them:
+`coerce` is the checked coercion intrinsic with `Coercible` as the shared
+declared class, and `unsafeCoerce` is the unchecked representation cast, the
+`unsafeCoerce#` analogue. Both are compiler-owned primitive values, not the
+bodies a faithful vendored source must carry. A module the compiler provides is
+never shadowed by an on-disk file: the loader omits such a module and an import
+of it resolves through the virtual interface, so the vendored source can stay
+faithful to upstream without its uncompilable body taking effect. The
+`unsafeCoerce` primitive is not implemented yet, so a program that reaches it is
+a recorded gap rather than a working cast; the design target is the same
+compiler-owned value path `coerce` already uses.
 
 This document owns that interface: which names exist, which identity each carries,
 and that nothing in source can replace one. What a member *means* — which of them

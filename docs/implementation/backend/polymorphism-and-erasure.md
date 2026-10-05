@@ -339,6 +339,20 @@ PE-13:
   nodes on the type, and constructors other than `Function` and the registered
   Effect token protocol do not each have explicit execution evidence. The two
   experimental worktrees are stopped and are not integrated.
+- **Transitional representation evidence (to remove).** P8 currently
+  reconstructs the checked instantiation relation from the immutable Core module
+  (`cc/lower/instantiation.rs`, `FunctionLowerer::source`) and derives callable
+  constructor policies from a HIR-`TypeId`-keyed table
+  (`FunctionLowerer::constructor_protocols`) plus a signature-prefix derivation
+  (`cc/layout/functions/mod.rs::transport_signatures`). The design
+  ([representation and
+  evidence](../../design/backend/fp/representation-and-evidence.md))
+  calls for the checked relation and each erased value's representation policy
+  to be produced by their owning stages and carried through an explicit
+  Core-to-CC side table, the way `ExternalBindings` carries the WIT boundary.
+  These fields are the interim implementation and should be removed when that
+  side table lands; keying a semantic CC decision on a HIR identity, and
+  deriving a protocol by enumerating signatures, are not the model.
 - **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
   for reasons this topic does not own: five use `-` or `/` without importing the
   library operator that now owns it (`tests::scalars`, `tests::functions`,

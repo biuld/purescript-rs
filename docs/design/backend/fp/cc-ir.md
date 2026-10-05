@@ -20,11 +20,13 @@ operation families, the external-binding boundary, and the CC verifier. It
 specifies what CC must express and must never contain.
 
 It does not own the Core terms it lowers (see [functional core](../../frontend/semantics/functional-core.md)),
-the concrete runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
+the shared representation model and checked-boundary contract (see
+[representation and evidence](representation-and-evidence.md)), the concrete
+runtime layout or Wasm type table (see [MIR](mir.md)), the pattern
 decision algorithm (see [pattern matching](pattern-matching.md)), the erased
 representation protocol (see [polymorphism and erasure](polymorphism-and-erasure.md)),
 or canonical generic aggregate layouts and conversion semantics (see
-[generic aggregate erasure](generic-aggregate-erasure.md)),
+[representation and evidence](representation-and-evidence.md)),
 the scalar operator definitions (see [scalars and primitives](scalars-and-primitives.md)),
 or the WIT/canonical-ABI binding rules (see
 [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md)). Dictionary
@@ -142,7 +144,7 @@ canonical aggregate representation with recursively normalized elements or
 fields. CC records a target-neutral aggregate conversion plan when a typed
 boundary must reconstruct a different aggregate shape; it never encodes that
 work as a nominal reference cast. See
-[generic aggregate erasure](generic-aggregate-erasure.md) for the canonical
+[representation and evidence](representation-and-evidence.md) for the canonical
 keys and conversion rules.
 
 `RepresentationTable::reserve` allocates a stable `ReprId` before its
@@ -400,16 +402,27 @@ function value without a separate calling convention.
 
 ### Partial application and erased adapters
 
-When a `Global` is applied to fewer source-arrow arguments than its signature
-has, P8 generates a wrapper closure that captures the supplied arguments and
-calls the original function with the remaining source parameters appended.
+Partial application is under-application of a source arrow: a call that
+supplies fewer arguments than the callee's arrow arity. This is the ordinary
+partial-application closure of functional-language runtimes (GHC's `PAP`
+objects, OCaml's `caml_apply`), so P8 handles it uniformly for every callee
+kind, not only `Global`:
+
+- a `Global` applied to fewer source-arrow arguments generates a wrapper
+  closure that captures the supplied arguments and calls the declaration with
+  the remaining source parameters appended; and
+- a callee value that is not a declaration — a local closure or a class method
+  reached through a dictionary field — generates a closure that captures the
+  callee and the supplied arguments, exposes the remaining parameters, and
+  calls the captured callee indirectly.
+
 `log "message"` for `log :: String -> Effect Unit` is a saturated source call;
 the effect token is not a remaining parameter of `log`. The token belongs to
-the representation closure that the call returns
-([effects](effects.md)). When a concrete function value crosses a polymorphic
-function boundary, `adapt_erased_function_value` builds an adapter closure with
-the erased signature that captures the original, boxes/unboxes each parameter,
-calls the concrete closure, and boxes/unboxes the result
+the representation closure that the call returns ([effects](effects.md)). When
+a concrete function value crosses a polymorphic function boundary,
+`adapt_erased_function_value` builds a reabstraction thunk with the erased
+signature that captures the original, boxes/unboxes each parameter, calls the
+concrete closure, and boxes/unboxes the result
 ([polymorphism and erasure](polymorphism-and-erasure.md)).
 
 ### Pattern decision and case lowering
@@ -578,8 +591,12 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
   the layout, builds the Wasm type table, lowers aggregate maps, and converts
   structured `If` into a CFG; it must not invent a requirement CC did not
   state.
-- **From Core.** Core types and names are consumed here; nothing below CC
-  depends on Core `TypeId`s except lowering-only diagnostic side data.
+- **From Core.** Core types and names are consumed here. A representation
+  decision must not read the Core type arena ambiently: checked instantiation
+  evidence and each erased value's representation policy travel with the input
+  as an explicit side table, the same way `ExternalBindings` carries the WIT
+  binding boundary. Nothing below CC depends on Core `TypeId`s except that
+  side table and lowering-only diagnostic data.
 
 ## Open questions and future work
 
@@ -595,7 +612,7 @@ inside `If` assignments. See [MIR's worked example](mir.md) for the SSA form.
 - **Open rows.** Closed records only; row polymorphism needs a separate
   representation contract. Canonical closed generic aggregates and explicit
   conversion plans are specified in
-  [generic aggregate erasure](generic-aggregate-erasure.md).
+  [representation and evidence](representation-and-evidence.md).
 
 ## Implementation notes
 

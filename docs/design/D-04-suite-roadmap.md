@@ -735,7 +735,7 @@ effects, the component path, and pattern-matrix behavior including the
 value-sensitive `1185.purs` and `2049.purs` shapes.
 
 The 46-case move from the earlier 164 measurement combines the
-[abstract-constructor transport contract](backend/fp/polymorphism-and-erasure.md)
+[abstract-constructor representation policy](backend/fp/polymorphism-and-erasure.md)
 and its indirect partial-application path. Recovering a stored closure protocol
 and generating an adapter, instead of casting the erased closure onto the
 consumer signature, cleared 29 of the 30 P8 CC verifier failures and 17 of the

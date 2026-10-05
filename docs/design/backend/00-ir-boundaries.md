@@ -21,7 +21,9 @@ the boundary-verification philosophy, and the responsibilities of the thin Wasm
 encoding (P10) and artifact production (P11). It is the cross-cutting contract
 between the two backend concerns.
 
-It does not own the individual representations or topics. The typed core
+It does not own the individual representations or topics. The shared
+representation model and checked-boundary conversion contract is
+[representation and evidence](fp/representation-and-evidence.md); the typed core
 calculus is [functional core](../frontend/semantics/functional-core.md); ANF and closure conversion
 are [CC IR](fp/cc-ir.md); SSA/CFG and representation planning are [MIR](fp/mir.md);
 control-flow structuring and tail calls are
@@ -450,7 +452,10 @@ and P10/P11 would name it from the ABI registry; CC would be unchanged.
   ([D-01](../D-01-frontend-and-ir-boundaries.md),
   [Wasm encoding](wasm/encoding-and-structuring.md)).
 - **P7 to P8.** Verified Core plus explicit trusted-effect and selected-entry
-  metadata. P8 builds WIT bindings from Core's checked `ExternalType`
+  metadata, plus the boundary side table that carries checked instantiation
+  evidence and representation policies
+  ([representation and evidence](fp/representation-and-evidence.md)). P8 builds
+  WIT bindings from Core's checked `ExternalType`
   schemes before erasure. See
   [functional core](../frontend/semantics/functional-core.md) and
   [CC IR](fp/cc-ir.md).

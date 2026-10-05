@@ -1,7 +1,7 @@
 # Generic Aggregate Erasure Implementation Acceptance
 
 **Feature:** [F-02](../../feature/F-02-portable-programs.md)
-**Design:** [Generic aggregate erasure](../../design/backend/fp/generic-aggregate-erasure.md)
+**Design:** [Runtime representation and checked boundaries](../../design/backend/fp/representation-and-evidence.md)
 **Progress:** Accepted against GA-01 through GA-20 after the independent review
 findings were fixed and required execution was repeated. The earlier audit and
 review findings below are retained as history; [resolution evidence](#resolution-of-independent-review-2026-09-25)

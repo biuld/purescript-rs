@@ -23,7 +23,7 @@ vendored-library iteration. The 2026-10-05
 reproduces a matching producer/consumer signature failure without Effect. At
 `675f0e3` the discard, delayed-map, and fixed-payload Effect cases compiled
 and then trapped. The landed checkpoint recorded there executes those three
-programs and the Reader reproduction, and the transport contract is the same
+programs and the Reader reproduction, and the representation policy is the same
 one PE-13 verifies. Historical EF evidence below does not establish that
 boundary. The general checked-conversion contract owns the repair; Effect
 contributes its trusted token protocol. On this tree the L6/M7 scoreboard moved
@@ -62,7 +62,7 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 | EF-11 | Structural verification checks trusted identities and checked WIT operation signatures, every recorded Effect application closure, each import plan against its host wrapper, and the complete transformed Core including generated wrappers. | Malformed identity, checked WIT scheme, import-plan, closure-shape, wrapper-signature, and post-wrapper Core fixtures fail before CC/encoding; these checks are reported as structural evidence only. | Verified |
 | EF-12 | `trap` is the `Effect Unit` whose application ends the guest instead of returning, and the effect chain sequenced after it does not run. | A failing library assertion writes its message and traps; a held one lets the program finish; a statement after the trap never writes. | Verified |
 | EF-13 | Entry selection resolves one source declaration: prefer `Main.main`, otherwise require a unique top-level `main`. The same `SymbolId` drives the runner check and any generated adapter; accepted result types are `Int` and trusted `Effect Unit`. | Source tests for preferred/fallback/ambiguous selection, aliases of `Effect Unit`, and agreement between selected identity, runner diagnostic, and generated adapter. | Verified |
-| EF-14 | Effect application-to-closure lowering composes with the common abstract-constructor transport protocol across generic functions, dictionary methods and callbacks. | Execute discard, delayed map and `f Unit` cases with mandatory Wasmtime and exact output/status; retain the non-Effect Reader regression and verify the complete lowered representation. | Verified |
+| EF-14 | Effect application-to-closure lowering composes with the common abstract-constructor representation policy across generic functions, dictionary methods and callbacks. | Execute discard, delayed map and `f Unit` cases with mandatory Wasmtime and exact output/status; retain the non-Effect Reader regression and verify the complete lowered representation. | Verified |
 
 ## Current evidence (2026-10-04)
 
@@ -136,9 +136,13 @@ EF-14:
   Implementation: crates/psrs-core/src/instantiation.rs (checked
     instantiation), crates/psrs-backend/src/effects/mod.rs (the Effect
     representation owner contributes the runtime token as the `Effect`
-    constructor protocol), crates/psrs-backend/src/cc/lower/conversion/
+    constructor policy), crates/psrs-backend/src/cc/lower/conversion/
     (transport.rs and callable.rs) and cc/lower/{global,record,erased}
-    (evidence threaded to each boundary).
+    (evidence threaded to each boundary). The token and the
+    HIR-`TypeId`-keyed policy table are the transitional mechanism described in
+    [polymorphism and erasure](../../design/backend/fp/polymorphism-and-erasure.md#implementation-notes);
+    the design token is the `State# RealWorld` analogue and the policy should
+    travel with the value, not be keyed by source identity.
   Tests: tests::effects::discard_defined_from_bind_sequences_effects (stdout
     `a\nb\n`, exit 0); tests::functor::
     mapping_an_effect_does_not_run_it_until_the_action_runs (stdout
