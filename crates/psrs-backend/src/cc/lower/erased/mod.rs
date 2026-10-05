@@ -46,7 +46,20 @@ impl FunctionLowerer<'_> {
         if source_type == target_type || !is_function_type(self.module, target_type) {
             return Ok(value);
         }
-        self.adapt_erased_function_value(value, source_type, target_type, span, assignments)
+        let evidence = super::instantiation::instantiation_at(
+            self.source,
+            self.module,
+            source_type,
+            target_type,
+        );
+        self.adapt_erased_function_value(
+            value,
+            source_type,
+            target_type,
+            span,
+            assignments,
+            evidence.as_ref(),
+        )
     }
 
     fn value_shape_of(&self, value: ValueId) -> Option<ValueShape> {
@@ -63,6 +76,7 @@ impl FunctionLowerer<'_> {
         target_type: TypeId,
         span: psrs_span::TextRange,
         assignments: &mut Vec<Assignment>,
+        instantiation: Option<&psrs_core::Instantiation<'_>>,
     ) -> Result<ValueId, Vec<BackendError>> {
         // A value that is not a function at its source type is an erased (or
         // concrete) value recovered at the target function type, such as a type
@@ -74,8 +88,14 @@ impl FunctionLowerer<'_> {
             if source_shape == target_shape {
                 return Ok(value);
             }
-            let conversion =
-                self.typed_conversion(source_type, target_type, source_shape, target_shape, span)?;
+            let conversion = self.typed_conversion_with_instantiation(
+                source_type,
+                target_type,
+                source_shape,
+                target_shape,
+                span,
+                instantiation,
+            )?;
             return Ok(self.emit_conversion(
                 value,
                 source_shape,
@@ -147,6 +167,7 @@ impl FunctionLowerer<'_> {
                     &target_shape,
                     span,
                     assignments,
+                    instantiation,
                 );
             }
             // A concrete curried function (the `ado` block's `\x -> \y -> ...`)
@@ -168,6 +189,7 @@ impl FunctionLowerer<'_> {
                     &target_shape,
                     span,
                     assignments,
+                    instantiation,
                 );
             }
             return Err(vec![BackendError::new(
@@ -221,12 +243,13 @@ impl FunctionLowerer<'_> {
         for (index, argument) in adapter_arguments.into_iter().enumerate() {
             let source_parameter = source_shape.parameters[index];
             let target_parameter = target_shape.parameters[index];
-            let conversion = adapter.typed_conversion(
+            let conversion = adapter.typed_conversion_with_instantiation(
                 target_parameters[index],
                 source_parameters[index],
                 target_parameter,
                 source_parameter,
                 span,
+                instantiation,
             )?;
             let converted = adapter.emit_conversion(
                 argument,
@@ -275,12 +298,13 @@ impl FunctionLowerer<'_> {
         });
         let source_result_type = function_arrow_parameters(self.module, source_type).1;
         let target_result_type = function_arrow_parameters(self.module, target_type).1;
-        let conversion = adapter.typed_conversion(
+        let conversion = adapter.typed_conversion_with_instantiation(
             source_result_type,
             target_result_type,
             source_shape.result,
             target_shape.result,
             span,
+            instantiation,
         )?;
         let result = adapter.emit_conversion(
             concrete_result,

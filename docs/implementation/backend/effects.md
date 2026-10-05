@@ -17,6 +17,19 @@ records below describe the earlier encoding and are not the current evidence.
 
 ## Scope and dependencies
 
+The abstract-constructor/dictionary closure boundary is landed in the
+vendored-library iteration. The 2026-10-05
+[constructor investigation](polymorphism-and-erasure.md#constructor-and-closure-investigation-2026-10-05)
+reproduces a matching producer/consumer signature failure without Effect. At
+`675f0e3` the discard, delayed-map, and fixed-payload Effect cases compiled
+and then trapped. The landed checkpoint recorded there executes those three
+programs and the Reader reproduction, and the transport contract is the same
+one PE-13 verifies. Historical EF evidence below does not establish that
+boundary. The general checked-conversion contract owns the repair; Effect
+contributes its trusted token protocol. On this tree the L6/M7 scoreboard moved
+from 164/413 to 207/413 and the D-04 and README runtime rows are updated; L1–L5
+are unchanged.
+
 Complete the linked design's `Effect a` representation, `pure`, `bind`,
 `runEffect`, hidden execution token, and sequencing through CC/MIR/Wasm. An
 Effect value defers its operation until an explicit source runner or the
@@ -49,6 +62,7 @@ Verified row needs behavior-sensitive execution, not only a closure-shaped IR.
 | EF-11 | Structural verification checks trusted identities and checked WIT operation signatures, every recorded Effect application closure, each import plan against its host wrapper, and the complete transformed Core including generated wrappers. | Malformed identity, checked WIT scheme, import-plan, closure-shape, wrapper-signature, and post-wrapper Core fixtures fail before CC/encoding; these checks are reported as structural evidence only. | Verified |
 | EF-12 | `trap` is the `Effect Unit` whose application ends the guest instead of returning, and the effect chain sequenced after it does not run. | A failing library assertion writes its message and traps; a held one lets the program finish; a statement after the trap never writes. | Verified |
 | EF-13 | Entry selection resolves one source declaration: prefer `Main.main`, otherwise require a unique top-level `main`. The same `SymbolId` drives the runner check and any generated adapter; accepted result types are `Int` and trusted `Effect Unit`. | Source tests for preferred/fallback/ambiguous selection, aliases of `Effect Unit`, and agreement between selected identity, runner diagnostic, and generated adapter. | Verified |
+| EF-14 | Effect application-to-closure lowering composes with the common abstract-constructor transport protocol across generic functions, dictionary methods and callbacks. | Execute discard, delayed map and `f Unit` cases with mandatory Wasmtime and exact output/status; retain the non-Effect Reader regression and verify the complete lowered representation. | Verified |
 
 ## Current evidence (2026-10-04)
 
@@ -118,6 +132,32 @@ EF-13:
   Result: pass. Selection prefers Main.main, otherwise one top-level main.
     Effect Int is rejected. Effect Unit synonyms are accepted.
   Gaps: files with no selected main stay scoreboard blockers (63).
+EF-14:
+  Implementation: crates/psrs-core/src/instantiation.rs (checked
+    instantiation), crates/psrs-backend/src/effects/mod.rs (the Effect
+    representation owner contributes the runtime token as the `Effect`
+    constructor protocol), crates/psrs-backend/src/cc/lower/conversion/
+    (transport.rs and callable.rs) and cc/lower/{global,record,erased}
+    (evidence threaded to each boundary).
+  Tests: tests::effects::discard_defined_from_bind_sequences_effects (stdout
+    `a\nb\n`, exit 0); tests::functor::
+    mapping_an_effect_does_not_run_it_until_the_action_runs (stdout
+    `before\ntick\n2\n`, exit 0); tests::closure_protocol::
+    fixed_unit_payload_through_a_bind_constraint_repeats_the_action
+    (`forall f. Bind f => f Unit -> f Unit` at Effect, stdout `again\nagain\n`,
+    exit 0) and reader_dictionary_returns_the_concrete_result (the non-Effect
+    regression, exit 42); tests::closure_protocol::
+    abstract_callable_transport_emits_a_checked_adapter (the generated adapter
+    and factory).
+  Input boundary: source; executed Wasm component.
+  Commands: PSRS_REQUIRE_WASMTIME=1 cargo test --workspace.
+  Result: pass. The Effect discard, delayed-map, and fixed-payload programs
+    run to completion with the exact output and status, and the non-Effect
+    Reader regression still returns 42.
+  Revision: 675f0e3 plus this slice.
+  Gaps: an under-applied or indirectly applied dictionary method is rejected
+    before adapters; that indirect/partial-application gap is shared with
+    PE-13 and recorded in [polymorphism and erasure](polymorphism-and-erasure.md).
 ```
 
 ## Vertical execution order

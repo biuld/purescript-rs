@@ -81,12 +81,27 @@ impl GlobalLowering for FunctionLowerer<'_> {
             if source_type == expression.ty {
                 Ok(destination)
             } else {
+                let declaration = self
+                    .module
+                    .declarations
+                    .iter()
+                    .find(|declaration| declaration.symbol == function)
+                    .expect("the source declaration was found above");
+                // Evidence is required only if the adaptation reaches an
+                // abstract constructor boundary; `constructor_transport`
+                // reports the missing binding where the boundary applies.
+                let evidence = self.source.checked_instantiation(
+                    source_type,
+                    &declaration.quantified,
+                    expression.ty,
+                );
                 self.adapt_erased_function_value(
                     destination,
                     source_type,
                     expression.ty,
                     expression.span,
                     assignments,
+                    evidence.as_ref(),
                 )
             }
         } else {
@@ -109,21 +124,27 @@ impl GlobalLowering for FunctionLowerer<'_> {
             if source_shape == result_type {
                 return Ok(destination);
             }
-            let source_type = self
+            let declaration = self
                 .module
                 .declarations
                 .iter()
                 .find(|declaration| declaration.symbol == function)
-                .map(|declaration| declaration.ty)
                 .ok_or_else(|| {
                     global_error(expression, "global value has no source declaration type")
                 })?;
-            let conversion = self.typed_conversion(
+            let source_type = declaration.ty;
+            let evidence = self.source.checked_instantiation(
+                source_type,
+                &declaration.quantified,
+                expression.ty,
+            );
+            let conversion = self.typed_conversion_with_instantiation(
                 source_type,
                 expression.ty,
                 source_shape,
                 result_type,
                 expression.span,
+                evidence.as_ref(),
             )?;
             Ok(self.emit_conversion(
                 destination,

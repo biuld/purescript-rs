@@ -3,6 +3,7 @@ use psrs_hir::{Intrinsic, LocalId, ModuleId, SymbolId};
 
 mod effects;
 mod external_types;
+mod instantiation;
 mod link;
 mod patterns;
 mod rank_n;

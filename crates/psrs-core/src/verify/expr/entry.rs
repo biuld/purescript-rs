@@ -4,10 +4,12 @@ use crate::{Expr, Module, TypeId, VerifyError};
 use psrs_hir::{ModuleId, SymbolId};
 use std::collections::HashMap;
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::verify) fn verify_expr(
     expression: &Expr,
     expected: Option<TypeId>,
     module: &Module,
+    source: Option<&Module>,
     owner: ModuleId,
     globals: &HashMap<SymbolId, Option<SchemeType>>,
     locals: &mut Locals,
@@ -15,6 +17,7 @@ pub(in crate::verify) fn verify_expr(
 ) {
     let mut context = Context {
         module,
+        source,
         owner,
         globals,
         locals,

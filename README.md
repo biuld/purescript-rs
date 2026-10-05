@@ -50,7 +50,7 @@ what remains in each layer.
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
 | L5 classes | 58/81 failing | official `errorCode`s |
-| L6/M7 runtime | 164/413 passing | all 164 exit 0; 249 do not agree, including 46 with no selected `main` |
+| L6/M7 runtime | 207/413 passing | all 207 exit 0; 206 do not agree, including 47 with no selected `main` |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:
@@ -114,8 +114,11 @@ Verified working subsets, each with source tests and Wasmtime execution:
   scalar, string, list, flags, handle, and variant shapes
   ([canonical ABI](docs/design/backend/wasm/canonical-abi-and-wit.md)), and the
   synthesized aggregate fixtures validate but do not yet execute;
-- **the standard library** — `stdlib/lib` holds 12 modules, and 244 corpus
-  programs import a module it does not provide.
+- **the standard library** — `stdlib/lib` holds the vendored `v0.15.16` core
+  libraries (211 modules). A module the compiler owns, such as `Safe.Coerce`,
+  resolves through its primitive interface rather than the vendored file, which
+  stays faithful to upstream; `Unsafe.Coerce.unsafeCoerce` has no interface yet
+  and is a recorded gap.
 
 ## Workspace
 

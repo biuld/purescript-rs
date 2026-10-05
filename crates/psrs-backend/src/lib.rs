@@ -149,10 +149,14 @@ pub fn lower_cc_with_context(
     effect_context: Option<&psrs_core::effect::EffectCompilation>,
 ) -> Result<BackendInput, Vec<BackendError>> {
     let mut external_bindings = ExternalBindings::from_core(&module);
+    let mut source = None;
+    let mut protocols = std::collections::HashMap::new();
     if let Some(context) = effect_context {
-        effects::lower_effects(&mut module, &mut external_bindings, context)?;
+        let prepared = effects::lower_effects(&mut module, &mut external_bindings, context)?;
+        protocols = prepared.protocols;
+        source = Some(prepared.source);
     }
-    cc::lower_module_with_bindings(module, external_bindings)
+    cc::lower_module_with_relations(module, external_bindings, source.as_ref(), &protocols)
 }
 
 /// The default-profile validator, retained for backend unit tests.

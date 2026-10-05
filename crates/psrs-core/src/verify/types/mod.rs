@@ -126,6 +126,7 @@ pub(super) fn record_field(id: TypeId, label: &str, module: &Module) -> Option<T
 
 mod matching;
 pub(crate) use matching::equivalent_types;
+pub(crate) use matching::instantiation;
 pub(super) use matching::{
     application_matches, compatible, constructor_fields_match, scheme_instance,
 };

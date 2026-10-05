@@ -25,7 +25,8 @@ This document owns the erased representation for polymorphic values, the
 distinction between concrete and erased representation requirements, the
 semantics of the adaptation operations, the generated function adapters used at
 higher-order boundaries, and the closure capture rules that follow from
-erasure. It does not own concrete scalar and GC layouts (see
+erasure. This includes applications of abstract constructors (`f a`) and
+methods transported through ordinary class dictionaries. It does not own concrete scalar and GC layouts (see
 [data representation](data-representation.md)), the MIR type model and verifier
 (see [mir](mir.md)), type-class elaboration and dictionary construction (see
 [type classes and dictionaries](type-classes-and-dictionaries.md)), scalar
@@ -174,6 +175,71 @@ same kind of boundary: `Effect (a -> b)` lowers to a closure that takes the
 runtime token and returns a function, and flattening that function into the
 effect closure is forbidden ([effects](effects.md)).
 
+### Checked boundaries and stored representation contracts
+
+Keep three facts separate until a representation conversion has been planned:
+
+1. The source definition scheme and the checked type at this particular use.
+2. The representation actually produced or stored by the definition, including
+   a closure's complete parameter/result signature.
+3. The representation required by the consumer.
+
+Source checking owns scheme instantiation, subsumption, binder scope and field
+compatibility. P8 consumes that result together with representation mappings;
+it does not extend source compatibility to accommodate rewritten types. A
+checked relation is attached to a particular boundary and immutable source
+artifact. Type IDs alone, declaration arity, or a set of successful matcher
+node pairs are insufficient: evidence must preserve relation direction,
+quantifier scope, substitutions and the argument/result or field position to
+which it applies. Contravariant parameters reverse the checking direction;
+they do not make the evidence interchangeable with arbitrary endpoint pairs.
+
+The planning inputs have the following conceptual shape; these are compiler
+contracts, not runtime fields:
+
+```text
+Boundary = CallFrame | Return | Field | Element | Capture
+CheckedBoundary = { source_artifact, boundary_position, scoped_type_relation }
+RepresentationView = { source_use_or_generated_plan, value_shape, stored_protocol }
+ConversionPlan = { checked_boundary, producer_view, consumer_view, operation_tree }
+```
+
+`source_use_or_generated_plan` identifies either a checked source type in its
+binder environment or the plan that authorized a synthetic endpoint. An erased
+value shape does not remove `stored_protocol` from planning. CC receives the
+resulting explicit operations and signatures; it does not receive a runtime
+constructor identity or type witness.
+
+A bare variable `a` can transport an existing reference object unchanged. Its
+recovery contract is the representation established when the value entered
+that slot. An application `f a` also hides its constructor. A generic method
+may produce a new value of that application, so recovering it requires the
+constructor transport contract shared by the method implementation and its
+generic consumers, rather than a guess from the consumer's concrete type.
+The same requirement applies to `f Unit`; a fixed argument does not establish
+the stored calling convention of a value returned through a generic method.
+
+At a checked instantiation of `f`, the representation owner supplies that
+constructor's transport protocol. For a callable constructor it specifies the
+fixed parameters and the result protocol; for arrays it uses the canonical
+element layout; ADTs retain their declared field storage contracts. Partial
+constructor applications retain their fixed arguments. This is representation
+lowering, not runtime instance selection. It neither requires a runtime type
+tag nor authorizes erasing every constructor argument unconditionally.
+
+Dictionary selection determines the implementation to call. A shared generic
+body and that implementation still have definition ABIs. Direct calling or
+specializing a known dictionary may remove a boundary, but the unspecialized
+path must satisfy the same transport contract. Dictionary fields, callbacks,
+returns, captures and ordinary functions use the common conversion planner.
+
+Source types and checked boundary evidence remain available until P8 emits
+explicit conversion operations with exact physical endpoints. Representation
+lowering must not overwrite the authoritative source type arena and then
+reconstruct source relations from closure signatures. A synthesized adapter
+endpoint can be representation-only: its validity follows from its conversion
+plan and signature, without inventing a source constructor for it.
+
 ### Erased values and boxes
 
 The erased representation is `eqref`, a non-null reference. Concrete values
@@ -198,8 +264,9 @@ an `eqref` cast alone is not that conversion.
 turning a string into an integer. The i31 shorthand is used only for closure
 *captures*, not
 for the general erased protocol (see [data representation](data-representation.md)).
-The empty-erasure case (an erased value used where an erased value is expected)
-is an identity, so nested polymorphic boundaries add no work.
+The empty-erasure case is an identity when both endpoints share the same stored
+representation contract. Equal `Erased` shapes alone do not prove that two
+hidden closure or aggregate protocols agree.
 
 ### Dictionaries
 
@@ -337,19 +404,61 @@ constructors such as `Array a` still retain their canonical layouts. A type
 variable nested in an ADT field continues to follow
 [DEC-07](../../../decision/DEC-07-runtime-representation-for-parameterized-adts.md).
 
+### Planning a checked representation boundary
+
+All typed boundaries use one planning operation, including direct and indirect
+calls, partial applications, returned functions, dictionary fields, aggregate
+elements and lifted captures:
+
+```text
+plan(checked_boundary, producer_contract, consumer_contract):
+    validate boundary ownership, scope and endpoint positions
+    obtain source/use relation from the source checking owner
+    obtain physical views and transport protocols from representation lowering
+    if both contracts agree:
+        Identity
+    else:
+        recursively plan scalar, reference, callable and aggregate conversions
+    reject any recovery whose stored representation cannot be established
+
+emit(plan, value):
+    emit the plan's exact source/target shapes and signatures
+    verify generated adapter bodies, captures and calls
+```
+
+Planning retains semantic evidence; emission consumes the completed plan.
+Emission must not rerun source matching for representation-only adapter types,
+search a module for a plausible signature, or recover directly to the desired
+consumer signature. A function conversion first establishes the stored
+producer signature, then generates an adapter if the consumer signature differs.
+Producer erasure and consumer recovery use the same protocol. For example, an
+abstract callable-constructor protocol may transport a closure with a fixed
+parameter and erased result; entering it adapts the result before erasure,
+and leaving it recovers that closure before adapting to the concrete result.
+
+Representation owners contribute mappings and protocols to this common
+operation. An Effect owner supplies the trusted application-to-token-closure
+mapping; it does not collect separate call, dictionary or field evidence.
+Planning context is explicit and belongs to a boundary. Ambient Effect-specific
+matcher state is not a substitute for that context.
+
 ### Boxing and unboxing
 
 ```text
-adapt(value, source_type, destination_type):
-    if destination_type is a bare type variable:
+adapt(value, checked_boundary, stored_contract, consumer_contract):
+    validate the checked plan and its endpoint contracts
+    if consumer is a bare type-variable slot:
         scalar -> allocate its existing erased box
         reference -> RepresentationCast(value, Erased)
-    else if source_type and destination_type are aggregate types:
-        AggregateConvert(value, plan_for(source_type, destination_type))
-    else if source_type is erased and destination_type is a concrete scalar:
-        project the typed box and unbox
-    else if source and destination reference shapes agree:
-        use identity or the compatible erased reference cast
+    else if stored and consumer contracts require aggregate conversion:
+        AggregateConvert(value, checked recursive plan)
+    else if value is erased:
+        recover the box, layout or callable signature established by storage
+        apply the remaining plan to reach the consumer contract
+    else if callable signatures differ:
+        generate the checked function adapter
+    else if physical shapes and storage protocols agree:
+        Identity
     otherwise:
         report a source-spanned unsupported conversion
 ```
@@ -375,25 +484,25 @@ payload. Unwrapping a newtype never allocates a separate wrapper object.
 ### Adapter generation
 
 ```text
-adapt(value, concrete_type, generic_type):
-    source = function_signature(concrete_type)
-    target = function_signature(generic_type)
+adapt(value, checked_callable_plan):
+    source = checked_callable_plan.producer_signature
+    target = checked_callable_plan.consumer_signature
     require source and target have equal arity
 
     adapter:
         captured  = ClosureGetCapture(closure = adapter_closure, index = 0)
-        concrete  = RepresentationCast(captured, Closure(signature(concrete_type)))
-        args' = for each (arg, source_param, target_param):
-            source erased and target concrete -> box(arg)
-            source concrete and target erased -> unbox(arg, source_param)
-            otherwise                         -> arg
-        result = IndirectCall(concrete, signature(concrete_type), args')
-        return  target erased and source concrete -> box(result)
-                target concrete and source erased -> unbox(result, target)
-                otherwise                         -> result
+        producer  = RepresentationCast(captured, Closure(source))
+        args' = emit each checked target-parameter -> source-parameter plan
+        result = IndirectCall(producer, source, args')
+        return emit the checked source-result -> target-result plan
 
-    emit FunctionRef(adapter, signature(generic_type), captures = [value])
+    emit FunctionRef(adapter, target, captures = [value])
 ```
+
+This is the equal-arity branch. Curried and eta-expanded adapters segment the
+call at quantifier and representation-closure boundaries and use the same
+checked plans for each segment; they do not flatten a returned closure into
+the producer's own parameters.
 
 The original `value` is named once and captured; the adapter body is verified
 against the CC signatures and representations exactly like a source function
@@ -433,6 +542,13 @@ The erased requirement itself is produced by the CC representation model as
 `Reference { nullable: false, heap: Erased }`; MIR represents it as the
 non-null `eqref` reference (`RefType { nullable: false, heap: Eq }`). No module
 may attach a runtime type tag to an erased value.
+
+The source Core checking owner supplies scoped instantiation and compatibility
+evidence. P8 representation lowering supplies source-to-physical mappings and
+storage protocols. `cc/lower/conversion/` combines those inputs into the common
+plan; `cc/lower/erased/` emits its callable leaves. Extracting evidence must
+preserve the source checker's acceptance contract. Missing evidence is a
+reported limitation, not a reason to silently strengthen or weaken subsumption.
 
 **Required types and helpers.** CC owns representation-directed conversion and
 adapter generation. Its callable-shape and adapter entry points are:
@@ -474,6 +590,9 @@ signatures map to one `SignatureId` and one MIR func type, so one
 
 The CC verifier:
 
+- validates stored representation contracts and checked conversion-plan
+  endpoints before semantic evidence is discharged; equal erased shapes do
+  not authorize recovery to an arbitrary signature;
 - accepts `RepresentationTest`/`RepresentationCast` only when the source value
   is erased or the destination requirement is erased
   (`cc/verify/adaptation.rs`);
@@ -496,6 +615,13 @@ The MIR verifier then checks the concrete side:
 
 Failure is a compiler bug or an unsupported program, reported with the
 operation's source span.
+
+If P8 uses an internal Core-shaped materialization, it is a distinct lowered
+representation with a complete structural verifier. Checking source Core and
+selected rewritten types alone does not verify its expressions, generated
+declarations, suspension wrappers or entry adapter. Removing source verification
+from a physical view requires replacing it with these target contracts; it
+does not remove the verification obligation.
 
 ## Worked example
 

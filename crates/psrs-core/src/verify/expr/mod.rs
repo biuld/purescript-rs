@@ -17,10 +17,23 @@ use helpers::{closure_call, strip_leading_foralls};
 
 struct Context<'a> {
     module: &'a Module,
+    /// Immutable source module used for declaration instantiation. `None`
+    /// checks every relation against `module`.
+    source: Option<&'a Module>,
     owner: ModuleId,
     globals: &'a HashMap<SymbolId, Option<SchemeType>>,
     locals: &'a mut Locals,
     errors: &'a mut Vec<VerifyError>,
+}
+
+/// Source relations apply only when every type id still addresses the
+/// immutable source table. A newer id belongs to a representation closure
+/// and is checked on the physical module.
+fn viewed<'a>(physical: &'a Module, source: Option<&'a Module>, ids: &[TypeId]) -> &'a Module {
+    match source {
+        Some(source) if ids.iter().all(|id| (id.0 as usize) < source.types.len()) => source,
+        _ => physical,
+    }
 }
 
 impl Context<'_> {
@@ -33,10 +46,11 @@ impl Context<'_> {
             self.errors,
         );
         if let Some(expected) = expected {
+            let module = viewed(self.module, self.source, &[expression.ty, expected]);
             compatible(
                 expression.ty,
                 expected,
-                self.module,
+                module,
                 self.owner,
                 expression.span,
                 self.errors,
@@ -52,11 +66,12 @@ impl Context<'_> {
                     ));
                     return;
                 };
+                let module = viewed(self.module, self.source, &[local_type.ty, expression.ty]);
                 if !super::types::scheme_instance(
                     local_type.ty,
                     &local_type.quantified,
                     expression.ty,
-                    self.module,
+                    module,
                 ) {
                     self.errors.push(error(
                         self.owner,
@@ -67,11 +82,12 @@ impl Context<'_> {
             }
             ExprKind::Global(id) => match self.globals.get(id) {
                 Some(Some(global_type)) => {
+                    let module = viewed(self.module, self.source, &[global_type.ty, expression.ty]);
                     if !super::types::scheme_instance(
                         global_type.ty,
                         &global_type.quantified,
                         expression.ty,
-                        self.module,
+                        module,
                     ) {
                         self.errors.push(error(
                             self.owner,
@@ -148,10 +164,11 @@ impl Context<'_> {
             ExprKind::FieldAccess { record, field } => {
                 self.expr(record, None);
                 if let Some(field_type) = record_field(record.ty, field, self.module) {
+                    let module = viewed(self.module, self.source, &[field_type, expression.ty]);
                     compatible(
                         field_type,
                         expression.ty,
-                        self.module,
+                        module,
                         self.owner,
                         expression.span,
                         self.errors,
@@ -244,18 +261,20 @@ impl Context<'_> {
                 self.expr(argument, None);
                 let function_body = strip_leading_foralls(self.module, function.ty);
                 if let Some((parameter, result)) = closure_call(self.module, function_body) {
+                    let module = viewed(self.module, self.source, &[argument.ty, parameter]);
                     compatible(
                         argument.ty,
                         parameter,
-                        self.module,
+                        module,
                         self.owner,
                         argument.span,
                         self.errors,
                     );
+                    let module = viewed(self.module, self.source, &[result, expression.ty]);
                     compatible(
                         result,
                         expression.ty,
-                        self.module,
+                        module,
                         self.owner,
                         expression.span,
                         self.errors,
@@ -266,26 +285,34 @@ impl Context<'_> {
                         function.span,
                         "application target is not a function",
                     ));
-                } else if !super::types::application_matches(
-                    function.ty,
-                    argument.ty,
-                    expression.ty,
-                    self.module,
-                ) {
-                    self.errors.push(error(
-                        self.owner,
-                        function.span,
-                        "Core expression type is inconsistent with its context",
-                    ));
+                } else {
+                    let module = viewed(
+                        self.module,
+                        self.source,
+                        &[function.ty, argument.ty, expression.ty],
+                    );
+                    if !super::types::application_matches(
+                        function.ty,
+                        argument.ty,
+                        expression.ty,
+                        module,
+                    ) {
+                        self.errors.push(error(
+                            self.owner,
+                            function.span,
+                            "Core expression type is inconsistent with its context",
+                        ));
+                    }
                 }
             }
             ExprKind::Lambda { binder, body } => {
                 let function_type = strip_leading_foralls(self.module, expression.ty);
                 if let Some((parameter, result)) = closure_call(self.module, function_type) {
+                    let module = viewed(self.module, self.source, &[binder.ty, parameter]);
                     compatible(
                         binder.ty,
                         parameter,
-                        self.module,
+                        module,
                         self.owner,
                         binder.span,
                         self.errors,
@@ -311,10 +338,11 @@ impl Context<'_> {
                     ));
                     return;
                 };
+                let module = viewed(self.module, self.source, &[binder.ty, parameter]);
                 compatible(
                     binder.ty,
                     parameter,
-                    self.module,
+                    module,
                     self.owner,
                     binder.span,
                     self.errors,
@@ -390,6 +418,7 @@ impl Context<'_> {
                     );
                     let mut branch_context = Context {
                         module: self.module,
+                        source: self.source,
                         owner: self.owner,
                         globals: self.globals,
                         locals: &mut branch_locals,

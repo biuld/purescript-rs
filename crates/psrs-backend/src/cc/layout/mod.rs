@@ -288,6 +288,7 @@ pub(super) fn type_layout(
     }
 
     Ok(TypeLayout {
+        transport_signatures: functions::transport_signatures(&mut representations),
         representations,
         array_types,
         record_types,
@@ -299,6 +300,7 @@ pub(super) fn type_layout(
 }
 
 pub(super) struct TypeLayout {
+    pub(super) transport_signatures: HashMap<Vec<ValueShape>, SignatureId>,
     pub(super) representations: RepresentationTable,
     pub(super) array_types: HashMap<TypeId, ReprId>,
     pub(super) record_types: HashMap<TypeId, ReprId>,

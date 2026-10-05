@@ -90,6 +90,8 @@ pub(crate) fn compile_with_context_inner(
         None
     };
 
+    let mut effect_source = None;
+    let mut effect_protocols = std::collections::HashMap::new();
     if let Some(context) = effect_context.as_ref() {
         let effect_call = trace.as_deref_mut().map(|trace| {
             trace.begin(
@@ -105,12 +107,17 @@ pub(crate) fn compile_with_context_inner(
                 }],
             )
         });
-        if let Err(errors) = effects::lower_effects(&mut module, &mut external_bindings, context) {
-            if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
-                trace.reject(call, errors.len());
+        let prepared = match effects::lower_effects(&mut module, &mut external_bindings, context) {
+            Ok(prepared) => prepared,
+            Err(errors) => {
+                if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
+                    trace.reject(call, errors.len());
+                }
+                return Err(errors);
             }
-            return Err(errors);
-        }
+        };
+        effect_protocols = prepared.protocols;
+        effect_source = Some(prepared.source);
         if let (Some(trace), Some(call)) = (trace.as_deref_mut(), effect_call) {
             let outputs = trace.complete(
                 call,
@@ -179,7 +186,12 @@ pub(crate) fn compile_with_context_inner(
             target_parameter(),
         )
     });
-    let lowered_cc = match cc::lower_module_with_bindings(module, external_bindings) {
+    let lowered_cc = match cc::lower_module_with_relations(
+        module,
+        external_bindings,
+        effect_source.as_ref(),
+        &effect_protocols,
+    ) {
         Ok(lowered) => lowered,
         Err(errors) => {
             if let (Some(trace), Some(call)) = (trace.as_deref_mut(), cc_call) {

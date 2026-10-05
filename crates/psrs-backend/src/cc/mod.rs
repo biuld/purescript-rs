@@ -248,8 +248,22 @@ pub fn lower_module_with_bindings(
     module: CoreModule,
     bindings: ExternalBindings,
 ) -> Result<BackendInput, Vec<BackendError>> {
+    lower_module_with_relations(module, bindings, None, &HashMap::new())
+}
+
+/// Lowers Core using an immutable source module for instantiation evidence and
+/// representation-owner constructor protocols. `source` is the pre-lowering
+/// module when effect applications have been rewritten; otherwise it is absent
+/// and relations are read from `module` itself.
+pub(crate) fn lower_module_with_relations(
+    module: CoreModule,
+    bindings: ExternalBindings,
+    source: Option<&CoreModule>,
+    protocols: &HashMap<HirTypeId, Vec<psrs_core::TypeId>>,
+) -> Result<BackendInput, Vec<BackendError>> {
     bindings.validate_core(&module)?;
-    if let Err(errors) = module.verify() {
+    let relations = source.unwrap_or(&module);
+    if let Err(errors) = module.verify_with_source(relations) {
         return Err(annotate_errors(
             errors
                 .into_iter()
@@ -337,8 +351,11 @@ pub fn lower_module_with_bindings(
         .collect::<HashMap<_, _>>();
     let context = LoweringContext {
         module: &module,
+        source: relations,
+        constructor_protocols: protocols,
         signatures: &signatures,
         representations: &layout.representations,
+        transport_signatures: &layout.transport_signatures,
         enum_types: &enum_types,
         aggregate_types: &aggregate_types,
         newtype_ids: &newtype_ids,

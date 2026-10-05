@@ -11,6 +11,10 @@ use crate::BackendError;
 use psrs_core::TypeId;
 use psrs_span::TextRange;
 
+mod callable;
+mod scalars;
+mod transport;
+
 pub(in crate::cc) struct VariantFieldConversion {
     pub(in crate::cc) variant: ReprId,
     pub(in crate::cc) tag: u32,
@@ -49,12 +53,32 @@ impl FunctionLowerer<'_> {
         destination_shape: ValueShape,
         span: TextRange,
     ) -> Result<ValueConversion, Vec<BackendError>> {
+        self.typed_conversion_with_instantiation(
+            source_type,
+            destination_type,
+            source_shape,
+            destination_shape,
+            span,
+            None,
+        )
+    }
+
+    pub(in crate::cc::lower) fn typed_conversion_with_instantiation(
+        &mut self,
+        source_type: TypeId,
+        destination_type: TypeId,
+        source_shape: ValueShape,
+        destination_shape: ValueShape,
+        span: TextRange,
+        instantiation: Option<&psrs_core::Instantiation<'_>>,
+    ) -> Result<ValueConversion, Vec<BackendError>> {
         self.plan_conversion(
             source_type,
             destination_type,
             source_shape,
             destination_shape,
             span,
+            instantiation,
         )
     }
 
@@ -65,7 +89,18 @@ impl FunctionLowerer<'_> {
         source_shape: ValueShape,
         destination_shape: ValueShape,
         span: TextRange,
+        instantiation: Option<&psrs_core::Instantiation<'_>>,
     ) -> Result<ValueConversion, Vec<BackendError>> {
+        if let Some(plan) = self.constructor_transport(
+            source_type,
+            destination_type,
+            source_shape,
+            destination_shape,
+            span,
+            instantiation,
+        )? {
+            return Ok(plan);
+        }
         if source_shape == destination_shape {
             return Ok(ValueConversion::Identity);
         }
@@ -90,6 +125,7 @@ impl FunctionLowerer<'_> {
                 source_shape,
                 destination_shape,
                 span,
+                instantiation,
             );
         }
         if is_abstract_type(self.module, destination_type) {
@@ -185,6 +221,7 @@ impl FunctionLowerer<'_> {
                 source_element_shape,
                 destination_element_shape,
                 span,
+                instantiation,
             )?;
             return Ok(ValueConversion::ArrayMap {
                 source: source_repr,
@@ -247,6 +284,7 @@ impl FunctionLowerer<'_> {
                     self.value_shape(source_field, span)?,
                     self.value_shape(destination_field, span)?,
                     span,
+                    instantiation,
                 )?);
             }
             return Ok(ValueConversion::ProductMap {
@@ -281,36 +319,6 @@ impl FunctionLowerer<'_> {
             ty = unquantified_type(self.module, ty);
         }
         Ok(ty)
-    }
-
-    fn box_plan(
-        &self,
-        kind: BoxKind,
-        representation: Option<ReprId>,
-        span: TextRange,
-    ) -> Result<ValueConversion, Vec<BackendError>> {
-        representation
-            .map(|representation| ValueConversion::BoxScalar {
-                kind,
-                representation,
-            })
-            .ok_or_else(|| conversion_error(span, "erased scalar has no box representation"))
-    }
-
-    fn unbox_plan(
-        &self,
-        kind: BoxKind,
-        representation: Option<ReprId>,
-        destination: ValueShape,
-        span: TextRange,
-    ) -> Result<ValueConversion, Vec<BackendError>> {
-        representation
-            .map(|representation| ValueConversion::UnboxScalar {
-                kind,
-                representation,
-                destination,
-            })
-            .ok_or_else(|| conversion_error(span, "erased scalar has no box representation"))
     }
 
     pub(in crate::cc) fn emit_conversion(
@@ -385,6 +393,7 @@ impl FunctionLowerer<'_> {
             template_shape,
             target_shape,
             span,
+            None,
         )
     }
 }

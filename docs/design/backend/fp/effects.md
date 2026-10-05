@@ -374,7 +374,10 @@ rewrites to `bind` before Core, so the backend sees only `pure`, `bind`,
 - **`bind` with a continuation that ignores its argument.** Still sequenced; the
   first computation runs before the continuation.
 - **Polymorphic effect.** `Effect a` with an erased `a` uses the erased
-  protocol; `runEffect`'s consumer knows the concrete type
+  protocol; `runEffect`'s consumer knows the concrete type. Crossing an abstract
+  constructor boundary (`f a`, including `f Unit`) uses the common checked
+  representation conversion contract, including the producer's stored closure
+  signature; source instantiation alone does not authorize a signature cast
   ([polymorphism and erasure](polymorphism-and-erasure.md)).
 - **A future richer token.** Changing the token to a stateful value changes the
   representation lowering and the runtime, not the source API or the CC/MIR
@@ -439,14 +442,30 @@ Responsibilities and required types:
 - The wrapper and rewritten Core are structurally verified before CC. This
   checks binding and type-shape contracts; it does not add a Core or CC Effect
   node or prove runtime behavior.
+- Authoritative source Core remains available until checked boundary relations
+  and representation conversion plans have been consumed. The application-to-
+  closure mapping is explicit. An internal rewritten Core-shaped module is a
+  separate physical view, verified against its own complete structural contract;
+  it is not passed to the source matcher as though `Effect a` were a source
+  function. Arity-based reconstruction of the erased constructor is forbidden.
+- The Effect representation owner contributes its trusted constructor mapping,
+  token parameter, result representation and transport protocol to the common
+  conversion planner. It owns operation synthesis, suspension and command-entry
+  behavior. Generic calls, dictionary fields, captures and adapter construction
+  consume ordinary checked boundary evidence and representation contracts; they
+  do not select an Effect-specific conversion path. A representation-only
+  canonical closure receives its authority from the plan that creates it,
+  without a fabricated source `Effect` type or closure-origin field.
 - CC and MIR lower the resulting generic closures through `FunctionRef` and
   direct or indirect calls. Curried-arrow flattening reads source `Function`
   spines only. Partial application
   (`lower_partial_global_application`) applies to under-applied source arrows,
   not to the token of an effect.
-- The representation may later grow into dictionary passing
-  ([type classes and dictionaries](type-classes-and-dictionaries.md)). The token
-  stays inside effect lowering; its type is chosen there.
+- Dictionary passing uses the ordinary product and closure representation
+  ([type classes and dictionaries](type-classes-and-dictionaries.md)). A chosen
+  `Bind Effect` instance still crosses the definition ABI of a shared generic
+  method; instance selection does not specialize that ABI automatically. The
+  token stays inside effect lowering; its type is chosen there.
 - WASI operations are owned by the
   [WASI platform library](../wasm/wasi-platform-library.md) and the
   [canonical ABI and WIT](../wasm/canonical-abi-and-wit.md). A host call is

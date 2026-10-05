@@ -1,11 +1,14 @@
 use super::error;
-use crate::{Module, Type, TypeConstructor, TypeId, VerifyError};
+use crate::{Module, Type, TypeId, VerifyError};
 use psrs_hir::ModuleId;
 use psrs_span::TextRange;
 use std::collections::{HashMap, HashSet};
 
 mod closure;
 mod constructors;
+mod evidence;
+mod invariant;
+pub(crate) use evidence::instantiation;
 mod helpers;
 mod rows;
 pub(in crate::verify) use constructors::constructor_fields_match;
@@ -36,16 +39,6 @@ pub(in crate::verify) fn compatible(
             "Core expression type is inconsistent with its context",
         ));
     }
-}
-
-fn applied_variable(id: TypeId, module: &Module) -> Option<(psrs_hir::TypeVariableId, TypeId)> {
-    let Type::Application(function, argument) = module.types.get(id.0 as usize)? else {
-        return None;
-    };
-    let Type::Variable(variable) = module.types.get(function.0 as usize)? else {
-        return None;
-    };
-    Some((*variable, *argument))
 }
 
 /// Checks whether `instance` is a legal use of a declaration or local scheme.
@@ -102,13 +95,19 @@ pub(in crate::verify) fn application_matches(
     matcher.subsumes(argument, parameter, true) && matcher.subsumes(function_result, result, true)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Relation {
+    Subsumption,
+    Invariant,
+}
+
 struct TypeMatcher<'a> {
     module: &'a Module,
     flexible: HashSet<psrs_hir::TypeVariableId>,
     replacements: HashMap<psrs_hir::TypeVariableId, TypeId>,
     row_forms: HashMap<psrs_hir::TypeVariableId, RowForm>,
     alpha: HashMap<psrs_hir::TypeVariableId, psrs_hir::TypeVariableId>,
-    active: HashSet<(TypeId, TypeId)>,
+    active: HashSet<(Relation, TypeId, TypeId)>,
 }
 
 impl TypeMatcher<'_> {
@@ -118,14 +117,18 @@ impl TypeMatcher<'_> {
     /// an expected universal remains rigid and therefore requires an actual
     /// universal with alpha-equivalent binders.
     fn subsumes(&mut self, actual: TypeId, expected: TypeId, instantiate: bool) -> bool {
-        if !self.active.insert((actual, expected)) {
+        if !self
+            .active
+            .insert((Relation::Subsumption, actual, expected))
+        {
             return true;
         }
         let (Some(actual_type), Some(expected_type)) = (
             self.module.types.get(actual.0 as usize),
             self.module.types.get(expected.0 as usize),
         ) else {
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return false;
         };
 
@@ -137,7 +140,8 @@ impl TypeMatcher<'_> {
             } else {
                 self.bind_flexible(*variable, actual)
             };
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
 
@@ -152,7 +156,8 @@ impl TypeMatcher<'_> {
                 } else {
                     self.bind_flexible(*variable, expected)
                 };
-                self.active.remove(&(actual, expected));
+                self.active
+                    .remove(&(Relation::Subsumption, actual, expected));
                 return result;
             }
             let Type::ForAll { variables, body } = expected_type else {
@@ -168,7 +173,8 @@ impl TypeMatcher<'_> {
                     self.flexible.insert(variable);
                 }
             }
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
 
@@ -187,7 +193,8 @@ impl TypeMatcher<'_> {
                         .iter()
                         .any(|variable| self.alpha.contains_key(variable))
                 {
-                    self.active.remove(&(actual, expected));
+                    self.active
+                        .remove(&(Relation::Subsumption, actual, expected));
                     return false;
                 }
                 for (actual, expected) in actual_variables.iter().zip(expected_variables) {
@@ -197,11 +204,13 @@ impl TypeMatcher<'_> {
                 for variable in actual_variables {
                     self.alpha.remove(variable);
                 }
-                self.active.remove(&(actual, expected));
+                self.active
+                    .remove(&(Relation::Subsumption, actual, expected));
                 return result;
             }
             if !instantiate {
-                self.active.remove(&(actual, expected));
+                self.active
+                    .remove(&(Relation::Subsumption, actual, expected));
                 return false;
             }
             let added = actual_variables
@@ -214,7 +223,8 @@ impl TypeMatcher<'_> {
                 self.flexible.remove(&variable);
                 self.replacements.remove(&variable);
             }
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
         if let Type::Variable(variable) = actual_type {
@@ -241,7 +251,8 @@ impl TypeMatcher<'_> {
             } else {
                 false
             };
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
         if let Type::Variable(variable) = expected_type {
@@ -252,17 +263,14 @@ impl TypeMatcher<'_> {
             } else {
                 false
             };
-            self.active.remove(&(actual, expected));
-            return result;
-        }
-
-        if let Some(result) = self.subsumes_callable_application(actual, expected, instantiate) {
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
 
         if let Some(result) = self.subsumes_closure(actual, expected, instantiate) {
-            self.active.remove(&(actual, expected));
+            self.active
+                .remove(&(Relation::Subsumption, actual, expected));
             return result;
         }
 
@@ -307,7 +315,8 @@ impl TypeMatcher<'_> {
             }
             _ => false,
         };
-        self.active.remove(&(actual, expected));
+        self.active
+            .remove(&(Relation::Subsumption, actual, expected));
         result
     }
 
@@ -359,213 +368,7 @@ impl TypeMatcher<'_> {
         true
     }
 
-    /// A trusted callable type constructor application is lowered to a
-    /// closure type at P8. When a polymorphic class method is instantiated
-    /// through such a constructor, relate `f a` to `Closure(params, a)` while
-    /// retaining the constructor identity for other occurrences of `f`.
-    fn subsumes_callable_application(
-        &mut self,
-        actual: TypeId,
-        expected: TypeId,
-        instantiate: bool,
-    ) -> Option<bool> {
-        let actual_application = applied_variable(actual, self.module);
-        let expected_application = applied_variable(expected, self.module);
-        let actual_closure = crate::closure_parts(&self.module.types, actual)
-            .map(|(parameters, result)| (parameters.len(), result));
-        let expected_closure = crate::closure_parts(&self.module.types, expected)
-            .map(|(parameters, result)| (parameters.len(), result));
-        let (variable, argument, result, actual_is_application, arity) = match (
-            actual_application,
-            expected_application,
-            actual_closure,
-            expected_closure,
-        ) {
-            (Some((variable, argument)), None, _, Some((arity, result))) => {
-                (variable, argument, result, true, arity)
-            }
-            (None, Some((variable, argument)), Some((arity, result)), _) => {
-                (variable, argument, result, false, arity)
-            }
-            _ => return None,
-        };
-
-        if !self.flexible.contains(&variable) {
-            return Some(false);
-        }
-        let mut callable_ids =
-            self.module
-                .callable_types
-                .iter()
-                .filter_map(|(id, hidden_parameters)| {
-                    (*hidden_parameters as usize == arity).then_some(*id)
-                });
-        let Some(callable_id) = callable_ids.next() else {
-            return Some(false);
-        };
-        if callable_ids.next().is_some() {
-            return Some(false);
-        }
-        let Some((constructor_index, _)) = self
-            .module
-            .types
-            .iter()
-            .enumerate()
-            .find(|(_, ty)| {
-                matches!(ty, Type::Constructor(TypeConstructor::User(id)) if *id == callable_id)
-            })
-        else {
-            return Some(false);
-        };
-        if !self.bind_flexible(variable, TypeId(constructor_index as u32)) {
-            return Some(false);
-        }
-        Some(if actual_is_application {
-            self.subsumes(argument, result, instantiate)
-        } else {
-            self.subsumes(result, argument, instantiate)
-        })
-    }
-
     fn subsumes_record(&mut self, actual: TypeId, expected: TypeId) -> bool {
         self.relate_records(actual, expected, true)
-    }
-
-    fn matches(&mut self, source: TypeId, target: TypeId, instantiate: bool) -> bool {
-        if !self.active.insert((source, target)) {
-            return true;
-        }
-        if let (
-            Some((source_parameters, source_result)),
-            Some((target_parameters, target_result)),
-        ) = (
-            crate::closure_parts(&self.module.types, source),
-            crate::closure_parts(&self.module.types, target),
-        ) {
-            let source_parameters = source_parameters.to_vec();
-            let target_parameters = target_parameters.to_vec();
-            let result = source_parameters.len() == target_parameters.len()
-                && source_parameters
-                    .into_iter()
-                    .zip(target_parameters)
-                    .all(|(source, target)| self.matches(source, target, false))
-                && self.matches(source_result, target_result, instantiate);
-            self.active.remove(&(source, target));
-            return result;
-        }
-        let (Some(source_type), Some(target_type)) = (
-            self.module.types.get(source.0 as usize),
-            self.module.types.get(target.0 as usize),
-        ) else {
-            self.active.remove(&(source, target));
-            return false;
-        };
-        if let Type::Variable(variable) = source_type {
-            let result = if let Some(mapped) = self.alpha.get(variable) {
-                matches!(target_type, Type::Variable(actual) if actual == mapped)
-            } else if self.flexible.contains(variable) {
-                if matches!(target_type, Type::ForAll { .. }) {
-                    false
-                } else {
-                    self.bind_flexible(*variable, target)
-                }
-            } else {
-                matches!(target_type, Type::Variable(actual) if actual == variable)
-            };
-            self.active.remove(&(source, target));
-            return result;
-        }
-        let result = match (source_type, target_type) {
-            (
-                Type::ForAll {
-                    variables: source_variables,
-                    body: source_body,
-                },
-                Type::ForAll {
-                    variables: target_variables,
-                    body: target_body,
-                },
-            ) if source_variables.len() == target_variables.len() => {
-                if source_variables
-                    .iter()
-                    .any(|variable| self.alpha.contains_key(variable))
-                {
-                    false
-                } else {
-                    for (source, target) in source_variables.iter().zip(target_variables) {
-                        self.alpha.insert(*source, *target);
-                    }
-                    let matches = self.matches(*source_body, *target_body, instantiate);
-                    for variable in source_variables {
-                        self.alpha.remove(variable);
-                    }
-                    matches
-                }
-            }
-            (Type::ForAll { variables, body }, _) if instantiate => {
-                let added = variables
-                    .iter()
-                    .copied()
-                    .filter(|variable| self.flexible.insert(*variable))
-                    .collect::<Vec<_>>();
-                let matches = self.matches(*body, target, true);
-                for variable in added {
-                    self.flexible.remove(&variable);
-                    self.replacements.remove(&variable);
-                }
-                matches
-            }
-            (Type::ForAll { .. }, _) | (_, Type::ForAll { .. }) => false,
-            (Type::Constructor(left), Type::Constructor(right)) => left == right,
-            (Type::Application(_, _), Type::Application(_, _)) => {
-                if let (
-                    Some((source_parameter, source_result)),
-                    Some((target_parameter, target_result)),
-                ) = (
-                    crate::arrow_parts(&self.module.types, source),
-                    crate::arrow_parts(&self.module.types, target),
-                ) {
-                    self.matches(source_parameter, target_parameter, false)
-                        && self.matches(source_result, target_result, instantiate)
-                } else if is_record_type(self.module, source) && is_record_type(self.module, target)
-                {
-                    self.matches_record(source, target)
-                } else {
-                    let (
-                        Type::Application(source_function, source_argument),
-                        Type::Application(target_function, target_argument),
-                    ) = (source_type, target_type)
-                    else {
-                        unreachable!()
-                    };
-                    self.matches(*source_function, *target_function, false)
-                        && self.matches(*source_argument, *target_argument, false)
-                }
-            }
-            (Type::RowEmpty, Type::RowEmpty) => true,
-            (
-                Type::RowExtend {
-                    label: left_label,
-                    ty: left_ty,
-                    tail: left_tail,
-                },
-                Type::RowExtend {
-                    label: right_label,
-                    ty: right_ty,
-                    tail: right_tail,
-                },
-            ) => {
-                left_label == right_label
-                    && self.matches(*left_ty, *right_ty, false)
-                    && self.matches(*left_tail, *right_tail, false)
-            }
-            _ => false,
-        };
-        self.active.remove(&(source, target));
-        result
-    }
-
-    fn matches_record(&mut self, source: TypeId, target: TypeId) -> bool {
-        self.relate_records(source, target, false)
     }
 }

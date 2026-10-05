@@ -1,10 +1,12 @@
 pub mod dictionary;
 pub mod effect;
+mod instantiation;
 mod link;
 mod lower;
 pub mod opt;
 mod pattern;
 mod records;
+pub use instantiation::Instantiation;
 mod types;
 mod verify;
 
@@ -225,7 +227,29 @@ pub fn lower_module_unverified(module: psrs_thir::Module) -> Result<Module, Vec<
 
 impl Module {
     pub fn verify(&self) -> Result<(), Vec<VerifyError>> {
-        verify::module(self)
+        verify::module(self, None)
+    }
+
+    /// Verifies this physical module while checking declaration instantiation
+    /// against `source` whenever both type ids still exist there.
+    ///
+    /// Representation lowering may replace a source application with a closure
+    /// at the same type id. Those relations stay on the immutable source
+    /// module. Types allocated only in this module, including synthesized
+    /// operation closures, are checked against this module's own type table.
+    pub fn verify_with_source(&self, source: &Module) -> Result<(), Vec<VerifyError>> {
+        verify::module(self, Some(source))
+    }
+
+    /// Checks a declaration use with the same relation as Core verification,
+    /// retaining its solved constructor bindings without changing acceptance.
+    pub fn checked_instantiation(
+        &self,
+        scheme: TypeId,
+        quantified: &[TypeVariableId],
+        instance: TypeId,
+    ) -> Option<Instantiation<'_>> {
+        verify::instantiation(self, scheme, quantified, instance)
     }
 
     /// The hidden calling-convention parameter count registered for a callable

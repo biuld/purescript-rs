@@ -237,6 +237,14 @@ representation and the callee or storage representation differ:
 
 ### Reconstruction semantics
 
+The typed boundary evidence and stored representation contracts come from the
+common planner in [polymorphism and erasure](polymorphism-and-erasure.md#checked-boundaries-and-stored-representation-contracts).
+Nested `ProductMap`, `ArrayMap` and callable leaves retain their field/element
+position and quantifier context. A dictionary is an ordinary product; its
+method field does not authorize a separate Effect-specific matcher or recovery
+rule. A stored erased reference can be recovered only to the layout or callable
+signature established by its producer protocol.
+
 `ArrayMap` allocates a fresh destination array of the target layout, iterates
 from zero to the source length, reads each source element, applies the nested
 element conversion, and writes the converted element into the private target.

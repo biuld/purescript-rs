@@ -1,6 +1,8 @@
 use super::names::Resolver;
 use psrs_ast as ast;
-use psrs_hir::{self as hir, Associativity, ExprKind, LocalId, ModuleId, ResolvedOperator, SymbolId};
+use psrs_hir::{
+    self as hir, Associativity, ExprKind, LocalId, ModuleId, ResolvedOperator, SymbolId,
+};
 use std::collections::HashMap;
 
 pub(super) fn merge_fixities(

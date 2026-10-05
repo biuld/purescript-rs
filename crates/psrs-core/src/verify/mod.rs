@@ -8,6 +8,7 @@ mod scopes;
 mod types;
 
 pub(crate) use types::equivalent_types;
+pub(crate) use types::instantiation;
 
 use expr::verify_expr;
 use patterns::verify_pattern;
@@ -23,7 +24,7 @@ pub(super) struct SchemeType {
 
 type Locals = HashMap<LocalId, SchemeType>;
 
-pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
+pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec<VerifyError>> {
     let globals = module
         .declarations
         .iter()
@@ -145,6 +146,7 @@ pub(crate) fn module(module: &Module) -> Result<(), Vec<VerifyError>> {
             &declaration.value,
             Some(declaration.ty),
             module,
+            source,
             owner,
             &globals,
             &mut locals,

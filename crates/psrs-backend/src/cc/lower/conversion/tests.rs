@@ -42,7 +42,10 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         locals: HashMap::new(),
         signatures: &signatures,
         representations: &representations,
+        transport_signatures: &HashMap::new(),
         module: &module,
+        source: &module,
+        constructor_protocols: &HashMap::new(),
         enum_types: &ids,
         aggregate_types: &ids,
         newtype_ids: &ids,
@@ -69,6 +72,7 @@ fn unsupported_typed_boundary_reports_its_source_span() {
             ValueShape::Integer,
             ValueShape::Number,
             span,
+            None,
         )
         .unwrap_err();
     assert!(
@@ -90,12 +94,12 @@ fn unsupported_typed_boundary_reports_its_source_span() {
         heap: RefShape::Repr(ReprId(3)),
     });
     assert!(matches!(
-        lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span),
+        lowerer.plan_conversion(TypeId(0), TypeId(1), aggregate, representation, span, None),
         Ok(ValueConversion::RecoverReference { .. })
     ));
     assert!(matches!(
         lowerer
-            .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span)
+            .plan_conversion(TypeId(0), TypeId(1), representation, aggregate, span, None)
             .expect("a representation should recover its aggregate supertype"),
         ValueConversion::RecoverReference { .. }
     ));

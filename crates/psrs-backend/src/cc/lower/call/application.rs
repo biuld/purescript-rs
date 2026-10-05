@@ -54,6 +54,15 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     assignments,
                 );
             }
+            let declaration = self
+                .module
+                .declarations
+                .iter()
+                .find(|declaration| declaration.symbol == function);
+            let evidence = declaration.and_then(|declaration| {
+                self.source
+                    .checked_instantiation(declaration.ty, &declaration.quantified, head.ty)
+            });
             self.check_call_shape(
                 &signature,
                 arguments.len(),
@@ -73,12 +82,13 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                     )]
                 })?;
                 let source_shape = self.value_shape(argument.ty, argument.span)?;
-                let conversion = self.typed_conversion(
+                let conversion = self.typed_conversion_with_instantiation(
                     argument.ty,
                     source_type,
                     source_shape,
                     *expected,
                     expression.span,
+                    evidence.as_ref(),
                 )?;
                 conversions.push((source_shape, conversion));
             }
@@ -132,12 +142,13 @@ impl ApplicationLowering for FunctionLowerer<'_> {
                         "call target has no declaration result type",
                     )]
                 })?;
-            let conversion = self.typed_conversion(
+            let conversion = self.typed_conversion_with_instantiation(
                 source_type,
                 expression.ty,
                 signature.result,
                 result_type,
                 expression.span,
+                evidence.as_ref(),
             )?;
             Ok(self.emit_conversion(
                 call_result,

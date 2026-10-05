@@ -269,12 +269,23 @@ impl FunctionLowerer<'_> {
         });
         let target_type = expression.ty;
         let target_shape = self.value_shape(target_type, expression.span)?;
-        let conversion = self.typed_conversion(
+        // The stored field keeps the dictionary method's scheme. Its use type
+        // is the checked instance, including a constructor such as Effect.
+        // The source module still has that relation after representation
+        // rewriting replaces applications at the same type ids.
+        let evidence = super::instantiation::instantiation_at(
+            self.source,
+            self.module,
+            field_layout.ty,
+            target_type,
+        );
+        let conversion = self.typed_conversion_with_instantiation(
             field_layout.ty,
             target_type,
             stored,
             target_shape,
             expression.span,
+            evidence.as_ref(),
         )?;
         Ok(self.emit_conversion(
             projected,
