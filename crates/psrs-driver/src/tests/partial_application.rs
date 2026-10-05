@@ -48,3 +48,55 @@ main = flip (\a b -> a + b) 20 22
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+#[test]
+fn a_partial_application_of_a_local_closure_defers_the_remaining_argument() {
+    // The callee is a local value, not a top-level declaration, so the
+    // remaining parameter is exposed by a generated closure that calls the
+    // captured callee indirectly.
+    let source = r#"
+module Main where
+
+main :: Int
+main =
+  let combine = \a b -> intAdd a b
+  in let step = combine 20
+     in step 22
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
+fn a_partial_application_of_a_dictionary_method_defers_the_remaining_argument() {
+    // A class method reached through a field access is also an indirect
+    // callee; its result still names the abstract constructor.
+    let source = r#"
+module Main where
+
+class Chain f where
+  chain :: forall a b. f a -> (a -> f b) -> f b
+
+instance chainReader :: Chain ((->) Int) where
+  chain m k x = k (m x) x
+
+action :: Int -> Int
+action x = x
+
+run :: forall f. Chain f => f Int -> f Int
+run a =
+  let step = chain a
+  in step (\_ -> a)
+
+main :: Int
+main = run action 42
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

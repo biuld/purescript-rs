@@ -721,12 +721,12 @@ the code reference and an immutable capture array.
   file.
 - **Prerequisite:** M2–M6.
 
-**Progress (measured by `runtime::l6_runtime_scoreboard`):** **207 of 413**
+**Progress (measured by `runtime::l6_runtime_scoreboard`):** **210 of 413**
 non-FFI `passing` files compile, validate, and run; all exit 0. Twenty-six FFI
-files are excluded. Of the other 206 cases, 204 block before runtime and 2
+files are excluded. Of the other 203 cases, 201 block before runtime and 2
 trap while running. The largest current blockers are P5 typechecking (68), P10
-files with no selected `main` (47), P3 resolution (23), and P8 closure
-conversion (18). This measurement does not emit an empty main or change the 413
+files with no selected `main` (47), P3 resolution (23), and P5 kind checking
+(16). This measurement does not emit an empty main or change the 413
 denominator. The board compiles each case with the on-disk standard library on
 the module path. Separate
 vertical execution tests run under mandatory Wasmtime for GC strings, arrays,
@@ -734,12 +734,14 @@ closed records, erased newtypes, parameterized ADTs, closures, dictionaries,
 effects, the component path, and pattern-matrix behavior including the
 value-sensitive `1185.purs` and `2049.purs` shapes.
 
-The 43-case move from the earlier 164 measurement is the
-[abstract-constructor transport contract](backend/fp/polymorphism-and-erasure.md):
-recovering a stored closure protocol and generating an adapter, instead of
-casting the erased closure onto the consumer signature, eliminated 29 of the 30
-P8 CC verifier failures and 17 of the 19 runtime traps; five of those cases then
-surfaced at a later blocker.
+The 46-case move from the earlier 164 measurement combines the
+[abstract-constructor transport contract](backend/fp/polymorphism-and-erasure.md)
+and its indirect partial-application path. Recovering a stored closure protocol
+and generating an adapter, instead of casting the erased closure onto the
+consumer signature, cleared 29 of the 30 P8 CC verifier failures and 17 of the
+19 runtime traps; allowing an under-applied local closure or dictionary method
+to expose its remaining parameter cleared three more P8 closure-conversion
+failures. Five of the recovered cases then surfaced at a later blocker.
 
 Agreement here means the pipeline compiles the file, the component passes Wasm
 validation, and the guest runs to completion without trapping. The corpus
@@ -750,7 +752,7 @@ failure must reach the guest as a trap to be visible, which is the only
 execution signal the corpus can express. Nothing in the corpus needs argv,
 stdin, or a preopened directory, so the runner passes none.
 
-The 206 non-agreements, by the first phase that blocks them or runtime outcome.
+The 203 non-agreements, by the first phase that blocks them or runtime outcome.
 These are from the latest `PSRS_REQUIRE_WASMTIME=1 PSRS_ORACLE=annotations` run
 of all five boards on 2026-10-05 (Wasmtime 49.0.2, `purs` 0.15.16):
 
@@ -759,8 +761,8 @@ of all five boards on 2026-10-05 (Wasmtime 49.0.2, `purs` 0.15.16):
 | P5 typecheck | 68 | Type and class inference gaps behind earlier-stage blockers. |
 | P10 Wasm structuring | 47 | No selected `main`. |
 | P3 resolve | 23 | Remaining name and import resolution gaps. |
-| P8 closure conversion | 18 | Unsupported or inconsistent runtime representations. |
 | P5 kind check | 16 | Kind checking gaps. |
+| P8 closure conversion | 15 | Unsupported or inconsistent runtime representations. |
 | P0 lex | 4 | DEC-16 lone-surrogate cases, also recorded as L1 differences. |
 | P7 Core verification | 3 | A typed Core expression has an inconsistent context type. |
 | P8 CC verification | 1 | A call whose arguments do not match its signature. |

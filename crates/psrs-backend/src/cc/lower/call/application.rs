@@ -5,7 +5,7 @@ use super::helpers::{
     callable_parameter_types, callable_result_type, collect_application,
     conversion_reconstructs_aggregate, function_value_types, persist_reference, restore_reference,
 };
-use super::partial::PartialApplication;
+use super::partial::{IndirectPartialApplication, PartialApplication};
 use super::{ApplicationLowering, CallShape};
 use crate::BackendError;
 use psrs_core::{Expr, ExprKind};
@@ -186,12 +186,6 @@ impl FunctionLowerer<'_> {
             self.record_types,
             self.function_types,
         )?;
-        self.check_call_shape(
-            &signature,
-            arguments.len(),
-            signature.result,
-            expression.span,
-        )?;
         let Some(signature_id) = function_type_signature(self.module, self.function_types, head.ty)
         else {
             return Err(vec![BackendError::new(
@@ -200,6 +194,28 @@ impl FunctionLowerer<'_> {
                 "higher-order call has no runtime function type",
             )]);
         };
+        // An under-applied callee that is not a top-level declaration (a local
+        // closure or a dictionary method) captures the supplied arguments and
+        // exposes the remaining parameters through a generated closure.
+        if arguments.len() < signature.parameters.len() {
+            return self.lower_indirect_partial_application(
+                IndirectPartialApplication {
+                    expression,
+                    head,
+                    arguments,
+                    signature: &signature,
+                    signature_id,
+                    result_type,
+                },
+                assignments,
+            );
+        }
+        self.check_call_shape(
+            &signature,
+            arguments.len(),
+            signature.result,
+            expression.span,
+        )?;
         let (source_parameters, source_result) = function_value_types(self.module, head.ty);
         // The callee expression is lowered at its own use type, so its runtime
         // value already matches `head.ty`; no side-table adaptation is needed.

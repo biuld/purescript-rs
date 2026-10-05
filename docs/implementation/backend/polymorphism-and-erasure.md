@@ -281,7 +281,9 @@ PE-13:
     cc/lower/conversion/callable.rs (representation-only adapter emission),
     cc/lower/conversion/mod.rs (plan_conversion consults transport first),
     cc/lower/erased/mod.rs and cc/lower/{global,record}/mod.rs (evidence
-    threaded to the boundary), cc/layout/functions/mod.rs
+    threaded to the boundary), cc/lower/call/partial.rs
+    (lower_indirect_partial_application captures an under-applied local or
+    dictionary callee), cc/layout/functions/mod.rs
     (transport_signatures registers the producer protocol).
   Tests: psrs-driver tests::closure_protocol::
     reader_dictionary_returns_the_concrete_result (Reader `Chain ((->) Int)`
@@ -291,6 +293,9 @@ PE-13:
     protocol closure, and a generated adapter returning `ValueShape::Integer`),
     fixed_unit_payload_through_a_bind_constraint_repeats_the_action
     (`forall f. Bind f => f Unit -> f Unit` at Effect prints `again` twice);
+    psrs-driver tests::partial_application::
+    a_partial_application_of_a_local_closure_defers_the_remaining_argument and
+    a_partial_application_of_a_dictionary_method_defers_the_remaining_argument;
     psrs-core tests::instantiation (distinct nominal applications rejected,
     flexible heads bind from either side, dictionary quantifiers alpha-rename,
     unsolved and cyclic bindings are not constructor identities);
@@ -303,20 +308,21 @@ PE-13:
   Result: pass. The Reader method and its caller recover the stored protocol
     and adapt; a reference cast is not used as the adapter. The Effect discard,
     delayed-map and fixed-payload cases run to completion with the exact
-    output. The L6/M7 scoreboard moved from 164/413 to 207/413 on this tree:
-    the stored-protocol recovery cleared 29 of the 30 P8 CC verifier failures
-    and 17 of the 19 runtime traps. L1–L5 are unchanged. The workspace suite is
-    not fully green: ten pre-existing Phase-3 failures (bare library operators
-    that now need an import, a local `Data.Boolean` that duplicates the vendored
-    module, `Newtype`/`Coercible` type checking on the official `Data.Foldable`
-    and `Data.Monoid`, a resolver `ScopeConflict`, and a class-mediated
-    constant fold) are unrelated to this topic and are recorded under remaining
-    work.
+    output, and an under-applied local closure or dictionary method exposes its
+    remaining parameter through a generated indirect call. The L6/M7 scoreboard
+    moved from 164/413 to 210/413 on this tree: the stored-protocol recovery
+    cleared 29 of the 30 P8 CC verifier failures and 17 of the 19 runtime traps,
+    and the indirect partial-application handling cleared three more
+    closure-conversion failures. L1–L5 are unchanged. The workspace suite is not fully green: ten
+    pre-existing Phase-3 failures (bare library operators that now need an
+    import, a local `Data.Boolean` that duplicates the vendored module,
+    `Newtype`/`Coercible` type checking on the official `Data.Foldable` and
+    `Data.Monoid`, a resolver `ScopeConflict`, and a class-mediated constant
+    fold) are unrelated to this topic and are recorded under remaining work.
   Revision: 675f0e3 plus this slice.
-  Gaps: a partially applied or indirectly applied dictionary method (for
-    example `let step = chain action`) is still rejected before adapters; that
-    is an indirect partial-application gap independent of the transport
-    contract, and it is recorded under remaining work.
+  Gaps: none for the Reader, discard, delayed-map and fixed-payload cases.
+    Binding quantifiers that are not leading `forall` nodes on the type still
+    need explicit evidence review.
 ```
 
 ## Remaining work and blockers
@@ -327,12 +333,12 @@ PE-13:
   `discard`, delayed map, and fixed-payload `f Unit` programs execute, and the
   abstract callable boundary recovers the producer's stored protocol before
   generating an adapter (see the PE-13 evidence). The L6/M7 scoreboard moved
-  from 164/413 to 207/413. What remains is an
-  indirect/partial-application gap: a dictionary method that is under-applied
-  (`let step = chain action`) or applied through a local callee is still
-  rejected before adapters, and constructors other than `Function` and the
-  registered Effect token protocol do not each have explicit execution
-  evidence. The two experimental worktrees are stopped and are not integrated.
+  from 164/413 to 210/413. An under-applied local closure or dictionary method
+  is supported by a generated closure that calls the captured callee
+  indirectly. What remains is binding quantifiers that are not leading `forall`
+  nodes on the type, and constructors other than `Function` and the registered
+  Effect token protocol do not each have explicit execution evidence. The two
+  experimental worktrees are stopped and are not integrated.
 - **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
   for reasons this topic does not own: five use `-` or `/` without importing the
   library operator that now owns it (`tests::scalars`, `tests::functions`,
@@ -519,13 +525,13 @@ Exit status is the program value, including Reader's 42.
 
 The Reader and fixed-payload cases are committed as
 `crates/psrs-driver/src/tests/closure_protocol.rs` tests; the discard and map
-cases are the existing `effects` and `functor` tests. The checkpoint closes
-PE-13's acceptance. Indirect calls, partial applications, and binding
+cases are the existing `effects` and `functor` tests. Under-application of an
+indirect callee (a local closure or a dictionary method) is now lowered by a
+generated closure that captures the callee and the supplied arguments and calls
+it indirectly; the `tests::partial_application` cases execute it. Binding
 quantifiers that are not leading `forall` nodes on the type still need explicit
-evidence review: an under-applied or indirectly applied dictionary method is
-rejected before adapters, and this is an indirect/partial-application gap rather
-than a transport-contract rule. Array, ADT, and newtype protocols still belong
-to their representation owners. Unsupported constructor transport is rejected
-with a source-spanned diagnostic. On this tree the L6/M7 scoreboard moved from
-164/413 to 207/413, so the D-04 and README runtime rows are updated with it;
+evidence review. Array, ADT, and newtype protocols still belong to their
+representation owners. Unsupported constructor transport is rejected with a
+source-spanned diagnostic. On this tree the L6/M7 scoreboard moved from
+164/413 to 210/413, so the D-04 and README runtime rows are updated with it;
 L1–L5 are unchanged.

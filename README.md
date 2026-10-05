@@ -50,7 +50,7 @@ what remains in each layer.
 | L3 kinds | 39/48 failing | official kind `errorCode`s |
 | L4 types | 39/50 failing | official `errorCode`s |
 | L5 classes | 58/81 failing | official `errorCode`s |
-| L6/M7 runtime | 207/413 passing | all 207 exit 0; 206 do not agree, including 47 with no selected `main` |
+| L6/M7 runtime | 210/413 passing | all 210 exit 0; 203 do not agree, including 47 with no selected `main` |
 | M8 warnings, optimization | not measured | no scoreboard exists |
 
 Run the scoreboards yourself:

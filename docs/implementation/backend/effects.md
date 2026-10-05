@@ -27,7 +27,7 @@ programs and the Reader reproduction, and the transport contract is the same
 one PE-13 verifies. Historical EF evidence below does not establish that
 boundary. The general checked-conversion contract owns the repair; Effect
 contributes its trusted token protocol. On this tree the L6/M7 scoreboard moved
-from 164/413 to 207/413 and the D-04 and README runtime rows are updated; L1–L5
+from 164/413 to 210/413 and the D-04 and README runtime rows are updated; L1–L5
 are unchanged.
 
 Complete the linked design's `Effect a` representation, `pure`, `bind`,
@@ -155,9 +155,9 @@ EF-14:
     run to completion with the exact output and status, and the non-Effect
     Reader regression still returns 42.
   Revision: 675f0e3 plus this slice.
-  Gaps: an under-applied or indirectly applied dictionary method is rejected
-    before adapters; that indirect/partial-application gap is shared with
-    PE-13 and recorded in [polymorphism and erasure](polymorphism-and-erasure.md).
+  Gaps: none. Under-application of an indirect callee, including a dictionary
+    method, is lowered by the same generated indirect call the PE-13 evidence
+    records for [polymorphism and erasure](polymorphism-and-erasure.md).
 ```
 
 ## Vertical execution order
