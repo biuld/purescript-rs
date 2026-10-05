@@ -235,7 +235,14 @@ impl Checker {
             );
         }
 
-        let mut inferred = self.infer_expr(expression)?;
+        let inferred = self.infer_expr(expression)?;
+        // A bare class-method use keeps its method-local quantifiers and
+        // constraints on the inferred type. Instantiating them here matches the
+        // application path, so `eq = eq1` provides the `Eq a` dictionary the
+        // method signature requires instead of unifying the constraint with a
+        // plain function type.
+        let scheme = Scheme::monomorphic(inferred.ty.clone());
+        let mut inferred = self.instantiate_expression_use(inferred, &scheme, expression.span);
         self.subsume(inferred.ty.clone(), expected.clone(), expression.span);
         inferred.ty = expected;
         Some(inferred)
