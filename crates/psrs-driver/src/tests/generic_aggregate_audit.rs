@@ -227,7 +227,7 @@ fn audit_battery() {
         },
         Case {
             name: "record_roundtrip_nested",
-            source: "module Main where\ncopy :: forall a. { inner :: { value :: a } } -> { inner :: { value :: a } }\ncopy record = record\nmain = arrayIndex (copy { inner: { value: [40, 42] } }.inner.value) 1\n",
+            source: "module Main where\ncopy :: forall a. { inner :: { value :: a } } -> { inner :: { value :: a } }\ncopy record = record\nmain = arrayIndex ((copy { inner: { value: [40, 42] } }).inner.value) 1\n",
             exit: 42,
         },
         // GA-06 dependent ADT fields, multiple instantiations

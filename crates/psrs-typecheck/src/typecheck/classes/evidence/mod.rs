@@ -51,6 +51,8 @@ impl Checker {
         ) {
             (InferType::Variable(a), InferType::Variable(b)) => a == b,
             (InferType::Constructor(a), InferType::Constructor(b)) => a == b,
+            (InferType::TypeLevelString(a), InferType::TypeLevelString(b)) => a == b,
+            (InferType::TypeLevelInt(a), InferType::TypeLevelInt(b)) => a == b,
             (InferType::Application(f1, a1), InferType::Application(f2, a2)) => {
                 self.infer_types_equal(&f1, &f2) && self.infer_types_equal(&a1, &a2)
             }

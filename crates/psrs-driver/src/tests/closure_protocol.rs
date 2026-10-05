@@ -131,3 +131,33 @@ fn plan_has_adapter(plan: &psrs_backend::cc::ValueConversion) -> bool {
         _ => false,
     }
 }
+
+#[test]
+fn erased_function_slots_preserve_partial_application_and_captures() {
+    let source = r#"
+module Main where
+
+data Box a = Box a
+
+store :: forall a. a -> Box a
+store value = Box value
+
+load :: forall a. Box a -> a
+load (Box value) = value
+
+add :: Int -> Int -> Int
+add x y = intAdd x y
+
+capture :: Int -> Int -> Int -> Int
+capture offset x y = intAdd offset (intAdd x y)
+
+main :: Int
+main = if intEq (load (store add) 40 2) 42
+  then load (store (capture 7)) 20 15
+  else 0
+"#;
+    let Some(output) = run_with_wasmtime(source) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

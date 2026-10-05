@@ -1,8 +1,12 @@
 use super::super::super::*;
+use super::KnownClass;
 use super::{apply_expr, flatten_spine, global_expr, local_expr};
+use crate::typecheck::classes::deriving::syntax::{
+    case_expr, lambda, symbol_pattern as constructor_pattern, variable_pattern, wildcard_pattern,
+};
 
 impl Checker {
-    pub(super) fn generic_representation(
+    pub(in crate::typecheck::classes) fn generic_representation(
         &mut self,
         instance_type: &InferType,
         span: TextRange,
@@ -10,23 +14,36 @@ impl Checker {
         let instance_type = self.resolve_type(instance_type.clone());
         let (head, arguments) = flatten_spine(&instance_type);
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
-            return self.deriving_error(span, "Generic deriving requires a local data type");
+            return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
+                span,
+                "Generic deriving requires a local data type",
+            );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self.deriving_error(span, "cannot find the data declaration for Generic");
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
+                span,
+                "cannot find the data declaration for Generic",
+            );
         };
         if type_id.module != self.env.module_id
             || declaration.kind != hir::TypeDeclarationKind::Data
             || declaration.parameters.len() != arguments.len()
         {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Generic deriving requires a locally declared, fully applied data type",
             );
         }
         if declaration.constructors.is_empty() {
             return self.generic_type("NoConstructors", Vec::new()).or_else(|| {
-                self.deriving_error(span, "cannot find Data.Generic.Rep.NoConstructors")
+                self.deriving_error(
+                    TypeCheckErrorKind::CannotFindDerivingType,
+                    span,
+                    "cannot find Data.Generic.Rep.NoConstructors",
+                )
             });
         }
 
@@ -43,18 +60,30 @@ impl Checker {
                 let mut variables = parameter_types.clone();
                 let field_type = self.elaborate_type(field, &mut variables);
                 let Some(argument) = self.generic_type("Argument", vec![field_type]) else {
-                    return self.deriving_error(span, "cannot find Data.Generic.Rep.Argument");
+                    return self.deriving_error(
+                        TypeCheckErrorKind::CannotFindDerivingType,
+                        span,
+                        "cannot find Data.Generic.Rep.Argument",
+                    );
                 };
                 fields.push(argument);
             }
             let product = if fields.is_empty() {
                 let Some(no_arguments) = self.generic_type("NoArguments", Vec::new()) else {
-                    return self.deriving_error(span, "cannot find Data.Generic.Rep.NoArguments");
+                    return self.deriving_error(
+                        TypeCheckErrorKind::CannotFindDerivingType,
+                        span,
+                        "cannot find Data.Generic.Rep.NoArguments",
+                    );
                 };
                 no_arguments
             } else {
                 let Some(product) = self.generic_product_type(fields) else {
-                    return self.deriving_error(span, "cannot find Data.Generic.Rep.Product");
+                    return self.deriving_error(
+                        TypeCheckErrorKind::CannotFindDerivingType,
+                        span,
+                        "cannot find Data.Generic.Rep.Product",
+                    );
                 };
                 product
             };
@@ -65,7 +94,11 @@ impl Checker {
                     product,
                 ],
             ) else {
-                return self.deriving_error(span, "cannot find Data.Generic.Rep.Constructor");
+                return self.deriving_error(
+                    TypeCheckErrorKind::CannotFindDerivingType,
+                    span,
+                    "cannot find Data.Generic.Rep.Constructor",
+                );
             };
             constructor_representations.push(representation);
         }
@@ -73,7 +106,13 @@ impl Checker {
             return constructor_representations.pop();
         }
         self.generic_sum_type(constructor_representations)
-            .or_else(|| self.deriving_error(span, "cannot find Data.Generic.Rep.Sum"))
+            .or_else(|| {
+                self.deriving_error(
+                    TypeCheckErrorKind::CannotFindDerivingType,
+                    span,
+                    "cannot find Data.Generic.Rep.Sum",
+                )
+            })
     }
 
     pub(super) fn derive_generic_method(
@@ -83,21 +122,34 @@ impl Checker {
         span: TextRange,
     ) -> Option<InferredExpr> {
         let Some(instance_type) = class_arguments.first() else {
-            return self.deriving_error(span, "Generic deriving requires its data type argument");
+            return self.deriving_error(
+                TypeCheckErrorKind::InvalidDerivedInstance,
+                span,
+                "Generic deriving requires its data type argument",
+            );
         };
         let instance_type = self.resolve_type(instance_type.clone());
         let (head, arguments) = flatten_spine(&instance_type);
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
-            return self.deriving_error(span, "Generic deriving requires a local data type");
+            return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
+                span,
+                "Generic deriving requires a local data type",
+            );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self.deriving_error(span, "cannot find the data declaration for Generic");
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
+                span,
+                "cannot find the data declaration for Generic",
+            );
         };
         if type_id.module != self.env.module_id
             || declaration.kind != hir::TypeDeclarationKind::Data
             || declaration.parameters.len() != arguments.len()
         {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Generic deriving requires a locally declared, fully applied data type",
             );
@@ -108,8 +160,11 @@ impl Checker {
             "from" => self.derive_generic_from(&declaration, &value, span)?,
             "to" => self.derive_generic_to(&declaration, &value, span)?,
             _ => {
-                return self
-                    .deriving_error(span, "Generic derives only its `to` and `from` methods");
+                return self.deriving_error(
+                    TypeCheckErrorKind::CannotDerive,
+                    span,
+                    "Generic derives only its `to` and `from` methods",
+                );
             }
         };
         self.infer_derived_method(method, class_arguments, &implementation)
@@ -145,27 +200,13 @@ impl Checker {
                 local_expr(value.id, span),
                 span,
             );
-            return Some(hir::Expr {
-                kind: hir::ExprKind::Lambda {
-                    binder: value.clone(),
-                    body: Box::new(recursive),
-                },
-                span,
-            });
+            return Some(lambda(value.clone(), recursive, span));
         }
-        Some(hir::Expr {
-            kind: hir::ExprKind::Lambda {
-                binder: value.clone(),
-                body: Box::new(hir::Expr {
-                    kind: hir::ExprKind::Case {
-                        scrutinee: Box::new(local_expr(value.id, span)),
-                        branches,
-                    },
-                    span,
-                }),
-            },
+        Some(lambda(
+            value.clone(),
+            case_expr(local_expr(value.id, span), branches, span),
             span,
-        })
+        ))
     }
 
     fn derive_generic_to(
@@ -203,27 +244,13 @@ impl Checker {
                 local_expr(value.id, span),
                 span,
             );
-            return Some(hir::Expr {
-                kind: hir::ExprKind::Lambda {
-                    binder: value.clone(),
-                    body: Box::new(recursive),
-                },
-                span,
-            });
+            return Some(lambda(value.clone(), recursive, span));
         }
-        Some(hir::Expr {
-            kind: hir::ExprKind::Lambda {
-                binder: value.clone(),
-                body: Box::new(hir::Expr {
-                    kind: hir::ExprKind::Case {
-                        scrutinee: Box::new(local_expr(value.id, span)),
-                        branches,
-                    },
-                    span,
-                }),
-            },
+        Some(lambda(
+            value.clone(),
+            case_expr(local_expr(value.id, span), branches, span),
             span,
-        })
+        ))
     }
 
     fn generic_product_expression(
@@ -376,41 +403,19 @@ impl Checker {
     }
 
     fn generic_type(&self, name: &str, arguments: Vec<InferType>) -> Option<InferType> {
-        let type_id = self.generic_rep_type_id(name)?;
+        let type_id = self.env.deriving.generic_rep()?.type_id(name)?;
         Some(arguments.into_iter().fold(
             InferType::Constructor(TypeConstructor::User(type_id)),
             |function, argument| InferType::Application(Box::new(function), Box::new(argument)),
         ))
     }
 
-    fn generic_rep_type_id(&self, name: &str) -> Option<hir::TypeId> {
-        self.env.type_names.iter().find_map(|(type_id, type_name)| {
-            (type_name == name
-                && self
-                    .env
-                    .type_modules
-                    .get(type_id)
-                    .is_some_and(|module| module == "Data.Generic.Rep"))
-            .then_some(*type_id)
-        })
-    }
-
     fn generic_rep_constructor(&self, name: &str) -> Option<SymbolId> {
-        let type_id = self.generic_rep_type_id(match name {
-            "Inl" | "Inr" => "Sum",
-            _ => name,
-        })?;
-        self.env
-            .type_declarations
-            .get(&type_id)?
-            .constructors
-            .iter()
-            .find(|constructor| constructor.name == name)
-            .map(|constructor| constructor.symbol)
+        self.env.deriving.generic_rep()?.constructor(name)
     }
 
     fn current_generic_method(&self, name: &str) -> Option<SymbolId> {
-        self.known_method_symbol("Data.Generic.Rep", "Generic", name)
+        self.known_method(KnownClass::Generic, name)
     }
 }
 
@@ -427,33 +432,4 @@ fn data_constructor_pattern(
             .collect(),
         span,
     )
-}
-
-fn constructor_pattern(
-    symbol: SymbolId,
-    arguments: Vec<hir::Pattern>,
-    span: TextRange,
-) -> hir::Pattern {
-    hir::Pattern {
-        kind: hir::PatternKind::Constructor {
-            symbol,
-            name_span: span,
-            arguments,
-        },
-        span,
-    }
-}
-
-fn variable_pattern(binder: &hir::LocalBinder, span: TextRange) -> hir::Pattern {
-    hir::Pattern {
-        kind: hir::PatternKind::Var(binder.clone()),
-        span,
-    }
-}
-
-fn wildcard_pattern(span: TextRange) -> hir::Pattern {
-    hir::Pattern {
-        kind: hir::PatternKind::Wildcard,
-        span,
-    }
 }

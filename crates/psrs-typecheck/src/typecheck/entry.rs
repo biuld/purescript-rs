@@ -88,6 +88,7 @@ pub fn typecheck_module_with_checked_kinds(
         effect_runtime_representation,
         TypecheckContext {
             known_types,
+            known_values: &[],
             imported_instances,
             module_names: &module_names,
             checked_kinds,

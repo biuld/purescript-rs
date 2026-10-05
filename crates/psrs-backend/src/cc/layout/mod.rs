@@ -287,7 +287,9 @@ pub(super) fn type_layout(
         representations.set(id, Representation::Variant { cases });
     }
 
+    let function_slot = crate::boundary::function_slot_protocol(&mut representations);
     Ok(TypeLayout {
+        function_slot,
         protocols: crate::boundary::payload_erased_protocols(&mut representations, &function_types),
         representations,
         array_types,
@@ -300,6 +302,7 @@ pub(super) fn type_layout(
 }
 
 pub(super) struct TypeLayout {
+    pub(super) function_slot: SignatureId,
     /// The payload-erased protocol signature of each callable constructor,
     /// keyed by its concrete signature. Built from the registered
     /// representation owners and the module's callable signatures.

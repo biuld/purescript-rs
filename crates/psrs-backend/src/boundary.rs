@@ -80,6 +80,7 @@ pub(crate) struct BoundaryEvidence<'a> {
     /// keyed by the concrete callable's signature. Built by P8 layout from the
     /// registered owners and the module's callable signatures.
     protocols: HashMap<SignatureId, SignatureId>,
+    function_slot: Option<SignatureId>,
 }
 
 impl<'a> BoundaryEvidence<'a> {
@@ -88,12 +89,14 @@ impl<'a> BoundaryEvidence<'a> {
         physical: &'a CoreModule,
         registry: RepresentationRegistry,
         protocols: HashMap<SignatureId, SignatureId>,
+        function_slot: Option<SignatureId>,
     ) -> Self {
         Self {
             source,
             physical,
             registry,
             protocols,
+            function_slot,
         }
     }
 
@@ -106,6 +109,7 @@ impl<'a> BoundaryEvidence<'a> {
             physical,
             RepresentationRegistry::new(),
             HashMap::new(),
+            None,
         )
     }
 
@@ -150,6 +154,12 @@ impl<'a> BoundaryEvidence<'a> {
         arguments: &[TypeId],
     ) -> Option<Vec<TypeId>> {
         self.registry.protocol_parameters(constructor, arguments)
+    }
+
+    /// Bare polymorphic function slots use one erased argument at a time.
+    /// Multi-argument functions are curried on entry and flattened on recovery.
+    pub(crate) fn function_slot_signature(&self) -> Option<SignatureId> {
+        self.function_slot
     }
 
     /// The payload-erased protocol signature a callable constructor stores its
@@ -214,4 +224,23 @@ pub(crate) fn payload_erased_protocols(
         protocols.insert(concrete, protocol_id);
     }
     protocols
+}
+
+/// The representation owner for a function hidden by a bare type variable.
+/// A unary protocol keeps the slot stable when instantiation changes arity.
+pub(crate) fn function_slot_protocol(table: &mut crate::cc::RepresentationTable) -> SignatureId {
+    let erased = ValueShape::Reference(Reference {
+        nullable: false,
+        heap: RefShape::Erased,
+    });
+    let signature = Signature {
+        parameters: vec![erased],
+        result: erased,
+    };
+    table
+        .signatures
+        .iter()
+        .position(|existing| *existing == signature)
+        .map(|index| SignatureId(index as u32))
+        .unwrap_or_else(|| table.add_signature(signature))
 }

@@ -8,6 +8,7 @@ impl Checker {
     ) -> Self {
         let TypecheckContext {
             known_types,
+            known_values,
             imported_instances,
             module_names,
             checked_kinds,
@@ -137,6 +138,7 @@ impl Checker {
                 classes: HashMap::new(),
                 class_methods: HashMap::new(),
                 instances: Vec::new(),
+                deriving: classes::DerivingRegistry::default(),
             },
             state: InferState {
                 substitutions: HashMap::new(),
@@ -165,6 +167,11 @@ impl Checker {
         // declarations, which also supports forward and mutually referring
         // class/data declarations.
         checker.build_class_environment(module, known_types);
+        // The deriving registry reads the class environment, the resolved type
+        // identities, and the program's value identities, so it is built once
+        // here and read afterwards.
+        checker.env.deriving =
+            classes::DerivingRegistry::build(&checker.env, known_values, module_names);
         checker.register_constructors();
         checker.state.next_dictionary_local = classes::next_local_id(module);
         checker.build_instance_environment(module, imported_instances);

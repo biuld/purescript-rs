@@ -2,18 +2,26 @@ use super::super::FunctionLowerer;
 use super::{conversion_error, erased_shape, sequence};
 use crate::{
     BackendError,
-    cc::{BoxKind, RecoveryEvidence, ReprId, ValueConversion, ValueShape},
+    cc::{BoxKind, RecoveryEvidence, RefShape, Reference, ReprId, ValueConversion, ValueShape},
 };
 use psrs_span::TextRange;
 
 impl FunctionLowerer<'_> {
     pub(super) fn erase_payload(
-        &self,
+        &mut self,
         shape: ValueShape,
         span: TextRange,
     ) -> Result<ValueConversion, Vec<BackendError>> {
         if shape == erased_shape() {
             return Ok(ValueConversion::Identity);
+        }
+        if let ValueShape::Reference(Reference {
+            heap: RefShape::Closure(signature),
+            ..
+        }) = shape
+        {
+            let adapter = self.erase_function_slot(signature, span)?;
+            return Ok(sequence(vec![adapter, ValueConversion::EraseReference]));
         }
         let boxed = match shape {
             ValueShape::Integer | ValueShape::Boolean => {
@@ -28,12 +36,19 @@ impl FunctionLowerer<'_> {
     }
 
     pub(super) fn recover_payload(
-        &self,
+        &mut self,
         shape: ValueShape,
         span: TextRange,
     ) -> Result<ValueConversion, Vec<BackendError>> {
         if shape == erased_shape() {
             return Ok(ValueConversion::Identity);
+        }
+        if let ValueShape::Reference(Reference {
+            heap: RefShape::Closure(signature),
+            ..
+        }) = shape
+        {
+            return self.recover_function_slot(signature, span);
         }
         match shape {
             ValueShape::Integer | ValueShape::Boolean => {

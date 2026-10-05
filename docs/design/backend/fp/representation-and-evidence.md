@@ -186,7 +186,33 @@ reachable representation and does not merge by physical shape. This preserves
 single erased layout for a parameterized data type. Open rows have no canonical
 product and remain unsupported.
 
+### Bare polymorphic function slots
+
+A bare type variable stores functions using one registered unary protocol:
+`Erased -> Erased`. Erasing a concrete flattened function builds one segment
+per parameter. Each segment captures the producer and the already recovered
+arguments; the final segment calls the producer and erases its result. A
+function result is recursively placed in the same protocol. Recovery builds
+an adapter that supplies the consumer's arguments to those segments and
+recovers its result. This permits an instantiation to change flattened arity
+without treating a cast as a calling-convention conversion.
+
+This protocol belongs to bare polymorphic value storage. Abstract constructor
+transport retains the constructor owner's registered fixed parameters and
+payload protocol, including the Function domain and Effect state token.
+Variant-field recovery must use the bare-slot adapter for callable targets;
+the reference-only recovery shortcut cannot cast an erased function straight
+to the consumer signature. Generated adapter parameters precede all local
+values and each generated function passes the CC verifier.
+
 ### Aggregate conversion
+
+Canonical products and callable signatures are normalized together to a fixed
+point: record fields may contain closures and closure signatures may contain
+record layouts. Every iteration remaps aggregate handles in representations,
+layouts, and signatures before signature interning. Convergence is bounded by
+the representation and signature graph; failure to converge is invalid IR.
+A single normalization pass cannot publish canonical identities for this graph.
 
 When two normalized shapes meet at a typed boundary, the planner builds one
 `ConversionPlan`; the concrete layouts it produces are owned by the target
@@ -532,6 +558,6 @@ payload ([effects](../../../implementation/backend/effects.md)).
   [classes and evidence](../../frontend/type-system/classes-and-evidence.md),
   [CC IR](cc-ir.md), [MIR](mir.md),
   [polymorphism and erasure](polymorphism-and-erasure.md).
-- [DEC-17](../../decision/DEC-17-representation-and-evidence.md) records this
-  model as a durable decision; [DEC-15](../../decision/DEC-15-unified-type-representation.md)
+- [DEC-17](../../../decision/DEC-17-representation-and-evidence.md) records this
+  model as a durable decision; [DEC-15](../../../decision/DEC-15-unified-type-representation.md)
   is the type-spine counterpart.

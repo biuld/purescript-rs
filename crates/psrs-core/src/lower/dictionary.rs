@@ -30,19 +30,16 @@ pub(super) fn lower_evidence(evidence: &Evidence, types: &[Type]) -> Result<Expr
                 span,
             };
             for evidence_argument in context {
-                let Some((parameter, result)) = psrs_thir::arrow_parts(types, function_type) else {
+                let Some((_, result)) = psrs_thir::arrow_parts(types, function_type) else {
                     return Err(LowerError {
                         span: evidence_argument.span,
                         message: "instance dictionary constructor takes too few context arguments",
                     });
                 };
                 let argument = lower_evidence(evidence_argument, types)?;
-                if argument.ty != TypeId(parameter.0) {
-                    return Err(LowerError {
-                        span: evidence_argument.span,
-                        message: "instance evidence does not match its context parameter",
-                    });
-                }
+                // lower_module_inner verifies THIR before lowering. Context
+                // types are compared there by semantic equality, which also
+                // accepts separately interned alpha-equivalent method foralls.
                 function = Expr {
                     kind: ExprKind::Application(Box::new(function), Box::new(argument)),
                     ty: TypeId(result.0),

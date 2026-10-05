@@ -258,6 +258,12 @@ impl Module {
         verify::instantiation(self, scheme, quantified, instance)
     }
 
+    /// Compares types with the same semantic relation used by Core verification,
+    /// including separately interned alpha-equivalent quantified types.
+    pub fn types_equivalent(&self, left: TypeId, right: TypeId) -> bool {
+        verify::equivalent_types(left, right, self)
+    }
+
     /// The hidden calling-convention parameter count registered for a callable
     /// type constructor identity, or `None` when the constructor is not
     /// callable.

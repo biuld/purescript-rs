@@ -207,7 +207,7 @@ different instance or resolve a new constraint.
   instance omits the method field; the instance simply stores the default
   closure in that field.
 - **Derived instances.** Deriving generates an ordinary instance and dictionary
-  at elaboration time; it adds no backend representation (`FE-16`).
+  at elaboration time; it adds no backend representation (`FE-22`).
 - **Erased polymorphism.** A dictionary passed through a polymorphic function
   is an ordinary erased value; recovery at the concrete consumer uses the
   erased protocol, not the dictionary.
@@ -316,7 +316,7 @@ no runtime check of `a`.
 - **To optimization.** Specialization reads dictionaries but preserves the
   dictionary-passing semantics; it may not be the only encoding.
 - **Not owned.** Resolution at the source level, overlap/orphan diagnostics, and
-  functional dependencies (`FE-15`), deriving (`FE-16`), and higher-rank
+  functional dependencies (`FE-15`), deriving (`FE-22`), and higher-rank
   subsumption (`FE-18`).
 
 ## Open questions and future work

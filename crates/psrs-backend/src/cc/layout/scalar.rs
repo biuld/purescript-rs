@@ -36,7 +36,7 @@ pub(crate) fn declaration_shape(
             let ExprKind::Lambda { binder, body } = &value.kind else {
                 break;
             };
-            if binder.ty != *parameter_ty {
+            if !module.types_equivalent(binder.ty, *parameter_ty) {
                 return Err(vec![BackendError::new(
                     "P8 closure conversion",
                     binder.span,
@@ -76,7 +76,7 @@ pub(crate) fn declaration_shape(
         let Some((parameter, result)) = psrs_core::arrow_parts(&module.types, ty) else {
             break;
         };
-        if parameter != binder.ty {
+        if !module.types_equivalent(parameter, binder.ty) {
             return Err(vec![BackendError::new(
                 "P8 closure conversion",
                 binder.span,

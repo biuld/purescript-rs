@@ -1,4 +1,7 @@
 use super::*;
+use crate::typecheck::classes::deriving::syntax::{
+    case_expr, constructor_pattern, if_expr, lambda, wildcard_pattern,
+};
 
 impl Checker {
     pub(super) fn derive_eq_method(
@@ -20,18 +23,24 @@ impl Checker {
                     return None;
                 };
                 self.env.type_declarations.get(type_id).map(|declaration| {
-                    declaration
-                        .constructors
-                        .iter()
-                        .any(|constructor| constructor.fields.iter().any(is_applied_variable))
+                    declaration.constructors.iter().any(|constructor| {
+                        constructor
+                            .fields
+                            .iter()
+                            .any(|field| is_applied_variable(&self.normalize_deriving_type(field)))
+                    })
                 })
             })
             .unwrap_or(false);
         let eq1_method = if needs_eq1 {
-            match self.known_method_symbol("Data.Eq", "Eq1", "eq1") {
+            match self.known_method(KnownClass::Eq1, "eq1") {
                 Some(method) => Some(method),
                 None => {
-                    return self.deriving_error(span, "cannot find the Eq1 method for Eq deriving");
+                    return self.deriving_error(
+                        TypeCheckErrorKind::CannotDerive,
+                        span,
+                        "cannot find the Eq1 method for Eq deriving",
+                    );
                 }
             }
         } else {
@@ -49,8 +58,12 @@ impl Checker {
         // The official rule derives `Eq1` by delegating to `Eq` at the applied
         // argument: `eq1 = eq`. The matching `Eq` instance supplies the
         // dictionary, so its context must be visible alongside the method's.
-        let Some(eq_method) = self.known_method_symbol("Data.Eq", "Eq", "eq") else {
-            return self.deriving_error(span, "cannot find the Eq method for Eq1 deriving");
+        let Some(eq_method) = self.known_method(KnownClass::Eq, "eq") else {
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
+                span,
+                "cannot find the Eq method for Eq1 deriving",
+            );
         };
         let implementation = global_expr(eq_method, span);
         self.infer_derived_method(method, class_arguments, &implementation)
@@ -65,19 +78,27 @@ impl Checker {
         span: TextRange,
     ) -> Option<InferredExpr> {
         let Some(instance_type) = class_arguments.first() else {
-            return self.deriving_error(span, "equality deriving requires one type argument");
+            return self.deriving_error(
+                TypeCheckErrorKind::InvalidDerivedInstance,
+                span,
+                "equality deriving requires one type argument",
+            );
         };
         let instance_type = self.resolve_type(instance_type.clone());
         let (head, arguments) = flatten_spine(&instance_type);
         let InferType::Constructor(TypeConstructor::User(type_id)) = head else {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Eq deriving requires a local data or newtype constructor",
             );
         };
         let Some(declaration) = self.env.type_declarations.get(type_id).cloned() else {
-            return self
-                .deriving_error(span, "cannot find the data declaration to derive equality");
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotFindDerivingType,
+                span,
+                "cannot find the data declaration to derive equality",
+            );
         };
         if type_id.module != self.env.module_id
             || !matches!(
@@ -87,6 +108,7 @@ impl Checker {
             || declaration.parameters.len() != arguments.len()
         {
             return self.deriving_error(
+                TypeCheckErrorKind::ExpectedTypeConstructor,
                 span,
                 "Eq deriving requires a locally declared, fully applied data type",
             );
@@ -106,8 +128,13 @@ impl Checker {
                 .iter()
                 .map(|_| self.fresh_deriving_binder("__derived_r", span))
                 .collect::<Vec<_>>();
+            let field_types = constructor
+                .fields
+                .iter()
+                .map(|field| self.normalize_deriving_type(field))
+                .collect::<Vec<_>>();
             let body = derive_eq_field_tests(
-                constructor,
+                &field_types,
                 &left_fields,
                 &right_fields,
                 eq_method,
@@ -122,20 +149,15 @@ impl Checker {
             };
             let mismatch = hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Wildcard,
-                    span,
-                },
+                pattern: wildcard_pattern(span),
                 value: boolean_literal(false, span),
                 span,
             };
-            let right_case = hir::Expr {
-                kind: hir::ExprKind::Case {
-                    scrutinee: Box::new(local_expr(right.id, span)),
-                    branches: vec![same_constructor, mismatch],
-                },
+            let right_case = case_expr(
+                local_expr(right.id, span),
+                vec![same_constructor, mismatch],
                 span,
-            };
+            );
             left_case_branches.push(hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
                 pattern: constructor_pattern(constructor, &left_fields, span),
@@ -146,47 +168,33 @@ impl Checker {
         if left_case_branches.is_empty() {
             left_case_branches.push(hir::CaseBranch {
                 coverage: hir::CaseBranchCoverage::Source,
-                pattern: hir::Pattern {
-                    kind: hir::PatternKind::Wildcard,
-                    span,
-                },
+                pattern: wildcard_pattern(span),
                 value: boolean_literal(true, span),
                 span,
             });
         }
-        let implementation = hir::Expr {
-            kind: hir::ExprKind::Lambda {
-                binder: left.clone(),
-                body: Box::new(hir::Expr {
-                    kind: hir::ExprKind::Lambda {
-                        binder: right.clone(),
-                        body: Box::new(hir::Expr {
-                            kind: hir::ExprKind::Case {
-                                scrutinee: Box::new(local_expr(left.id, span)),
-                                branches: left_case_branches,
-                            },
-                            span,
-                        }),
-                    },
-                    span,
-                }),
-            },
+        let implementation = lambda(
+            left.clone(),
+            lambda(
+                right.clone(),
+                case_expr(local_expr(left.id, span), left_case_branches, span),
+                span,
+            ),
             span,
-        };
+        );
         self.infer_derived_method(method, class_arguments, &implementation)
     }
 }
 
 fn derive_eq_field_tests(
-    constructor: &hir::Constructor,
+    fields: &[hir::Type],
     left_fields: &[hir::LocalBinder],
     right_fields: &[hir::LocalBinder],
     eq_method: SymbolId,
     eq1_method: Option<SymbolId>,
     span: TextRange,
 ) -> hir::Expr {
-    constructor
-        .fields
+    fields
         .iter()
         .zip(left_fields)
         .zip(right_fields)
@@ -206,34 +214,7 @@ fn derive_eq_field_tests(
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .fold(boolean_literal(true, span), |rest, test| hir::Expr {
-            kind: hir::ExprKind::If {
-                condition: Box::new(test),
-                then_branch: Box::new(rest),
-                else_branch: Box::new(boolean_literal(false, span)),
-            },
-            span,
+        .fold(boolean_literal(true, span), |rest, test| {
+            if_expr(test, rest, boolean_literal(false, span), span)
         })
-}
-
-fn constructor_pattern(
-    constructor: &hir::Constructor,
-    binders: &[hir::LocalBinder],
-    span: TextRange,
-) -> hir::Pattern {
-    hir::Pattern {
-        kind: hir::PatternKind::Constructor {
-            symbol: constructor.symbol,
-            name_span: constructor.name_span,
-            arguments: binders
-                .iter()
-                .cloned()
-                .map(|binder| hir::Pattern {
-                    kind: hir::PatternKind::Var(binder),
-                    span,
-                })
-                .collect(),
-        },
-        span,
-    }
 }

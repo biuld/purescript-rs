@@ -11,7 +11,11 @@ module Data.Tuple
   , swap
   ) where
 
+import Data.Functor (class Functor)
+
 data Tuple a b = Tuple a b
+
+derive instance functorTuple :: Functor (Tuple a)
 
 -- | The first component. `fst (Tuple x y)` is `x`.
 fst :: forall a b. Tuple a b -> a

@@ -14,6 +14,7 @@
 //! than its neighbour, and [`InferState::snapshot`] is the only way a snapshot
 //! is taken.
 
+use super::classes::DerivingRegistry;
 use super::*;
 
 /// The read-only semantic inputs of one module being checked.
@@ -43,6 +44,9 @@ pub(super) struct SemanticEnv {
     pub(super) classes: HashMap<hir::TypeId, ClassInfo>,
     pub(super) class_methods: HashMap<SymbolId, (hir::TypeId, MethodInfo)>,
     pub(super) instances: Vec<InstanceInfo>,
+    /// The single table of compiler-known deriving classes and representation
+    /// declarations, built once from the resolved declarations.
+    pub(super) deriving: DerivingRegistry,
 }
 
 /// The mutable solver: everything a binding changes and a speculation must undo.

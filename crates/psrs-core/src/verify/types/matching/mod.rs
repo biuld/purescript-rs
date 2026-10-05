@@ -138,6 +138,20 @@ impl TypeMatcher<'_> {
         variance: Variance,
         instantiate: bool,
     ) -> bool {
+        // Literal identity is by value in every mode, independent of the
+        // arena IDs assigned to occurrences of the same type-level literal.
+        match (
+            self.module.types.get(actual.0 as usize),
+            self.module.types.get(expected.0 as usize),
+        ) {
+            (Some(Type::TypeLevelString(left)), Some(Type::TypeLevelString(right))) => {
+                return left == right;
+            }
+            (Some(Type::TypeLevelInt(left)), Some(Type::TypeLevelInt(right))) => {
+                return left == right;
+            }
+            _ => {}
+        }
         match variance {
             Variance::Subsumption => self.subsumption(actual, expected, instantiate),
             Variance::Invariant => self.invariant(actual, expected, instantiate),

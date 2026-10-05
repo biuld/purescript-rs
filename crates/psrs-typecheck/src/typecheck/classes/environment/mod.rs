@@ -1,6 +1,6 @@
 use super::super::signature::flatten_spine;
 use super::super::*;
-use super::deriving::contains_wildcard;
+use super::deriving::{KnownClass, contains_wildcard};
 use super::fundeps::collect_infer_variables;
 mod method;
 
@@ -243,39 +243,18 @@ impl Checker {
             return;
         }
         let (_, arguments) = flatten_spine(&instance.head);
-        let newtype_deriving_wildcard = local
+        let head_shape_wildcard = local
             && instance.derivation == Some(hir::DerivationStrategy::KnownClass)
             && self
                 .env
-                .type_modules
-                .get(&instance.class_id)
-                .is_some_and(|module| module == "Data.Newtype")
-            && self
-                .env
-                .type_names
-                .get(&instance.class_id)
-                .is_some_and(|name| name == "Newtype")
-            && arguments.len() == 2
-            && !contains_wildcard(arguments[0])
-            && matches!(arguments[1].kind, hir::TypeKind::Wildcard);
-        let generic_deriving_wildcard = local
-            && instance.derivation == Some(hir::DerivationStrategy::KnownClass)
-            && self
-                .env
-                .type_modules
-                .get(&instance.class_id)
-                .is_some_and(|module| module == "Data.Generic.Rep")
-            && self
-                .env
-                .type_names
-                .get(&instance.class_id)
-                .is_some_and(|name| name == "Generic")
+                .deriving
+                .known_class(instance.class_id)
+                .is_some_and(|known| known.is_head_shape())
             && arguments.len() == 2
             && !contains_wildcard(arguments[0])
             && matches!(arguments[1].kind, hir::TypeKind::Wildcard);
         let has_unsupported_wildcard = arguments.iter().enumerate().any(|(index, argument)| {
-            contains_wildcard(argument)
-                && !((newtype_deriving_wildcard || generic_deriving_wildcard) && index == 1)
+            contains_wildcard(argument) && !(head_shape_wildcard && index == 1)
         });
         if local && has_unsupported_wildcard {
             self.state.errors.push(TypeCheckError::new(
@@ -288,7 +267,7 @@ impl Checker {
         if arguments.len() != class.parameters.len() {
             if local {
                 self.state.errors.push(TypeCheckError::new(
-                    TypeCheckErrorKind::UnsupportedClass,
+                    TypeCheckErrorKind::ClassInstanceArityMismatch,
                     instance.span,
                     "an instance head must apply its class to one type argument per parameter",
                 ));
@@ -296,10 +275,29 @@ impl Checker {
             return;
         }
         let mut variables = HashMap::new();
-        let head_arguments = arguments
+        let mut head_arguments = arguments
             .iter()
             .map(|argument| self.elaborate_type(argument, &mut variables))
             .collect::<Vec<_>>();
+        // A `Newtype`/`Generic` derivation's trailing wildcard is resolved to
+        // the wrapped type or representation before the instance is recorded,
+        // so the searchable head is concrete. The rule is chosen from the
+        // registry, not from a class name.
+        if head_shape_wildcard {
+            let resolved = match self.env.deriving.known_class(instance.class_id) {
+                Some(KnownClass::Newtype) => {
+                    self.newtype_underlying_type(&head_arguments[..1], instance.span, true)
+                }
+                Some(KnownClass::Generic) => {
+                    self.generic_representation(&head_arguments[0], instance.span)
+                }
+                _ => None,
+            };
+            let Some(resolved) = resolved else {
+                return;
+            };
+            head_arguments[1] = resolved;
+        }
         let mut context = Vec::with_capacity(instance.context.len());
         let mut context_parameters = Vec::with_capacity(instance.context.len());
         let mut valid = true;

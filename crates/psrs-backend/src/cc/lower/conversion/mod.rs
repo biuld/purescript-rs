@@ -12,6 +12,7 @@ use psrs_core::TypeId;
 use psrs_span::TextRange;
 
 mod callable;
+mod function_slot;
 mod scalars;
 mod transport;
 
@@ -129,6 +130,14 @@ impl FunctionLowerer<'_> {
             );
         }
         if is_abstract_type(self.module, destination_type) {
+            if let ValueShape::Reference(Reference {
+                heap: RefShape::Closure(signature),
+                ..
+            }) = source_shape
+            {
+                let adapter = self.erase_function_slot(signature, span)?;
+                return Ok(sequence(vec![adapter, ValueConversion::EraseReference]));
+            }
             return match source_shape {
                 ValueShape::Integer | ValueShape::Boolean => self
                     .box_plan(BoxKind::Integer, self.boxed_integer_type, span)
@@ -144,6 +153,13 @@ impl FunctionLowerer<'_> {
             };
         }
         if is_abstract_type(self.module, source_type) {
+            if let ValueShape::Reference(Reference {
+                heap: RefShape::Closure(signature),
+                ..
+            }) = destination_shape
+            {
+                return self.recover_function_slot(signature, span);
+            }
             return match destination_shape {
                 ValueShape::Integer | ValueShape::Boolean => self.unbox_plan(
                     BoxKind::Integer,
@@ -367,7 +383,7 @@ impl FunctionLowerer<'_> {
         let template_shape = self.value_shape(template_type, span)?;
         if stored_shape == erased_shape()
             && is_abstract_type(self.module, template_type)
-            && matches!(target_shape, ValueShape::Reference(_))
+            && matches!(target_shape, ValueShape::Reference(reference) if !matches!(reference.heap, RefShape::Closure(_)))
             && target_shape != erased_shape()
         {
             return Ok(ValueConversion::RecoverReference {

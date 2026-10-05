@@ -128,7 +128,7 @@ wrapper owns the corpus-facing name.
 | `Data.Function` | `apply`, `applyFlipped`, `const`, `flip`, `on`, `$`, `#` | nothing: it is the definition site, and `$`/`#` are its fixity aliases | FE-05 |
 | `Data.Semigroup` | `class Semigroup`, `append`, `<>` | nothing: it is the definition site for the class, and `append` for `String` is built from the compiler's `stringToBytes` / `arrayAppend` / `bytesToString`; `append` for `Array a` is `arrayAppend` | FE-14, BE-10 |
 | `Data.Monoid` | `class Monoid`, `mempty` | `Data.Semigroup`; `String`, `Unit`, and `Array a` identities | FE-14 |
-| `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14, FE-16 |
+| `Data.Foldable` | `class Foldable`, `foldr`, `foldl`, `foldMap` | `Data.Monoid` and the array index primitives; `Array`, `Maybe`, and `Either a` instances | FE-14 |
 | `Data.Tuple` | `Tuple`, `fst`, `snd`, `curry`, `uncurry`, `swap` | the closed record `{ _1 :: a, _2 :: b }` that FE-06 already lowers a tuple to; `type Tuple a b` is that record, not an algebraic `data Tuple a b = Tuple a b` | FE-06 |
 | `Effect` | re-exports the `Prelude` surface above | `Prelude` | FE-02 |
 | `Effect.Console` | `log`, `warn`, `error`, `logShow` | `WASI.Console`, and the library `Data.Show.show` for `logShow` | BE-21 |

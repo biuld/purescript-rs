@@ -337,6 +337,12 @@ fn typecheck_resolved_program_with_warnings(
             .into_iter()
             .map(|(_, declaration)| declaration),
     );
+    // Value declarations are program-wide so a deriving rule can pin a core
+    // library value to its declaring identity.
+    let known_values = modules
+        .iter()
+        .flat_map(|module| module.declarations.iter().cloned())
+        .collect::<Vec<_>>();
     // Instance declarations are threaded per module, like values: a module can
     // only select an instance declared in a module it imports, directly or
     // transitively.
@@ -392,6 +398,7 @@ fn typecheck_resolved_program_with_warnings(
                 false,
                 psrs_typecheck::TypecheckContext {
                     known_types: &known_types,
+                    known_values: &known_values,
                     imported_instances: &imported_instances,
                     module_names: &module_names,
                     checked_kinds: &checked_kinds,

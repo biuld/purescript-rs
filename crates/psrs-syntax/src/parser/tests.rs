@@ -415,3 +415,27 @@ fn keeps_a_deeper_indented_minus_in_a_case_rhs_as_an_operator() {
     };
     assert!(matches!(&value.kind, ExprKind::Operator { operator, .. } if operator.text == "-"));
 }
+
+#[test]
+fn record_projection_and_update_bind_before_value_application() {
+    let module = parse(
+        "module Main where\nproject r = consume r.value\nupdate r = consume r { value = 42 }\n",
+    )
+    .unwrap();
+    for (index, projection) in [(0, true), (1, false)] {
+        let expression = plain_value(as_value(&module.declarations[index]));
+        let ExprKind::Application(function, argument) = &expression.kind else {
+            panic!("record postfix must belong to the argument: {expression:?}");
+        };
+        assert!(matches!(&function.kind, ExprKind::Name(name) if name.text == "consume"));
+        if projection {
+            assert!(
+                matches!(&argument.kind, ExprKind::FieldAccess { expression, .. } if matches!(&expression.kind, ExprKind::Name(name) if name.text == "r"))
+            );
+        } else {
+            assert!(
+                matches!(&argument.kind, ExprKind::RecordUpdate { expression, .. } if matches!(&expression.kind, ExprKind::Name(name) if name.text == "r"))
+            );
+        }
+    }
+}

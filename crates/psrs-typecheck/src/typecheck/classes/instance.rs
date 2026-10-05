@@ -56,6 +56,7 @@ impl Checker {
                 self.validate_known_deriving_class(
                     instance.class_id,
                     &class,
+                    &instance.head,
                     &head_arguments,
                     instance.span,
                 )?;
@@ -64,6 +65,7 @@ impl Checker {
             Some(hir::DerivationStrategy::Newtype) => {
                 if class.parameters.len() != head_arguments.len() {
                     return self.deriving_error(
+                        TypeCheckErrorKind::InvalidNewtypeInstance,
                         instance.span,
                         "derive newtype class head has the wrong arity",
                     );

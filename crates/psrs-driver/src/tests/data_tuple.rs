@@ -2,8 +2,6 @@
 
 use super::*;
 
-const DATA_TUPLE: &str = include_str!("../../../../stdlib/lib/Data/Tuple.purs");
-
 #[test]
 fn library_tuple_constructor_and_helpers_execute() {
     let main = r#"
@@ -22,8 +20,7 @@ main = if intEq (uncurry (\left right -> intAdd left right) pair) 42
     else 1
   else 1
 "#;
-    let sources = [("Data.Tuple.purs", DATA_TUPLE), ("Main.purs", main)];
-    let Some(output) = run_program_with_wasmtime(&sources) else {
+    let Some(output) = run_with_wasmtime(main) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;
     };
@@ -35,6 +32,8 @@ fn native_tuple_syntax_still_has_the_closed_record_representation() {
     let main = r#"
 module Main where
 
+import Data.Tuple (Tuple)
+
 type Pair = { _1 :: Int, _2 :: Int }
 
 fromSyntax :: Pair
@@ -45,8 +44,7 @@ fromRecord = { _1: 40, _2: 2 }
 
 main = 0
 "#;
-    let sources = [("Data.Tuple.purs", DATA_TUPLE), ("Main.purs", main)];
-    let Some(output) = run_program_with_wasmtime(&sources) else {
+    let Some(output) = run_with_wasmtime(main) else {
         eprintln!("skipping execution: wasmtime is not installed");
         return;
     };

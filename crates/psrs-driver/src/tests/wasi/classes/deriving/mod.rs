@@ -2,6 +2,8 @@
 
 use super::super::super::*;
 
+mod traversals;
+
 #[test]
 fn imported_newtype_derived_dictionary_executes_its_coercion_adapter() {
     let library = r#"module Lib (Age(..), class ToInt, toInt) where
@@ -199,6 +201,60 @@ main = case map (\value -> intAdd value 1) (Box (Some 41)) of
 }
 
 #[test]
+fn derived_foldable_executes_through_its_instances() {
+    let semigroup = r#"module Data.Semigroup where
+
+class Semigroup a where
+  append :: a -> a -> a
+"#;
+    let monoid = r#"module Data.Monoid where
+
+import Data.Semigroup
+
+class Semigroup a <= Monoid a where
+  mempty :: a
+"#;
+    let foldable = r#"module Data.Foldable where
+
+import Data.Monoid
+
+class Foldable t where
+  foldr :: forall a b. (a -> b -> b) -> b -> t a -> b
+  foldl :: forall a b. (b -> a -> b) -> b -> t a -> b
+  foldMap :: forall a m. Monoid m => (a -> m) -> t a -> m
+"#;
+    let main = r#"module Main where
+
+import Data.Foldable
+import Data.Monoid
+import Data.Semigroup
+
+instance semigroupInt :: Semigroup Int where
+  append left right = intAdd left right
+
+instance monoidInt :: Monoid Int where
+  mempty = 0
+
+data Box a = Box a
+
+derive instance foldableBox :: Foldable Box
+
+main :: Int
+main = intAdd (foldMap (\x -> x) (Box 40)) (foldr (\x acc -> intAdd x acc) 0 (Box 2))
+"#;
+    let Some(output) = run_program_with_wasmtime(&[
+        ("Data.Semigroup.purs", semigroup),
+        ("Data.Monoid.purs", monoid),
+        ("Data.Foldable.purs", foldable),
+        ("Main.purs", main),
+    ]) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42));
+}
+
+#[test]
 fn derives_bifunctor_mapping_for_both_type_parameters() {
     let bifunctor = r#"module Data.Bifunctor where
 
@@ -226,3 +282,11 @@ main = case bimap (\value -> intAdd value 1) (\value -> intAdd value 1) (Pair 40
     };
     assert_eq!(output.status.code(), Some(42));
 }
+
+mod adapters;
+mod generic;
+
+mod higher_kinded;
+mod records;
+
+mod folds;

@@ -93,6 +93,46 @@ fn verifier_checks_instance_context_against_constructor_parameters() {
     assert!(errors.iter().any(|error| {
         error.message == "instance evidence does not match its context parameter"
     }));
+
+    let mut equivalent = module.clone();
+    for variable in [TypeVariableId(0), TypeVariableId(1)] {
+        let base = equivalent.types.len() as u32;
+        equivalent.types.extend([
+            Type::Variable(variable),
+            Type::Application(TypeId(4), TypeId(base)),
+            Type::Application(TypeId(base + 1), TypeId(base)),
+            Type::ForAll {
+                variables: vec![variable],
+                body: TypeId(base + 2),
+            },
+            Type::RowExtend {
+                label: "method".into(),
+                ty: TypeId(base + 3),
+                tail: TypeId(2),
+            },
+            Type::Application(TypeId(1), TypeId(base + 4)),
+        ]);
+    }
+    equivalent.types.extend([
+        Type::Application(TypeId(4), TypeId(12)),
+        Type::Application(TypeId(19), dictionary),
+    ]);
+    let ExprKind::Evidence(evidence) = &mut equivalent.declarations[0].value.kind else {
+        unreachable!()
+    };
+    let EvidenceKind::Instance {
+        constructor_type,
+        context,
+        ..
+    } = &mut evidence.kind
+    else {
+        unreachable!()
+    };
+    *constructor_type = TypeId(20);
+    context[0].ty = TypeId(18);
+    equivalent
+        .verify()
+        .expect("alpha-equivalent context dictionaries are valid");
 }
 
 #[test]

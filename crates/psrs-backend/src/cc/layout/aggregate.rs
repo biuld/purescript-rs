@@ -14,7 +14,7 @@ enum AggregateKey {
     Record(Vec<(String, ValueShape)>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct AggregateLayouts {
     pub(super) arrays: HashMap<TypeId, ReprId>,
     pub(super) records: HashMap<TypeId, ReprId>,
@@ -47,6 +47,45 @@ pub(super) fn reserve_aggregate_layouts(
 /// Core IDs select normalization inputs, not runtime layout identities.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn normalize_aggregate_layouts(
+    module: &Module,
+    enum_types: &HashSet<HirTypeId>,
+    aggregate_types: &HashSet<HirTypeId>,
+    newtype_ids: &HashSet<HirTypeId>,
+    mut function_types: HashMap<TypeId, SignatureId>,
+    mut layouts: AggregateLayouts,
+    representations: &mut RepresentationTable,
+) -> Result<(AggregateLayouts, HashMap<TypeId, SignatureId>), Vec<BackendError>> {
+    // Aggregate keys contain closure signatures, whose keys in turn contain
+    // aggregate handles. Intern both until neither identity changes.
+    let bound = representations.representations.len() + representations.signatures.len() + 2;
+    for _ in 0..bound {
+        let previous_layouts = layouts.clone();
+        let previous_functions = function_types.clone();
+        let previous_table = representations.clone();
+        (layouts, function_types) = normalize_pass(
+            module,
+            enum_types,
+            aggregate_types,
+            newtype_ids,
+            function_types,
+            layouts,
+            representations,
+        )?;
+        if layouts == previous_layouts
+            && function_types == previous_functions
+            && *representations == previous_table
+        {
+            return Ok((layouts, function_types));
+        }
+    }
+    Err(layout_error(
+        module.span,
+        "aggregate and callable layout normalization did not converge",
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn normalize_pass(
     module: &Module,
     enum_types: &HashSet<HirTypeId>,
     aggregate_types: &HashSet<HirTypeId>,
@@ -103,6 +142,24 @@ pub(super) fn normalize_aggregate_layouts(
             remap_shape(parameter, &remapped);
         }
         remap_shape(&mut signature.result, &remapped);
+    }
+    for representation in &mut representations_table.representations {
+        match representation {
+            Representation::Box { value } => remap_shape(value, &remapped),
+            Representation::Product { fields } => {
+                for field in fields {
+                    remap_shape(field, &remapped);
+                }
+            }
+            Representation::Variant { cases } => {
+                for case in cases {
+                    for field in &mut case.fields {
+                        remap_shape(field, &remapped);
+                    }
+                }
+            }
+            Representation::Array { element } => remap_shape(element, &remapped),
+        }
     }
     canonicalize_signatures(representations_table, &mut function_types);
     Ok((layouts, function_types))

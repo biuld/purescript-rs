@@ -350,7 +350,13 @@ pub(crate) fn lower_module_with_relations(
             (declaration.symbol, wrapper)
         })
         .collect::<HashMap<_, _>>();
-    let boundary = BoundaryEvidence::new(relations, &module, registry, layout.protocols);
+    let boundary = BoundaryEvidence::new(
+        relations,
+        &module,
+        registry,
+        layout.protocols,
+        Some(layout.function_slot),
+    );
     let context = LoweringContext {
         module: &module,
         boundary: &boundary,

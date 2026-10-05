@@ -3,54 +3,44 @@ use super::super::*;
 mod bifunctor;
 mod contravariant;
 mod eq;
+mod foldable;
 mod functor;
 mod generic;
+mod mapping;
 mod newtype;
 mod ord;
+mod profunctor;
+mod registry;
+mod syntax;
+mod traversable;
 mod types;
+mod usage;
+
+pub(in crate::typecheck) use registry::{DerivingRegistry, KnownClass};
 
 pub(crate) use types::contains_wildcard;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum KnownDerivingClass {
-    Eq,
-    Eq1,
-    Ord,
-    Ord1,
-    Newtype,
-    Generic,
-    Functor,
-    Bifunctor,
-    Contravariant,
-}
+use syntax::{apply_expr, boolean_literal, global_expr, local_expr};
+use usage::MappingClasses;
 
-impl KnownDerivingClass {
-    fn identity(self) -> (&'static str, &'static str) {
-        match self {
-            Self::Eq => ("Data.Eq", "Eq"),
-            Self::Eq1 => ("Data.Eq", "Eq1"),
-            Self::Ord => ("Data.Ord", "Ord"),
-            Self::Ord1 => ("Data.Ord", "Ord1"),
-            Self::Newtype => ("Data.Newtype", "Newtype"),
-            Self::Generic => ("Data.Generic.Rep", "Generic"),
-            Self::Functor => ("Data.Functor", "Functor"),
-            Self::Bifunctor => ("Data.Bifunctor", "Bifunctor"),
-            Self::Contravariant => ("Data.Functor.Contravariant", "Contravariant"),
-        }
-    }
-
-    fn method(self) -> &'static str {
-        match self {
-            Self::Eq => "eq",
-            Self::Eq1 => "eq1",
-            Self::Ord => "compare",
-            Self::Ord1 => "compare1",
-            Self::Newtype => "wrap",
-            Self::Generic => "to",
-            Self::Functor => "map",
-            Self::Bifunctor => "bimap",
-            Self::Contravariant => "cmap",
-        }
+/// Whether a structural rule produces this class method. Used only to reject a
+/// method the rule does not derive.
+fn handles_method(known: KnownClass, name: &str) -> bool {
+    match known {
+        KnownClass::Eq => name == "eq",
+        KnownClass::Eq1 => name == "eq1",
+        KnownClass::Ord => name == "compare",
+        KnownClass::Ord1 => name == "compare1",
+        KnownClass::Functor => name == "map",
+        KnownClass::Bifunctor => name == "bimap",
+        KnownClass::Contravariant => name == "cmap",
+        KnownClass::Profunctor => name == "dimap",
+        KnownClass::Foldable => matches!(name, "foldMap" | "foldr" | "foldl"),
+        KnownClass::Bifoldable => matches!(name, "bifoldMap" | "bifoldr" | "bifoldl"),
+        KnownClass::Traversable => matches!(name, "traverse" | "sequence"),
+        KnownClass::Bitraversable => matches!(name, "bitraverse" | "bisequence"),
+        KnownClass::Newtype => name == "wrap",
+        KnownClass::Generic => matches!(name, "to" | "from"),
     }
 }
 
@@ -80,47 +70,62 @@ impl Checker {
         class_arguments: &[InferType],
         span: TextRange,
     ) -> Option<InferredExpr> {
-        let Some(known_class) = self.known_deriving_class(class_id) else {
+        let Some(known_class) = self.env.deriving.known_class(class_id) else {
             return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
                 span,
-                "the known-class deriving rule is unavailable for this class",
+                "the compiler has no deriving rule for this class",
             );
         };
-        if known_class == KnownDerivingClass::Newtype {
-            return self.deriving_error(span, "Newtype has no derivable class methods");
+        if known_class == KnownClass::Newtype {
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
+                span,
+                "Newtype has no derivable class methods",
+            );
         }
-        if known_class == KnownDerivingClass::Generic {
+        if known_class == KnownClass::Generic {
             if !matches!(method.name.as_str(), "to" | "from") {
-                return self
-                    .deriving_error(span, "Generic derives only its `to` and `from` methods");
+                return self.deriving_error(
+                    TypeCheckErrorKind::CannotDerive,
+                    span,
+                    "Generic derives only its `to` and `from` methods",
+                );
             }
             return self.derive_generic_method(method, class_arguments, span);
         }
         if class.parameters.len() != 1 {
-            return self.deriving_error(span, "known-class deriving requires a unary class");
-        }
-        if method.name != known_class.method() {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidDerivedInstance,
+                span,
+                "known-class deriving requires a unary class",
+            );
+        }
+        if !handles_method(known_class, &method.name) {
+            return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
                 span,
                 "the known-class deriving rule is unavailable for this class method",
             );
         }
         match known_class {
-            KnownDerivingClass::Eq => self.derive_eq_method(method, class_arguments, span),
-            KnownDerivingClass::Eq1 => self.derive_eq1_method(method, class_arguments, span),
-            KnownDerivingClass::Ord => self.derive_ord_method(method, class_arguments, span),
-            KnownDerivingClass::Ord1 => self.derive_ord1_method(method, class_arguments, span),
-            KnownDerivingClass::Functor => {
-                self.derive_functor_method(method, class_arguments, span)
-            }
-            KnownDerivingClass::Bifunctor => {
-                self.derive_bifunctor_method(method, class_arguments, span)
-            }
-            KnownDerivingClass::Contravariant => {
+            KnownClass::Eq => self.derive_eq_method(method, class_arguments, span),
+            KnownClass::Eq1 => self.derive_eq1_method(method, class_arguments, span),
+            KnownClass::Ord => self.derive_ord_method(method, class_arguments, span),
+            KnownClass::Ord1 => self.derive_ord1_method(method, class_arguments, span),
+            KnownClass::Functor => self.derive_functor_method(method, class_arguments, span),
+            KnownClass::Bifunctor => self.derive_bifunctor_method(method, class_arguments, span),
+            KnownClass::Contravariant => {
                 self.derive_contravariant_method(method, class_arguments, span)
             }
-            KnownDerivingClass::Newtype => unreachable!("handled above"),
-            KnownDerivingClass::Generic => unreachable!("handled above"),
+            KnownClass::Profunctor => self.derive_profunctor_method(method, class_arguments, span),
+            KnownClass::Foldable | KnownClass::Bifoldable => {
+                self.derive_foldable_method(known_class, method, class_arguments, span)
+            }
+            KnownClass::Traversable | KnownClass::Bitraversable => {
+                self.derive_traversable_method(known_class, method, class_arguments, span)
+            }
+            KnownClass::Newtype | KnownClass::Generic => unreachable!("handled above"),
         }
     }
 
@@ -128,100 +133,64 @@ impl Checker {
         &mut self,
         class_id: hir::TypeId,
         class: &ClassInfo,
+        head: &hir::Type,
         head_arguments: &[InferType],
         span: TextRange,
     ) -> Option<()> {
-        let Some(known_class) = self.known_deriving_class(class_id) else {
+        let Some(known_class) = self.env.deriving.known_class(class_id) else {
             return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
                 span,
-                "the known-class deriving rule is unavailable for this class",
+                "the compiler has no deriving rule for this class",
             );
         };
         let expected_arity = match known_class {
-            KnownDerivingClass::Newtype | KnownDerivingClass::Generic => 2,
+            KnownClass::Newtype | KnownClass::Generic => 2,
             _ => 1,
         };
         if class.parameters.len() != expected_arity || head_arguments.len() != expected_arity {
             return self.deriving_error(
+                TypeCheckErrorKind::InvalidDerivedInstance,
                 span,
                 "known-class deriving requires the class's supported parameter arity",
             );
         }
+        if known_class.is_head_shape() {
+            let (_, raw_arguments) = types::flatten_type_application(head);
+            let is_wildcard = raw_arguments
+                .last()
+                .is_some_and(|argument| matches!(argument.kind, hir::TypeKind::Wildcard));
+            if !is_wildcard {
+                return self.deriving_error(
+                    TypeCheckErrorKind::ExpectedWildcard,
+                    span,
+                    "the derived class's final type argument must be a type wildcard",
+                );
+            }
+        }
         let has_required_methods = match known_class {
-            KnownDerivingClass::Newtype => class.methods.is_empty(),
-            KnownDerivingClass::Generic => ["to", "from"]
+            KnownClass::Newtype => class.methods.is_empty(),
+            KnownClass::Generic => ["to", "from"]
                 .iter()
                 .all(|name| class.methods.iter().any(|method| method.name == *name)),
             _ => class
                 .methods
                 .iter()
-                .any(|method| method.name == known_class.method()),
+                .any(|method| handles_method(known_class, &method.name)),
         };
         if !has_required_methods {
             return self.deriving_error(
+                TypeCheckErrorKind::CannotDerive,
                 span,
                 "the class is missing the method required by its known deriving rule",
             );
         }
-        if known_class == KnownDerivingClass::Newtype {
-            let underlying = self.newtype_underlying_type(&head_arguments[..1], span)?;
-            let errors_before = self.state.errors.len();
-            self.unify(head_arguments[1].clone(), underlying, span);
-            if self.state.errors.len() != errors_before {
-                return None;
-            }
-        }
-        if known_class == KnownDerivingClass::Generic {
-            let representation = self.generic_representation(&head_arguments[0], span)?;
-            let errors_before = self.state.errors.len();
-            self.unify(head_arguments[1].clone(), representation, span);
-            if self.state.errors.len() != errors_before {
-                return None;
-            }
-        }
         Some(())
     }
 
-    fn known_method_symbol(
-        &self,
-        module_name: &str,
-        class_name: &str,
-        method_name: &str,
-    ) -> Option<SymbolId> {
-        let class_id = self.env.type_names.iter().find_map(|(class_id, name)| {
-            (name == class_name
-                && self
-                    .env
-                    .type_modules
-                    .get(class_id)
-                    .is_some_and(|module| module == module_name))
-            .then_some(*class_id)
-        })?;
-        self.env
-            .classes
-            .get(&class_id)?
-            .methods
-            .iter()
-            .find(|method| method.name == method_name)
-            .map(|method| method.symbol)
-    }
-
-    fn known_deriving_class(&self, class_id: hir::TypeId) -> Option<KnownDerivingClass> {
-        let module = self.env.type_modules.get(&class_id)?.as_str();
-        let name = self.env.type_names.get(&class_id)?.as_str();
-        [
-            KnownDerivingClass::Eq,
-            KnownDerivingClass::Eq1,
-            KnownDerivingClass::Ord,
-            KnownDerivingClass::Ord1,
-            KnownDerivingClass::Newtype,
-            KnownDerivingClass::Generic,
-            KnownDerivingClass::Functor,
-            KnownDerivingClass::Bifunctor,
-            KnownDerivingClass::Contravariant,
-        ]
-        .into_iter()
-        .find(|known| known.identity() == (module, name))
+    /// A known class's method symbol by method name, read from the registry.
+    fn known_method(&self, known: KnownClass, name: &str) -> Option<SymbolId> {
+        self.env.deriving.method(known, name)
     }
 
     fn fresh_deriving_local(&mut self, prefix: &str, span: TextRange) -> hir::LocalBinder {
@@ -240,14 +209,13 @@ impl Checker {
 
     pub(in crate::typecheck::classes) fn deriving_error<T>(
         &mut self,
+        kind: TypeCheckErrorKind,
         span: TextRange,
         message: &str,
     ) -> Option<T> {
-        self.state.errors.push(TypeCheckError::new(
-            TypeCheckErrorKind::UnsupportedClass,
-            span,
-            message,
-        ));
+        self.state
+            .errors
+            .push(TypeCheckError::new(kind, span, message));
         None
     }
 }
@@ -273,36 +241,4 @@ fn flatten_spine(ty: &InferType) -> (&InferType, Vec<InferType>) {
     }
     arguments.reverse();
     (head, arguments)
-}
-
-fn local_expr(local: LocalId, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Local(local),
-        span,
-    }
-}
-
-fn global_expr(symbol: SymbolId, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Global(symbol),
-        span,
-    }
-}
-
-fn apply_expr(function: hir::Expr, argument: hir::Expr, span: TextRange) -> hir::Expr {
-    hir::Expr {
-        kind: hir::ExprKind::Application(Box::new(function), Box::new(argument)),
-        span,
-    }
-}
-
-fn boolean_literal(value: bool, span: TextRange) -> hir::Expr {
-    global_expr(
-        if value {
-            hir::Intrinsic::BoolTrue.symbol()
-        } else {
-            hir::Intrinsic::BoolFalse.symbol()
-        },
-        span,
-    )
 }

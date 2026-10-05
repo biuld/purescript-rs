@@ -40,6 +40,26 @@ pub enum TypeCheckErrorKind {
     InvalidInstanceHead,
     /// An inferred public value mentions a local type omitted from exports.
     TransitiveExport,
+    /// A class has no compiler-supported deriving rule. Official
+    /// `TypeChecker/Deriving.hs` raises `CannotDerive` in the same position.
+    CannotDerive,
+    /// A deriving head is not the local type constructor the rule expects.
+    ExpectedTypeConstructor,
+    /// A structural deriving head has the wrong number of type arguments.
+    InvalidDerivedInstance,
+    ClassInstanceArityMismatch,
+    /// A `derive newtype` head is not a locally declared newtype.
+    InvalidNewtypeInstance,
+    /// `derive newtype` was applied to a plain data type.
+    CannotDeriveNewtypeForData,
+    /// A constructor field cannot be mapped under the deriving class's
+    /// variance, the official `CannotDeriveInvalidConstructorArg`.
+    CannotDeriveInvalidConstructorArg,
+    /// The type a derivation refers to cannot be found.
+    CannotFindDerivingType,
+    /// A `Newtype` or `Generic` derivation is missing its trailing type
+    /// wildcard, the official `ExpectedWildcard`.
+    ExpectedWildcard,
     /// `e @T` where `e`'s type has no quantifier left to apply `T` to.
     /// `purs` raises this in `TypeChecker.Types.infer'` for
     /// `VisibleTypeApp`, where the operand's type is reported against the
@@ -156,6 +176,17 @@ impl TypeCheckErrorKind {
             }
             TypeCheckErrorKind::InvalidInstanceHead => "InvalidInstanceHead",
             TypeCheckErrorKind::TransitiveExport => "TransitiveExportError",
+            TypeCheckErrorKind::CannotDerive => "CannotDerive",
+            TypeCheckErrorKind::ExpectedTypeConstructor => "ExpectedTypeConstructor",
+            TypeCheckErrorKind::InvalidDerivedInstance => "InvalidDerivedInstance",
+            TypeCheckErrorKind::ClassInstanceArityMismatch => "ClassInstanceArityMismatch",
+            TypeCheckErrorKind::InvalidNewtypeInstance => "InvalidNewtypeInstance",
+            TypeCheckErrorKind::CannotDeriveNewtypeForData => "CannotDeriveNewtypeForData",
+            TypeCheckErrorKind::CannotDeriveInvalidConstructorArg => {
+                "CannotDeriveInvalidConstructorArg"
+            }
+            TypeCheckErrorKind::CannotFindDerivingType => "CannotFindDerivingType",
+            TypeCheckErrorKind::ExpectedWildcard => "ExpectedWildcard",
             TypeCheckErrorKind::CannotApplyExpressionOfTypeOnType => {
                 "CannotApplyExpressionOfTypeOnType"
             }

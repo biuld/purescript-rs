@@ -166,3 +166,27 @@ fn record(types: &mut Vec<Type>, field: TypeId) -> TypeId {
     types.push(Type::Constructor(TypeConstructor::Record));
     apply(types, head, row)
 }
+
+#[test]
+fn type_level_literals_match_by_value_in_invariant_applications() {
+    let mut types = vec![
+        Type::TypeLevelString("Pair".into()),
+        Type::TypeLevelString("Pair".into()),
+        Type::TypeLevelString("Single".into()),
+        Type::TypeLevelInt(42),
+        Type::TypeLevelInt(42),
+        Type::TypeLevelInt(43),
+    ];
+    for (first, equal, different) in [(0, 1, 2), (3, 4, 5)] {
+        let first = nominal(&mut types, 0, TypeId(first));
+        let equal = nominal(&mut types, 0, TypeId(equal));
+        let different = nominal(&mut types, 0, TypeId(different));
+        let module = bare(types.clone());
+        assert!(module.checked_instantiation(first, &[], equal).is_some());
+        assert!(
+            module
+                .checked_instantiation(first, &[], different)
+                .is_none()
+        );
+    }
+}

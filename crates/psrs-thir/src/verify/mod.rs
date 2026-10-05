@@ -274,7 +274,7 @@ fn verify_evidence(evidence: &Evidence, module: &Module, errors: &mut Vec<Verify
                     });
                     return;
                 };
-                if parameter != argument.ty {
+                if !semantics::types_equal(parameter, argument.ty, module) {
                     errors.push(VerifyError {
                         span: argument.span,
                         message: "instance evidence does not match its context parameter",

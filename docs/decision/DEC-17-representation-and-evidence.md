@@ -85,6 +85,13 @@ The model adopts the established naming: GHC `RuntimeRep`/`Any`/`unsafeCoerce#`,
 Swift calling conventions and reabstraction thunks with witness tables, Java
 erasure with bridge methods, and Koka-style explicit evidence.
 
+Bare polymorphic function values use one registered unary erased protocol.
+Flattened arguments become successive segments, and recovery supplies them
+through a checked adapter. This fixes arity at the storage boundary while
+preserving the producer's concrete calling convention behind that adapter.
+Constructor-owned callable protocols retain their checked fixed arguments;
+the bare-slot protocol does not replace the Function domain or Effect token.
+
 ## Consequences
 
 - The transitional mechanisms are removed, not extended: the HIR-keyed protocol

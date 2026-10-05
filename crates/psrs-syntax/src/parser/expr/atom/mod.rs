@@ -1,61 +1,17 @@
+mod postfix;
 mod records;
 mod sections;
 
 use crate::{LayoutTokenKind, RawTokenKind};
-use psrs_cst::{CstName, Expr, ExprKind, RecordAccessorField, RecordField, RecordUpdateField};
+use psrs_cst::{CstName, Expr, ExprKind, RecordField, RecordUpdateField};
 use psrs_span::TextRange;
 
 use super::super::{ParseError, Parser};
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_application(&mut self) -> Result<Expr, ParseError> {
-        let mut function = self.parse_atom()?;
+        let mut function = self.parse_postfix_atom()?;
         loop {
-            if self.at_raw(&RawTokenKind::Dot) && self.starts_label_at(1) {
-                let dot_span = self.bump().span;
-                let field = self.parse_label("record field")?;
-                let field_end = field.span.end;
-                function = match function.kind {
-                    ExprKind::Name(name) if name.text == "_" => {
-                        let marker_span = name.span;
-                        Expr {
-                            kind: ExprKind::RecordAccessor {
-                                marker_span,
-                                fields: vec![RecordAccessorField { dot_span, field }],
-                            },
-                            span: TextRange::new(marker_span.start, field_end),
-                        }
-                    }
-                    ExprKind::RecordAccessor {
-                        marker_span,
-                        mut fields,
-                    } => {
-                        fields.push(RecordAccessorField { dot_span, field });
-                        Expr {
-                            kind: ExprKind::RecordAccessor {
-                                marker_span,
-                                fields,
-                            },
-                            span: TextRange::new(marker_span.start, field_end),
-                        }
-                    }
-                    kind => {
-                        let span = TextRange::new(function.span.start, field.span.end);
-                        Expr {
-                            kind: ExprKind::FieldAccess {
-                                expression: Box::new(Expr {
-                                    kind,
-                                    span: function.span,
-                                }),
-                                dot_span,
-                                field,
-                            },
-                            span,
-                        }
-                    }
-                };
-                continue;
-            }
             if let LayoutTokenKind::Raw(RawTokenKind::Operator(operator)) = &self.current().kind
                 && operator == "@"
                 && self.starts_type_atom_at(1)
@@ -73,22 +29,10 @@ impl<'a> Parser<'a> {
                 };
                 continue;
             }
-            if self.current().kind == LayoutTokenKind::Raw(RawTokenKind::LBrace) {
-                let checkpoint = self.cursor;
-                match self.parse_record_update(function.clone()) {
-                    Ok(updated) => {
-                        function = updated;
-                        continue;
-                    }
-                    Err(_) => {
-                        self.cursor = checkpoint;
-                    }
-                }
-            }
             if !self.starts_atom() {
                 break;
             }
-            let argument = self.parse_atom()?;
+            let argument = self.parse_postfix_atom()?;
             let span = TextRange::new(function.span.start, argument.span.end);
             function = Expr {
                 kind: ExprKind::Application(Box::new(function), Box::new(argument)),
