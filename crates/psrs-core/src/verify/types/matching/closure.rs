@@ -1,9 +1,9 @@
-use super::TypeMatcher;
+use super::{TypeMatcher, Variance};
 
 impl TypeMatcher<'_> {
     /// Both types are closures with a fixed parameter list. Parameters are
     /// invariant and the result follows the surrounding subsumption.
-    pub(super) fn subsumes_closure(
+    pub(super) fn closure_subsumption(
         &mut self,
         actual: crate::TypeId,
         expected: crate::TypeId,
@@ -19,10 +19,27 @@ impl TypeMatcher<'_> {
         }
         let parameters_match = actual_parameters.into_iter().zip(expected_parameters).all(
             |(actual_parameter, expected_parameter)| {
-                self.subsumes(expected_parameter, actual_parameter, true)
-                    && self.subsumes(actual_parameter, expected_parameter, true)
+                self.relate(
+                    expected_parameter,
+                    actual_parameter,
+                    Variance::Subsumption,
+                    true,
+                ) && self.relate(
+                    actual_parameter,
+                    expected_parameter,
+                    Variance::Subsumption,
+                    true,
+                )
             },
         );
-        Some(parameters_match && self.subsumes(actual_result, expected_result, instantiate))
+        Some(
+            parameters_match
+                && self.relate(
+                    actual_result,
+                    expected_result,
+                    Variance::Subsumption,
+                    instantiate,
+                ),
+        )
     }
 }

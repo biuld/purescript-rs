@@ -1,4 +1,4 @@
-use super::TypeMatcher;
+use super::{TypeMatcher, Variance};
 use crate::{Module, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
@@ -36,5 +36,7 @@ pub(in crate::verify) fn constructor_fields_match(
     field_templates
         .iter()
         .zip(field_instances)
-        .all(|(template, instance)| matcher.matches(*template, *instance, false))
+        .all(|(template, instance)| {
+            matcher.relate(*template, *instance, Variance::Invariant, false)
+        })
 }

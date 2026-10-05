@@ -348,8 +348,9 @@ PE-13:
   checking-owned relation and the payload-erased protocol signature of each
   callable constructor. `FunctionLowerer::source`, `constructor_protocols`, and
   `transport_signatures` are gone. The effect token is the opaque
-  `TypeId::STATE_TOKEN`; what remains is the two-relation matcher (`subsumes`
-  and `matches`), tracked separately.
+  `TypeId::STATE_TOKEN`. The checker's relation is a single `TypeMatcher::relate`
+  entry parameterized by `Variance` (subsumption or invariant); P8 consumes its
+  `Instantiation` evidence and recomputes nothing.
 - **Workspace suite still red on the Phase-3 migration.** Ten driver tests fail
   for reasons this topic does not own: five use `-` or `/` without importing the
   library operator that now owns it (`tests::scalars`, `tests::functions`,

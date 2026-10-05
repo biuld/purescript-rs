@@ -501,7 +501,10 @@ parameters are its checked instantiation arguments) and the trusted `Effect`
 (whose fixed parameter is its runtime token); an unregistered constructor is
 reported rather than resolved by arity or a signature search. Protocol
 signatures are interned once per registered callable constructor as the concrete
-calling convention with the payload erased.
+calling convention with the payload erased. The checker's relation itself is a
+single `TypeMatcher::relate` parameterized by a `Variance` (subsumption or
+invariant); P8 consumes the `Instantiation` evidence it produces and never
+re-derives it.
 
 The effect token is the compiler-owned opaque state token
 (`psrs_hir::TypeId::STATE_TOKEN`) that effect lowering threads through each

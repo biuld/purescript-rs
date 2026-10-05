@@ -1,3 +1,13 @@
+//! The one checked type relation.
+//!
+//! `TypeMatcher::relate` is the single entry point, parameterized by
+//! [`Variance`]: `Subsumption` checks that an actual value type may be consumed
+//! where an expected one is required, and `Invariant` checks rigid equality for
+//! the positions where the type system allows no variance. Every public entry
+//! point and every recursive step goes through it, so acceptance and the
+//! substitution evidence it solves have one owner. This module is checking's
+//! (P5/P6); no backend stage recomputes the relation.
+
 use super::error;
 use crate::{Module, Type, TypeId, VerifyError};
 use psrs_hir::ModuleId;
@@ -32,7 +42,7 @@ pub(in crate::verify) fn compatible(
         alpha: HashMap::new(),
         active: HashSet::new(),
     };
-    if !matcher.subsumes(actual, expected, true) {
+    if !matcher.relate(actual, expected, Variance::Subsumption, true) {
         errors.push(error(
             owner,
             span,
@@ -58,7 +68,7 @@ pub(in crate::verify) fn scheme_instance(
         alpha: HashMap::new(),
         active: HashSet::new(),
     };
-    matcher.subsumes(scheme, instance, true)
+    matcher.relate(scheme, instance, Variance::Subsumption, true)
 }
 
 /// Checks an application after transparently instantiating leading type-level
@@ -92,11 +102,18 @@ pub(in crate::verify) fn application_matches(
     else {
         return false;
     };
-    matcher.subsumes(argument, parameter, true) && matcher.subsumes(function_result, result, true)
+    matcher.relate(argument, parameter, Variance::Subsumption, true)
+        && matcher.relate(function_result, result, Variance::Subsumption, true)
 }
 
+/// The variance mode of the single checked type relation. `Subsumption` is the
+/// value-level relation a declaration or local scheme is checked against at its
+/// use: function parameters are contravariant, immutable record fields are
+/// covariant, and an actual universal may be instantiated. `Invariant` is the
+/// rigid mode used where no variance applies — nominal and higher-kinded
+/// applications, closed and rigid rows, and constructor field templates.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Relation {
+pub(super) enum Variance {
     Subsumption,
     Invariant,
 }
@@ -107,19 +124,35 @@ struct TypeMatcher<'a> {
     replacements: HashMap<psrs_hir::TypeVariableId, TypeId>,
     row_forms: HashMap<psrs_hir::TypeVariableId, RowForm>,
     alpha: HashMap<psrs_hir::TypeVariableId, psrs_hir::TypeVariableId>,
-    active: HashSet<(Relation, TypeId, TypeId)>,
+    active: HashSet<(Variance, TypeId, TypeId)>,
 }
 
 impl TypeMatcher<'_> {
+    /// The one checked type relation. Every entry point and every recursive
+    /// position goes through it; `variance` selects the mode. Checking is the
+    /// sole owner of this relation, and its consumers read only its result.
+    pub(super) fn relate(
+        &mut self,
+        actual: TypeId,
+        expected: TypeId,
+        variance: Variance,
+        instantiate: bool,
+    ) -> bool {
+        match variance {
+            Variance::Subsumption => self.subsumption(actual, expected, instantiate),
+            Variance::Invariant => self.invariant(actual, expected, instantiate),
+        }
+    }
+
     /// Checks value subsumption: `actual` may be consumed wherever `expected`
     /// is required. Function parameters are contravariant, while immutable
     /// record fields are covariant. An actual universal may be instantiated;
     /// an expected universal remains rigid and therefore requires an actual
     /// universal with alpha-equivalent binders.
-    fn subsumes(&mut self, actual: TypeId, expected: TypeId, instantiate: bool) -> bool {
+    fn subsumption(&mut self, actual: TypeId, expected: TypeId, instantiate: bool) -> bool {
         if !self
             .active
-            .insert((Relation::Subsumption, actual, expected))
+            .insert((Variance::Subsumption, actual, expected))
         {
             return true;
         }
@@ -128,7 +161,7 @@ impl TypeMatcher<'_> {
             self.module.types.get(expected.0 as usize),
         ) else {
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return false;
         };
 
@@ -141,7 +174,7 @@ impl TypeMatcher<'_> {
                 self.bind_flexible(*variable, actual)
             };
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
 
@@ -152,12 +185,12 @@ impl TypeMatcher<'_> {
                 && self.flexible.contains(variable)
             {
                 let result = if let Some(previous) = self.replacements.get(variable) {
-                    self.subsumes(*previous, expected, true)
+                    self.relate(*previous, expected, Variance::Subsumption, true)
                 } else {
                     self.bind_flexible(*variable, expected)
                 };
                 self.active
-                    .remove(&(Relation::Subsumption, actual, expected));
+                    .remove(&(Variance::Subsumption, actual, expected));
                 return result;
             }
             let Type::ForAll { variables, body } = expected_type else {
@@ -167,14 +200,14 @@ impl TypeMatcher<'_> {
                 .iter()
                 .map(|variable| (*variable, self.flexible.remove(variable)))
                 .collect::<Vec<_>>();
-            let result = self.subsumes(actual, *body, instantiate);
+            let result = self.relate(actual, *body, Variance::Subsumption, instantiate);
             for (variable, was_flexible) in was_flexible {
                 if was_flexible {
                     self.flexible.insert(variable);
                 }
             }
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
 
@@ -194,23 +227,28 @@ impl TypeMatcher<'_> {
                         .any(|variable| self.alpha.contains_key(variable))
                 {
                     self.active
-                        .remove(&(Relation::Subsumption, actual, expected));
+                        .remove(&(Variance::Subsumption, actual, expected));
                     return false;
                 }
                 for (actual, expected) in actual_variables.iter().zip(expected_variables) {
                     self.alpha.insert(*actual, *expected);
                 }
-                let result = self.subsumes(*actual_body, *expected_body, instantiate);
+                let result = self.relate(
+                    *actual_body,
+                    *expected_body,
+                    Variance::Subsumption,
+                    instantiate,
+                );
                 for variable in actual_variables {
                     self.alpha.remove(variable);
                 }
                 self.active
-                    .remove(&(Relation::Subsumption, actual, expected));
+                    .remove(&(Variance::Subsumption, actual, expected));
                 return result;
             }
             if !instantiate {
                 self.active
-                    .remove(&(Relation::Subsumption, actual, expected));
+                    .remove(&(Variance::Subsumption, actual, expected));
                 return false;
             }
             let added = actual_variables
@@ -218,13 +256,13 @@ impl TypeMatcher<'_> {
                 .copied()
                 .filter(|variable| self.flexible.insert(*variable))
                 .collect::<Vec<_>>();
-            let result = self.subsumes(*actual_body, expected, true);
+            let result = self.relate(*actual_body, expected, Variance::Subsumption, true);
             for variable in added {
                 self.flexible.remove(&variable);
                 self.replacements.remove(&variable);
             }
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
         if let Type::Variable(variable) = actual_type {
@@ -252,7 +290,7 @@ impl TypeMatcher<'_> {
                 false
             };
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
         if let Type::Variable(variable) = expected_type {
@@ -264,13 +302,13 @@ impl TypeMatcher<'_> {
                 false
             };
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
 
-        if let Some(result) = self.subsumes_closure(actual, expected, instantiate) {
+        if let Some(result) = self.closure_subsumption(actual, expected, instantiate) {
             self.active
-                .remove(&(Relation::Subsumption, actual, expected));
+                .remove(&(Variance::Subsumption, actual, expected));
             return result;
         }
 
@@ -284,16 +322,25 @@ impl TypeMatcher<'_> {
                     crate::arrow_parts(&self.module.types, actual),
                     crate::arrow_parts(&self.module.types, expected),
                 ) {
-                    self.subsumes(expected_parameter, actual_parameter, true)
-                        && self.subsumes(actual_result, expected_result, instantiate)
+                    self.relate(
+                        expected_parameter,
+                        actual_parameter,
+                        Variance::Subsumption,
+                        true,
+                    ) && self.relate(
+                        actual_result,
+                        expected_result,
+                        Variance::Subsumption,
+                        instantiate,
+                    )
                 } else if is_record_type(self.module, actual)
                     && is_record_type(self.module, expected)
                 {
-                    self.subsumes_record(actual, expected)
+                    self.record_subsumption(actual, expected)
                 } else {
                     // No variance metadata is carried for nominal and
                     // higher-kinded applications, so keep them invariant.
-                    self.matches(actual, expected, false)
+                    self.relate(actual, expected, Variance::Invariant, false)
                 }
             }
             (Type::RowEmpty, Type::RowEmpty) => true,
@@ -310,13 +357,13 @@ impl TypeMatcher<'_> {
                 },
             ) => {
                 actual_label == expected_label
-                    && self.subsumes(*actual_ty, *expected_ty, true)
-                    && self.matches(*actual_tail, *expected_tail, false)
+                    && self.relate(*actual_ty, *expected_ty, Variance::Subsumption, true)
+                    && self.relate(*actual_tail, *expected_tail, Variance::Invariant, false)
             }
             _ => false,
         };
         self.active
-            .remove(&(Relation::Subsumption, actual, expected));
+            .remove(&(Variance::Subsumption, actual, expected));
         result
     }
 
@@ -368,7 +415,7 @@ impl TypeMatcher<'_> {
         true
     }
 
-    fn subsumes_record(&mut self, actual: TypeId, expected: TypeId) -> bool {
-        self.relate_records(actual, expected, true)
+    fn record_subsumption(&mut self, actual: TypeId, expected: TypeId) -> bool {
+        self.relate_records(actual, expected, Variance::Subsumption)
     }
 }

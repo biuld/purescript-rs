@@ -1,4 +1,4 @@
-use super::TypeMatcher;
+use super::{TypeMatcher, Variance};
 use crate::{Instantiation, Module, TypeId};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +17,7 @@ pub(crate) fn instantiation<'a>(
         alpha: HashMap::new(),
         active: HashSet::new(),
     };
-    if !matcher.subsumes(scheme, instance, true) {
+    if !matcher.relate(scheme, instance, Variance::Subsumption, true) {
         return None;
     }
     Some(Instantiation {

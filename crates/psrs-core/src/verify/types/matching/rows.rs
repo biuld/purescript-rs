@@ -1,6 +1,6 @@
 use super::super::types_compatible;
-use super::TypeMatcher;
 use super::helpers::collect_free_variables;
+use super::{TypeMatcher, Variance};
 use crate::{Type, TypeId, record_row};
 use psrs_hir::TypeVariableId;
 use std::collections::{HashMap, HashSet};
@@ -21,14 +21,14 @@ enum TailKind {
 type RowShape = (Vec<(String, TypeId)>, Option<TypeId>);
 
 impl TypeMatcher<'_> {
-    /// Record subsumption (`covariant`) or invariant matching. Closed rows and
-    /// rigid open rows must agree exactly. A flexible tail is a quantifier
-    /// being instantiated and may absorb the other side's residual row.
+    /// Record relation in the given [`Variance`]. Closed rows and rigid open
+    /// rows must agree exactly. A flexible tail is a quantifier being
+    /// instantiated and may absorb the other side's residual row.
     pub(super) fn relate_records(
         &mut self,
         actual: TypeId,
         expected: TypeId,
-        covariant: bool,
+        variance: Variance,
     ) -> bool {
         let (Some(actual_row), Some(expected_row)) = (
             record_row(&self.module.types, actual),
@@ -51,12 +51,8 @@ impl TypeMatcher<'_> {
                 return false;
             }
             if let Some(expected_ty) = expected_fields.remove(&label) {
-                let agrees = if covariant {
-                    self.subsumes(actual_ty, expected_ty, true)
-                } else {
-                    self.matches(actual_ty, expected_ty, false)
-                };
-                if !agrees {
+                let instantiate = variance == Variance::Subsumption;
+                if !self.relate(actual_ty, expected_ty, variance, instantiate) {
                     return false;
                 }
             } else {

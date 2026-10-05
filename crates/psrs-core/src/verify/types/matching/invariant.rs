@@ -1,18 +1,18 @@
-//! Invariant type matching. Flexible variables are solved from either side.
-//! Constructor identity comes from an explicit binding, never from a closure's
-//! parameter count.
+//! The rigid (`Invariant`) mode of the single checked type relation.
+//! Flexible variables are solved from either side, and constructor identity
+//! comes from an explicit binding, never from a closure's parameter count.
 
-use super::{Relation, TypeMatcher};
+use super::{TypeMatcher, Variance};
 use crate::Type;
 
 impl TypeMatcher<'_> {
-    pub(super) fn matches(
+    pub(super) fn invariant(
         &mut self,
         source: crate::TypeId,
         target: crate::TypeId,
         instantiate: bool,
     ) -> bool {
-        if !self.active.insert((Relation::Invariant, source, target)) {
+        if !self.active.insert((Variance::Invariant, source, target)) {
             return true;
         }
         if let (
@@ -24,20 +24,25 @@ impl TypeMatcher<'_> {
         ) {
             let source_parameters = source_parameters.to_vec();
             let target_parameters = target_parameters.to_vec();
-            let result = source_parameters.len() == target_parameters.len()
-                && source_parameters
-                    .into_iter()
-                    .zip(target_parameters)
-                    .all(|(source, target)| self.matches(source, target, false))
-                && self.matches(source_result, target_result, instantiate);
-            self.active.remove(&(Relation::Invariant, source, target));
+            let result =
+                source_parameters.len() == target_parameters.len()
+                    && source_parameters.into_iter().zip(target_parameters).all(
+                        |(source, target)| self.relate(source, target, Variance::Invariant, false),
+                    )
+                    && self.relate(
+                        source_result,
+                        target_result,
+                        Variance::Invariant,
+                        instantiate,
+                    );
+            self.active.remove(&(Variance::Invariant, source, target));
             return result;
         }
         let (Some(source_type), Some(target_type)) = (
             self.module.types.get(source.0 as usize),
             self.module.types.get(target.0 as usize),
         ) else {
-            self.active.remove(&(Relation::Invariant, source, target));
+            self.active.remove(&(Variance::Invariant, source, target));
             return false;
         };
         if let Type::Variable(variable) = source_type {
@@ -61,7 +66,7 @@ impl TypeMatcher<'_> {
                     _ => false,
                 }
             };
-            self.active.remove(&(Relation::Invariant, source, target));
+            self.active.remove(&(Variance::Invariant, source, target));
             return result;
         }
         if let Type::Variable(variable) = target_type {
@@ -69,7 +74,7 @@ impl TypeMatcher<'_> {
                 && self.flexible.contains(variable)
                 && !matches!(source_type, Type::ForAll { .. })
                 && self.bind_flexible(*variable, source);
-            self.active.remove(&(Relation::Invariant, source, target));
+            self.active.remove(&(Variance::Invariant, source, target));
             return result;
         }
         let result = match (source_type, target_type) {
@@ -92,11 +97,12 @@ impl TypeMatcher<'_> {
                     for (source, target) in source_variables.iter().zip(target_variables) {
                         self.alpha.insert(*source, *target);
                     }
-                    let matches = self.matches(*source_body, *target_body, instantiate);
+                    let related =
+                        self.relate(*source_body, *target_body, Variance::Invariant, instantiate);
                     for variable in source_variables {
                         self.alpha.remove(variable);
                     }
-                    matches
+                    related
                 }
             }
             (Type::ForAll { variables, body }, _) if instantiate => {
@@ -105,12 +111,12 @@ impl TypeMatcher<'_> {
                     .copied()
                     .filter(|variable| self.flexible.insert(*variable))
                     .collect::<Vec<_>>();
-                let matches = self.matches(*body, target, true);
+                let related = self.relate(*body, target, Variance::Invariant, true);
                 for variable in added {
                     self.flexible.remove(&variable);
                     self.replacements.remove(&variable);
                 }
-                matches
+                related
             }
             (Type::ForAll { .. }, _) | (_, Type::ForAll { .. }) => false,
             (Type::Constructor(left), Type::Constructor(right)) => left == right,
@@ -122,12 +128,21 @@ impl TypeMatcher<'_> {
                     crate::arrow_parts(&self.module.types, source),
                     crate::arrow_parts(&self.module.types, target),
                 ) {
-                    self.matches(source_parameter, target_parameter, false)
-                        && self.matches(source_result, target_result, instantiate)
+                    self.relate(
+                        source_parameter,
+                        target_parameter,
+                        Variance::Invariant,
+                        false,
+                    ) && self.relate(
+                        source_result,
+                        target_result,
+                        Variance::Invariant,
+                        instantiate,
+                    )
                 } else if super::is_record_type(self.module, source)
                     && super::is_record_type(self.module, target)
                 {
-                    self.matches_record(source, target)
+                    self.invariant_record(source, target)
                 } else {
                     let (
                         Type::Application(source_function, source_argument),
@@ -136,8 +151,17 @@ impl TypeMatcher<'_> {
                     else {
                         unreachable!()
                     };
-                    self.matches(*source_function, *target_function, false)
-                        && self.matches(*source_argument, *target_argument, false)
+                    self.relate(
+                        *source_function,
+                        *target_function,
+                        Variance::Invariant,
+                        false,
+                    ) && self.relate(
+                        *source_argument,
+                        *target_argument,
+                        Variance::Invariant,
+                        false,
+                    )
                 }
             }
             (Type::RowEmpty, Type::RowEmpty) => true,
@@ -154,16 +178,20 @@ impl TypeMatcher<'_> {
                 },
             ) => {
                 left_label == right_label
-                    && self.matches(*left_ty, *right_ty, false)
-                    && self.matches(*left_tail, *right_tail, false)
+                    && self.relate(*left_ty, *right_ty, Variance::Invariant, false)
+                    && self.relate(*left_tail, *right_tail, Variance::Invariant, false)
             }
             _ => false,
         };
-        self.active.remove(&(Relation::Invariant, source, target));
+        self.active.remove(&(Variance::Invariant, source, target));
         result
     }
 
-    pub(super) fn matches_record(&mut self, source: crate::TypeId, target: crate::TypeId) -> bool {
-        self.relate_records(source, target, false)
+    pub(super) fn invariant_record(
+        &mut self,
+        source: crate::TypeId,
+        target: crate::TypeId,
+    ) -> bool {
+        self.relate_records(source, target, Variance::Invariant)
     }
 }
