@@ -421,6 +421,44 @@ fn library_uncurried_matches_pinned_official_observations() {
 }
 
 #[test]
+fn library_array_operations_match_pinned_official_observations() {
+    let modules = crate::prelude::sources().unwrap();
+    let array = modules
+        .iter()
+        .find(|module| module.module_name == "Data.Array")
+        .unwrap();
+    for signature in [
+        "length :: forall a. Array a -> Int",
+        "reverse :: forall a. Array a -> Array a",
+        "concat :: forall a. Array (Array a) -> Array a",
+        "sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)",
+    ] {
+        assert!(
+            array.text.lines().any(|line| line == signature),
+            "missing official signature: {signature}"
+        );
+    }
+    let non_empty = modules
+        .iter()
+        .find(|module| module.module_name == "Data.Array.NonEmpty.Internal")
+        .unwrap();
+    for signature in [
+        "foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a",
+        "foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a",
+    ] {
+        assert!(
+            non_empty.text.lines().any(|line| line == signature),
+            "missing official signature: {signature}"
+        );
+    }
+    let source = include_str!("../../tests/fixtures/stdlib-array-ops/Main.purs");
+    let Some(output) = run_library_program_with_wasmtime(&[("Main.purs", source)]) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}
+
+#[test]
 fn library_array_extend_matches_pinned_official_observations() {
     let golden = include_str!("../../tests/fixtures/stdlib-array-extend/Golden.purs");
     let signature = golden

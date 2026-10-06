@@ -677,3 +677,15 @@ newtypes over the curried function, so `mkFn{N}`/`runFn{N}` adapt currying and
 rank-2 arguments stay abstract. This is a prerequisite for `Data.Array`, whose
 foreign signatures use `Fn2` and `Fn3`. See the independent package's
 `docs/function-uncurried.md`.
+
+`Data.Array`'s algorithms follow the same boundary. The Prelude-free target
+module `PSRS.Array` owns them over the private storage primitives; the official
+module delegates each foreign slot. Slots whose private signature carries a
+rank-2 `Maybe` constructor or observer are written monomorphically and the loop
+is inlined, leaving the public API unchanged, and `Data.Array.NonEmpty.Internal`'s
+`traverse1` is implemented in the `Traversable1` instance over the `Applicative`
+dictionary. See the independent package's `docs/array-operations.md`. A compiler
+obligation is recorded there: a recursive loop that writes to its output array
+only in one `if` branch produced wrong results; loops must write in a single
+tail call and select only the value in the branch. `unsafeIndex` out of range
+traps rather than returning JavaScript `undefined`.
