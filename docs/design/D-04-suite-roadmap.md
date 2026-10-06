@@ -390,12 +390,12 @@ fails, and a type synonym for the record fails identically. Changing the argumen
 shape would change the API the corpus calls, so the two functions stay out and the
 defect is filed as #137. That leaves 2 `passing` cases blocked on them.
 
-**Latest full-board remeasurement (2026-10-04, annotations oracle):** M2
-failing agreement is **71/72**; `failing/ConflictingQualifiedImports2.purs`
-expects `ScopeConflict` but produces `ExportConflict`. Passing modules resolve
-in **386/413** cases; the other 27 stop at P3 (23) or P0 (4). Nineteen sibling
-modules load successfully, and no case is blocked because the loader cannot use
-an imported sibling.
+**Latest full-board remeasurement (2026-10-07, annotations oracle):** M2
+failing agreement is **72/72**; a duplicated explicit import qualifier now
+reports `ScopeConflict`, so `failing/ConflictingQualifiedImports2.purs` agrees.
+Passing modules resolve in **402/413** cases; the other 11 stop at P3 (6), P0
+(4), or in the harness (1). Nineteen sibling modules load successfully, and no
+case is blocked because the loader cannot use an imported sibling.
 
 ### M3 — Kinds and higher-kinded types
 

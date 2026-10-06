@@ -51,13 +51,25 @@ impl Resolver {
         imports: Vec<hir::Import>,
         export_items: Option<ast::ExportList>,
         fixities: Vec<hir::Fixity>,
-        errors: Vec<ResolveError>,
+        mut errors: Vec<ResolveError>,
     ) -> Self {
         let mut unqualified: HashMap<String, Vec<SymbolId>> = HashMap::new();
         let mut qualified: HashMap<String, Vec<QualifiedImport>> = HashMap::new();
         let mut imported_types: HashMap<String, Vec<TypeReference>> = HashMap::new();
         let mut qualified_types: HashMap<String, Vec<QualifiedTypeImport>> = HashMap::new();
+        let mut aliases: HashMap<String, ()> = HashMap::new();
         for import in &imports {
+            // Two imports cannot share one explicit qualifier; `purs` reports
+            // this as a scope conflict before any qualified lookup or re-export.
+            if let Some(alias) = &import.alias
+                && aliases.insert(alias.clone(), ()).is_some()
+            {
+                errors.push(ResolveError::named(
+                    ResolveErrorKind::ScopeConflict,
+                    alias.clone(),
+                    import.span,
+                ));
+            }
             // An import with an `as` alias is qualified-only; without one it
             // also brings the names into unqualified scope.
             if import.alias.is_none() {
