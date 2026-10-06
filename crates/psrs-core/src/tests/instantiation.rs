@@ -234,3 +234,167 @@ fn row_evidence_retains_residuals_without_an_arena_node() {
     assert_eq!(evidence.constructor(variable), None);
     assert_eq!(evidence.row(TypeVariableId(41)).map(|row| row.fields), None);
 }
+
+fn row(types: &mut Vec<Type>, fields: &[(&str, TypeId)], tail: TypeId) -> TypeId {
+    fields.iter().rev().fold(tail, |tail, (label, ty)| {
+        let id = TypeId(types.len() as u32);
+        types.push(Type::RowExtend {
+            label: (*label).into(),
+            ty: *ty,
+            tail,
+        });
+        id
+    })
+}
+
+#[test]
+fn nominal_row_arguments_preserve_checked_residuals_and_label_order_independence() {
+    let variable = TypeVariableId(40);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::Constructor(TypeConstructor::Boolean),
+        Type::RowEmpty,
+        Type::Variable(variable),
+    ];
+    let generic_row = row(&mut types, &[("y", TypeId(0))], TypeId(3));
+    let generic = nominal(&mut types, 1, generic_row);
+    let concrete_row = row(
+        &mut types,
+        &[("a", TypeId(0)), ("b", TypeId(1)), ("y", TypeId(0))],
+        TypeId(2),
+    );
+    let concrete = nominal(&mut types, 1, concrete_row);
+    let reordered_row = row(
+        &mut types,
+        &[("y", TypeId(0)), ("b", TypeId(1)), ("a", TypeId(0))],
+        TypeId(2),
+    );
+    let reordered = nominal(&mut types, 1, reordered_row);
+    let generic_arrow = arrow(&mut types, generic, generic);
+    let consistent_arrow = arrow(&mut types, concrete, reordered);
+    let different_row = row(
+        &mut types,
+        &[("y", TypeId(0)), ("b", TypeId(0)), ("a", TypeId(0))],
+        TypeId(2),
+    );
+    let different = nominal(&mut types, 1, different_row);
+    let inconsistent_arrow = arrow(&mut types, concrete, different);
+    let missing_row = row(&mut types, &[("a", TypeId(0))], TypeId(2));
+    let missing = nominal(&mut types, 1, missing_row);
+    let duplicate_row = row(&mut types, &[("y", TypeId(0)), ("y", TypeId(0))], TypeId(2));
+    let duplicate = nominal(&mut types, 1, duplicate_row);
+    let module = bare(types);
+    let evidence = module
+        .checked_instantiation(generic_arrow, &[variable], consistent_arrow)
+        .unwrap();
+    let mut residual = evidence.row(variable).unwrap();
+    residual.fields.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(
+        residual.fields,
+        vec![("a".into(), TypeId(0)), ("b".into(), TypeId(1))]
+    );
+    assert_eq!(residual.tail, None);
+    assert!(
+        module
+            .checked_instantiation(concrete, &[], reordered)
+            .is_some()
+    );
+    assert!(
+        module
+            .checked_instantiation(generic_arrow, &[variable], inconsistent_arrow)
+            .is_none()
+    );
+    assert!(
+        module
+            .checked_instantiation(generic, &[], concrete)
+            .is_none(),
+        "rigid tails cannot absorb fields"
+    );
+    assert!(
+        module
+            .checked_instantiation(generic, &[variable], missing)
+            .is_none()
+    );
+    let duplicate_evidence = module
+        .checked_instantiation(generic, &[variable], duplicate)
+        .unwrap();
+    assert_eq!(
+        duplicate_evidence.row(variable).unwrap().fields,
+        vec![("y".into(), TypeId(0))]
+    );
+}
+
+#[test]
+fn nominal_row_arguments_preserve_duplicate_label_occurrence_order() {
+    let variable = TypeVariableId(41);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::Constructor(TypeConstructor::Boolean),
+        Type::RowEmpty,
+        Type::Variable(variable),
+    ];
+    let scheme_row = row(&mut types, &[("a", TypeId(0)), ("a", TypeId(1))], TypeId(3));
+    let scheme = nominal(&mut types, 1, scheme_row);
+    let matching_row = row(
+        &mut types,
+        &[("z", TypeId(0)), ("a", TypeId(0)), ("a", TypeId(1))],
+        TypeId(2),
+    );
+    let matching = nominal(&mut types, 1, matching_row);
+    let reversed_row = row(
+        &mut types,
+        &[("a", TypeId(1)), ("a", TypeId(0)), ("z", TypeId(0))],
+        TypeId(2),
+    );
+    let reversed = nominal(&mut types, 1, reversed_row);
+    let module = bare(types);
+    let evidence = module
+        .checked_instantiation(scheme, &[variable], matching)
+        .unwrap();
+    assert_eq!(
+        evidence.row(variable).unwrap().fields,
+        vec![("z".into(), TypeId(0))]
+    );
+    assert!(
+        module
+            .checked_instantiation(scheme, &[variable], reversed)
+            .is_none()
+    );
+}
+
+#[test]
+fn repeated_residual_fields_use_the_checked_relation_for_nested_row_arguments() {
+    let variable = TypeVariableId(42);
+    let mut types = vec![
+        Type::Constructor(TypeConstructor::Int),
+        Type::Constructor(TypeConstructor::Boolean),
+        Type::RowEmpty,
+        Type::Variable(variable),
+    ];
+    let nested_left = row(&mut types, &[("a", TypeId(0)), ("b", TypeId(1))], TypeId(2));
+    let nested_left = nominal(&mut types, 2, nested_left);
+    let nested_right = row(&mut types, &[("b", TypeId(1)), ("a", TypeId(0))], TypeId(2));
+    let nested_right = nominal(&mut types, 2, nested_right);
+    let scheme_row = row(&mut types, &[("y", TypeId(0))], TypeId(3));
+    let scheme = nominal(&mut types, 1, scheme_row);
+    let scheme = arrow(&mut types, scheme, scheme);
+    let domain_row = row(
+        &mut types,
+        &[("x", nested_left), ("y", TypeId(0))],
+        TypeId(2),
+    );
+    let domain = nominal(&mut types, 1, domain_row);
+    let codomain_row = row(
+        &mut types,
+        &[("y", TypeId(0)), ("x", nested_right)],
+        TypeId(2),
+    );
+    let codomain = nominal(&mut types, 1, codomain_row);
+    let instance = arrow(&mut types, domain, codomain);
+    let module = bare(types);
+    assert!(
+        module
+            .checked_instantiation(scheme, &[variable], instance)
+            .is_some()
+    );
+}

@@ -164,22 +164,8 @@ impl TypeMatcher<'_> {
                     )
                 }
             }
-            (Type::RowEmpty, Type::RowEmpty) => true,
-            (
-                Type::RowExtend {
-                    label: left_label,
-                    ty: left_ty,
-                    tail: left_tail,
-                },
-                Type::RowExtend {
-                    label: right_label,
-                    ty: right_ty,
-                    tail: right_tail,
-                },
-            ) => {
-                left_label == right_label
-                    && self.relate(*left_ty, *right_ty, Variance::Invariant, false)
-                    && self.relate(*left_tail, *right_tail, Variance::Invariant, false)
+            (Type::RowEmpty | Type::RowExtend { .. }, Type::RowEmpty | Type::RowExtend { .. }) => {
+                self.relate_rows(source, target, Variance::Invariant)
             }
             _ => false,
         };

@@ -363,22 +363,8 @@ impl TypeMatcher<'_> {
                     self.relate(actual, expected, Variance::Invariant, false)
                 }
             }
-            (Type::RowEmpty, Type::RowEmpty) => true,
-            (
-                Type::RowExtend {
-                    label: actual_label,
-                    ty: actual_ty,
-                    tail: actual_tail,
-                },
-                Type::RowExtend {
-                    label: expected_label,
-                    ty: expected_ty,
-                    tail: expected_tail,
-                },
-            ) => {
-                actual_label == expected_label
-                    && self.relate(*actual_ty, *expected_ty, Variance::Subsumption, true)
-                    && self.relate(*actual_tail, *expected_tail, Variance::Invariant, false)
+            (Type::RowEmpty | Type::RowExtend { .. }, Type::RowEmpty | Type::RowExtend { .. }) => {
+                self.relate_rows(actual, expected, Variance::Invariant)
             }
             _ => false,
         };
