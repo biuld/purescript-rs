@@ -22,7 +22,6 @@ mod case_helpers;
 mod constant_truth;
 mod expr;
 mod fixity;
-mod free_vars;
 mod guards;
 mod types;
 

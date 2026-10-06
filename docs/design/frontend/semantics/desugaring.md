@@ -105,8 +105,12 @@ remain as resolved `Typed` expressions for P5.
 Every rewrite evaluates source operands in the order defined by the language.
 A failed guard proceeds to the next guard without evaluating that guard's body.
 A generated temporary binds an expression once when duplication would change
-evaluation. P4 preserves the source span of every retained user expression;
-generated scaffolding points to the construct that introduced it.
+evaluation. A fallthrough helper is defined in the same `let` as the case, so
+it refers to outer locals directly. Passing one of those locals in as a value
+argument would instantiate a polymorphic scheme once, before the guard body
+applies the arguments that determine its constraints. P4 preserves the source
+span of every retained user expression; generated scaffolding points to the
+construct that introduced it.
 
 Rejected alternatives: desugaring operators in P2 cannot respect imported
 fixities; waiting until MIR would discard useful source types and spans; and

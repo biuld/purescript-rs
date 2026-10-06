@@ -83,6 +83,42 @@ main = loop 1
 }
 
 #[test]
+fn a_guarded_case_use_instantiates_a_where_binding() {
+    let source = r#"
+module Main where
+
+class Bind m where
+  bind :: forall a b. m a -> (a -> m b) -> m b
+
+class Enum a where
+  succ :: a -> Maybe a
+  pred :: a -> Maybe a
+
+data Maybe a = Nothing | Just a
+
+instance bindMaybe :: Bind Maybe where
+  bind (Just value) continuation = continuation value
+  bind Nothing _ = Nothing
+
+instance enumInt :: Enum Int where
+  succ n = Just n
+  pred n = Just n
+
+enumFromTo :: forall a. Enum a => a -> a -> Maybe a
+enumFromTo = case _, _ of
+  from, to
+    | true -> go succ from
+    | true -> go pred from
+  where
+    go step value = bind (step value) (\next -> Just next)
+
+main :: Int
+main = 0
+"#;
+    assert_checks(source);
+}
+
+#[test]
 fn a_concrete_missing_instance_inside_a_let_is_still_rejected() {
     let source = r#"
 module Main where

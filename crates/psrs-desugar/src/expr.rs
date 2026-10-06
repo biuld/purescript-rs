@@ -4,7 +4,6 @@ use crate::{
         apply, guarded_rhs_exhaustive, is_guarded_rhs, product_expression, product_pattern,
         wrap_lambdas,
     },
-    free_vars,
 };
 use psrs_hir::{
     self as hir, CaseBranch, CaseBranchCoverage, Expr, ExprKind, LocalBinder, LocalBinding,
@@ -163,7 +162,10 @@ impl Desugarer {
             }
         }
 
-        let captures = free_vars::captures(&branches);
+        // Fallthrough helpers stay in this `let`, so they see the same outer
+        // locals as the source branch. Passing those locals in as arguments
+        // would instantiate a polymorphic scheme once, before the guard body
+        // applies the arguments that determine its constraints.
         let temp = self.local_binder("case_scrutinee", span);
         let helper_binders = (1..=branches.len() + 1)
             .map(|index| self.local_binder(&format!("guard_fallthrough_{index}"), span))
@@ -180,17 +182,7 @@ impl Desugarer {
                 .iter()
                 .map(|_| self.local_binder("next_guard", span))
                 .collect::<Vec<_>>();
-            let capture_parameters = captures
-                .iter()
-                .map(|_| self.local_binder("guard_capture", span))
-                .collect::<Vec<_>>();
             let temp_parameter = self.local_binder("guard_scrutinee", span);
-            let mut local_mapping = captures
-                .iter()
-                .zip(&capture_parameters)
-                .map(|(id, binder)| (*id, binder.id))
-                .collect::<std::collections::HashMap<_, _>>();
-            local_mapping.insert(temp.id, temp_parameter.id);
 
             let body = if row_index == branches.len() {
                 Expr {
@@ -203,17 +195,11 @@ impl Desugarer {
             } else {
                 let mut source = alpha::clone_branch(&branches[row_index], &mut self.fresh);
                 source.coverage = CaseBranchCoverage::Generated;
-                source.value = free_vars::rebind(source.value, &local_mapping);
                 let failure = apply(
                     self.local_expr(&next_functions[0], span),
                     next_functions[1..]
                         .iter()
                         .map(|binder| self.local_expr(binder, span))
-                        .chain(
-                            capture_parameters
-                                .iter()
-                                .map(|binder| self.local_expr(binder, span)),
-                        )
                         .chain(std::iter::once(self.local_expr(&temp_parameter, span))),
                     span,
                 );
@@ -238,7 +224,6 @@ impl Desugarer {
             };
             let parameters = next_functions
                 .into_iter()
-                .chain(capture_parameters)
                 .chain(std::iter::once(temp_parameter))
                 .collect::<Vec<_>>();
             let value = wrap_lambdas(parameters, body, span);
@@ -265,10 +250,6 @@ impl Desugarer {
                         helper_binders[start..]
                             .iter()
                             .map(|binder| self.local_expr(binder, branch.span))
-                            .chain(captures.iter().map(|id| Expr {
-                                kind: ExprKind::Local(*id),
-                                span: branch.span,
-                            }))
                             .chain(std::iter::once(self.local_expr(&temp, branch.span))),
                         branch.span,
                     );
