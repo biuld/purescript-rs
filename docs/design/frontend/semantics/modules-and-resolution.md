@@ -239,12 +239,18 @@ key policy. Orphan and overlapping instance visibility is specified with
 lookup alone.
 
 P3 checks explicit public signatures and declaration dependencies while their
-resolved type references are available. It does not infer a public value's
-type from expression syntax. After generalization, P5 traverses the checked
-scheme by stable `TypeId` and reports hidden local types in inferred results,
-function parameters, aliases, record fields, and constraints. The L2 export
-scoreboard runs annotated transitive-export cases through the lenient typed
-pipeline so each check is measured at its owning stage.
+resolved type references are available. A fully applied local type synonym in
+an explicit value signature is expanded first, and each in-module type
+constructor or class that remains is a dependency. The synonym's own name is
+not a dependency of that value. An exported data type, synonym, or class still
+requires the in-module names written in its synonym body, superclasses, and
+kinds. A data constructor's field types are dependencies only when that
+constructor is part of the export. P3 does not infer a public value's type from
+expression syntax. After generalization, P5 traverses the checked scheme by
+stable `TypeId` and reports hidden local types in inferred results, function
+parameters, aliases, record fields, and constraints. The L2 export scoreboard
+runs annotated transitive-export cases through the lenient typed pipeline so
+each check is measured at its owning stage.
 
 ## References
 

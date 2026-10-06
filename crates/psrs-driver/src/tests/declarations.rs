@@ -111,6 +111,53 @@ fn reports_a_transitive_export_of_an_unexported_type() {
 }
 
 #[test]
+fn an_exported_value_may_use_an_unexported_synonym_of_an_exported_type() {
+    let source = "module Main (step, Box) where\ndata Box = Box\ntype Inner = Box\ntype Step = Inner\nstep :: Step\nstep = Box\n";
+    resolve_program_sources(&[("Main.purs", source)])
+        .expect("a value signature expands local synonyms before the export check");
+}
+
+#[test]
+fn an_exported_value_synonym_still_requires_its_hidden_type() {
+    let source = "module Main (step) where\ndata Hidden = Hidden\ntype Alias = Hidden\nstep :: Alias\nstep = Hidden\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Hidden")
+    }));
+    assert!(
+        errors
+            .iter()
+            .all(|error| !error.diagnostic.message.contains("Alias"))
+    );
+}
+
+#[test]
+fn an_exported_synonym_still_requires_the_synonym_it_mentions() {
+    let source = "module Main (Y()) where\ntype X = Int\ntype Y = X\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("`X`")
+    }));
+}
+
+#[test]
+fn a_quantified_synonym_body_keeps_its_hidden_type() {
+    let source = "module Main (value) where\ndata Pair a b = Pair a b\ntype Step a = forall r. Pair a r -> r\nvalue :: forall a. Step a\nvalue _ = 0\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Pair")
+    }));
+    assert!(
+        errors
+            .iter()
+            .all(|error| !error.diagnostic.message.contains("Step"))
+    );
+}
+
+#[test]
 fn checks_an_inferred_public_result_type_after_typechecking() {
     let source = "module Main (value) where\ndata Hidden = Hidden\nidentity x = x\nvalue = identity Hidden\n";
     let errors = crate::check_program(&[("Main.purs", source)])
@@ -176,6 +223,28 @@ fn checks_hidden_types_reached_through_an_inferred_record_field() {
             && error.diagnostic.code == Some("TransitiveExportError")
             && error.diagnostic.message.contains("Hidden")
     }));
+}
+
+#[test]
+fn a_hidden_constructor_does_not_require_its_field_type() {
+    let source = "module Main (Wrap) where\ndata Hidden = Hidden\nnewtype Wrap = Wrap Hidden\n";
+    resolve_program_sources(&[("Main.purs", source)])
+        .expect("a hidden constructor does not expose its field type");
+}
+
+#[test]
+fn an_exported_constructor_requires_its_field_type() {
+    let source = "module Main (T(A)) where\ndata Shown = Shown\ndata Hidden = Hidden\ndata T = A Shown | B Hidden\n";
+    let errors = resolve_program_sources(&[("Main.purs", source)]).unwrap_err();
+    assert!(errors.iter().any(|error| {
+        error.diagnostic.code == Some("TransitiveExportError")
+            && error.diagnostic.message.contains("Shown")
+    }));
+    assert!(
+        errors
+            .iter()
+            .all(|error| !error.diagnostic.message.contains("Hidden"))
+    );
 }
 
 #[test]
