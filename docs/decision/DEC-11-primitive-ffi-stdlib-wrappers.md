@@ -111,7 +111,8 @@ lists is subsumed by DEC-13.
 
 Array algorithms belong in the target standard library. Wasm requires concrete
 allocation and element-storage operations, but it does not require compiler
-implementations of `arrayApply` or `arrayBind`. These implementation slots may
+implementations of `arrayApply`, `arrayBind` or `arrayExtend`. These
+implementation slots may
 use ordinary PureScript source over private `arrayFill`, `arrayWrite`, length
 and index primitives while preserving the official signatures, exports and
 other pure declarations. Mutating primitives require fresh buffer ownership;

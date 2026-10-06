@@ -350,3 +350,29 @@ fn library_array_bind_matches_pinned_official_observations() {
     };
     assert_eq!(output.status.code(), Some(42), "{output:?}");
 }
+
+#[test]
+fn library_array_extend_matches_pinned_official_observations() {
+    let golden = include_str!("../../tests/fixtures/stdlib-array-extend/Golden.purs");
+    let signature = golden
+        .lines()
+        .find(|line| line.starts_with("arrayExtend ::"))
+        .unwrap();
+    let modules = crate::prelude::sources().unwrap();
+    let native = modules
+        .iter()
+        .find(|module| module.module_name == "Control.Extend")
+        .unwrap();
+    assert!(native.text.lines().any(|line| line == signature));
+    let sources = [
+        ("Golden.purs", golden),
+        (
+            "Main.purs",
+            include_str!("../../tests/fixtures/stdlib-array-extend/Main.purs"),
+        ),
+    ];
+    let Some(output) = run_library_program_with_wasmtime(&sources) else {
+        return;
+    };
+    assert_eq!(output.status.code(), Some(42), "{output:?}");
+}

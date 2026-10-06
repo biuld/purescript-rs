@@ -629,18 +629,24 @@ in-place write and returns the same array; invalid indices trap. Core checks
 all element relationships and MIR preserves the write as an observable effect.
 The raw writes are private to target library code with fresh output ownership.
 
-`psrs-stdlib/lib/PSRS/Array.purs` owns `arrayApply` and `arrayBind`. Original
-Prelude exports and public signatures remain; only their foreign implementation
+`psrs-stdlib/lib/PSRS/Array.purs` owns `arrayApply`, `arrayBind` and
+`arrayExtend`. Original
+Prelude and Control exports and public signatures remain; only their foreign
+implementation
 slots delegate to this target module. Class/instance and other pure code remain
 official. No compiler registry entry, CC operation, callback invoker or MIR loop
-is dedicated to either algorithm. Recursion and callbacks use ordinary checked
+is dedicated to any of these algorithms. Recursion and callbacks use ordinary
+checked
 PureScript calls, closure adaptation and tail-call lowering.
 
 The library applies functions in function-major order, caching each function
 for its value traversal and invoking it once per pair. Bind visits inputs in
 order, invokes each callback once, snapshots its returned array immediately,
 and flattens the snapshots. The immediate shallow copy preserves the official
-behavior when a later callback mutates a previously returned array. Storage and
+behavior when a later callback mutates a previously returned array. Extend
+visits indices in increasing order, invokes its callback once per index, and
+passes a fresh shallow suffix copy, so callback mutation cannot change the source
+array. Storage and
 copy work are linear in input/result size. Array apply checks signed-i32 product
 capacity before callbacks; bind checks cumulative capacity before accepting a
 chunk. Allocation exhaustion and unrepresentable sizes trap as target resource
