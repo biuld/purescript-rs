@@ -75,20 +75,17 @@ withArray f xs = do
 unsafeFreeze :: forall h a. STArray h a -> ST h (Array a)
 unsafeFreeze = runSTFn1 unsafeFreezeImpl
 
-unsafeFreezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
-unsafeFreezeImpl = unsafeFreezeImpl
+foreign import unsafeFreezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
 
 -- | O(1) Convert an immutable array to a mutable array, without copying. The input
 -- | array must not be used afterward.
 unsafeThaw :: forall h a. Array a -> ST h (STArray h a)
 unsafeThaw = runSTFn1 unsafeThawImpl
 
-unsafeThawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
-unsafeThawImpl = unsafeThawImpl
+foreign import unsafeThawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
 
 -- | Create a new, empty mutable array.
-new :: forall h a. ST h (STArray h a)
-new = new
+foreign import new :: forall h a. ST h (STArray h a)
 
 thaw
   :: forall h a
@@ -97,8 +94,7 @@ thaw
 thaw = runSTFn1 thawImpl
 
 -- | Create a mutable copy of an immutable array.
-thawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
-thawImpl = thawImpl
+foreign import thawImpl :: forall h a. STFn1 (Array a) h (STArray h a)
 
 -- | Make a mutable copy of a mutable array.
 clone
@@ -107,8 +103,7 @@ clone
   -> ST h (STArray h a)
 clone = runSTFn1 cloneImpl
 
-cloneImpl :: forall h a. STFn1 (STArray h a) h (STArray h a)
-cloneImpl = cloneImpl
+foreign import cloneImpl :: forall h a. STFn1 (STArray h a) h (STArray h a)
 
 -- | Sort a mutable array in place. Sorting is stable: the order of equal
 -- | elements is preserved.
@@ -119,8 +114,9 @@ sort = sortBy compare
 shift :: forall h a. STArray h a -> ST h (Maybe a)
 shift = runSTFn3 shiftImpl Just Nothing
 
-shiftImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
-shiftImpl = shiftImpl
+foreign import shiftImpl
+  :: forall h a
+   . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
 
 -- | Sort a mutable array in place using a comparison function. Sorting is
 -- | stable: the order of elements is preserved if they are equal according to
@@ -135,8 +131,9 @@ sortBy comp = runSTFn3 sortByImpl comp case _ of
   EQ -> 0
   LT -> -1
 
-sortByImpl :: forall a h . STFn3 (a -> a -> Ordering) (Ordering -> Int) (STArray h a) h (STArray h a)
-sortByImpl = sortByImpl
+foreign import sortByImpl
+  :: forall a h
+   . STFn3 (a -> a -> Ordering) (Ordering -> Int) (STArray h a) h (STArray h a)
 
 -- | Sort a mutable array in place based on a projection. Sorting is stable: the
 -- | order of elements is preserved if they are equal according to the projection.
@@ -155,8 +152,7 @@ freeze
   -> ST h (Array a)
 freeze = runSTFn1 freezeImpl
 
-freezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
-freezeImpl = freezeImpl
+foreign import freezeImpl :: forall h a. STFn1 (STArray h a) h (Array a)
 
 -- | Read the value at the specified index in a mutable array.
 peek
@@ -166,8 +162,7 @@ peek
   -> ST h (Maybe a)
 peek = runSTFn4 peekImpl Just Nothing
 
-peekImpl :: forall h a r. STFn4 (a -> r) r Int (STArray h a) h r
-peekImpl = peekImpl
+foreign import peekImpl :: forall h a r. STFn4 (a -> r) r Int (STArray h a) h r
 
 poke
   :: forall h a
@@ -178,11 +173,9 @@ poke
 poke = runSTFn3 pokeImpl
 
 -- | Change the value at the specified index in a mutable array.
-pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Boolean
-pokeImpl = pokeImpl
+foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Boolean
 
-lengthImpl :: forall h a. STFn1 (STArray h a) h Int
-lengthImpl = lengthImpl
+foreign import lengthImpl :: forall h a. STFn1 (STArray h a) h Int
 
 -- | Get the number of elements in a mutable array.
 length :: forall h a. STArray h a -> ST h Int
@@ -192,16 +185,16 @@ length = runSTFn1 lengthImpl
 pop :: forall h a. STArray h a -> ST h (Maybe a)
 pop = runSTFn3 popImpl Just Nothing
 
-popImpl :: forall h a . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
-popImpl = popImpl
+foreign import popImpl
+  :: forall h a
+   . STFn3 (forall b. b -> Maybe b) (forall b. Maybe b) (STArray h a) h (Maybe a)
 
 -- | Append an element to the end of a mutable array. Returns the new length of
 -- | the array.
 push :: forall h a. a -> (STArray h a) -> ST h Int
 push = runSTFn2 pushImpl
 
-pushImpl :: forall h a. STFn2 a (STArray h a) h Int
-pushImpl = pushImpl
+foreign import pushImpl :: forall h a. STFn2 a (STArray h a) h Int
 
 -- | Append the values in an immutable array to the end of a mutable array.
 -- | Returns the new length of the mutable array.
@@ -212,8 +205,9 @@ pushAll
   -> ST h Int
 pushAll = runSTFn2 pushAllImpl
 
-pushAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int
-pushAllImpl = pushAllImpl
+foreign import pushAllImpl
+  :: forall h a
+   . STFn2 (Array a) (STArray h a) h Int
 
 -- | Append an element to the front of a mutable array. Returns the new length of
 -- | the array.
@@ -229,8 +223,9 @@ unshiftAll
   -> ST h Int
 unshiftAll = runSTFn2 unshiftAllImpl
 
-unshiftAllImpl :: forall h a . STFn2 (Array a) (STArray h a) h Int
-unshiftAllImpl = unshiftAllImpl
+foreign import unshiftAllImpl
+  :: forall h a
+   . STFn2 (Array a) (STArray h a) h Int
 
 -- | Mutate the element at the specified index using the supplied function.
 modify :: forall h a. Int -> (a -> a) -> STArray h a -> ST h Boolean
@@ -250,8 +245,9 @@ splice
   -> ST h (Array a)
 splice = runSTFn4 spliceImpl
 
-spliceImpl :: forall h a . STFn4 Int Int (Array a) (STArray h a) h (Array a)
-spliceImpl = spliceImpl
+foreign import spliceImpl
+  :: forall h a
+   . STFn4 Int Int (Array a) (STArray h a) h (Array a)
 
 -- | Create an immutable copy of a mutable array, where each element
 -- | is labelled with its index in the original array.
@@ -261,5 +257,6 @@ toAssocArray
   -> ST h (Array (Assoc a))
 toAssocArray = runSTFn1 toAssocArrayImpl
 
-toAssocArrayImpl :: forall h a . STFn1 (STArray h a) h (Array (Assoc a))
-toAssocArrayImpl = toAssocArrayImpl
+foreign import toAssocArrayImpl
+  :: forall h a
+   . STFn1 (STArray h a) h (Array (Assoc a))

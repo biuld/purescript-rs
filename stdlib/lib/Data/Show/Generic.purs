@@ -54,11 +54,4 @@ instance genericShowArgsArgument :: Show a => GenericShowArgs (Argument a) where
 genericShow :: forall a rep. Generic a rep => GenericShow rep => a -> String
 genericShow x = genericShow' (from x)
 
-intercalate :: String -> Array String -> String
-intercalate a0 a1 = intercalateFrom a0 a1 0
-
-intercalateFrom :: String -> Array String -> Int -> String
-intercalateFrom separator values index =
-  if intGe index (arrayLength values) then ""
-  else if intEq index 0 then arrayIndex values index <> intercalateFrom separator values (intAdd index 1)
-  else separator <> arrayIndex values index <> intercalateFrom separator values (intAdd index 1)
+foreign import intercalate :: String -> Array String -> String

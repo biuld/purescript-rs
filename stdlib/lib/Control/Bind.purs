@@ -94,15 +94,7 @@ instance bindFn :: Bind ((->) r) where
 instance bindArray :: Bind Array where
   bind = arrayBind
 
-arrayBind :: forall a b. Array a -> (a -> Array b) -> Array b
-arrayBind a0 a1 = bindArrayFrom a0 a1 0
-
-bindArrayFrom :: forall a b. Array a -> (a -> Array b) -> Int -> Array b
-bindArrayFrom xs f index =
-  if intLt index (arrayLength xs) then
-    arrayAppend (f (arrayIndex xs index)) (bindArrayFrom xs f (intAdd index 1))
-  else
-    []
+foreign import arrayBind :: forall a b. Array a -> (a -> Array b) -> Array b
 
 instance bindProxy :: Bind Proxy where
   bind _ _ = Proxy

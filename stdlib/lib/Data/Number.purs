@@ -44,8 +44,7 @@ import Data.Maybe (Maybe(..))
 -- | > nan
 -- | NaN
 -- | ```
-nan :: Number
-nan = nan
+foreign import nan :: Number
 
 -- | Test whether a number is NaN.
 -- | ```purs
@@ -55,8 +54,7 @@ nan = nan
 -- | > isNaN nan
 -- | true
 -- | ```
-isNaN :: Number -> Boolean
-isNaN a0 = isNaN a0
+foreign import isNaN :: Number -> Boolean
 
 -- | Positive infinity. For negative infinity use `(-infinity)`
 -- | ```purs
@@ -66,8 +64,7 @@ isNaN a0 = isNaN a0
 -- | > (-infinity)
 -- | - Infinity
 -- | ```
-infinity :: Number
-infinity = infinity
+foreign import infinity :: Number
 
 -- | Test whether a number is finite.
 -- | ```purs
@@ -83,8 +80,7 @@ infinity = infinity
 -- | > isFinite nan
 -- | false
 -- | ```
-isFinite :: Number -> Boolean
-isFinite a0 = isFinite a0
+foreign import isFinite :: Number -> Boolean
 
 -- | Attempt to parse a `Number` using JavaScripts `parseFloat`. Returns
 -- | `Nothing` if the parse fails or if the result is not a finite number.
@@ -116,8 +112,7 @@ isFinite a0 = isFinite a0
 fromString :: String -> Maybe Number
 fromString str = runFn4 fromStringImpl str isFinite Just Nothing
 
-fromStringImpl :: Fn4 String (Number -> Boolean) (forall a. a -> Maybe a) (forall a. Maybe a) (Maybe Number)
-fromStringImpl = fromStringImpl
+foreign import fromStringImpl :: Fn4 String (Number -> Boolean) (forall a. a -> Maybe a) (forall a. Maybe a) (Maybe Number)
 
 -- | Returns the absolute value of the argument.
 -- | ```purs
@@ -125,32 +120,28 @@ fromStringImpl = fromStringImpl
 -- | > sign x * abs x == x
 -- | true
 -- | ```
-abs :: Number -> Number
-abs a0 = abs a0
+foreign import abs :: Number -> Number
 
 -- | Returns the inverse cosine in radians of the argument.
 -- | ```purs
 -- | > acos 0.0 == pi / 2.0
 -- | true
 -- | ```
-acos :: Number -> Number
-acos a0 = acos a0
+foreign import acos :: Number -> Number
 
 -- | Returns the inverse sine in radians of the argument.
 -- | ```purs
 -- | > asin 1.0 == pi / 2.0
 -- | true
 -- | ```
-asin :: Number -> Number
-asin a0 = asin a0
+foreign import asin :: Number -> Number
 
 -- | Returns the inverse tangent in radians of the argument.
 -- | ```purs
 -- | > atan 1.0 == pi / 4.0
 -- | true
 -- | ```
-atan :: Number -> Number
-atan a0 = atan a0
+foreign import atan :: Number -> Number
 
 -- | Four-quadrant tangent inverse. Given the arguments `y` and `x`, returns
 -- | the inverse tangent of `y / x`, where the signs of both arguments are used
@@ -163,57 +154,49 @@ atan a0 = atan a0
 -- | > atan2 1.0 0.0 == pi / 2.0
 -- | true
 -- | ```
-atan2 :: Number -> Number -> Number
-atan2 a0 a1 = atan2 a0 a1
+foreign import atan2 :: Number -> Number -> Number
 
 -- | Returns the smallest integer not smaller than the argument.
 -- | ```purs
 -- | > ceil 1.5
 -- | 2.0
 -- | ```
-ceil :: Number -> Number
-ceil a0 = ceil a0
+foreign import ceil :: Number -> Number
 
 -- | Returns the cosine of the argument, where the argument is in radians.
 -- | ```purs
 -- | > cos (pi / 4.0) == sqrt2 / 2.0
 -- | true
 -- | ```
-cos :: Number -> Number
-cos a0 = cos a0
+foreign import cos :: Number -> Number
 
 -- | Returns `e` exponentiated to the power of the argument.
 -- | ```purs
 -- | > exp 1.0
 -- | 2.718281828459045
 -- | ```
-exp :: Number -> Number
-exp a0 = exp a0
+foreign import exp :: Number -> Number
 
 -- | Returns the largest integer not larger than the argument.
 -- | ```purs
 -- | > floor 1.5
 -- | 1.0
 -- | ```
-floor :: Number -> Number
-floor a0 = floor a0
+foreign import floor :: Number -> Number
 
 -- | Returns the natural logarithm of a number.
 -- | ```purs
 -- | > log e
 -- | 1.0
-log :: Number -> Number
-log a0 = log a0
+foreign import log :: Number -> Number
 
 -- | Returns the largest of two numbers. Unlike `max` in Data.Ord this version
 -- | returns NaN if either argument is NaN.
-max :: Number -> Number -> Number
-max a0 a1 = max a0 a1
+foreign import max :: Number -> Number -> Number
 
 -- | Returns the smallest of two numbers. Unlike `min` in Data.Ord this version
 -- | returns NaN if either argument is NaN.
-min :: Number -> Number -> Number
-min a0 a1 = min a0 a1
+foreign import min :: Number -> Number -> Number
 
 -- | Return  the first argument exponentiated to the power of the second argument.
 -- | ```purs
@@ -223,16 +206,14 @@ min a0 a1 = min a0 a1
 -- | true
 -- | ```
 
-pow :: Number -> Number -> Number
-pow a0 a1 = pow a0 a1
+foreign import pow :: Number -> Number -> Number
 
 -- | Computes the remainder after division. This is the same as JavaScript's `%` operator.
 -- ```purs
 -- > 5.3 % 2.0
 -- 1.2999999999999998
 -- ```
-remainder :: Number -> Number -> Number
-remainder a0 a1 = remainder a0 a1
+foreign import remainder :: Number -> Number -> Number
 
 infixl 7 remainder as %
 
@@ -241,8 +222,7 @@ infixl 7 remainder as %
 -- | > round 1.5
 -- | 2.0
 -- | ```
-round :: Number -> Number
-round a0 = round a0
+foreign import round :: Number -> Number
 
 -- | Returns either a positive or negative +/- 1, indicating the sign of the
 -- | argument. If the argument is 0, it will return a +/- 0. If the argument is
@@ -252,32 +232,28 @@ round a0 = round a0
 -- | > sign x * abs x == x
 -- | true
 -- | ```
-sign :: Number -> Number
-sign a0 = sign a0
+foreign import sign :: Number -> Number
 
 -- | Returns the sine of the argument, where the argument is in radians.
 -- | ```purs
 -- | > sin (pi / 2.0)
 -- | 1.0
 -- | ```
-sin :: Number -> Number
-sin a0 = sin a0
+foreign import sin :: Number -> Number
 
 -- | Returns the square root of the argument.
 -- | ```purs
 -- | > sqrt 49.0
 -- | 7.0
 -- | ```
-sqrt :: Number -> Number
-sqrt a0 = sqrt a0
+foreign import sqrt :: Number -> Number
 
 -- | Returns the tangent of the argument, where the argument is in radians.
 -- | ```
 -- | > tan (pi / 4.0)
 -- | 0.9999999999999999
 -- | ```
-tan :: Number -> Number
-tan a0 = tan a0
+foreign import tan :: Number -> Number
 
 -- | Truncates the decimal portion of a number. Equivalent to `floor` if the
 -- | number is positive, and `ceil` if the number is negative.
@@ -285,8 +261,7 @@ tan a0 = tan a0
 -- | ceil 1.5
 -- | 2.0
 -- | ```
-trunc :: Number -> Number
-trunc a0 = trunc a0
+foreign import trunc :: Number -> Number
 
 -- | The base of the natural logarithm, also known as Euler's number or *e*.
 -- | ```purs

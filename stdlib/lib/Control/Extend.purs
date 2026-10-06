@@ -27,8 +27,7 @@ class Functor w <= Extend w where
 instance extendFn :: Semigroup w => Extend ((->) w) where
   extend f g w = f \w' -> g (w <> w')
 
-arrayExtend :: forall a b. (Array a -> b) -> Array a -> Array b
-arrayExtend a0 a1 = arrayExtend a0 a1
+foreign import arrayExtend :: forall a b. (Array a -> b) -> Array a -> Array b
 
 instance extendArray :: Extend Array where
   extend = arrayExtend

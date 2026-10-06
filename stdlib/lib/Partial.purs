@@ -12,5 +12,4 @@ crash = crashWith "Partial.crash: partial function"
 crashWith :: forall a. Partial => String -> a
 crashWith = _crashWith
 
-_crashWith :: forall a. String -> a
-_crashWith a0 = _crashWith a0
+foreign import _crashWith :: forall a. String -> a

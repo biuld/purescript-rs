@@ -181,7 +181,7 @@ impl Interface {
                     values.insert(declaration.name.clone(), declaration.symbol);
                 }
                 for external in &module.externals {
-                    if matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                    if external.kind.requires_checked_signature() {
                         values.insert(external.name.clone(), external.symbol);
                     }
                 }

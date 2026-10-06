@@ -51,15 +51,15 @@ infixl 6 add as +
 infixl 7 mul as *
 
 instance semiringInt :: Semiring Int where
-  add x y = intAdd x y
+  add = intAdd
   zero = 0
-  mul x y = intMul x y
+  mul = intMul
   one = 1
 
 instance semiringNumber :: Semiring Number where
-  add x y = numAdd x y
+  add = numAdd
   zero = 0.0
-  mul x y = numMul x y
+  mul = numMul
   one = 1.0
 
 instance semiringFn :: Semiring b => Semiring (a -> b) where
@@ -86,12 +86,10 @@ instance semiringRecord :: (RL.RowToList row list, SemiringRecord list row row) 
   one = oneRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
   zero = zeroRecord (Proxy :: Proxy list) (Proxy :: Proxy row)
 
-
-
-numAdd :: Number -> Number -> Number
-numAdd a0 a1 = numberAdd a0 a1
-numMul :: Number -> Number -> Number
-numMul a0 a1 = numberMul a0 a1
+foreign import intAdd :: Int -> Int -> Int
+foreign import intMul :: Int -> Int -> Int
+foreign import numAdd :: Number -> Number -> Number
+foreign import numMul :: Number -> Number -> Number
 
 -- | A class for records where all fields have `Semiring` instances, used to
 -- | implement the `Semiring` instance for records.

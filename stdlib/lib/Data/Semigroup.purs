@@ -37,7 +37,7 @@ class Semigroup a where
 infixr 5 append as <>
 
 instance semigroupString :: Semigroup String where
-  append x y = concatString x y
+  append = concatString
 
 instance semigroupUnit :: Semigroup Unit where
   append _ _ = unit
@@ -49,7 +49,7 @@ instance semigroupFn :: Semigroup s' => Semigroup (s -> s') where
   append f g x = f x <> g x
 
 instance semigroupArray :: Semigroup (Array a) where
-  append x y = concatArray x y
+  append = concatArray
 
 instance semigroupProxy :: Semigroup (Proxy a) where
   append _ _ = Proxy
@@ -57,10 +57,8 @@ instance semigroupProxy :: Semigroup (Proxy a) where
 instance semigroupRecord :: (RL.RowToList row list, SemigroupRecord list row row) => Semigroup (Record row) where
   append = appendRecord (Proxy :: Proxy list)
 
-concatString :: String -> String -> String
-concatString a0 a1 = bytesToString (arrayAppend (stringToBytes a0) (stringToBytes a1))
-concatArray :: forall a. Array a -> Array a -> Array a
-concatArray a0 a1 = arrayAppend a0 a1
+foreign import concatString :: String -> String -> String
+foreign import concatArray :: forall a. Array a -> Array a -> Array a
 
 -- | A class for records where all fields have `Semigroup` instances, used to
 -- | implement the `Semigroup` instance for records.

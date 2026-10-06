@@ -13,6 +13,14 @@ the lowerer refuses to recognize, and how a wrapper encodes and decodes library
 types. It is the mechanism behind
 [DEC-11](../../../decision/DEC-11-primitive-ffi-stdlib-wrappers.md).
 
+That contract applies to explicitly bound WIT imports. Ordinary upstream library
+`foreign import name :: Type` declarations keep their source contract under
+[foreign imports](../../frontend/semantics/foreign-imports.md) and
+[source fidelity](../../../workflow/stdlib-vendoring.md). They are not implicit
+WASI functions or subject to a fabricated canonical ABI. Until a checked target
+implementation exists, P8 library linking rejects them explicitly; retaining a
+declaration does not establish runtime support.
+
 It does not own canonical flattening, `lift`/`lower`, or `cabi_realloc`
 ([canonical ABI and WIT](canonical-abi-and-wit.md)), buffer lifetime
 ([linear memory boundary](linear-memory-and-canonical-abi-boundary.md),

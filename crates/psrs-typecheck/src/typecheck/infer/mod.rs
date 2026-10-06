@@ -147,13 +147,13 @@ impl Checker {
                             InferredExprKind::Global(*symbol),
                             self.intrinsic_type(intrinsic),
                         ),
-                        Some(ExternalKind::Wit { .. }) => {
+                        Some(ExternalKind::Wit { .. } | ExternalKind::Library { .. }) => {
                             let Some(signature) = self.env.external_signatures.get(symbol).cloned()
                             else {
                                 self.state.errors.push(TypeCheckError::new(
                                     TypeCheckErrorKind::InvalidHir,
                                     span,
-                                    "WIT import has no declared type",
+                                    "foreign import has no declared type",
                                 ));
                                 return None;
                             };

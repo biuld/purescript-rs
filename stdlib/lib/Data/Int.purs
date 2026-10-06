@@ -37,8 +37,11 @@ import Data.Number as Number
 fromNumber :: Number -> Maybe Int
 fromNumber = fromNumberImpl Just Nothing
 
-fromNumberImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Number -> Maybe Int
-fromNumberImpl a0 a1 a2 = fromNumberImpl a0 a1 a2
+foreign import fromNumberImpl
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Number
+  -> Maybe Int
 
 -- | Convert a `Number` to an `Int`, by taking the closest integer equal to or
 -- | less than the argument. Values outside the `Int` range are clamped, `NaN`
@@ -75,8 +78,7 @@ unsafeClamp x
 
 -- | Converts an `Int` value back into a `Number`. Any `Int` is a valid `Number`
 -- | so there is no loss of precision with this function.
-toNumber :: Int -> Number
-toNumber a0 = toNumber a0
+foreign import toNumber :: Int -> Number
 
 -- | Reads an `Int` from a `String` value. The number must parse as an integer
 -- | and fall within the valid range of values for the `Int` type, otherwise
@@ -222,8 +224,7 @@ fromStringAs = fromStringAsImpl Just Nothing
 -- | div 2 (-3) == 0
 -- | quot 2 (-3) == 0
 -- | ```
-quot :: Int -> Int -> Int
-quot a0 a1 = quot a0 a1
+foreign import quot :: Int -> Int -> Int
 
 -- | The `rem` function provides the remainder after _truncating_ integer
 -- | division (see the documentation for the `EuclideanRing` class). It is
@@ -241,15 +242,16 @@ quot a0 a1 = quot a0 a1
 -- | mod 2 (-3) == 2
 -- | rem 2 (-3) == 2
 -- | ```
-rem :: Int -> Int -> Int
-rem a0 a1 = rem a0 a1
+foreign import rem :: Int -> Int -> Int
 
 -- | Raise an Int to the power of another Int.
-pow :: Int -> Int -> Int
-pow a0 a1 = pow a0 a1
+foreign import pow :: Int -> Int -> Int
 
-fromStringAsImpl :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Radix -> String -> Maybe Int
-fromStringAsImpl a0 a1 a2 a3 = fromStringAsImpl a0 a1 a2 a3
+foreign import fromStringAsImpl
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Radix
+  -> String
+  -> Maybe Int
 
-toStringAs :: Radix -> Int -> String
-toStringAs a0 a1 = toStringAs a0 a1
+foreign import toStringAs :: Radix -> Int -> String

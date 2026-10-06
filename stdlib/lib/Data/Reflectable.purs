@@ -33,8 +33,7 @@ instance Reifiable Ordering
 instance Reifiable String
 
 -- local definition for use in `reifyType`
-unsafeCoerce :: forall a b. a -> b
-unsafeCoerce a0 = unsafeCoerce a0
+foreign import unsafeCoerce :: forall a b. a -> b
 
 -- | Reify a value of type `t` such that it can be consumed by a
 -- | function constrained by the `Reflectable` type class. For

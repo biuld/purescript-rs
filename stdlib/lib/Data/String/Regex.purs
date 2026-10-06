@@ -28,14 +28,17 @@ import Data.String.Regex.Flags (RegexFlags(..), RegexFlagsRec)
 -- | Wraps Javascript `RegExp` objects.
 foreign import data Regex :: Type
 
-showRegexImpl :: Regex -> String
-showRegexImpl a0 = showRegexImpl a0
+foreign import showRegexImpl :: Regex -> String
 
 instance showRegex :: Show Regex where
   show = showRegexImpl
 
-regexImpl :: (String -> Either String Regex) -> (Regex -> Either String Regex) -> String -> String -> Either String Regex
-regexImpl a0 a1 a2 a3 = regexImpl a0 a1 a2 a3
+foreign import regexImpl
+  :: (String -> Either String Regex)
+  -> (Regex -> Either String Regex)
+  -> String
+  -> String
+  -> Either String Regex
 
 -- | Constructs a `Regex` from a pattern string and flags. Fails with
 -- | `Left error` if the pattern contains a syntax error.
@@ -43,16 +46,14 @@ regex :: String -> RegexFlags -> Either String Regex
 regex s f = regexImpl Left Right s $ renderFlags f
 
 -- | Returns the pattern string used to construct the given `Regex`.
-source :: Regex -> String
-source a0 = source a0
+foreign import source :: Regex -> String
 
 -- | Returns the `RegexFlags` used to construct the given `Regex`.
 flags :: Regex -> RegexFlags
 flags = RegexFlags <<< flagsImpl
 
 -- | Returns the `RegexFlags` inner record used to construct the given `Regex`.
-flagsImpl :: Regex -> RegexFlagsRec
-flagsImpl a0 = flagsImpl a0
+foreign import flagsImpl :: Regex -> RegexFlagsRec
 
 -- | Returns the string representation of the given `RegexFlags`.
 renderFlags :: RegexFlags -> String
@@ -78,11 +79,14 @@ parseFlags s = RegexFlags
 -- | Returns `true` if the `Regex` matches the string. In contrast to
 -- | `RegExp.prototype.test()` in JavaScript, `test` does not affect
 -- | the `lastIndex` property of the Regex.
-test :: Regex -> String -> Boolean
-test a0 a1 = test a0 a1
+foreign import test :: Regex -> String -> Boolean
 
-_match :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe (NonEmptyArray (Maybe String))
-_match a0 a1 a2 a3 = _match a0 a1 a2 a3
+foreign import _match
+  :: (forall r. r -> Maybe r)
+  -> (forall r. Maybe r)
+  -> Regex
+  -> String
+  -> Maybe (NonEmptyArray (Maybe String))
 
 -- | Matches the string against the `Regex` and returns an array of matches
 -- | if there were any. Each match has type `Maybe String`, where `Nothing`
@@ -94,11 +98,15 @@ match = _match Just Nothing
 -- | Replaces occurrences of the `Regex` with the first string. The replacement
 -- | string can include special replacement patterns escaped with `"$"`.
 -- | See [reference](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/replace).
-replace :: Regex -> String -> String -> String
-replace a0 a1 a2 = replace a0 a1 a2
+foreign import replace :: Regex -> String -> String -> String
 
-_replaceBy :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> (String -> Array (Maybe String) -> String) -> String -> String
-_replaceBy a0 a1 a2 a3 a4 = _replaceBy a0 a1 a2 a3 a4
+foreign import _replaceBy
+  :: (forall r. r -> Maybe r)
+  -> (forall r. Maybe r)
+  -> Regex
+  -> (String -> Array (Maybe String) -> String)
+  -> String
+  -> String
 
 -- | Transforms occurrences of the `Regex` using a function of the matched
 -- | substring and a list of captured substrings of type `Maybe String`,
@@ -107,8 +115,12 @@ _replaceBy a0 a1 a2 a3 a4 = _replaceBy a0 a1 a2 a3 a4
 replace' :: Regex -> (String -> Array (Maybe String) -> String) -> String -> String
 replace' = _replaceBy Just Nothing
 
-_search :: (forall r. r -> Maybe r) -> (forall r. Maybe r) -> Regex -> String -> Maybe Int
-_search a0 a1 a2 a3 = _search a0 a1 a2 a3
+foreign import _search
+  :: (forall r. r -> Maybe r)
+  -> (forall r. Maybe r)
+  -> Regex
+  -> String
+  -> Maybe Int
 
 -- | Returns `Just` the index of the first match of the `Regex` in the string,
 -- | or `Nothing` if there is no match.
@@ -116,5 +128,4 @@ search :: Regex -> String -> Maybe Int
 search = _search Just Nothing
 
 -- | Split the string into an array of substrings along occurrences of the `Regex`.
-split :: Regex -> String -> Array String
-split a0 a1 = split a0 a1
+foreign import split :: Regex -> String -> Array String

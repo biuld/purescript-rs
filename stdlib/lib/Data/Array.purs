@@ -174,8 +174,9 @@ toUnfoldable xs = unfoldr f 0
 fromFoldable :: forall f. Foldable f => f ~> Array
 fromFoldable = runFn2 fromFoldableImpl F.foldr
 
-fromFoldableImpl :: forall f a . Fn2 (forall b. (a -> b -> b) -> b -> f a -> b) (f a) (Array a)
-fromFoldableImpl = fromFoldableImpl
+foreign import fromFoldableImpl
+  :: forall f a
+   . Fn2 (forall b. (a -> b -> b) -> b -> f a -> b) (f a) (Array a)
 
 -- | Create an array of one element
 -- | ```purescript
@@ -191,8 +192,7 @@ singleton a = [ a ]
 range :: Int -> Int -> Array Int
 range = runFn2 rangeImpl
 
-rangeImpl :: Fn2 Int Int (Array Int)
-rangeImpl = rangeImpl
+foreign import rangeImpl :: Fn2 Int Int (Array Int)
 
 -- | Create an array containing a value repeated the specified number of times.
 -- | ```purescript
@@ -201,8 +201,7 @@ rangeImpl = rangeImpl
 replicate :: forall a. Int -> a -> Array a
 replicate = runFn2 replicateImpl
 
-replicateImpl :: forall a. Fn2 Int a (Array a)
-replicateImpl = replicateImpl
+foreign import replicateImpl :: forall a. Fn2 Int a (Array a)
 
 -- | An infix synonym for `range`.
 -- | ```purescript
@@ -241,8 +240,7 @@ null xs = length xs == 0
 -- | ```purescript
 -- | length ["Hello", "World"] = 2
 -- | ```
-length :: forall a. Array a -> Int
-length a0 = length a0
+foreign import length :: forall a. Array a -> Int
 
 --------------------------------------------------------------------------------
 -- Extending arrays ------------------------------------------------------------
@@ -372,8 +370,9 @@ init xs
 uncons :: forall a. Array a -> Maybe { head :: a, tail :: Array a }
 uncons = runFn3 unconsImpl (const Nothing) \x xs -> Just { head: x, tail: xs }
 
-unconsImpl :: forall a b . Fn3 (Unit -> b) (a -> Array a -> b) (Array a) b
-unconsImpl = unconsImpl
+foreign import unconsImpl
+  :: forall a b
+   . Fn3 (Unit -> b) (a -> Array a -> b) (Array a) b
 
 -- | Break an array into its last element and all preceding elements.
 -- |
@@ -403,8 +402,9 @@ unsnoc xs = { init: _, last: _ } <$> init xs <*> last xs
 index :: forall a. Array a -> Int -> Maybe a
 index = runFn4 indexImpl Just Nothing
 
-indexImpl :: forall a . Fn4 (forall r. r -> Maybe r) (forall r. Maybe r) (Array a) Int (Maybe a)
-indexImpl = indexImpl
+foreign import indexImpl
+  :: forall a
+   . Fn4 (forall r. r -> Maybe r) (forall r. Maybe r) (Array a) Int (Maybe a)
 
 -- | An infix version of `index`.
 -- |
@@ -459,8 +459,14 @@ find f xs = unsafePartial (unsafeIndex xs) <$> findIndex f xs
 findMap :: forall a b. (a -> Maybe b) -> Array a -> Maybe b
 findMap = runFn4 findMapImpl Nothing isJust
 
-findMapImpl :: forall a b . Fn4 (forall c. Maybe c) (forall c. Maybe c -> Boolean) (a -> Maybe b) (Array a) (Maybe b)
-findMapImpl = findMapImpl
+foreign import findMapImpl
+  :: forall a b
+   . Fn4
+       (forall c. Maybe c)
+       (forall c. Maybe c -> Boolean)
+       (a -> Maybe b)
+       (Array a)
+       (Maybe b)
 
 -- | Find the first index for which a predicate holds.
 -- |
@@ -472,8 +478,14 @@ findMapImpl = findMapImpl
 findIndex :: forall a. (a -> Boolean) -> Array a -> Maybe Int
 findIndex = runFn4 findIndexImpl Just Nothing
 
-findIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)
-findIndexImpl = findIndexImpl
+foreign import findIndexImpl
+  :: forall a
+   . Fn4
+       (forall b. b -> Maybe b)
+       (forall b. Maybe b)
+       (a -> Boolean)
+       (Array a)
+       (Maybe Int)
 
 -- | Find the last index for which a predicate holds.
 -- |
@@ -485,8 +497,14 @@ findIndexImpl = findIndexImpl
 findLastIndex :: forall a. (a -> Boolean) -> Array a -> Maybe Int
 findLastIndex = runFn4 findLastIndexImpl Just Nothing
 
-findLastIndexImpl :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) (a -> Boolean) (Array a) (Maybe Int)
-findLastIndexImpl = findLastIndexImpl
+foreign import findLastIndexImpl
+  :: forall a
+   . Fn4
+       (forall b. b -> Maybe b)
+       (forall b. Maybe b)
+       (a -> Boolean)
+       (Array a)
+       (Maybe Int)
 
 -- | Insert an element at the specified index, creating a new array, or
 -- | returning `Nothing` if the index is out of bounds.
@@ -499,8 +517,15 @@ findLastIndexImpl = findLastIndexImpl
 insertAt :: forall a. Int -> a -> Array a -> Maybe (Array a)
 insertAt = runFn5 _insertAt Just Nothing
 
-_insertAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))
-_insertAt = _insertAt
+foreign import _insertAt
+  :: forall a
+   . Fn5
+       (forall b. b -> Maybe b)
+       (forall b. Maybe b)
+       Int
+       a
+       (Array a)
+       (Maybe (Array a))
 
 -- | Delete the element at the specified index, creating a new array, or
 -- | returning `Nothing` if the index is out of bounds.
@@ -513,8 +538,14 @@ _insertAt = _insertAt
 deleteAt :: forall a. Int -> Array a -> Maybe (Array a)
 deleteAt = runFn4 _deleteAt Just Nothing
 
-_deleteAt :: forall a . Fn4 (forall b. b -> Maybe b) (forall b. Maybe b) Int (Array a) (Maybe (Array a))
-_deleteAt = _deleteAt
+foreign import _deleteAt
+  :: forall a
+   . Fn4
+       (forall b. b -> Maybe b)
+       (forall b. Maybe b)
+       Int
+       (Array a)
+       (Maybe (Array a))
 
 -- | Change the element at the specified index, creating a new array, or
 -- | returning `Nothing` if the index is out of bounds.
@@ -527,8 +558,15 @@ _deleteAt = _deleteAt
 updateAt :: forall a. Int -> a -> Array a -> Maybe (Array a)
 updateAt = runFn5 _updateAt Just Nothing
 
-_updateAt :: forall a . Fn5 (forall b. b -> Maybe b) (forall b. Maybe b) Int a (Array a) (Maybe (Array a))
-_updateAt = _updateAt
+foreign import _updateAt
+  :: forall a
+   . Fn5
+       (forall b. b -> Maybe b)
+       (forall b. Maybe b)
+       Int
+       a
+       (Array a)
+       (Maybe (Array a))
 
 -- | Apply a function to the element at the specified index, creating a new
 -- | array, or returning `Nothing` if the index is out of bounds.
@@ -601,8 +639,7 @@ intersperse a arr = case length arr of
 -- | reverse [1, 2, 3] = [3, 2, 1]
 -- | ```
 -- |
-reverse :: forall a. Array a -> Array a
-reverse a0 = reverse a0
+foreign import reverse :: forall a. Array a -> Array a
 
 -- | Flatten an array of arrays, creating a new array.
 -- |
@@ -610,8 +647,7 @@ reverse a0 = reverse a0
 -- | concat [[1, 2, 3], [], [4, 5, 6]] = [1, 2, 3, 4, 5, 6]
 -- | ```
 -- |
-concat :: forall a. Array (Array a) -> Array a
-concat a0 = concat a0
+foreign import concat :: forall a. Array (Array a) -> Array a
 
 -- | Apply a function to each element in an array, and flatten the results
 -- | into a single, new array.
@@ -634,8 +670,9 @@ concatMap = flip bind
 filter :: forall a. (a -> Boolean) -> Array a -> Array a
 filter = runFn2 filterImpl
 
-filterImpl :: forall a . Fn2 (a -> Boolean) (Array a) (Array a)
-filterImpl = filterImpl
+foreign import filterImpl
+  :: forall a
+   . Fn2 (a -> Boolean) (Array a) (Array a)
 
 -- | Partition an array using a predicate function, creating a set of
 -- | new arrays. One for the values satisfying the predicate function
@@ -652,8 +689,9 @@ partition
   -> { yes :: Array a, no :: Array a }
 partition = runFn2 partitionImpl
 
-partitionImpl :: forall a . Fn2 (a -> Boolean) (Array a) { yes :: Array a, no :: Array a }
-partitionImpl = partitionImpl
+foreign import partitionImpl
+  :: forall a
+   . Fn2 (a -> Boolean) (Array a) { yes :: Array a, no :: Array a }
 
 -- | Splits an array into two subarrays, where `before` contains the elements
 -- | up to (but not including) the given index, and `after` contains the rest
@@ -816,8 +854,7 @@ transpose xs = go 0 []
 scanl :: forall a b. (b -> a -> b) -> b -> Array a -> Array b
 scanl = runFn3 scanlImpl
 
-scanlImpl :: forall a b. Fn3 (b -> a -> b) b (Array a) (Array b)
-scanlImpl = scanlImpl
+foreign import scanlImpl :: forall a b. Fn3 (b -> a -> b) b (Array a) (Array b)
 
 -- | Fold a data structure from the right, keeping all intermediate results
 -- | instead of only the final result. Note that the initial value does not
@@ -830,8 +867,7 @@ scanlImpl = scanlImpl
 scanr :: forall a b. (a -> b -> b) -> b -> Array a -> Array b
 scanr = runFn3 scanrImpl
 
-scanrImpl :: forall a b. Fn3 (a -> b -> b) b (Array a) (Array b)
-scanrImpl = scanrImpl
+foreign import scanrImpl :: forall a b. Fn3 (a -> b -> b) b (Array a) (Array b)
 
 --------------------------------------------------------------------------------
 -- Sorting ---------------------------------------------------------------------
@@ -875,8 +911,7 @@ sortBy comp = runFn3 sortByImpl comp case _ of
 sortWith :: forall a b. Ord b => (a -> b) -> Array a -> Array a
 sortWith f = sortBy (comparing f)
 
-sortByImpl :: forall a. Fn3 (a -> a -> Ordering) (Ordering -> Int) (Array a) (Array a)
-sortByImpl = sortByImpl
+foreign import sortByImpl :: forall a. Fn3 (a -> a -> Ordering) (Ordering -> Int) (Array a) (Array a)
 
 --------------------------------------------------------------------------------
 -- Subarrays -------------------------------------------------------------------
@@ -894,8 +929,7 @@ sortByImpl = sortByImpl
 slice :: forall a. Int -> Int -> Array a -> Array a
 slice = runFn3 sliceImpl
 
-sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)
-sliceImpl = sliceImpl
+foreign import sliceImpl :: forall a. Fn3 Int Int (Array a) (Array a)
 
 -- | Keep only a number of elements from the start of an array, creating a new
 -- | array.
@@ -1216,8 +1250,13 @@ zipWith
   -> Array c
 zipWith = runFn3 zipWithImpl
 
-zipWithImpl :: forall a b c . Fn3 (a -> b -> c) (Array a) (Array b) (Array c)
-zipWithImpl = zipWithImpl
+foreign import zipWithImpl
+  :: forall a b c
+   . Fn3
+       (a -> b -> c)
+       (Array a)
+       (Array b)
+       (Array c)
 
 -- | A generalization of `zipWith` which accumulates results in some
 -- | `Applicative` functor.
@@ -1280,8 +1319,7 @@ unzip xs =
 any :: forall a. (a -> Boolean) -> Array a -> Boolean
 any = runFn2 anyImpl
 
-anyImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
-anyImpl = anyImpl
+foreign import anyImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
 
 -- | Returns true if all the array elements satisfy the given predicate.
 -- | iterating the array only as necessary and stopping as soon as the predicate
@@ -1295,8 +1333,7 @@ anyImpl = anyImpl
 all :: forall a. (a -> Boolean) -> Array a -> Boolean
 all = runFn2 allImpl
 
-allImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
-allImpl = allImpl
+foreign import allImpl :: forall a. Fn2 (a -> Boolean) (Array a) Boolean
 
 -- | Perform a fold using a monadic step function.
 -- |
@@ -1331,5 +1368,4 @@ foldRecM f b array = tailRecM2 go b 0
 unsafeIndex :: forall a. Partial => Array a -> Int -> a
 unsafeIndex = runFn2 unsafeIndexImpl
 
-unsafeIndexImpl :: forall a. Fn2 (Array a) Int a
-unsafeIndexImpl = unsafeIndexImpl
+foreign import unsafeIndexImpl :: forall a. Fn2 (Array a) Int a

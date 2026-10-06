@@ -45,8 +45,15 @@ instance unfoldable1Array :: Unfoldable1 Array where
 instance unfoldable1Maybe :: Unfoldable1 Maybe where
   unfoldr1 f b = Just (fst (f b))
 
-unfoldr1ArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Tuple a (Maybe b)) -> b -> Array a
-unfoldr1ArrayImpl a0 a1 a2 a3 a4 a5 = unfoldr1ArrayImpl a0 a1 a2 a3 a4 a5
+foreign import unfoldr1ArrayImpl
+  :: forall a b
+   . (forall x. Maybe x -> Boolean)
+  -> (forall x. Maybe x -> x)
+  -> (forall x y. Tuple x y -> x)
+  -> (forall x y. Tuple x y -> y)
+  -> (b -> Tuple a (Maybe b))
+  -> b
+  -> Array a
 
 -- | Replicate a value `n` times. At least one value will be produced, so values
 -- | `n` less than 1 will be treated as 1.

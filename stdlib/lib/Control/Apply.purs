@@ -60,22 +60,7 @@ instance applyFn :: Apply ((->) r) where
 instance applyArray :: Apply Array where
   apply = arrayApply
 
-arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
-arrayApply a0 a1 = applyArrayFrom a0 a1 0
-
-applyArrayFrom :: forall a b. Array (a -> b) -> Array a -> Int -> Array b
-applyArrayFrom fs xs index =
-  if intLt index (arrayLength fs) then
-    arrayAppend (mapArrayAll (arrayIndex fs index) xs 0) (applyArrayFrom fs xs (intAdd index 1))
-  else
-    []
-
-mapArrayAll :: forall a b. (a -> b) -> Array a -> Int -> Array b
-mapArrayAll f xs index =
-  if intLt index (arrayLength xs) then
-    arrayAppend [f (arrayIndex xs index)] (mapArrayAll f xs (intAdd index 1))
-  else
-    []
+foreign import arrayApply :: forall a b. Array (a -> b) -> Array a -> Array b
 
 instance applyProxy :: Apply Proxy where
   apply _ _ = Proxy

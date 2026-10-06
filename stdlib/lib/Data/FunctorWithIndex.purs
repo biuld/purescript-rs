@@ -35,8 +35,7 @@ import Data.Tuple (Tuple, curry)
 class Functor f <= FunctorWithIndex i f | f -> i where
   mapWithIndex :: forall a b. (i -> a -> b) -> f a -> f b
 
-mapWithIndexArray :: forall a b. (Int -> a -> b) -> Array a -> Array b
-mapWithIndexArray a0 a1 = mapWithIndexArray a0 a1
+foreign import mapWithIndexArray :: forall a b. (Int -> a -> b) -> Array a -> Array b
 
 instance functorWithIndexArray :: FunctorWithIndex Int Array where
   mapWithIndex = mapWithIndexArray

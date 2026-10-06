@@ -35,14 +35,11 @@ foreign import data ST :: Region -> Type -> Type
 
 type role ST nominal representational
 
-map_ :: forall r a b. (a -> b) -> ST r a -> ST r b
-map_ a0 a1 = map_ a0 a1
+foreign import map_ :: forall r a b. (a -> b) -> ST r a -> ST r b
 
-pure_ :: forall r a. a -> ST r a
-pure_ a0 = pure_ a0
+foreign import pure_ :: forall r a. a -> ST r a
 
-bind_ :: forall r a b. ST r a -> (a -> ST r b) -> ST r b
-bind_ a0 a1 = bind_ a0 a1
+foreign import bind_ :: forall r a b. ST r a -> (a -> ST r b) -> ST r b
 
 instance functorST :: Functor (ST r) where
   map = map_
@@ -89,30 +86,26 @@ instance monoidST :: Monoid a => Monoid (ST r a) where
 -- | to the surrounding computation. It may cause problems to apply this
 -- | function using the `$` operator. The recommended approach is to use
 -- | parentheses instead.
-run :: forall a. (forall r. ST r a) -> a
-run a0 = run a0
+foreign import run :: forall a. (forall r. ST r a) -> a
 
 -- | Loop while a condition is `true`.
 -- |
 -- | `while b m` is ST computation which runs the ST computation `b`. If its
 -- | result is `true`, it runs the ST computation `m` and loops. If not, the
 -- | computation ends.
-while :: forall r a. ST r Boolean -> ST r a -> ST r Unit
-while a0 a1 = while a0 a1
+foreign import while :: forall r a. ST r Boolean -> ST r a -> ST r Unit
 
 -- | Loop over a consecutive collection of numbers
 -- |
 -- | `ST.for lo hi f` runs the computation returned by the function `f` for each
 -- | of the inputs between `lo` (inclusive) and `hi` (exclusive).
-for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit
-for a0 a1 a2 = for a0 a1 a2
+foreign import for :: forall r a. Int -> Int -> (Int -> ST r a) -> ST r Unit
 
 -- | Loop over an array of values.
 -- |
 -- | `ST.foreach xs f` runs the computation returned by the function `f` for each
 -- | of the inputs `xs`.
-foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
-foreach a0 a1 = foreach a0 a1
+foreign import foreach :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
 
 -- | The type `STRef r a` represents a mutable reference holding a value of
 -- | type `a`, which can be used with the `ST r` effect.
@@ -121,12 +114,10 @@ foreign import data STRef :: Region -> Type -> Type
 type role STRef nominal representational
 
 -- | Create a new mutable reference.
-new :: forall a r. a -> ST r (STRef r a)
-new a0 = new a0
+foreign import new :: forall a r. a -> ST r (STRef r a)
 
 -- | Read the current value of a mutable reference.
-read :: forall a r. STRef r a -> ST r a
-read a0 = read a0
+foreign import read :: forall a r. STRef r a -> ST r a
 
 -- | Update the value of a mutable reference by applying a function
 -- | to the current value, computing a new state value for the reference and
@@ -134,8 +125,7 @@ read a0 = read a0
 modify' :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
 modify' = modifyImpl
 
-modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
-modifyImpl a0 a1 = modifyImpl a0 a1
+foreign import modifyImpl :: forall r a b. (a -> { state :: a, value :: b }) -> STRef r a -> ST r b
 
 -- | Modify the value of a mutable reference by applying a function to the
 -- | current value. The modified value is returned.
@@ -143,5 +133,4 @@ modify :: forall r a. (a -> a) -> STRef r a -> ST r a
 modify f = modify' \s -> let s' = f s in { state: s', value: s' }
 
 -- | Set the value of a mutable reference.
-write :: forall a r. a -> STRef r a -> ST r a
-write a0 a1 = write a0 a1
+foreign import write :: forall a r. a -> STRef r a -> ST r a

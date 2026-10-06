@@ -51,6 +51,17 @@ fn a_wit_scheme_is_required_even_without_a_raw_annotation() {
 }
 
 #[test]
+fn a_library_scheme_is_required_even_without_a_raw_annotation() {
+    let mut module = fixture();
+    module.externals[0].kind = ExternalKind::Library {
+        module: "Native".into(),
+    };
+    module.verify().unwrap();
+    module.external_types.clear();
+    rejects(&module, "no checked signature");
+}
+
+#[test]
 fn checked_external_schemes_are_unique_and_have_an_external_owner() {
     let mut module = fixture();
     module.external_types.push(module.external_types[0].clone());

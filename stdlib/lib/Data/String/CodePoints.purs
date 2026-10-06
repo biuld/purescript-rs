@@ -88,8 +88,10 @@ codePointFromChar = fromEnum >>> CodePoint
 singleton :: CodePoint -> String
 singleton = _singleton singletonFallback
 
-_singleton :: (CodePoint -> String) -> CodePoint -> String
-_singleton a0 a1 = _singleton a0 a1
+foreign import _singleton
+  :: (CodePoint -> String)
+  -> CodePoint
+  -> String
 
 singletonFallback :: CodePoint -> String
 singletonFallback (CodePoint cp) | cp <= 0xFFFF = fromCharCode cp
@@ -112,8 +114,10 @@ singletonFallback (CodePoint cp) =
 fromCodePointArray :: Array CodePoint -> String
 fromCodePointArray = _fromCodePointArray singletonFallback
 
-_fromCodePointArray :: (CodePoint -> String) -> Array CodePoint -> String
-_fromCodePointArray a0 a1 = _fromCodePointArray a0 a1
+foreign import _fromCodePointArray
+  :: (CodePoint -> String)
+  -> Array CodePoint
+  -> String
 
 -- | Creates an array of code points from a string. Operates in space and time
 -- | linear to the length of the string.
@@ -129,8 +133,11 @@ _fromCodePointArray a0 a1 = _fromCodePointArray a0 a1
 toCodePointArray :: String -> Array CodePoint
 toCodePointArray = _toCodePointArray toCodePointArrayFallback unsafeCodePointAt0
 
-_toCodePointArray :: (String -> Array CodePoint) -> (String -> CodePoint) -> String -> Array CodePoint
-_toCodePointArray a0 a1 a2 = _toCodePointArray a0 a1 a2
+foreign import _toCodePointArray
+  :: (String -> Array CodePoint)
+  -> (String -> CodePoint)
+  -> String
+  -> Array CodePoint
 
 toCodePointArrayFallback :: String -> Array CodePoint
 toCodePointArrayFallback s = unfoldr unconsButWithTuple s
@@ -156,8 +163,14 @@ codePointAt 0 "" = Nothing
 codePointAt 0 s = Just (unsafeCodePointAt0 s)
 codePointAt n s = _codePointAt codePointAtFallback Just Nothing unsafeCodePointAt0 n s
 
-_codePointAt :: (Int -> String -> Maybe CodePoint) -> (forall a. a -> Maybe a) -> (forall a. Maybe a) -> (String -> CodePoint) -> Int -> String -> Maybe CodePoint
-_codePointAt a0 a1 a2 a3 a4 a5 = _codePointAt a0 a1 a2 a3 a4 a5
+foreign import _codePointAt
+  :: (Int -> String -> Maybe CodePoint)
+  -> (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> (String -> CodePoint)
+  -> Int
+  -> String
+  -> Maybe CodePoint
 
 codePointAtFallback :: Int -> String -> Maybe CodePoint
 codePointAtFallback n s = case uncons s of
@@ -214,8 +227,12 @@ length = Array.length <<< toCodePointArray
 countPrefix :: (CodePoint -> Boolean) -> String -> Int
 countPrefix = _countPrefix countFallback unsafeCodePointAt0
 
-_countPrefix :: ((CodePoint -> Boolean) -> String -> Int) -> (String -> CodePoint) -> (CodePoint -> Boolean) -> String -> Int
-_countPrefix a0 a1 a2 a3 = _countPrefix a0 a1 a2 a3
+foreign import _countPrefix
+  :: ((CodePoint -> Boolean) -> String -> Int)
+  -> (String -> CodePoint)
+  -> (CodePoint -> Boolean)
+  -> String
+  -> Int
 
 countFallback :: (CodePoint -> Boolean) -> String -> Int
 countFallback p s = countTail p s 0
@@ -311,8 +328,7 @@ lastIndexOf' p i s =
 take :: Int -> String -> String
 take = _take takeFallback
 
-_take :: (Int -> String -> String) -> Int -> String -> String
-_take a0 a1 a2 = _take a0 a1 a2
+foreign import _take :: (Int -> String -> String) -> Int -> String -> String
 
 takeFallback :: Int -> String -> String
 takeFallback n _ | n < 1 = ""
@@ -402,8 +418,10 @@ fromCharCode = CU.singleton <<< toEnumWithDefaults bottom top
 unsafeCodePointAt0 :: String -> CodePoint
 unsafeCodePointAt0 = _unsafeCodePointAt0 unsafeCodePointAt0Fallback
 
-_unsafeCodePointAt0 :: (String -> CodePoint) -> String -> CodePoint
-_unsafeCodePointAt0 a0 a1 = _unsafeCodePointAt0 a0 a1
+foreign import _unsafeCodePointAt0
+  :: (String -> CodePoint)
+  -> String
+  -> CodePoint
 
 unsafeCodePointAt0Fallback :: String -> CodePoint
 unsafeCodePointAt0Fallback s =

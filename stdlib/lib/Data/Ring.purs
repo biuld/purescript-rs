@@ -30,10 +30,10 @@ class Semiring a <= Ring a where
 infixl 6 sub as -
 
 instance ringInt :: Ring Int where
-  sub x y = intSub x y
+  sub = intSub
 
 instance ringNumber :: Ring Number where
-  sub x y = numSub x y
+  sub = numSub
 
 instance ringUnit :: Ring Unit where
   sub _ _ = unit
@@ -51,9 +51,8 @@ instance ringRecord :: (RL.RowToList row list, RingRecord list row row) => Ring 
 negate :: forall a. Ring a => a -> a
 negate a = zero - a
 
-
-numSub :: Number -> Number -> Number
-numSub a0 a1 = numberSub a0 a1
+foreign import intSub :: Int -> Int -> Int
+foreign import numSub :: Number -> Number -> Number
 
 -- | A class for records where all fields have `Ring` instances, used to
 -- | implement the `Ring` instance for records.

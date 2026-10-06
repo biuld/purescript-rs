@@ -80,24 +80,21 @@ contains pat = isJust <<< indexOf pat
 -- | singleton 'l' == "l"
 -- | ```
 -- |
-singleton :: Char -> String
-singleton a0 = singleton a0
+foreign import singleton :: Char -> String
 
 -- | Converts an array of characters into a string.
 -- |
 -- | ```purescript
 -- | fromCharArray ['H', 'e', 'l', 'l', 'o'] == "Hello"
 -- | ```
-fromCharArray :: Array Char -> String
-fromCharArray a0 = fromCharArray a0
+foreign import fromCharArray :: Array Char -> String
 
 -- | Converts the string into an array of characters.
 -- |
 -- | ```purescript
 -- | toCharArray "Hello☺\n" == ['H','e','l','l','o','☺','\n']
 -- | ```
-toCharArray :: String -> Array Char
-toCharArray a0 = toCharArray a0
+foreign import toCharArray :: String -> Array Char
 
 -- | Returns the character at the given index, if the index is within bounds.
 -- |
@@ -109,8 +106,12 @@ toCharArray a0 = toCharArray a0
 charAt :: Int -> String -> Maybe Char
 charAt = _charAt Just Nothing
 
-_charAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Int -> String -> Maybe Char
-_charAt a0 a1 a2 a3 = _charAt a0 a1 a2 a3
+foreign import _charAt
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Int
+  -> String
+  -> Maybe Char
 
 -- | Converts the string to a character, if the length of the string is
 -- | exactly `1`.
@@ -122,8 +123,11 @@ _charAt a0 a1 a2 a3 = _charAt a0 a1 a2 a3
 toChar :: String -> Maybe Char
 toChar = _toChar Just Nothing
 
-_toChar :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> String -> Maybe Char
-_toChar a0 a1 a2 = _toChar a0 a1 a2
+foreign import _toChar
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> String
+  -> Maybe Char
 
 -- | Returns the first character and the rest of the string,
 -- | if the string is not empty.
@@ -143,8 +147,7 @@ uncons s  = Just { head: U.charAt zero s, tail: drop one s }
 -- | length "Hello World" == 11
 -- | ```
 -- |
-length :: String -> Int
-length a0 = length a0
+foreign import length :: String -> Int
 
 -- | Returns the number of contiguous characters at the beginning
 -- | of the string for which the predicate holds.
@@ -153,8 +156,7 @@ length a0 = length a0
 -- | countPrefix (_ /= ' ') "Hello World" == 5 -- since length "Hello" == 5
 -- | ```
 -- |
-countPrefix :: (Char -> Boolean) -> String -> Int
-countPrefix a0 a1 = countPrefix a0 a1
+foreign import countPrefix :: (Char -> Boolean) -> String -> Int
 
 -- | Returns the index of the first occurrence of the pattern in the
 -- | given string. Returns `Nothing` if there is no match.
@@ -167,8 +169,12 @@ countPrefix a0 a1 = countPrefix a0 a1
 indexOf :: Pattern -> String -> Maybe Int
 indexOf = _indexOf Just Nothing
 
-_indexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int
-_indexOf a0 a1 a2 a3 = _indexOf a0 a1 a2 a3
+foreign import _indexOf
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Pattern
+  -> String
+  -> Maybe Int
 
 -- | Returns the index of the first occurrence of the pattern in the
 -- | given string, starting at the specified index. Returns `Nothing` if there is
@@ -182,8 +188,13 @@ _indexOf a0 a1 a2 a3 = _indexOf a0 a1 a2 a3
 indexOf' :: Pattern -> Int -> String -> Maybe Int
 indexOf' = _indexOfStartingAt Just Nothing
 
-_indexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int
-_indexOfStartingAt a0 a1 a2 a3 a4 = _indexOfStartingAt a0 a1 a2 a3 a4
+foreign import _indexOfStartingAt
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Pattern
+  -> Int
+  -> String
+  -> Maybe Int
 
 -- | Returns the index of the last occurrence of the pattern in the
 -- | given string. Returns `Nothing` if there is no match.
@@ -196,8 +207,12 @@ _indexOfStartingAt a0 a1 a2 a3 a4 = _indexOfStartingAt a0 a1 a2 a3 a4
 lastIndexOf :: Pattern -> String -> Maybe Int
 lastIndexOf = _lastIndexOf Just Nothing
 
-_lastIndexOf :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> String -> Maybe Int
-_lastIndexOf a0 a1 a2 a3 = _lastIndexOf a0 a1 a2 a3
+foreign import _lastIndexOf
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Pattern
+  -> String
+  -> Maybe Int
 
 -- | Returns the index of the last occurrence of the pattern in the
 -- | given string, starting at the specified index and searching
@@ -220,8 +235,13 @@ _lastIndexOf a0 a1 a2 a3 = _lastIndexOf a0 a1 a2 a3
 lastIndexOf' :: Pattern -> Int -> String -> Maybe Int
 lastIndexOf' = _lastIndexOfStartingAt Just Nothing
 
-_lastIndexOfStartingAt :: (forall a. a -> Maybe a) -> (forall a. Maybe a) -> Pattern -> Int -> String -> Maybe Int
-_lastIndexOfStartingAt a0 a1 a2 a3 a4 = _lastIndexOfStartingAt a0 a1 a2 a3 a4
+foreign import _lastIndexOfStartingAt
+  :: (forall a. a -> Maybe a)
+  -> (forall a. Maybe a)
+  -> Pattern
+  -> Int
+  -> String
+  -> Maybe Int
 
 -- | Returns the first `n` characters of the string.
 -- |
@@ -229,8 +249,7 @@ _lastIndexOfStartingAt a0 a1 a2 a3 a4 = _lastIndexOfStartingAt a0 a1 a2 a3 a4
 -- | take 5 "Hello World" == "Hello"
 -- | ```
 -- |
-take :: Int -> String -> String
-take a0 a1 = take a0 a1
+foreign import take :: Int -> String -> String
 
 -- | Returns the last `n` characters of the string.
 -- |
@@ -257,8 +276,7 @@ takeWhile p s = take (countPrefix p s) s
 -- | drop 6 "Hello World" == "World"
 -- | ```
 -- |
-drop :: Int -> String -> String
-drop a0 a1 = drop a0 a1
+foreign import drop :: Int -> String -> String
 
 -- | Returns the string without the last `n` characters.
 -- |
@@ -290,8 +308,7 @@ dropWhile p s = drop (countPrefix p s) s
 -- | slice (-4) (-1) "purescript" == "rip"
 -- | slice (-4) 3  "purescript" == ""
 -- | ```
-slice :: Int -> Int -> String -> String
-slice a0 a1 a2 = slice a0 a1 a2
+foreign import slice :: Int -> Int -> String -> String
 
 -- | Splits a string into two substrings, where `before` contains the
 -- | characters up to (but not including) the given index, and `after` contains
@@ -312,5 +329,4 @@ slice a0 a1 a2 = slice a0 a1 a2
 -- | (splitAt i s).before <> (splitAt i s).after == s
 -- | splitAt i s == {before: take i s, after: drop i s}
 -- | ```
-splitAt :: Int -> String -> { before :: String, after :: String }
-splitAt a0 a1 = splitAt a0 a1
+foreign import splitAt :: Int -> String -> { before :: String, after :: String }

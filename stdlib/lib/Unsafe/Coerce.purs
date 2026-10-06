@@ -24,5 +24,4 @@ module Unsafe.Coerce
 -- | `unsafeCoerce` can now be accomplished via `coerce` from
 -- | `purescript-safe-coerce`. See that library's documentation for more
 -- | context.
-unsafeCoerce :: forall a b. a -> b
-unsafeCoerce a0 = unsafeCoerce a0
+foreign import unsafeCoerce :: forall a b. a -> b

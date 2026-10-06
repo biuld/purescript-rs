@@ -7,11 +7,9 @@ module Data.String.Unsafe
 -- | Returns the character at the given index.
 -- |
 -- | **Unsafe:** throws runtime exception if the index is out of bounds.
-charAt :: Int -> String -> Char
-charAt a0 a1 = charAt a0 a1
+foreign import charAt :: Int -> String -> Char
 
 -- | Converts a string of length `1` to a character.
 -- |
 -- | **Unsafe:** throws runtime exception if length is not `1`.
-char :: String -> Char
-char a0 = char a0
+foreign import char :: String -> Char

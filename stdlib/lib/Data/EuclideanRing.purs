@@ -72,25 +72,20 @@ class CommutativeRing a <= EuclideanRing a where
 infixl 7 div as /
 
 instance euclideanRingInt :: EuclideanRing Int where
-  degree x = intDegree x
-  div x y = intDiv x y
-  mod x y = intMod x y
+  degree = intDegree
+  div = intDiv
+  mod = intMod
 
 instance euclideanRingNumber :: EuclideanRing Number where
   degree _ = 1
-  div x y = numDiv x y
+  div = numDiv
   mod _ _ = 0.0
 
-intDegree :: Int -> Int
-intDegree a0 = if intEq a0 minInt32 then 2147483647 else if intLt a0 0 then intNeg a0 else a0
+foreign import intDegree :: Int -> Int
+foreign import intDiv :: Int -> Int -> Int
+foreign import intMod :: Int -> Int -> Int
 
-minInt32 :: Int
-minInt32 = intSub (intSub 0 2147483647) 1
-
-
-
-numDiv :: Number -> Number -> Number
-numDiv a0 a1 = numberDiv a0 a1
+foreign import numDiv :: Number -> Number -> Number
 
 -- | The *greatest common divisor* of two values.
 gcd :: forall a. Eq a => EuclideanRing a => a -> a -> a

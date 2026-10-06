@@ -103,8 +103,14 @@ instance traversableArray :: Traversable Array where
   traverse = traverseArrayImpl apply map pure
   sequence = sequenceDefault
 
-traverseArrayImpl :: forall m a b . (forall x y. m (x -> y) -> m x -> m y) -> (forall x y. (x -> y) -> m x -> m y) -> (forall x. x -> m x) -> (a -> m b) -> Array a -> m (Array b)
-traverseArrayImpl a0 a1 a2 a3 a4 = traverseArrayImpl a0 a1 a2 a3 a4
+foreign import traverseArrayImpl
+  :: forall m a b
+   . (forall x y. m (x -> y) -> m x -> m y)
+  -> (forall x y. (x -> y) -> m x -> m y)
+  -> (forall x. x -> m x)
+  -> (a -> m b)
+  -> Array a
+  -> m (Array b)
 
 instance traversableMaybe :: Traversable Maybe where
   traverse _ Nothing  = pure Nothing

@@ -167,7 +167,7 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
         .externals
         .iter()
         .filter_map(|external| {
-            if !matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+            if !external.kind.requires_checked_signature() {
                 return None;
             }
             let signature = external.signature.as_ref()?;
@@ -176,7 +176,11 @@ pub fn typecheck_module_with_checked_kinds_and_module_names_and_warnings(
                 checker.state.errors.push(TypeCheckError::new(
                     TypeCheckErrorKind::UnsupportedType,
                     signature.span,
-                    "class-constrained WIT imports are not supported by the WASI binding ABI",
+                    if matches!(external.kind, hir::ExternalKind::Wit { .. }) {
+                        "class-constrained WIT imports are not supported by the WASI binding ABI"
+                    } else {
+                        "class constraints are not allowed in foreign import signatures"
+                    },
                 ));
                 return None;
             }

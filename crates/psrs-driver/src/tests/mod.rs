@@ -17,6 +17,7 @@ mod foldable;
 mod functor;
 mod guard_coverage;
 mod let_constraints;
+mod library_foreign;
 mod operators;
 mod partial_application;
 mod scalars;

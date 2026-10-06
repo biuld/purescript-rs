@@ -41,28 +41,24 @@ foreign import data Ref :: Type -> Type
 type role Ref representational
 
 -- | Create a new mutable reference containing the specified value.
-_new :: forall s. s -> Effect (Ref s)
-_new a0 = _new a0
+foreign import _new :: forall s. s -> Effect (Ref s)
 
 new :: forall s. s -> Effect (Ref s)
 new = _new
 
 -- | Create a new mutable reference containing a value that can refer to the
 -- | `Ref` being created.
-newWithSelf :: forall s. (Ref s -> s) -> Effect (Ref s)
-newWithSelf a0 = newWithSelf a0
+foreign import newWithSelf :: forall s. (Ref s -> s) -> Effect (Ref s)
 
 -- | Read the current value of a mutable reference.
-read :: forall s. Ref s -> Effect s
-read a0 = read a0
+foreign import read :: forall s. Ref s -> Effect s
 
 -- | Update the value of a mutable reference by applying a function
 -- | to the current value.
 modify' :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
 modify' = modifyImpl
 
-modifyImpl :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
-modifyImpl a0 a1 = modifyImpl a0 a1
+foreign import modifyImpl :: forall s b. (s -> { state :: s, value :: b }) -> Ref s -> Effect b
 
 -- | Update the value of a mutable reference by applying a function
 -- | to the current value. The updated value is returned.
@@ -74,5 +70,4 @@ modify_ :: forall s. (s -> s) -> Ref s -> Effect Unit
 modify_ f s = void $ modify f s
 
 -- | Update the value of a mutable reference to the specified value.
-write :: forall s. s -> Ref s -> Effect Unit
-write a0 a1 = write a0 a1
+foreign import write :: forall s. s -> Ref s -> Effect Unit

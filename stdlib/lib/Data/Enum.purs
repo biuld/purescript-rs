@@ -317,7 +317,5 @@ charToEnum :: Int -> Maybe Char
 charToEnum n | n >= toCharCode bottom && n <= toCharCode top = Just (fromCharCode n)
 charToEnum _ = Nothing
 
-toCharCode :: Char -> Int
-toCharCode a0 = toCharCode a0
-fromCharCode :: Int -> Char
-fromCharCode a0 = fromCharCode a0
+foreign import toCharCode :: Char -> Int
+foreign import fromCharCode :: Int -> Char

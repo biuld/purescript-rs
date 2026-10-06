@@ -37,20 +37,16 @@ instance boundedInt :: Bounded Int where
   top = topInt
   bottom = bottomInt
 
-topInt :: Int
-topInt = 2147483647
-bottomInt :: Int
-bottomInt = intSub (intSub 0 2147483647) 1
+foreign import topInt :: Int
+foreign import bottomInt :: Int
 
 -- | Characters fall within the Unicode range.
 instance boundedChar :: Bounded Char where
   top = topChar
   bottom = bottomChar
 
-topChar :: Char
-topChar = intToChar 65535
-bottomChar :: Char
-bottomChar = intToChar 0
+foreign import topChar :: Char
+foreign import bottomChar :: Char
 
 instance boundedOrdering :: Bounded Ordering where
   top = GT
@@ -60,10 +56,8 @@ instance boundedUnit :: Bounded Unit where
   top = unit
   bottom = unit
 
-topNumber :: Number
-topNumber = numberDiv 1.0 0.0
-bottomNumber :: Number
-bottomNumber = numberNeg (numberDiv 1.0 0.0)
+foreign import topNumber :: Number
+foreign import bottomNumber :: Number
 
 instance boundedNumber :: Bounded Number where
   top = topNumber

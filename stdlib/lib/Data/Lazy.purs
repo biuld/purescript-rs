@@ -32,12 +32,10 @@ foreign import data Lazy :: Type -> Type
 type role Lazy representational
 
 -- | Defer a computation, creating a `Lazy` value.
-defer :: forall a. (Unit -> a) -> Lazy a
-defer a0 = defer a0
+foreign import defer :: forall a. (Unit -> a) -> Lazy a
 
 -- | Force evaluation of a `Lazy` value.
-force :: forall a. Lazy a -> a
-force a0 = force a0
+foreign import force :: forall a. Lazy a -> a
 
 instance semiringLazy :: Semiring a => Semiring (Lazy a) where
   add a b = defer \_ -> force a + force b

@@ -47,20 +47,12 @@ instance functorFn :: Functor ((->) r) where
   map = compose
 
 instance functorArray :: Functor Array where
-  map x y = arrayMap x y
+  map = arrayMap
 
 instance functorProxy :: Functor Proxy where
   map _ _ = Proxy
 
-arrayMap :: forall a b. (a -> b) -> Array a -> Array b
-arrayMap a0 a1 = mapArrayFrom a0 a1 0
-
-mapArrayFrom :: forall a b. (a -> b) -> Array a -> Int -> Array b
-mapArrayFrom f xs index =
-  if intLt index (arrayLength xs) then
-    arrayAppend [f (arrayIndex xs index)] (mapArrayFrom f xs (intAdd index 1))
-  else
-    []
+foreign import arrayMap :: forall a b. (a -> b) -> Array a -> Array b
 
 -- | The `void` function is used to ignore the type wrapped by a
 -- | [`Functor`](#functor), replacing it with `Unit` and keeping only the type
@@ -75,18 +67,18 @@ mapArrayFrom f xs index =
 -- |   print (n * n)
 -- | ```
 void :: forall f a. Functor f => f a -> f Unit
-void fa = map (\_ -> unit) fa
+void = map (const unit)
 
 -- | Ignore the return value of a computation, using the specified return value
 -- | instead.
 voidRight :: forall f a b. Functor f => a -> f b -> f a
-voidRight x fa = map (\_ -> x) fa
+voidRight x = map (const x)
 
 infixl 4 voidRight as <$
 
 -- | A version of `voidRight` with its arguments flipped.
 voidLeft :: forall f a b. Functor f => f a -> b -> f b
-voidLeft fa x = (\_ -> x) <$> fa
+voidLeft f x = const x <$> f
 
 infixl 4 voidLeft as $>
 

@@ -64,9 +64,9 @@ instance heytingAlgebraBoolean :: HeytingAlgebra Boolean where
   ff = false
   tt = true
   implies a b = not a || b
-  conj x y = boolConj x y
-  disj x y = boolDisj x y
-  not x = boolNot x
+  conj = boolConj
+  disj = boolDisj
+  not = boolNot
 
 instance heytingAlgebraUnit :: HeytingAlgebra Unit where
   ff = unit
@@ -100,12 +100,9 @@ instance heytingAlgebraRecord :: (RL.RowToList row list, HeytingAlgebraRecord li
   implies = impliesRecord (Proxy :: Proxy list)
   not = notRecord (Proxy :: Proxy list)
 
-boolConj :: Boolean -> Boolean -> Boolean
-boolConj a0 a1 = booleanAnd a0 a1
-boolDisj :: Boolean -> Boolean -> Boolean
-boolDisj a0 a1 = booleanOr a0 a1
-boolNot :: Boolean -> Boolean
-boolNot a0 = booleanNot a0
+foreign import boolConj :: Boolean -> Boolean -> Boolean
+foreign import boolDisj :: Boolean -> Boolean -> Boolean
+foreign import boolNot :: Boolean -> Boolean
 
 -- | A class for records where all fields have `HeytingAlgebra` instances, used
 -- | to implement the `HeytingAlgebra` instance for records.

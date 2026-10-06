@@ -48,14 +48,13 @@ pub struct Module {
     pub span: TextRange,
 }
 
-/// A `foreign import` with a WIT binding: a value provided by a WIT interface
-/// rather than defined in source.
+/// A source-declared foreign value, implemented by the target rather than source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForeignImport {
     pub name: Name,
     pub annotation: Type,
-    /// The WIT binding, `<interface>#<function>`.
-    pub binding: String,
+    /// An explicit target binding, or an ordinary library foreign declaration.
+    pub binding: Option<String>,
     pub span: TextRange,
 }
 
@@ -97,19 +96,13 @@ impl LowerError {
 }
 
 fn lower_foreign_import(declaration: cst::ForeignDeclaration) -> Result<ForeignImport, LowerError> {
-    let Some(binding) = declaration.binding else {
-        return Err(LowerError::new(
-            declaration.span,
-            "a foreign import requires a `\"<interface>#<function>\"` WIT binding",
-        ));
-    };
     Ok(ForeignImport {
         name: Name {
             text: declaration.name.text,
             span: declaration.name.span,
         },
         annotation: lower_type(declaration.type_expr)?,
-        binding: binding.text,
+        binding: declaration.binding.map(|binding| binding.text),
         span: declaration.span,
     })
 }

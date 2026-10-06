@@ -45,19 +45,19 @@ notEq x y = (x == y) == false
 infix 4 notEq as /=
 
 instance eqBoolean :: Eq Boolean where
-  eq x y = eqBooleanImpl x y
+  eq = eqBooleanImpl
 
 instance eqInt :: Eq Int where
-  eq x y = eqIntImpl x y
+  eq = eqIntImpl
 
 instance eqNumber :: Eq Number where
-  eq x y = eqNumberImpl x y
+  eq = eqNumberImpl
 
 instance eqChar :: Eq Char where
-  eq x y = eqCharImpl x y
+  eq = eqCharImpl
 
 instance eqString :: Eq String where
-  eq x y = eqStringImpl x y
+  eq = eqStringImpl
 
 instance eqUnit :: Eq Unit where
   eq _ _ = true
@@ -66,7 +66,7 @@ instance eqVoid :: Eq Void where
   eq _ _ = true
 
 instance eqArray :: Eq a => Eq (Array a) where
-  eq xs ys = eqArrayImpl eq xs ys
+  eq = eqArrayImpl eq
 
 instance eqRec :: (RL.RowToList row list, EqRecord list row) => Eq (Record row) where
   eq = eqRecord (Proxy :: Proxy list)
@@ -74,32 +74,13 @@ instance eqRec :: (RL.RowToList row list, EqRecord list row) => Eq (Record row) 
 instance eqProxy :: Eq (Proxy a) where
   eq _ _ = true
 
-eqBooleanImpl :: Boolean -> Boolean -> Boolean
-eqBooleanImpl a0 a1 = booleanEq a0 a1
-eqIntImpl :: Int -> Int -> Boolean
-eqIntImpl a0 a1 = intEq a0 a1
-eqNumberImpl :: Number -> Number -> Boolean
-eqNumberImpl a0 a1 = numberEq a0 a1
-eqCharImpl :: Char -> Char -> Boolean
-eqCharImpl a0 a1 = charEq a0 a1
-eqStringImpl :: String -> String -> Boolean
-eqStringImpl a0 a1 = eqBytes (stringToBytes a0) (stringToBytes a1) 0
+foreign import eqBooleanImpl :: Boolean -> Boolean -> Boolean
+foreign import eqIntImpl :: Int -> Int -> Boolean
+foreign import eqNumberImpl :: Number -> Number -> Boolean
+foreign import eqCharImpl :: Char -> Char -> Boolean
+foreign import eqStringImpl :: String -> String -> Boolean
 
-eqBytes :: Array Int -> Array Int -> Int -> Boolean
-eqBytes xs ys index =
-  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
-  else if intGe index (arrayLength ys) then false
-  else if intEq (arrayIndex xs index) (arrayIndex ys index) then eqBytes xs ys (intAdd index 1)
-  else false
-
-eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean
-eqArrayImpl a0 a1 a2 = eqArrayFrom a0 a1 a2 0
-
-eqArrayFrom :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Int -> Boolean
-eqArrayFrom eq xs ys index =
-  if intGe index (arrayLength xs) then intEq (arrayLength xs) (arrayLength ys)
-  else if eq (arrayIndex xs index) (arrayIndex ys index) then eqArrayFrom eq xs ys (intAdd index 1)
-  else false
+foreign import eqArrayImpl :: forall a. (a -> a -> Boolean) -> Array a -> Array a -> Boolean
 
 -- | The `Eq1` type class represents type constructors with decidable equality.
 class Eq1 f where

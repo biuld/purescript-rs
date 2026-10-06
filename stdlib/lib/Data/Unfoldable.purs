@@ -44,8 +44,15 @@ instance unfoldableArray :: Unfoldable Array where
 instance unfoldableMaybe :: Unfoldable Maybe where
   unfoldr f b = fst <$> f b
 
-unfoldrArrayImpl :: forall a b . (forall x. Maybe x -> Boolean) -> (forall x. Maybe x -> x) -> (forall x y. Tuple x y -> x) -> (forall x y. Tuple x y -> y) -> (b -> Maybe (Tuple a b)) -> b -> Array a
-unfoldrArrayImpl a0 a1 a2 a3 a4 a5 = unfoldrArrayImpl a0 a1 a2 a3 a4 a5
+foreign import unfoldrArrayImpl
+  :: forall a b
+   . (forall x. Maybe x -> Boolean)
+  -> (forall x. Maybe x -> x)
+  -> (forall x y. Tuple x y -> x)
+  -> (forall x y. Tuple x y -> y)
+  -> (b -> Maybe (Tuple a b))
+  -> b
+  -> Array a
 
 -- | Replicate a value some natural number of times.
 -- | For example:

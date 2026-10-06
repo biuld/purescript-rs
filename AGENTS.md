@@ -24,6 +24,27 @@ uncommitted work.
   the change at the right layer.
 - Review the local diff and run the validation relevant to the files changed.
 
+### Standard-library vendoring
+
+- Follow [the stdlib source-fidelity contract](docs/workflow/stdlib-vendoring.md)
+  when importing or changing official library sources.
+- Pin upstream package versions and commits. Preserve official pure functions,
+  signatures, exports, classes, instances, and modules. Repair compiler defects
+  in the compiler rather than editing valid official source to compile.
+- Official vendored `.purs` files retain their original length, including files
+  above 500 lines. The 500-line limit still applies to maintained compiler and
+  tooling source; do not split or rewrite official library modules to meet it.
+- Differences require a concrete Wasm/WASI or DEC-16 representation reason,
+  an explicit implementation boundary, and focused behavior evidence. A compiler
+  limitation, reduced API, or convenient rewrite is not a target justification.
+- Never replace an unimplemented foreign value with recursion, a fabricated
+  result, or another successful-looking placeholder. Keep its source contract
+  and report missing target support explicitly.
+- Compile acceptance, source fidelity, and runtime correctness are separate
+  claims. Importing every module with an unused `main` does not prove that the
+  APIs execute, that every declaration survives backend lowering, or that FFI
+  behavior agrees with its contract.
+
 ### Commit granularity
 
 - Group a commit by topic, not by file type. Code, tests, and the design or

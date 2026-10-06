@@ -13,8 +13,7 @@ import Partial (crashWith)
 -- either a dependency or reimplementing it here.
 -- Rather than doing that, we'll use a type signature
 -- of `a -> b` instead.
-_unsafePartial :: forall a b. a -> b
-_unsafePartial a0 = _unsafePartial a0
+foreign import _unsafePartial :: forall a b. a -> b
 
 -- | Discharge a partiality constraint, unsafely.
 unsafePartial :: forall a. (Partial => a) -> a

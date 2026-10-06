@@ -21,8 +21,7 @@ peek
   -> ST h a
 peek = runSTFn2 peekImpl
 
-peekImpl :: forall h a. STFn2 Int (STArray h a) h a
-peekImpl = peekImpl
+foreign import peekImpl :: forall h a. STFn2 Int (STArray h a) h a
 
 -- | Change the value at the specified index in a mutable array.
 poke
@@ -34,5 +33,4 @@ poke
   -> ST h Unit
 poke = runSTFn3 pokeImpl
 
-pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Unit
-pokeImpl = pokeImpl
+foreign import pokeImpl :: forall h a. STFn3 Int a (STArray h a) h Unit

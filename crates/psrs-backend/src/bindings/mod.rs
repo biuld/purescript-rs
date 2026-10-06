@@ -118,6 +118,37 @@ impl ExternalBindings {
     /// cannot accidentally make a target binding disappear by supplying a
     /// partial table.
     pub(crate) fn validate_core(&self, module: &CoreModule) -> Result<(), Vec<BackendError>> {
+        let unsupported = module
+            .externals
+            .iter()
+            .filter_map(|external| {
+                let ExternalKind::Library { module: owner } = &external.kind else {
+                    return None;
+                };
+                let mut error = BackendError::new(
+                    "P8 library linking",
+                    external
+                        .signature
+                        .as_ref()
+                        .map_or(module.span, |ty| ty.span),
+                    format!(
+                        "foreign value `{owner}.{}` has no target implementation",
+                        external.name
+                    ),
+                );
+                if let Some(checked) = module
+                    .external_types
+                    .iter()
+                    .find(|checked| checked.symbol == external.symbol)
+                {
+                    error = error.with_module(checked.source_module);
+                }
+                Some(error)
+            })
+            .collect::<Vec<_>>();
+        if !unsupported.is_empty() {
+            return Err(unsupported);
+        }
         let expected = module
             .externals
             .iter()

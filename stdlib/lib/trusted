@@ -1,9 +1,6 @@
 # Trusted standard-library modules, in load order.
-# Dots are directory separators under this directory.
-# Vendored from the PureScript core libraries used by the v0.15.16
-# compiler tests (prelude v6.0.1 and the matching package majors).
-# `Prelude` keeps the psrs:effect bindings. `Data.Show` and `Data.Tuple`
-# stay the implementations this compiler already lowers.
+# Official sources retain their public contracts; target adaptations follow
+# docs/workflow/stdlib-vendoring.md. Unsupported foreign values are not stubbed.
 Prelude
 Control.Alt
 Control.Alternative
@@ -188,8 +185,12 @@ Data.Unit
 Data.Void
 Data.Witherable
 Effect
+Effect.Class
+Effect.Class.Console
 Effect.Console
 Effect.Ref
+Effect.Uncurried
+Effect.Unsafe
 Partial
 Partial.Unsafe
 Record.Unsafe

@@ -73,6 +73,7 @@ import Data.Unit (Unit, unit)
 import Data.Void (Void, absurd)
 
 foreign import data Effect :: Type -> Type
+type role Effect representational
 
 -- | Builds an `Effect` that returns `value`. Lowering replaces this binding;
 -- | the `Applicative` instance is what user code calls `pure`.
@@ -89,16 +90,15 @@ foreign import "psrs:effect#run" runEffect :: forall a. Effect a -> a
 foreign import "psrs:effect#trap" trap :: Effect Unit
 
 instance functorEffect :: Functor Effect where
-  map f action = bind action (\value -> pure (f value))
+  map = liftA1
 
 instance applyEffect :: Apply Effect where
-  apply wrapped action =
-    bind wrapped (\function -> bind action (\value -> pure (function value)))
+  apply = ap
 
 instance applicativeEffect :: Applicative Effect where
-  pure value = effectPure value
+  pure = effectPure
 
 instance bindEffect :: Bind Effect where
-  bind action next = effectBind action next
+  bind = effectBind
 
 instance monadEffect :: Monad Effect

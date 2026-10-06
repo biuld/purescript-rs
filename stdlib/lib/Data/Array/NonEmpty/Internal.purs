@@ -72,10 +72,13 @@ derive newtype instance monadNonEmptyArray :: Monad NonEmptyArray
 derive newtype instance altNonEmptyArray :: Alt NonEmptyArray
 
 -- we use FFI here to avoid the unncessary copy created by `tail`
-foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
-foldr1Impl = foldr1Impl
-foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
-foldl1Impl = foldl1Impl
+foreign import foldr1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
+foreign import foldl1Impl :: forall a. Fn2 (a -> a -> a) (NonEmptyArray a) a
 
-traverse1Impl :: forall m a b . Fn3 (forall a' b'. (m (a' -> b') -> m a' -> m b')) (forall a' b'. (a' -> b') -> m a' -> m b') (a -> m b) (NonEmptyArray a -> m (NonEmptyArray b))
-traverse1Impl = traverse1Impl
+foreign import traverse1Impl
+  :: forall m a b
+   . Fn3
+       (forall a' b'. (m (a' -> b') -> m a' -> m b'))
+       (forall a' b'. (a' -> b') -> m a' -> m b')
+       (a -> m b)
+       (NonEmptyArray a -> m (NonEmptyArray b))

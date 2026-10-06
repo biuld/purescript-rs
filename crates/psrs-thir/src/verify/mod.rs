@@ -1,7 +1,6 @@
 use crate::{
     Evidence, EvidenceKind, Expr, ExprKind, Module, Pattern, PatternKind, Type, TypeId, VerifyError,
 };
-use psrs_hir::ExternalKind;
 use psrs_span::TextRange;
 
 mod semantics;
@@ -34,7 +33,7 @@ pub(super) fn verify_module(module: &Module) -> Result<(), Vec<VerifyError>> {
         );
     }
     for external in &module.externals {
-        if matches!(&external.kind, ExternalKind::Wit { .. })
+        if external.kind.requires_checked_signature()
             && !external_type_symbols.contains(&external.symbol)
         {
             errors.push(VerifyError {

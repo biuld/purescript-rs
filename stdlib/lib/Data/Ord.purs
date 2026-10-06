@@ -49,19 +49,19 @@ class Eq a <= Ord a where
   compare :: a -> a -> Ordering
 
 instance ordBoolean :: Ord Boolean where
-  compare x y = ordBooleanImpl LT EQ GT x y
+  compare = ordBooleanImpl LT EQ GT
 
 instance ordInt :: Ord Int where
-  compare x y = ordIntImpl LT EQ GT x y
+  compare = ordIntImpl LT EQ GT
 
 instance ordNumber :: Ord Number where
-  compare x y = ordNumberImpl LT EQ GT x y
+  compare = ordNumberImpl LT EQ GT
 
 instance ordString :: Ord String where
-  compare x y = ordStringImpl LT EQ GT x y
+  compare = ordStringImpl LT EQ GT
 
 instance ordChar :: Ord Char where
-  compare x y = ordCharImpl LT EQ GT x y
+  compare = ordCharImpl LT EQ GT
 
 instance ordUnit :: Ord Unit where
   compare _ _ = EQ
@@ -81,46 +81,47 @@ instance ordArray :: Ord a => Ord (Array a) where
         LT -> 1
         GT -> -1
 
-ordBooleanImpl :: Ordering -> Ordering -> Ordering -> Boolean -> Boolean -> Ordering
-ordBooleanImpl a0 a1 a2 a3 a4 = if booleanEq a3 a4 then a1 else if a3 then a2 else a0
+foreign import ordBooleanImpl
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> Boolean
+  -> Boolean
+  -> Ordering
 
-ordIntImpl :: Ordering -> Ordering -> Ordering -> Int -> Int -> Ordering
-ordIntImpl a0 a1 a2 a3 a4 = if intLt a3 a4 then a0 else if intEq a3 a4 then a1 else a2
+foreign import ordIntImpl
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> Int
+  -> Int
+  -> Ordering
 
-ordNumberImpl :: Ordering -> Ordering -> Ordering -> Number -> Number -> Ordering
-ordNumberImpl a0 a1 a2 a3 a4 = if numberLt a3 a4 then a0 else if numberEq a3 a4 then a1 else a2
+foreign import ordNumberImpl
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> Number
+  -> Number
+  -> Ordering
 
-ordStringImpl :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering
-ordStringImpl a0 a1 a2 a3 a4 = ordBytes a0 a1 a2 (stringToBytes a3) (stringToBytes a4) 0
+foreign import ordStringImpl
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> String
+  -> String
+  -> Ordering
 
-ordBytes :: forall a. a -> a -> a -> Array Int -> Array Int -> Int -> a
-ordBytes lt eq gt xs ys index =
-  if intGe index (arrayLength xs) then
-    if intEq (arrayLength xs) (arrayLength ys) then eq
-    else if intGt (arrayLength xs) (arrayLength ys) then gt
-    else lt
-  else if intGe index (arrayLength ys) then gt
-  else if intLt (arrayIndex xs index) (arrayIndex ys index) then lt
-  else if intEq (arrayIndex xs index) (arrayIndex ys index) then ordBytes lt eq gt xs ys (intAdd index 1)
-  else gt
+foreign import ordCharImpl
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> Char
+  -> Char
+  -> Ordering
 
-ordCharImpl :: Ordering -> Ordering -> Ordering -> Char -> Char -> Ordering
-ordCharImpl a0 a1 a2 a3 a4 = if charLt a3 a4 then a0 else if charEq a3 a4 then a1 else a2
-
-ordArrayImpl :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int
-ordArrayImpl a0 a1 a2 = ordArrayFrom a0 a1 a2 0
-
-ordArrayFrom :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int -> Int
-ordArrayFrom compareOne xs ys index =
-  if intLt index (arrayLength xs) then
-    if intLt index (arrayLength ys) then
-      let
-        order = compareOne (arrayIndex xs index) (arrayIndex ys index)
-      in
-        if intEq order 0 then ordArrayFrom compareOne xs ys (intAdd index 1) else order
-    else intNeg 1
-  else if intEq (arrayLength xs) (arrayLength ys) then 0
-  else 1
+foreign import ordArrayImpl :: forall a. (a -> a -> Int) -> Array a -> Array a -> Int
 
 instance ordOrdering :: Ord Ordering where
   compare LT LT = EQ

@@ -142,7 +142,11 @@ impl Resolver {
         external: ExternalSymbol,
         span: TextRange,
     ) {
-        if self.external_globals.insert(name.clone(), symbol).is_some() {
+        if let Some(previous) = self.external_globals.insert(name.clone(), symbol)
+            && self.externals.iter().any(|external| {
+                external.symbol == previous && external.kind.requires_checked_signature()
+            })
+        {
             self.errors.push(ResolveError::named(
                 ResolveErrorKind::DuplicateExternal,
                 name,
@@ -382,9 +386,6 @@ impl Resolver {
         if let Some(symbol) = self.globals.get(text) {
             return Some(*symbol);
         }
-        if let Some(symbol) = self.external_globals.get(text) {
-            return Some(*symbol);
-        }
         if let Some(symbols) = self.unqualified.get(text) {
             let first = symbols[0];
             if symbols.iter().all(|symbol| *symbol == first) {
@@ -392,6 +393,9 @@ impl Resolver {
             }
             self.report_conflict(text.to_string(), span);
             return None;
+        }
+        if let Some(symbol) = self.external_globals.get(text) {
+            return Some(*symbol);
         }
         self.report(ResolveErrorKind::UnknownName, text.to_string(), span);
         None

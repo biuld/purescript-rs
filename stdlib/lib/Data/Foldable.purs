@@ -132,10 +132,8 @@ instance foldableArray :: Foldable Array where
   foldl = foldlArray
   foldMap = foldMapDefaultR
 
-foldrArray :: forall a b. (a -> b -> b) -> b -> Array a -> b
-foldrArray a0 a1 a2 = foldrArray a0 a1 a2
-foldlArray :: forall a b. (b -> a -> b) -> b -> Array a -> b
-foldlArray a0 a1 a2 = foldlArray a0 a1 a2
+foreign import foldrArray :: forall a b. (a -> b -> b) -> b -> Array a -> b
+foreign import foldlArray :: forall a b. (b -> a -> b) -> b -> Array a -> b
 
 instance foldableMaybe :: Foldable Maybe where
   foldr _ z Nothing  = z
@@ -225,7 +223,7 @@ instance foldableApp :: Foldable f => Foldable (App f) where
 
 -- | Fold a data structure, accumulating values in some `Monoid`.
 fold :: forall f m. Foldable f => Monoid m => f m -> m
-fold xs = foldMap identity xs
+fold = foldMap identity
 
 -- | Similar to 'foldl', but the result is encapsulated in a monad.
 -- |

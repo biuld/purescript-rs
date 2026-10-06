@@ -1,5 +1,5 @@
 use crate::{Module, Type, TypeId, VerifyError};
-use psrs_hir::{ExternalKind, LocalId};
+use psrs_hir::LocalId;
 use std::collections::HashMap;
 
 mod expr;
@@ -82,7 +82,7 @@ pub(crate) fn module(module: &Module, source: Option<&Module>) -> Result<(), Vec
         );
     }
     for external in &module.externals {
-        if matches!(&external.kind, ExternalKind::Wit { .. })
+        if external.kind.requires_checked_signature()
             && !external_type_symbols.contains(&external.symbol)
         {
             errors.push(error(

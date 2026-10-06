@@ -34,24 +34,27 @@ null s = s == ""
 localeCompare :: String -> String -> Ordering
 localeCompare = _localeCompare LT EQ GT
 
-_localeCompare :: Ordering -> Ordering -> Ordering -> String -> String -> Ordering
-_localeCompare a0 a1 a2 a3 a4 = _localeCompare a0 a1 a2 a3 a4
+foreign import _localeCompare
+  :: Ordering
+  -> Ordering
+  -> Ordering
+  -> String
+  -> String
+  -> Ordering
 
 -- | Replaces the first occurence of the pattern with the replacement string.
 -- |
 -- | ```purescript
 -- | replace (Pattern "<=") (Replacement "≤") "a <= b <= c" == "a ≤ b <= c"
 -- | ```
-replace :: Pattern -> Replacement -> String -> String
-replace a0 a1 a2 = replace a0 a1 a2
+foreign import replace :: Pattern -> Replacement -> String -> String
 
 -- | Replaces all occurences of the pattern with the replacement string.
 -- |
 -- | ```purescript
 -- | replaceAll (Pattern "<=") (Replacement "≤") "a <= b <= c" == "a ≤ b ≤ c"
 -- | ```
-replaceAll :: Pattern -> Replacement -> String -> String
-replaceAll a0 a1 a2 = replaceAll a0 a1 a2
+foreign import replaceAll :: Pattern -> Replacement -> String -> String
 
 -- | Returns the substrings of the second string separated along occurences
 -- | of the first string.
@@ -59,24 +62,21 @@ replaceAll a0 a1 a2 = replaceAll a0 a1 a2
 -- | ```purescript
 -- | split (Pattern " ") "hello world" == ["hello", "world"]
 -- | ```
-split :: Pattern -> String -> Array String
-split a0 a1 = split a0 a1
+foreign import split :: Pattern -> String -> Array String
 
 -- | Returns the argument converted to lowercase.
 -- |
 -- | ```purescript
 -- | toLower "hElLo" == "hello"
 -- | ```
-toLower :: String -> String
-toLower a0 = toLower a0
+foreign import toLower :: String -> String
 
 -- | Returns the argument converted to uppercase.
 -- |
 -- | ```purescript
 -- | toUpper "Hello" == "HELLO"
 -- | ```
-toUpper :: String -> String
-toUpper a0 = toUpper a0
+foreign import toUpper :: String -> String
 
 -- | Removes whitespace from the beginning and end of a string, including
 -- | [whitespace characters](http://www.ecma-international.org/ecma-262/5.1/#sec-7.2)
@@ -85,8 +85,7 @@ toUpper a0 = toUpper a0
 -- | ```purescript
 -- | trim "   Hello  \n World\n\t    " == "Hello  \n World"
 -- | ```
-trim :: String -> String
-trim a0 = trim a0
+foreign import trim :: String -> String
 
 -- | Joins the strings in the array together, inserting the first argument
 -- | as separator between them.
@@ -94,5 +93,4 @@ trim a0 = trim a0
 -- | ```purescript
 -- | joinWith ", " ["apple", "banana", "orange"] == "apple, banana, orange"
 -- | ```
-joinWith :: String -> Array String -> String
-joinWith a0 a1 = joinWith a0 a1
+foreign import joinWith :: String -> Array String -> String

@@ -131,6 +131,17 @@ pub enum ExternalKind {
     /// resolves the canonical signature from the vendored WIT and lowers calls
     /// generically. See `docs/design/backend/wasm/canonical-abi-and-wit.md`.
     Wit { interface: String, function: String },
+    /// An ordinary library foreign declaration awaiting target implementation.
+    /// Its identity is the declaring module and the external value's name;
+    /// absence of an implementation must remain an explicit linking failure.
+    Library { module: String },
+}
+
+impl ExternalKind {
+    /// Source declarations must retain a checked signature across IR boundaries.
+    pub fn requires_checked_signature(&self) -> bool {
+        !matches!(self, Self::Intrinsic(_))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

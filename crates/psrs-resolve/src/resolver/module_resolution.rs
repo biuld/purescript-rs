@@ -30,6 +30,20 @@ pub(crate) fn resolve_ast_module(
             ));
         }
     }
+    // Foreign values share the ordinary value namespace and may be named by a
+    // fixity declaration before their signatures are resolved.
+    for (index, foreign) in module.foreign_imports.iter().enumerate() {
+        if globals
+            .insert(foreign.name.text.clone(), foreign_symbol(module_id, index))
+            .is_some()
+        {
+            errors.push(ResolveError::named(
+                ResolveErrorKind::DuplicateDeclaration,
+                foreign.name.text.clone(),
+                foreign.name.span,
+            ));
+        }
+    }
 
     let mut type_declarations = module.type_declarations;
     let role_declarations: HashMap<String, ast::RoleDeclaration> = module
@@ -84,24 +98,33 @@ pub(crate) fn resolve_ast_module(
     resolver.opaque_types.extend(opaque_types);
     resolver.note_imported_opaque_types();
 
-    // A `foreign import` declares an external value whose type and WIT binding
+    // A `foreign import` declares an external value whose type and target binding
     // come from source. Resolve its annotation first so expressions can refer
     // to it by name.
     for (index, foreign) in module.foreign_imports.iter().enumerate() {
-        let binding = foreign
-            .binding
-            .split_once('#')
-            .filter(|(interface, function)| !interface.is_empty() && !function.is_empty());
-        let Some((interface, function)) = binding else {
-            resolver.errors.push(ResolveError {
-                kind: ResolveErrorKind::InvalidHir,
-                span: foreign.span,
-                message: format!(
-                    "`{}` is not a `\"<interface>#<function>\"` WIT binding",
-                    foreign.binding
-                ),
-            });
-            continue;
+        let kind = match &foreign.binding {
+            None => ExternalKind::Library {
+                module: module.name.text.clone(),
+            },
+            Some(binding) => {
+                let Some((interface, function)) = binding
+                    .split_once('#')
+                    .filter(|(interface, function)| !interface.is_empty() && !function.is_empty())
+                else {
+                    resolver.errors.push(ResolveError {
+                        kind: ResolveErrorKind::InvalidHir,
+                        span: foreign.span,
+                        message: format!(
+                            "`{binding}` is not a `\"<interface>#<function>\"` WIT binding"
+                        ),
+                    });
+                    continue;
+                };
+                ExternalKind::Wit {
+                    interface: interface.into(),
+                    function: function.into(),
+                }
+            }
         };
         let Some(signature) = resolver.resolve_type(foreign.annotation.clone()) else {
             continue;
@@ -113,10 +136,7 @@ pub(crate) fn resolve_ast_module(
             ExternalSymbol {
                 symbol,
                 name: foreign.name.text.clone(),
-                kind: ExternalKind::Wit {
-                    interface: interface.to_string(),
-                    function: function.to_string(),
-                },
+                kind,
                 signature: Some(signature),
             },
             foreign.name.span,
