@@ -373,6 +373,9 @@ pub(crate) fn compile_with_context_traced(
         capture_partial.then_some(&mut partial),
         Some(&mut trace),
     )
-    .map_err(|errors| CompileFailure { errors, partial });
+    .map_err(|errors| CompileFailure {
+        errors,
+        partial: Box::new(partial),
+    });
     (result, trace.finish())
 }

@@ -1,4 +1,16 @@
-use psrs_ast::{Expr, ExprKind, Guard, Pattern, PatternKind, Type, TypeKind};
+use psrs_ast::{
+    Expr, ExprKind, Guard, Pattern, PatternKind, RecordUpdateField, RecordUpdateValue, Type,
+    TypeKind,
+};
+
+fn visit_update_expressions<'a>(fields: &'a [RecordUpdateField], visit: &mut impl FnMut(&'a Expr)) {
+    for field in fields {
+        match &field.value {
+            RecordUpdateValue::Expression(value) => visit(value),
+            RecordUpdateValue::Nested { fields, .. } => visit_update_expressions(fields, visit),
+        }
+    }
+}
 
 pub(super) fn type_contains_wildcard(ty: &Type) -> bool {
     match &ty.kind {
@@ -59,9 +71,7 @@ pub(super) fn visit_expr_patterns<'a>(expression: &'a Expr, output: &mut Vec<&'a
         }
         ExprKind::RecordUpdate { expression, fields } => {
             visit_expr_patterns(expression, output);
-            for (_, value) in fields {
-                visit_expr_patterns(value, output);
-            }
+            visit_update_expressions(fields, &mut |value| visit_expr_patterns(value, output));
         }
         ExprKind::Application(function, argument)
         | ExprKind::Operator {
@@ -147,9 +157,7 @@ pub(super) fn visit_expr_guards<'a>(expression: &'a Expr, output: &mut Vec<&'a G
         }
         ExprKind::RecordUpdate { expression, fields } => {
             visit_expr_guards(expression, output);
-            for (_, value) in fields {
-                visit_expr_guards(value, output);
-            }
+            visit_update_expressions(fields, &mut |value| visit_expr_guards(value, output));
         }
         ExprKind::Application(function, argument)
         | ExprKind::Operator {

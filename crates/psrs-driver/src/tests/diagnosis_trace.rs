@@ -125,8 +125,10 @@ fn frontend_rejection_has_diagnostics_but_no_backend_trace_or_core_output() {
 fn target_rejection_keeps_prior_artifacts_and_maps_errors_to_its_execution() {
     let prepared = crate::prepare_sources(&[("Main.purs", "module Main where\nmain = 42\n")])
         .expect("frontend should produce checked Core");
-    let mut target = psrs_backend::TargetCapabilities::default();
-    target.component_model = false;
+    let target = psrs_backend::TargetCapabilities {
+        component_model: false,
+        ..Default::default()
+    };
     let traced = psrs_backend::compile_with_context_traced(
         prepared.core,
         prepared.effect_context,

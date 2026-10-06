@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 
 mod reachable;
 
-use super::scalar::function_parameter_shape;
 use reachable::referenced_types;
 
 pub(super) fn live_type_ids(module: &CoreModule) -> HashSet<TypeId> {
@@ -114,7 +113,7 @@ pub(crate) fn function_signature(
     let parameters = parameter_ids
         .into_iter()
         .map(|parameter| {
-            function_parameter_shape(
+            scalar_type(
                 module,
                 parameter,
                 module.span,

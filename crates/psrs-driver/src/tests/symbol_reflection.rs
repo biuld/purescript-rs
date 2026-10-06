@@ -49,7 +49,7 @@ main = reflectSymbol (Proxy :: Proxy "unicode")
     assert!(
         errors
             .iter()
-            .any(|error| error.diagnostic.code.as_deref() == Some("NoInstanceFound")),
+            .any(|error| error.diagnostic.code == Some("NoInstanceFound")),
         "{errors:?}"
     );
 }

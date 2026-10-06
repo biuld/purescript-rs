@@ -230,7 +230,7 @@ impl Checker {
         self.scope.givens.extend(givens);
         let previous_rigid = self.state.rigid.clone();
         let previous_given_rigid = std::mem::take(&mut self.scope.given_rigid);
-        for (constraint, _) in self.scope.givens[previous_givens.len()..].to_vec() {
+        for (constraint, _) in &self.scope.givens[previous_givens.len()..] {
             for argument in &constraint.arguments {
                 let mut variables = HashSet::new();
                 classes::collect_infer_variables(argument, &mut variables);

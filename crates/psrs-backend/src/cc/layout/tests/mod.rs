@@ -184,7 +184,7 @@ fn bound_rank_n_record_fields_do_not_make_dictionary_layout_dependent() {
 
     fn parameter_shape(module: &Module, ty: TypeId, representation: ReprId) -> ValueShape {
         let record_types = HashMap::from([(ty, representation)]);
-        super::scalar::function_parameter_shape(
+        super::scalar::scalar_type(
             module,
             ty,
             module.span,

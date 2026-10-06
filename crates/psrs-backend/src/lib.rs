@@ -204,7 +204,7 @@ pub struct PartialStages {
 #[derive(Clone, Debug)]
 pub struct CompileFailure {
     pub errors: Vec<BackendError>,
-    pub partial: PartialStages,
+    pub partial: Box<PartialStages>,
 }
 
 /// Normal backend result together with the pass/artifact events observed while
@@ -259,5 +259,8 @@ pub fn compile_with_context_capturing(
 ) -> Result<Stages, CompileFailure> {
     let mut partial = PartialStages::default();
     pipeline::compile_with_context_inner(module, effect_context, target, Some(&mut partial), None)
-        .map_err(|errors| CompileFailure { errors, partial })
+        .map_err(|errors| CompileFailure {
+            errors,
+            partial: Box::new(partial),
+        })
 }

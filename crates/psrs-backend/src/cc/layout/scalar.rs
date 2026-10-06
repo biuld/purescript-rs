@@ -43,7 +43,7 @@ pub(crate) fn declaration_shape(
                     "lambda binder type differs from the function parameter type",
                 )]);
             }
-            parameters.push(function_parameter_shape(
+            parameters.push(scalar_type(
                 module,
                 binder.ty,
                 binder.span,
@@ -84,7 +84,7 @@ pub(crate) fn declaration_shape(
             )]);
         }
         ty = result;
-        parameters.push(function_parameter_shape(
+        parameters.push(scalar_type(
             module,
             binder.ty,
             binder.span,
@@ -402,30 +402,6 @@ pub(crate) fn scalar_type(
             "expression type is outside the Core type table",
         )]),
     }
-}
-
-pub(super) fn function_parameter_shape(
-    module: &CoreModule,
-    ty: TypeId,
-    span: TextRange,
-    enum_types: &HashSet<HirTypeId>,
-    aggregate_types: &HashSet<HirTypeId>,
-    newtype_ids: &HashSet<HirTypeId>,
-    array_types: &HashMap<TypeId, ReprId>,
-    record_types: &HashMap<TypeId, ReprId>,
-    function_types: &HashMap<TypeId, SignatureId>,
-) -> Result<ValueShape, Vec<BackendError>> {
-    scalar_type(
-        module,
-        ty,
-        span,
-        enum_types,
-        aggregate_types,
-        newtype_ids,
-        array_types,
-        record_types,
-        function_types,
-    )
 }
 
 fn erased_reference() -> ValueShape {

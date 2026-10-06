@@ -98,7 +98,7 @@ fn loads_the_standard_library_from_disk_in_trusted_order() {
         .map(|module| module.module_name.as_str())
         .collect::<Vec<_>>();
     assert_eq!(names.first().copied(), Some("Prelude"));
-    assert!(names.iter().any(|name| *name == "WASI"));
+    assert!(names.contains(&"WASI"));
     assert_eq!(
         names.len(),
         names.iter().collect::<std::collections::HashSet<_>>().len(),

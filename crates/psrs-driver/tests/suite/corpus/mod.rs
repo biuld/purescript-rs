@@ -128,14 +128,6 @@ pub fn load_case(path: &Path, category_dir: &Path, text: &str) -> Case {
     }
 }
 
-/// The main source plus the modules in a sibling directory named after the file
-/// stem, which is how the corpus supplies a case's support modules.
-pub fn own_sources(path: &Path, text: &str) -> Vec<(String, String)> {
-    psrs_driver::load_program_case_sources(path, path.parent().unwrap_or(Path::new(".")), text)
-        .map(|sources| sources.own)
-        .unwrap_or_else(|_| vec![(path.to_string_lossy().into_owned(), text.to_owned())])
-}
-
 /// Why a case is blocked, split so the phase that recovers it is visible.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Blocker {

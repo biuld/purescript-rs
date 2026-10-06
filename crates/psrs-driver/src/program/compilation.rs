@@ -97,7 +97,7 @@ fn compile_attempt(
             Err(failure) => {
                 let (dumps, dump_artifacts) = if capture_dumps {
                     partial_dumps(
-                        failure.partial,
+                        *failure.partial,
                         linked_core.expect("dump capture retained linked Core"),
                         Some(&traced.trace),
                     )
@@ -123,7 +123,7 @@ fn compile_attempt(
         ) {
             Ok(stages) => stages,
             Err(failure) => {
-                let (dumps, _) = partial_dumps(failure.partial, linked_core, None);
+                let (dumps, _) = partial_dumps(*failure.partial, linked_core, None);
                 return CompilationReport::failed(backend_diagnostics(failure.errors), dumps);
             }
         };
