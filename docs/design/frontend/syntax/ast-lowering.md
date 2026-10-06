@@ -65,8 +65,10 @@ use the same rule, with an anonymous base record as the first argument.
 Anonymous leaves of nested update paths belong to the enclosing updater;
 an explicit field expression or nested record literal introduces its own
 scope. P2 gives generated binders source-inexpressible names and preserves
-each underscore's span; it does not reinterpret other expressions containing
-`_` as constructor arguments. These rules follow the official compiler's
+each underscore's span. An immediate `_` in an `if` condition, then branch,
+or else branch is a lambda parameter in that written order, as a `case`
+scrutinee already is. An underscore in any other expression position
+stays an unresolved name. These rules follow the official compiler's
 `Sugar.ObjectWildcards` conversion and require no resolved names or types.
 AST update fields explicitly distinguish an expression from a nested path.
 P3 projects a nested path from its enclosing base, while resolving explicit

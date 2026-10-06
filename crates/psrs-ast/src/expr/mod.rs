@@ -7,7 +7,8 @@ mod guards;
 mod records;
 pub use guards::{Guard, GuardedExpr};
 pub(super) use guards::{
-    lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, prepend_guards,
+    lower_case_patterns, lower_case_scrutinees, lower_guard, lower_guarded_rhs, lower_if,
+    prepend_guards,
 };
 pub(super) use records::{lower_record, lower_record_update};
 

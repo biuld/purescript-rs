@@ -276,11 +276,9 @@ pub(crate) fn lower_expr(expression: cst::Expr) -> Result<Expr, LowerError> {
             then_branch,
             else_branch,
             ..
-        } => ExprKind::If {
-            condition: Box::new(lower_expr(*condition)?),
-            then_branch: Box::new(lower_expr(*then_branch)?),
-            else_branch: Box::new(lower_expr(*else_branch)?),
-        },
+        } => {
+            return expr::lower_if(*condition, *then_branch, *else_branch, span);
+        }
         CstExprKind::Case {
             scrutinees,
             alternatives,

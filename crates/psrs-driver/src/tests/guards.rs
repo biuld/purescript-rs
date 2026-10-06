@@ -94,6 +94,16 @@ fn boolean_case_patterns_preserve_source_order() {
 }
 
 #[test]
+fn an_anonymous_if_condition_is_a_function_parameter() {
+    let source = "module Main where\nchoose left right = (if _ then left else right) true\nmain = choose 7 9\n";
+    let Some(output) = run_with_wasmtime(source) else {
+        eprintln!("skipping: wasmtime is not installed");
+        return;
+    };
+    assert_eq!(output.status.code(), Some(7), "{output:?}");
+}
+
+#[test]
 fn anonymous_case_inputs_become_function_parameters_in_source_order() {
     let source = "module Main where\nchoose = case _, 2, _ of\n  _, 2, _ -> 19\n  _, _, _ -> 23\nmain = choose 1 3\n";
     let artifact = compile_source("Main.purs", source).expect("anonymous case inputs compile");
