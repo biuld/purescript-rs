@@ -171,15 +171,34 @@ impl Checker {
             hir::TypeKind::Application(function, argument) => {
                 let (head, arguments) = flatten_spine(ty);
                 if let Some(id) = nominal_type_id(head)
-                    && self.env.synonyms.contains_key(&id)
+                    && let Some(arity) = self
+                        .env
+                        .synonyms
+                        .get(&id)
+                        .map(|synonym| synonym.parameters.len())
                 {
-                    let arguments = arguments
-                        .into_iter()
+                    // Arguments past the synonym's own parameters apply to the
+                    // expanded body. `C2 a z` has kind `k -> Type`, so
+                    // `C2 a z x` is `(C2 a z) x`, not a third synonym parameter.
+                    let elaborated = arguments
+                        .iter()
+                        .take(arity)
                         .map(|argument| {
                             self.elaborate_type_mode(argument, variables, rigid_variables)
                         })
                         .collect();
-                    return self.expand_synonym(id, arguments, ty.span);
+                    let mut expanded = self.expand_synonym(id, elaborated, ty.span);
+                    for argument in arguments.iter().skip(arity) {
+                        expanded = InferType::Application(
+                            Box::new(expanded),
+                            Box::new(self.elaborate_type_mode(
+                                argument,
+                                variables,
+                                rigid_variables,
+                            )),
+                        );
+                    }
+                    return expanded;
                 }
                 InferType::Application(
                     Box::new(self.elaborate_type_mode(function, variables, rigid_variables)),
