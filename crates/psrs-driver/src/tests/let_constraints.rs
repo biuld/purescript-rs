@@ -119,6 +119,82 @@ main = 0
 }
 
 #[test]
+fn a_where_stepper_accepts_an_integer_seed() {
+    let source = r#"
+module Main where
+
+class Semiring a where
+  add :: a -> a -> a
+  sub :: a -> a -> a
+
+instance semiringInt :: Semiring Int where
+  add x _ = x
+  sub x _ = x
+
+infixl 6 add as +
+infixl 6 sub as -
+
+class Ord a where
+  le :: a -> a -> Boolean
+
+instance ordInt :: Ord Int where
+  le _ _ = true
+
+infix 4 le as <=
+
+class BoundedEnum a where
+  toEnum :: Int -> Maybe a
+  fromEnum :: a -> Int
+
+data Maybe a = Nothing | Just a
+data Tuple a b = Tuple a b
+
+fromJust :: forall a. Maybe a -> a
+fromJust (Just value) = value
+
+class Functor f where
+  map :: forall a b. (a -> b) -> f a -> f b
+
+infixl 4 map as <$>
+
+class Unfoldable t where
+  unfoldr :: forall a b. (b -> Maybe (Tuple a b)) -> b -> t a
+
+class Semigroupoid a where
+  compose :: forall b c d. a c d -> a b c -> a b d
+
+instance semigroupoidFn :: Semigroupoid (->) where
+  compose f g value = f (g value)
+
+composeFlipped f g = compose g f
+
+infixr 9 composeFlipped as >>>
+
+unsafePartial :: forall a. a -> a
+unsafePartial value = value
+
+otherwise = true
+
+enumFromThenTo :: forall f a. Unfoldable f => Functor f => BoundedEnum a => a -> a -> a -> f a
+enumFromThenTo = unsafePartial \a b c ->
+  let
+    a' = fromEnum a
+    b' = fromEnum b
+    c' = fromEnum c
+  in
+    (toEnum >>> fromJust) <$> unfoldr (go (b' - a') c') a'
+  where
+    go step to index
+      | index <= to = Just (Tuple index (index + step))
+      | otherwise = Nothing
+
+main :: Int
+main = 0
+"#;
+    assert_checks(source);
+}
+
+#[test]
 fn a_concrete_missing_instance_inside_a_let_is_still_rejected() {
     let source = r#"
 module Main where
